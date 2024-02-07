@@ -21,7 +21,7 @@ const Package = @import("../Package.zig");
 const TypedValue = @import("../TypedValue.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 const Type = @import("../type.zig").Type;
 const LazySrcLoc = Module.LazySrcLoc;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
@@ -10848,6 +10848,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) Builder
             .amdgcn => .amdgpu_kernel,
             else => unreachable,
         },
+        .Vertex, .Fragment => unreachable,
     };
 }
 

@@ -58,6 +58,38 @@ string_table: std.HashMapUnmanaged(
 /// persists across incremental updates.
 tracked_insts: std.AutoArrayHashMapUnmanaged(TrackedInst, void) = .{},
 
+/// Dependencies on the source code hash associated with a ZIR instruction.
+/// * For a `declaration`, this is the entire declaration body.
+/// * For a `struct_decl`, `union_decl`, etc, this is the source of the fields (but not declarations).
+/// * For a `func`, this is the source of the full function signature.
+/// These are also invalidated if tracking fails for this instruction.
+/// Value is index into `dep_entries` of the first dependency on this hash.
+src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index) = .{},
+/// Dependencies on the value of a Decl.
+/// Value is index into `dep_entries` of the first dependency on this Decl value.
+decl_val_deps: std.AutoArrayHashMapUnmanaged(DeclIndex, DepEntry.Index) = .{},
+/// Dependencies on the full set of names in a ZIR namespace.
+/// Key refers to a `struct_decl`, `union_decl`, etc.
+/// Value is index into `dep_entries` of the first dependency on this namespace.
+namespace_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index) = .{},
+/// Dependencies on the (non-)existence of some name in a namespace.
+/// Value is index into `dep_entries` of the first dependency on this name.
+namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.Index) = .{},
+
+/// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
+/// matches. The `next_dependee` field can be used to iterate all such entries
+/// and remove them from the corresponding lists.
+first_dependency: std.AutoArrayHashMapUnmanaged(Depender, DepEntry.Index) = .{},
+
+/// Stores dependency information. The hashmaps declared above are used to look
+/// up entries in this list as required. This is not stored in `extra` so that
+/// we can use `free_dep_entries` to track free indices, since dependencies are
+/// removed frequently.
+dep_entries: std.ArrayListUnmanaged(DepEntry) = .{},
+/// Stores unused indices in `dep_entries` which can be reused without a full
+/// garbage collection pass.
+free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index) = .{},
+
 pub const TrackedInst = extern struct {
     path_digest: Cache.BinDigest,
     inst: Zir.Inst.Index,
@@ -70,6 +102,19 @@ pub const TrackedInst = extern struct {
         pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
             return ip.tracked_insts.keys()[@intFromEnum(i)].inst;
         }
+        pub fn toOptional(i: TrackedInst.Index) Optional {
+            return @enumFromInt(@intFromEnum(i));
+        }
+        pub const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(opt: Optional) ?TrackedInst.Index {
+                return switch (opt) {
+                    .none => null,
+                    _ => @enumFromInt(@intFromEnum(opt)),
+                };
+            }
+        };
     };
 };
 
@@ -81,6 +126,202 @@ pub fn trackZir(ip: *InternPool, gpa: Allocator, file: *Module.File, inst: Zir.I
     const gop = try ip.tracked_insts.getOrPut(gpa, key);
     return @enumFromInt(gop.index);
 }
+
+/// Reperesents the "source" of a dependency edge, i.e. either a Decl or a
+/// runtime function (represented as an InternPool index).
+/// MSB is 0 for a Decl, 1 for a function.
+pub const Depender = enum(u32) {
+    _,
+    pub const Unwrapped = union(enum) {
+        decl: DeclIndex,
+        func: InternPool.Index,
+    };
+    pub fn unwrap(dep: Depender) Unwrapped {
+        const tag: u1 = @truncate(@intFromEnum(dep) >> 31);
+        const val: u31 = @truncate(@intFromEnum(dep));
+        return switch (tag) {
+            0 => .{ .decl = @enumFromInt(val) },
+            1 => .{ .func = @enumFromInt(val) },
+        };
+    }
+    pub fn wrap(raw: Unwrapped) Depender {
+        return @enumFromInt(switch (raw) {
+            .decl => |decl| @intFromEnum(decl),
+            .func => |func| (1 << 31) | @intFromEnum(func),
+        });
+    }
+    pub fn toOptional(dep: Depender) Optional {
+        return @enumFromInt(@intFromEnum(dep));
+    }
+    pub const Optional = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+        pub fn unwrap(opt: Optional) ?Depender {
+            return switch (opt) {
+                .none => null,
+                _ => @enumFromInt(@intFromEnum(opt)),
+            };
+        }
+    };
+};
+
+pub const Dependee = union(enum) {
+    src_hash: TrackedInst.Index,
+    decl_val: DeclIndex,
+    namespace: TrackedInst.Index,
+    namespace_name: NamespaceNameKey,
+};
+
+pub fn removeDependenciesForDepender(ip: *InternPool, gpa: Allocator, depender: Depender) void {
+    var opt_idx = (ip.first_dependency.fetchSwapRemove(depender) orelse return).value.toOptional();
+
+    while (opt_idx.unwrap()) |idx| {
+        const dep = ip.dep_entries.items[@intFromEnum(idx)];
+        opt_idx = dep.next_dependee;
+
+        const prev_idx = dep.prev.unwrap() orelse {
+            // This entry is the start of a list in some `*_deps`.
+            // We cannot easily remove this mapping, so this must remain as a dummy entry.
+            ip.dep_entries.items[@intFromEnum(idx)].depender = .none;
+            continue;
+        };
+
+        ip.dep_entries.items[@intFromEnum(prev_idx)].next = dep.next;
+        if (dep.next.unwrap()) |next_idx| {
+            ip.dep_entries.items[@intFromEnum(next_idx)].prev = dep.prev;
+        }
+
+        ip.free_dep_entries.append(gpa, idx) catch {
+            // This memory will be reclaimed on the next garbage collection.
+            // Thus, we do not need to propagate this error.
+        };
+    }
+}
+
+pub const DependencyIterator = struct {
+    ip: *const InternPool,
+    next_entry: DepEntry.Index.Optional,
+    pub fn next(it: *DependencyIterator) ?Depender {
+        const idx = it.next_entry.unwrap() orelse return null;
+        const entry = it.ip.dep_entries.items[@intFromEnum(idx)];
+        it.next_entry = entry.next;
+        return entry.depender.unwrap().?;
+    }
+};
+
+pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyIterator {
+    const first_entry = switch (dependee) {
+        .src_hash => |x| ip.src_hash_deps.get(x),
+        .decl_val => |x| ip.decl_val_deps.get(x),
+        .namespace => |x| ip.namespace_deps.get(x),
+        .namespace_name => |x| ip.namespace_name_deps.get(x),
+    } orelse return .{
+        .ip = ip,
+        .next_entry = .none,
+    };
+    if (ip.dep_entries.items[@intFromEnum(first_entry)].depender == .none) return .{
+        .ip = ip,
+        .next_entry = .none,
+    };
+    return .{
+        .ip = ip,
+        .next_entry = first_entry.toOptional(),
+    };
+}
+
+pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: Depender, dependee: Dependee) Allocator.Error!void {
+    const first_depender_dep: DepEntry.Index.Optional = if (ip.first_dependency.get(depender)) |idx| dep: {
+        // The entry already exists, so there is capacity to overwrite it later.
+        break :dep idx.toOptional();
+    } else none: {
+        // Ensure there is capacity available to add this dependency later.
+        try ip.first_dependency.ensureUnusedCapacity(gpa, 1);
+        break :none .none;
+    };
+
+    // We're very likely to need space for a new entry - reserve it now to avoid
+    // the need for error cleanup logic.
+    if (ip.free_dep_entries.items.len == 0) {
+        try ip.dep_entries.ensureUnusedCapacity(gpa, 1);
+    }
+
+    // This block should allocate an entry and prepend it to the relevant `*_deps` list.
+    // The `next` field should be correctly initialized; all other fields may be undefined.
+    const new_index: DepEntry.Index = switch (dependee) {
+        inline else => |dependee_payload, tag| new_index: {
+            const gop = try switch (tag) {
+                .src_hash => ip.src_hash_deps,
+                .decl_val => ip.decl_val_deps,
+                .namespace => ip.namespace_deps,
+                .namespace_name => ip.namespace_name_deps,
+            }.getOrPut(gpa, dependee_payload);
+
+            if (gop.found_existing and ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].depender == .none) {
+                // Dummy entry, so we can reuse it rather than allocating a new one!
+                ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].next = .none;
+                break :new_index gop.value_ptr.*;
+            }
+
+            // Prepend a new dependency.
+            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.popOrNull()) |new_index| new: {
+                break :new .{ new_index, &ip.dep_entries.items[@intFromEnum(new_index)] };
+            } else .{ @enumFromInt(ip.dep_entries.items.len), ip.dep_entries.addOneAssumeCapacity() };
+            ptr.next = if (gop.found_existing) gop.value_ptr.*.toOptional() else .none;
+            gop.value_ptr.* = new_index;
+            break :new_index new_index;
+        },
+    };
+
+    ip.dep_entries.items[@intFromEnum(new_index)].depender = depender.toOptional();
+    ip.dep_entries.items[@intFromEnum(new_index)].prev = .none;
+    ip.dep_entries.items[@intFromEnum(new_index)].next_dependee = first_depender_dep;
+    ip.first_dependency.putAssumeCapacity(depender, new_index);
+}
+
+/// String is the name whose existence the dependency is on.
+/// DepEntry.Index refers to the first such dependency.
+pub const NamespaceNameKey = struct {
+    /// The instruction (`struct_decl` etc) which owns the namespace in question.
+    namespace: TrackedInst.Index,
+    /// The name whose existence the dependency is on.
+    name: NullTerminatedString,
+};
+
+pub const DepEntry = extern struct {
+    /// If null, this is a dummy entry - all other fields are `undefined`. It is
+    /// the first and only entry in one of `intern_pool.*_deps`, and does not
+    /// appear in any list by `first_dependency`, but is not in
+    /// `free_dep_entries` since `*_deps` stores a reference to it.
+    depender: Depender.Optional,
+    /// Index into `dep_entries` forming a doubly linked list of all dependencies on this dependee.
+    /// Used to iterate all dependers for a given dependee during an update.
+    /// null if this is the end of the list.
+    next: DepEntry.Index.Optional,
+    /// The other link for `next`.
+    /// null if this is the start of the list.
+    prev: DepEntry.Index.Optional,
+    /// Index into `dep_entries` forming a singly linked list of dependencies *of* `depender`.
+    /// Used to efficiently remove all `DepEntry`s for a single `depender` when it is re-analyzed.
+    /// null if this is the end of the list.
+    next_dependee: DepEntry.Index.Optional,
+
+    pub const Index = enum(u32) {
+        _,
+        pub fn toOptional(dep: DepEntry.Index) Optional {
+            return @enumFromInt(@intFromEnum(dep));
+        }
+        pub const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(opt: Optional) ?DepEntry.Index {
+                return switch (opt) {
+                    .none => null,
+                    _ => @enumFromInt(@intFromEnum(opt)),
+                };
+            }
+        };
+    };
+};
 
 const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
@@ -428,6 +669,7 @@ pub const Key = union(enum) {
         decl: DeclIndex,
         /// Represents the declarations inside this opaque.
         namespace: NamespaceIndex,
+        zir_index: TrackedInst.Index.Optional,
     };
 
     /// Although packed structs and non-packed structs are encoded differently,
@@ -440,7 +682,7 @@ pub const Key = union(enum) {
         /// `none` when the struct has no declarations.
         namespace: OptionalNamespaceIndex,
         /// Index of the struct_decl ZIR instruction.
-        zir_index: TrackedInst.Index,
+        zir_index: TrackedInst.Index.Optional,
         layout: std.builtin.Type.ContainerLayout,
         field_names: NullTerminatedString.Slice,
         field_types: Index.Slice,
@@ -684,7 +926,7 @@ pub const Key = union(enum) {
         }
 
         /// Asserts the struct is not packed.
-        pub fn setZirIndex(s: @This(), ip: *InternPool, new_zir_index: TrackedInst.Index) void {
+        pub fn setZirIndex(s: @This(), ip: *InternPool, new_zir_index: TrackedInst.Index.Optional) void {
             assert(s.layout != .Packed);
             const field_index = std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?;
             ip.extra.items[s.extra_index + field_index] = @intFromEnum(new_zir_index);
@@ -800,7 +1042,7 @@ pub const Key = union(enum) {
         flags: Tag.TypeUnion.Flags,
         /// The enum that provides the list of field names and values.
         enum_tag_ty: Index,
-        zir_index: TrackedInst.Index,
+        zir_index: TrackedInst.Index.Optional,
 
         /// The returned pointer expires with any addition to the `InternPool`.
         pub fn flagsPtr(self: @This(), ip: *const InternPool) *Tag.TypeUnion.Flags {
@@ -889,6 +1131,7 @@ pub const Key = union(enum) {
         /// This is ignored by `get` but will be provided by `indexToKey` when
         /// a value map exists.
         values_map: OptionalMapIndex = .none,
+        zir_index: TrackedInst.Index.Optional,
 
         pub const TagMode = enum {
             /// The integer tag type was auto-numbered by zig.
@@ -953,6 +1196,7 @@ pub const Key = union(enum) {
         tag_mode: EnumType.TagMode,
         /// This may be updated via `setTagType` later.
         tag_ty: Index = .none,
+        zir_index: TrackedInst.Index.Optional,
 
         pub fn toEnumType(self: @This()) EnumType {
             return .{
@@ -962,6 +1206,7 @@ pub const Key = union(enum) {
                 .tag_mode = self.tag_mode,
                 .names = .{ .start = 0, .len = 0 },
                 .values = .{ .start = 0, .len = 0 },
+                .zir_index = self.zir_index,
             };
         }
 
@@ -1909,7 +2154,7 @@ pub const UnionType = struct {
     /// If this slice has length 0 it means all elements are `none`.
     field_aligns: Alignment.Slice,
     /// Index of the union_decl ZIR instruction.
-    zir_index: TrackedInst.Index,
+    zir_index: TrackedInst.Index.Optional,
     /// Index into extra array of the `flags` field.
     flags_index: u32,
     /// Copied from `enum_tag_ty`.
@@ -2003,10 +2248,10 @@ pub const UnionType = struct {
     }
 
     /// This does not mutate the field of UnionType.
-    pub fn setZirIndex(self: @This(), ip: *InternPool, new_zir_index: TrackedInst.Index) void {
+    pub fn setZirIndex(self: @This(), ip: *InternPool, new_zir_index: TrackedInst.Index.Optional) void {
         const flags_field_index = std.meta.fieldIndex(Tag.TypeUnion, "flags").?;
         const zir_index_field_index = std.meta.fieldIndex(Tag.TypeUnion, "zir_index").?;
-        const ptr: *TrackedInst.Index =
+        const ptr: *TrackedInst.Index.Optional =
             @ptrCast(&ip.extra.items[self.flags_index - flags_field_index + zir_index_field_index]);
         ptr.* = new_zir_index;
     }
@@ -3099,7 +3344,7 @@ pub const Tag = enum(u8) {
         namespace: NamespaceIndex,
         /// The enum that provides the list of field names and values.
         tag_ty: Index,
-        zir_index: TrackedInst.Index,
+        zir_index: TrackedInst.Index.Optional,
 
         pub const Flags = packed struct(u32) {
             runtime_tag: UnionType.RuntimeTag,
@@ -3121,7 +3366,7 @@ pub const Tag = enum(u8) {
     /// 2. init: Index for each fields_len // if tag is type_struct_packed_inits
     pub const TypeStructPacked = struct {
         decl: DeclIndex,
-        zir_index: TrackedInst.Index,
+        zir_index: TrackedInst.Index.Optional,
         fields_len: u32,
         namespace: OptionalNamespaceIndex,
         backing_int_ty: Index,
@@ -3168,7 +3413,7 @@ pub const Tag = enum(u8) {
     /// 7. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         decl: DeclIndex,
-        zir_index: TrackedInst.Index,
+        zir_index: TrackedInst.Index.Optional,
         fields_len: u32,
         flags: Flags,
         size: u32,
@@ -3238,6 +3483,11 @@ pub const FuncAnalysis = packed struct(u32) {
         /// This function might be OK but it depends on another Decl which did not
         /// successfully complete semantic analysis.
         dependency_failure,
+        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// Indicates that semantic analysis succeeded, but code generation for
+        /// this function failed.
+        codegen_failure,
+        /// Semantic analysis and code generation of this function succeeded.
         success,
     };
 };
@@ -3523,6 +3773,7 @@ pub const EnumExplicit = struct {
     /// If this is `none`, it means the trailing tag values are absent because
     /// they are auto-numbered.
     values_map: OptionalMapIndex,
+    zir_index: TrackedInst.Index.Optional,
 };
 
 /// Trailing:
@@ -3538,6 +3789,7 @@ pub const EnumAuto = struct {
     fields_len: u32,
     /// Maps field names to declaration index.
     names_map: MapIndex,
+    zir_index: TrackedInst.Index.Optional,
 };
 
 pub const PackedU64 = packed struct(u64) {
@@ -3759,6 +4011,16 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 
     ip.tracked_insts.deinit(gpa);
 
+    ip.src_hash_deps.deinit(gpa);
+    ip.decl_val_deps.deinit(gpa);
+    ip.namespace_deps.deinit(gpa);
+    ip.namespace_name_deps.deinit(gpa);
+
+    ip.first_dependency.deinit(gpa);
+
+    ip.dep_entries.deinit(gpa);
+    ip.free_dep_entries.deinit(gpa);
+
     ip.* = undefined;
 }
 
@@ -3885,6 +4147,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .tag_mode = .auto,
                 .names_map = enum_auto.data.names_map.toOptional(),
                 .values_map = .none,
+                .zir_index = enum_auto.data.zir_index,
             } };
         },
         .type_enum_explicit => ip.indexToKeyEnum(data, .explicit),
@@ -4493,6 +4756,7 @@ fn indexToKeyEnum(ip: *const InternPool, data: u32, tag_mode: Key.EnumType.TagMo
         .tag_mode = tag_mode,
         .names_map = enum_explicit.data.names_map.toOptional(),
         .values_map = enum_explicit.data.values_map,
+        .zir_index = enum_explicit.data.zir_index,
     } };
 }
 
@@ -5329,7 +5593,7 @@ pub const UnionTypeInit = struct {
     flags: Tag.TypeUnion.Flags,
     decl: DeclIndex,
     namespace: NamespaceIndex,
-    zir_index: TrackedInst.Index,
+    zir_index: TrackedInst.Index.Optional,
     fields_len: u32,
     enum_tag_ty: Index,
     /// May have length 0 which leaves the values unset until later.
@@ -5401,7 +5665,7 @@ pub const StructTypeInit = struct {
     decl: DeclIndex,
     namespace: OptionalNamespaceIndex,
     layout: std.builtin.Type.ContainerLayout,
-    zir_index: TrackedInst.Index,
+    zir_index: TrackedInst.Index.Optional,
     fields_len: u32,
     known_non_opv: bool,
     requires_comptime: RequiresComptime,
@@ -5923,7 +6187,6 @@ pub const GetFuncInstanceKey = struct {
     is_noinline: bool,
     generic_owner: Index,
     inferred_error_set: bool,
-    generation: u32,
 };
 
 pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey) Allocator.Error!Index {
@@ -5990,7 +6253,6 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         generic_owner,
         func_index,
         func_extra_index,
-        arg.generation,
         func_ty,
         arg.section,
     );
@@ -6122,7 +6384,6 @@ pub fn getFuncInstanceIes(
         generic_owner,
         func_index,
         func_extra_index,
-        arg.generation,
         func_ty,
         arg.section,
     );
@@ -6134,7 +6395,6 @@ fn finishFuncInstance(
     generic_owner: Index,
     func_index: Index,
     func_extra_index: u32,
-    generation: u32,
     func_ty: Index,
     section: OptionalNullTerminatedString,
 ) Allocator.Error!Index {
@@ -6147,14 +6407,13 @@ fn finishFuncInstance(
         .has_tv = true,
         .owns_tv = true,
         .ty = @import("type.zig").Type.fromInterned(func_ty),
-        .val = @import("value.zig").Value.fromInterned(func_index),
+        .val = @import("Value.zig").fromInterned(func_index),
         .alignment = .none,
         .@"linksection" = section,
         .@"addrspace" = fn_owner_decl.@"addrspace",
         .analysis = .complete,
         .zir_decl_index = fn_owner_decl.zir_decl_index,
         .src_scope = fn_owner_decl.src_scope,
-        .generation = generation,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
         .alive = true,
@@ -6264,6 +6523,7 @@ fn getIncompleteEnumAuto(
         .int_tag_type = int_tag_type,
         .names_map = names_map,
         .fields_len = enum_type.fields_len,
+        .zir_index = enum_type.zir_index,
     });
 
     ip.items.appendAssumeCapacity(.{
@@ -6314,6 +6574,7 @@ fn getIncompleteEnumExplicit(
         .fields_len = enum_type.fields_len,
         .names_map = names_map,
         .values_map = values_map,
+        .zir_index = enum_type.zir_index,
     });
 
     ip.items.appendAssumeCapacity(.{
@@ -6339,6 +6600,7 @@ pub const GetEnumInit = struct {
     names: []const NullTerminatedString,
     values: []const Index,
     tag_mode: Key.EnumType.TagMode,
+    zir_index: TrackedInst.Index.Optional,
 };
 
 pub fn getEnum(ip: *InternPool, gpa: Allocator, ini: GetEnumInit) Allocator.Error!Index {
@@ -6355,6 +6617,7 @@ pub fn getEnum(ip: *InternPool, gpa: Allocator, ini: GetEnumInit) Allocator.Erro
             .tag_mode = undefined,
             .names_map = undefined,
             .values_map = undefined,
+            .zir_index = undefined,
         },
     }, adapter);
     if (gop.found_existing) return @enumFromInt(gop.index);
@@ -6380,6 +6643,7 @@ pub fn getEnum(ip: *InternPool, gpa: Allocator, ini: GetEnumInit) Allocator.Erro
                     .int_tag_type = ini.tag_ty,
                     .names_map = names_map,
                     .fields_len = fields_len,
+                    .zir_index = ini.zir_index,
                 }),
             });
             ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.names));
@@ -6416,6 +6680,7 @@ pub fn finishGetEnum(
             .fields_len = fields_len,
             .names_map = names_map,
             .values_map = values_map,
+            .zir_index = ini.zir_index,
         }),
     });
     ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.names));
@@ -6507,6 +6772,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             OptionalNullTerminatedString,
             Tag.TypePointer.VectorIndex,
             TrackedInst.Index,
+            TrackedInst.Index.Optional,
             => @intFromEnum(@field(extra, field.name)),
 
             u32,
@@ -6583,6 +6849,7 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
             OptionalNullTerminatedString,
             Tag.TypePointer.VectorIndex,
             TrackedInst.Index,
+            TrackedInst.Index.Optional,
             => @enumFromInt(int32),
 
             u32,

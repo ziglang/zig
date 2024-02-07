@@ -132,6 +132,8 @@ pub const table = [_]Entry{
     .{ .cdq, .zo, &.{ .o32 }, &.{ 0x99 }, 0, .none,  .none },
     .{ .cqo, .zo, &.{ .o64 }, &.{ 0x99 }, 0, .long,  .none },
 
+    .{ .clflush, .m, &.{ .m8 }, &.{ 0x0f, 0xae }, 7, .none, .none },
+
     .{ .cmova,   .rm, &.{ .r16, .rm16 }, &.{ 0x0f, 0x47 }, 0, .short, .none },
     .{ .cmova,   .rm, &.{ .r32, .rm32 }, &.{ 0x0f, 0x47 }, 0, .none,  .none },
     .{ .cmova,   .rm, &.{ .r64, .rm64 }, &.{ 0x0f, 0x47 }, 0, .long,  .none },

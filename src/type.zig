@@ -1,9 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
 const Module = @import("Module.zig");
+const Zcu = Module;
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 const TypedValue = @import("TypedValue.zig");
@@ -3225,6 +3226,17 @@ pub const Type = struct {
                 .child = (try ty.childType(mod).toUnsigned(mod)).toIntern(),
             }),
             else => unreachable,
+        };
+    }
+
+    pub fn typeDeclInst(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
+        return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
+            inline .struct_type,
+            .union_type,
+            .enum_type,
+            .opaque_type,
+            => |info| info.zir_index.unwrap(),
+            else => null,
         };
     }
 

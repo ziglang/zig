@@ -468,7 +468,7 @@ pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
     }
 
     if (self.glibc_version) |v| {
-        const name = @tagName(self.abi orelse builtin.target.abi);
+        const name = if (self.abi) |abi| @tagName(abi) else "gnu";
         try result.ensureUnusedCapacity(name.len + 2);
         result.appendAssumeCapacity('-');
         result.appendSliceAssumeCapacity(name);

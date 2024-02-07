@@ -92,7 +92,7 @@ pub const AllocateType = enum(u32) {
     AllocateAddress,
 };
 
-const EfiPhysicalAddress = u64;
+pub const EfiPhysicalAddress = u64;
 
 pub const CapsuleHeader = extern struct {
     capsuleGuid: Guid align(8),

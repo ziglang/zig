@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
-    docgen_cmd.addArgs(&.{ "--zig", b.zig_exe });
+    docgen_cmd.addArgs(&.{ "--zig", b.graph.zig_exe });
     if (b.zig_lib_dir) |p| {
         docgen_cmd.addArg("--zig-lib-dir");
         docgen_cmd.addDirectoryArg(p);
@@ -884,7 +884,7 @@ fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
         }
     }
 
-    var check_dir = fs.path.dirname(b.zig_exe).?;
+    var check_dir = fs.path.dirname(b.graph.zig_exe).?;
     while (true) {
         var dir = fs.cwd().openDir(check_dir, .{}) catch unreachable;
         defer dir.close();

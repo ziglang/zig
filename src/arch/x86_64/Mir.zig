@@ -305,6 +305,8 @@ pub const Inst = struct {
         cdq,
         /// Convert doubleword to quadword
         cdqe,
+        /// Flush cache line
+        clflush,
         /// Conditional move
         cmov,
         /// Logical compare

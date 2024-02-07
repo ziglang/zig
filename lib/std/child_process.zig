@@ -298,7 +298,9 @@ pub const ChildProcess = struct {
         // we could make this work with multiple allocators but YAGNI
         if (stdout.allocator.ptr != stderr.allocator.ptr or
             stdout.allocator.vtable != stderr.allocator.vtable)
-            @panic("ChildProcess.collectOutput only supports 1 allocator");
+        {
+            unreachable; // ChildProcess.collectOutput only supports 1 allocator
+        }
 
         var poller = std.io.poll(stdout.allocator, enum { stdout, stderr }, .{
             .stdout = child.stdout.?,

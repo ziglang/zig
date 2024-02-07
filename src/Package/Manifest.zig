@@ -12,6 +12,8 @@ pub const Dependency = struct {
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
     node: Ast.Node.Index,
+    name_tok: Ast.TokenIndex,
+    lazy: bool,
 
     pub const Location = union(enum) {
         url: []const u8,
@@ -303,11 +305,14 @@ const Parse = struct {
             .hash = null,
             .hash_tok = 0,
             .node = node,
+            .name_tok = 0,
+            .lazy = false,
         };
         var has_location = false;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
+            dep.name_tok = name_token;
             const field_name = try identifierTokenString(p, name_token);
             // We could get fancy with reflection and comptime logic here but doing
             // things manually provides an opportunity to do any additional verification
@@ -342,6 +347,11 @@ const Parse = struct {
                     else => |e| return e,
                 };
                 dep.hash_tok = main_tokens[field_init];
+            } else if (mem.eql(u8, field_name, "lazy")) {
+                dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
+                    error.ParseFailure => continue,
+                    else => |e| return e,
+                };
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
@@ -371,6 +381,24 @@ const Parse = struct {
             // against file system paths.
             const normalized = try std.fs.path.resolve(p.arena, &.{path_string});
             try p.paths.put(p.gpa, normalized, {});
+        }
+    }
+
+    fn parseBool(p: *Parse, node: Ast.Node.Index) !bool {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        if (node_tags[node] != .identifier) {
+            return fail(p, main_tokens[node], "expected identifier", .{});
+        }
+        const ident_token = main_tokens[node];
+        const token_bytes = ast.tokenSlice(ident_token);
+        if (mem.eql(u8, token_bytes, "true")) {
+            return true;
+        } else if (mem.eql(u8, token_bytes, "false")) {
+            return false;
+        } else {
+            return fail(p, ident_token, "expected boolean", .{});
         }
     }
 

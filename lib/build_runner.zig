@@ -46,11 +46,6 @@ pub fn main() !void {
         return error.InvalidArgs;
     };
 
-    const host: std.Build.ResolvedTarget = .{
-        .query = .{},
-        .result = try std.zig.system.resolveTargetQuery(.{}),
-    };
-
     const build_root_directory: std.Build.Cache.Directory = .{
         .path = build_root,
         .handle = try std.fs.cwd().openDir(build_root, .{}),
@@ -66,27 +61,29 @@ pub fn main() !void {
         .handle = try std.fs.cwd().makeOpenPath(global_cache_root, .{}),
     };
 
-    var cache: std.Build.Cache = .{
-        .gpa = arena,
-        .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
+    var graph: std.Build.Graph = .{
+        .arena = arena,
+        .cache = .{
+            .gpa = arena,
+            .manifest_dir = try local_cache_directory.handle.makeOpenPath("h", .{}),
+        },
+        .zig_exe = zig_exe,
+        .env_map = try process.getEnvMap(arena),
+        .global_cache_root = global_cache_directory,
     };
-    cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
-    cache.addPrefix(build_root_directory);
-    cache.addPrefix(local_cache_directory);
-    cache.addPrefix(global_cache_directory);
-    cache.hash.addBytes(builtin.zig_version_string);
+
+    graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
+    graph.cache.addPrefix(build_root_directory);
+    graph.cache.addPrefix(local_cache_directory);
+    graph.cache.addPrefix(global_cache_directory);
+    graph.cache.hash.addBytes(builtin.zig_version_string);
 
     const builder = try std.Build.create(
-        arena,
-        zig_exe,
+        &graph,
         build_root_directory,
         local_cache_directory,
-        global_cache_directory,
-        host,
-        &cache,
         dependencies.root_deps,
     );
-    defer builder.destroy();
 
     var targets = ArrayList([]const u8).init(arena);
     var debug_log_scopes = ArrayList([]const u8).init(arena);
@@ -100,64 +97,67 @@ pub fn main() !void {
     var color: Color = .auto;
     var seed: u32 = 0;
     var prominent_compile_errors: bool = false;
-
-    const stderr_stream = io.getStdErr().writer();
-    const stdout_stream = io.getStdOut().writer();
+    var help_menu: bool = false;
+    var steps_menu: bool = false;
+    var output_tmp_nonce: ?[16]u8 = null;
 
     while (nextArg(args, &arg_idx)) |arg| {
-        if (mem.startsWith(u8, arg, "-D")) {
+        if (mem.startsWith(u8, arg, "-Z")) {
+            if (arg.len != 18) fatalWithHint("bad argument: '{s}'", .{arg});
+            output_tmp_nonce = arg[2..18].*;
+        } else if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
-            if (option_contents.len == 0) {
-                std.debug.print("Expected option name after '-D'\n\n", .{});
-                usageAndErr(builder, false, stderr_stream);
-            }
+            if (option_contents.len == 0)
+                fatalWithHint("expected option name after '-D'", .{});
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
                 const option_value = option_contents[name_end + 1 ..];
                 if (try builder.addUserInputOption(option_name, option_value))
-                    usageAndErr(builder, false, stderr_stream);
+                    fatal("  access the help menu with 'zig build -h'", .{});
             } else {
                 if (try builder.addUserInputFlag(option_contents))
-                    usageAndErr(builder, false, stderr_stream);
+                    fatal("  access the help menu with 'zig build -h'", .{});
             }
         } else if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
                 builder.verbose = true;
             } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                return usage(builder, false, stdout_stream);
+                help_menu = true;
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
-                install_prefix = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                install_prefix = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "-l") or mem.eql(u8, arg, "--list-steps")) {
-                return steps(builder, false, stdout_stream);
+                steps_menu = true;
+            } else if (mem.startsWith(u8, arg, "-fsys=")) {
+                const name = arg["-fsys=".len..];
+                graph.system_library_options.put(arena, name, .user_enabled) catch @panic("OOM");
+            } else if (mem.startsWith(u8, arg, "-fno-sys=")) {
+                const name = arg["-fno-sys=".len..];
+                graph.system_library_options.put(arena, name, .user_disabled) catch @panic("OOM");
+            } else if (mem.eql(u8, arg, "--release")) {
+                builder.release_mode = .any;
+            } else if (mem.startsWith(u8, arg, "--release=")) {
+                const text = arg["--release=".len..];
+                builder.release_mode = std.meta.stringToEnum(std.Build.ReleaseMode, text) orelse {
+                    fatalWithHint("expected [off|any|fast|safe|small] in '{s}', found '{s}'", .{
+                        arg, text,
+                    });
+                };
+            } else if (mem.eql(u8, arg, "--host-target")) {
+                graph.host_query_options.arch_os_abi = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--host-cpu")) {
+                graph.host_query_options.cpu_features = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--host-dynamic-linker")) {
+                graph.host_query_options.dynamic_linker = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-lib-dir")) {
-                dir_list.lib_dir = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                dir_list.lib_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-exe-dir")) {
-                dir_list.exe_dir = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                dir_list.exe_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--prefix-include-dir")) {
-                dir_list.include_dir = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                dir_list.include_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--sysroot")) {
-                const sysroot = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
-                builder.sysroot = sysroot;
+                builder.sysroot = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--maxrss")) {
-                const max_rss_text = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                const max_rss_text = nextArgOrFatal(args, &arg_idx);
                 max_rss = std.fmt.parseIntSizeSuffix(max_rss_text, 10) catch |err| {
                     std.debug.print("invalid byte size: '{s}': {s}\n", .{
                         max_rss_text, @errorName(err),
@@ -167,66 +167,50 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--skip-oom-steps")) {
                 skip_oom_steps = true;
             } else if (mem.eql(u8, arg, "--search-prefix")) {
-                const search_prefix = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                const search_prefix = nextArgOrFatal(args, &arg_idx);
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--libc")) {
-                const libc_file = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
-                builder.libc_file = libc_file;
+                builder.libc_file = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--color")) {
-                const next_arg = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected [auto|on|off] after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                const next_arg = nextArg(args, &arg_idx) orelse
+                    fatalWithHint("expected [auto|on|off] after '{s}'", .{arg});
                 color = std.meta.stringToEnum(Color, next_arg) orelse {
-                    std.debug.print("Expected [auto|on|off] after {s}, found '{s}'\n\n", .{ arg, next_arg });
-                    usageAndErr(builder, false, stderr_stream);
+                    fatalWithHint("expected [auto|on|off] after '{s}', found '{s}'", .{
+                        arg, next_arg,
+                    });
                 };
             } else if (mem.eql(u8, arg, "--summary")) {
-                const next_arg = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected [all|failures|none] after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                const next_arg = nextArg(args, &arg_idx) orelse
+                    fatalWithHint("expected [all|failures|none] after '{s}'", .{arg});
                 summary = std.meta.stringToEnum(Summary, next_arg) orelse {
-                    std.debug.print("Expected [all|failures|none] after {s}, found '{s}'\n\n", .{ arg, next_arg });
-                    usageAndErr(builder, false, stderr_stream);
+                    fatalWithHint("expected [all|failures|none] after '{s}', found '{s}'", .{
+                        arg, next_arg,
+                    });
                 };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                builder.zig_lib_dir = .{ .cwd_relative = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                } };
+                builder.zig_lib_dir = .{ .cwd_relative = nextArgOrFatal(args, &arg_idx) };
             } else if (mem.eql(u8, arg, "--seed")) {
-                const next_arg = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected u32 after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                const next_arg = nextArg(args, &arg_idx) orelse
+                    fatalWithHint("expected u32 after '{s}'", .{arg});
                 seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                    std.debug.print("unable to parse seed '{s}' as 32-bit integer: {s}\n", .{
+                    fatal("unable to parse seed '{s}' as 32-bit integer: {s}\n", .{
                         next_arg, @errorName(err),
                     });
-                    process.exit(1);
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
-                const next_arg = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                const next_arg = nextArgOrFatal(args, &arg_idx);
                 try debug_log_scopes.append(next_arg);
             } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
                 builder.debug_pkg_config = true;
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--system")) {
+                // The usage text shows another argument after this parameter
+                // but it is handled by the parent process. The build runner
+                // only sees this flag.
+                graph.system_package_mode = true;
             } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
-                builder.glibc_runtimes_dir = nextArg(args, &arg_idx) orelse {
-                    std.debug.print("Expected argument after {s}\n\n", .{arg});
-                    usageAndErr(builder, false, stderr_stream);
-                };
+                builder.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -292,19 +276,26 @@ pub fn main() !void {
                 builder.args = argsRest(args, arg_idx);
                 break;
             } else {
-                std.debug.print("Unrecognized argument: {s}\n\n", .{arg});
-                usageAndErr(builder, false, stderr_stream);
+                fatalWithHint("unrecognized argument: '{s}'", .{arg});
             }
         } else {
             try targets.append(arg);
         }
     }
 
+    const host_query = std.Build.parseTargetQuery(graph.host_query_options) catch |err| switch (err) {
+        error.ParseFailed => process.exit(1),
+    };
+    builder.host = .{
+        .query = .{},
+        .result = try std.zig.system.resolveTargetQuery(host_query),
+    };
+
     const stderr = std.io.getStdErr();
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
-        .no_color => try builder.env_map.put("NO_COLOR", "1"),
-        .escape_codes => try builder.env_map.put("YES_COLOR", "1"),
+        .no_color => try graph.env_map.put("NO_COLOR", "1"),
+        .escape_codes => try graph.env_map.put("YES_COLOR", "1"),
         .windows_api => {},
     }
 
@@ -319,8 +310,39 @@ pub fn main() !void {
         try builder.runBuild(root);
     }
 
-    if (builder.validateUserInputDidItFail())
-        usageAndErr(builder, true, stderr_stream);
+    if (graph.needed_lazy_dependencies.entries.len != 0) {
+        var buffer: std.ArrayListUnmanaged(u8) = .{};
+        for (graph.needed_lazy_dependencies.keys()) |k| {
+            try buffer.appendSlice(arena, k);
+            try buffer.append(arena, '\n');
+        }
+        const s = std.fs.path.sep_str;
+        const tmp_sub_path = "tmp" ++ s ++ (output_tmp_nonce orelse fatal("missing -Z arg", .{}));
+        local_cache_directory.handle.writeFile2(.{
+            .sub_path = tmp_sub_path,
+            .data = buffer.items,
+            .flags = .{ .exclusive = true },
+        }) catch |err| {
+            fatal("unable to write configuration results to '{}{s}': {s}", .{
+                local_cache_directory, tmp_sub_path, @errorName(err),
+            });
+        };
+        process.exit(3); // Indicate configure phase failed with meaningful stdout.
+    }
+
+    if (builder.validateUserInputDidItFail()) {
+        fatal("  access the help menu with 'zig build -h'", .{});
+    }
+
+    validateSystemLibraryOptions(builder);
+
+    const stdout_writer = io.getStdOut().writer();
+
+    if (help_menu)
+        return usage(builder, stdout_writer);
+
+    if (steps_menu)
+        return steps(builder, stdout_writer);
 
     var run: Run = .{
         .max_rss = max_rss,
@@ -389,7 +411,7 @@ fn runStepNames(
         for (0..step_names.len) |i| {
             const step_name = step_names[step_names.len - i - 1];
             const s = b.top_level_steps.get(step_name) orelse {
-                std.debug.print("no step named '{s}'. Access the help menu with 'zig build -h'\n", .{step_name});
+                std.debug.print("no step named '{s}'\n  access the help menu with 'zig build -h'\n", .{step_name});
                 process.exit(1);
             };
             step_stack.putAssumeCapacity(&s.step, {});
@@ -1037,13 +1059,7 @@ fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void
     }
 }
 
-fn steps(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !void {
-    // run the build script to collect the options
-    if (!already_ran_build) {
-        builder.resolveInstallPrefix(null, .{});
-        try builder.runBuild(root);
-    }
-
+fn steps(builder: *std.Build, out_stream: anytype) !void {
     const allocator = builder.allocator;
     for (builder.top_level_steps.values()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
@@ -1054,33 +1070,25 @@ fn steps(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
     }
 }
 
-fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !void {
-    // run the build script to collect the options
-    if (!already_ran_build) {
-        builder.resolveInstallPrefix(null, .{});
-        try builder.runBuild(root);
-    }
-
+fn usage(b: *std.Build, out_stream: anytype) !void {
     try out_stream.print(
-        \\
         \\Usage: {s} build [steps] [options]
         \\
         \\Steps:
         \\
-    , .{builder.zig_exe});
-    try steps(builder, true, out_stream);
+    , .{b.graph.zig_exe});
+    try steps(b, out_stream);
 
     try out_stream.writeAll(
         \\
         \\General Options:
-        \\  -p, --prefix [path]          Override default install prefix
-        \\  --prefix-lib-dir [path]      Override default library directory path
-        \\  --prefix-exe-dir [path]      Override default executable directory path
-        \\  --prefix-include-dir [path]  Override default include directory path
+        \\  -p, --prefix [path]          Where to install files (default: zig-out)
+        \\  --prefix-lib-dir [path]      Where to install libraries
+        \\  --prefix-exe-dir [path]      Where to install executables
+        \\  --prefix-include-dir [path]  Where to install C header files
         \\
-        \\  --sysroot [path]             Set the system root directory (usually /)
-        \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
-        \\  --libc [file]                Provide a file which specifies libc paths
+        \\  --release[=mode]             Request release mode, optionally specifying a
+        \\                               preferred optimization mode: fast, safe, small
         \\
         \\  -fdarling,  -fno-darling     Integration with system-installed Darling to
         \\                               execute macOS programs on Linux hosts
@@ -1116,16 +1124,15 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
         \\
     );
 
-    const allocator = builder.allocator;
-    if (builder.available_options_list.items.len == 0) {
+    const arena = b.allocator;
+    if (b.available_options_list.items.len == 0) {
         try out_stream.print("  (none)\n", .{});
     } else {
-        for (builder.available_options_list.items) |option| {
-            const name = try fmt.allocPrint(allocator, "  -D{s}=[{s}]", .{
+        for (b.available_options_list.items) |option| {
+            const name = try fmt.allocPrint(arena, "  -D{s}=[{s}]", .{
                 option.name,
                 @tagName(option.type_id),
             });
-            defer allocator.free(name);
             try out_stream.print("{s:<30} {s}\n", .{ name, option.description });
             if (option.enum_options) |enum_options| {
                 const padding = " " ** 33;
@@ -1134,6 +1141,37 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
                     try out_stream.print(padding ++ "  {s}\n", .{enum_option});
                 }
             }
+        }
+    }
+
+    try out_stream.writeAll(
+        \\
+        \\System Integration Options:
+        \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
+        \\  --sysroot [path]             Set the system root directory (usually /)
+        \\  --libc [file]                Provide a file which specifies libc paths
+        \\
+        \\  --host-target [triple]       Use the provided target as the host
+        \\  --host-cpu [cpu]             Use the provided CPU as the host
+        \\  --host-dynamic-linker [path] Use the provided dynamic linker as the host
+        \\
+        \\  --system [pkgdir]            Disable package fetching; enable all integrations
+        \\  -fsys=[name]                 Enable a system integration
+        \\  -fno-sys=[name]              Disable a system integration
+        \\
+        \\  Available System Integrations:                Enabled:
+        \\
+    );
+    if (b.graph.system_library_options.entries.len == 0) {
+        try out_stream.writeAll("  (none)                                        -\n");
+    } else {
+        for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
+            const status = switch (v) {
+                .declared_enabled => "yes",
+                .declared_disabled => "no",
+                .user_enabled, .user_disabled => unreachable, // already emitted error
+            };
+            try out_stream.print("    {s:<43} {s}\n", .{ k, status });
         }
     }
 
@@ -1161,15 +1199,17 @@ fn usage(builder: *std.Build, already_ran_build: bool, out_stream: anytype) !voi
     );
 }
 
-fn usageAndErr(builder: *std.Build, already_ran_build: bool, out_stream: anytype) noreturn {
-    usage(builder, already_ran_build, out_stream) catch {};
-    process.exit(1);
-}
-
 fn nextArg(args: [][:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
+}
+
+fn nextArgOrFatal(args: [][:0]const u8, idx: *usize) [:0]const u8 {
+    return nextArg(args, idx) orelse {
+        std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.*]});
+        process.exit(1);
+    };
 }
 
 fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
@@ -1201,4 +1241,33 @@ fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
         .include_source_line = ttyconf != .no_color,
         .include_reference_trace = ttyconf != .no_color,
     };
+}
+
+fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
+    std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);
+    process.exit(1);
+}
+
+fn fatal(comptime f: []const u8, args: anytype) noreturn {
+    std.debug.print(f ++ "\n", args);
+    process.exit(1);
+}
+
+fn validateSystemLibraryOptions(b: *std.Build) void {
+    var bad = false;
+    for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
+        switch (v) {
+            .user_disabled, .user_enabled => {
+                // The user tried to enable or disable a system library integration, but
+                // the build script did not recognize that option.
+                std.debug.print("system library name not recognized by build script: '{s}'\n", .{k});
+                bad = true;
+            },
+            .declared_disabled, .declared_enabled => {},
+        }
+    }
+    if (bad) {
+        std.debug.print("  access the help menu with 'zig build -h'\n", .{});
+        process.exit(1);
+    }
 }

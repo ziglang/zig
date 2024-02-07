@@ -19,7 +19,7 @@ const Module = Zcu;
 const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
@@ -144,10 +144,26 @@ global_error_set: GlobalErrorSet = .{},
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
 
-/// Incrementing integer used to compare against the corresponding Decl
-/// field to determine whether a Decl's status applies to an ongoing update, or a
-/// previous analysis.
-generation: u32 = 0,
+/// Value is the number of PO or outdated Decls which this Depender depends on.
+potentially_outdated: std.AutoArrayHashMapUnmanaged(InternPool.Depender, u32) = .{},
+/// Value is the number of PO or outdated Decls which this Depender depends on.
+/// Once this value drops to 0, the Depender is a candidate for re-analysis.
+outdated: std.AutoArrayHashMapUnmanaged(InternPool.Depender, u32) = .{},
+/// This contains all `Depender`s in `outdated` whose PO dependency count is 0.
+/// Such `Depender`s are ready for immediate re-analysis.
+/// See `findOutdatedToAnalyze` for details.
+outdated_ready: std.AutoArrayHashMapUnmanaged(InternPool.Depender, void) = .{},
+/// This contains a set of Decls which may not be in `outdated`, but are the
+/// root Decls of files which have updated source and thus must be re-analyzed.
+/// If such a Decl is only in this set, the struct type index may be preserved
+/// (only the namespace might change). If such a Decl is also `outdated`, the
+/// struct type index must be recreated.
+outdated_file_root: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+/// This contains a list of Dependers whose analysis or codegen failed, but the
+/// failure was something like running out of disk space, and trying again may
+/// succeed. On the next update, we will flush this list, marking all members of
+/// it as outdated.
+retryable_failures: std.ArrayListUnmanaged(InternPool.Depender) = .{},
 
 stage1_flags: packed struct {
     have_winmain: bool = false,
@@ -364,21 +380,14 @@ pub const Decl = struct {
     alignment: Alignment,
     /// Populated when `has_tv`.
     @"addrspace": std.builtin.AddressSpace,
-    /// The direct parent namespace of the Decl.
-    /// Reference to externally owned memory.
-    /// In the case of the Decl corresponding to a file, this is
-    /// the namespace of the struct, since there is no parent.
+    /// The direct parent namespace of the Decl. In the case of the Decl
+    /// corresponding to a file, this is the namespace of the struct, since
+    /// there is no parent.
     src_namespace: Namespace.Index,
 
-    /// The scope which lexically contains this decl.  A decl must depend
-    /// on its lexical parent, in order to ensure that this pointer is valid.
-    /// This scope is allocated out of the arena of the parent decl.
+    /// The scope which lexically contains this decl.
     src_scope: CaptureScope.Index,
 
-    /// An integer that can be checked against the corresponding incrementing
-    /// generation field of Module. This is used to determine whether `complete` status
-    /// represents pre- or post- re-analysis.
-    generation: u32,
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
     src_node: Ast.Node.Index,
@@ -404,31 +413,20 @@ pub const Decl = struct {
         /// The file corresponding to this Decl had a parse error or ZIR error.
         /// There will be a corresponding ErrorMsg in Module.failed_files.
         file_failure,
-        /// This Decl might be OK but it depends on another one which did not successfully complete
-        /// semantic analysis.
+        /// This Decl might be OK but it depends on another one which did not
+        /// successfully complete semantic analysis.
         dependency_failure,
         /// Semantic analysis failure.
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
         sema_failure,
         /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        /// This indicates the failure was something like running out of disk space,
-        /// and attempting semantic analysis again may succeed.
-        sema_failure_retryable,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        liveness_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
         codegen_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
-        /// This indicates the failure was something like running out of disk space,
-        /// and attempting codegen again may succeed.
-        codegen_failure_retryable,
-        /// Everything is done. During an update, this Decl may be out of date, depending
-        /// on its dependencies. The `generation` field can be used to determine if this
-        /// completion status occurred before or after a given update.
+        /// Sematic analysis and constant value codegen of this Decl has
+        /// succeeded. However, the Decl may be outdated due to an in-progress
+        /// update. Note that for a function, this does not mean codegen of the
+        /// function body succeded: that state is indicated by the function's
+        /// `analysis` field.
         complete,
-        /// A Module update is in progress, and this Decl has been flagged as being known
-        /// to require re-analysis.
-        outdated,
     },
     /// Whether `typed_value`, `align`, `linksection` and `addrspace` are populated.
     has_tv: bool,
@@ -680,14 +678,6 @@ pub const Decl = struct {
         return mod.namespacePtr(decl.src_namespace).file_scope;
     }
 
-    pub fn removeDependant(decl: *Decl, other: Decl.Index) void {
-        assert(decl.dependants.swapRemove(other));
-    }
-
-    pub fn removeDependency(decl: *Decl, other: Decl.Index) void {
-        assert(decl.dependencies.swapRemove(other));
-    }
-
     pub fn getExternDecl(decl: Decl, mod: *Module) OptionalIndex {
         assert(decl.has_tv);
         return switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
@@ -734,8 +724,7 @@ pub const Namespace = struct {
     file_scope: *File,
     /// Will be a struct, enum, union, or opaque.
     ty: Type,
-    /// Direct children of the namespace. Used during an update to detect
-    /// which decls have been added/removed from source.
+    /// Direct children of the namespace.
     /// Declaration order is preserved via entry order.
     /// These are only declarations named directly by the AST; anonymous
     /// declarations are not stored here.
@@ -838,14 +827,6 @@ pub const File = struct {
     /// undefined until `zir_loaded == true`.
     path_digest: Cache.BinDigest = undefined,
 
-    /// Used by change detection algorithm, after astgen, contains the
-    /// set of decls that existed in the previous ZIR but not in the new one.
-    deleted_decls: ArrayListUnmanaged(Decl.Index) = .{},
-    /// Used by change detection algorithm, after astgen, contains the
-    /// set of decls that existed both in the previous ZIR and in the new one,
-    /// but their source code has been modified.
-    outdated_decls: ArrayListUnmanaged(Decl.Index) = .{},
-
     /// The most recent successful ZIR for this file, with no errors.
     /// This is only populated when a previously successful ZIR
     /// newly introduces compile errors during an update. When ZIR is
@@ -898,8 +879,6 @@ pub const File = struct {
             gpa.free(file.sub_file_path);
             file.unload(gpa);
         }
-        file.deleted_decls.deinit(gpa);
-        file.outdated_decls.deinit(gpa);
         file.references.deinit(gpa);
         if (file.root_decl.unwrap()) |root_decl| {
             mod.destroyDecl(root_decl);
@@ -2498,6 +2477,12 @@ pub fn deinit(zcu: *Zcu) void {
 
     zcu.global_error_set.deinit(gpa);
 
+    zcu.potentially_outdated.deinit(gpa);
+    zcu.outdated.deinit(gpa);
+    zcu.outdated_ready.deinit(gpa);
+    zcu.outdated_file_root.deinit(gpa);
+    zcu.retryable_failures.deinit(gpa);
+
     zcu.test_functions.deinit(gpa);
 
     for (zcu.global_assembly.values()) |s| {
@@ -2856,27 +2841,20 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
     }
 
     if (file.prev_zir) |prev_zir| {
-        // Iterate over all Namespace objects contained within this File, looking at the
-        // previous and new ZIR together and update the references to point
-        // to the new one. For example, Decl name, Decl zir_decl_index, and Namespace
-        // decl_table keys need to get updated to point to the new memory, even if the
-        // underlying source code is unchanged.
-        // We do not need to hold any locks at this time because all the Decl and Namespace
-        // objects being touched are specific to this File, and the only other concurrent
-        // tasks are touching other File objects.
         try updateZirRefs(mod, file, prev_zir.*);
-        // At this point, `file.outdated_decls` and `file.deleted_decls` are populated,
-        // and semantic analysis will deal with them properly.
         // No need to keep previous ZIR.
         prev_zir.deinit(gpa);
         gpa.destroy(prev_zir);
         file.prev_zir = null;
-    } else if (file.root_decl.unwrap()) |root_decl| {
-        // This is an update, but it is the first time the File has succeeded
-        // ZIR. We must mark it outdated since we have already tried to
-        // semantically analyze it.
-        try file.outdated_decls.resize(gpa, 1);
-        file.outdated_decls.items[0] = root_decl;
+    }
+
+    if (file.root_decl.unwrap()) |root_decl| {
+        // The root of this file must be re-analyzed, since the file has changed.
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+
+        log.debug("outdated root Decl: {}", .{root_decl});
+        try mod.outdated_file_root.put(gpa, root_decl, {});
     }
 }
 
@@ -2950,23 +2928,345 @@ fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.File)
     return zir;
 }
 
+/// This is called from the AstGen thread pool, so must acquire
+/// the Compilation mutex when acting on shared state.
 fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
     const gpa = zcu.gpa;
+    const new_zir = file.zir;
 
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    try mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
+    try mapOldZirToNew(gpa, old_zir, new_zir, &inst_map);
+
+    const old_tag = old_zir.instructions.items(.tag);
+    const old_data = old_zir.instructions.items(.data);
 
     // TODO: this should be done after all AstGen workers complete, to avoid
     // iterating over this full set for every updated file.
-    for (zcu.intern_pool.tracked_insts.keys()) |*ti| {
+    for (zcu.intern_pool.tracked_insts.keys(), 0..) |*ti, idx_raw| {
+        const ti_idx: InternPool.TrackedInst.Index = @enumFromInt(idx_raw);
         if (!std.mem.eql(u8, &ti.path_digest, &file.path_digest)) continue;
+        const old_inst = ti.inst;
         ti.inst = inst_map.get(ti.inst) orelse {
-            // TODO: invalidate this `TrackedInst` via the dependency mechanism
+            // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            log.debug("tracking failed for %{d}", .{old_inst});
+            try zcu.markDependeeOutdated(.{ .src_hash = ti_idx });
             continue;
         };
+
+        if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
+            if (new_zir.getAssociatedSrcHash(ti.inst)) |new_hash| {
+                if (std.zig.srcHashEql(old_hash, new_hash)) {
+                    break :hash_changed;
+                }
+                log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
+                    old_inst,
+                    ti.inst,
+                    std.fmt.fmtSliceHexLower(&old_hash),
+                    std.fmt.fmtSliceHexLower(&new_hash),
+                });
+            }
+            // The source hash associated with this instruction changed - invalidate relevant dependencies.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .src_hash = ti_idx });
+        }
+
+        // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
+        const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
+            .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
+                .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
+                else => false,
+            },
+            else => false,
+        };
+        if (!has_namespace) continue;
+
+        var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+        defer old_names.deinit(zcu.gpa);
+        {
+            var it = old_zir.declIterator(old_inst);
+            while (it.next()) |decl_inst| {
+                const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                switch (decl_name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                    _ => if (decl_name.isNamedTest(old_zir)) continue,
+                }
+                const name_zir = decl_name.toString(old_zir).?;
+                const name_ip = try zcu.intern_pool.getOrPutString(
+                    zcu.gpa,
+                    old_zir.nullTerminatedString(name_zir),
+                );
+                try old_names.put(zcu.gpa, name_ip, {});
+            }
+        }
+        var any_change = false;
+        {
+            var it = new_zir.declIterator(ti.inst);
+            while (it.next()) |decl_inst| {
+                const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                switch (decl_name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                    _ => if (decl_name.isNamedTest(old_zir)) continue,
+                }
+                const name_zir = decl_name.toString(old_zir).?;
+                const name_ip = try zcu.intern_pool.getOrPutString(
+                    zcu.gpa,
+                    old_zir.nullTerminatedString(name_zir),
+                );
+                if (!old_names.swapRemove(name_ip)) continue;
+                // Name added
+                any_change = true;
+                zcu.comp.mutex.lock();
+                defer zcu.comp.mutex.unlock();
+                try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                    .namespace = ti_idx,
+                    .name = name_ip,
+                } });
+            }
+        }
+        // The only elements remaining in `old_names` now are any names which were removed.
+        for (old_names.keys()) |name_ip| {
+            any_change = true;
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                .namespace = ti_idx,
+                .name = name_ip,
+            } });
+        }
+
+        if (any_change) {
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            try zcu.markDependeeOutdated(.{ .namespace = ti_idx });
+        }
     }
+}
+
+pub fn markDependeeOutdated(zcu: *Zcu, dependee: InternPool.Dependee) !void {
+    log.debug("outdated dependee: {}", .{dependee});
+    var it = zcu.intern_pool.dependencyIterator(dependee);
+    while (it.next()) |depender| {
+        if (zcu.outdated.contains(depender)) {
+            // We do not need to increment the PO dep count, as if the outdated
+            // dependee is a Decl, we had already marked this as PO.
+            continue;
+        }
+        const opt_po_entry = zcu.potentially_outdated.fetchSwapRemove(depender);
+        try zcu.outdated.putNoClobber(
+            zcu.gpa,
+            depender,
+            // We do not need to increment this count for the same reason as above.
+            if (opt_po_entry) |e| e.value else 0,
+        );
+        log.debug("outdated: {}", .{depender});
+        if (opt_po_entry != null) {
+            // This is a new entry with no PO dependencies.
+            try zcu.outdated_ready.put(zcu.gpa, depender, {});
+        }
+        // If this is a Decl and was not previously PO, we must recursively
+        // mark dependencies on its tyval as PO.
+        if (opt_po_entry == null) switch (depender.unwrap()) {
+            .decl => |decl_index| try zcu.markDeclDependenciesPotentiallyOutdated(decl_index),
+            .func => {},
+        };
+    }
+}
+
+fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
+    var it = zcu.intern_pool.dependencyIterator(dependee);
+    while (it.next()) |depender| {
+        if (zcu.outdated.getPtr(depender)) |po_dep_count| {
+            // This depender is already outdated, but it now has one
+            // less PO dependency!
+            po_dep_count.* -= 1;
+            if (po_dep_count.* == 0) {
+                try zcu.outdated_ready.put(zcu.gpa, depender, {});
+            }
+            continue;
+        }
+        // This depender is definitely at least PO, because this Decl was just analyzed
+        // due to being outdated.
+        const ptr = zcu.potentially_outdated.getPtr(depender).?;
+        if (ptr.* > 1) {
+            ptr.* -= 1;
+            continue;
+        }
+
+        // This dependency is no longer PO, i.e. is known to be up-to-date.
+        assert(zcu.potentially_outdated.swapRemove(depender));
+        // If this is a Decl, we must recursively mark dependencies on its tyval
+        // as no longer PO.
+        switch (depender.unwrap()) {
+            .decl => |decl_index| try zcu.markPoDependeeUpToDate(.{ .decl_val = decl_index }),
+            .func => {},
+        }
+    }
+}
+
+/// Given a Decl which is newly outdated or PO, mark all dependers which depend
+/// on its tyval as PO.
+fn markDeclDependenciesPotentiallyOutdated(zcu: *Zcu, decl_index: Decl.Index) !void {
+    var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+    while (it.next()) |po| {
+        if (zcu.outdated.getPtr(po)) |po_dep_count| {
+            // This dependency is already outdated, but it now has one more PO
+            // dependency.
+            if (po_dep_count.* == 0) {
+                _ = zcu.outdated_ready.swapRemove(po);
+            }
+            po_dep_count.* += 1;
+            continue;
+        }
+        if (zcu.potentially_outdated.getPtr(po)) |n| {
+            // There is now one more PO dependency.
+            n.* += 1;
+            continue;
+        }
+        try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
+        // If this ia a Decl, we must recursively mark dependencies
+        // on its tyval as PO.
+        switch (po.unwrap()) {
+            .decl => |po_decl| try zcu.markDeclDependenciesPotentiallyOutdated(po_decl),
+            .func => {},
+        }
+    }
+    // TODO: repeat the above for `decl_ty` dependencies when they are introduced
+}
+
+pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?InternPool.Depender {
+    if (!zcu.comp.debug_incremental) return null;
+
+    if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
+        log.debug("findOutdatedToAnalyze: no outdated depender", .{});
+        return null;
+    }
+
+    // Our goal is to find an outdated Depender which itself has no outdated or
+    // PO dependencies. Most of the time, such a Depender will exist - we track
+    // them in the `outdated_ready` set for efficiency. However, this is not
+    // necessarily the case, since the Decl dependency graph may contain loops
+    // via mutually recursive definitions:
+    //   pub const A = struct { b: *B };
+    //   pub const B = struct { b: *A };
+    // In this case, we must defer to more complex logic below.
+
+    if (zcu.outdated_ready.count() > 0) {
+        log.debug("findOutdatedToAnalyze: trivial '{s} {d}'", .{
+            @tagName(zcu.outdated_ready.keys()[0].unwrap()),
+            switch (zcu.outdated_ready.keys()[0].unwrap()) {
+                inline else => |x| @intFromEnum(x),
+            },
+        });
+        return zcu.outdated_ready.keys()[0];
+    }
+
+    // Next, we will see if there is any outdated file root which was not in
+    // `outdated`. This set will be small (number of files changed in this
+    // update), so it's alright for us to just iterate here.
+    for (zcu.outdated_file_root.keys()) |file_decl| {
+        const decl_depender = InternPool.Depender.wrap(.{ .decl = file_decl });
+        if (zcu.outdated.contains(decl_depender)) {
+            // Since we didn't hit this in the first loop, this Decl must have
+            // pending dependencies, so is ineligible.
+            continue;
+        }
+        if (zcu.potentially_outdated.contains(decl_depender)) {
+            // This Decl's struct may or may not need to be recreated depending
+            // on whether it is outdated. If we analyzed it now, we would have
+            // to assume it was outdated and recreate it!
+            continue;
+        }
+        log.debug("findOutdatedToAnalyze: outdated file root decl '{d}'", .{file_decl});
+        return decl_depender;
+    }
+
+    // There is no single Depender which is ready for re-analysis. Instead, we
+    // must assume that some Decl with PO dependencies is outdated - e.g. in the
+    // above example we arbitrarily pick one of A or B. We should select a Decl,
+    // since a Decl is definitely responsible for the loop in the dependency
+    // graph (since you can't depend on a runtime function analysis!).
+
+    // The choice of this Decl could have a big impact on how much total
+    // analysis we perform, since if analysis concludes its tyval is unchanged,
+    // then other PO Dependers may be resolved as up-to-date. To hopefully avoid
+    // doing too much work, let's find a Decl which the most things depend on -
+    // the idea is that this will resolve a lot of loops (but this is only a
+    // heuristic).
+
+    log.debug("findOutdatedToAnalyze: no trivial ready, using heuristic; {d} outdated, {d} PO", .{
+        zcu.outdated.count(),
+        zcu.potentially_outdated.count(),
+    });
+
+    var chosen_decl_idx: ?Decl.Index = null;
+    var chosen_decl_dependers: u32 = undefined;
+
+    for (zcu.outdated.keys()) |depender| {
+        const decl_index = switch (depender.unwrap()) {
+            .decl => |d| d,
+            .func => continue,
+        };
+
+        var n: u32 = 0;
+        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+        while (it.next()) |_| n += 1;
+
+        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
+            chosen_decl_idx = decl_index;
+            chosen_decl_dependers = n;
+        }
+    }
+
+    for (zcu.potentially_outdated.keys()) |depender| {
+        const decl_index = switch (depender.unwrap()) {
+            .decl => |d| d,
+            .func => continue,
+        };
+
+        var n: u32 = 0;
+        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+        while (it.next()) |_| n += 1;
+
+        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
+            chosen_decl_idx = decl_index;
+            chosen_decl_dependers = n;
+        }
+    }
+
+    log.debug("findOutdatedToAnalyze: heuristic returned Decl {d} ({d} dependers)", .{
+        chosen_decl_idx.?,
+        chosen_decl_dependers,
+    });
+
+    return InternPool.Depender.wrap(.{ .decl = chosen_decl_idx.? });
+}
+
+/// During an incremental update, before semantic analysis, call this to flush all values from
+/// `retryable_failures` and mark them as outdated so they get re-analyzed.
+pub fn flushRetryableFailures(zcu: *Zcu) !void {
+    const gpa = zcu.gpa;
+    for (zcu.retryable_failures.items) |depender| {
+        if (zcu.outdated.contains(depender)) continue;
+        if (zcu.potentially_outdated.fetchSwapRemove(depender)) |kv| {
+            // This Depender was already PO, but we now consider it outdated.
+            // Any transitive dependencies are already marked PO.
+            try zcu.outdated.put(gpa, depender, kv.value);
+            continue;
+        }
+        // This Depender was not marked PO, but is now outdated. Mark it as
+        // such, then recursively mark transitive dependencies as PO.
+        try zcu.outdated.put(gpa, depender, 0);
+        switch (depender.unwrap()) {
+            .decl => |decl| try zcu.markDeclDependenciesPotentiallyOutdated(decl),
+            .func => {},
+        }
+    }
+    zcu.retryable_failures.clearRetainingCapacity();
 }
 
 pub fn mapOldZirToNew(
@@ -3096,7 +3396,7 @@ pub fn mapOldZirToNew(
     }
 }
 
-/// This ensures that the Decl will have a Type and Value populated.
+/// This ensures that the Decl will have an up-to-date Type and Value populated.
 /// However the resolution status of the Type may not be fully resolved.
 /// For example an inferred error set is not resolved until after `analyzeFnBody`.
 /// is called.
@@ -3106,40 +3406,57 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
 
     const decl = mod.declPtr(decl_index);
 
-    const subsequent_analysis = switch (decl.analysis) {
+    // Determine whether or not this Decl is outdated, i.e. requires re-analysis
+    // even if `complete`. If a Decl is PO, we pessismistically assume that it
+    // *does* require re-analysis, to ensure that the Decl is definitely
+    // up-to-date when this function returns.
+
+    // If analysis occurs in a poor order, this could result in over-analysis.
+    // We do our best to avoid this by the other dependency logic in this file
+    // which tries to limit re-analysis to Decls whose previously listed
+    // dependencies are all up-to-date.
+
+    const decl_as_depender = InternPool.Depender.wrap(.{ .decl = decl_index });
+    const was_outdated = mod.outdated.swapRemove(decl_as_depender) or
+        mod.potentially_outdated.swapRemove(decl_as_depender);
+
+    if (was_outdated) {
+        _ = mod.outdated_ready.swapRemove(decl_as_depender);
+    }
+
+    switch (decl.analysis) {
         .in_progress => unreachable,
 
-        .file_failure,
+        .file_failure => return error.AnalysisFail,
+
         .sema_failure,
-        .sema_failure_retryable,
-        .liveness_failure,
-        .codegen_failure,
         .dependency_failure,
-        .codegen_failure_retryable,
-        => return error.AnalysisFail,
+        .codegen_failure,
+        => if (!was_outdated) return error.AnalysisFail,
 
-        .complete => return,
+        .complete => if (!was_outdated) return,
 
-        .outdated => blk: {
-            if (build_options.only_c) unreachable;
-            // The exports this Decl performs will be re-discovered, so we remove them here
-            // prior to re-analysis.
-            try mod.deleteDeclExports(decl_index);
+        .unreferenced => {},
+    }
 
-            break :blk true;
-        },
-
-        .unreferenced => false,
-    };
+    if (was_outdated) {
+        // The exports this Decl performs will be re-discovered, so we remove them here
+        // prior to re-analysis.
+        if (build_options.only_c) unreachable;
+        try mod.deleteDeclExports(decl_index);
+    }
 
     var decl_prog_node = mod.sema_prog_node.start("", 0);
     decl_prog_node.activate();
     defer decl_prog_node.end();
 
-    const type_changed = blk: {
+    const sema_result: SemaDeclResult = blk: {
         if (decl.zir_decl_index == .none and !mod.declIsRoot(decl_index)) {
             // Anonymous decl. We don't semantically analyze these.
-            break :blk false; // tv unchanged
+            break :blk .{
+                .invalidate_decl_val = false,
+                .invalidate_decl_ref = false,
+            };
         }
 
         break :blk mod.semaDecl(decl_index) catch |err| switch (err) {
@@ -3155,8 +3472,9 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             error.NeededSourceLocation => unreachable,
             error.GenericPoison => unreachable,
             else => |e| {
-                decl.analysis = .sema_failure_retryable;
+                decl.analysis = .sema_failure;
                 try mod.failed_decls.ensureUnusedCapacity(mod.gpa, 1);
+                try mod.retryable_failures.append(mod.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
                 mod.failed_decls.putAssumeCapacityNoClobber(decl_index, try ErrorMsg.create(
                     mod.gpa,
                     decl.srcLoc(mod),
@@ -3168,9 +3486,18 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
         };
     };
 
-    if (subsequent_analysis) {
-        _ = type_changed;
-        @panic("TODO re-implement incremental compilation");
+    // TODO: we do not yet have separate dependencies for decl values vs types.
+    if (was_outdated) {
+        if (sema_result.invalidate_decl_val or sema_result.invalidate_decl_ref) {
+            // This dependency was marked as PO, meaning dependees were waiting
+            // on its analysis result, and it has turned out to be outdated.
+            // Update dependees accordingly.
+            try mod.markDependeeOutdated(.{ .decl_val = decl_index });
+        } else {
+            // This dependency was previously PO, but turned out to be up-to-date.
+            // We do not need to queue successive analysis.
+            try mod.markPoDependeeUpToDate(.{ .decl_val = decl_index });
+        }
     }
 }
 
@@ -3186,119 +3513,129 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
     switch (decl.analysis) {
         .unreferenced => unreachable,
         .in_progress => unreachable,
-        .outdated => unreachable,
+
+        .codegen_failure => unreachable, // functions do not perform constant value generation
 
         .file_failure,
         .sema_failure,
-        .liveness_failure,
-        .codegen_failure,
         .dependency_failure,
-        .sema_failure_retryable,
         => return error.AnalysisFail,
 
-        .complete, .codegen_failure_retryable => {
-            switch (func.analysis(ip).state) {
-                .sema_failure, .dependency_failure => return error.AnalysisFail,
-                .none, .queued => {},
-                .in_progress => unreachable,
-                .inline_only => unreachable, // don't queue work for this
-                .success => return,
+        .complete => {},
+    }
+
+    const func_as_depender = InternPool.Depender.wrap(.{ .func = func_index });
+    const was_outdated = zcu.outdated.swapRemove(func_as_depender) or
+        zcu.potentially_outdated.swapRemove(func_as_depender);
+
+    if (was_outdated) {
+        _ = zcu.outdated_ready.swapRemove(func_as_depender);
+    }
+
+    switch (func.analysis(ip).state) {
+        .success,
+        .sema_failure,
+        .dependency_failure,
+        .codegen_failure,
+        => if (!was_outdated) return error.AnalysisFail,
+        .none, .queued => {},
+        .in_progress => unreachable,
+        .inline_only => unreachable, // don't queue work for this
+    }
+
+    const gpa = zcu.gpa;
+
+    var tmp_arena = std.heap.ArenaAllocator.init(gpa);
+    defer tmp_arena.deinit();
+    const sema_arena = tmp_arena.allocator();
+
+    var air = zcu.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
+        error.AnalysisFail => {
+            if (func.analysis(ip).state == .in_progress) {
+                // If this decl caused the compile error, the analysis field would
+                // be changed to indicate it was this Decl's fault. Because this
+                // did not happen, we infer here that it was a dependency failure.
+                func.analysis(ip).state = .dependency_failure;
             }
-
-            const gpa = zcu.gpa;
-
-            var tmp_arena = std.heap.ArenaAllocator.init(gpa);
-            defer tmp_arena.deinit();
-            const sema_arena = tmp_arena.allocator();
-
-            var air = zcu.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
-                error.AnalysisFail => {
-                    if (func.analysis(ip).state == .in_progress) {
-                        // If this decl caused the compile error, the analysis field would
-                        // be changed to indicate it was this Decl's fault. Because this
-                        // did not happen, we infer here that it was a dependency failure.
-                        func.analysis(ip).state = .dependency_failure;
-                    }
-                    return error.AnalysisFail;
-                },
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            defer air.deinit(gpa);
-
-            const comp = zcu.comp;
-
-            const dump_air = builtin.mode == .Debug and comp.verbose_air;
-            const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
-
-            if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
-                return;
-            }
-
-            var liveness = try Liveness.analyze(gpa, air, ip);
-            defer liveness.deinit(gpa);
-
-            if (dump_air) {
-                const fqn = try decl.getFullyQualifiedName(zcu);
-                std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
-                @import("print_air.zig").dump(zcu, air, liveness);
-                std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
-            }
-
-            if (std.debug.runtime_safety) {
-                var verify = Liveness.Verify{
-                    .gpa = gpa,
-                    .air = air,
-                    .liveness = liveness,
-                    .intern_pool = ip,
-                };
-                defer verify.deinit();
-
-                verify.verify() catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => {
-                        try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
-                        zcu.failed_decls.putAssumeCapacityNoClobber(
-                            decl_index,
-                            try Module.ErrorMsg.create(
-                                gpa,
-                                decl.srcLoc(zcu),
-                                "invalid liveness: {s}",
-                                .{@errorName(err)},
-                            ),
-                        );
-                        decl.analysis = .liveness_failure;
-                        return error.AnalysisFail;
-                    },
-                };
-            }
-
-            if (comp.bin_file) |lf| {
-                lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {
-                        decl.analysis = .codegen_failure;
-                    },
-                    else => {
-                        try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
-                        zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
-                            gpa,
-                            decl.srcLoc(zcu),
-                            "unable to codegen: {s}",
-                            .{@errorName(err)},
-                        ));
-                        decl.analysis = .codegen_failure_retryable;
-                    },
-                };
-            } else if (zcu.llvm_object) |llvm_object| {
-                if (build_options.only_c) unreachable;
-                llvm_object.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.AnalysisFail => {
-                        decl.analysis = .codegen_failure;
-                    },
-                };
-            }
+            return error.AnalysisFail;
         },
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer air.deinit(gpa);
+
+    const comp = zcu.comp;
+
+    const dump_air = builtin.mode == .Debug and comp.verbose_air;
+    const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
+
+    if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
+        return;
+    }
+
+    var liveness = try Liveness.analyze(gpa, air, ip);
+    defer liveness.deinit(gpa);
+
+    if (dump_air) {
+        const fqn = try decl.getFullyQualifiedName(zcu);
+        std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
+        @import("print_air.zig").dump(zcu, air, liveness);
+        std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
+    }
+
+    if (std.debug.runtime_safety) {
+        var verify = Liveness.Verify{
+            .gpa = gpa,
+            .air = air,
+            .liveness = liveness,
+            .intern_pool = ip,
+        };
+        defer verify.deinit();
+
+        verify.verify() catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_decls.putAssumeCapacityNoClobber(
+                    decl_index,
+                    try Module.ErrorMsg.create(
+                        gpa,
+                        decl.srcLoc(zcu),
+                        "invalid liveness: {s}",
+                        .{@errorName(err)},
+                    ),
+                );
+                func.analysis(ip).state = .codegen_failure;
+                return;
+            },
+        };
+    }
+
+    if (comp.bin_file) |lf| {
+        lf.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {
+                func.analysis(ip).state = .codegen_failure;
+            },
+            else => {
+                try zcu.failed_decls.ensureUnusedCapacity(gpa, 1);
+                zcu.failed_decls.putAssumeCapacityNoClobber(decl_index, try Module.ErrorMsg.create(
+                    gpa,
+                    decl.srcLoc(zcu),
+                    "unable to codegen: {s}",
+                    .{@errorName(err)},
+                ));
+                func.analysis(ip).state = .codegen_failure;
+                try zcu.retryable_failures.append(zcu.gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+            },
+        };
+    } else if (zcu.llvm_object) |llvm_object| {
+        if (build_options.only_c) unreachable;
+        llvm_object.updateFunc(zcu, func_index, air, liveness) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.AnalysisFail => {
+                func.analysis(ip).state = .codegen_failure;
+            },
+        };
     }
 }
 
@@ -3318,18 +3655,14 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
     switch (decl.analysis) {
         .unreferenced => unreachable,
         .in_progress => unreachable,
-        .outdated => unreachable,
 
         .file_failure,
         .sema_failure,
-        .liveness_failure,
         .codegen_failure,
         .dependency_failure,
-        .sema_failure_retryable,
-        .codegen_failure_retryable,
-        // The function analysis failed, but we've already emitted an error for
-        // that. The callee doesn't need the function to be analyzed right now,
-        // so its analysis can safely continue.
+        // Analysis of the function Decl itself failed, but we've already
+        // emitted an error for that. The callee doesn't need the function to be
+        // analyzed right now, so its analysis can safely continue.
         => return,
 
         .complete => {},
@@ -3337,14 +3670,21 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 
     assert(decl.has_tv);
 
+    const func_as_depender = InternPool.Depender.wrap(.{ .func = func_index });
+    const is_outdated = mod.outdated.contains(func_as_depender) or
+        mod.potentially_outdated.contains(func_as_depender);
+
     switch (func.analysis(ip).state) {
         .none => {},
         .queued => return,
         // As above, we don't need to forward errors here.
-        .sema_failure, .dependency_failure => return,
+        .sema_failure,
+        .dependency_failure,
+        .codegen_failure,
+        .success,
+        => if (!is_outdated) return,
         .in_progress => return,
         .inline_only => unreachable, // don't queue work for this
-        .success => return,
     }
 
     // Decl itself is safely analyzed, and body analysis is not yet queued
@@ -3404,7 +3744,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.@"linksection" = .none;
     new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
-    new_decl.generation = mod.generation;
 
     if (file.status != .success_zir) {
         new_decl.analysis = .file_failure;
@@ -3483,12 +3822,19 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         },
         .incremental => {},
     }
+
+    // Since this is our first time analyzing this file, there can be no dependencies on
+    // its root Decl. Thus, we do not need to invalidate any dependencies.
 }
 
-/// Returns `true` if the Decl type changed.
-/// Returns `true` if this is the first time analyzing the Decl.
-/// Returns `false` otherwise.
-fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
+const SemaDeclResult = packed struct {
+    /// Whether the value of a `decl_val` of this Decl changed.
+    invalidate_decl_val: bool,
+    /// Whether the type of a `decl_ref` of this Decl changed.
+    invalidate_decl_ref: bool,
+};
+
+fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3497,6 +3843,15 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
     if (decl.getFileScope(mod).status != .success_zir) {
         return error.AnalysisFail;
+    }
+
+    if (mod.declIsRoot(decl_index)) {
+        // This comes from an `analyze_decl` job on an incremental update where
+        // this file changed.
+        @panic("TODO: update root Decl of modified file");
+    } else if (decl.owns_tv) {
+        // We are re-analyzing an owner Decl (for a function or a namespace type).
+        @panic("TODO: update owner Decl");
     }
 
     const gpa = mod.gpa;
@@ -3535,6 +3890,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         break :blk .none;
     };
 
+    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+
     decl.analysis = .in_progress;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3564,7 +3921,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     };
     defer sema.deinit();
 
-    assert(!mod.declIsRoot(decl_index));
+    // Every Decl (other than file root Decls, which do not have a ZIR index) has a dependency on its own source.
+    try sema.declareDependency(.{ .src_hash = try ip.trackZir(
+        sema.gpa,
+        decl.getFileScope(mod),
+        decl.zir_decl_index.unwrap().?,
+    ) });
 
     var block_scope: Sema.Block = .{
         .parent = null,
@@ -3620,9 +3982,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         decl.has_tv = true;
         decl.owns_tv = false;
         decl.analysis = .complete;
-        decl.generation = mod.generation;
 
-        return true;
+        // TODO: usingnamespace cannot currently participate in incremental compilation
+        return .{
+            .invalidate_decl_val = true,
+            .invalidate_decl_ref = true,
+        };
     }
 
     switch (ip.indexToKey(decl_tv.val.toIntern())) {
@@ -3647,7 +4012,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                 decl.has_tv = true;
                 decl.owns_tv = owns_tv;
                 decl.analysis = .complete;
-                decl.generation = mod.generation;
 
                 const is_inline = decl.ty.fnCallingConvention(mod) == .Inline;
                 if (decl.is_exported) {
@@ -3658,14 +4022,15 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
                     // The scope needs to have the decl in it.
                     try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
                 }
-                return type_changed or is_inline != prev_is_inline;
+                // TODO: align, linksection, addrspace?
+                const changed = type_changed or is_inline != prev_is_inline;
+                return .{
+                    .invalidate_decl_val = changed,
+                    .invalidate_decl_ref = changed,
+                };
             }
         },
         else => {},
-    }
-    var type_changed = true;
-    if (decl.has_tv) {
-        type_changed = !decl.ty.eql(decl_tv.ty, mod);
     }
 
     decl.owns_tv = false;
@@ -3693,6 +4058,14 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
             },
         },
     }
+
+    const old_has_tv = decl.has_tv;
+    // The following values are ignored if `!old_has_tv`
+    const old_ty = decl.ty;
+    const old_val = decl.val;
+    const old_align = decl.alignment;
+    const old_linksection = decl.@"linksection";
+    const old_addrspace = decl.@"addrspace";
 
     decl.ty = decl_tv.ty;
     decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
@@ -3735,7 +4108,17 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
     };
     decl.has_tv = true;
     decl.analysis = .complete;
-    decl.generation = mod.generation;
+
+    const result: SemaDeclResult = if (old_has_tv) .{
+        .invalidate_decl_val = !decl.ty.eql(old_ty, mod) or !decl.val.eql(old_val, decl.ty, mod),
+        .invalidate_decl_ref = !decl.ty.eql(old_ty, mod) or
+            decl.alignment != old_align or
+            decl.@"linksection" != old_linksection or
+            decl.@"addrspace" != old_addrspace,
+    } else .{
+        .invalidate_decl_val = true,
+        .invalidate_decl_ref = true,
+    };
 
     const has_runtime_bits = is_extern or
         (queue_linker_work and try sema.typeHasRuntimeBits(decl.ty));
@@ -3748,7 +4131,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
-        if (type_changed and mod.emit_h != null) {
+        if (result.invalidate_decl_ref and mod.emit_h != null) {
             try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
         }
     }
@@ -3759,7 +4142,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !bool {
         try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
     }
 
-    return type_changed;
+    return result;
 }
 
 pub const ImportFileResult = struct {
@@ -4362,6 +4745,8 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
 
+    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+
     var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
     defer comptime_mutable_decls.deinit();
 
@@ -4633,7 +5018,6 @@ pub fn allocateNewDecl(
         .analysis = .unreferenced,
         .zir_decl_index = .none,
         .src_scope = src_scope,
-        .generation = 0,
         .is_pub = false,
         .is_exported = false,
         .alive = false,
@@ -4711,7 +5095,6 @@ pub fn initNewAnonDecl(
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
     new_decl.analysis = .complete;
-    new_decl.generation = mod.generation;
 }
 
 pub fn errNoteNonLazy(
@@ -5373,7 +5756,8 @@ pub fn linkerUpdateDecl(zcu: *Zcu, decl_index: Decl.Index) !void {
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                decl.analysis = .codegen_failure_retryable;
+                decl.analysis = .codegen_failure;
+                try zcu.retryable_failures.append(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
