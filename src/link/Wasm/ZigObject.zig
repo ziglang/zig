@@ -670,17 +670,15 @@ pub fn addOrUpdateImport(
 
     if (type_index) |ty_index| {
         const gop = try zig_object.imports.getOrPut(gpa, symbol_index);
-        const module_name = if (lib_name) |l_name| blk: {
-            break :blk l_name;
-        } else wasm_file.host_name;
+        const module_name = if (lib_name) |l_name| l_name else wasm_file.host_name;
         if (!gop.found_existing) {
-            gop.value_ptr.* = .{
-                .module_name = try zig_object.string_table.insert(gpa, module_name),
-                .name = try zig_object.string_table.insert(gpa, name),
-                .kind = .{ .function = ty_index },
-            };
             zig_object.imported_functions_count += 1;
         }
+        gop.value_ptr.* = .{
+            .module_name = try zig_object.string_table.insert(gpa, module_name),
+            .name = try zig_object.string_table.insert(gpa, name),
+            .kind = .{ .function = ty_index },
+        };
         sym.tag = .function;
     } else {
         sym.tag = .data;
