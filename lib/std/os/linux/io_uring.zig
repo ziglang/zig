@@ -1344,7 +1344,7 @@ pub const SubmissionQueue = struct {
             null,
             size,
             os.PROT.READ | os.PROT.WRITE,
-            os.MAP.SHARED | os.MAP.POPULATE,
+            .{ .TYPE = .SHARED, .POPULATE = true },
             fd,
             linux.IORING_OFF_SQ_RING,
         );
@@ -1358,7 +1358,7 @@ pub const SubmissionQueue = struct {
             null,
             size_sqes,
             os.PROT.READ | os.PROT.WRITE,
-            os.MAP.SHARED | os.MAP.POPULATE,
+            .{ .TYPE = .SHARED, .POPULATE = true },
             fd,
             linux.IORING_OFF_SQES,
         );

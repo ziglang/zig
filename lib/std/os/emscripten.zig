@@ -449,27 +449,6 @@ pub const MADV = struct {
     pub const SOFT_OFFLINE = 101;
 };
 
-pub const MAP = struct {
-    pub const SHARED = 0x01;
-    pub const PRIVATE = 0x02;
-    pub const SHARED_VALIDATE = 0x03;
-    pub const TYPE = 0x0f;
-    pub const FIXED = 0x10;
-    pub const ANON = 0x20;
-    pub const ANONYMOUS = ANON;
-    pub const NORESERVE = 0x4000;
-    pub const GROWSDOWN = 0x0100;
-    pub const DENYWRITE = 0x0800;
-    pub const EXECUTABLE = 0x1000;
-    pub const LOCKED = 0x2000;
-    pub const POPULATE = 0x8000;
-    pub const NONBLOCK = 0x10000;
-    pub const STACK = 0x20000;
-    pub const HUGETLB = 0x40000;
-    pub const SYNC = 0x80000;
-    pub const FIXED_NOREPLACE = 0x100000;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;

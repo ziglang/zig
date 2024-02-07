@@ -576,7 +576,7 @@ test "mmap" {
             null,
             1234,
             os.PROT.READ | os.PROT.WRITE,
-            os.MAP.ANONYMOUS | os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         );
@@ -618,7 +618,7 @@ test "mmap" {
             null,
             alloc_size,
             os.PROT.READ,
-            os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE },
             file.handle,
             0,
         );
@@ -642,7 +642,7 @@ test "mmap" {
             null,
             alloc_size / 2,
             os.PROT.READ,
-            os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE },
             file.handle,
             alloc_size / 2,
         );

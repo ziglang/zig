@@ -4657,16 +4657,16 @@ pub fn mmap(
     ptr: ?[*]align(mem.page_size) u8,
     length: usize,
     prot: u32,
-    flags: u32,
+    flags: system.MAP,
     fd: fd_t,
     offset: u64,
 ) MMapError![]align(mem.page_size) u8 {
     const mmap_sym = if (lfs64_abi) system.mmap64 else system.mmap;
 
-    const ioffset = @as(i64, @bitCast(offset)); // the OS treats this as unsigned
-    const rc = mmap_sym(ptr, length, prot, flags, fd, ioffset);
+    const ioffset: i64 = @bitCast(offset); // the OS treats this as unsigned
+    const rc = mmap_sym(ptr, length, prot, @bitCast(flags), fd, ioffset);
     const err = if (builtin.link_libc) blk: {
-        if (rc != std.c.MAP.FAILED) return @as([*]align(mem.page_size) u8, @ptrCast(@alignCast(rc)))[0..length];
+        if (rc != std.c.MAP_FAILED) return @as([*]align(mem.page_size) u8, @ptrCast(@alignCast(rc)))[0..length];
         break :blk @as(E, @enumFromInt(system._errno().*));
     } else blk: {
         const err = errno(rc);

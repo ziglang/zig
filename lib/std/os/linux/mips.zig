@@ -271,15 +271,6 @@ pub const LOCK = struct {
 
 pub const MMAP2_UNIT = 4096;
 
-pub const MAP = struct {
-    pub const NORESERVE = 0x0400;
-    pub const GROWSDOWN = 0x1000;
-    pub const DENYWRITE = 0x2000;
-    pub const EXECUTABLE = 0x4000;
-    pub const LOCKED = 0x8000;
-    pub const @"32BIT" = 0x40;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__kernel_clock_gettime";
     pub const CGT_VER = "LINUX_2.6.39";

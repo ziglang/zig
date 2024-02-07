@@ -223,28 +223,6 @@ pub const PROT = struct {
     pub const EXEC = 4;
 };
 
-pub const MAP = struct {
-    pub const FILE = 0;
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    pub const ANONYMOUS = ANON;
-    pub const COPY = PRIVATE;
-    pub const SHARED = 1;
-    pub const PRIVATE = 2;
-    pub const FIXED = 16;
-    pub const RENAME = 32;
-    pub const NORESERVE = 64;
-    pub const INHERIT = 128;
-    pub const NOEXTEND = 256;
-    pub const HASSEMAPHORE = 512;
-    pub const STACK = 1024;
-    pub const NOSYNC = 2048;
-    pub const ANON = 4096;
-    pub const VPAGETABLE = 8192;
-    pub const TRYFIXED = 65536;
-    pub const NOCORE = 131072;
-    pub const SIZEALIGN = 262144;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;

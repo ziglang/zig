@@ -523,27 +523,6 @@ pub const CLOCK = struct {
     pub const PROF = THREAD_CPUTIME_ID;
 };
 
-pub const MAP = struct {
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    pub const SHARED = 0x0001;
-    pub const PRIVATE = 0x0002;
-    pub const TYPE = 0x000f;
-
-    pub const FILE = 0x0000;
-    pub const FIXED = 0x0010;
-    // Unimplemented
-    pub const RENAME = 0x0020;
-    pub const NORESERVE = 0x0040;
-    /// Force mapping in lower 4G address space
-    pub const @"32BIT" = 0x0080;
-
-    pub const ANON = 0x0100;
-    pub const ANONYMOUS = ANON;
-    pub const ALIGN = 0x0200;
-    pub const TEXT = 0x0400;
-    pub const INITDATA = 0x0800;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;

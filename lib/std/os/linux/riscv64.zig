@@ -246,4 +246,3 @@ pub const Stat = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const VDSO = struct {};
-pub const MAP = struct {};

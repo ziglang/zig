@@ -177,21 +177,6 @@ pub const F = struct {
     pub const UNLCK = 2;
 };
 
-pub const MAP = struct {
-    /// only give out 32bit addresses
-    pub const @"32BIT" = 0x40;
-    /// stack-like segment
-    pub const GROWSDOWN = 0x0100;
-    /// ETXTBSY
-    pub const DENYWRITE = 0x0800;
-    /// mark it as an executable
-    pub const EXECUTABLE = 0x1000;
-    /// pages are locked
-    pub const LOCKED = 0x2000;
-    /// don't check for reservations
-    pub const NORESERVE = 0x4000;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";

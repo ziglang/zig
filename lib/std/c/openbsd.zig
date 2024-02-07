@@ -436,24 +436,6 @@ pub const CLOCK = struct {
     pub const THREAD_CPUTIME_ID = 4;
 };
 
-pub const MAP = struct {
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    pub const SHARED = 0x0001;
-    pub const PRIVATE = 0x0002;
-    pub const FIXED = 0x0010;
-    pub const RENAME = 0;
-    pub const NORESERVE = 0;
-    pub const INHERIT = 0;
-    pub const HASSEMAPHORE = 0;
-    pub const TRYFIXED = 0;
-
-    pub const FILE = 0;
-    pub const ANON = 0x1000;
-    pub const ANONYMOUS = ANON;
-    pub const STACK = 0x4000;
-    pub const CONCEAL = 0x8000;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
