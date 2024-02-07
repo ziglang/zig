@@ -6,11 +6,7 @@ const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 
-const assert = std.debug.assert;
-
 pub const BlockIo = extern struct {
-    const Self = @This();
-
     revision: u64,
     media: *const Media,
 
@@ -21,7 +17,7 @@ pub const BlockIo = extern struct {
 
     /// Resets the block device hardware.
     pub fn reset(
-        self: *Self,
+        self: *BlockIo,
         /// Indicates that the driver may perform a more exhaustive verification operation of the device during reset.
         verify: bool,
     ) !void {
@@ -30,7 +26,7 @@ pub const BlockIo = extern struct {
 
     /// Reads the number of requested blocks from the device.
     pub fn readBlocks(
-        self: *Self,
+        self: *BlockIo,
         /// The media ID that the read request is for.
         media_id: u32,
         /// The starting logical block address to read from on the device.
@@ -43,7 +39,7 @@ pub const BlockIo = extern struct {
 
     /// Writes a specified number of blocks to the device.
     pub fn writeBlocks(
-        self: *Self,
+        self: *BlockIo,
         /// The media ID that the write request is for.
         media_id: u32,
         /// The starting logical block address to write from on the device.
@@ -55,7 +51,7 @@ pub const BlockIo = extern struct {
     }
 
     /// Flushes all modified data to a physical block device.
-    pub fn flushBlocks(self: *Self) !void {
+    pub fn flushBlocks(self: *BlockIo) !void {
         try self._flush_blocks(self).err();
     }
 

@@ -27,7 +27,7 @@ pub const LoadFile = @import("protocol/media/load_file.zig").LoadFile;
 pub const SimpleFileSystem = @import("protocol/media/simple_file_system.zig").SimpleFileSystem;
 pub const File = @import("protocol/media/file.zig").File;
 // TapeIo
-// DiskIo
+pub const DiskIo = @import("protocol/media/disk_io.zig").DiskIo;
 // DiskIo2
 pub const BlockIo = @import("protocol/media/block_io.zig").BlockIo;
 // BlockIo2
