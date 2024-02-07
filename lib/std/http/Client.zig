@@ -1018,9 +1018,11 @@ pub const Request = struct {
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.transfer_encoding) {
             .chunked => {
-                try req.connection.?.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.?.writer().writeAll(bytes);
-                try req.connection.?.writer().writeAll("\r\n");
+                if (bytes.len > 0) {
+                    try req.connection.?.writer().print("{x}\r\n", .{bytes.len});
+                    try req.connection.?.writer().writeAll(bytes);
+                    try req.connection.?.writer().writeAll("\r\n");
+                }
 
                 return bytes.len;
             },
