@@ -573,26 +573,6 @@ pub const CLOCK = struct {
     pub const PROCESS_CPUTIME_ID = 0x40000000;
 };
 
-pub const MAP = struct {
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    pub const SHARED = 0x0001;
-    pub const PRIVATE = 0x0002;
-    pub const REMAPDUP = 0x0004;
-    pub const FIXED = 0x0010;
-    pub const RENAME = 0x0020;
-    pub const NORESERVE = 0x0040;
-    pub const INHERIT = 0x0080;
-    pub const HASSEMAPHORE = 0x0200;
-    pub const TRYFIXED = 0x0400;
-    pub const WIRED = 0x0800;
-
-    pub const FILE = 0x0000;
-    pub const NOSYNC = 0x0800;
-    pub const ANON = 0x1000;
-    pub const ANONYMOUS = ANON;
-    pub const STACK = 0x2000;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;

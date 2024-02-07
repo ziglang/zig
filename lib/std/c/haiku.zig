@@ -408,22 +408,6 @@ pub const CLOCK = struct {
     pub const THREAD_CPUTIME_ID = -3;
 };
 
-pub const MAP = struct {
-    /// mmap() error return code
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    /// changes are seen by others
-    pub const SHARED = 0x01;
-    /// changes are only seen by caller
-    pub const PRIVATE = 0x02;
-    /// require mapping to specified addr
-    pub const FIXED = 0x04;
-    /// no underlying object
-    pub const ANONYMOUS = 0x0008;
-    pub const ANON = ANONYMOUS;
-    /// don't commit memory
-    pub const NORESERVE = 0x10;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;

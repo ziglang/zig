@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const maxInt = std.math.maxInt;
 const native_abi = builtin.abi;
 const native_arch = builtin.cpu.arch;
 const linux = std.os.linux;
@@ -25,11 +24,6 @@ pub const IOV_MAX = linux.IOV_MAX;
 pub const IPPROTO = linux.IPPROTO;
 pub const LOCK = linux.LOCK;
 pub const MADV = linux.MADV;
-pub const MAP = struct {
-    pub usingnamespace linux.MAP;
-    /// Only used by libc to communicate failure.
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-};
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
 pub const MSG = linux.MSG;

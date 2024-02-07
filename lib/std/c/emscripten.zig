@@ -16,11 +16,6 @@ pub const IOV_MAX = emscripten.IOV_MAX;
 pub const IPPROTO = emscripten.IPPROTO;
 pub const LOCK = emscripten.LOCK;
 pub const MADV = emscripten.MADV;
-pub const MAP = struct {
-    pub usingnamespace emscripten.MAP;
-    /// Only used by libc to communicate failure.
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-};
 pub const MSF = emscripten.MSF;
 pub const MSG = emscripten.MSG;
 pub const NAME_MAX = emscripten.NAME_MAX;

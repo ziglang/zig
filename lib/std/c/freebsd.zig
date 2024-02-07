@@ -606,29 +606,6 @@ pub const CLOCK = struct {
     pub const PROCESS_CPUTIME_ID = 15;
 };
 
-pub const MAP = struct {
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    pub const SHARED = 0x0001;
-    pub const PRIVATE = 0x0002;
-    pub const FIXED = 0x0010;
-    pub const STACK = 0x0400;
-    pub const NOSYNC = 0x0800;
-    pub const ANON = 0x1000;
-    pub const ANONYMOUS = ANON;
-    pub const FILE = 0;
-
-    pub const GUARD = 0x00002000;
-    pub const EXCL = 0x00004000;
-    pub const NOCORE = 0x00020000;
-    pub const PREFAULT_READ = 0x00040000;
-    pub const @"32BIT" = 0x00080000;
-
-    pub fn ALIGNED(alignment: u32) u32 {
-        return alignment << 24;
-    }
-    pub const ALIGNED_SUPER = ALIGNED(1);
-};
-
 pub const MADV = struct {
     pub const NORMAL = 0;
     pub const RANDOM = 1;

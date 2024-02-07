@@ -1310,26 +1310,6 @@ pub const PROT = struct {
     pub const COPY: vm_prot_t = 0x10;
 };
 
-pub const MAP = struct {
-    /// allocated from memory, swap space
-    pub const ANONYMOUS = 0x1000;
-    /// map from file (default)
-    pub const FILE = 0x0000;
-    /// interpret addr exactly
-    pub const FIXED = 0x0010;
-    /// region may contain semaphores
-    pub const HASSEMAPHORE = 0x0200;
-    /// changes are private
-    pub const PRIVATE = 0x0002;
-    /// share changes
-    pub const SHARED = 0x0001;
-    /// don't cache pages for this mapping
-    pub const NOCACHE = 0x0400;
-    /// don't reserve needed swap area
-    pub const NORESERVE = 0x0040;
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-};
-
 pub const MSF = struct {
     pub const ASYNC = 0x1;
     pub const INVALIDATE = 0x2;
