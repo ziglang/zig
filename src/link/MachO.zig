@@ -926,7 +926,7 @@ pub fn resolveLibSystem(
     });
 }
 
-const ParseError = error{
+pub const ParseError = error{
     MalformedObject,
     MalformedArchive,
     MalformedDylib,
@@ -1003,7 +1003,7 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
     try object.parse(self);
 }
 
-fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
+pub fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
     var buffer: [2]fat.Arch = undefined;
     const fat_archs = try fat.parseArchs(path, &buffer);
     const cpu_arch = self.getTarget().cpu.arch;

@@ -1233,6 +1233,82 @@ fn addSection(self: *Object, allocator: Allocator, segname: []const u8, sectname
     return n_sect;
 }
 
+pub fn parseAr(self: *Object, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const offset = if (self.archive) |ar| ar.offset else 0;
+    const handle = macho_file.getFileHandle(self.file_handle);
+
+    var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
+    {
+        const amt = try handle.preadAll(&header_buffer, offset);
+        if (amt != @sizeOf(macho.mach_header_64)) return error.InputOutput;
+    }
+    self.header = @as(*align(1) const macho.mach_header_64, @ptrCast(&header_buffer)).*;
+
+    const this_cpu_arch: std.Target.Cpu.Arch = switch (self.header.?.cputype) {
+        macho.CPU_TYPE_ARM64 => .aarch64,
+        macho.CPU_TYPE_X86_64 => .x86_64,
+        else => |x| {
+            try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
+            return error.InvalidCpuArch;
+        },
+    };
+    if (macho_file.getTarget().cpu.arch != this_cpu_arch) {
+        try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
+        return error.InvalidCpuArch;
+    }
+
+    const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
+    defer gpa.free(lc_buffer);
+    {
+        const amt = try handle.preadAll(lc_buffer, offset + @sizeOf(macho.mach_header_64));
+        if (amt != self.header.?.sizeofcmds) return error.InputOutput;
+    }
+
+    var it = LoadCommandIterator{
+        .ncmds = self.header.?.ncmds,
+        .buffer = lc_buffer,
+    };
+    while (it.next()) |lc| switch (lc.cmd()) {
+        .SYMTAB => {
+            const cmd = lc.cast(macho.symtab_command).?;
+            try self.strtab.resize(gpa, cmd.strsize);
+            {
+                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + offset);
+                if (amt != self.strtab.items.len) return error.InputOutput;
+            }
+
+            const symtab_buffer = try gpa.alloc(u8, cmd.nsyms * @sizeOf(macho.nlist_64));
+            defer gpa.free(symtab_buffer);
+            {
+                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + offset);
+                if (amt != symtab_buffer.len) return error.InputOutput;
+            }
+            const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(symtab_buffer.ptr))[0..cmd.nsyms];
+            try self.symtab.ensureUnusedCapacity(gpa, symtab.len);
+            for (symtab) |nlist| {
+                self.symtab.appendAssumeCapacity(.{
+                    .nlist = nlist,
+                    .atom = 0,
+                    .size = 0,
+                });
+            }
+        },
+        .BUILD_VERSION,
+        .VERSION_MIN_MACOSX,
+        .VERSION_MIN_IPHONEOS,
+        .VERSION_MIN_TVOS,
+        .VERSION_MIN_WATCHOS,
+        => if (self.platform == null) {
+            self.platform = MachO.Platform.fromLoadCommand(lc);
+        },
+        else => {},
+    };
+}
+
 pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
     const gpa = macho_file.base.comp.gpa;
     for (self.symtab.items(.nlist)) |nlist| {
