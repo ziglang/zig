@@ -1545,8 +1545,8 @@ pub fn HashMapUnmanaged(
                     continue;
                 }
 
-                var hash = ctx.hash(keys_ptr[curr]);
-                var fingerprint = Metadata.takeFingerprint(hash);
+                const hash = ctx.hash(keys_ptr[curr]);
+                const fingerprint = Metadata.takeFingerprint(hash);
                 var idx = @as(usize, @truncate(hash & mask));
 
                 // For each bucket, rehash to an index:
