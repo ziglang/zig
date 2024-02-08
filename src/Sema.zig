@@ -10992,23 +10992,8 @@ const SwitchProngAnalysis = struct {
 
                 // By-reference captures have some further restrictions which make them easier to emit
                 if (capture_byref) {
-                    const first_field_alignment = union_obj.fieldAlign(ip, first_field_index);
-                    const same_alignment = for (field_indices[1..]) |field_idx| {
-                        const field_alignment = union_obj.fieldAlign(ip, field_idx);
-                        if (field_alignment != first_field_alignment) break false;
-                    } else true;
                     const operand_ptr_info = operand_ptr_ty.ptrInfo(mod);
-                    const capture_ptr_ty = if (same_types and same_alignment) same: {
-                        break :same try sema.ptrType(.{
-                            .child = capture_ty.toIntern(),
-                            .flags = .{
-                                .is_const = operand_ptr_info.flags.is_const,
-                                .is_volatile = operand_ptr_info.flags.is_volatile,
-                                .address_space = operand_ptr_info.flags.address_space,
-                                .alignment = first_field_alignment,
-                            },
-                        });
-                    } else resolve: {
+                    const capture_ptr_ty = resolve: {
                         // By-ref captures of hetereogeneous types are only allowed if all field
                         // pointer types are peer resolvable to each other.
                         // We need values to run PTR on, so make a bunch of undef constants.

@@ -585,26 +585,26 @@ test "switch prong pointer capture alignment" {
         fn doTheTest() !void {
             const u = U{ .a = 1 };
             switch (u) {
-                .a => |*a| try expectEqual(*align(8) const u8, @TypeOf(a)),
+                .a => |*a| comptime assert(@TypeOf(a) == *align(8) const u8),
                 .b, .c => |*p| {
                     _ = p;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
 
             switch (u) {
-                .a, .b => |*p| try expectEqual(*align(4) const u8, @TypeOf(p)),
+                .a, .b => |*p| comptime assert(@TypeOf(p) == *align(4) const u8),
                 .c => |*p| {
                     _ = p;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
 
             switch (u) {
-                .a, .c => |*p| try expectEqual(*const u8, @TypeOf(p)),
+                .a, .c => |*p| comptime assert(@TypeOf(p) == *const u8),
                 .b => |*p| {
                     _ = p;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
         }
@@ -612,19 +612,19 @@ test "switch prong pointer capture alignment" {
         fn doTheTest2() !void {
             const un1 = U{ .b = 1 };
             switch (un1) {
-                .b => |*a| try expectEqual(*align(4) const u8, @TypeOf(a)),
+                .b => |*b| comptime assert(@TypeOf(b) == *align(4) const u8),
                 .a, .c => |*p| {
                     _ = p;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
 
             const un2 = U{ .c = 1 };
             switch (un2) {
-                .c => |*a| try expectEqual(*const u8, @TypeOf(a)),
+                .c => |*c| comptime assert(@TypeOf(c) == *const u8),
                 .a, .b => |*p| {
                     _ = p;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
         }
