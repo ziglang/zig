@@ -957,7 +957,6 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
 
     const gpa = self.base.comp.gpa;
     const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
     const handle = try self.addFileHandle(file);
     const mtime: u64 = mtime: {
         const stat = file.stat() catch break :mtime 0;
@@ -994,7 +993,6 @@ fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Ar
     const gpa = self.base.comp.gpa;
 
     const file = try std.fs.cwd().openFile(lib.path, .{});
-    errdefer file.close();
     const handle = try self.addFileHandle(file);
 
     var archive = Archive{};
