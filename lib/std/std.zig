@@ -36,6 +36,7 @@ pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceE
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
+pub const Random = @import("Random.zig");
 pub const RingBuffer = @import("RingBuffer.zig");
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
@@ -159,8 +160,8 @@ pub const pdb = @import("pdb.zig");
 /// and spawning of child processes.
 pub const process = @import("process.zig");
 
-/// Fast pseudo-random number generators (i.e. not cryptographically secure).
-pub const rand = @import("rand.zig");
+/// Deprecated: use `Random` instead.
+pub const rand = Random;
 
 /// Sorting.
 pub const sort = @import("sort.zig");
