@@ -1,3 +1,4 @@
+data: std.ArrayListUnmanaged(u8) = .{},
 /// Externally owned memory.
 path: []const u8,
 index: File.Index,
@@ -47,6 +48,7 @@ relocs: RelocationTable = .{},
 
 dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
+output_ar_state: Archive.ArState = .{},
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
     const comp = macho_file.base.comp;
@@ -57,6 +59,7 @@ pub fn init(self: *ZigObject, macho_file: *MachO) !void {
 }
 
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
+    self.data.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
@@ -277,6 +280,40 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !vo
             try gop.value_ptr.append(macho_file.base.comp.gpa, self.index);
         }
     }
+}
+
+/// This is just a temporary helper function that allows us to re-read what we wrote to file into a buffer.
+/// We need this so that we can write to an archive.
+/// TODO implement writing ZigObject data directly to a buffer instead.
+pub fn readFileContents(self: *ZigObject, size: usize, macho_file: *MachO) !void {
+    const gpa = macho_file.base.comp.gpa;
+    try self.data.resize(gpa, size);
+    const amt = try macho_file.base.file.?.preadAll(self.data.items, 0);
+    if (amt != size) return error.InputOutput;
+}
+
+pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
+    const gpa = macho_file.base.comp.gpa;
+    for (self.symbols.items) |sym_index| {
+        const sym = macho_file.getSymbol(sym_index);
+        const file = sym.getFile(macho_file).?;
+        assert(file.getIndex() == self.index);
+        if (!sym.flags.@"export") continue;
+        const off = try ar_symtab.strtab.insert(gpa, sym.getName(macho_file));
+        try ar_symtab.entries.append(gpa, .{ .off = off, .file = self.index });
+    }
+}
+
+pub fn updateArSize(self: *ZigObject) void {
+    self.output_ar_state.size = self.data.items.len;
+}
+
+pub fn writeAr(self: ZigObject, ar_format: Archive.Format, writer: anytype) !void {
+    // Header
+    const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
+    try Archive.writeHeader(self.path, size, ar_format, writer);
+    // Data
+    try writer.writeAll(self.data.items);
 }
 
 pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {

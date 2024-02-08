@@ -379,10 +379,6 @@ pub fn deinit(self: *MachO) void {
 }
 
 pub fn flush(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    // TODO: I think this is just a temp and can be removed once we can emit static archives
-    if (self.base.isStaticLib() and build_options.have_llvm) {
-        return self.base.linkAsArchive(arena, prog_node);
-    }
     try self.flushModule(arena, prog_node);
 }
 
@@ -395,8 +391,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
 
     if (self.llvm_object) |llvm_object| {
         try self.base.emitLlvmObject(arena, llvm_object, prog_node);
-        // TODO: I think this is just a temp and can be removed once we can emit static archives
-        if (self.base.isStaticLib() and build_options.have_llvm) return;
     }
 
     var sub_prog_node = prog_node.start("MachO Flush", 0);
@@ -417,8 +411,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     if (comp.verbose_link) try self.dumpArgv(comp);
 
     if (self.getZigObject()) |zo| try zo.flushModule(self);
-    if (self.base.isStaticLib()) return self.flushStaticLib(comp, module_obj_path);
-    if (self.base.isObject()) return relocatable.flush(self, comp, module_obj_path);
+    if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
+    if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
     defer positionals.deinit();
@@ -577,7 +571,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
         },
     };
 
-    try self.markImportsAndExports();
+    self.markImportsAndExports();
     self.deadStripDylibs();
 
     for (self.dylibs.items, 1..) |index, ord| {
@@ -606,7 +600,9 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: *std.Progress.Node
     self.allocateSyntheticSymbols();
     try self.allocateLinkeditSegment();
 
-    state_log.debug("{}", .{self.dumpState()});
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{self.dumpState()});
+    }
 
     try self.initDyldInfoSections();
 
@@ -892,16 +888,6 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
     Compilation.dump_argv(argv.items);
 }
 
-fn flushStaticLib(self: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
-    _ = comp;
-    _ = module_obj_path;
-
-    var err = try self.addErrorWithNotes(0);
-    try err.addMsg(self, "TODO implement flushStaticLib", .{});
-
-    return error.FlushFailure;
-}
-
 pub fn resolveLibSystem(
     self: *MachO,
     arena: Allocator,
@@ -934,7 +920,7 @@ pub fn resolveLibSystem(
     });
 }
 
-const ParseError = error{
+pub const ParseError = error{
     MalformedObject,
     MalformedArchive,
     MalformedDylib,
@@ -1011,7 +997,7 @@ fn parseObject(self: *MachO, path: []const u8) ParseError!void {
     try object.parse(self);
 }
 
-fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
+pub fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
     var buffer: [2]fat.Arch = undefined;
     const fat_archs = try fat.parseArchs(path, &buffer);
     const cpu_arch = self.getTarget().cpu.arch;
@@ -1525,46 +1511,11 @@ fn createObjcSections(self: *MachO) !void {
 }
 
 fn claimUnresolved(self: *MachO) error{OutOfMemory}!void {
-    const gpa = self.base.comp.gpa;
-
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
-    defer objects.deinit();
-    if (self.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(self.objects.items);
-
-    for (objects.items) |index| {
-        const file = self.getFile(index).?;
-
-        for (file.getSymbols(), 0..) |sym_index, i| {
-            const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = switch (file) {
-                .object => |x| x.symtab.items(.nlist)[nlist_idx],
-                .zig_object => |x| x.symtab.items(.nlist)[nlist_idx],
-                else => unreachable,
-            };
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
-
-            const sym = self.getSymbol(sym_index);
-            if (sym.getFile(self) != null) continue;
-
-            const is_import = switch (self.undefined_treatment) {
-                .@"error" => false,
-                .warn, .suppress => nlist.weakRef(),
-                .dynamic_lookup => true,
-            };
-            if (is_import) {
-                sym.value = 0;
-                sym.atom = 0;
-                sym.nlist_idx = 0;
-                sym.file = self.internal_object.?;
-                sym.flags.weak = false;
-                sym.flags.weak_ref = nlist.weakRef();
-                sym.flags.import = is_import;
-                sym.visibility = .global;
-                try self.getInternalObject().?.symbols.append(self.base.comp.gpa, sym_index);
-            }
-        }
+    if (self.getZigObject()) |zo| {
+        try zo.asFile().claimUnresolved(self);
+    }
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.claimUnresolved(self);
     }
 }
 
@@ -1590,26 +1541,12 @@ fn checkDuplicates(self: *MachO) !void {
     try self.reportDuplicates(dupes);
 }
 
-fn markImportsAndExports(self: *MachO) error{OutOfMemory}!void {
-    const gpa = self.base.comp.gpa;
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
-    defer objects.deinit();
-    if (self.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(self.objects.items);
-
-    for (objects.items) |index| {
-        for (self.getFile(index).?.getSymbols()) |sym_index| {
-            const sym = self.getSymbol(sym_index);
-            const file = sym.getFile(self) orelse continue;
-            if (sym.visibility != .global) continue;
-            if (file == .dylib and !sym.flags.abs) {
-                sym.flags.import = true;
-                continue;
-            }
-            if (file.getIndex() == index) {
-                sym.flags.@"export" = true;
-            }
-        }
+fn markImportsAndExports(self: *MachO) void {
+    if (self.getZigObject()) |zo| {
+        zo.asFile().markImportsExports(self);
+    }
+    for (self.objects.items) |index| {
+        self.getFile(index).?.markImportsExports(self);
     }
 
     for (self.undefined_symbols.items) |index| {

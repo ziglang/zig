@@ -1,4 +1,4 @@
-pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
     const gpa = macho_file.base.comp.gpa;
 
     var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
@@ -46,8 +46,8 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
 
     try macho_file.addUndefinedGlobals();
     try macho_file.resolveSymbols();
-    try markExports(macho_file);
-    try claimUnresolved(macho_file);
+    markExports(macho_file);
+    claimUnresolved(macho_file);
     try initOutputSections(macho_file);
     try macho_file.sortSections();
     try macho_file.addAtomsToSections();
@@ -64,7 +64,9 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     };
     off = allocateSectionsRelocs(macho_file, off);
 
-    state_log.debug("{}", .{macho_file.dumpState()});
+    if (build_options.enable_logging) {
+        state_log.debug("{}", .{macho_file.dumpState()});
+    }
 
     try macho_file.calcSymtabSize();
     try writeAtoms(macho_file);
@@ -86,54 +88,254 @@ pub fn flush(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
-fn markExports(macho_file: *MachO) error{OutOfMemory}!void {
-    var objects = try std.ArrayList(File.Index).initCapacity(macho_file.base.comp.gpa, macho_file.objects.items.len + 1);
-    defer objects.deinit();
-    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(macho_file.objects.items);
+pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+    const gpa = comp.gpa;
 
-    for (objects.items) |index| {
-        for (macho_file.getFile(index).?.getSymbols()) |sym_index| {
-            const sym = macho_file.getSymbol(sym_index);
-            const file = sym.getFile(macho_file) orelse continue;
-            if (sym.visibility != .global) continue;
-            if (file.getIndex() == index) {
-                sym.flags.@"export" = true;
-            }
+    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    defer positionals.deinit();
+
+    try positionals.ensureUnusedCapacity(comp.objects.len);
+    positionals.appendSliceAssumeCapacity(comp.objects);
+
+    for (comp.c_object_table.keys()) |key| {
+        try positionals.append(.{ .path = key.status.success.object_path });
+    }
+
+    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+
+    for (positionals.items) |obj| {
+        parsePositional(macho_file, obj.path) catch |err| switch (err) {
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.InvalidTarget,
+            => continue, // already reported
+            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
+            else => |e| try macho_file.reportParseError(
+                obj.path,
+                "unexpected error: parsing input file failed with error {s}",
+                .{@errorName(e)},
+            ),
+        };
+    }
+
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+
+    // First, we flush relocatable object file generated with our backends.
+    if (macho_file.getZigObject()) |zo| {
+        zo.resolveSymbols(macho_file);
+        zo.asFile().markExportsRelocatable(macho_file);
+        zo.asFile().claimUnresolvedRelocatable(macho_file);
+        try macho_file.sortSections();
+        try macho_file.addAtomsToSections();
+        try calcSectionSizes(macho_file);
+        try createSegment(macho_file);
+        try allocateSections(macho_file);
+        allocateSegment(macho_file);
+
+        var off = off: {
+            const seg = macho_file.segments.items[0];
+            const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
+            break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
+        };
+        off = allocateSectionsRelocs(macho_file, off);
+
+        if (build_options.enable_logging) {
+            state_log.debug("{}", .{macho_file.dumpState()});
         }
+
+        try macho_file.calcSymtabSize();
+        try writeAtoms(macho_file);
+
+        off = mem.alignForward(u32, off, @alignOf(u64));
+        off = try macho_file.writeDataInCode(0, off);
+        off = mem.alignForward(u32, off, @alignOf(u64));
+        off = try macho_file.writeSymtab(off);
+        off = mem.alignForward(u32, off, @alignOf(u64));
+        off = try macho_file.writeStrtab(off);
+
+        // In order to please Apple ld (and possibly other MachO linkers in the wild),
+        // we will now sanitize segment names of Zig-specific segments.
+        sanitizeZigSections(macho_file);
+
+        const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
+        try writeHeader(macho_file, ncmds, sizeofcmds);
+
+        // TODO we can avoid reading in the file contents we just wrote if we give the linker
+        // ability to write directly to a buffer.
+        try zo.readFileContents(off, macho_file);
+    }
+
+    var files = std.ArrayList(File.Index).init(gpa);
+    defer files.deinit();
+    try files.ensureTotalCapacityPrecise(macho_file.objects.items.len + 1);
+    if (macho_file.getZigObject()) |zo| files.appendAssumeCapacity(zo.index);
+    for (macho_file.objects.items) |index| files.appendAssumeCapacity(index);
+
+    const format: Archive.Format = .p32;
+    const ptr_width = Archive.ptrWidth(format);
+
+    // Update ar symtab from parsed objects
+    var ar_symtab: Archive.ArSymtab = .{};
+    defer ar_symtab.deinit(gpa);
+
+    for (files.items) |index| {
+        try macho_file.getFile(index).?.updateArSymtab(&ar_symtab, macho_file);
+    }
+
+    ar_symtab.sort();
+
+    // Update sizes of contributing objects
+    for (files.items) |index| {
+        try macho_file.getFile(index).?.updateArSize(macho_file);
+    }
+
+    // Update file offsets of contributing objects
+    const total_size: usize = blk: {
+        var pos: usize = Archive.SARMAG;
+        pos += @sizeOf(Archive.ar_hdr) + Archive.SYMDEF.len + 1;
+        pos = mem.alignForward(usize, pos, ptr_width);
+        pos += ar_symtab.size(format);
+
+        for (files.items) |index| {
+            const file = macho_file.getFile(index).?;
+            const state = switch (file) {
+                .zig_object => |x| &x.output_ar_state,
+                .object => |x| &x.output_ar_state,
+                else => unreachable,
+            };
+            const path = switch (file) {
+                .zig_object => |x| x.path,
+                .object => |x| x.path,
+                else => unreachable,
+            };
+            pos = mem.alignForward(usize, pos, ptr_width);
+            state.file_off = pos;
+            pos += @sizeOf(Archive.ar_hdr) + path.len + 1;
+            pos = mem.alignForward(usize, pos, ptr_width);
+            pos += math.cast(usize, state.size) orelse return error.Overflow;
+        }
+
+        break :blk pos;
+    };
+
+    if (build_options.enable_logging) {
+        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(macho_file)});
+    }
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+    try buffer.ensureTotalCapacityPrecise(total_size);
+    const writer = buffer.writer();
+
+    // Write magic
+    try writer.writeAll(Archive.ARMAG);
+
+    // Write symtab
+    try ar_symtab.write(format, macho_file, writer);
+
+    // Write object files
+    for (files.items) |index| {
+        const aligned = mem.alignForward(usize, buffer.items.len, ptr_width);
+        const padding = aligned - buffer.items.len;
+        if (padding > 0) {
+            try writer.writeByteNTimes(0, padding);
+        }
+        try macho_file.getFile(index).?.writeAr(format, macho_file, writer);
+    }
+
+    assert(buffer.items.len == total_size);
+
+    try macho_file.base.file.?.setEndPos(total_size);
+    try macho_file.base.file.?.pwriteAll(buffer.items, 0);
+
+    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+}
+
+fn parsePositional(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    if (try Object.isObject(path)) {
+        try parseObject(macho_file, path);
+    } else if (try fat.isFatLibrary(path)) {
+        const fat_arch = try macho_file.parseFatLibrary(path);
+        if (try Archive.isArchive(path, fat_arch)) {
+            try parseArchive(macho_file, path, fat_arch);
+        } else return error.UnknownFileType;
+    } else if (try Archive.isArchive(path, null)) {
+        try parseArchive(macho_file, path, null);
+    } else return error.UnknownFileType;
+}
+
+fn parseObject(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const file = try std.fs.cwd().openFile(path, .{});
+    errdefer file.close();
+    const handle = try macho_file.addFileHandle(file);
+    const mtime: u64 = mtime: {
+        const stat = file.stat() catch break :mtime 0;
+        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
+    };
+    const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
+    macho_file.files.set(index, .{ .object = .{
+        .path = try gpa.dupe(u8, path),
+        .file_handle = handle,
+        .mtime = mtime,
+        .index = index,
+    } });
+    try macho_file.objects.append(gpa, index);
+
+    const object = macho_file.getFile(index).?.object;
+    try object.parseAr(macho_file);
+}
+
+fn parseArchive(macho_file: *MachO, path: []const u8, fat_arch: ?fat.Arch) MachO.ParseError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+
+    const file = try std.fs.cwd().openFile(path, .{});
+    errdefer file.close();
+    const handle = try macho_file.addFileHandle(file);
+
+    var archive = Archive{};
+    defer archive.deinit(gpa);
+    try archive.parse(macho_file, path, handle, fat_arch);
+
+    var has_parse_error = false;
+    for (archive.objects.items) |extracted| {
+        const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
+        macho_file.files.set(index, .{ .object = extracted });
+        const object = &macho_file.files.items(.data)[index].object;
+        object.index = index;
+        object.parseAr(macho_file) catch |err| switch (err) {
+            error.InvalidCpuArch => has_parse_error = true,
+            else => |e| return e,
+        };
+        try macho_file.objects.append(gpa, index);
+    }
+    if (has_parse_error) return error.MalformedArchive;
+}
+
+fn markExports(macho_file: *MachO) void {
+    if (macho_file.getZigObject()) |zo| {
+        zo.asFile().markExportsRelocatable(macho_file);
+    }
+    for (macho_file.objects.items) |index| {
+        macho_file.getFile(index).?.markExportsRelocatable(macho_file);
     }
 }
 
-fn claimUnresolved(macho_file: *MachO) error{OutOfMemory}!void {
-    var objects = try std.ArrayList(File.Index).initCapacity(macho_file.base.comp.gpa, macho_file.objects.items.len + 1);
-    defer objects.deinit();
-    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(macho_file.objects.items);
-
-    for (objects.items) |index| {
-        const file = macho_file.getFile(index).?;
-
-        for (file.getSymbols(), 0..) |sym_index, i| {
-            const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = switch (file) {
-                .object => |x| x.symtab.items(.nlist)[nlist_idx],
-                .zig_object => |x| x.symtab.items(.nlist)[nlist_idx],
-                else => unreachable,
-            };
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
-
-            const sym = macho_file.getSymbol(sym_index);
-            if (sym.getFile(macho_file) != null) continue;
-
-            sym.value = 0;
-            sym.atom = 0;
-            sym.nlist_idx = nlist_idx;
-            sym.file = index;
-            sym.flags.weak_ref = nlist.weakRef();
-            sym.flags.import = true;
-            sym.visibility = .global;
-        }
+pub fn claimUnresolved(macho_file: *MachO) void {
+    if (macho_file.getZigObject()) |zo| {
+        zo.asFile().claimUnresolvedRelocatable(macho_file);
+    }
+    for (macho_file.objects.items) |index| {
+        macho_file.getFile(index).?.claimUnresolvedRelocatable(macho_file);
     }
 }
 
@@ -609,7 +811,9 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
 }
 
 const assert = std.debug.assert;
+const build_options = @import("build_options");
 const eh_frame = @import("eh_frame.zig");
+const fat = @import("fat.zig");
 const link = @import("../../link.zig");
 const load_commands = @import("load_commands.zig");
 const log = std.log.scoped(.link);
@@ -620,8 +824,10 @@ const state_log = std.log.scoped(.link_state);
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
 
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Compilation = @import("../../Compilation.zig");
 const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
+const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
