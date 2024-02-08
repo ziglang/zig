@@ -471,7 +471,13 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO) !void {
                 self.debug_strtab_dirty = false;
             }
         } else {
-            // TODO: relocatable
+            const sect_index = macho_file.debug_str_sect_index.?;
+            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != macho_file.sections.items(.header)[sect_index].size) {
+                const needed_size = @as(u32, @intCast(dw.strtab.buffer.items.len));
+                try macho_file.growSection(sect_index, needed_size);
+                try macho_file.base.file.?.pwriteAll(dw.strtab.buffer.items, macho_file.sections.items(.header)[sect_index].offset);
+                self.debug_strtab_dirty = false;
+            }
         }
     }
 

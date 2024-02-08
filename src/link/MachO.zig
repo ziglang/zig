@@ -103,6 +103,14 @@ zig_const_sect_index: ?u8 = null,
 zig_data_sect_index: ?u8 = null,
 zig_bss_sect_index: ?u8 = null,
 
+/// Tracked DWARF section headers that apply only when we emit relocatable.
+/// For executable and loadable images, DWARF is tracked directly by dSYM bundle object.
+debug_info_sect_index: ?u8 = null,
+debug_abbrev_sect_index: ?u8 = null,
+debug_str_sect_index: ?u8 = null,
+debug_aranges_sect_index: ?u8 = null,
+debug_line_sect_index: ?u8 = null,
+
 has_tlv: bool = false,
 binds_to_weak: bool = false,
 weak_defines: bool = false,
@@ -259,32 +267,11 @@ pub fn createEmpty(
             try zo.init(self);
 
             try self.initMetadata(.{
+                .emit = emit,
+                .zo = zo,
                 .symbol_count_hint = options.symbol_count_hint,
                 .program_code_size_hint = options.program_code_size_hint,
             });
-
-            if (zo.dwarf != null and !self.base.isRelocatable()) {
-                // Create dSYM bundle.
-                log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
-
-                const sep = fs.path.sep_str;
-                const d_sym_path = try std.fmt.allocPrint(
-                    arena,
-                    "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
-                    .{emit.sub_path},
-                );
-
-                var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
-                defer d_sym_bundle.close();
-
-                const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
-                    .truncate = false,
-                    .read = true,
-                });
-
-                self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
-                try self.d_sym.?.initMetadata(self);
-            }
         }
     }
 
@@ -2007,6 +1994,11 @@ pub fn sortSections(self: *MachO) !void {
         &self.eh_frame_sect_index,
         &self.unwind_info_sect_index,
         &self.objc_stubs_sect_index,
+        &self.debug_info_sect_index,
+        &self.debug_str_sect_index,
+        &self.debug_line_sect_index,
+        &self.debug_abbrev_sect_index,
+        &self.debug_info_sect_index,
     }) |maybe_index| {
         if (maybe_index.*) |*index| {
             index.* = backlinks[index.*];
@@ -3317,6 +3309,8 @@ fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64
 }
 
 const InitMetadataOptions = struct {
+    emit: Compilation.Emit,
+    zo: *ZigObject,
     symbol_count_hint: u64,
     program_code_size_hint: u64,
 };
@@ -3384,6 +3378,31 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
                 .vmsize = memsize,
                 .prot = macho.PROT.READ | macho.PROT.WRITE,
             });
+        }
+
+        if (options.zo.dwarf) |_| {
+            // Create dSYM bundle.
+            log.debug("creating {s}.dSYM bundle", .{options.emit.sub_path});
+
+            const gpa = self.base.comp.gpa;
+            const sep = fs.path.sep_str;
+            const d_sym_path = try std.fmt.allocPrint(
+                gpa,
+                "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
+                .{options.emit.sub_path},
+            );
+            defer gpa.free(d_sym_path);
+
+            var d_sym_bundle = try options.emit.directory.handle.makeOpenPath(d_sym_path, .{});
+            defer d_sym_bundle.close();
+
+            const d_sym_file = try d_sym_bundle.createFile(options.emit.sub_path, .{
+                .truncate = false,
+                .read = true,
+            });
+
+            self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
+            try self.d_sym.?.initMetadata(self);
         }
     }
 
@@ -3460,6 +3479,44 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             try allocSect(self, self.zig_bss_sect_index.?, 1024);
         } else {
             appendSect(self, self.zig_bss_sect_index.?, self.zig_bss_seg_index.?);
+        }
+    }
+
+    if (self.base.isRelocatable()) {
+        {
+            self.debug_str_sect_index = try self.addSection("__DWARF", "__debug_str", .{
+                .flags = macho.S_ATTR_DEBUG,
+            });
+            try allocSect(self, self.debug_str_sect_index.?, 200);
+        }
+
+        {
+            self.debug_info_sect_index = try self.addSection("__DWARF", "__debug_info", .{
+                .flags = macho.S_ATTR_DEBUG,
+            });
+            try allocSect(self, self.debug_info_sect_index.?, 200);
+        }
+
+        {
+            self.debug_abbrev_sect_index = try self.addSection("__DWARF", "__debug_abbrev", .{
+                .flags = macho.S_ATTR_DEBUG,
+            });
+            try allocSect(self, self.debug_abbrev_sect_index.?, 128);
+        }
+
+        {
+            self.debug_aranges_sect_index = try self.addSection("__DWARF", "__debug_aranges", .{
+                .alignment = 4,
+                .flags = macho.S_ATTR_DEBUG,
+            });
+            try allocSect(self, self.debug_aranges_sect_index.?, 160);
+        }
+
+        {
+            self.debug_line_sect_index = try self.addSection("__DWARF", "__debug_line", .{
+                .flags = macho.S_ATTR_DEBUG,
+            });
+            try allocSect(self, self.debug_line_sect_index.?, 250);
         }
     }
 }
@@ -3549,6 +3606,22 @@ fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void 
     sect.size = needed_size;
 }
 
+pub fn markDirty(self: *MachO, sect_index: u8) void {
+    if (self.getZigObject()) |zo| {
+        if (self.debug_info_sect_index.? == sect_index) {
+            zo.debug_info_header_dirty = true;
+        } else if (self.debug_line_sect_index.? == sect_index) {
+            zo.debug_line_header_dirty = true;
+        } else if (self.debug_abbrev_sect_index.? == sect_index) {
+            zo.debug_abbrev_dirty = true;
+        } else if (self.debug_str_sect_index.? == sect_index) {
+            zo.debug_strtab_dirty = true;
+        } else if (self.debug_aranges_sect_index.? == sect_index) {
+            zo.debug_aranges_dirty = true;
+        }
+    }
+}
+
 pub fn getTarget(self: MachO) std.Target {
     return self.base.comp.root_mod.resolved_target.result;
 }
@@ -3616,6 +3689,21 @@ pub fn isZigSection(self: MachO, sect_id: u8) bool {
         self.zig_const_sect_index,
         self.zig_data_sect_index,
         self.zig_bss_sect_index,
+    }) |maybe_index| {
+        if (maybe_index) |index| {
+            if (index == sect_id) return true;
+        }
+    }
+    return false;
+}
+
+pub fn isDebugSection(self: MachO, sect_id: u8) bool {
+    inline for (&[_]?u8{
+        self.debug_info_sect_index,
+        self.debug_abbrev_sect_index,
+        self.debug_str_sect_index,
+        self.debug_aranges_sect_index,
+        self.debug_line_sect_index,
     }) |maybe_index| {
         if (maybe_index) |index| {
             if (index == sect_id) return true;
