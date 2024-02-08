@@ -3,9 +3,6 @@
 pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
 
-    const default_target = b.resolveTargetQuery(.{
-        .os_tag = .macos,
-    });
     const x86_64_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .macos,
@@ -14,6 +11,13 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .cpu_arch = .aarch64,
         .os_tag = .macos,
     });
+
+    const default_target = switch (builtin.cpu.arch) {
+        .x86_64, .aarch64 => b.resolveTargetQuery(.{
+            .os_tag = .macos,
+        }),
+        else => aarch64_target,
+    };
 
     // Exercise linker with self-hosted backend (no LLVM)
     macho_step.dependOn(testHelloZig(b, .{ .use_llvm = false, .target = x86_64_target }));
