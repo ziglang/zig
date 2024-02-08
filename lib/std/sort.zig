@@ -413,20 +413,19 @@ pub fn binarySearch(
     context: anytype,
     comptime compareFn: fn (context: @TypeOf(context), key: @TypeOf(key), mid_item: T) math.Order,
 ) ?usize {
-    var left: usize = 0;
-    var right: usize = items.len;
-
-    while (left < right) {
-        // Avoid overflowing in the midpoint calculation
-        const mid = left + (right - left) / 2;
-        // Compare the key with the midpoint element
-        switch (compareFn(context, key, items[mid])) {
-            .eq => return mid,
-            .gt => left = mid + 1,
-            .lt => right = mid,
+    // This implementation is based on this article: https://orlp.net/blog/bitwise-binary-search/
+    var b: usize = 0;
+    var bit = std.math.floorPowerOfTwo(usize, items.len);
+    while (bit != 0) : (bit >>= 1) {
+        const i: usize = (b | bit) - 1;
+        if (i < items.len) {
+            switch (compareFn(context, key, items[i])) {
+                .gt => b |= bit,
+                .eq => return i,
+                .lt => {},
+            }
         }
     }
-
     return null;
 }
 
