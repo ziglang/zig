@@ -3205,7 +3205,7 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
     for (self.sections.items(.header)) |header| {
         if (header.isZerofill()) continue;
         const increased_size = padToIdeal(header.size);
-        const test_end = header.offset + increased_size;
+        const test_end = header.offset +| increased_size;
         if (end > header.offset and start < test_end) {
             return test_end;
         }
@@ -3233,7 +3233,7 @@ fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
 
     for (self.sections.items(.header)) |header| {
         const increased_size = padToIdeal(header.size);
-        const test_end = header.addr + increased_size;
+        const test_end = header.addr +| increased_size;
         if (end > header.addr and start < test_end) {
             return test_end;
         }
@@ -3250,7 +3250,7 @@ fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
     return null;
 }
 
-fn allocatedSize(self: *MachO, start: u64) u64 {
+pub fn allocatedSize(self: *MachO, start: u64) u64 {
     if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
     for (self.sections.items(.header)) |header| {
@@ -3264,12 +3264,19 @@ fn allocatedSize(self: *MachO, start: u64) u64 {
     return min_pos - start;
 }
 
-fn allocatedSizeVirtual(self: *MachO, start: u64) u64 {
+pub fn allocatedSizeVirtual(self: *MachO, start: u64) u64 {
     if (start == 0) return 0;
     var min_pos: u64 = std.math.maxInt(u64);
-    for (self.segments.items) |seg| {
-        if (seg.vmaddr <= start) continue;
-        if (seg.vmaddr < min_pos) min_pos = seg.vmaddr;
+    if (self.base.isRelocatable()) {
+        for (self.sections.items(.header)) |header| {
+            if (header.addr <= start) continue;
+            if (header.addr < min_pos) min_pos = header.addr;
+        }
+    } else {
+        for (self.segments.items) |seg| {
+            if (seg.vmaddr <= start) continue;
+            if (seg.vmaddr < min_pos) min_pos = seg.vmaddr;
+        }
     }
     return min_pos - start;
 }
@@ -3482,7 +3489,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
     }
 
-    if (self.base.isRelocatable()) {
+    if (self.base.isRelocatable() and options.zo.dwarf != null) {
         {
             self.debug_str_sect_index = try self.addSection("__DWARF", "__debug_str", .{
                 .flags = macho.S_ATTR_DEBUG,

@@ -403,6 +403,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
             if (!atom.flags.alive) continue;
             const header = &macho_file.sections.items(.header)[atom.out_n_sect];
             if (!macho_file.isZigSection(atom.out_n_sect)) continue;
+            if (!macho_file.isDebugSection(atom.out_n_sect)) continue;
             header.nreloc += atom.calcNumRelocs(macho_file);
         }
     }
@@ -540,6 +541,7 @@ fn writeAtoms(macho_file: *MachO) !void {
         if (atoms.items.len == 0) continue;
         if (header.isZerofill()) continue;
         if (macho_file.isZigSection(@intCast(i))) continue;
+        if (macho_file.isDebugSection(@intCast(i))) continue;
 
         const size = math.cast(usize, header.size) orelse return error.Overflow;
         const code = try gpa.alloc(u8, size);
@@ -581,6 +583,7 @@ fn writeAtoms(macho_file: *MachO) !void {
         for (macho_file.sections.items(.header), 0..) |header, n_sect| {
             if (header.isZerofill()) continue;
             if (!macho_file.isZigSection(@intCast(n_sect))) continue;
+            if (!macho_file.isDebugSection(@intCast(n_sect))) continue;
             const gop = try relocs.getOrPut(@intCast(n_sect));
             if (gop.found_existing) continue;
             gop.value_ptr.* = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
@@ -592,6 +595,7 @@ fn writeAtoms(macho_file: *MachO) !void {
             const header = macho_file.sections.items(.header)[atom.out_n_sect];
             if (header.isZerofill()) continue;
             if (!macho_file.isZigSection(atom.out_n_sect)) continue;
+            if (!macho_file.isDebugSection(atom.out_n_sect)) continue;
             if (atom.getRelocs(macho_file).len == 0) continue;
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
             const code = try gpa.alloc(u8, atom_size);

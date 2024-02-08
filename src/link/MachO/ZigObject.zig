@@ -52,11 +52,11 @@ dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
-debug_strtab_dirty: bool = true,
-debug_abbrev_dirty: bool = true,
-debug_aranges_dirty: bool = true,
-debug_info_header_dirty: bool = true,
-debug_line_header_dirty: bool = true,
+debug_strtab_dirty: bool = false,
+debug_abbrev_dirty: bool = false,
+debug_aranges_dirty: bool = false,
+debug_info_header_dirty: bool = false,
+debug_line_header_dirty: bool = false,
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
     const comp = macho_file.base.comp;
@@ -70,6 +70,11 @@ pub fn init(self: *ZigObject, macho_file: *MachO) !void {
         .dwarf => |v| {
             assert(v == .@"32");
             self.dwarf = Dwarf.init(&macho_file.base, .dwarf32);
+            self.debug_strtab_dirty = true;
+            self.debug_abbrev_dirty = true;
+            self.debug_aranges_dirty = true;
+            self.debug_info_header_dirty = true;
+            self.debug_line_header_dirty = true;
         },
         .code_view => unreachable,
     }
