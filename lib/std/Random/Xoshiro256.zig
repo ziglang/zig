@@ -3,7 +3,6 @@
 //! PRNG
 
 const std = @import("std");
-const Random = std.rand.Random;
 const math = std.math;
 const Xoshiro256 = @This();
 
@@ -18,8 +17,8 @@ pub fn init(init_s: u64) Xoshiro256 {
     return x;
 }
 
-pub fn random(self: *Xoshiro256) Random {
-    return Random.init(self, fill);
+pub fn random(self: *Xoshiro256) std.Random {
+    return std.Random.init(self, fill);
 }
 
 pub fn next(self: *Xoshiro256) u64 {
@@ -57,7 +56,7 @@ pub fn jump(self: *Xoshiro256) void {
 
 pub fn seed(self: *Xoshiro256, init_s: u64) void {
     // Xoshiro requires 256-bits of seed.
-    var gen = std.rand.SplitMix64.init(init_s);
+    var gen = std.Random.SplitMix64.init(init_s);
 
     self.s[0] = gen.next();
     self.s[1] = gen.next();

@@ -5,7 +5,6 @@
 
 const std = @import("std");
 const mem = std.mem;
-const Random = std.rand.Random;
 const Self = @This();
 
 const Cipher = std.crypto.stream.chacha.ChaCha8IETF;
@@ -53,9 +52,9 @@ pub fn addEntropy(self: *Self, bytes: []const u8) void {
     self.refill();
 }
 
-/// Returns a `std.rand.Random` structure backed by the current RNG.
-pub fn random(self: *Self) Random {
-    return Random.init(self, fill);
+/// Returns a `std.Random` structure backed by the current RNG.
+pub fn random(self: *Self) std.Random {
+    return std.Random.init(self, fill);
 }
 
 // Refills the buffer with random bytes, overwriting the previous key.

@@ -380,7 +380,7 @@ pub fn shuffleWithIndex(r: Random, comptime T: type, buf: []T, comptime Index: t
 ///
 /// This is useful for selecting an item from a slice where weights are not equal.
 /// `T` must be a numeric type capable of holding the sum of `proportions`.
-pub fn weightedIndex(r: std.rand.Random, comptime T: type, proportions: []const T) usize {
+pub fn weightedIndex(r: Random, comptime T: type, proportions: []const T) usize {
     // This implementation works by summing the proportions and picking a
     // random point in [0, sum).  We then loop over the proportions,
     // accumulating until our accumulator is greater than the random point.

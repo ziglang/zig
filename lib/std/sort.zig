@@ -379,7 +379,7 @@ test "sort with context in the middle of a slice" {
 }
 
 test "sort fuzz testing" {
-    var prng = std.rand.DefaultPrng.init(0x12345678);
+    var prng = std.Random.DefaultPrng.init(0x12345678);
     const random = prng.random();
     const test_case_count = 10;
 

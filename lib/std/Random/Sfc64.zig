@@ -3,7 +3,6 @@
 //! See http://pracrand.sourceforge.net/
 
 const std = @import("std");
-const Random = std.rand.Random;
 const math = std.math;
 const Sfc64 = @This();
 
@@ -23,8 +22,8 @@ pub fn init(init_s: u64) Sfc64 {
     return x;
 }
 
-pub fn random(self: *Sfc64) Random {
-    return Random.init(self, fill);
+pub fn random(self: *Sfc64) std.Random {
+    return std.Random.init(self, fill);
 }
 
 fn next(self: *Sfc64) u64 {

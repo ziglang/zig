@@ -4,7 +4,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const time = std.time;
 const Timer = time.Timer;
-const rand = std.rand;
+const Random = std.Random;
 
 const KiB = 1024;
 const MiB = 1024 * KiB;
@@ -19,32 +19,32 @@ const Rng = struct {
 
 const prngs = [_]Rng{
     Rng{
-        .ty = rand.Isaac64,
+        .ty = Random.Isaac64,
         .name = "isaac64",
         .init_u64 = 0,
     },
     Rng{
-        .ty = rand.Pcg,
+        .ty = Random.Pcg,
         .name = "pcg",
         .init_u64 = 0,
     },
     Rng{
-        .ty = rand.RomuTrio,
+        .ty = Random.RomuTrio,
         .name = "romutrio",
         .init_u64 = 0,
     },
     Rng{
-        .ty = std.rand.Sfc64,
+        .ty = Random.Sfc64,
         .name = "sfc64",
         .init_u64 = 0,
     },
     Rng{
-        .ty = std.rand.Xoroshiro128,
+        .ty = Random.Xoroshiro128,
         .name = "xoroshiro128",
         .init_u64 = 0,
     },
     Rng{
-        .ty = std.rand.Xoshiro256,
+        .ty = Random.Xoshiro256,
         .name = "xoshiro256",
         .init_u64 = 0,
     },
@@ -52,12 +52,12 @@ const prngs = [_]Rng{
 
 const csprngs = [_]Rng{
     Rng{
-        .ty = rand.Ascon,
+        .ty = Random.Ascon,
         .name = "ascon",
         .init_u8s = &[_]u8{0} ** 32,
     },
     Rng{
-        .ty = rand.ChaCha,
+        .ty = Random.ChaCha,
         .name = "chacha",
         .init_u8s = &[_]u8{0} ** 32,
     },

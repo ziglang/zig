@@ -132,7 +132,7 @@ test "__udivei4/__umodei4" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
-    const RndGen = std.rand.DefaultPrng;
+    const RndGen = std.Random.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: usize = 10000;
     while (i > 0) : (i -= 1) {
