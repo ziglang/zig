@@ -437,18 +437,20 @@ fn calcCompactUnwindSize(macho_file: *MachO, sect_index: u8) void {
 
 fn allocateSections(macho_file: *MachO) !void {
     const slice = macho_file.sections.slice();
-
-    const last_index = for (0..slice.items(.header).len) |i| {
-        if (macho_file.isZigSection(@intCast(i))) break i;
-    } else slice.items(.header).len;
-
-    for (slice.items(.header)[0..last_index]) |*header| {
+    for (slice.items(.header)) |*header| {
+        const needed_size = header.size;
+        header.size = 0;
         const alignment = try math.powi(u32, 2, header.@"align");
         if (!header.isZerofill()) {
-            header.offset = math.cast(u32, macho_file.findFreeSpace(header.size, alignment)) orelse
-                return error.Overflow;
+            if (needed_size > macho_file.allocatedSize(header.offset)) {
+                header.offset = math.cast(u32, macho_file.findFreeSpace(needed_size, alignment)) orelse
+                    return error.Overflow;
+            }
         }
-        header.addr = macho_file.findFreeSpaceVirtual(header.size, alignment);
+        if (needed_size > macho_file.allocatedSizeVirtual(header.addr)) {
+            header.addr = macho_file.findFreeSpaceVirtual(needed_size, alignment);
+        }
+        header.size = needed_size;
     }
 }
 

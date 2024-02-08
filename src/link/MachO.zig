@@ -3202,20 +3202,22 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
-    for (self.sections.items(.header)) |header| {
-        if (header.isZerofill()) continue;
-        const increased_size = padToIdeal(header.size);
-        const test_end = header.offset +| increased_size;
-        if (end > header.offset and start < test_end) {
-            return test_end;
+    if (self.base.isRelocatable()) {
+        for (self.sections.items(.header)) |header| {
+            if (header.isZerofill()) continue;
+            const increased_size = padToIdeal(header.size);
+            const test_end = header.offset +| increased_size;
+            if (end > header.offset and start < test_end) {
+                return test_end;
+            }
         }
-    }
-
-    for (self.segments.items) |seg| {
-        const increased_size = padToIdeal(seg.filesize);
-        const test_end = seg.fileoff +| increased_size;
-        if (end > seg.fileoff and start < test_end) {
-            return test_end;
+    } else {
+        for (self.segments.items) |seg| {
+            const increased_size = padToIdeal(seg.filesize);
+            const test_end = seg.fileoff +| increased_size;
+            if (end > seg.fileoff and start < test_end) {
+                return test_end;
+            }
         }
     }
 
@@ -3223,27 +3225,29 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
 }
 
 fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
-    // Conservatively commit one page size as reserved space for the headers as we
-    // expect it to grow and everything else be moved in flush anyhow.
-    const header_size = self.getPageSize();
-    if (start < header_size)
-        return header_size;
-
     const end = start + padToIdeal(size);
 
-    for (self.sections.items(.header)) |header| {
-        const increased_size = padToIdeal(header.size);
-        const test_end = header.addr +| increased_size;
-        if (end > header.addr and start < test_end) {
-            return test_end;
+    if (self.base.isRelocatable()) {
+        for (self.sections.items(.header)) |header| {
+            const increased_size = padToIdeal(header.size);
+            const test_end = header.addr +| increased_size;
+            if (end > header.addr and start < test_end) {
+                return test_end;
+            }
         }
-    }
+    } else {
+        // Conservatively commit one page size as reserved space for the headers as we
+        // expect it to grow and everything else be moved in flush anyhow.
+        const header_size = self.getPageSize();
+        if (start < header_size)
+            return header_size;
 
-    for (self.segments.items) |seg| {
-        const increased_size = padToIdeal(seg.vmsize);
-        const test_end = seg.vmaddr +| increased_size;
-        if (end > seg.vmaddr and start < test_end) {
-            return test_end;
+        for (self.segments.items) |seg| {
+            const increased_size = padToIdeal(seg.vmsize);
+            const test_end = seg.vmaddr +| increased_size;
+            if (end > seg.vmaddr and start < test_end) {
+                return test_end;
+            }
         }
     }
 
@@ -3252,21 +3256,29 @@ fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
 
 pub fn allocatedSize(self: *MachO, start: u64) u64 {
     if (start == 0) return 0;
+
     var min_pos: u64 = std.math.maxInt(u64);
-    for (self.sections.items(.header)) |header| {
-        if (header.offset <= start) continue;
-        if (header.offset < min_pos) min_pos = header.offset;
+
+    if (self.base.isRelocatable()) {
+        for (self.sections.items(.header)) |header| {
+            if (header.offset <= start) continue;
+            if (header.offset < min_pos) min_pos = header.offset;
+        }
+    } else {
+        for (self.segments.items) |seg| {
+            if (seg.fileoff <= start) continue;
+            if (seg.fileoff < min_pos) min_pos = seg.fileoff;
+        }
     }
-    for (self.segments.items) |seg| {
-        if (seg.fileoff <= start) continue;
-        if (seg.fileoff < min_pos) min_pos = seg.fileoff;
-    }
+
     return min_pos - start;
 }
 
 pub fn allocatedSizeVirtual(self: *MachO, start: u64) u64 {
     if (start == 0) return 0;
+
     var min_pos: u64 = std.math.maxInt(u64);
+
     if (self.base.isRelocatable()) {
         for (self.sections.items(.header)) |header| {
             if (header.addr <= start) continue;
