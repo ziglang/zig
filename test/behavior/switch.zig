@@ -410,8 +410,8 @@ test "switch on integer with else capturing expr" {
             var x: i32 = 5;
             _ = &x;
             switch (x + 10) {
-                14 => @panic("fail"),
-                16 => @panic("fail"),
+                14 => return error.TestFailed,
+                16 => return error.TestFailed,
                 else => |e| try expect(e == 15),
             }
         }
@@ -522,7 +522,7 @@ test "switch with null and T peer types and inferred result location type" {
                 else => null,
             }) |v| {
                 _ = v;
-                @panic("fail");
+                return error.TestFailed;
             }
         }
     };
@@ -548,12 +548,12 @@ test "switch prongs with cases with identical payload types" {
         fn doTheSwitch1(u: Union) !void {
             switch (u) {
                 .A, .C => |e| {
-                    try expect(@TypeOf(e) == usize);
+                    comptime assert(@TypeOf(e) == usize);
                     try expect(e == 8);
                 },
                 .B => |e| {
                     _ = e;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
         }
@@ -561,10 +561,10 @@ test "switch prongs with cases with identical payload types" {
             switch (u) {
                 .A, .C => |e| {
                     _ = e;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
                 .B => |e| {
-                    try expect(@TypeOf(e) == isize);
+                    comptime assert(@TypeOf(e) == isize);
                     try expect(e == -8);
                 },
             }
