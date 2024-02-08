@@ -3223,6 +3223,12 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
 }
 
 fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
+    // Conservatively commit one page size as reserved space for the headers as we
+    // expect it to grow and everything else be moved in flush anyhow.
+    const header_size = self.getPageSize();
+    if (start < header_size)
+        return header_size;
+
     const end = start + padToIdeal(size);
 
     if (self.base.isRelocatable()) {
@@ -3234,12 +3240,6 @@ fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
             }
         }
     } else {
-        // Conservatively commit one page size as reserved space for the headers as we
-        // expect it to grow and everything else be moved in flush anyhow.
-        const header_size = self.getPageSize();
-        if (start < header_size)
-            return header_size;
-
         for (self.segments.items) |seg| {
             const increased_size = padToIdeal(seg.vmsize);
             const test_end = seg.vmaddr +| increased_size;
