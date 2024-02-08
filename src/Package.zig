@@ -81,7 +81,7 @@ pub const Path = struct {
                 p.sub_path, sub_path,
             }) catch return error.NameTooLong;
         };
-        return p.root_dir.handle.statFile(joined_path);
+        return p.root_dir.handle.statFile(joined_path, .{});
     }
 
     pub fn atomicFile(

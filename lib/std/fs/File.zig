@@ -122,6 +122,8 @@ pub const OpenFlags = struct {
     /// controlling TTY for the current process.
     allow_ctty: bool = false,
 
+    follow_symlinks: bool = true,
+
     pub fn isRead(self: OpenFlags) bool {
         return self.mode != .write_only;
     }

@@ -31,6 +31,8 @@ pub const Options = struct {
     /// However if the files were not present at all, then
     /// `@import("test.zig")` would be a compile error.
     blank_extensions: []const []const u8 = &.{},
+    /// Indicates whether symbolic links should be created or not.
+    create_sym_links: bool = true,
 
     fn dupe(self: Options, b: *std.Build) Options {
         return .{
@@ -40,6 +42,7 @@ pub const Options = struct {
             .exclude_extensions = b.dupeStrings(self.exclude_extensions),
             .include_extensions = if (self.include_extensions) |incs| b.dupeStrings(incs) else null,
             .blank_extensions = b.dupeStrings(self.blank_extensions),
+            .create_sym_links = self.create_sym_links,
         };
     }
 };
@@ -101,6 +104,40 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
         switch (entry.kind) {
             .directory => try cwd.makePath(dest_path),
+            .sym_link => {
+                if (!self.options.create_sym_links)
+                    continue;
+
+                var buffer: [fs.MAX_NAME_BYTES]u8 = undefined;
+                const target_path = try entry.dir.readLink(entry.basename, buffer[0..]);
+
+                while (true) {
+                    cwd.symLink(target_path, dest_path, .{}) catch |err| switch (err) {
+                        error.PathAlreadyExists => {
+                            const st = try cwd.statFile(dest_path, .{ .follow_symlinks = false });
+
+                            switch (st.kind) {
+                                .directory => try cwd.deleteDir(dest_path),
+                                .file, .sym_link => try cwd.deleteFile(dest_path),
+                                else => {
+                                    return step.fail("unexpected file type in '{s}': '{}'", .{
+                                        dest_path, st.kind,
+                                    });
+                                },
+                            }
+
+                            continue;
+                        },
+                        else => {
+                            return step.fail("unable to create symbolic link '{s}' to '{s}': {s}", .{
+                                dest_path, target_path, @errorName(err),
+                            });
+                        },
+                    };
+
+                    break;
+                }
+            },
             .file => {
                 for (self.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
@@ -108,6 +145,19 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         continue :next_entry;
                     }
                 }
+
+                if (cwd.statFile(dest_path, .{ .follow_symlinks = false })) |stat| {
+                    switch (stat.kind) {
+                        .directory => try cwd.deleteDir(dest_path),
+                        .sym_link => try cwd.deleteFile(dest_path),
+                        .file => {},
+                        else => {
+                            return step.fail("unexpected file type in '{s}': '{}'", .{
+                                dest_path, stat.kind,
+                            });
+                        },
+                    }
+                } else |_| {}
 
                 const prev_status = fs.Dir.updateFile(
                     src_builder.build_root.handle,
