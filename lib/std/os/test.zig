@@ -87,6 +87,7 @@ test "chdir smoke test" {
 
 test "open smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
 
@@ -109,21 +110,21 @@ test "open smoke test" {
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.PathAlreadyExists, os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode));
 
-    // Try opening without `O.EXCL` flag.
+    // Try opening without `EXCL` flag.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true }, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.NotDir, os.open(file_path, os.O.RDWR | os.O.DIRECTORY, mode));
+    try expectError(error.NotDir, os.open(file_path, .{ .ACCMODE = .RDWR, .DIRECTORY = true }, mode));
 
     // Create some directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
@@ -131,16 +132,17 @@ test "open smoke test" {
 
     // Open dir using `open`
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    fd = try os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
     os.close(fd);
 
     // Try opening as file which should fail.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try expectError(error.IsDir, os.open(file_path, os.O.RDWR, mode));
+    try expectError(error.IsDir, os.open(file_path, .{ .ACCMODE = .RDWR }, mode));
 }
 
 test "openat smoke test" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
 
@@ -151,28 +153,47 @@ test "openat smoke test" {
     const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
 
     // Create some file using `openat`.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .CREAT = true,
+        .EXCL = true,
+    }), mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT | os.O.EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .CREAT = true,
+        .EXCL = true,
+    }), mode));
 
-    // Try opening without `O.EXCL` flag.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT, mode);
+    // Try opening without `EXCL` flag.
+    fd = try os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .CREAT = true,
+    }), mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
-    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.DIRECTORY, mode));
+    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .DIRECTORY = true,
+    }), mode));
 
     // Create some directory
     try os.mkdirat(tmp.dir.fd, "some_dir", mode);
 
     // Open dir using `open`
-    fd = try os.openat(tmp.dir.fd, "some_dir", os.O.RDONLY | os.O.DIRECTORY, mode);
+    fd = try os.openat(tmp.dir.fd, "some_dir", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDONLY,
+        .DIRECTORY = true,
+    }), mode);
     os.close(fd);
 
     // Try opening as file which should fail.
-    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O.RDWR, mode));
+    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+    }), mode));
 }
 
 test "symlink with relative paths" {
@@ -688,7 +709,7 @@ test "fcntl" {
         tmp.dir.deleteFile(test_out_file) catch {};
     }
 
-    // Note: The test assumes createFile opens the file with O.CLOEXEC
+    // Note: The test assumes createFile opens the file with CLOEXEC
     {
         const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) != 0);
@@ -987,6 +1008,7 @@ test "POSIX file locking with fcntl" {
 
 test "rename smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1007,7 +1029,7 @@ test "rename smoke test" {
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
     os.close(fd);
 
     // Rename the file
@@ -1016,12 +1038,12 @@ test "rename smoke test" {
 
     // Try opening renamed file
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
-    fd = try os.open(file_path, os.O.RDWR, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR }, mode);
     os.close(fd);
 
     // Try opening original file - should fail with error.FileNotFound
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.FileNotFound, os.open(file_path, os.O.RDWR, mode));
+    try expectError(error.FileNotFound, os.open(file_path, .{ .ACCMODE = .RDWR }, mode));
 
     // Create some directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
@@ -1033,16 +1055,17 @@ test "rename smoke test" {
 
     // Try opening renamed directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
-    fd = try os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
     os.close(fd);
 
     // Try opening original directory - should fail with error.FileNotFound
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try expectError(error.FileNotFound, os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode));
+    try expectError(error.FileNotFound, os.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode));
 }
 
 test "access smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1063,7 +1086,7 @@ test "access smoke test" {
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
     os.close(fd);
 
     // Try to access() the file
@@ -1088,16 +1111,15 @@ test "access smoke test" {
 }
 
 test "timerfd" {
-    if (native_os != .linux)
-        return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
 
     const linux = os.linux;
-    const tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
+    const tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, .{ .CLOEXEC = true });
     defer os.close(tfd);
 
     // Fire event 10_000_000ns = 10ms after the os.timerfd_settime call.
     var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10 * (1000 * 1000) } };
-    try os.timerfd_settime(tfd, 0, &sit, null);
+    try os.timerfd_settime(tfd, .{}, &sit, null);
 
     var fds: [1]os.pollfd = .{.{ .fd = tfd, .events = os.linux.POLL.IN, .revents = 0 }};
     try expectEqual(@as(usize, 1), try os.poll(&fds, -1)); // -1 => infinite waiting
@@ -1232,7 +1254,7 @@ test "fchmodat smoke test" {
     const fd = try os.openat(
         tmp.dir.fd,
         "regfile",
-        os.O.WRONLY | os.O.CREAT | os.O.EXCL | os.O.TRUNC,
+        .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .TRUNC = true },
         0o644,
     );
     os.close(fd);

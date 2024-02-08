@@ -3,7 +3,6 @@ const maxInt = std.math.maxInt;
 const emscripten = std.os.emscripten;
 
 pub const AF = emscripten.AF;
-pub const AT = emscripten.AT;
 pub const CLOCK = emscripten.CLOCK;
 pub const CPU_COUNT = emscripten.CPU_COUNT;
 pub const E = emscripten.E;
@@ -19,7 +18,6 @@ pub const MADV = emscripten.MADV;
 pub const MSF = emscripten.MSF;
 pub const MSG = emscripten.MSG;
 pub const NAME_MAX = emscripten.NAME_MAX;
-pub const O = emscripten.O;
 pub const PATH_MAX = emscripten.PATH_MAX;
 pub const POLL = emscripten.POLL;
 pub const PROT = emscripten.PROT;
@@ -159,19 +157,6 @@ pub const pthread_attr_t = extern struct {
     __align: c_long,
 };
 
-pub const pthread_mutex_t = extern struct {
-    size: [__SIZEOF_PTHREAD_MUTEX_T]u8 align(4) = [_]u8{0} ** __SIZEOF_PTHREAD_MUTEX_T,
-};
-pub const pthread_cond_t = extern struct {
-    size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
-};
-pub const pthread_rwlock_t = extern struct {
-    size: [32]u8 align(4) = [_]u8{0} ** 32,
-};
-
-const __SIZEOF_PTHREAD_COND_T = 48;
-const __SIZEOF_PTHREAD_MUTEX_T = 24;
-
 pub const pthread_key_t = c_uint;
 pub const sem_t = extern struct {
     __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),
@@ -189,9 +174,9 @@ pub const RTLD = struct {
 };
 
 pub const dirent = struct {
-    d_ino: c_uint,
-    d_off: c_uint,
-    d_reclen: c_ushort,
-    d_type: u8,
-    d_name: [256]u8,
+    ino: c_uint,
+    off: c_uint,
+    reclen: c_ushort,
+    type: u8,
+    name: [256]u8,
 };

@@ -354,6 +354,10 @@ pub const DeflateFast = struct {
 };
 
 test "best speed match 1/3" {
+    if (@import("builtin").os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/18885
+        return error.SkipZigTest;
+    }
     const expectEqual = std.testing.expectEqual;
 
     {
@@ -450,6 +454,10 @@ test "best speed match 1/3" {
 }
 
 test "best speed match 2/3" {
+    if (@import("builtin").os.tag == .wasi) {
+        // https://github.com/ziglang/zig/issues/18885
+        return error.SkipZigTest;
+    }
     const expectEqual = std.testing.expectEqual;
 
     {

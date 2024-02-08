@@ -19,15 +19,6 @@ pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
-pub const pthread_mutex_t = extern struct {
-    inner: ?*anyopaque = null,
-};
-pub const pthread_cond_t = extern struct {
-    inner: ?*anyopaque = null,
-};
-pub const pthread_rwlock_t = extern struct {
-    ptr: ?*anyopaque = null,
-};
 pub const pthread_spinlock_t = extern struct {
     inner: ?*anyopaque = null,
 };
@@ -336,17 +327,13 @@ pub const timezone = extern struct {
 pub const MAXNAMLEN = 255;
 
 pub const dirent = extern struct {
-    d_fileno: ino_t,
-    d_off: off_t,
-    d_reclen: u16,
-    d_type: u8,
-    d_namlen: u8,
-    __d_padding: [4]u8,
-    d_name: [MAXNAMLEN + 1]u8,
-
-    pub fn reclen(self: dirent) u16 {
-        return self.d_reclen;
-    }
+    fileno: ino_t,
+    off: off_t,
+    reclen: u16,
+    type: u8,
+    namlen: u8,
+    _: u32 align(1) = 0,
+    name: [MAXNAMLEN + 1]u8,
 };
 
 pub const in_port_t = u16;
@@ -488,47 +475,6 @@ pub const F_OK = 0; // test for existence of file
 pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
-
-pub const O = struct {
-    /// open for reading only
-    pub const RDONLY = 0x00000000;
-    /// open for writing only
-    pub const WRONLY = 0x00000001;
-    /// open for reading and writing
-    pub const RDWR = 0x00000002;
-    /// mask for above modes
-    pub const ACCMODE = 0x00000003;
-    /// no delay
-    pub const NONBLOCK = 0x00000004;
-    /// set append mode
-    pub const APPEND = 0x00000008;
-    /// open with shared file lock
-    pub const SHLOCK = 0x00000010;
-    /// open with exclusive file lock
-    pub const EXLOCK = 0x00000020;
-    /// signal pgrp when data ready
-    pub const ASYNC = 0x00000040;
-    /// synchronous writes
-    pub const SYNC = 0x00000080;
-    /// don't follow symlinks on the last
-    pub const NOFOLLOW = 0x00000100;
-    /// create if nonexistent
-    pub const CREAT = 0x00000200;
-    /// truncate to zero length
-    pub const TRUNC = 0x00000400;
-    /// error if already exists
-    pub const EXCL = 0x00000800;
-    /// don't assign controlling terminal
-    pub const NOCTTY = 0x00008000;
-    /// write: I/O data completion
-    pub const DSYNC = SYNC;
-    /// read: I/O completion as for write
-    pub const RSYNC = SYNC;
-    /// fail if not a directory
-    pub const DIRECTORY = 0x20000;
-    /// set close on exec
-    pub const CLOEXEC = 0x10000;
-};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -1310,21 +1256,6 @@ pub const S = struct {
     pub fn ISSOCK(m: u32) bool {
         return m & IFMT == IFSOCK;
     }
-};
-
-pub const AT = struct {
-    /// Magic value that specify the use of the current working directory
-    /// to determine the target of relative file paths in the openat() and
-    /// similar syscalls.
-    pub const FDCWD = -100;
-    /// Check access using effective user and group ID
-    pub const EACCESS = 0x01;
-    /// Do not follow symbolic links
-    pub const SYMLINK_NOFOLLOW = 0x02;
-    /// Follow symbolic link
-    pub const SYMLINK_FOLLOW = 0x04;
-    /// Remove directory instead of file
-    pub const REMOVEDIR = 0x08;
 };
 
 pub const HOST_NAME_MAX = 255;

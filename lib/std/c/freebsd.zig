@@ -44,16 +44,6 @@ pub extern "c" fn sendfile(
 pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
-pub const pthread_mutex_t = extern struct {
-    inner: ?*anyopaque = null,
-};
-pub const pthread_cond_t = extern struct {
-    inner: ?*anyopaque = null,
-};
-pub const pthread_rwlock_t = extern struct {
-    ptr: ?*anyopaque = null,
-};
-
 pub const pthread_attr_t = extern struct {
     inner: ?*anyopaque = null,
 };
@@ -376,23 +366,19 @@ pub const timeval = extern struct {
 
 pub const dirent = extern struct {
     /// File number of entry.
-    d_fileno: ino_t,
+    fileno: ino_t,
     /// Directory offset of entry.
-    d_off: off_t,
+    off: off_t,
     /// Length of this record.
-    d_reclen: u16,
+    reclen: u16,
     /// File type, one of DT_.
-    d_type: u8,
-    _d_pad0: u8,
-    /// Length of the d_name member.
-    d_namlen: u16,
-    _d_pad1: u16,
+    type: u8,
+    pad0: u8 = 0,
+    /// Length of the name member.
+    namlen: u16,
+    pad1: u16 = 0,
     /// Name of entry.
-    d_name: [255:0]u8,
-
-    pub fn reclen(self: dirent) u16 {
-        return self.d_reclen;
-    }
+    name: [255:0]u8,
 };
 
 pub const in_port_t = u16;
@@ -745,36 +731,6 @@ pub const F_OK = 0; // test for existence of file
 pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
-
-pub const O = struct {
-    pub const RDONLY = 0x0000;
-    pub const WRONLY = 0x0001;
-    pub const RDWR = 0x0002;
-    pub const ACCMODE = 0x0003;
-
-    pub const SHLOCK = 0x0010;
-    pub const EXLOCK = 0x0020;
-
-    pub const CREAT = 0x0200;
-    pub const EXCL = 0x0800;
-    pub const NOCTTY = 0x8000;
-    pub const TRUNC = 0x0400;
-    pub const APPEND = 0x0008;
-    pub const NONBLOCK = 0x0004;
-    pub const DSYNC = 0o10000;
-    pub const SYNC = 0x0080;
-    pub const RSYNC = 0o4010000;
-    pub const DIRECTORY = 0x20000;
-    pub const NOFOLLOW = 0x0100;
-    pub const CLOEXEC = 0x00100000;
-
-    pub const ASYNC = 0x0040;
-    pub const DIRECT = 0x00010000;
-    pub const NOATIME = 0o1000000;
-    pub const PATH = 0o10000000;
-    pub const TMPFILE = 0o20200000;
-    pub const NDELAY = NONBLOCK;
-};
 
 /// Command flags for fcntl(2).
 pub const F = struct {
@@ -1572,23 +1528,6 @@ pub const S = struct {
 };
 
 pub const HOST_NAME_MAX = 255;
-
-pub const AT = struct {
-    /// Magic value that specify the use of the current working directory
-    /// to determine the target of relative file paths in the openat() and
-    /// similar syscalls.
-    pub const FDCWD = -100;
-    /// Check access using effective user and group ID
-    pub const EACCESS = 0x0100;
-    /// Do not follow symbolic links
-    pub const SYMLINK_NOFOLLOW = 0x0200;
-    /// Follow symbolic link
-    pub const SYMLINK_FOLLOW = 0x0400;
-    /// Remove directory instead of file
-    pub const REMOVEDIR = 0x0800;
-    /// Fail if not under dirfd
-    pub const BENEATH = 0x1000;
-};
 
 pub const addrinfo = extern struct {
     flags: i32,

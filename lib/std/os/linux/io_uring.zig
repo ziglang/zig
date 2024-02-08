@@ -760,7 +760,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         path: [*:0]const u8,
-        flags: u32,
+        flags: linux.O,
         mode: os.mode_t,
     ) !*linux.io_uring_sqe {
         const sqe = try self.get_sqe();
@@ -785,7 +785,7 @@ pub const IO_Uring = struct {
         user_data: u64,
         fd: os.fd_t,
         path: [*:0]const u8,
-        flags: u32,
+        flags: linux.O,
         mode: os.mode_t,
         file_index: u32,
     ) !*linux.io_uring_sqe {
@@ -1658,18 +1658,18 @@ pub fn io_uring_prep_openat(
     sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     path: [*:0]const u8,
-    flags: u32,
+    flags: linux.O,
     mode: os.mode_t,
 ) void {
     io_uring_prep_rw(.OPENAT, sqe, fd, @intFromPtr(path), mode, 0);
-    sqe.rw_flags = flags;
+    sqe.rw_flags = @bitCast(flags);
 }
 
 pub fn io_uring_prep_openat_direct(
     sqe: *linux.io_uring_sqe,
     fd: os.fd_t,
     path: [*:0]const u8,
-    flags: u32,
+    flags: linux.O,
     mode: os.mode_t,
     file_index: u32,
 ) void {
@@ -2054,7 +2054,7 @@ test "readv" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
+    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     defer os.close(fd);
 
     // Linux Kernel 5.4 supports IORING_REGISTER_FILES but not sparse fd sets (i.e. an fd of -1).
@@ -2361,7 +2361,7 @@ test "openat" {
         break :p @intFromPtr(workaround);
     } else @intFromPtr(path);
 
-    const flags: u32 = os.O.CLOEXEC | os.O.RDWR | os.O.CREAT;
+    const flags: linux.O = .{ .CLOEXEC = true, .ACCMODE = .RDWR, .CREAT = true };
     const mode: os.mode_t = 0o666;
     const sqe_openat = try ring.openat(0x33333333, tmp.dir.fd, path, flags, mode);
     try testing.expectEqual(linux.io_uring_sqe{
@@ -2372,7 +2372,7 @@ test "openat" {
         .off = 0,
         .addr = path_addr,
         .len = mode,
-        .rw_flags = flags,
+        .rw_flags = @bitCast(flags),
         .user_data = 0x33333333,
         .buf_index = 0,
         .personality = 0,
@@ -2888,7 +2888,7 @@ test "register_files_update" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
+    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     defer os.close(fd);
 
     var registered_fds = [_]os.fd_t{0} ** 2;
@@ -2906,7 +2906,7 @@ test "register_files_update" {
     // Test IORING_REGISTER_FILES_UPDATE
     // Only available since Linux 5.5
 
-    const fd2 = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
+    const fd2 = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     defer os.close(fd2);
 
     registered_fds[fd_index] = fd2;
@@ -3311,7 +3311,7 @@ test "provide_buffers: read" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
+    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     defer os.close(fd);
 
     const group_id = 1337;
@@ -3443,7 +3443,7 @@ test "remove_buffers" {
     };
     defer ring.deinit();
 
-    const fd = try os.openZ("/dev/zero", os.O.RDONLY | os.O.CLOEXEC, 0);
+    const fd = try os.openZ("/dev/zero", .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
     defer os.close(fd);
 
     const group_id = 1337;
@@ -4113,7 +4113,7 @@ test "openat_direct/close_direct" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
     const path = "test_io_uring_close_direct";
-    const flags: u32 = os.O.RDWR | os.O.CREAT;
+    const flags: linux.O = .{ .ACCMODE = .RDWR, .CREAT = true };
     const mode: os.mode_t = 0o666;
     const user_data: u64 = 0;
 
