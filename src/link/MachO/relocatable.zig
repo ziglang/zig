@@ -193,8 +193,8 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     // Update file offsets of contributing objects
     const total_size: usize = blk: {
         var pos: usize = Archive.SARMAG;
-        pos += @sizeOf(Archive.ar_hdr) + Archive.SYMDEF.len + 1;
-        pos = mem.alignForward(usize, pos, ptr_width);
+        pos += @sizeOf(Archive.ar_hdr);
+        pos += mem.alignForward(usize, Archive.SYMDEF.len + 1, ptr_width);
         pos += ar_symtab.size(format);
 
         for (files.items) |index| {
@@ -209,10 +209,10 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
                 .object => |x| x.path,
                 else => unreachable,
             };
-            pos = mem.alignForward(usize, pos, ptr_width);
+            pos = mem.alignForward(usize, pos, 2);
             state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr) + path.len + 1;
-            pos = mem.alignForward(usize, pos, ptr_width);
+            pos += @sizeOf(Archive.ar_hdr);
+            pos += mem.alignForward(usize, path.len + 1, ptr_width);
             pos += math.cast(usize, state.size) orelse return error.Overflow;
         }
 
@@ -236,7 +236,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
     // Write object files
     for (files.items) |index| {
-        const aligned = mem.alignForward(usize, buffer.items.len, ptr_width);
+        const aligned = mem.alignForward(usize, buffer.items.len, 2);
         const padding = aligned - buffer.items.len;
         if (padding > 0) {
             try writer.writeByteNTimes(0, padding);
