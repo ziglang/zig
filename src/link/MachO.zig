@@ -255,43 +255,35 @@ pub fn createEmpty(
                 )}),
             } });
             self.zig_object = index;
-            try self.getZigObject().?.init(self);
+            const zo = self.getZigObject().?;
+            try zo.init(self);
+
             try self.initMetadata(.{
                 .symbol_count_hint = options.symbol_count_hint,
                 .program_code_size_hint = options.program_code_size_hint,
             });
 
-            switch (comp.config.debug_format) {
-                .strip => {},
-                .dwarf => if (!self.base.isRelocatable()) {
-                    // Create dSYM bundle.
-                    log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
+            if (zo.dwarf != null and !self.base.isRelocatable()) {
+                // Create dSYM bundle.
+                log.debug("creating {s}.dSYM bundle", .{emit.sub_path});
 
-                    const sep = fs.path.sep_str;
-                    const d_sym_path = try std.fmt.allocPrint(
-                        arena,
-                        "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
-                        .{emit.sub_path},
-                    );
+                const sep = fs.path.sep_str;
+                const d_sym_path = try std.fmt.allocPrint(
+                    arena,
+                    "{s}.dSYM" ++ sep ++ "Contents" ++ sep ++ "Resources" ++ sep ++ "DWARF",
+                    .{emit.sub_path},
+                );
 
-                    var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
-                    defer d_sym_bundle.close();
+                var d_sym_bundle = try emit.directory.handle.makeOpenPath(d_sym_path, .{});
+                defer d_sym_bundle.close();
 
-                    const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
-                        .truncate = false,
-                        .read = true,
-                    });
+                const d_sym_file = try d_sym_bundle.createFile(emit.sub_path, .{
+                    .truncate = false,
+                    .read = true,
+                });
 
-                    self.d_sym = .{
-                        .allocator = gpa,
-                        .dwarf = link.File.Dwarf.init(&self.base, .dwarf32),
-                        .file = d_sym_file,
-                    };
-                    try self.d_sym.?.initMetadata(self);
-                } else {
-                    @panic("TODO: implement generating and emitting __DWARF in .o file");
-                },
-                .code_view => unreachable,
+                self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
+                try self.d_sym.?.initMetadata(self);
             }
         }
     }
@@ -3152,7 +3144,7 @@ pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) 
 
 pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.updateDeclLineNumber(self, module, decl_index);
+    return self.getZigObject().?.updateDeclLineNumber(module, decl_index);
 }
 
 pub fn updateExports(

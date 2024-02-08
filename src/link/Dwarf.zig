@@ -1351,9 +1351,10 @@ pub fn commitDeclState(
                 },
 
                 .macho => {
-                    const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+                    const macho_file = self.bin_file.cast(File.MachO).?;
+                    const d_sym = macho_file.getDebugSymbols().?;
                     const sect_index = d_sym.debug_line_section_index.?;
-                    try d_sym.growSection(sect_index, needed_size, true);
+                    try d_sym.growSection(sect_index, needed_size, true, macho_file);
                     const sect = d_sym.getSection(sect_index);
                     const file_pos = sect.offset + src_fn.off;
                     try pwriteDbgLineNops(
@@ -1597,9 +1598,10 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
         },
 
         .macho => {
-            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+            const macho_file = self.bin_file.cast(File.MachO).?;
+            const d_sym = macho_file.getDebugSymbols().?;
             const sect_index = d_sym.debug_info_section_index.?;
-            try d_sym.growSection(sect_index, needed_size, true);
+            try d_sym.growSection(sect_index, needed_size, true, macho_file);
             const sect = d_sym.getSection(sect_index);
             const file_pos = sect.offset + atom.off;
             try pwriteDbgInfoNops(
@@ -1877,9 +1879,10 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
             try elf_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
         },
         .macho => {
-            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+            const macho_file = self.bin_file.cast(File.MachO).?;
+            const d_sym = macho_file.getDebugSymbols().?;
             const sect_index = d_sym.debug_abbrev_section_index.?;
-            try d_sym.growSection(sect_index, needed_size, false);
+            try d_sym.growSection(sect_index, needed_size, false, macho_file);
             const sect = d_sym.getSection(sect_index);
             const file_pos = sect.offset + abbrev_offset;
             try d_sym.file.pwriteAll(&abbrev_buf, file_pos);
@@ -2292,9 +2295,10 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
             try elf_file.base.file.?.pwriteAll(di_buf.items, file_pos);
         },
         .macho => {
-            const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+            const macho_file = self.bin_file.cast(File.MachO).?;
+            const d_sym = macho_file.getDebugSymbols().?;
             const sect_index = d_sym.debug_aranges_section_index.?;
-            try d_sym.growSection(sect_index, needed_size, false);
+            try d_sym.growSection(sect_index, needed_size, false, macho_file);
             const sect = d_sym.getSection(sect_index);
             const file_pos = sect.offset;
             try d_sym.file.pwriteAll(di_buf.items, file_pos);
@@ -2432,10 +2436,11 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
                 try elf_file.base.file.?.pwriteAll(buffer, file_pos + delta);
             },
             .macho => {
-                const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
+                const macho_file = self.bin_file.cast(File.MachO).?;
+                const d_sym = macho_file.getDebugSymbols().?;
                 const sect_index = d_sym.debug_line_section_index.?;
                 const needed_size: u32 = @intCast(d_sym.getSection(sect_index).size + delta);
-                try d_sym.growSection(sect_index, needed_size, true);
+                try d_sym.growSection(sect_index, needed_size, true, macho_file);
                 const file_pos = d_sym.getSection(sect_index).offset + first_fn.off;
 
                 const amt = try d_sym.file.preadAll(buffer, file_pos);
@@ -2653,8 +2658,9 @@ fn addDIFile(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclIndex) !u28 
                 elf_file.markDirty(elf_file.debug_line_section_index.?);
             },
             .macho => {
-                const d_sym = self.bin_file.cast(File.MachO).?.getDebugSymbols().?;
-                d_sym.markDirty(d_sym.debug_line_section_index.?);
+                const macho_file = self.bin_file.cast(File.MachO).?;
+                const d_sym = macho_file.getDebugSymbols().?;
+                d_sym.markDirty(d_sym.debug_line_section_index.?, macho_file);
             },
             .wasm => {},
             else => unreachable,
