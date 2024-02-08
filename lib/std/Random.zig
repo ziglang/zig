@@ -26,7 +26,7 @@ pub const Xoroshiro128 = @import("Random/Xoroshiro128.zig");
 pub const Xoshiro256 = @import("Random/Xoshiro256.zig");
 pub const Sfc64 = @import("Random/Sfc64.zig");
 pub const RomuTrio = @import("Random/RomuTrio.zig");
-pub const SplitMix64 = @import("Random/Splitmix64.zig");
+pub const SplitMix64 = @import("Random/SplitMix64.zig");
 pub const ziggurat = @import("Random/ziggurat.zig");
 
 ptr: *anyopaque,
