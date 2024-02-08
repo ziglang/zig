@@ -6280,7 +6280,7 @@ fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
     }
     return switch (target_util.zigBackend(target, use_llvm)) {
         .stage2_llvm => true,
-        .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
+        .stage2_x86_64 => if (target.ofmt == .elf or target.ofmt == .macho) true else build_options.have_llvm,
         else => build_options.have_llvm,
     };
 }
@@ -6298,7 +6298,7 @@ fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
     }
     return switch (target_util.zigBackend(target, use_llvm)) {
         .stage2_llvm => true,
-        .stage2_x86_64 => if (target.ofmt == .elf) true else build_options.have_llvm,
+        .stage2_x86_64 => if (target.ofmt == .elf or target.ofmt == .macho) true else build_options.have_llvm,
         else => build_options.have_llvm,
     };
 }
