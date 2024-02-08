@@ -442,6 +442,9 @@ pub fn GetQueuedCompletionStatusEx(
 
 pub fn CloseHandle(hObject: HANDLE) void {
     assert(ntdll.NtClose(hObject) == .SUCCESS);
+    if (IsConsoleHandle(hObject)) {
+        _ = removeConsoleHandleData(hObject) catch {};
+    }
 }
 
 pub fn FindClose(hFindFile: HANDLE) void {
@@ -453,6 +456,7 @@ pub const ReadFileError = error{
     NetNameDeleted,
     OperationAborted,
     Unexpected,
+    NotOpenForReading,
 };
 
 /// If buffer's length exceeds what a Windows DWORD integer can hold, it will be broken into
@@ -520,19 +524,183 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.Mo
                 };
                 break :blk &overlapped_data;
             } else null;
-            if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
-                switch (kernel32.GetLastError()) {
-                    .IO_PENDING => unreachable,
-                    .OPERATION_ABORTED => continue,
-                    .BROKEN_PIPE => return 0,
-                    .HANDLE_EOF => return 0,
-                    .NETNAME_DELETED => return error.NetNameDeleted,
-                    else => |err| return unexpectedError(err),
+            var console_mode: DWORD = undefined;
+            const is_console_handle: bool = kernel32.GetConsoleMode(in_hFile, &console_mode) != FALSE;
+            const is_cooked_mode: bool = (console_mode & ENABLE_LINE_INPUT) != 0;
+            // Implementation issue:
+            // There is no reliable way to implement perfectly platform-agnostic UTF-16 to UTF-8
+            // conversion for raw mode, because it is impossible to know the number of pending
+            // code units stored in console input buffer, while in cooked mode we can rely on the
+            // terminating LF character. Without knowing that, ReadConsoleW() may accidentally pop
+            // out characters without blocking, or prompt for user input at unexpected timing.
+            // In the case of raw mode, redirect to kernel32.ReadFile() without conversion for now,
+            // just don't make things worse.
+            if (is_console_handle and is_cooked_mode) {
+                assert(offset == null);
+                amt_read = try ReadConsoleWithUtf16ToUtf8Conversion(in_hFile, buffer);
+            } else {
+                if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
+                    switch (kernel32.GetLastError()) {
+                        .IO_PENDING => unreachable,
+                        .OPERATION_ABORTED => continue,
+                        .BROKEN_PIPE => return 0,
+                        .HANDLE_EOF => return 0,
+                        .NETNAME_DELETED => return error.NetNameDeleted,
+                        .INVALID_HANDLE => return error.NotOpenForReading,
+                        else => |err| return unexpectedError(err),
+                    }
                 }
             }
             return amt_read;
         }
     }
+}
+
+fn ReadConsoleWithUtf16ToUtf8Conversion(hConsoleInput: HANDLE, buffer: []u8) ReadFileError!DWORD {
+    const handle_data: *ConsoleHandleData = getConsoleHandleData(hConsoleInput) catch |err| switch (err) {
+        error.ConsoleHandleLimitReached => @panic("Reached maximum number of 64 console handles."),
+        else => return error.Unexpected,
+    };
+    var temp_buffer: [1024]u8 = undefined;
+    var bytes_read: DWORD = 0;
+    var reached_end_of_line: bool = false;
+    const TruncateState = enum {
+        do_not_truncate,
+        truncate_after_SUB,
+        truncate_all,
+    };
+    var truncate_state: TruncateState = .do_not_truncate;
+    while (bytes_read < buffer.len) {
+        const remaining_buffer: []u8 = buffer[bytes_read..buffer.len];
+        var has_enough_space_in_remaining_buffer: bool = undefined;
+        var bytes_read_into_temp_buffer: DWORD = 0;
+        var truncate_index: DWORD = undefined;
+        // If a SUB character is encountered in a previous loop, truncate everything in this loop
+        if (truncate_state == .truncate_after_SUB) {
+            truncate_state = .truncate_all;
+        }
+        // Try flushing leftover UTF-8 bytes first (one codepoint at most)
+        if (handle_data.utf8_buffer.bytes_used != 0) {
+            if (handle_data.utf8_buffer.data[0] == 0x0A) {
+                assert(handle_data.utf8_buffer.bytes_used == 1);
+                reached_end_of_line = true;
+            } else if (handle_data.utf8_buffer.data[0] == 0x1A) {
+                assert(handle_data.utf8_buffer.bytes_used == 1);
+                // Truncate after SUB character in this loop if we never truncated in previous loops
+                if (truncate_state == .do_not_truncate) {
+                    truncate_state = .truncate_after_SUB;
+                    truncate_index = 1;
+                }
+            }
+            // Is there enough space for all bytes in UTF-8 buffer?
+            const has_enough_space: bool = remaining_buffer.len >= handle_data.utf8_buffer.bytes_used;
+            const max_bytes_to_read: usize = if (has_enough_space) handle_data.utf8_buffer.bytes_used else remaining_buffer.len;
+            for (0..max_bytes_to_read) |index| {
+                temp_buffer[index] = handle_data.utf8_buffer.data[handle_data.utf8_buffer.front_index];
+                // Front index wraps around in the case of 4-byte sequence (non-BMP code point)
+                handle_data.utf8_buffer.front_index +%= 1;
+            }
+            bytes_read_into_temp_buffer += @truncate(max_bytes_to_read);
+            handle_data.utf8_buffer.bytes_used -= @truncate(max_bytes_to_read);
+            if (has_enough_space) {
+                // UTF-8 buffer is now empty, we can safely reset front_index to zero
+                handle_data.utf8_buffer.front_index = 0;
+            } else {
+                switch (truncate_state) {
+                    .truncate_all => {},
+                    else => @memcpy(remaining_buffer[0..bytes_read_into_temp_buffer], temp_buffer[0..bytes_read_into_temp_buffer]),
+                }
+                bytes_read += bytes_read_into_temp_buffer;
+                break;
+            }
+            // LF ends a console read immediately
+            if (reached_end_of_line) {
+                switch (truncate_state) {
+                    .truncate_all => {},
+                    else => @memcpy(remaining_buffer[0..bytes_read_into_temp_buffer], temp_buffer[0..bytes_read_into_temp_buffer]),
+                }
+                bytes_read += bytes_read_into_temp_buffer;
+                break;
+            }
+        }
+        assert(handle_data.utf8_buffer.front_index == 0);
+        while (bytes_read_into_temp_buffer < temp_buffer.len) {
+            // Read only one code unit each loop
+            var utf16_code_unit: u16 = undefined;
+            var utf16_code_units_read: DWORD = undefined;
+            if (kernel32.ReadConsoleW(hConsoleInput, &utf16_code_unit, 1, &utf16_code_units_read, null) == FALSE) {
+                switch (kernel32.GetLastError()) {
+                    .INVALID_HANDLE => return error.NotOpenForReading,
+                    else => |err| return unexpectedError(err),
+                }
+            }
+            if (utf16_code_unit >= 0xD800 and utf16_code_unit <= 0xDBFF) {
+                // When a high surrogate is encountered, store it into the UTF-16 buffer
+                assert(handle_data.utf16_buffer.code_units_used == 0);
+                handle_data.utf16_buffer.data[0] = utf16_code_unit;
+                handle_data.utf16_buffer.code_units_used = 1;
+                continue;
+            } else if (utf16_code_unit >= 0xDC00 and utf16_code_unit <= 0xDFFF) {
+                // When a low surrogate is encountered, assemble surrogate pair and convert to UTF-8
+                if (!(utf16_code_units_read == 1 and handle_data.utf16_buffer.data[0] >= 0xD800 and handle_data.utf16_buffer.data[0] <= 0xDBFF)) {
+                    unreachable;
+                }
+                handle_data.utf16_buffer.data[1] = utf16_code_unit;
+                handle_data.utf16_buffer.code_units_used = 0;
+                const utf8_bytes: usize = std.unicode.utf16leToUtf8(&handle_data.utf8_buffer.data, &handle_data.utf16_buffer.data) catch return error.Unexpected;
+                assert(utf8_bytes == 4);
+                handle_data.utf8_buffer.bytes_used = 4;
+            } else {
+                assert(handle_data.utf16_buffer.code_units_used == 0);
+                const utf8_bytes: usize = std.unicode.utf16leToUtf8(&handle_data.utf8_buffer.data, @as(*[1]u16, &utf16_code_unit)) catch return error.Unexpected;
+                handle_data.utf8_buffer.bytes_used = @truncate(utf8_bytes);
+                if (handle_data.utf8_buffer.bytes_used == 1) {
+                    if (handle_data.utf8_buffer.data[0] == 0x0A) {
+                        reached_end_of_line = true;
+                    } else if (handle_data.utf8_buffer.data[0] == 0x1A) {
+                        if (truncate_state == .do_not_truncate) {
+                            truncate_state = .truncate_after_SUB;
+                            truncate_index = bytes_read_into_temp_buffer + 1;
+                        }
+                    }
+                }
+            }
+            // Is there enough space for all bytes in UTF-8 buffer?
+            has_enough_space_in_remaining_buffer = remaining_buffer.len >= bytes_read_into_temp_buffer + handle_data.utf8_buffer.bytes_used;
+            const has_enough_space: bool = has_enough_space_in_remaining_buffer and temp_buffer.len >= bytes_read_into_temp_buffer + handle_data.utf8_buffer.bytes_used;
+            const max_bytes_to_read: usize = if (has_enough_space) handle_data.utf8_buffer.bytes_used else remaining_buffer.len - bytes_read_into_temp_buffer;
+            for (0..max_bytes_to_read) |index| {
+                temp_buffer[bytes_read_into_temp_buffer + index] = handle_data.utf8_buffer.data[handle_data.utf8_buffer.front_index];
+                // Front index wraps around in the case of 4-byte sequence (non-BMP code point)
+                handle_data.utf8_buffer.front_index +%= 1;
+            }
+            bytes_read_into_temp_buffer += @truncate(max_bytes_to_read);
+            handle_data.utf8_buffer.bytes_used -= @truncate(max_bytes_to_read);
+            if (has_enough_space) {
+                // UTF-8 buffer is now empty, we can safely reset front_index to zero
+                handle_data.utf8_buffer.front_index = 0;
+            } else {
+                break;
+            }
+            // LF ends a console read immediately
+            if (reached_end_of_line) {
+                break;
+            }
+        }
+        // Copy to user-provided buffer
+        const bytes_copied: DWORD = switch (truncate_state) {
+            .do_not_truncate => bytes_read_into_temp_buffer,
+            .truncate_after_SUB => truncate_index,
+            .truncate_all => 0,
+        };
+        @memcpy(remaining_buffer[0..bytes_copied], temp_buffer[0..bytes_copied]);
+        bytes_read += bytes_copied;
+        // Early return conditions
+        if (!has_enough_space_in_remaining_buffer or reached_end_of_line) {
+            break;
+        }
+    }
+    return bytes_read;
 }
 
 pub const WriteFileError = error{
@@ -544,6 +712,9 @@ pub const WriteFileError = error{
     /// a portion of the file.
     LockViolation,
     Unexpected,
+    /// This error occurs when trying to write UTF-8 text to a Windows console,
+    /// and the UTF-8 to UTF-16 conversion fails.
+    InvalidUtf8,
 };
 
 pub fn WriteFile(
@@ -614,21 +785,92 @@ pub fn WriteFile(
             break :blk &overlapped_data;
         } else null;
         const adjusted_len = math.cast(u32, bytes.len) orelse maxInt(u32);
-        if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
+        if (IsConsoleHandle(handle)) {
+            assert(offset == null);
+            bytes_written = try WriteConsoleWithUtf8ToUtf16Conversion(handle, bytes);
+        } else {
+            if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
+                switch (kernel32.GetLastError()) {
+                    .INVALID_USER_BUFFER => return error.SystemResources,
+                    .NOT_ENOUGH_MEMORY => return error.SystemResources,
+                    .OPERATION_ABORTED => return error.OperationAborted,
+                    .NOT_ENOUGH_QUOTA => return error.SystemResources,
+                    .IO_PENDING => unreachable,
+                    .BROKEN_PIPE => return error.BrokenPipe,
+                    .INVALID_HANDLE => return error.NotOpenForWriting,
+                    .LOCK_VIOLATION => return error.LockViolation,
+                    else => |err| return unexpectedError(err),
+                }
+            }
+        }
+        return bytes_written;
+    }
+}
+
+fn WriteConsoleWithUtf8ToUtf16Conversion(handle: HANDLE, bytes: []const u8) WriteFileError!DWORD {
+    const handle_data: *ConsoleHandleData = getConsoleHandleData(handle) catch |err| switch (err) {
+        error.ConsoleHandleLimitReached => @panic("Reached maximum number of 64 console handles."),
+        else => return error.Unexpected,
+    };
+    var bytes_written: DWORD = 0;
+    var byte_index: DWORD = 0;
+    while (byte_index < bytes.len) {
+        var utf16_buffer: [2]u16 = undefined;
+        var utf16_code_units: usize = undefined;
+        if (handle_data.utf8_buffer.bytes_used == 0) {
+            const utf8_byte_sequence_length: u3 = std.unicode.utf8ByteSequenceLength(bytes[byte_index]) catch return error.InvalidUtf8;
+            const bytes_available: usize = bytes.len - byte_index;
+            if (bytes_available < utf8_byte_sequence_length) {
+                for (0..bytes_available) |index| {
+                    handle_data.utf8_buffer.data[index] = bytes[index];
+                }
+                bytes_written += @truncate(bytes_available);
+                return bytes_written;
+            } else {
+                utf16_code_units = std.unicode.utf8ToUtf16Le(&utf16_buffer, bytes[byte_index .. byte_index + utf8_byte_sequence_length]) catch return error.InvalidUtf8;
+                byte_index += utf8_byte_sequence_length;
+            }
+        } else {
+            const utf8_byte_sequence_length: u3 = std.unicode.utf8ByteSequenceLength(handle_data.utf8_buffer.data[0]) catch return error.InvalidUtf8;
+            assert(utf8_byte_sequence_length > 1 and utf8_byte_sequence_length > handle_data.utf8_buffer.bytes_used);
+            const bytes_available: usize = bytes.len - byte_index;
+            const bytes_needed: u3 = utf8_byte_sequence_length - handle_data.utf8_buffer.bytes_used;
+            if (bytes_available < bytes_needed) {
+                assert(handle_data.utf8_buffer.bytes_used + bytes_available < utf8_byte_sequence_length);
+                for (0..bytes_available) |index| {
+                    handle_data.utf8_buffer.data[handle_data.utf8_buffer.bytes_used + index] = bytes[index];
+                }
+                bytes_written += @truncate(bytes_available);
+                return bytes_written;
+            } else {
+                for (0..bytes_needed) |index| {
+                    handle_data.utf8_buffer.data[handle_data.utf8_buffer.bytes_used + index] = bytes[index];
+                }
+                utf16_code_units = std.unicode.utf8ToUtf16Le(&utf16_buffer, handle_data.utf8_buffer.data[0..utf8_byte_sequence_length]) catch return error.InvalidUtf8;
+                byte_index += bytes_needed;
+            }
+        }
+        var utf16_code_units_written: DWORD = undefined;
+        if (kernel32.WriteConsoleW(handle, &utf16_buffer, @truncate(utf16_code_units), &utf16_code_units_written, null) == FALSE) {
             switch (kernel32.GetLastError()) {
                 .INVALID_USER_BUFFER => return error.SystemResources,
                 .NOT_ENOUGH_MEMORY => return error.SystemResources,
                 .OPERATION_ABORTED => return error.OperationAborted,
                 .NOT_ENOUGH_QUOTA => return error.SystemResources,
                 .IO_PENDING => unreachable,
-                .BROKEN_PIPE => return error.BrokenPipe,
+                .BROKEN_PIPE => unreachable,
                 .INVALID_HANDLE => return error.NotOpenForWriting,
                 .LOCK_VIOLATION => return error.LockViolation,
                 else => |err| return unexpectedError(err),
             }
         }
-        return bytes_written;
+        if (utf16_code_units_written < utf16_code_units) {
+            return bytes_written;
+        } else {
+            bytes_written = byte_index;
+        }
     }
+    return bytes_written;
 }
 
 pub const SetCurrentDirectoryError = error{
@@ -5282,4 +5524,104 @@ pub fn ProcessBaseAddress(handle: HANDLE) ProcessBaseAddressError!HMODULE {
     const peb_out = try ReadProcessMemory(handle, info.PebBaseAddress, &peb_buf);
     const ppeb: *const PEB = @ptrCast(@alignCast(peb_out.ptr));
     return ppeb.ImageBaseAddress;
+}
+
+pub const ENABLE_PROCESSED_INPUT = 0x0001;
+pub const ENABLE_LINE_INPUT = 0x0002;
+pub const ENABLE_ECHO_INPUT = 0x0004;
+pub const ENABLE_WINDOW_INPUT = 0x0008;
+pub const ENABLE_MOUSE_INPUT = 0x0010;
+pub const ENABLE_INSERT_MODE = 0x0020;
+pub const ENABLE_QUICK_EDIT_MODE = 0x0040;
+pub const ENABLE_EXTENDED_FLAGS = 0x0080;
+pub const ENABLE_AUTO_POSITION = 0x0100;
+pub const ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200;
+
+pub const CONSOLE_READCONSOLE_CONTROL = extern struct {
+    nLength: ULONG,
+    nInitialChars: ULONG,
+    dwCtrlWakeupMask: ULONG,
+    dwControlKeyState: ULONG,
+};
+
+pub const PCONSOLE_READCONSOLE_CONTROL = *CONSOLE_READCONSOLE_CONTROL;
+
+pub fn IsConsoleHandle(handle: HANDLE) bool {
+    var out: DWORD = undefined;
+    return kernel32.GetConsoleMode(handle, &out) != FALSE;
+}
+
+// Non-public extra data associated with console handle, and its helper functions
+const ConsoleHandleData = struct {
+    is_assigned: bool = false,
+    handle: ?HANDLE = null,
+    utf8_buffer: Utf8Buffer = .{},
+    utf16_buffer: Utf16Buffer = .{},
+
+    const Utf8Buffer = struct {
+        data: [4]u8 = .{ 0x00, 0x00, 0x00, 0x00 },
+        bytes_used: u3 = 0,
+        front_index: u2 = 0,
+    };
+
+    const Utf16Buffer = struct {
+        data: [2]u16 = .{ 0x0000, 0x0000 },
+        code_units_used: u2 = 0,
+    };
+};
+
+const max_console_handle_data = 64;
+
+var console_handle_data_array: switch (builtin.os.tag) {
+    .windows => [max_console_handle_data]ConsoleHandleData,
+    else => void,
+} = switch (builtin.os.tag) {
+    .windows => [_]ConsoleHandleData{.{}} ** max_console_handle_data,
+    else => void{},
+};
+
+const ConsoleHandleDataError = error{
+    DataNotFound,
+    ConsoleHandleLimitReached,
+};
+
+fn getConsoleHandleData(handle: HANDLE) ConsoleHandleDataError!*ConsoleHandleData {
+    if (builtin.os.tag == .windows) {
+        var found_unassigned: bool = false;
+        var first_unassigned_index: usize = undefined;
+        for (0..max_console_handle_data) |index| {
+            if (console_handle_data_array[index].is_assigned) {
+                if (console_handle_data_array[index].handle == handle) {
+                    return &console_handle_data_array[index];
+                }
+            } else if (!found_unassigned) {
+                found_unassigned = true;
+                first_unassigned_index = index;
+            }
+        }
+        if (found_unassigned) {
+            console_handle_data_array[first_unassigned_index].is_assigned = true;
+            console_handle_data_array[first_unassigned_index].handle = handle;
+            console_handle_data_array[first_unassigned_index].utf8_buffer.bytes_used = 0;
+            return &console_handle_data_array[first_unassigned_index];
+        } else {
+            return error.ConsoleHandleLimitReached;
+        }
+    } else {
+        @compileError("Unsupported OS");
+    }
+}
+
+fn removeConsoleHandleData(handle: HANDLE) ConsoleHandleDataError!usize {
+    if (builtin.os.tag == .windows) {
+        for (0..max_console_handle_data) |index| {
+            if (console_handle_data_array[index].is_assigned and console_handle_data_array[index].handle == handle) {
+                console_handle_data_array[index].is_assigned = false;
+                return index;
+            }
+        }
+        return error.DataNotFound;
+    } else {
+        @compileError("Unsupported OS");
+    }
 }
