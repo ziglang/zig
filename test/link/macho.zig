@@ -17,7 +17,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     // Exercise linker with self-hosted backend (no LLVM)
     macho_step.dependOn(testHelloZig(b, .{ .use_llvm = false, .target = x86_64_target }));
-    macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .strip = true, .target = x86_64_target }));
+    macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .target = x86_64_target }));
 
     // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
