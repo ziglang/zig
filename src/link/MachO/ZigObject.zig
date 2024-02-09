@@ -46,9 +46,17 @@ tlv_initializers: TlvInitializerTable = .{},
 /// A table of relocations.
 relocs: RelocationTable = .{},
 
+dwarf: ?Dwarf = null,
+
 dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
+
+debug_strtab_dirty: bool = false,
+debug_abbrev_dirty: bool = false,
+debug_aranges_dirty: bool = false,
+debug_info_header_dirty: bool = false,
+debug_line_header_dirty: bool = false,
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
     const comp = macho_file.base.comp;
@@ -56,6 +64,20 @@ pub fn init(self: *ZigObject, macho_file: *MachO) !void {
 
     try self.atoms.append(gpa, 0); // null input section
     try self.strtab.buffer.append(gpa, 0);
+
+    switch (comp.config.debug_format) {
+        .strip => {},
+        .dwarf => |v| {
+            assert(v == .@"32");
+            self.dwarf = Dwarf.init(&macho_file.base, .dwarf32);
+            self.debug_strtab_dirty = true;
+            self.debug_abbrev_dirty = true;
+            self.debug_aranges_dirty = true;
+            self.debug_info_header_dirty = true;
+            self.debug_line_header_dirty = true;
+        },
+        .code_view => unreachable,
+    }
 }
 
 pub fn deinit(self: *ZigObject, allocator: Allocator) void {
@@ -101,6 +123,10 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
         tlv_init.deinit(allocator);
     }
     self.tlv_initializers.deinit(allocator);
+
+    if (self.dwarf) |*dw| {
+        dw.deinit();
+    }
 }
 
 fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
@@ -407,6 +433,66 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO) !void {
         if (metadata.text_state != .unused) metadata.text_state = .flushed;
         if (metadata.const_state != .unused) metadata.const_state = .flushed;
     }
+
+    if (self.dwarf) |*dw| {
+        const zcu = macho_file.base.comp.module.?;
+        try dw.flushModule(zcu);
+
+        if (self.debug_abbrev_dirty) {
+            try dw.writeDbgAbbrev();
+            self.debug_abbrev_dirty = false;
+        }
+
+        if (self.debug_info_header_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_section = macho_file.sections.items(.header)[macho_file.zig_text_sect_index.?];
+            const low_pc = text_section.addr;
+            const high_pc = text_section.addr + text_section.size;
+            try dw.writeDbgInfoHeader(zcu, low_pc, high_pc);
+            self.debug_info_header_dirty = false;
+        }
+
+        if (self.debug_aranges_dirty) {
+            // Currently only one compilation unit is supported, so the address range is simply
+            // identical to the main program header virtual address and memory size.
+            const text_section = macho_file.sections.items(.header)[macho_file.zig_text_sect_index.?];
+            try dw.writeDbgAranges(text_section.addr, text_section.size);
+            self.debug_aranges_dirty = false;
+        }
+
+        if (self.debug_line_header_dirty) {
+            try dw.writeDbgLineHeader();
+            self.debug_line_header_dirty = false;
+        }
+
+        if (!macho_file.base.isRelocatable()) {
+            const d_sym = macho_file.getDebugSymbols().?;
+            const sect_index = d_sym.debug_str_section_index.?;
+            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != d_sym.getSection(sect_index).size) {
+                const needed_size = @as(u32, @intCast(dw.strtab.buffer.items.len));
+                try d_sym.growSection(sect_index, needed_size, false, macho_file);
+                try d_sym.file.pwriteAll(dw.strtab.buffer.items, d_sym.getSection(sect_index).offset);
+                self.debug_strtab_dirty = false;
+            }
+        } else {
+            const sect_index = macho_file.debug_str_sect_index.?;
+            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != macho_file.sections.items(.header)[sect_index].size) {
+                const needed_size = @as(u32, @intCast(dw.strtab.buffer.items.len));
+                try macho_file.growSection(sect_index, needed_size);
+                try macho_file.base.file.?.pwriteAll(dw.strtab.buffer.items, macho_file.sections.items(.header)[sect_index].offset);
+                self.debug_strtab_dirty = false;
+            }
+        }
+    }
+
+    // The point of flushModule() is to commit changes, so in theory, nothing should
+    // be dirty after this. However, it is possible for some things to remain
+    // dirty because they fail to be written in the event of compile errors,
+    // such as debug_line_header_dirty and debug_info_header_dirty.
+    assert(!self.debug_abbrev_dirty);
+    assert(!self.debug_aranges_dirty);
+    assert(!self.debug_strtab_dirty);
 }
 
 pub fn getDeclVAddr(
@@ -572,7 +658,7 @@ pub fn updateFunc(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (macho_file.getDebugSymbols()) |d_sym| try d_sym.dwarf.initDeclState(mod, decl_index) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
@@ -600,7 +686,7 @@ pub fn updateFunc(
 
     if (decl_state) |*ds| {
         const sym = macho_file.getSymbol(sym_index);
-        try macho_file.getDebugSymbols().?.dwarf.commitDeclState(
+        try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
             sym.getAddress(.{}, macho_file),
@@ -647,7 +733,7 @@ pub fn updateDecl(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var decl_state: ?Dwarf.DeclState = if (macho_file.getDebugSymbols()) |d_sym| try d_sym.dwarf.initDeclState(mod, decl_index) else null;
+    var decl_state: ?Dwarf.DeclState = if (self.dwarf) |*dw| try dw.initDeclState(mod, decl_index) else null;
     defer if (decl_state) |*ds| ds.deinit();
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
@@ -681,7 +767,7 @@ pub fn updateDecl(
 
     if (decl_state) |*ds| {
         const sym = macho_file.getSymbol(sym_index);
-        try macho_file.getDebugSymbols().?.dwarf.commitDeclState(
+        try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
             sym.getAddress(.{}, macho_file),
@@ -1257,15 +1343,9 @@ fn updateLazySymbol(
 }
 
 /// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(
-    self: *ZigObject,
-    macho_file: *MachO,
-    mod: *Module,
-    decl_index: InternPool.DeclIndex,
-) !void {
-    _ = self;
-    if (macho_file.getDebugSymbols()) |d_sym| {
-        try d_sym.dwarf.updateDeclLineNumber(mod, decl_index);
+pub fn updateDeclLineNumber(self: *ZigObject, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+    if (self.dwarf) |*dw| {
+        try dw.updateDeclLineNumber(mod, decl_index);
     }
 }
 

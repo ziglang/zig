@@ -20,8 +20,11 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     };
 
     // Exercise linker with self-hosted backend (no LLVM)
+    macho_step.dependOn(testEmptyZig(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testHelloZig(b, .{ .use_llvm = false, .target = x86_64_target }));
-    macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .strip = true, .target = x86_64_target }));
+    macho_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testReexportsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .target = x86_64_target }));
 
     // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
@@ -33,6 +36,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testLayout(b, .{ .target = default_target }));
+    macho_step.dependOn(testLinkingStaticLib(b, .{ .target = default_target }));
     macho_step.dependOn(testLinksection(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
@@ -843,6 +847,45 @@ fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-static-lib", opts);
+
+    const obj = addObject(b, opts, .{
+        .name = "bobj",
+        .zig_source_bytes = "export var bar: i32 = -42;",
+        .strip = true, // TODO for self-hosted, we don't really emit any valid DWARF yet since we only export a global
+    });
+
+    const lib = addStaticLibrary(b, opts, .{
+        .name = "alib",
+        .zig_source_bytes =
+        \\export fn foo() i32 {
+        \\    return 42;
+        \\}
+        ,
+    });
+    lib.addObject(obj);
+
+    const exe = addExecutable(b, opts, .{
+        .name = "testlib",
+        .zig_source_bytes =
+        \\const std = @import("std");
+        \\extern fn foo() i32;
+        \\extern var bar: i32;
+        \\pub fn main() void {
+        \\    std.debug.print("{d}\n", .{foo() + bar});
+        \\}
+        ,
+    });
+    exe.linkLibrary(lib);
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("0\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
 fn testLinksection(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-linksection", opts);
 
@@ -1243,14 +1286,7 @@ fn testRelocatableZig(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.addCheck(.{ .expect_stderr_match = b.dupe("incrFoo=1") });
     run.addCheck(.{ .expect_stderr_match = b.dupe("decrFoo=0") });
-    if (opts.use_llvm) {
-        // TODO: enable this once self-hosted can print panics and stack traces
-        run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
-    }
-    if (builtin.os.tag == .macos) {
-        const signal: u32 = if (opts.use_llvm) std.os.darwin.SIG.ABRT else std.os.darwin.SIG.TRAP;
-        run.addCheck(.{ .expect_term = .{ .Signal = signal } });
-    }
+    run.addCheck(.{ .expect_stderr_match = b.dupe("panic: Oh no!") });
     test_step.dependOn(&run.step);
 
     return test_step;
