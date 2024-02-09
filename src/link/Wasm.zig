@@ -127,7 +127,7 @@ func_types: std.ArrayListUnmanaged(std.wasm.Type) = .{},
 /// This allows us to map multiple symbols to the same function.
 functions: std.AutoArrayHashMapUnmanaged(
     struct { file: File.Index, index: u32 },
-    struct { func: std.wasm.Func, sym_index: u32 },
+    struct { func: std.wasm.Func, sym_index: Symbol.Index },
 ) = .{},
 /// Output global section
 wasm_globals: std.ArrayListUnmanaged(std.wasm.Global) = .{},
@@ -208,13 +208,9 @@ pub const Segment = struct {
     }
 };
 
-pub const Export = struct {
-    sym_index: ?u32 = null,
-};
-
 pub const SymbolLoc = struct {
     /// The index of the symbol within the specified file
-    index: u32,
+    index: Symbol.Index,
     /// The index of the object file where the symbol resides.
     file: File.Index,
 
@@ -226,7 +222,7 @@ pub const SymbolLoc = struct {
         if (wasm_file.file(loc.file)) |obj_file| {
             return obj_file.symbol(loc.index);
         }
-        return &wasm_file.synthetic_symbols.items[loc.index];
+        return &wasm_file.synthetic_symbols.items[@intFromEnum(loc.index)];
     }
 
     /// From a given location, returns the name of the symbol.
@@ -237,7 +233,8 @@ pub const SymbolLoc = struct {
         if (wasm_file.file(loc.file)) |obj_file| {
             return obj_file.symbolName(loc.index);
         }
-        return wasm_file.string_table.get(wasm_file.synthetic_symbols.items[loc.index].name);
+        const sym = wasm_file.synthetic_symbols.items[@intFromEnum(loc.index)];
+        return wasm_file.string_table.get(sym.name);
     }
 
     /// From a given symbol location, returns the final location.
@@ -272,7 +269,7 @@ pub const InitFuncLoc = struct {
 
     /// Turns the given `InitFuncLoc` into a `SymbolLoc`
     fn getSymbolLoc(loc: InitFuncLoc) SymbolLoc {
-        return .{ .file = loc.file, .index = loc.index };
+        return .{ .file = loc.file, .index = @enumFromInt(loc.index) };
     }
 
     /// Returns true when `lhs` has a higher priority (e.i. value closer to 0) than `rhs`.
@@ -566,7 +563,7 @@ pub fn createEmpty(
             var zig_object: ZigObject = .{
                 .index = index,
                 .path = try std.fmt.allocPrint(gpa, "{s}.o", .{std.fs.path.stem(zcu.main_mod.root_src_path)}),
-                .stack_pointer_sym = undefined,
+                .stack_pointer_sym = .null,
             };
             try zig_object.init(wasm);
             try wasm.files.append(gpa, .{ .zig_object = zig_object });
@@ -607,7 +604,7 @@ pub fn addOrUpdateImport(
     /// Name of the import
     name: []const u8,
     /// Symbol index that is external
-    symbol_index: u32,
+    symbol_index: Symbol.Index,
     /// Optional library name (i.e. `extern "c" fn foo() void`
     lib_name: ?[:0]const u8,
     /// The index of the type that represents the function signature
@@ -627,7 +624,7 @@ fn createSyntheticSymbol(wasm: *Wasm, name: []const u8, tag: Symbol.Tag) !Symbol
 }
 
 fn createSyntheticSymbolOffset(wasm: *Wasm, name_offset: u32, tag: Symbol.Tag) !SymbolLoc {
-    const sym_index = @as(u32, @intCast(wasm.synthetic_symbols.items.len));
+    const sym_index: Symbol.Index = @enumFromInt(wasm.synthetic_symbols.items.len);
     const loc: SymbolLoc = .{ .index = sym_index, .file = .null };
     const gpa = wasm.base.comp.gpa;
     try wasm.synthetic_symbols.append(gpa, .{
@@ -670,9 +667,9 @@ fn parseObjectFile(wasm: *Wasm, path: []const u8) !bool {
 }
 
 /// Creates a new empty `Atom` and returns its `Atom.Index`
-pub fn createAtom(wasm: *Wasm, sym_index: u32, file_index: File.Index) !Atom.Index {
+pub fn createAtom(wasm: *Wasm, sym_index: Symbol.Index, file_index: File.Index) !Atom.Index {
     const gpa = wasm.base.comp.gpa;
-    const index: Atom.Index = @intCast(wasm.managed_atoms.items.len);
+    const index: Atom.Index = @enumFromInt(wasm.managed_atoms.items.len);
     const atom = try wasm.managed_atoms.addOne(gpa);
     atom.* = .{ .file = file_index, .sym_index = sym_index };
     try wasm.symbol_atom.putNoClobber(gpa, atom.symbolLoc(), index);
@@ -681,11 +678,11 @@ pub fn createAtom(wasm: *Wasm, sym_index: u32, file_index: File.Index) !Atom.Ind
 }
 
 pub inline fn getAtom(wasm: *const Wasm, index: Atom.Index) Atom {
-    return wasm.managed_atoms.items[index];
+    return wasm.managed_atoms.items[@intFromEnum(index)];
 }
 
 pub inline fn getAtomPtr(wasm: *Wasm, index: Atom.Index) *Atom {
-    return &wasm.managed_atoms.items[index];
+    return &wasm.managed_atoms.items[@intFromEnum(index)];
 }
 
 /// Parses an archive file and will then parse each object file
@@ -757,7 +754,7 @@ fn resolveSymbolsInObject(wasm: *Wasm, file_index: File.Index) !void {
     log.debug("Resolving symbols in object: '{s}'", .{obj_file.path()});
 
     for (obj_file.symbols(), 0..) |symbol, i| {
-        const sym_index: u32 = @intCast(i);
+        const sym_index: Symbol.Index = @enumFromInt(i);
         const location: SymbolLoc = .{ .file = file_index, .index = sym_index };
         const sym_name = obj_file.string(symbol.name);
         if (mem.eql(u8, sym_name, "__indirect_function_table")) {
@@ -1489,7 +1486,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.Dec
 /// such as an exported or imported symbol.
 /// If the symbol does not yet exist, creates a new one symbol instead
 /// and then returns the index to it.
-pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !u32 {
+pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !Symbol.Index {
     _ = lib_name;
     return wasm.zigObjectPtr().?.getGlobalSymbol(wasm.base.comp.gpa, name);
 }
@@ -1609,19 +1606,20 @@ fn allocateAtoms(wasm: *Wasm) !void {
             const sym = if (wasm.file(symbol_loc.file)) |obj_file|
                 obj_file.symbol(symbol_loc.index).*
             else
-                wasm.synthetic_symbols.items[symbol_loc.index];
+                wasm.synthetic_symbols.items[@intFromEnum(symbol_loc.index)];
 
             // Dead symbols must be unlinked from the linked-list to prevent them
             // from being emit into the binary.
             if (sym.isDead()) {
-                if (entry.value_ptr.* == atom_index and atom.prev != null) {
+                if (entry.value_ptr.* == atom_index and atom.prev != .null) {
                     // When the atom is dead and is also the first atom retrieved from wasm.atoms(index) we update
                     // the entry to point it to the previous atom to ensure we do not start with a dead symbol that
                     // was removed and therefore do not emit any code at all.
-                    entry.value_ptr.* = atom.prev.?;
+                    entry.value_ptr.* = atom.prev;
                 }
-                atom_index = atom.prev orelse break;
-                atom.prev = null;
+                if (atom.prev == .null) break;
+                atom_index = atom.prev;
+                atom.prev = .null;
                 continue;
             }
             offset = @intCast(atom.alignment.forward(offset));
@@ -1633,7 +1631,8 @@ fn allocateAtoms(wasm: *Wasm) !void {
                 atom.size,
             });
             offset += atom.size;
-            atom_index = atom.prev orelse break;
+            if (atom.prev == .null) break;
+            atom_index = atom.prev;
         }
         segment.size = @intCast(segment.alignment.forward(offset));
     }
@@ -1738,7 +1737,7 @@ fn setupInitFunctions(wasm: *Wasm) !void {
                 .file = file_index,
                 .priority = init_func.priority,
             });
-            try wasm.mark(.{ .index = init_func.symbol_index, .file = file_index });
+            try wasm.mark(.{ .index = @enumFromInt(init_func.symbol_index), .file = file_index });
         }
     }
 
@@ -1844,7 +1843,7 @@ pub fn createFunction(
     func_ty: std.wasm.Type,
     function_body: *std.ArrayList(u8),
     relocations: *std.ArrayList(Relocation),
-) !u32 {
+) !Symbol.Index {
     return wasm.zigObjectPtr().?.createFunction(wasm, symbol_name, func_ty, function_body, relocations);
 }
 
@@ -2324,11 +2323,11 @@ fn setupMemory(wasm: *Wasm) !void {
 /// From a given object's index and the index of the segment, returns the corresponding
 /// index of the segment within the final data section. When the segment does not yet
 /// exist, a new one will be initialized and appended. The new index will be returned in that case.
-pub fn getMatchingSegment(wasm: *Wasm, file_index: File.Index, symbol_index: u32) !u32 {
+pub fn getMatchingSegment(wasm: *Wasm, file_index: File.Index, symbol_index: Symbol.Index) !u32 {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const obj_file = wasm.file(file_index).?;
-    const symbol = obj_file.symbols()[symbol_index];
+    const symbol = obj_file.symbols()[@intFromEnum(symbol_index)];
     const index: u32 = @intCast(wasm.segments.items.len);
     const shared_memory = comp.config.shared_memory;
 
@@ -2889,8 +2888,8 @@ fn writeToFile(
                 try binary_writer.writeAll(atom.code.items);
 
                 current_offset += atom.size;
-                if (atom.prev) |prev| {
-                    atom_index = prev;
+                if (atom.prev != .null) {
+                    atom_index = atom.prev;
                 } else {
                     // also pad with zeroes when last atom to ensure
                     // segments are aligned.
@@ -2984,7 +2983,8 @@ fn writeToFile(
                 while (true) {
                     atom.resolveRelocs(wasm);
                     try debug_bytes.appendSlice(atom.code.items);
-                    atom = if (atom.prev) |prev| wasm.getAtomPtr(prev) else break;
+                    if (atom.prev == .null) break;
+                    atom = wasm.getAtomPtr(atom.prev);
                 }
                 try emitDebugSection(&binary_bytes, debug_bytes.items, item.name);
                 debug_bytes.clearRetainingCapacity();
@@ -3853,7 +3853,7 @@ fn emitCodeRelocations(
         size_offset += getULEB128Size(atom.size);
         for (atom.relocs.items) |relocation| {
             count += 1;
-            const sym_loc: SymbolLoc = .{ .file = atom.file, .index = relocation.index };
+            const sym_loc: SymbolLoc = .{ .file = atom.file, .index = @enumFromInt(relocation.index) };
             const symbol_index = symbol_table.get(sym_loc).?;
             try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
             const offset = atom.offset + relocation.offset + size_offset;
@@ -3864,7 +3864,8 @@ fn emitCodeRelocations(
             }
             log.debug("Emit relocation: {}", .{relocation});
         }
-        atom = if (atom.prev) |prev| wasm.getAtomPtr(prev) else break;
+        if (atom.prev == .null) break;
+        atom = wasm.getAtomPtr(atom.prev);
     }
     if (count == 0) return;
     var buf: [5]u8 = undefined;
@@ -3900,7 +3901,7 @@ fn emitDataRelocations(
             size_offset += getULEB128Size(atom.size);
             for (atom.relocs.items) |relocation| {
                 count += 1;
-                const sym_loc: SymbolLoc = .{ .file = atom.file, .index = relocation.index };
+                const sym_loc: SymbolLoc = .{ .file = atom.file, .index = @enumFromInt(relocation.index) };
                 const symbol_index = symbol_table.get(sym_loc).?;
                 try leb.writeULEB128(writer, @intFromEnum(relocation.relocation_type));
                 const offset = atom.offset + relocation.offset + size_offset;
@@ -3911,7 +3912,8 @@ fn emitDataRelocations(
                 }
                 log.debug("Emit relocation: {}", .{relocation});
             }
-            atom = if (atom.prev) |prev| wasm.getAtomPtr(prev) else break;
+            if (atom.prev == .null) break;
+            atom = wasm.getAtomPtr(atom.prev);
         }
     }
     if (count == 0) return;
@@ -3969,7 +3971,8 @@ pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: s
 ///
 /// When the symbol does not yet exist, it will create a new one instead.
 pub fn getErrorTableSymbol(wasm_file: *Wasm) !u32 {
-    return wasm_file.zigObjectPtr().?.getErrorTableSymbol(wasm_file);
+    const sym_index = try wasm_file.zigObjectPtr().?.getErrorTableSymbol(wasm_file);
+    return @intFromEnum(sym_index);
 }
 
 /// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
@@ -4029,7 +4032,7 @@ fn mark(wasm: *Wasm, loc: SymbolLoc) !void {
 
     const atom = wasm.getAtom(atom_index);
     for (atom.relocs.items) |reloc| {
-        const target_loc: SymbolLoc = .{ .index = reloc.index, .file = loc.file };
+        const target_loc: SymbolLoc = .{ .index = @enumFromInt(reloc.index), .file = loc.file };
         try wasm.mark(target_loc.finalLoc(wasm));
     }
 }

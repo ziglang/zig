@@ -20,10 +20,10 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn symbol(file: File, index: u32) *Symbol {
+    pub fn symbol(file: File, index: Symbol.Index) *Symbol {
         return switch (file) {
-            .zig_object => |obj| &obj.symbols.items[index],
-            .object => |obj| &obj.symtable[index],
+            .zig_object => |obj| &obj.symbols.items[@intFromEnum(index)],
+            .object => |obj| &obj.symtable[@intFromEnum(index)],
         };
     }
 
@@ -34,20 +34,20 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn symbolName(file: File, index: u32) []const u8 {
+    pub fn symbolName(file: File, index: Symbol.Index) []const u8 {
         switch (file) {
             .zig_object => |obj| {
-                const sym = obj.symbols.items[index];
+                const sym = obj.symbols.items[@intFromEnum(index)];
                 return obj.string_table.get(sym.name).?;
             },
             .object => |obj| {
-                const sym = obj.symtable[index];
+                const sym = obj.symtable[@intFromEnum(index)];
                 return obj.string_table.get(sym.name);
             },
         }
     }
 
-    pub fn parseSymbolIntoAtom(file: File, wasm_file: *Wasm, index: u32) !AtomIndex {
+    pub fn parseSymbolIntoAtom(file: File, wasm_file: *Wasm, index: Symbol.Index) !AtomIndex {
         return switch (file) {
             inline else => |obj| obj.parseSymbolIntoAtom(wasm_file, index),
         };
@@ -55,10 +55,10 @@ pub const File = union(enum) {
 
     /// For a given symbol index, find its corresponding import.
     /// Asserts import exists.
-    pub fn import(file: File, symbol_index: u32) types.Import {
+    pub fn import(file: File, symbol_index: Symbol.Index) types.Import {
         return switch (file) {
             .zig_object => |obj| obj.imports.get(symbol_index).?,
-            .object => |obj| obj.findImport(obj.symtable[symbol_index]),
+            .object => |obj| obj.findImport(obj.symtable[@intFromEnum(symbol_index)]),
         };
     }
 
@@ -89,14 +89,14 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn function(file: File, sym_index: u32) std.wasm.Func {
+    pub fn function(file: File, sym_index: Symbol.Index) std.wasm.Func {
         switch (file) {
             .zig_object => |obj| {
-                const sym = obj.symbols.items[sym_index];
+                const sym = obj.symbols.items[@intFromEnum(sym_index)];
                 return obj.functions.items[sym.index];
             },
             .object => |obj| {
-                const sym = obj.symtable[sym_index];
+                const sym = obj.symtable[@intFromEnum(sym_index)];
                 return obj.functions[sym.index - obj.imported_functions_count];
             },
         }

@@ -907,10 +907,10 @@ fn assertEnd(reader: anytype) !void {
 }
 
 /// Parses an object file into atoms, for code and data sections
-pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Atom.Index {
+pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: Symbol.Index) !Atom.Index {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
-    const symbol = &object.symtable[symbol_index];
+    const symbol = &object.symtable[@intFromEnum(symbol_index)];
     const relocatable_data: RelocatableData = switch (symbol.tag) {
         .function => object.relocatable_data.get(.code).?[symbol.index - object.imported_functions_count],
         .data => object.relocatable_data.get(.data).?[symbol.index],
@@ -953,7 +953,7 @@ pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Ato
                 => {
                     try wasm.function_table.put(gpa, .{
                         .file = object.index,
-                        .index = reloc.index,
+                        .index = @enumFromInt(reloc.index),
                     }, 0);
                 },
                 .R_WASM_GLOBAL_INDEX_I32,
@@ -961,7 +961,7 @@ pub fn parseSymbolIntoAtom(object: *Object, wasm: *Wasm, symbol_index: u32) !Ato
                 => {
                     const sym = object.symtable[reloc.index];
                     if (sym.tag != .global) {
-                        try wasm.got_symbols.append(gpa, .{ .file = object.index, .index = reloc.index });
+                        try wasm.got_symbols.append(gpa, .{ .file = object.index, .index = @enumFromInt(reloc.index) });
                     }
                 },
                 else => {},
