@@ -3,7 +3,6 @@
 // Beware: this PRNG is trivially predictable. While fast, it should *never* be used for cryptographic purposes.
 
 const std = @import("std");
-const Random = std.rand.Random;
 const math = std.math;
 const RomuTrio = @This();
 
@@ -17,8 +16,8 @@ pub fn init(init_s: u64) RomuTrio {
     return x;
 }
 
-pub fn random(self: *RomuTrio) Random {
-    return Random.init(self, fill);
+pub fn random(self: *RomuTrio) std.Random {
+    return std.Random.init(self, fill);
 }
 
 fn next(self: *RomuTrio) u64 {
@@ -42,7 +41,7 @@ pub fn seedWithBuf(self: *RomuTrio, buf: [24]u8) void {
 
 pub fn seed(self: *RomuTrio, init_s: u64) void {
     // RomuTrio requires 192-bits of seed.
-    var gen = std.rand.SplitMix64.init(init_s);
+    var gen = std.Random.SplitMix64.init(init_s);
 
     self.x_state = gen.next();
     self.y_state = gen.next();

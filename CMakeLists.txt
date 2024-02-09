@@ -299,7 +299,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/Progress.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/pdb.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/process.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/rand.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/Random.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/sort.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt.zig"
     "${CMAKE_SOURCE_DIR}/lib/compiler_rt/absv.zig"

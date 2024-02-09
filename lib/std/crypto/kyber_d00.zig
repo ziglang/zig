@@ -110,7 +110,7 @@ const assert = std.debug.assert;
 const crypto = std.crypto;
 const math = std.math;
 const mem = std.mem;
-const RndGen = std.rand.DefaultPrng;
+const RndGen = std.Random.DefaultPrng;
 const sha3 = crypto.hash.sha3;
 
 // Q is the parameter q ≡ 3329 = 2¹¹ + 2¹⁰ + 2⁸ + 1.

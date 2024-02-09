@@ -328,7 +328,7 @@ test "RwLock - concurrent access" {
         }
 
         fn writer(self: *Self, thread_idx: usize) !void {
-            var prng = std.rand.DefaultPrng.init(thread_idx);
+            var prng = std.Random.DefaultPrng.init(thread_idx);
             var rnd = prng.random();
 
             while (true) {

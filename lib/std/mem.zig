@@ -4423,7 +4423,7 @@ test "read/write(Var)PackedInt" {
 
     const foreign_endian: Endian = if (native_endian == .big) .little else .big;
     const expect = std.testing.expect;
-    var prng = std.rand.DefaultPrng.init(1234);
+    var prng = std.Random.DefaultPrng.init(1234);
     const random = prng.random();
 
     @setEvalBranchQuota(10_000);

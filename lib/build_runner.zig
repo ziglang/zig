@@ -420,7 +420,7 @@ fn runStepNames(
 
     const starting_steps = try arena.dupe(*Step, step_stack.keys());
 
-    var rng = std.rand.DefaultPrng.init(seed);
+    var rng = std.Random.DefaultPrng.init(seed);
     const rand = rng.random();
     rand.shuffle(*Step, starting_steps);
 
@@ -836,7 +836,7 @@ fn constructGraphAndCheckForDependencyLoop(
     b: *std.Build,
     s: *Step,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
-    rand: std.rand.Random,
+    rand: std.Random,
 ) !void {
     switch (s.state) {
         .precheck_started => {
