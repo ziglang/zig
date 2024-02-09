@@ -635,6 +635,7 @@ test "lessThan" {
 const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv64 => false,
+    .stage2_x86_64 => !std.Target.x86.featureSetHas(builtin.cpu.features, .avx2),
     else => true,
 };
 
