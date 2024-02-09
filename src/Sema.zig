@@ -27304,10 +27304,10 @@ fn fieldCallBind(
             .Union => {
                 try sema.resolveTypeFields(concrete_ty);
                 const union_obj = mod.typeToUnion(concrete_ty).?;
-                const field_index = union_obj.nameIndex(ip, field_name) orelse break :find_field;
-                const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
+                _ = union_obj.nameIndex(ip, field_name) orelse break :find_field;
 
-                return sema.finishFieldCallBind(block, src, ptr_ty, field_ty, field_index, object_ptr);
+                const field_ptr = try unionFieldPtr(sema, block, src, object_ptr, field_name, field_name_src, concrete_ty, false);
+                return .{ .direct = try sema.analyzeLoad(block, src, field_ptr, src) };
             },
             .Type => {
                 const namespace = try sema.analyzeLoad(block, src, object_ptr, src);
