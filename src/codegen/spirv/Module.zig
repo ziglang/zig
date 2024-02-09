@@ -407,12 +407,12 @@ pub fn flush(self: *Module, file: std.fs.File, target: std.Target) !void {
     var types_constants = try self.cache.materialize(self);
     defer types_constants.deinit(self.gpa);
 
-    // TODO: Vulkan doesn't support initializer kernel
-    var init_func = if (target.os.tag != .vulkan)
-        try self.initializer(&entry_points)
-    else
-        Section{};
-    defer init_func.deinit(self.gpa);
+    // // TODO: Pass global variables as function parameters
+    // var init_func = if (target.os.tag != .vulkan)
+    //     try self.initializer(&entry_points)
+    // else
+    //     Section{};
+    // defer init_func.deinit(self.gpa);
 
     const header = [_]Word{
         spec.magic_number,
@@ -458,7 +458,6 @@ pub fn flush(self: *Module, file: std.fs.File, target: std.Target) !void {
         self.sections.types_globals_constants.toWords(),
         globals.toWords(),
         self.sections.functions.toWords(),
-        init_func.toWords(),
     };
 
     var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
