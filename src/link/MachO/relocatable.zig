@@ -103,6 +103,10 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
+    if (comp.include_compiler_rt) {
+        try positionals.append(.{ .path = comp.compiler_rt_obj.?.full_object_path });
+    }
+
     for (positionals.items) |obj| {
         parsePositional(macho_file, obj.path) catch |err| switch (err) {
             error.MalformedObject,
