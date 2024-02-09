@@ -2296,11 +2296,11 @@ fn allocateSections(self: *MachO) !void {
             // Must move the entire section.
             const new_offset = self.findFreeSpace(existing_size, page_size);
 
-            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
+            log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
                 header.segName(),
                 header.sectName(),
+                header.offset,
                 new_offset,
-                new_offset + existing_size,
             });
 
             try self.copyRangeAllZeroOut(header.offset, new_offset, existing_size);
@@ -3200,22 +3200,20 @@ fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
-    if (self.base.isRelocatable()) {
-        for (self.sections.items(.header)) |header| {
-            if (header.isZerofill()) continue;
-            const increased_size = padToIdeal(header.size);
-            const test_end = header.offset +| increased_size;
-            if (end > header.offset and start < test_end) {
-                return test_end;
-            }
+    for (self.sections.items(.header)) |header| {
+        if (header.isZerofill()) continue;
+        const increased_size = padToIdeal(header.size);
+        const test_end = header.offset +| increased_size;
+        if (end > header.offset and start < test_end) {
+            return test_end;
         }
-    } else {
-        for (self.segments.items) |seg| {
-            const increased_size = padToIdeal(seg.filesize);
-            const test_end = seg.fileoff +| increased_size;
-            if (end > seg.fileoff and start < test_end) {
-                return test_end;
-            }
+    }
+
+    for (self.segments.items) |seg| {
+        const increased_size = padToIdeal(seg.filesize);
+        const test_end = seg.fileoff +| increased_size;
+        if (end > seg.fileoff and start < test_end) {
+            return test_end;
         }
     }
 
@@ -3231,21 +3229,19 @@ fn detectAllocCollisionVirtual(self: *MachO, start: u64, size: u64) ?u64 {
 
     const end = start + padToIdeal(size);
 
-    if (self.base.isRelocatable()) {
-        for (self.sections.items(.header)) |header| {
-            const increased_size = padToIdeal(header.size);
-            const test_end = header.addr +| increased_size;
-            if (end > header.addr and start < test_end) {
-                return test_end;
-            }
+    for (self.sections.items(.header)) |header| {
+        const increased_size = padToIdeal(header.size);
+        const test_end = header.addr +| increased_size;
+        if (end > header.addr and start < test_end) {
+            return test_end;
         }
-    } else {
-        for (self.segments.items) |seg| {
-            const increased_size = padToIdeal(seg.vmsize);
-            const test_end = seg.vmaddr +| increased_size;
-            if (end > seg.vmaddr and start < test_end) {
-                return test_end;
-            }
+    }
+
+    for (self.segments.items) |seg| {
+        const increased_size = padToIdeal(seg.vmsize);
+        const test_end = seg.vmaddr +| increased_size;
+        if (end > seg.vmaddr and start < test_end) {
+            return test_end;
         }
     }
 
@@ -3257,16 +3253,14 @@ pub fn allocatedSize(self: *MachO, start: u64) u64 {
 
     var min_pos: u64 = std.math.maxInt(u64);
 
-    if (self.base.isRelocatable()) {
-        for (self.sections.items(.header)) |header| {
-            if (header.offset <= start) continue;
-            if (header.offset < min_pos) min_pos = header.offset;
-        }
-    } else {
-        for (self.segments.items) |seg| {
-            if (seg.fileoff <= start) continue;
-            if (seg.fileoff < min_pos) min_pos = seg.fileoff;
-        }
+    for (self.sections.items(.header)) |header| {
+        if (header.offset <= start) continue;
+        if (header.offset < min_pos) min_pos = header.offset;
+    }
+
+    for (self.segments.items) |seg| {
+        if (seg.fileoff <= start) continue;
+        if (seg.fileoff < min_pos) min_pos = seg.fileoff;
     }
 
     return min_pos - start;
@@ -3277,17 +3271,16 @@ pub fn allocatedSizeVirtual(self: *MachO, start: u64) u64 {
 
     var min_pos: u64 = std.math.maxInt(u64);
 
-    if (self.base.isRelocatable()) {
-        for (self.sections.items(.header)) |header| {
-            if (header.addr <= start) continue;
-            if (header.addr < min_pos) min_pos = header.addr;
-        }
-    } else {
-        for (self.segments.items) |seg| {
-            if (seg.vmaddr <= start) continue;
-            if (seg.vmaddr < min_pos) min_pos = seg.vmaddr;
-        }
+    for (self.sections.items(.header)) |header| {
+        if (header.addr <= start) continue;
+        if (header.addr < min_pos) min_pos = header.addr;
     }
+
+    for (self.segments.items) |seg| {
+        if (seg.vmaddr <= start) continue;
+        if (seg.vmaddr < min_pos) min_pos = seg.vmaddr;
+    }
+
     return min_pos - start;
 }
 
@@ -3557,11 +3550,11 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
         const alignment = self.getPageSize();
         const new_offset = self.findFreeSpace(needed_size, alignment);
 
-        log.debug("new '{s},{s}' file offset 0x{x} to 0x{x}", .{
+        log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
             sect.segName(),
             sect.sectName(),
+            sect.offset,
             new_offset,
-            new_offset + existing_size,
         });
 
         try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
