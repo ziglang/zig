@@ -3,9 +3,8 @@ const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
 
-pub const std_options = struct {
-    pub const io_mode: io.Mode = builtin.test_io_mode;
-    pub const logFn = log;
+pub const std_options = .{
+    .logFn = log,
 };
 
 var log_err_count: usize = 0;
@@ -65,24 +64,19 @@ fn mainServer() !void {
                 const test_fns = builtin.test_functions;
                 const names = try std.testing.allocator.alloc(u32, test_fns.len);
                 defer std.testing.allocator.free(names);
-                const async_frame_sizes = try std.testing.allocator.alloc(u32, test_fns.len);
-                defer std.testing.allocator.free(async_frame_sizes);
                 const expected_panic_msgs = try std.testing.allocator.alloc(u32, test_fns.len);
                 defer std.testing.allocator.free(expected_panic_msgs);
 
-                for (test_fns, names, async_frame_sizes, expected_panic_msgs) |test_fn, *name, *async_frame_size, *expected_panic_msg| {
+                for (test_fns, names, expected_panic_msgs) |test_fn, *name, *expected_panic_msg| {
                     name.* = @as(u32, @intCast(string_bytes.items.len));
                     try string_bytes.ensureUnusedCapacity(std.testing.allocator, test_fn.name.len + 1);
                     string_bytes.appendSliceAssumeCapacity(test_fn.name);
                     string_bytes.appendAssumeCapacity(0);
-
-                    async_frame_size.* = @as(u32, @intCast(test_fn.async_frame_size orelse 0));
                     expected_panic_msg.* = 0;
                 }
 
                 try server.serveTestMetadata(.{
                     .names = names,
-                    .async_frame_sizes = async_frame_sizes,
                     .expected_panic_msgs = expected_panic_msgs,
                     .string_bytes = string_bytes.items,
                 });
@@ -93,8 +87,6 @@ fn mainServer() !void {
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
-                if (test_fn.async_frame_size != null)
-                    @panic("TODO test runner implement async tests");
                 var fail = false;
                 var skip = false;
                 var leak = false;
@@ -163,23 +155,7 @@ fn mainTerminal() void {
         if (!have_tty) {
             std.debug.print("{d}/{d} {s}... ", .{ i + 1, test_fn_list.len, test_fn.name });
         }
-        const result = if (test_fn.async_frame_size) |size| switch (std.options.io_mode) {
-            .evented => blk: {
-                if (async_frame_buffer.len < size) {
-                    std.heap.page_allocator.free(async_frame_buffer);
-                    async_frame_buffer = std.heap.page_allocator.alignedAlloc(u8, std.Target.stack_align, size) catch @panic("out of memory");
-                }
-                const casted_fn = @as(fn () callconv(.Async) anyerror!void, @ptrCast(test_fn.func));
-                break :blk await @asyncCall(async_frame_buffer, {}, casted_fn, .{});
-            },
-            .blocking => {
-                skip_count += 1;
-                test_node.end();
-                progress.log("SKIP (async test)\n", .{});
-                continue;
-            },
-        } else test_fn.func();
-        if (result) |_| {
+        if (test_fn.func()) |_| {
             ok_count += 1;
             test_node.end();
             if (!have_tty) std.debug.print("OK\n", .{});

@@ -92,9 +92,6 @@ pub const elf = @import("elf.zig");
 /// Enum-related metaprogramming helpers.
 pub const enums = @import("enums.zig");
 
-/// Evented I/O data structures.
-pub const event = @import("event.zig");
-
 /// First in, first out data structures.
 pub const fifo = @import("fifo.zig");
 
@@ -198,79 +195,35 @@ pub const zig = @import("zig.zig");
 pub const start = @import("start.zig");
 
 const root = @import("root");
-const options_override = if (@hasDecl(root, "std_options")) root.std_options else struct {};
 
 /// Stdlib-wide options that can be overridden by the root file.
-pub const options = struct {
-    pub const enable_segfault_handler: bool = if (@hasDecl(options_override, "enable_segfault_handler"))
-        options_override.enable_segfault_handler
-    else
-        debug.default_enable_segfault_handler;
+pub const options: Options = if (@hasDecl(root, "std_options")) root.std_options else .{};
+
+pub const Options = struct {
+    enable_segfault_handler: bool = debug.default_enable_segfault_handler,
 
     /// Function used to implement `std.fs.cwd` for WASI.
-    pub const wasiCwd: fn () fs.Dir = if (@hasDecl(options_override, "wasiCwd"))
-        options_override.wasiCwd
-    else
-        fs.defaultWasiCwd;
-
-    /// The application's chosen I/O mode.
-    pub const io_mode: io.Mode = if (@hasDecl(options_override, "io_mode"))
-        options_override.io_mode
-    else if (@hasDecl(options_override, "event_loop"))
-        .evented
-    else
-        .blocking;
-
-    pub const event_loop: event.Loop.Instance = if (@hasDecl(options_override, "event_loop"))
-        options_override.event_loop
-    else
-        event.Loop.default_instance;
-
-    pub const event_loop_mode: event.Loop.Mode = if (@hasDecl(options_override, "event_loop_mode"))
-        options_override.event_loop_mode
-    else
-        event.Loop.default_mode;
+    wasiCwd: fn () os.wasi.fd_t = fs.defaultWasiCwd,
 
     /// The current log level.
-    pub const log_level: log.Level = if (@hasDecl(options_override, "log_level"))
-        options_override.log_level
-    else
-        log.default_level;
+    log_level: log.Level = log.default_level,
 
-    pub const log_scope_levels: []const log.ScopeLevel = if (@hasDecl(options_override, "log_scope_levels"))
-        options_override.log_scope_levels
-    else
-        &.{};
+    log_scope_levels: []const log.ScopeLevel = &.{},
 
-    pub const logFn: fn (
+    logFn: fn (
         comptime message_level: log.Level,
         comptime scope: @TypeOf(.enum_literal),
         comptime format: []const u8,
         args: anytype,
-    ) void = if (@hasDecl(options_override, "logFn"))
-        options_override.logFn
-    else
-        log.defaultLog;
+    ) void = log.defaultLog,
 
-    pub const fmt_max_depth = if (@hasDecl(options_override, "fmt_max_depth"))
-        options_override.fmt_max_depth
-    else
-        fmt.default_max_depth;
+    fmt_max_depth: usize = fmt.default_max_depth,
 
-    pub const cryptoRandomSeed: fn (buffer: []u8) void = if (@hasDecl(options_override, "cryptoRandomSeed"))
-        options_override.cryptoRandomSeed
-    else
-        @import("crypto/tlcsprng.zig").defaultRandomSeed;
+    cryptoRandomSeed: fn (buffer: []u8) void = @import("crypto/tlcsprng.zig").defaultRandomSeed,
 
-    pub const crypto_always_getrandom: bool = if (@hasDecl(options_override, "crypto_always_getrandom"))
-        options_override.crypto_always_getrandom
-    else
-        false;
+    crypto_always_getrandom: bool = false,
 
-    pub const crypto_fork_safety: bool = if (@hasDecl(options_override, "crypto_fork_safety"))
-        options_override.crypto_fork_safety
-    else
-        true;
+    crypto_fork_safety: bool = true,
 
     /// By default Zig disables SIGPIPE by setting a "no-op" handler for it.  Set this option
     /// to `true` to prevent that.
@@ -283,35 +236,22 @@ pub const options = struct {
     /// cases it's unclear why the process was terminated.  By capturing SIGPIPE instead, functions that
     /// write to broken pipes will return the EPIPE error (error.BrokenPipe) and the program can handle
     /// it like any other error.
-    pub const keep_sigpipe: bool = if (@hasDecl(options_override, "keep_sigpipe"))
-        options_override.keep_sigpipe
-    else
-        false;
+    keep_sigpipe: bool = false,
 
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.
     ///
     /// This will likely reduce the size of the binary, but it will also make it impossible to
     /// make a HTTPS connection.
-    pub const http_disable_tls = if (@hasDecl(options_override, "http_disable_tls"))
-        options_override.http_disable_tls
-    else
-        false;
+    http_disable_tls: bool = false,
 
-    pub const side_channels_mitigations: crypto.SideChannelsMitigations = if (@hasDecl(options_override, "side_channels_mitigations"))
-        options_override.side_channels_mitigations
-    else
-        crypto.default_side_channels_mitigations;
+    side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
 // file decides whether to export any appropriate start symbols, and call main.
 comptime {
     _ = start;
-
-    for (@typeInfo(options_override).Struct.decls) |decl| {
-        if (!@hasDecl(options, decl.name)) @compileError("no option named " ++ decl.name);
-    }
 }
 
 test {

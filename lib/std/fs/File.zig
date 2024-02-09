@@ -1,20 +1,6 @@
 /// The OS-specific file descriptor or file handle.
 handle: Handle,
 
-/// On some systems, such as Linux, file system file descriptors are incapable
-/// of non-blocking I/O. This forces us to perform asynchronous I/O on a dedicated thread,
-/// to achieve non-blocking file-system I/O. To do this, `File` must be aware of whether
-/// it is a file system file descriptor, or, more specifically, whether the I/O is always
-/// blocking.
-capable_io_mode: io.ModeOverride = io.default_mode,
-
-/// Furthermore, even when `std.options.io_mode` is async, it is still sometimes desirable
-/// to perform blocking I/O, although not by default. For example, when printing a
-/// stack trace to stderr. This field tracks both by acting as an overriding I/O mode.
-/// When not building in async I/O mode, the type only has the `.blocking` tag, making
-/// it a zero-bit type.
-intended_io_mode: io.ModeOverride = io.default_mode,
-
 pub const Handle = posix.fd_t;
 pub const Mode = posix.mode_t;
 pub const INode = posix.ino_t;
@@ -108,15 +94,7 @@ pub const OpenFlags = struct {
     /// Sets whether or not to wait until the file is locked to return. If set to true,
     /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
     /// is available to proceed.
-    /// In async I/O mode, non-blocking at the OS level is
-    /// determined by `intended_io_mode`, and `true` means `error.WouldBlock` is returned,
-    /// and `false` means `error.WouldBlock` is handled by the event loop.
     lock_nonblocking: bool = false,
-
-    /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
-    /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
-    /// related to opening the file, reading, writing, and locking.
-    intended_io_mode: io.ModeOverride = io.default_mode,
 
     /// Set this to allow the opened file to automatically become the
     /// controlling TTY for the current process.
@@ -172,19 +150,11 @@ pub const CreateFlags = struct {
     /// Sets whether or not to wait until the file is locked to return. If set to true,
     /// `error.WouldBlock` will be returned. Otherwise, the file will wait until the file
     /// is available to proceed.
-    /// In async I/O mode, non-blocking at the OS level is
-    /// determined by `intended_io_mode`, and `true` means `error.WouldBlock` is returned,
-    /// and `false` means `error.WouldBlock` is handled by the event loop.
     lock_nonblocking: bool = false,
 
     /// For POSIX systems this is the file system mode the file will
     /// be created with. On other systems this is always 0.
     mode: Mode = default_mode,
-
-    /// Setting this to `.blocking` prevents `O.NONBLOCK` from being passed even
-    /// if `std.io.is_async`. It allows the use of `nosuspend` when calling functions
-    /// related to opening the file, reading, writing, and locking.
-    intended_io_mode: io.ModeOverride = io.default_mode,
 };
 
 /// Upon success, the stream is in an uninitialized state. To continue using it,
@@ -192,8 +162,6 @@ pub const CreateFlags = struct {
 pub fn close(self: File) void {
     if (is_windows) {
         windows.CloseHandle(self.handle);
-    } else if (self.capable_io_mode != self.intended_io_mode) {
-        std.event.Loop.instance.?.close(self.handle);
     } else {
         posix.close(self.handle);
     }
@@ -1013,14 +981,10 @@ pub const PReadError = posix.PReadError;
 
 pub fn read(self: File, buffer: []u8) ReadError!usize {
     if (is_windows) {
-        return windows.ReadFile(self.handle, buffer, null, self.intended_io_mode);
+        return windows.ReadFile(self.handle, buffer, null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.read(self.handle, buffer);
-    } else {
-        return std.event.Loop.instance.?.read(self.handle, buffer, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.read(self.handle, buffer);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
@@ -1039,14 +1003,10 @@ pub fn readAll(self: File, buffer: []u8) ReadError!usize {
 /// https://github.com/ziglang/zig/issues/12783
 pub fn pread(self: File, buffer: []u8, offset: u64) PReadError!usize {
     if (is_windows) {
-        return windows.ReadFile(self.handle, buffer, offset, self.intended_io_mode);
+        return windows.ReadFile(self.handle, buffer, offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.pread(self.handle, buffer, offset);
-    } else {
-        return std.event.Loop.instance.?.pread(self.handle, buffer, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.pread(self.handle, buffer, offset);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
@@ -1069,14 +1029,10 @@ pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
+        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.readv(self.handle, iovecs);
-    } else {
-        return std.event.Loop.instance.?.readv(self.handle, iovecs, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.readv(self.handle, iovecs);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than the total bytes
@@ -1129,14 +1085,10 @@ pub fn preadv(self: File, iovecs: []const posix.iovec, offset: u64) PReadError!u
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
+        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.preadv(self.handle, iovecs, offset);
-    } else {
-        return std.event.Loop.instance.?.preadv(self.handle, iovecs, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.preadv(self.handle, iovecs, offset);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than the total bytes
@@ -1173,14 +1125,10 @@ pub const PWriteError = posix.PWriteError;
 
 pub fn write(self: File, bytes: []const u8) WriteError!usize {
     if (is_windows) {
-        return windows.WriteFile(self.handle, bytes, null, self.intended_io_mode);
+        return windows.WriteFile(self.handle, bytes, null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.write(self.handle, bytes);
-    } else {
-        return std.event.Loop.instance.?.write(self.handle, bytes, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.write(self.handle, bytes);
 }
 
 pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
@@ -1194,14 +1142,10 @@ pub fn writeAll(self: File, bytes: []const u8) WriteError!void {
 /// https://github.com/ziglang/zig/issues/12783
 pub fn pwrite(self: File, bytes: []const u8, offset: u64) PWriteError!usize {
     if (is_windows) {
-        return windows.WriteFile(self.handle, bytes, offset, self.intended_io_mode);
+        return windows.WriteFile(self.handle, bytes, offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.pwrite(self.handle, bytes, offset);
-    } else {
-        return std.event.Loop.instance.?.pwrite(self.handle, bytes, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.pwrite(self.handle, bytes, offset);
 }
 
 /// On Windows, this function currently does alter the file pointer.
@@ -1220,14 +1164,10 @@ pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null, self.intended_io_mode);
+        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.writev(self.handle, iovecs);
-    } else {
-        return std.event.Loop.instance.?.writev(self.handle, iovecs, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.writev(self.handle, iovecs);
 }
 
 /// The `iovecs` parameter is mutable because:
@@ -1271,14 +1211,10 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset, self.intended_io_mode);
+        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset);
     }
 
-    if (self.intended_io_mode == .blocking) {
-        return posix.pwritev(self.handle, iovecs, offset);
-    } else {
-        return std.event.Loop.instance.?.pwritev(self.handle, iovecs, offset, self.capable_io_mode != self.intended_io_mode);
-    }
+    return posix.pwritev(self.handle, iovecs, offset);
 }
 
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in

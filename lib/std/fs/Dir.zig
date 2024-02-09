@@ -751,11 +751,7 @@ pub const OpenError = error{
 } || posix.UnexpectedError;
 
 pub fn close(self: *Dir) void {
-    if (fs.need_async_thread) {
-        std.event.Loop.instance.?.close(self.fd);
-    } else {
-        posix.close(self.fd);
-    }
+    posix.close(self.fd);
     self.* = undefined;
 }
 
@@ -837,10 +833,7 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
         .write_only => @as(u32, posix.O.WRONLY),
         .read_write => @as(u32, posix.O.RDWR),
     };
-    const fd = if (flags.intended_io_mode != .blocking)
-        try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
-    else
-        try posix.openatZ(self.fd, sub_path, os_flags, 0);
+    const fd = try posix.openatZ(self.fd, sub_path, os_flags, 0);
     errdefer posix.close(fd);
 
     // WASI doesn't have posix.flock so we intetinally check OS prior to the inner if block
@@ -877,11 +870,7 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
         };
     }
 
-    return File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = flags.intended_io_mode,
-    };
+    return File{ .handle = fd };
 }
 
 /// Same as `openFile` but Windows-only and the path parameter is
@@ -895,10 +884,7 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
                 (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
                 (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
             .creation = w.FILE_OPEN,
-            .io_mode = flags.intended_io_mode,
         }),
-        .capable_io_mode = std.io.default_mode,
-        .intended_io_mode = flags.intended_io_mode,
     };
     errdefer file.close();
     var io: w.IO_STATUS_BLOCK = undefined;
@@ -994,10 +980,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
         (if (flags.truncate) @as(u32, posix.O.TRUNC) else 0) |
         (if (flags.read) @as(u32, posix.O.RDWR) else posix.O.WRONLY) |
         (if (flags.exclusive) @as(u32, posix.O.EXCL) else 0);
-    const fd = if (flags.intended_io_mode != .blocking)
-        try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
-    else
-        try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
+    const fd = try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
     errdefer posix.close(fd);
 
     // WASI doesn't have posix.flock so we intetinally check OS prior to the inner if block
@@ -1034,11 +1017,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
         };
     }
 
-    return File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = flags.intended_io_mode,
-    };
+    return File{ .handle = fd };
 }
 
 /// Same as `createFile` but Windows-only and the path parameter is
@@ -1056,10 +1035,7 @@ pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) 
                 @as(u32, w.FILE_OVERWRITE_IF)
             else
                 @as(u32, w.FILE_OPEN_IF),
-            .io_mode = flags.intended_io_mode,
         }),
-        .capable_io_mode = std.io.default_mode,
-        .intended_io_mode = flags.intended_io_mode,
     };
     errdefer file.close();
     var io: w.IO_STATUS_BLOCK = undefined;
@@ -1276,7 +1252,6 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
             .access_mask = access_mask,
             .share_access = share_access,
             .creation = creation,
-            .io_mode = .blocking,
             .filter = .any,
         }) catch |err| switch (err) {
             error.WouldBlock => unreachable,
@@ -1449,11 +1424,7 @@ pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) Ope
 
 /// `flags` must contain `posix.O.DIRECTORY`.
 fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: u32) OpenError!Dir {
-    const result = if (fs.need_async_thread)
-        std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, flags, 0)
-    else
-        posix.openatZ(self.fd, sub_path_c, flags, 0);
-    const fd = result catch |err| switch (err) {
+    const fd = posix.openatZ(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
         error.FileTooBig => unreachable, // can't happen for directories
         error.IsDir => unreachable, // we're providing O.DIRECTORY
         error.NoSpaceLeft => unreachable, // not providing O.CREAT
@@ -2270,10 +2241,7 @@ pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) Access
         .write_only => @as(u32, posix.W_OK),
         .read_write => @as(u32, posix.R_OK | posix.W_OK),
     };
-    const result = if (fs.need_async_thread and flags.intended_io_mode != .blocking)
-        std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode, 0)
-    else
-        posix.faccessatZ(self.fd, sub_path, os_mode, 0);
+    const result = posix.faccessatZ(self.fd, sub_path, os_mode, 0);
     return result;
 }
 
@@ -2457,10 +2425,7 @@ pub const Stat = File.Stat;
 pub const StatError = File.StatError;
 
 pub fn stat(self: Dir) StatError!Stat {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     return file.stat();
 }
 
@@ -2496,10 +2461,7 @@ pub const ChmodError = File.ChmodError;
 /// of the directory. Additionally, the directory must have been opened
 /// with `OpenDirOptions{ .iterate = true }`.
 pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     try file.chmod(new_mode);
 }
 
@@ -2510,10 +2472,7 @@ pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
 /// must have been opened with `OpenDirOptions{ .iterate = true }`. If the
 /// owner or group is specified as `null`, the ID is not changed.
 pub fn chown(self: Dir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     try file.chown(owner, group);
 }
 
@@ -2525,10 +2484,7 @@ pub const SetPermissionsError = File.SetPermissionsError;
 /// Sets permissions according to the provided `Permissions` struct.
 /// This method is *NOT* available on WASI
 pub fn setPermissions(self: Dir, permissions: Permissions) SetPermissionsError!void {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     try file.setPermissions(permissions);
 }
 
@@ -2537,10 +2493,7 @@ pub const MetadataError = File.MetadataError;
 
 /// Returns a `Metadata` struct, representing the permissions on the directory
 pub fn metadata(self: Dir) MetadataError!Metadata {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     return try file.metadata();
 }
 

@@ -7,8 +7,8 @@ const Client = http.Client;
 const mem = std.mem;
 const testing = std.testing;
 
-pub const std_options = struct {
-    pub const http_disable_tls = true;
+pub const std_options = .{
+    .http_disable_tls = true,
 };
 
 const max_header_size = 8192;

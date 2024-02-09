@@ -31,8 +31,6 @@ pub const realpathW = os.realpathW;
 pub const getAppDataDir = @import("fs/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirError;
 
-pub const Watch = @import("fs/watch.zig").Watch;
-
 /// This represents the maximum size of a UTF-8 encoded file path that the
 /// operating system will accept. Paths, including those returned from file
 /// system operations, may be longer than this length, but such paths cannot
@@ -85,13 +83,6 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
-
-/// Whether or not async file system syscalls need a dedicated thread because the operating
-/// system does not support non-blocking I/O on the file system.
-pub const need_async_thread = std.io.is_async and switch (builtin.os.tag) {
-    .windows, .other => false,
-    else => true,
-};
 
 /// TODO remove the allocator requirement from this API
 /// TODO move to Dir
@@ -231,17 +222,17 @@ pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_
 /// On POSIX targets, this function is comptime-callable.
 pub fn cwd() Dir {
     if (builtin.os.tag == .windows) {
-        return Dir{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
+        return .{ .fd = os.windows.peb().ProcessParameters.CurrentDirectory.Handle };
     } else if (builtin.os.tag == .wasi) {
-        return std.options.wasiCwd();
+        return .{ .fd = std.options.wasiCwd() };
     } else {
-        return Dir{ .fd = os.AT.FDCWD };
+        return .{ .fd = os.AT.FDCWD };
     }
 }
 
-pub fn defaultWasiCwd() Dir {
+pub fn defaultWasiCwd() std.os.wasi.fd_t {
     // Expect the first preopen to be current working directory.
-    return .{ .fd = 3 };
+    return 3;
 }
 
 /// Opens a directory at the given path. The directory is a system resource that remains
@@ -641,5 +632,4 @@ test {
     _ = &path;
     _ = @import("fs/test.zig");
     _ = @import("fs/get_app_data_dir.zig");
-    _ = @import("fs/watch.zig");
 }

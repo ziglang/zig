@@ -29,27 +29,27 @@ const AstGen = @import("AstGen.zig");
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
 
-pub const std_options = struct {
-    pub const wasiCwd = wasi_cwd;
-    pub const logFn = log;
-    pub const enable_segfault_handler = false;
+pub const std_options = .{
+    .wasiCwd = wasi_cwd,
+    .logFn = log,
+    .enable_segfault_handler = false,
 
-    pub const log_level: std.log.Level = switch (builtin.mode) {
+    .log_level = switch (builtin.mode) {
         .Debug => .debug,
         .ReleaseSafe, .ReleaseFast => .info,
         .ReleaseSmall => .err,
-    };
+    },
 };
 
 // Crash report needs to override the panic handler
 pub const panic = crash_report.panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
-pub fn wasi_cwd() fs.Dir {
+pub fn wasi_cwd() std.os.wasi.fd_t {
     // Expect the first preopen to be current working directory.
     const cwd_fd: std.os.fd_t = 3;
     assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
-    return .{ .fd = cwd_fd };
+    return cwd_fd;
 }
 
 fn getWasiPreopen(name: []const u8) Compilation.Directory {
@@ -1335,8 +1335,6 @@ fn buildOutputType(
                         create_module.each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
                         try test_exec_args.append(null);
-                    } else if (mem.eql(u8, arg, "--test-evented-io")) {
-                        create_module.opts.test_evented_io = true;
                     } else if (mem.eql(u8, arg, "--test-no-exec")) {
                         test_no_exec = true;
                     } else if (mem.eql(u8, arg, "-ftime-report")) {

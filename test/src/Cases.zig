@@ -1207,8 +1207,8 @@ const WaitGroup = std.Thread.WaitGroup;
 const build_options = @import("build_options");
 const Package = @import("../../src/Package.zig");
 
-pub const std_options = struct {
-    pub const log_level: std.log.Level = .err;
+pub const std_options = .{
+    .log_level = .err,
 };
 
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{

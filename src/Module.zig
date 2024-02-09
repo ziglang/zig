@@ -5620,21 +5620,12 @@ pub fn populateTestFunctions(
     }
     const decl = mod.declPtr(decl_index);
     const test_fn_ty = decl.ty.slicePtrFieldType(mod).childType(mod);
-    const null_usize = try mod.intern(.{ .opt = .{
-        .ty = try mod.intern(.{ .opt_type = .usize_type }),
-        .val = .none,
-    } });
 
     const array_decl_index = d: {
         // Add mod.test_functions to an array decl then make the test_functions
         // decl reference it as a slice.
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
         defer gpa.free(test_fn_vals);
-
-        // Add a dependency on each test name and function pointer.
-        var array_decl_dependencies = std.ArrayListUnmanaged(Decl.Index){};
-        defer array_decl_dependencies.deinit(gpa);
-        try array_decl_dependencies.ensureUnusedCapacity(gpa, test_fn_vals.len * 2);
 
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
@@ -5655,8 +5646,6 @@ pub fn populateTestFunctions(
                 });
                 break :n test_name_decl_index;
             };
-            array_decl_dependencies.appendAssumeCapacity(test_decl_index);
-            array_decl_dependencies.appendAssumeCapacity(test_name_decl_index);
             try mod.linkerUpdateDecl(test_name_decl_index);
 
             const test_fn_fields = .{
@@ -5682,8 +5671,6 @@ pub fn populateTestFunctions(
                     } }),
                     .addr = .{ .decl = test_decl_index },
                 } }),
-                // async_frame_size
-                null_usize,
             };
             test_fn_val.* = try mod.intern(.{ .aggregate = .{
                 .ty = test_fn_ty.toIntern(),
