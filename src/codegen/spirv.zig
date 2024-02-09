@@ -947,19 +947,19 @@ const DeclGen = struct {
                         .bytes => |bytes| {
                             // TODO: This is really space inefficient, perhaps there is a better
                             // way to do it?
-                            for (constituents, bytes) |*constituent, byte| {
-                                constituent.* = try self.constInt(elem_ty_ref, byte);
+                            for (bytes, 0..) |byte, i| {
+                                constituents[i] = try self.constInt(elem_ty_ref, byte);
                             }
                         },
                         .elems => |elems| {
-                            for (constituents, elems) |*constituent, elem| {
-                                constituent.* = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
+                            for (0..@as(usize, @intCast(array_type.len))) |i| {
+                                constituents[i] = try self.constant(elem_ty, Value.fromInterned(elems[i]), .indirect);
                             }
                         },
                         .repeated_elem => |elem| {
                             const val_id = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
-                            for (constituents) |*constituent| {
-                                constituent.* = val_id;
+                            for (0..@as(usize, @intCast(array_type.len))) |i| {
+                                constituents[i] = val_id;
                             }
                         },
                     }
@@ -2199,7 +2199,6 @@ const DeclGen = struct {
     fn genInst(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
         const ip = &mod.intern_pool;
-        // TODO: remove now-redundant isUnused calls from AIR handler functions
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip))
             return;
 
@@ -2365,8 +2364,6 @@ const DeclGen = struct {
     }
 
     fn airBinOpSimple(self: *DeclGen, inst: Air.Inst.Index, comptime opcode: Opcode) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
@@ -2376,7 +2373,6 @@ const DeclGen = struct {
     }
 
     fn airShift(self: *DeclGen, inst: Air.Inst.Index, comptime unsigned: Opcode, comptime signed: Opcode) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const mod = self.module;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
@@ -2431,8 +2427,6 @@ const DeclGen = struct {
     }
 
     fn airMinMax(self: *DeclGen, inst: Air.Inst.Index, op: std.math.CompareOperator) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
@@ -2544,7 +2538,6 @@ const DeclGen = struct {
         comptime sop: Opcode,
         comptime uop: Opcode,
     ) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
 
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
@@ -2614,8 +2607,6 @@ const DeclGen = struct {
     }
 
     fn airAbs(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
@@ -2678,8 +2669,6 @@ const DeclGen = struct {
         comptime ucmp: Opcode,
         comptime scmp: Opcode,
     ) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -2793,7 +2782,6 @@ const DeclGen = struct {
     }
 
     fn airShlOverflow(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const mod = self.module;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -2887,8 +2875,6 @@ const DeclGen = struct {
     }
 
     fn airMulAdd(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Bin, pl_op.payload).data;
 
@@ -2923,7 +2909,6 @@ const DeclGen = struct {
     }
 
     fn airSplat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
@@ -2934,7 +2919,6 @@ const DeclGen = struct {
     }
 
     fn airReduce(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const mod = self.module;
         const reduce = self.air.instructions.items(.data)[@intFromEnum(inst)].reduce;
         const operand = try self.resolve(reduce.operand);
@@ -3002,7 +2986,6 @@ const DeclGen = struct {
 
     fn airShuffle(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        if (self.liveness.isUnused(inst)) return null;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
         const a = try self.resolve(extra.a);
@@ -3115,7 +3098,6 @@ const DeclGen = struct {
     }
 
     fn airPtrAdd(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
@@ -3127,7 +3109,6 @@ const DeclGen = struct {
     }
 
     fn airPtrSub(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
@@ -3303,7 +3284,6 @@ const DeclGen = struct {
         inst: Air.Inst.Index,
         comptime op: std.math.CompareOperator,
     ) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
@@ -3314,8 +3294,6 @@ const DeclGen = struct {
     }
 
     fn airVectorCmp(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const vec_cmp = self.air.extraData(Air.VectorCmp, ty_pl.payload).data;
         const lhs_id = try self.resolve(vec_cmp.lhs);
@@ -3397,7 +3375,6 @@ const DeclGen = struct {
     }
 
     fn airBitCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
@@ -3406,8 +3383,6 @@ const DeclGen = struct {
     }
 
     fn airIntCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const src_ty = self.typeOf(ty_op.operand);
@@ -3463,16 +3438,12 @@ const DeclGen = struct {
     }
 
     fn airIntFromPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         return try self.intFromPtr(operand_id);
     }
 
     fn airFloatFromInt(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
         const operand_id = try self.resolve(ty_op.operand);
@@ -3497,8 +3468,6 @@ const DeclGen = struct {
     }
 
     fn airIntFromFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
@@ -3522,8 +3491,6 @@ const DeclGen = struct {
     }
 
     fn airIntFromBool(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
         const result_ty = self.typeOfIndex(inst);
@@ -3538,8 +3505,6 @@ const DeclGen = struct {
     }
 
     fn airFloatCast(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
@@ -3555,7 +3520,6 @@ const DeclGen = struct {
     }
 
     fn airNot(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
@@ -3587,8 +3551,6 @@ const DeclGen = struct {
     }
 
     fn airArrayToSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const array_ptr_ty = self.typeOf(ty_op.operand);
@@ -3613,8 +3575,6 @@ const DeclGen = struct {
     }
 
     fn airSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
@@ -3627,8 +3587,6 @@ const DeclGen = struct {
     }
 
     fn airAggregateInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ip = &mod.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -3681,9 +3639,9 @@ const DeclGen = struct {
                 const elem_ids = try self.gpa.alloc(IdRef, n_elems);
                 defer self.gpa.free(elem_ids);
 
-                for (elements, elem_ids) |element, *elem_id| {
+                for (elements, 0..) |element, i| {
                     const id = try self.resolve(element);
-                    elem_id.* = try self.convertToIndirect(result_ty.childType(mod), id);
+                    elem_ids[i] = try self.convertToIndirect(result_ty.childType(mod), id);
                 }
 
                 return try self.constructComposite(result_ty, elem_ids);
@@ -3694,9 +3652,9 @@ const DeclGen = struct {
                 const elem_ids = try self.gpa.alloc(IdRef, n_elems);
                 defer self.gpa.free(elem_ids);
 
-                for (elements, elem_ids) |element, *elem_id| {
+                for (elements, 0..) |element, i| {
                     const id = try self.resolve(element);
-                    elem_id.* = try self.convertToIndirect(array_info.elem_type, id);
+                    elem_ids[i] = try self.convertToIndirect(array_info.elem_type, id);
                 }
 
                 if (array_info.sentinel) |sentinel_val| {
@@ -3750,7 +3708,6 @@ const DeclGen = struct {
     }
 
     fn airSliceField(self: *DeclGen, inst: Air.Inst.Index, field: u32) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const field_ty = self.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
@@ -3807,8 +3764,6 @@ const DeclGen = struct {
     }
 
     fn airPtrElemPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -3826,8 +3781,6 @@ const DeclGen = struct {
     }
 
     fn airArrayElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const array_ty = self.typeOf(bin_op.lhs);
@@ -3848,8 +3801,6 @@ const DeclGen = struct {
     }
 
     fn airPtrElemVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
@@ -3906,8 +3857,6 @@ const DeclGen = struct {
     }
 
     fn airGetUnionTag(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const un_ty = self.typeOf(ty_op.operand);
 
@@ -3991,8 +3940,6 @@ const DeclGen = struct {
     }
 
     fn airUnionInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ip = &mod.intern_pool;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -4009,8 +3956,6 @@ const DeclGen = struct {
     }
 
     fn airStructFieldVal(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
@@ -4131,7 +4076,6 @@ const DeclGen = struct {
     }
 
     fn airStructFieldPtrIndex(self: *DeclGen, inst: Air.Inst.Index, field_index: u32) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const struct_ptr = try self.resolve(ty_op.operand);
         const struct_ptr_ty = self.typeOf(ty_op.operand);
@@ -4185,7 +4129,6 @@ const DeclGen = struct {
     }
 
     fn airAlloc(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
         const mod = self.module;
         const ptr_ty = self.typeOfIndex(inst);
         assert(ptr_ty.ptrAddressSpace(mod) == .generic);
@@ -4769,9 +4712,7 @@ const DeclGen = struct {
 
             try self.beginSpvBlock(ok_block);
         }
-        if (self.liveness.isUnused(inst)) {
-            return null;
-        }
+
         if (!eu_layout.payload_has_bits) {
             return null;
         }
@@ -4781,8 +4722,6 @@ const DeclGen = struct {
     }
 
     fn airErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
@@ -4806,8 +4745,6 @@ const DeclGen = struct {
     }
 
     fn airErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         const payload_ty = self.typeOfIndex(inst);
@@ -4821,8 +4758,6 @@ const DeclGen = struct {
     }
 
     fn airWrapErrUnionErr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
@@ -4844,8 +4779,6 @@ const DeclGen = struct {
     }
 
     fn airWrapErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const err_union_ty = self.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
@@ -4865,8 +4798,6 @@ const DeclGen = struct {
     }
 
     fn airIsNull(self: *DeclGen, inst: Air.Inst.Index, is_pointer: bool, pred: enum { is_null, is_non_null }) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
@@ -4939,8 +4870,6 @@ const DeclGen = struct {
     }
 
     fn airIsErr(self: *DeclGen, inst: Air.Inst.Index, pred: enum { is_err, is_non_err }) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand_id = try self.resolve(un_op);
@@ -4975,8 +4904,6 @@ const DeclGen = struct {
     }
 
     fn airUnwrapOptional(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
@@ -4993,8 +4920,6 @@ const DeclGen = struct {
     }
 
     fn airUnwrapOptionalPtr(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
@@ -5019,8 +4944,6 @@ const DeclGen = struct {
     }
 
     fn airWrapOptional(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        if (self.liveness.isUnused(inst)) return null;
-
         const mod = self.module;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const payload_ty = self.typeOf(ty_op.operand);
