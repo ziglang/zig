@@ -3776,6 +3776,9 @@ fn airAddSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
             .Vector => return self.fail("TODO implement add/sub with overflow for Vector type", .{}),
             .Int => {
                 try self.spillEflagsIfOccupied();
+                try self.spillRegisters(&.{ .rcx, .rdi, .rsi });
+                const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rcx, .rdi, .rsi });
+                defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
 
                 const partial_mcv = try self.genBinOp(null, switch (tag) {
                     .add_with_overflow => .add,
@@ -3839,8 +3842,10 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
             .Vector => return self.fail("TODO implement shl with overflow for Vector type", .{}),
             .Int => {
                 try self.spillEflagsIfOccupied();
+                try self.spillRegisters(&.{ .rcx, .rdi, .rsi });
+                const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rcx, .rdi, .rsi });
+                defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
 
-                try self.register_manager.getReg(.rcx, null);
                 const lhs = try self.resolveInst(bin_op.lhs);
                 const rhs = try self.resolveInst(bin_op.rhs);
 
@@ -4296,8 +4301,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
             };
 
             try self.spillEflagsIfOccupied();
-            try self.spillRegisters(&.{ .rax, .rcx, .rdx });
-            const reg_locks = self.register_manager.lockRegsAssumeUnused(3, .{ .rax, .rcx, .rdx });
+            try self.spillRegisters(&.{ .rax, .rcx, .rdx, .rdi, .rsi });
+            const reg_locks = self.register_manager.lockRegsAssumeUnused(5, .{ .rax, .rcx, .rdx, .rdi, .rsi });
             defer for (reg_locks) |lock| self.register_manager.unlockReg(lock);
 
             const cc: Condition = switch (dst_info.signedness) {
@@ -8273,8 +8278,8 @@ fn genShiftBinOp(
     assert(rhs_ty.abiSize(mod) == 1);
 
     try self.register_manager.getReg(.rcx, null);
-    const rcx_lock = self.register_manager.lockRegAssumeUnused(.rcx);
-    defer self.register_manager.unlockReg(rcx_lock);
+    const rcx_lock = self.register_manager.lockReg(.rcx);
+    defer if (rcx_lock) |lock| self.register_manager.unlockReg(lock);
 
     const lhs_lock = switch (lhs_mcv) {
         .register => |reg| self.register_manager.lockReg(reg),
