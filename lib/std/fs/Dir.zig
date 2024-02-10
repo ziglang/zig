@@ -1726,17 +1726,46 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
     return std.os.windows.ReadLink(self.fd, sub_path_w, buffer);
 }
 
-/// Read all of file contents using a preallocated buffer.
-/// The returned slice has the same pointer as `buffer`. If the length matches `buffer.len`
-/// the situation is ambiguous. It could either mean that the entire file was read, and
-/// it exactly fits the buffer, or it could mean the buffer was not big enough for the
-/// entire file.
-pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+/// Attempt to read all of the file at `file_path`s contents into `buffer`.
+/// `error.BufferFull` is returned if the file does not have a size, and the entirety of `buffer` is
+/// used. This indicates that `buffer` is insufficient to hold the contents of the file, or the file
+/// is exactly `buffer.len` bytes long.  Otherwise, the true size of the file is returned. If it is
+/// larger than `buffer.len`, `buffer` contains the first `buffer.len` bytes, otherwise, the buffer
+/// holds the entire file.
+pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) !u64 {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
-    const end_index = try file.readAll(buffer);
-    return buffer[0..end_index];
+    const nb_read = try file.readAll(buffer);
+
+    if (nb_read == buffer.len) {
+        const meta = try file.metadata();
+
+        return switch (meta.kind()) {
+            // Block and character devices don't have a correct size.
+            .block_device,
+            .character_device,
+
+            // FIFOs and sockets can't have a correct size by nature.
+            .named_pipe,
+            .unix_domain_socket,
+            => error.BufferFull,
+
+            // Regular files have a correct size.
+            .file => meta.size(),
+
+            // The `unknown` file kind should only be used when iterating directories.
+            .unknown => unreachable,
+
+            // Symlinks should already have been followed.
+            .sym_link => unreachable,
+
+            // `openFile` isn't supposed to open whiteouts, event ports, doors, and directories.
+            .whiteout, .door, .event_port, .directory => unreachable,
+        };
+    }
+
+    return nb_read;
 }
 
 /// On success, caller owns returned buffer.
