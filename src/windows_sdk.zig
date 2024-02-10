@@ -752,9 +752,11 @@ const MsvcLibDir = struct {
 
         try lib_dir_buf.appendSlice("VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
         var default_tools_version_buf: [512]u8 = undefined;
-        const default_tools_version_contents = std.fs.cwd().readFile(lib_dir_buf.items, &default_tools_version_buf) catch {
-            return error.PathNotFound;
-        };
+        const default_tools_version_len: usize = @intCast(std.fs.cwd().readFile(lib_dir_buf.items, &default_tools_version_buf) catch |err| switch(err) {
+            error.BufferFull => {},
+            else => return error.PathNotFound,
+        });
+        const default_tools_version_contents = default_tools_version_buf[0..@min(default_tools_version_len, default_tools_version_buf.len)];
         var tokenizer = std.mem.tokenizeAny(u8, default_tools_version_contents, " \r\n");
         const default_tools_version = tokenizer.next() orelse return error.PathNotFound;
 

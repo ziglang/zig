@@ -55,18 +55,17 @@ pub fn detect(target_os: *Target.Os) !void {
         // approx. 4 times historical file size
         var buf: [2048]u8 = undefined;
 
-        if (std.fs.cwd().readFile(path, &buf)) |bytes| {
-            if (parseSystemVersion(bytes)) |ver| {
-                // never return non-canonical `10.(16+)`
-                if (!(ver.major == 10 and ver.minor >= 16)) {
-                    target_os.version_range.semver.min = ver;
-                    target_os.version_range.semver.max = ver;
-                    return;
-                }
-                continue;
-            } else |_| {
-                return error.OSVersionDetectionFail;
+        const real_size = std.fs.cwd().readFile(path, &buf) catch return error.OSVersionDetectionFail;
+        if (real_size > buf.len) return error.OSVersionDetectionFail;
+
+        if (parseSystemVersion(&buf)) |ver| {
+            // never return non-canonical `10.(16+)`
+            if (!(ver.major == 10 and ver.minor >= 16)) {
+                target_os.version_range.semver.min = ver;
+                target_os.version_range.semver.max = ver;
+                return;
             }
+            continue;
         } else |_| {
             return error.OSVersionDetectionFail;
         }

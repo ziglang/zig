@@ -968,7 +968,11 @@ pub const Manifest = struct {
 /// it is treated as not supporting symlinks.
 pub fn readSmallFile(dir: fs.Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
     if (builtin.os.tag == .windows) {
-        return dir.readFile(sub_path, buffer);
+        const file_len: usize = @intCast(dir.readFile(sub_path, buffer) catch |err| return switch(err) {
+            error.BufferFull => buffer,
+            else => err,
+        });
+        return buffer[0..@min(buffer.len, file_len)];
     } else {
         return dir.readLink(sub_path, buffer);
     }
