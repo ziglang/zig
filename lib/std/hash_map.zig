@@ -680,7 +680,17 @@ pub fn HashMap(
             return result;
         }
 
-        /// Rehash the map, in-place
+        /// Rehash the map, in-place.
+        ///
+        /// Over time, due to the current tombstone-based implementation, a
+        /// HashMap could become fragmented due to the buildup of tombstone
+        /// entries that causes a performance degradation due to excessive
+        /// probing. The kind of pattern that might cause this is a long-lived
+        /// HashMap with repeated inserts and deletes.
+        ///
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
         pub fn rehash(self: *Self) void {
             self.unmanaged.rehash(self.ctx);
         }
@@ -1517,8 +1527,9 @@ pub fn HashMapUnmanaged(
         /// probing. The kind of pattern that might cause this is a long-lived
         /// HashMap with repeated inserts and deletes.
         ///
-        /// All existing key/value pointers in the HashMap are maintained at
-        /// their new rehashed location.
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
         pub fn rehash(self: *Self, ctx: anytype) void {
             const mask = self.capacity() - 1;
 
