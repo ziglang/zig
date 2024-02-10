@@ -393,8 +393,10 @@ pub const GetEnvVarOwnedError = error{
 pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
     if (builtin.os.tag == .windows) {
         const result_w = blk: {
-            const key_w = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, key);
-            defer allocator.free(key_w);
+            var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
+            const stack_allocator = stack_alloc.get();
+            const key_w = try std.unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
+            defer stack_allocator.free(key_w);
 
             break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         };
