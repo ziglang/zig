@@ -3332,31 +3332,11 @@ fn emitDbgNode(gz: *GenZir, node: Ast.Node.Index) !void {
     // If the current block will be evaluated only during semantic analysis
     // then no dbg_stmt ZIR instruction is needed.
     if (gz.is_comptime) return;
-
     const astgen = gz.astgen;
     astgen.advanceSourceCursorToNode(node);
     const line = astgen.source_line - gz.decl_line;
     const column = astgen.source_column;
-
-    if (gz.instructions.items.len > 0) {
-        const last = gz.instructions.items[gz.instructions.items.len - 1];
-        const zir_tags = astgen.instructions.items(.tag);
-        if (zir_tags[@intFromEnum(last)] == .dbg_stmt) {
-            const zir_datas = astgen.instructions.items(.data);
-            zir_datas[@intFromEnum(last)].dbg_stmt = .{
-                .line = line,
-                .column = column,
-            };
-            return;
-        }
-    }
-
-    _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
-        .dbg_stmt = .{
-            .line = line,
-            .column = column,
-        },
-    } });
+    try emitDbgStmt(gz, .{ line, column });
 }
 
 fn assign(gz: *GenZir, scope: *Scope, infix_node: Ast.Node.Index) InnerError!void {
@@ -7143,7 +7123,7 @@ fn switchExprErrUnion(
     block_scope.setBreakResultInfo(block_ri);
 
     // Sema expects a dbg_stmt immediately before switch_block_err_union
-    try emitDbgStmt(parent_gz, operand_lc);
+    try emitDbgStmtForceCurrentIndex(parent_gz, operand_lc);
     // This gets added to the parent block later, after the item expressions.
     const switch_block = try parent_gz.makeBlockInst(.switch_block_err_union, switch_node);
 
@@ -7723,7 +7703,7 @@ fn switchExpr(
     block_scope.setBreakResultInfo(block_ri);
 
     // Sema expects a dbg_stmt immediately before switch_block(_ref)
-    try emitDbgStmt(parent_gz, operand_lc);
+    try emitDbgStmtForceCurrentIndex(parent_gz, operand_lc);
     // This gets added to the parent block later, after the item expressions.
     const switch_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_block_ref else .switch_block;
     const switch_block = try parent_gz.makeBlockInst(switch_tag, switch_node);
@@ -9847,13 +9827,8 @@ fn callExpr(
         astgen.advanceSourceCursor(astgen.tree.tokens.items(.start)[call.ast.lparen]);
         const line = astgen.source_line - gz.decl_line;
         const column = astgen.source_column;
-
-        _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
-            .dbg_stmt = .{
-                .line = line,
-                .column = column,
-            },
-        } });
+        // Sema expects a dbg_stmt immediately before call,
+        try emitDbgStmtForceCurrentIndex(gz, .{ line, column });
     }
 
     switch (callee) {
@@ -13536,6 +13511,44 @@ fn countBodyLenAfterFixups(astgen: *AstGen, body: []const Zir.Inst.Index) u32 {
 
 fn emitDbgStmt(gz: *GenZir, lc: LineColumn) !void {
     if (gz.is_comptime) return;
+    if (gz.instructions.items.len > 0) {
+        const astgen = gz.astgen;
+        const last = gz.instructions.items[gz.instructions.items.len - 1];
+        if (astgen.instructions.items(.tag)[@intFromEnum(last)] == .dbg_stmt) {
+            astgen.instructions.items(.data)[@intFromEnum(last)].dbg_stmt = .{
+                .line = lc[0],
+                .column = lc[1],
+            };
+            return;
+        }
+    }
+
+    _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
+        .dbg_stmt = .{
+            .line = lc[0],
+            .column = lc[1],
+        },
+    } });
+}
+
+/// In some cases, Sema expects us to generate a `dbg_stmt` at the instruction
+/// *index* directly preceding the next instruction (e.g. if a call is %10, it
+/// expects a dbg_stmt at %9). TODO: this logic may allow redundant dbg_stmt
+/// instructions; fix up Sema so we don't need it!
+fn emitDbgStmtForceCurrentIndex(gz: *GenZir, lc: LineColumn) !void {
+    const astgen = gz.astgen;
+    if (gz.instructions.items.len > 0 and
+        @intFromEnum(gz.instructions.items[gz.instructions.items.len - 1]) == astgen.instructions.len - 1)
+    {
+        const last = astgen.instructions.len - 1;
+        if (astgen.instructions.items(.tag)[last] == .dbg_stmt) {
+            astgen.instructions.items(.data)[last].dbg_stmt = .{
+                .line = lc[0],
+                .column = lc[1],
+            };
+            return;
+        }
+    }
 
     _ = try gz.add(.{ .tag = .dbg_stmt, .data = .{
         .dbg_stmt = .{
