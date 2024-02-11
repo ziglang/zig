@@ -6164,17 +6164,16 @@ fn genByteSwap(
         "TODO implement genByteSwap for {}",
         .{src_ty.fmt(mod)},
     );
-    const abi_size: u32 = @intCast(src_ty.abiSize(mod));
+
     const src_lock = switch (src_mcv) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
         else => null,
     };
     defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
+    const abi_size: u32 = @intCast(src_ty.abiSize(mod));
     switch (abi_size) {
-        else => return self.fail("TODO implement genByteSwap for {}", .{
-            src_ty.fmt(mod),
-        }),
+        0 => unreachable,
         1 => return if ((mem_ok or src_mcv.isRegister()) and
             self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
             src_mcv
@@ -6223,6 +6222,83 @@ fn genByteSwap(
             }
             return .{ .register_pair = .{ dst_regs[1], dst_regs[0] } };
         },
+        else => {
+            const limbs_len = math.divCeil(u32, abi_size, 8) catch unreachable;
+
+            const temp_regs =
+                try self.register_manager.allocRegs(4, .{null} ** 4, abi.RegisterClass.gp);
+            const temp_locks = self.register_manager.lockRegs(4, temp_regs);
+            defer for (temp_locks) |temp_lock| if (temp_lock) |lock|
+                self.register_manager.unlockReg(lock);
+
+            const dst_mcv = try self.allocRegOrMem(inst, false);
+            try self.asmRegisterRegister(.{ ._, .xor }, temp_regs[0].to32(), temp_regs[0].to32());
+            try self.asmRegisterImmediate(
+                .{ ._, .mov },
+                temp_regs[1].to32(),
+                Immediate.u(limbs_len - 1),
+            );
+
+            const loop: Mir.Inst.Index = @intCast(self.mir_instructions.len);
+            try self.asmRegisterMemory(
+                .{ ._, if (have_movbe) .movbe else .mov },
+                temp_regs[2].to64(),
+                .{
+                    .base = .{ .frame = dst_mcv.load_frame.index },
+                    .mod = .{ .rm = .{
+                        .size = .qword,
+                        .index = temp_regs[0].to64(),
+                        .scale = .@"8",
+                        .disp = dst_mcv.load_frame.off,
+                    } },
+                },
+            );
+            try self.asmRegisterMemory(
+                .{ ._, if (have_movbe) .movbe else .mov },
+                temp_regs[3].to64(),
+                .{
+                    .base = .{ .frame = dst_mcv.load_frame.index },
+                    .mod = .{ .rm = .{
+                        .size = .qword,
+                        .index = temp_regs[1].to64(),
+                        .scale = .@"8",
+                        .disp = dst_mcv.load_frame.off,
+                    } },
+                },
+            );
+            if (!have_movbe) {
+                try self.asmRegister(.{ ._, .bswap }, temp_regs[2].to64());
+                try self.asmRegister(.{ ._, .bswap }, temp_regs[3].to64());
+            }
+            try self.asmMemoryRegister(.{ ._, .mov }, .{
+                .base = .{ .frame = dst_mcv.load_frame.index },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .index = temp_regs[0].to64(),
+                    .scale = .@"8",
+                    .disp = dst_mcv.load_frame.off,
+                } },
+            }, temp_regs[3].to64());
+            try self.asmMemoryRegister(.{ ._, .mov }, .{
+                .base = .{ .frame = dst_mcv.load_frame.index },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .index = temp_regs[1].to64(),
+                    .scale = .@"8",
+                    .disp = dst_mcv.load_frame.off,
+                } },
+            }, temp_regs[2].to64());
+            if (self.hasFeature(.slow_incdec)) {
+                try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[0].to32(), Immediate.u(1));
+                try self.asmRegisterImmediate(.{ ._, .sub }, temp_regs[1].to32(), Immediate.u(1));
+            } else {
+                try self.asmRegister(.{ ._, .inc }, temp_regs[0].to32());
+                try self.asmRegister(.{ ._, .dec }, temp_regs[1].to32());
+            }
+            try self.asmRegisterRegister(.{ ._, .cmp }, temp_regs[0].to32(), temp_regs[1].to32());
+            _ = try self.asmJccReloc(.be, loop);
+            return dst_mcv;
+        },
     }
 
     const dst_mcv: MCValue = if (mem_ok and have_movbe and src_mcv.isRegister())
@@ -6248,20 +6324,20 @@ fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const src_ty = self.typeOf(ty_op.operand);
-    const abi_size: u32 = @intCast(src_ty.abiSize(mod));
-    const bit_size: u32 = @intCast(src_ty.bitSize(mod));
+    const src_bits: u32 = @intCast(src_ty.bitSize(mod));
     const src_mcv = try self.resolveInst(ty_op.operand);
 
     const dst_mcv = try self.genByteSwap(inst, src_ty, src_mcv, true);
-
-    const extra_bits = abi_size * 8 - bit_size;
-    const signedness: std.builtin.Signedness =
-        if (src_ty.isAbiInt(mod)) src_ty.intInfo(mod).signedness else .unsigned;
-    if (extra_bits > 0) try self.genShiftBinOpMir(switch (signedness) {
-        .signed => .{ ._r, .sa },
-        .unsigned => .{ ._r, .sh },
-    }, src_ty, dst_mcv, Type.u8, .{ .immediate = extra_bits });
-
+    try self.genShiftBinOpMir(
+        .{ ._r, switch (if (src_ty.isAbiInt(mod)) src_ty.intInfo(mod).signedness else .unsigned) {
+            .signed => .sa,
+            .unsigned => .sh,
+        } },
+        src_ty,
+        dst_mcv,
+        if (src_bits > 256) Type.u16 else Type.u8,
+        .{ .immediate = src_ty.abiSize(mod) * 8 - src_bits },
+    );
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
