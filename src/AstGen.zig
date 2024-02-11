@@ -44,6 +44,9 @@ compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
 fn_var_args: bool = false,
+/// The return type of the current function. This may be a trivial `Ref`, or
+/// otherwise it refers to a `ret_type` instruction.
+fn_ret_ty: Zir.Inst.Ref = .none,
 /// Maps string table indexes to the first `@import` ZIR instruction
 /// that uses this string as the operand.
 imports: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .{},
@@ -4284,8 +4287,19 @@ fn fnDecl(
         fn_gz.instructions_top = ret_gz.instructions.items.len;
 
         const prev_fn_block = astgen.fn_block;
+        const prev_fn_ret_ty = astgen.fn_ret_ty;
         astgen.fn_block = &fn_gz;
-        defer astgen.fn_block = prev_fn_block;
+        astgen.fn_ret_ty = if (is_inferred_error or ret_ref.toIndex() != null) r: {
+            // We're essentially guaranteed to need the return type at some point,
+            // since the return type is likely not `void` or `noreturn` so there
+            // will probably be an explicit return requiring RLS. Fetch this
+            // return type now so the rest of the function can use it.
+            break :r try fn_gz.addNode(.ret_type, decl_node);
+        } else ret_ref;
+        defer {
+            astgen.fn_block = prev_fn_block;
+            astgen.fn_ret_ty = prev_fn_ret_ty;
+        }
 
         const prev_var_args = astgen.fn_var_args;
         astgen.fn_var_args = is_var_args;
@@ -4732,8 +4746,13 @@ fn testDecl(
     defer fn_block.unstack();
 
     const prev_fn_block = astgen.fn_block;
+    const prev_fn_ret_ty = astgen.fn_ret_ty;
     astgen.fn_block = &fn_block;
-    defer astgen.fn_block = prev_fn_block;
+    astgen.fn_ret_ty = .anyerror_void_error_union_type;
+    defer {
+        astgen.fn_block = prev_fn_block;
+        astgen.fn_ret_ty = prev_fn_ret_ty;
+    }
 
     astgen.advanceSourceCursorToNode(body_node);
     const lbrace_line = astgen.source_line - decl_block.decl_line;
@@ -8038,7 +8057,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         .rl = .{ .ptr = .{ .inst = try gz.addNode(.ret_ptr, node) } },
         .ctx = .@"return",
     } else .{
-        .rl = .{ .ty = try gz.addNode(.ret_type, node) },
+        .rl = .{ .ty = astgen.fn_ret_ty },
         .ctx = .@"return",
     };
     const prev_anon_name_strategy = gz.anon_name_strategy;
