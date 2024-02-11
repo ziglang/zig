@@ -145,7 +145,7 @@ pub const Filesystem = union(enum) {
 
         pub fn iterate(self: Dir) Iterator {
             return switch (self) {
-                .dir => |dir| .{ .iterator = dir.iterate() },
+                .dir => |dir| .{ .iterator = dir.iterate(.{}) },
                 .fake => |fake| .{ .fake = fake.iterate() },
             };
         }

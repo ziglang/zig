@@ -179,7 +179,7 @@ pub fn addCertsFromDirPathAbsolute(
 pub const AddCertsFromDirError = AddCertsFromFilePathError;
 
 pub fn addCertsFromDir(cb: *Bundle, gpa: Allocator, iterable_dir: fs.Dir) AddCertsFromDirError!void {
-    var it = iterable_dir.iterate();
+    var it = iterable_dir.iterate(.{});
     while (try it.next()) |entry| {
         switch (entry.kind) {
             .file, .sym_link => {},

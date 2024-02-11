@@ -404,7 +404,7 @@ test "Dir.Iterator" {
     var entries = std.ArrayList(Dir.Entry).init(allocator);
 
     // Create iterator.
-    var iter = tmp_dir.dir.iterate();
+    var iter = tmp_dir.dir.iterate(.{});
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
@@ -437,7 +437,7 @@ test "Dir.Iterator many entries" {
     var entries = std.ArrayList(Dir.Entry).init(allocator);
 
     // Create iterator.
-    var iter = tmp_dir.dir.iterate();
+    var iter = tmp_dir.dir.iterate(.{});
     while (try iter.next()) |entry| {
         // We cannot just store `entry` as on Windows, we're re-using the name buffer
         // which means we'll actually share the `name` pointer between entries!
@@ -471,7 +471,7 @@ test "Dir.Iterator twice" {
         var entries = std.ArrayList(Dir.Entry).init(allocator);
 
         // Create iterator.
-        var iter = tmp_dir.dir.iterate();
+        var iter = tmp_dir.dir.iterate(.{});
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
             // which means we'll actually share the `name` pointer between entries!
@@ -500,7 +500,7 @@ test "Dir.Iterator reset" {
     const allocator = arena.allocator();
 
     // Create iterator.
-    var iter = tmp_dir.dir.iterate();
+    var iter = tmp_dir.dir.iterate(.{});
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
@@ -529,7 +529,7 @@ test "Dir.Iterator but dir is deleted during iteration" {
     var subdir = try tmp.dir.makeOpenPath("subdir", .{ .iterate = true });
     defer subdir.close();
 
-    var iterator = subdir.iterate();
+    var iterator = subdir.iterate(.{});
 
     // Create something to iterate over within the subdir
     try tmp.dir.makePath("subdir" ++ fs.path.sep_str ++ "b");

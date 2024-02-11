@@ -1251,7 +1251,7 @@ pub fn main() !void {
 
     if (std.mem.endsWith(u8, case_file_path, ".0.zig")) {
         const stem = case_file_path[case_dirname.len + 1 .. case_file_path.len - "0.zig".len];
-        var it = iterable_dir.iterate();
+        var it = iterable_dir.iterate(.{});
         while (try it.next()) |entry| {
             if (entry.kind != .file) continue;
             if (!std.mem.startsWith(u8, entry.name, stem)) continue;
