@@ -712,7 +712,7 @@ pub const Response = struct {
         }
     }
 
-    pub const FinishError = WriteError || error{MessageNotCompleted};
+    pub const FinishError = Connection.WriteError || error{MessageNotCompleted};
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     /// Must be called after `send`.
