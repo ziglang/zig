@@ -918,7 +918,6 @@ test "big.int mul multi-single" {
 
 test "big.int mul multi-multi" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
@@ -1042,7 +1041,6 @@ test "big.int mulWrap single-single signed" {
 
 test "big.int mulWrap multi-multi unsigned" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;

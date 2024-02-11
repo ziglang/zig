@@ -5727,30 +5727,13 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result = result: {
+        try self.spillEflagsIfOccupied();
+
         const dst_ty = self.typeOfIndex(inst);
         const src_ty = self.typeOf(ty_op.operand);
         if (src_ty.zigTypeTag(mod) == .Vector) return self.fail("TODO implement airClz for {}", .{
             src_ty.fmt(mod),
         });
-        const src_bits: u32 = @intCast(src_ty.bitSize(mod));
-
-        const has_lzcnt = self.hasFeature(.lzcnt);
-        if (src_bits > 64 and !has_lzcnt) {
-            var callee_buf: ["__clz?i2".len]u8 = undefined;
-            const result = try self.genCall(.{ .lib = .{
-                .return_type = .i32_type,
-                .param_types = &.{src_ty.toIntern()},
-                .callee = std.fmt.bufPrint(&callee_buf, "__clz{c}i2", .{
-                    intCompilerRtAbiName(src_bits),
-                }) catch unreachable,
-            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }});
-            if (src_bits < 128) try self.asmRegisterImmediate(
-                .{ ._, .sub },
-                result.register,
-                Immediate.u(128 - src_bits),
-            );
-            break :result result;
-        }
 
         const src_mcv = try self.resolveInst(ty_op.operand);
         const mat_src_mcv = switch (src_mcv) {
@@ -5767,6 +5750,61 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
         const dst_mcv = MCValue{ .register = dst_reg };
         const dst_lock = self.register_manager.lockRegAssumeUnused(dst_reg);
         defer self.register_manager.unlockReg(dst_lock);
+
+        const abi_size: u31 = @intCast(src_ty.abiSize(mod));
+        const src_bits: u31 = @intCast(src_ty.bitSize(mod));
+        const has_lzcnt = self.hasFeature(.lzcnt);
+        if (src_bits > @as(u32, if (has_lzcnt) 128 else 64)) {
+            const limbs_len = math.divCeil(u32, abi_size, 8) catch unreachable;
+            const extra_bits = abi_size * 8 - src_bits;
+
+            const index_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+            const index_lock = self.register_manager.lockRegAssumeUnused(index_reg);
+            defer self.register_manager.unlockReg(index_lock);
+
+            try self.asmRegisterImmediate(.{ ._, .mov }, index_reg.to32(), Immediate.u(limbs_len));
+            switch (extra_bits) {
+                1 => try self.asmRegisterRegister(.{ ._, .xor }, dst_reg.to32(), dst_reg.to32()),
+                else => try self.asmRegisterImmediate(
+                    .{ ._, .mov },
+                    dst_reg.to32(),
+                    Immediate.s(@as(i32, extra_bits) - 1),
+                ),
+            }
+            const loop: Mir.Inst.Index = @intCast(self.mir_instructions.len);
+            try self.asmRegisterRegister(.{ ._, .@"test" }, index_reg.to32(), index_reg.to32());
+            const zero = try self.asmJccReloc(.z, undefined);
+            if (self.hasFeature(.slow_incdec)) {
+                try self.asmRegisterImmediate(.{ ._, .sub }, index_reg.to32(), Immediate.u(1));
+            } else {
+                try self.asmRegister(.{ ._, .dec }, index_reg.to32());
+            }
+            try self.asmMemoryImmediate(.{ ._, .cmp }, .{
+                .base = .{ .frame = src_mcv.load_frame.index },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .index = index_reg.to64(),
+                    .scale = .@"8",
+                    .disp = src_mcv.load_frame.off,
+                } },
+            }, Immediate.u(0));
+            _ = try self.asmJccReloc(.e, loop);
+            try self.asmRegisterMemory(.{ ._, .bsr }, dst_reg.to64(), .{
+                .base = .{ .frame = src_mcv.load_frame.index },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .index = index_reg.to64(),
+                    .scale = .@"8",
+                    .disp = src_mcv.load_frame.off,
+                } },
+            });
+            self.performReloc(zero);
+            try self.asmRegisterImmediate(.{ ._l, .sh }, index_reg.to32(), Immediate.u(6));
+            try self.asmRegisterRegister(.{ ._, .add }, index_reg.to32(), dst_reg.to32());
+            try self.asmRegisterImmediate(.{ ._, .mov }, dst_reg.to32(), Immediate.u(src_bits - 1));
+            try self.asmRegisterRegister(.{ ._, .sub }, dst_reg.to32(), index_reg.to32());
+            break :result dst_mcv;
+        }
 
         if (has_lzcnt) {
             if (src_bits <= 8) {
@@ -5785,7 +5823,8 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
                 if (extra_bits > 0) {
                     try self.genBinOpMir(.{ ._, .sub }, dst_ty, dst_mcv, .{ .immediate = extra_bits });
                 }
-            } else if (src_bits <= 128) {
+            } else {
+                assert(src_bits <= 128);
                 const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
                 const tmp_mcv = MCValue{ .register = tmp_reg };
                 const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -5818,12 +5857,12 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
                     dst_mcv,
                     .{ .immediate = 128 - src_bits },
                 );
-            } else return self.fail("TODO airClz of {}", .{src_ty.fmt(mod)});
+            }
             break :result dst_mcv;
         }
 
-        if (src_bits > 64)
-            return self.fail("TODO airClz of {}", .{src_ty.fmt(mod)});
+        assert(src_bits <= 64);
+        const cmov_abi_size = @max(@as(u32, @intCast(dst_ty.abiSize(mod))), 2);
         if (math.isPowerOfTwo(src_bits)) {
             const imm_reg = try self.copyToTmpRegister(dst_ty, .{
                 .immediate = src_bits ^ (src_bits - 1),
@@ -5840,7 +5879,6 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
                 try self.genBinOpMir(.{ ._, .bsr }, Type.u16, dst_mcv, .{ .register = wide_reg });
             } else try self.genBinOpMir(.{ ._, .bsr }, src_ty, dst_mcv, mat_src_mcv);
 
-            const cmov_abi_size = @max(@as(u32, @intCast(dst_ty.abiSize(mod))), 2);
             try self.asmCmovccRegisterRegister(
                 .z,
                 registerAlias(dst_reg, cmov_abi_size),
@@ -5867,7 +5905,6 @@ fn airClz(self: *Self, inst: Air.Inst.Index) !void {
                 .{ .register = wide_reg },
             );
 
-            const cmov_abi_size = @max(@as(u32, @intCast(dst_ty.abiSize(mod))), 2);
             try self.asmCmovccRegisterRegister(
                 .nz,
                 registerAlias(imm_reg, cmov_abi_size),
@@ -5886,24 +5923,13 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result = result: {
+        try self.spillEflagsIfOccupied();
+
         const dst_ty = self.typeOfIndex(inst);
         const src_ty = self.typeOf(ty_op.operand);
-        if (src_ty.zigTypeTag(mod) == .Vector) return self.fail("TODO implement airClz for {}", .{
+        if (src_ty.zigTypeTag(mod) == .Vector) return self.fail("TODO implement airCtz for {}", .{
             src_ty.fmt(mod),
         });
-        const src_bits: u32 = @intCast(src_ty.bitSize(mod));
-
-        const has_bmi = self.hasFeature(.bmi);
-        if (src_bits > 64 and !has_bmi) {
-            var callee_buf: ["__ctz?i2".len]u8 = undefined;
-            break :result try self.genCall(.{ .lib = .{
-                .return_type = .i32_type,
-                .param_types = &.{src_ty.toIntern()},
-                .callee = std.fmt.bufPrint(&callee_buf, "__ctz{c}i2", .{
-                    intCompilerRtAbiName(src_bits),
-                }) catch unreachable,
-            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }});
-        }
 
         const src_mcv = try self.resolveInst(ty_op.operand);
         const mat_src_mcv = switch (src_mcv) {
@@ -5921,8 +5947,62 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
         const dst_lock = self.register_manager.lockReg(dst_reg);
         defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
+        const abi_size: u31 = @intCast(src_ty.abiSize(mod));
+        const src_bits: u31 = @intCast(src_ty.bitSize(mod));
+        const has_bmi = self.hasFeature(.bmi);
+        if (src_bits > @as(u32, if (has_bmi) 128 else 64)) {
+            const limbs_len = math.divCeil(u32, abi_size, 8) catch unreachable;
+            const extra_bits = abi_size * 8 - src_bits;
+
+            const index_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+            const index_lock = self.register_manager.lockRegAssumeUnused(index_reg);
+            defer self.register_manager.unlockReg(index_lock);
+
+            try self.asmRegisterImmediate(.{ ._, .mov }, index_reg.to32(), Immediate.s(-1));
+            switch (extra_bits) {
+                0 => try self.asmRegisterRegister(.{ ._, .xor }, dst_reg.to32(), dst_reg.to32()),
+                1 => try self.asmRegisterRegister(.{ ._, .mov }, dst_reg.to32(), dst_reg.to32()),
+                else => try self.asmRegisterImmediate(
+                    .{ ._, .mov },
+                    dst_reg.to32(),
+                    Immediate.s(-@as(i32, extra_bits)),
+                ),
+            }
+            const loop: Mir.Inst.Index = @intCast(self.mir_instructions.len);
+            if (self.hasFeature(.slow_incdec)) {
+                try self.asmRegisterImmediate(.{ ._, .add }, index_reg.to32(), Immediate.u(1));
+            } else {
+                try self.asmRegister(.{ ._, .inc }, index_reg.to32());
+            }
+            try self.asmRegisterImmediate(.{ ._, .cmp }, index_reg.to32(), Immediate.u(limbs_len));
+            const zero = try self.asmJccReloc(.nb, undefined);
+            try self.asmMemoryImmediate(.{ ._, .cmp }, .{
+                .base = .{ .frame = src_mcv.load_frame.index },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .index = index_reg.to64(),
+                    .scale = .@"8",
+                    .disp = src_mcv.load_frame.off,
+                } },
+            }, Immediate.u(0));
+            _ = try self.asmJccReloc(.e, loop);
+            try self.asmRegisterMemory(.{ ._, .bsf }, dst_reg.to64(), .{
+                .base = .{ .frame = src_mcv.load_frame.index },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .index = index_reg.to64(),
+                    .scale = .@"8",
+                    .disp = src_mcv.load_frame.off,
+                } },
+            });
+            self.performReloc(zero);
+            try self.asmRegisterImmediate(.{ ._l, .sh }, index_reg.to32(), Immediate.u(6));
+            try self.asmRegisterRegister(.{ ._, .add }, dst_reg.to32(), index_reg.to32());
+            break :result dst_mcv;
+        }
+
         const wide_ty = if (src_bits <= 8) Type.u16 else src_ty;
-        if (self.hasFeature(.bmi)) {
+        if (has_bmi) {
             if (src_bits <= 64) {
                 const extra_bits = self.regExtraBits(src_ty) + @as(u64, if (src_bits <= 8) 8 else 0);
                 const masked_mcv = if (extra_bits > 0) masked: {
@@ -5942,7 +6022,8 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
                     break :masked tmp_mcv;
                 } else mat_src_mcv;
                 try self.genBinOpMir(.{ ._, .tzcnt }, wide_ty, dst_mcv, masked_mcv);
-            } else if (src_bits <= 128) {
+            } else {
+                assert(src_bits <= 128);
                 const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
                 const tmp_mcv = MCValue{ .register = tmp_reg };
                 const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -5970,12 +6051,11 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
                 try self.genBinOpMir(.{ ._, .add }, dst_ty, dst_mcv, .{ .immediate = 64 });
                 try self.genBinOpMir(.{ ._, .tzcnt }, Type.u64, tmp_mcv, lo_mat_src_mcv);
                 try self.asmCmovccRegisterRegister(.nc, dst_reg.to32(), tmp_reg.to32());
-            } else return self.fail("TODO airCtz of {}", .{src_ty.fmt(mod)});
+            }
             break :result dst_mcv;
         }
 
-        if (src_bits > 64) return self.fail("TODO airCtz of {}", .{src_ty.fmt(mod)});
-
+        assert(src_bits <= 64);
         const width_reg = try self.copyToTmpRegister(dst_ty, .{ .immediate = src_bits });
         const width_lock = self.register_manager.lockRegAssumeUnused(width_reg);
         defer self.register_manager.unlockReg(width_lock);
@@ -6158,7 +6238,7 @@ fn genByteSwap(
 ) !MCValue {
     const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const have_movbe = self.hasFeature(.movbe);
+    const has_movbe = self.hasFeature(.movbe);
 
     if (src_ty.zigTypeTag(mod) == .Vector) return self.fail(
         "TODO implement genByteSwap for {}",
@@ -6206,11 +6286,11 @@ fn genByteSwap(
             for (dst_regs, 0..) |dst_reg, limb_index| {
                 if (src_mcv.isMemory()) {
                     try self.asmRegisterMemory(
-                        .{ ._, if (have_movbe) .movbe else .mov },
+                        .{ ._, if (has_movbe) .movbe else .mov },
                         dst_reg.to64(),
                         try src_mcv.address().offset(@intCast(limb_index * 8)).deref().mem(self, .qword),
                     );
-                    if (!have_movbe) try self.asmRegister(.{ ._, .bswap }, dst_reg.to64());
+                    if (!has_movbe) try self.asmRegister(.{ ._, .bswap }, dst_reg.to64());
                 } else {
                     try self.asmRegisterRegister(
                         .{ ._, .mov },
@@ -6227,9 +6307,8 @@ fn genByteSwap(
 
             const temp_regs =
                 try self.register_manager.allocRegs(4, .{null} ** 4, abi.RegisterClass.gp);
-            const temp_locks = self.register_manager.lockRegs(4, temp_regs);
-            defer for (temp_locks) |temp_lock| if (temp_lock) |lock|
-                self.register_manager.unlockReg(lock);
+            const temp_locks = self.register_manager.lockRegsAssumeUnused(4, temp_regs);
+            defer for (temp_locks) |lock| self.register_manager.unlockReg(lock);
 
             const dst_mcv = try self.allocRegOrMem(inst, false);
             try self.asmRegisterRegister(.{ ._, .xor }, temp_regs[0].to32(), temp_regs[0].to32());
@@ -6241,7 +6320,7 @@ fn genByteSwap(
 
             const loop: Mir.Inst.Index = @intCast(self.mir_instructions.len);
             try self.asmRegisterMemory(
-                .{ ._, if (have_movbe) .movbe else .mov },
+                .{ ._, if (has_movbe) .movbe else .mov },
                 temp_regs[2].to64(),
                 .{
                     .base = .{ .frame = dst_mcv.load_frame.index },
@@ -6254,7 +6333,7 @@ fn genByteSwap(
                 },
             );
             try self.asmRegisterMemory(
-                .{ ._, if (have_movbe) .movbe else .mov },
+                .{ ._, if (has_movbe) .movbe else .mov },
                 temp_regs[3].to64(),
                 .{
                     .base = .{ .frame = dst_mcv.load_frame.index },
@@ -6266,7 +6345,7 @@ fn genByteSwap(
                     } },
                 },
             );
-            if (!have_movbe) {
+            if (!has_movbe) {
                 try self.asmRegister(.{ ._, .bswap }, temp_regs[2].to64());
                 try self.asmRegister(.{ ._, .bswap }, temp_regs[3].to64());
             }
@@ -6301,7 +6380,7 @@ fn genByteSwap(
         },
     }
 
-    const dst_mcv: MCValue = if (mem_ok and have_movbe and src_mcv.isRegister())
+    const dst_mcv: MCValue = if (mem_ok and has_movbe and src_mcv.isRegister())
         try self.allocRegOrMem(inst, true)
     else
         .{ .register = try self.register_manager.allocReg(inst, abi.RegisterClass.gp) };
@@ -6359,8 +6438,8 @@ fn airBitReverse(self: *Self, inst: Air.Inst.Index) !void {
     defer for (dst_locks) |dst_lock| if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
     const tmp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
-    const tmp_lock = self.register_manager.lockReg(tmp_reg);
-    defer if (tmp_lock) |lock| self.register_manager.unlockReg(lock);
+    const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+    defer self.register_manager.unlockReg(tmp_lock);
 
     const limb_abi_size: u32 = @min(abi_size, 8);
     const tmp = registerAlias(tmp_reg, limb_abi_size);
@@ -8067,8 +8146,8 @@ fn genShiftBinOpMir(
         defer if (rcx_lock) |lock| self.register_manager.unlockReg(lock);
 
         const temp_regs = try self.register_manager.allocRegs(4, .{null} ** 4, abi.RegisterClass.gp);
-        const temp_locks = self.register_manager.lockRegs(4, temp_regs);
-        defer for (temp_locks) |temp_lock| if (temp_lock) |lock| self.register_manager.unlockReg(lock);
+        const temp_locks = self.register_manager.lockRegsAssumeUnused(4, temp_regs);
+        defer for (temp_locks) |lock| self.register_manager.unlockReg(lock);
 
         switch (tag[0]) {
             ._l => {
@@ -8857,9 +8936,8 @@ fn genMulDivBinOp(
 
                 const temp_regs =
                     try self.register_manager.allocRegs(4, .{null} ** 4, abi.RegisterClass.gp);
-                const temp_locks = self.register_manager.lockRegs(4, temp_regs);
-                defer for (temp_locks) |temp_lock| if (temp_lock) |lock|
-                    self.register_manager.unlockReg(lock);
+                const temp_locks = self.register_manager.lockRegsAssumeUnused(4, temp_regs);
+                defer for (temp_locks) |lock| self.register_manager.unlockReg(lock);
 
                 try self.asmRegisterRegister(.{ ._, .xor }, temp_regs[0].to32(), temp_regs[0].to32());
 
@@ -9543,9 +9621,8 @@ fn genBinOp(
                                 .{null} ** 2,
                                 abi.RegisterClass.gp,
                             );
-                            const dst_regs_locks = self.register_manager.lockRegs(2, dst_regs);
-                            defer for (dst_regs_locks) |dst_lock| if (dst_lock) |lock|
-                                self.register_manager.unlockReg(lock);
+                            const dst_regs_locks = self.register_manager.lockRegsAssumeUnused(2, dst_regs);
+                            defer for (dst_regs_locks) |lock| self.register_manager.unlockReg(lock);
 
                             try self.genCopy(lhs_ty, .{ .register_pair = dst_regs }, dst_mcv, .{});
                             break :dst dst_regs;
