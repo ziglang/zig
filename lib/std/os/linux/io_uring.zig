@@ -1114,6 +1114,23 @@ pub const IO_Uring = struct {
         return sqe;
     }
 
+    /// Queues (but does not submit) an SQE to perform a `waitid(2)`.
+    /// Returns a pointer to the SQE.
+    pub fn waitid(
+        self: *IO_Uring,
+        user_data: u64,
+        id_type: linux.P,
+        id: i32,
+        infop: *linux.siginfo_t,
+        options: u32,
+        flags: u32,
+    ) !*linux.io_uring_sqe {
+        const sqe = try self.get_sqe();
+        io_uring_prep_waitid(sqe, id_type, id, infop, options, flags);
+        sqe.user_data = user_data;
+        return sqe;
+    }
+
     /// Registers an array of file descriptors.
     /// Every time a file descriptor is put in an SQE and submitted to the kernel, the kernel must
     /// retrieve a reference to the file, and once I/O has completed the file reference must be
@@ -1960,6 +1977,19 @@ pub fn io_uring_prep_socket_direct_alloc(
 ) void {
     io_uring_prep_socket(sqe, domain, socket_type, protocol, flags);
     __io_uring_set_target_fixed_file(sqe, linux.IORING_FILE_INDEX_ALLOC);
+}
+
+pub fn io_uring_prep_waitid(
+    sqe: *linux.io_uring_sqe,
+    id_type: linux.P,
+    id: i32,
+    infop: *linux.siginfo_t,
+    options: u32,
+    flags: u32,
+) void {
+    io_uring_prep_rw(.WAITID, sqe, id, 0, @intFromEnum(id_type), @intFromPtr(infop));
+    sqe.rw_flags = flags;
+    sqe.splice_fd_in = @bitCast(options);
 }
 
 test "structs/offsets/entries" {
@@ -4146,6 +4176,32 @@ test "openat_direct/close_direct" {
         try testing.expectEqual(os.E.SUCCESS, cqe_close.err());
     }
     try ring.unregister_files();
+}
+
+test "waitid" {
+    try skipKernelLessThan(.{ .major = 6, .minor = 7, .patch = 0 });
+
+    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    const pid = try os.fork();
+    if (pid == 0) {
+        os.exit(7);
+    }
+
+    var siginfo: os.siginfo_t = undefined;
+    _ = try ring.waitid(0, .PID, pid, &siginfo, os.W.EXITED, 0);
+
+    try testing.expectEqual(1, try ring.submit());
+
+    const cqe_waitid = try ring.copy_cqe();
+    try testing.expectEqual(0, cqe_waitid.res);
+    try testing.expectEqual(pid, siginfo.fields.common.first.piduid.pid);
+    try testing.expectEqual(7, siginfo.fields.common.second.sigchld.status);
 }
 
 /// For use in tests. Returns SkipZigTest is kernel version is less than required.
