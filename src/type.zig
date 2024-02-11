@@ -3073,8 +3073,8 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                assert(struct_type.haveFieldInits(ip));
                 if (struct_type.fieldIsComptime(ip, index)) {
+                    assert(struct_type.haveFieldInits(ip));
                     return Value.fromInterned(struct_type.field_inits.get(ip)[index]);
                 } else {
                     return Type.fromInterned(struct_type.field_types.get(ip)[index]).onePossibleValue(mod);
