@@ -1432,21 +1432,13 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
             }
             assert(ty_classes[0] == .direct);
             const scalar_type = abi.scalarType(ty, mod);
-            const abi_size = scalar_type.abiSize(mod);
-            try func.emitWValue(value);
-
-            // When the value lives in the virtual stack, we must load it onto the actual stack
-            if (value != .imm32 and value != .imm64) {
-                const opcode = buildOpcode(.{
-                    .op = .load,
-                    .width = @as(u8, @intCast(abi_size)),
-                    .signedness = if (scalar_type.isSignedInt(mod)) .signed else .unsigned,
-                    .valtype1 = typeToValtype(scalar_type, mod),
-                });
-                try func.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
-                    .offset = value.offset(),
-                    .alignment = @intCast(scalar_type.abiAlignment(mod).toByteUnitsOptional().?),
-                });
+            switch (value) {
+                .memory,
+                .memory_offset,
+                .stack_offset,
+                => _ = try func.load(value, scalar_type, 0),
+                .dead => unreachable,
+                else => try func.emitWValue(value),
             }
         },
         .Int, .Float => {
@@ -2522,7 +2514,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
         return WValue{ .stack = {} };
     }
 
-    const abi_size = @as(u8, @intCast(ty.abiSize(mod)));
+    const abi_size: u8 = @intCast(ty.abiSize(mod));
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, mod),
         .width = abi_size * 8,
