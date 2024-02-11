@@ -560,3 +560,17 @@ test "comptime fields in tuple can be initialized" {
     var a: T = .{ 0, 0 };
     _ = &a;
 }
+
+test "tuple default values" {
+    const T = struct {
+        usize,
+        usize = 123,
+        usize = 456,
+    };
+
+    const t: T = .{1};
+
+    try expectEqual(1, t[0]);
+    try expectEqual(123, t[1]);
+    try expectEqual(456, t[2]);
+}

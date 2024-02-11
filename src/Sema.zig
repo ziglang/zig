@@ -5063,22 +5063,33 @@ fn zirValidatePtrArrayInit(
     const array_ty = sema.typeOf(array_ptr).childType(mod).optEuBaseType(mod);
     const array_len = array_ty.arrayLen(mod);
 
+    // Collect the comptime element values in case the array literal ends up
+    // being comptime-known.
+    const element_vals = try sema.arena.alloc(
+        InternPool.Index,
+        try sema.usizeCast(block, init_src, array_len),
+    );
+
     if (instrs.len != array_len) switch (array_ty.zigTypeTag(mod)) {
         .Struct => {
             var root_msg: ?*Module.ErrorMsg = null;
             errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
+            try sema.resolveStructFieldInits(array_ty);
             var i = instrs.len;
             while (i < array_len) : (i += 1) {
-                const default_val = array_ty.structFieldDefaultValue(i, mod);
-                if (default_val.toIntern() == .unreachable_value) {
+                const default_val = array_ty.structFieldDefaultValue(i, mod).toIntern();
+                if (default_val == .unreachable_value) {
                     const template = "missing tuple field with index {d}";
                     if (root_msg) |msg| {
                         try sema.errNote(block, init_src, msg, template, .{i});
                     } else {
                         root_msg = try sema.errMsg(block, init_src, template, .{i});
                     }
+                    continue;
                 }
+
+                element_vals[i] = default_val;
             }
 
             if (root_msg) |msg| {
@@ -5125,12 +5136,6 @@ fn zirValidatePtrArrayInit(
     var array_is_comptime = true;
     var first_block_index = block.instructions.items.len;
 
-    // Collect the comptime element values in case the array literal ends up
-    // being comptime-known.
-    const element_vals = try sema.arena.alloc(
-        InternPool.Index,
-        try sema.usizeCast(block, init_src, array_len),
-    );
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
 
