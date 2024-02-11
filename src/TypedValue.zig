@@ -367,18 +367,26 @@ pub fn print(
                         try writer.writeAll(".?");
                     },
                     .elem => |elem| {
-                        try print(.{
-                            .ty = Type.fromInterned(ip.typeOf(elem.base)),
-                            .val = Value.fromInterned(elem.base),
-                        }, writer, level - 1, mod);
+                        if (level == 0) {
+                            try writer.writeAll("(...)");
+                        } else {
+                            try print(.{
+                                .ty = Type.fromInterned(ip.typeOf(elem.base)),
+                                .val = Value.fromInterned(elem.base),
+                            }, writer, level - 1, mod);
+                        }
                         try writer.print("[{}]", .{elem.index});
                     },
                     .field => |field| {
                         const ptr_container_ty = Type.fromInterned(ip.typeOf(field.base));
-                        try print(.{
-                            .ty = ptr_container_ty,
-                            .val = Value.fromInterned(field.base),
-                        }, writer, level - 1, mod);
+                        if (level == 0) {
+                            try writer.writeAll("(...)");
+                        } else {
+                            try print(.{
+                                .ty = ptr_container_ty,
+                                .val = Value.fromInterned(field.base),
+                            }, writer, level - 1, mod);
+                        }
 
                         const container_ty = ptr_container_ty.childType(mod);
                         switch (container_ty.zigTypeTag(mod)) {
