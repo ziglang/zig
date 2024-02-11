@@ -3030,7 +3030,11 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
 
             try self.genCopy(dst_ty, dst_mcv, src_mcv, .{});
             break :dst dst_mcv;
-        } else try self.allocRegOrMem(inst, true);
+        } else dst: {
+            const dst_mcv = try self.allocRegOrMem(inst, true);
+            try self.genCopy(dst_ty, dst_mcv, src_mcv, .{});
+            break :dst dst_mcv;
+        };
 
         if (dst_ty.zigTypeTag(mod) == .Vector) {
             assert(src_ty.zigTypeTag(mod) == .Vector and dst_ty.vectorLen(mod) == src_ty.vectorLen(mod));
