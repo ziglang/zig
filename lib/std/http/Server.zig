@@ -478,10 +478,6 @@ pub const Response = struct {
         if (res.status == .@"continue") {
             res.state = .waited; // we still need to send another request after this
         } else {
-            if (!res.headers.contains("server")) {
-                try w.writeAll("Server: zig (std.http)\r\n");
-            }
-
             if (!res.headers.contains("connection")) {
                 const req_connection = res.request.headers.getFirstValue("connection");
                 const req_keepalive = req_connection != null and !std.ascii.eqlIgnoreCase("close", req_connection.?);
