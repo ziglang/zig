@@ -4300,6 +4300,13 @@ pub const IORING_OP = enum(u8) {
     URING_CMD,
     SEND_ZC,
     SENDMSG_ZC,
+    READ_MULTISHOT,
+    WAITID,
+    FUTEX_WAIT,
+    FUTEX_WAKE,
+    FUTEX_WAITV,
+    FIXED_FD_INSTALL,
+    FTRUNCATE,
 
     _,
 };
