@@ -14,7 +14,7 @@ pub const State = enum {
     seen_r,
     seen_rn,
     seen_rnr,
-    finished,
+    headers_end,
     /// Begin transfer-encoding: chunked parsing states.
     chunk_head_size,
     chunk_head_ext,
@@ -22,46 +22,61 @@ pub const State = enum {
     chunk_data,
     chunk_data_suffix,
     chunk_data_suffix_r,
+    /// When the parser has finished parsing a complete message. A message is
+    /// only complete after the entire body has been read and any trailing
+    /// headers have been parsed.
+    complete,
 
     /// Returns true if the parser is in a content state (ie. not waiting for more headers).
     pub fn isContent(self: State) bool {
         return switch (self) {
-            .invalid, .start, .seen_n, .seen_r, .seen_rn, .seen_rnr => false,
-            .finished, .chunk_head_size, .chunk_head_ext, .chunk_head_r, .chunk_data, .chunk_data_suffix, .chunk_data_suffix_r => true,
+            .invalid,
+            .start,
+            .seen_n,
+            .seen_r,
+            .seen_rn,
+            .seen_rnr,
+            => false,
+
+            .headers_end,
+            .chunk_head_size,
+            .chunk_head_ext,
+            .chunk_head_r,
+            .chunk_data,
+            .chunk_data_suffix,
+            .chunk_data_suffix_r,
+            .complete,
+            => true,
         };
     }
 };
 
 pub const HeadersParser = struct {
-    state: State = .start,
+    state: State,
     /// A fixed buffer of len `max_header_bytes`.
     /// Pointers into this buffer are not stable until after a message is complete.
     header_bytes_buffer: []u8,
     header_bytes_len: u32,
     next_chunk_length: u64,
-    /// Whether this parser is done parsing a complete message.
-    /// A message is only done when the entire payload has been read.
-    done: bool,
 
     /// Initializes the parser with a provided buffer `buf`.
     pub fn init(buf: []u8) HeadersParser {
         return .{
+            .state = .start,
             .header_bytes_buffer = buf,
             .header_bytes_len = 0,
-            .done = false,
             .next_chunk_length = 0,
         };
     }
 
     /// Reinitialize the parser.
-    /// Asserts the parser is in the "done" state.
+    /// Asserts the parser is in the `complete` state.
     pub fn reset(hp: *HeadersParser) void {
-        assert(hp.done);
+        assert(hp.state == .complete);
         hp.* = .{
             .state = .start,
             .header_bytes_buffer = hp.header_bytes_buffer,
             .header_bytes_len = 0,
-            .done = false,
             .next_chunk_length = 0,
         };
     }
@@ -86,7 +101,8 @@ pub const HeadersParser = struct {
         while (true) {
             switch (r.state) {
                 .invalid => unreachable,
-                .finished => return index,
+                .complete => unreachable,
+                .headers_end => return index,
                 .start => switch (len - index) {
                     0 => return index,
                     1 => {
@@ -110,7 +126,7 @@ pub const HeadersParser = struct {
 
                         switch (b16) {
                             int16("\r\n") => r.state = .seen_rn,
-                            int16("\n\n") => r.state = .finished,
+                            int16("\n\n") => r.state = .headers_end,
                             else => {},
                         }
 
@@ -129,7 +145,7 @@ pub const HeadersParser = struct {
 
                         switch (b16) {
                             int16("\r\n") => r.state = .seen_rn,
-                            int16("\n\n") => r.state = .finished,
+                            int16("\n\n") => r.state = .headers_end,
                             else => {},
                         }
 
@@ -154,7 +170,7 @@ pub const HeadersParser = struct {
 
                         switch (b16) {
                             int16("\r\n") => r.state = .seen_rn,
-                            int16("\n\n") => r.state = .finished,
+                            int16("\n\n") => r.state = .headers_end,
                             else => {},
                         }
 
@@ -164,7 +180,7 @@ pub const HeadersParser = struct {
                         }
 
                         switch (b32) {
-                            int32("\r\n\r\n") => r.state = .finished,
+                            int32("\r\n\r\n") => r.state = .headers_end,
                             else => {},
                         }
 
@@ -212,7 +228,7 @@ pub const HeadersParser = struct {
 
                                 switch (b16) {
                                     int16("\r\n") => r.state = .seen_rn,
-                                    int16("\n\n") => r.state = .finished,
+                                    int16("\n\n") => r.state = .headers_end,
                                     else => {},
                                 }
                             },
@@ -229,7 +245,7 @@ pub const HeadersParser = struct {
 
                                 switch (b16) {
                                     int16("\r\n") => r.state = .seen_rn,
-                                    int16("\n\n") => r.state = .finished,
+                                    int16("\n\n") => r.state = .headers_end,
                                     else => {},
                                 }
 
@@ -246,10 +262,10 @@ pub const HeadersParser = struct {
                                     const b16 = intShift(u16, b32);
 
                                     if (b32 == int32("\r\n\r\n")) {
-                                        r.state = .finished;
+                                        r.state = .headers_end;
                                         return index + i + 4;
                                     } else if (b16 == int16("\n\n")) {
-                                        r.state = .finished;
+                                        r.state = .headers_end;
                                         return index + i + 2;
                                     }
                                 }
@@ -266,7 +282,7 @@ pub const HeadersParser = struct {
 
                                 switch (b16) {
                                     int16("\r\n") => r.state = .seen_rn,
-                                    int16("\n\n") => r.state = .finished,
+                                    int16("\n\n") => r.state = .headers_end,
                                     else => {},
                                 }
 
@@ -286,7 +302,7 @@ pub const HeadersParser = struct {
                     0 => return index,
                     else => {
                         switch (bytes[index]) {
-                            '\n' => r.state = .finished,
+                            '\n' => r.state = .headers_end,
                             else => r.state = .start,
                         }
 
@@ -318,7 +334,7 @@ pub const HeadersParser = struct {
                         switch (b16) {
                             int16("\r\n") => r.state = .seen_rn,
                             int16("\n\r") => r.state = .seen_rnr,
-                            int16("\n\n") => r.state = .finished,
+                            int16("\n\n") => r.state = .headers_end,
                             else => {},
                         }
 
@@ -337,12 +353,12 @@ pub const HeadersParser = struct {
 
                         switch (b16) {
                             int16("\r\n") => r.state = .seen_rn,
-                            int16("\n\n") => r.state = .finished,
+                            int16("\n\n") => r.state = .headers_end,
                             else => {},
                         }
 
                         switch (b24) {
-                            int24("\n\r\n") => r.state = .finished,
+                            int24("\n\r\n") => r.state = .headers_end,
                             else => {},
                         }
 
@@ -372,8 +388,8 @@ pub const HeadersParser = struct {
                         }
 
                         switch (b16) {
-                            int16("\r\n") => r.state = .finished,
-                            int16("\n\n") => r.state = .finished,
+                            int16("\r\n") => r.state = .headers_end,
+                            int16("\n\n") => r.state = .headers_end,
                             else => {},
                         }
 
@@ -385,7 +401,7 @@ pub const HeadersParser = struct {
                     0 => return index,
                     else => {
                         switch (bytes[index]) {
-                            '\n' => r.state = .finished,
+                            '\n' => r.state = .headers_end,
                             else => r.state = .start,
                         }
 
@@ -486,13 +502,6 @@ pub const HeadersParser = struct {
         return len;
     }
 
-    /// Returns whether or not the parser has finished parsing a complete
-    /// message. A message is only complete after the entire body has been read
-    /// and any trailing headers have been parsed.
-    pub fn isComplete(r: *HeadersParser) bool {
-        return r.done and r.state == .finished;
-    }
-
     pub const CheckCompleteHeadError = error{HttpHeadersOversize};
 
     /// Pushes `in` into the parser. Returns the number of bytes consumed by
@@ -523,13 +532,12 @@ pub const HeadersParser = struct {
     /// See `std.http.Client.Connection for an example of `conn`.
     pub fn read(r: *HeadersParser, conn: anytype, buffer: []u8, skip: bool) !usize {
         assert(r.state.isContent());
-        if (r.done) return 0;
-
         var out_index: usize = 0;
         while (true) {
             switch (r.state) {
+                .complete => return out_index,
                 .invalid, .start, .seen_n, .seen_r, .seen_rn, .seen_rnr => unreachable,
-                .finished => {
+                .headers_end => {
                     const data_avail = r.next_chunk_length;
 
                     if (skip) {
@@ -539,7 +547,8 @@ pub const HeadersParser = struct {
                         conn.drop(@intCast(nread));
                         r.next_chunk_length -= nread;
 
-                        if (r.next_chunk_length == 0 or nread == 0) r.done = true;
+                        if (r.next_chunk_length == 0 or nread == 0)
+                            r.state = .complete;
 
                         return out_index;
                     } else if (out_index < buffer.len) {
@@ -549,7 +558,8 @@ pub const HeadersParser = struct {
                         const nread = try conn.read(buffer[0..can_read]);
                         r.next_chunk_length -= nread;
 
-                        if (r.next_chunk_length == 0 or nread == 0) r.done = true;
+                        if (r.next_chunk_length == 0 or nread == 0)
+                            r.state = .complete;
 
                         return nread;
                     } else {
@@ -566,14 +576,12 @@ pub const HeadersParser = struct {
                         .invalid => return error.HttpChunkInvalid,
                         .chunk_data => if (r.next_chunk_length == 0) {
                             if (std.mem.eql(u8, conn.peek(), "\r\n")) {
-                                r.state = .finished;
-                                r.done = true;
+                                r.state = .complete;
                             } else {
-                                // The trailer section is formatted identically to the header section.
+                                // The trailer section is formatted identically
+                                // to the header section.
                                 r.state = .seen_rn;
                             }
-                            r.done = true;
-
                             return out_index;
                         },
                         else => return out_index,
@@ -611,21 +619,21 @@ pub const HeadersParser = struct {
 };
 
 inline fn int16(array: *const [2]u8) u16 {
-    return @as(u16, @bitCast(array.*));
+    return @bitCast(array.*);
 }
 
 inline fn int24(array: *const [3]u8) u24 {
-    return @as(u24, @bitCast(array.*));
+    return @bitCast(array.*);
 }
 
 inline fn int32(array: *const [4]u8) u32 {
-    return @as(u32, @bitCast(array.*));
+    return @bitCast(array.*);
 }
 
 inline fn intShift(comptime T: type, x: anytype) T {
     switch (@import("builtin").cpu.arch.endian()) {
-        .little => return @as(T, @truncate(x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T)))),
-        .big => return @as(T, @truncate(x)),
+        .little => return @truncate(x >> (@bitSizeOf(@TypeOf(x)) - @bitSizeOf(T))),
+        .big => return @truncate(x),
     }
 }
 
