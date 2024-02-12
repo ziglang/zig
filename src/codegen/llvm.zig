@@ -11139,6 +11139,9 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
             .memory => unreachable, // handled above
             .win_i128 => unreachable, // windows only
             .none => break,
+            .integer_per_element => {
+                @panic("TODO");
+            },
         }
     }
     const first_non_integer = std.mem.indexOfNone(x86_64_abi.Class, &classes, &.{.integer});
@@ -11417,6 +11420,9 @@ const ParamTypeIterator = struct {
                 .memory => unreachable, // handled above
                 .win_i128 => unreachable, // windows only
                 .none => break,
+                .integer_per_element => {
+                    @panic("TODO");
+                },
             }
         }
         const first_non_integer = std.mem.indexOfNone(x86_64_abi.Class, &classes, &.{.integer});

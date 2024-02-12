@@ -2790,8 +2790,6 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;

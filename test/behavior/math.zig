@@ -1059,6 +1059,40 @@ test "@mulWithOverflow bitsize > 32" {
     }
 }
 
+test "@mulWithOverflow u256" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    {
+        const const_lhs: u256 = 8035709466408580321693645878924206181189;
+        const const_rhs: u256 = 343954217539185679456797259115612849079;
+        const const_result = @mulWithOverflow(const_lhs, const_rhs);
+        comptime assert(const_result[0] == 100698109432518020450541558444080472799095368135495022414802684874680804056403);
+        comptime assert(const_result[1] == 1);
+
+        var var_lhs = const_lhs;
+        var var_rhs = const_rhs;
+        _ = .{ &var_lhs, &var_rhs };
+        const var_result = @mulWithOverflow(var_lhs, var_rhs);
+        try std.testing.expect(var_result[0] == const_result[0]);
+        try std.testing.expect(var_result[1] == const_result[1]);
+    }
+    {
+        const const_lhs: u256 = 100477140835310762407466294984162740292250605075409128262608;
+        const const_rhs: u256 = 406310585934439581231;
+        const const_result = @mulWithOverflow(const_lhs, const_rhs);
+        comptime assert(const_result[0] == 66110554277021146912650321519727251744526528332039438002889524600764482652976);
+        comptime assert(const_result[1] == 1);
+
+        var var_lhs = const_lhs;
+        var var_rhs = const_rhs;
+        _ = .{ &var_lhs, &var_rhs };
+        const var_result = @mulWithOverflow(var_lhs, var_rhs);
+        try std.testing.expect(var_result[0] == const_result[0]);
+        try std.testing.expect(var_result[1] == const_result[1]);
+    }
+}
+
 test "@subWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
