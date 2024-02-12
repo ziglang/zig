@@ -2692,8 +2692,6 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const NCCS = 20; // 2 spares (7, 19)
-
 pub const speed_t = u64;
 pub const tcflag_t = u64;
 
@@ -2836,7 +2834,7 @@ pub const termios = extern struct {
     oflag: tcflag_t, // output flags
     cflag: tcflag_t, // control flags
     lflag: tcflag_t, // local flags
-    cc: [NCCS]std.c.cc_t, // control chars
+    cc: [std.c.NCCS]std.c.cc_t, // control chars
     ispeed: speed_t align(8), // input speed
     ospeed: speed_t, // output speed
 };

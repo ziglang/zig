@@ -853,14 +853,12 @@ pub const CHWFLOW: tcflag_t = (MDMBUF | CRTSCTS | CDTRCTS); // all types of hw f
 pub const tcflag_t = c_uint;
 pub const speed_t = c_uint;
 
-pub const NCCS = 20;
-
 pub const termios = extern struct {
     iflag: tcflag_t, // input flags
     oflag: tcflag_t, // output flags
     cflag: tcflag_t, // control flags
     lflag: tcflag_t, // local flags
-    cc: [NCCS]std.c.cc_t, // control chars
+    cc: [std.c.NCCS]std.c.cc_t, // control chars
     ispeed: c_int, // input speed
     ospeed: c_int, // output speed
 };

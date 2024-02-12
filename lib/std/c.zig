@@ -781,6 +781,15 @@ pub const cc_t = switch (native_os) {
     else => @compileError("target libc does not have cc_t"),
 };
 
+pub const NCCS = switch (native_os) {
+    .linux => std.os.linux.NCCS,
+    .macos, .ios, .tvos, .watchos, .freebsd, .kfreebsd, .netbsd, .openbsd, .dragonfly => 20,
+    .haiku => 11,
+    .solaris, .illumos => 19,
+    .emscripten, .wasi => 32,
+    else => @compileError("target libc does not have NCCS"),
+};
+
 pub const whence_t = if (native_os == .wasi) std.os.wasi.whence_t else c_int;
 
 // Unix-like systems

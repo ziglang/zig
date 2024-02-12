@@ -5006,7 +5006,10 @@ pub const rusage = extern struct {
 
 pub const speed_t = u32;
 
-pub const NCCS = 32;
+pub const NCCS = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
+    else => 32,
+};
 
 pub const B0 = 0o0000000;
 pub const B50 = 0o0000001;

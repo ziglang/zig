@@ -701,14 +701,12 @@ pub const SEEK = struct {
 pub const tcflag_t = c_uint;
 pub const speed_t = c_uint;
 
-pub const NCCS = 19;
-
 pub const termios = extern struct {
     c_iflag: tcflag_t,
     c_oflag: tcflag_t,
     c_cflag: tcflag_t,
     c_lflag: tcflag_t,
-    c_cc: [NCCS]std.c.cc_t,
+    c_cc: [std.c.NCCS]std.c.cc_t,
 };
 
 fn tioc(t: u16, num: u8) u16 {

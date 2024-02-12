@@ -771,8 +771,6 @@ pub const AUTH = struct {
 pub const tcflag_t = c_uint;
 pub const speed_t = c_uint;
 
-pub const NCCS = 20;
-
 // Input flags - software input processing
 pub const IGNBRK: tcflag_t = 0x00000001; // ignore BREAK condition
 pub const BRKINT: tcflag_t = 0x00000002; // map BREAK to SIGINT
@@ -823,7 +821,7 @@ pub const termios = extern struct {
     oflag: tcflag_t, // output flags
     cflag: tcflag_t, // control flags
     lflag: tcflag_t, // local flags
-    cc: [NCCS]std.c.cc_t, // control chars
+    cc: [std.c.NCCS]std.c.cc_t, // control chars
     ispeed: c_int, // input speed
     ospeed: c_int, // output speed
 };
