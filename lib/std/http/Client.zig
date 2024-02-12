@@ -580,11 +580,7 @@ pub const Request = struct {
     /// The transfer encoding of the request body.
     transfer_encoding: RequestTransfer = .none,
 
-    /// The redirect quota left for this request.
-    redirects_left: u32,
-
-    /// Whether the request should follow redirects.
-    handle_redirects: bool,
+    redirect_behavior: RedirectBehavior,
 
     /// Whether the request should handle a 100-continue response before sending the request body.
     handle_continue: bool,
@@ -596,6 +592,25 @@ pub const Request = struct {
 
     /// Used as a allocator for resolving redirects locations.
     arena: std.heap.ArenaAllocator,
+
+    /// Any value other than `not_allowed` or `unhandled` means that integer represents
+    /// how many remaining redirects are allowed.
+    pub const RedirectBehavior = enum(u16) {
+        /// The next redirect will cause an error.
+        not_allowed = 0,
+        /// Redirects are passed to the client to analyze the redirect response
+        /// directly.
+        unhandled = std.math.maxInt(u16),
+        _,
+
+        pub fn subtractOne(rb: *RedirectBehavior) void {
+            switch (rb.*) {
+                .not_allowed => unreachable,
+                .unhandled => unreachable,
+                _ => rb.* = @enumFromInt(@intFromEnum(rb.*) - 1),
+            }
+        }
+    };
 
     /// Frees all resources associated with the request.
     pub fn deinit(req: *Request) void {
@@ -621,8 +636,9 @@ pub const Request = struct {
         req.* = undefined;
     }
 
-    // This function must deallocate all resources associated with the request, or keep those which will be used
-    // This needs to be kept in sync with deinit and request
+    // This function must deallocate all resources associated with the request,
+    // or keep those which will be used.
+    // This needs to be kept in sync with deinit and request.
     fn redirect(req: *Request, uri: Uri) !void {
         assert(req.response.parser.state == .complete);
 
@@ -647,7 +663,7 @@ pub const Request = struct {
 
         req.uri = uri;
         req.connection = try req.client.connect(host, port, protocol);
-        req.redirects_left -= 1;
+        req.redirect_behavior.subtractOne();
         req.response.headers.clearRetainingCapacity();
         req.response.parser.reset();
 
@@ -819,7 +835,7 @@ pub const Request = struct {
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
     ///
-    /// If `handle_redirects` is true and the request has no payload, then this
+    /// If handling redirects and the request has no payload, then this
     /// function will automatically follow redirects. If a request payload is
     /// present, then this function will error with
     /// error.RedirectRequiresResend.
@@ -897,15 +913,14 @@ pub const Request = struct {
                 req.response.parser.next_chunk_length = std.math.maxInt(u64);
             }
 
-            if (req.response.status.class() == .redirect and req.handle_redirects) {
+            if (req.response.status.class() == .redirect and req.redirect_behavior != .unhandled) {
                 req.response.skip = true;
 
                 // skip the body of the redirect response, this will at least
                 // leave the connection in a known good state.
-                const empty = @as([*]u8, undefined)[0..0];
-                assert(try req.transferRead(empty) == 0); // we're skipping, no buffer is necessary
+                assert(try req.transferRead(&.{}) == 0); // we're skipping, no buffer is necessary
 
-                if (req.redirects_left == 0) return error.TooManyHttpRedirects;
+                if (req.redirect_behavior == .not_allowed) return error.TooManyHttpRedirects;
 
                 const location = req.response.headers.getFirstValue("location") orelse
                     return error.HttpRedirectMissingLocation;
@@ -1380,7 +1395,7 @@ pub fn connectTunnel(
 
         var buffer: [8096]u8 = undefined;
         var req = client.open(.CONNECT, uri, proxy.headers, .{
-            .handle_redirects = false,
+            .redirect_behavior = .unhandled,
             .connection = conn,
             .server_header_buffer = &buffer,
         }) catch |err| {
@@ -1481,13 +1496,13 @@ pub const RequestOptions = struct {
     /// you finish the request, then the request *will* deadlock.
     handle_continue: bool = true,
 
-    /// Automatically follow redirects. This will only follow redirects for
-    /// repeatable requests (ie. with no payload or the server has acknowledged
-    /// the payload).
-    handle_redirects: bool = true,
+    /// This field specifies whether to automatically follow redirects, and if
+    /// so, how many redirects to follow before returning an error.
+    ///
+    /// This will only follow redirects for repeatable requests (ie. with no
+    /// payload or the server has acknowledged the payload).
+    redirect_behavior: Request.RedirectBehavior = @enumFromInt(3),
 
-    /// How many redirects to follow before returning an error.
-    max_redirects: u32 = 3,
     /// Externally-owned memory used to store the server's entire HTTP header.
     /// `error.HttpHeadersOversize` is returned from read() when a
     /// client sends too many bytes of HTTP headers.
@@ -1548,8 +1563,7 @@ pub fn open(
         .headers = try headers.clone(client.allocator), // Headers must be cloned to properly handle header transformations in redirects.
         .method = method,
         .version = options.version,
-        .redirects_left = options.max_redirects,
-        .handle_redirects = options.handle_redirects,
+        .redirect_behavior = options.redirect_behavior,
         .handle_continue = options.handle_continue,
         .response = .{
             .status = undefined,
@@ -1600,6 +1614,7 @@ pub const FetchOptions = struct {
 
     server_header_buffer: ?[]u8 = null,
     response_strategy: ResponseStrategy = .{ .storage = .{ .dynamic = 16 * 1024 * 1024 } },
+    redirect_behavior: ?Request.RedirectBehavior = null,
 
     location: Location,
     method: http.Method = .GET,
@@ -1642,7 +1657,8 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
 
     var req = try open(client, options.method, uri, options.headers, .{
         .server_header_buffer = options.server_header_buffer orelse &server_header_buffer,
-        .handle_redirects = options.payload == .none,
+        .redirect_behavior = options.redirect_behavior orelse
+            if (options.payload == .none) @enumFromInt(3) else .unhandled,
     });
     defer req.deinit();
 
@@ -1694,8 +1710,7 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
         .none => { // Take advantage of request internals to discard the response body and make the connection available for another request.
             req.response.skip = true;
 
-            const empty = @as([*]u8, undefined)[0..0];
-            assert(try req.transferRead(empty) == 0); // we're skipping, no buffer is necessary
+            assert(try req.transferRead(&.{}) == 0); // we're skipping, no buffer is necessary
         },
     }
 
