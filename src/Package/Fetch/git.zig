@@ -494,8 +494,9 @@ pub const Session = struct {
         session: *Session,
         allocator: Allocator,
         redirect_uri: *[]u8,
+        http_headers_buffer: []u8,
     ) !void {
-        var capability_iterator = try session.getCapabilities(allocator, redirect_uri);
+        var capability_iterator = try session.getCapabilities(allocator, redirect_uri, http_headers_buffer);
         defer capability_iterator.deinit();
         while (try capability_iterator.next()) |capability| {
             if (mem.eql(u8, capability.key, "agent")) {
@@ -521,6 +522,7 @@ pub const Session = struct {
         session: Session,
         allocator: Allocator,
         redirect_uri: *[]u8,
+        http_headers_buffer: []u8,
     ) !CapabilityIterator {
         var info_refs_uri = session.uri;
         info_refs_uri.path = try std.fs.path.resolvePosix(allocator, &.{ "/", session.uri.path, "info/refs" });
@@ -534,6 +536,7 @@ pub const Session = struct {
 
         var request = try session.transport.open(.GET, info_refs_uri, headers, .{
             .max_redirects = 3,
+            .server_header_buffer = http_headers_buffer,
         });
         errdefer request.deinit();
         try request.send(.{});
@@ -620,6 +623,7 @@ pub const Session = struct {
         include_symrefs: bool = false,
         /// Whether to include the peeled object ID for returned tag refs.
         include_peeled: bool = false,
+        server_header_buffer: []u8,
     };
 
     /// Returns an iterator over refs known to the server.
@@ -658,6 +662,7 @@ pub const Session = struct {
 
         var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
             .handle_redirects = false,
+            .server_header_buffer = options.server_header_buffer,
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
@@ -721,7 +726,12 @@ pub const Session = struct {
 
     /// Fetches the given refs from the server. A shallow fetch (depth 1) is
     /// performed if the server supports it.
-    pub fn fetch(session: Session, allocator: Allocator, wants: []const []const u8) !FetchStream {
+    pub fn fetch(
+        session: Session,
+        allocator: Allocator,
+        wants: []const []const u8,
+        http_headers_buffer: []u8,
+    ) !FetchStream {
         var upload_pack_uri = session.uri;
         upload_pack_uri.path = try std.fs.path.resolvePosix(allocator, &.{ "/", session.uri.path, "git-upload-pack" });
         defer allocator.free(upload_pack_uri.path);
@@ -758,6 +768,7 @@ pub const Session = struct {
 
         var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
             .handle_redirects = false,
+            .server_header_buffer = http_headers_buffer,
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };

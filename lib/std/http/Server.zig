@@ -1,6 +1,7 @@
 //! HTTP Server implementation.
 //!
-//! This server assumes *all* clients are well behaved and standard compliant; it can and will deadlock if a client holds a connection open without sending a request.
+//! This server assumes clients are well behaved and standard compliant; it
+//! deadlocks if a client holds a connection open without sending a request.
 //!
 //! Example usage:
 //!
@@ -17,7 +18,7 @@
 //!     while (res.reset() != .closing) {
 //!         res.wait() catch |err| switch (err) {
 //!             error.HttpHeadersInvalid => break,
-//!             error.HttpHeadersExceededSizeLimit => {
+//!             error.HttpHeadersOversize => {
 //!                 res.status = .request_header_fields_too_large;
 //!                 res.send() catch break;
 //!                 break;
@@ -39,6 +40,7 @@
 //! }
 //! ```
 
+const builtin = @import("builtin");
 const std = @import("../std.zig");
 const testing = std.testing;
 const http = std.http;
@@ -86,7 +88,7 @@ pub const Connection = struct {
         const nread = try conn.rawReadAtLeast(conn.read_buf[0..], 1);
         if (nread == 0) return error.EndOfStream;
         conn.read_start = 0;
-        conn.read_end = @as(u16, @intCast(nread));
+        conn.read_end = @intCast(nread);
     }
 
     pub fn peek(conn: *Connection) []const u8 {
@@ -382,10 +384,6 @@ pub const Response = struct {
 
         res.headers.deinit();
         res.request.headers.deinit();
-
-        if (res.request.parser.header_bytes_owned) {
-            res.request.parser.header_bytes.deinit(res.allocator);
-        }
     }
 
     pub const ResetState = enum { reset, closing };
@@ -548,17 +546,24 @@ pub const Response = struct {
         return index;
     }
 
-    pub const WaitError = Connection.ReadError || proto.HeadersParser.CheckCompleteHeadError || Request.ParseError || error{ CompressionInitializationFailed, CompressionNotSupported };
+    pub const WaitError = Connection.ReadError ||
+        proto.HeadersParser.CheckCompleteHeadError || Request.ParseError ||
+        error{ CompressionInitializationFailed, CompressionNotSupported };
 
     /// Wait for the client to send a complete request head.
     ///
     /// For correct behavior, the following rules must be followed:
     ///
-    /// * If this returns any error in `Connection.ReadError`, you MUST immediately close the connection by calling `deinit`.
-    /// * If this returns `error.HttpHeadersInvalid`, you MAY immediately close the connection by calling `deinit`.
-    /// * If this returns `error.HttpHeadersExceededSizeLimit`, you MUST respond with a 431 status code and then call `deinit`.
-    /// * If this returns any error in `Request.ParseError`, you MUST respond with a 400 status code and then call `deinit`.
-    /// * If this returns any other error, you MUST respond with a 400 status code and then call `deinit`.
+    /// * If this returns any error in `Connection.ReadError`, you MUST
+    ///   immediately close the connection by calling `deinit`.
+    /// * If this returns `error.HttpHeadersInvalid`, you MAY immediately close
+    ///   the connection by calling `deinit`.
+    /// * If this returns `error.HttpHeadersOversize`, you MUST
+    ///   respond with a 431 status code and then call `deinit`.
+    /// * If this returns any error in `Request.ParseError`, you MUST respond
+    ///   with a 400 status code and then call `deinit`.
+    /// * If this returns any other error, you MUST respond with a 400 status
+    ///   code and then call `deinit`.
     /// * If the request has an Expect header containing 100-continue, you MUST either:
     ///   * Respond with a 100 status code, then call `wait` again.
     ///   * Respond with a 417 status code.
@@ -571,14 +576,14 @@ pub const Response = struct {
         while (true) {
             try res.connection.fill();
 
-            const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
-            res.connection.drop(@as(u16, @intCast(nchecked)));
+            const nchecked = try res.request.parser.checkCompleteHead(res.connection.peek());
+            res.connection.drop(@intCast(nchecked));
 
             if (res.request.parser.state.isContent()) break;
         }
 
         res.request.headers = .{ .allocator = res.allocator, .owned = true };
-        try res.request.parse(res.request.parser.header_bytes.items);
+        try res.request.parse(res.request.parser.get());
 
         if (res.request.transfer_encoding != .none) {
             switch (res.request.transfer_encoding) {
@@ -641,16 +646,18 @@ pub const Response = struct {
             while (!res.request.parser.state.isContent()) { // read trailing headers
                 try res.connection.fill();
 
-                const nchecked = try res.request.parser.checkCompleteHead(res.allocator, res.connection.peek());
-                res.connection.drop(@as(u16, @intCast(nchecked)));
+                const nchecked = try res.request.parser.checkCompleteHead(res.connection.peek());
+                res.connection.drop(@intCast(nchecked));
             }
 
             if (has_trail) {
                 res.request.headers = http.Headers{ .allocator = res.allocator, .owned = false };
 
-                // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
+                // The response headers before the trailers are already
+                // guaranteed to be valid, so they will always be parsed again
+                // and cannot return an error.
                 // This will *only* fail for a malformed trailer.
-                res.request.parse(res.request.parser.header_bytes.items) catch return error.InvalidTrailers;
+                res.request.parse(res.request.parser.get()) catch return error.InvalidTrailers;
             }
         }
 
@@ -751,29 +758,19 @@ pub fn listen(server: *Server, address: net.Address) ListenError!void {
 
 pub const AcceptError = net.StreamServer.AcceptError || Allocator.Error;
 
-pub const HeaderStrategy = union(enum) {
-    /// In this case, the client's Allocator will be used to store the
-    /// entire HTTP header. This value is the maximum total size of
-    /// HTTP headers allowed, otherwise
-    /// error.HttpHeadersExceededSizeLimit is returned from read().
-    dynamic: usize,
-    /// This is used to store the entire HTTP header. If the HTTP
-    /// header is too big to fit, `error.HttpHeadersExceededSizeLimit`
-    /// is returned from read(). When this is used, `error.OutOfMemory`
-    /// cannot be returned from `read()`.
-    static: []u8,
-};
-
 pub const AcceptOptions = struct {
     allocator: Allocator,
-    header_strategy: HeaderStrategy = .{ .dynamic = 8192 },
+    /// Externally-owned memory used to store the client's entire HTTP header.
+    /// `error.HttpHeadersOversize` is returned from read() when a
+    /// client sends too many bytes of HTTP headers.
+    client_header_buffer: []u8,
 };
 
 /// Accept a new connection.
 pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     const in = try server.socket.accept();
 
-    return Response{
+    return .{
         .allocator = options.allocator,
         .address = in.address,
         .connection = .{
@@ -786,17 +783,12 @@ pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
             .method = undefined,
             .target = undefined,
             .headers = .{ .allocator = options.allocator, .owned = false },
-            .parser = switch (options.header_strategy) {
-                .dynamic => |max| proto.HeadersParser.initDynamic(max),
-                .static => |buf| proto.HeadersParser.initStatic(buf),
-            },
+            .parser = proto.HeadersParser.init(options.client_header_buffer),
         },
     };
 }
 
 test "HTTP server handles a chunked transfer coding request" {
-    const builtin = @import("builtin");
-
     // This test requires spawning threads.
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -823,9 +815,10 @@ test "HTTP server handles a chunked transfer coding request" {
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
         fn apply(s: *std.http.Server) !void {
+            var header_buffer: [max_header_size]u8 = undefined;
             var res = try s.accept(.{
                 .allocator = allocator,
-                .header_strategy = .{ .dynamic = max_header_size },
+                .client_header_buffer = &header_buffer,
             });
             defer res.deinit();
             defer _ = res.reset();
