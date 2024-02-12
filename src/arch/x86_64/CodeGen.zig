@@ -13619,25 +13619,26 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             label_gop.value_ptr.target = @intCast(self.mir_instructions.len);
         } else continue;
 
-        var mnem_size: ?Memory.Size = null;
-        const mnem_tag = mnem: {
-            mnem_size = if (mem.endsWith(u8, mnem_str, "b"))
-                .byte
-            else if (mem.endsWith(u8, mnem_str, "w"))
-                .word
-            else if (mem.endsWith(u8, mnem_str, "l"))
-                .dword
-            else if (mem.endsWith(u8, mnem_str, "q"))
-                .qword
-            else if (mem.endsWith(u8, mnem_str, "t"))
-                .tbyte
-            else
-                break :mnem null;
-            break :mnem std.meta.stringToEnum(Instruction.Mnemonic, mnem_str[0 .. mnem_str.len - 1]);
-        } orelse mnem: {
+        var mnem_size: ?Memory.Size = if (mem.endsWith(u8, mnem_str, "b"))
+            .byte
+        else if (mem.endsWith(u8, mnem_str, "w"))
+            .word
+        else if (mem.endsWith(u8, mnem_str, "l"))
+            .dword
+        else if (mem.endsWith(u8, mnem_str, "q") and
+            (std.mem.indexOfScalar(u8, "vp", mnem_str[0]) == null or !mem.endsWith(u8, mnem_str, "dq")))
+            .qword
+        else if (mem.endsWith(u8, mnem_str, "t"))
+            .tbyte
+        else
+            null;
+        const mnem_tag = while (true) break std.meta.stringToEnum(
+            Instruction.Mnemonic,
+            mnem_str[0 .. mnem_str.len - @intFromBool(mnem_size != null)],
+        ) orelse if (mnem_size) |_| {
             mnem_size = null;
-            break :mnem std.meta.stringToEnum(Instruction.Mnemonic, mnem_str);
-        } orelse return self.fail("invalid mnemonic: '{s}'", .{mnem_str});
+            continue;
+        } else return self.fail("invalid mnemonic: '{s}'", .{mnem_str});
         if (@as(?Memory.Size, switch (mnem_tag) {
             .clflush => .byte,
             .fldenv, .fnstenv, .fstenv => .none,
