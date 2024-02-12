@@ -1947,6 +1947,32 @@ pub inline fn lazyImport(
     comptime unreachable; // Bad @dependencies source
 }
 
+pub fn dependencyFromBuildZig(
+    b: *Build,
+    /// The build.zig struct of the dependency, normally obtained by `@import` of the dependency.
+    /// If called from the build.zig file itself, use `@This` to obtain a reference to the struct.
+    comptime build_zig: type,
+    args: anytype,
+) *Dependency {
+    const build_runner = @import("root");
+    const deps = build_runner.dependencies;
+
+    find_dep: {
+        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+            const pkg_hash = decl.name;
+            const pkg = @field(deps.packages, pkg_hash);
+            if (@hasDecl(pkg, "build_zig") and pkg.build_zig == build_zig) break .{ pkg, pkg_hash };
+        } else break :find_dep;
+        const dep_name = for (b.available_deps) |dep| {
+            if (mem.eql(u8, dep[1], pkg_hash)) break dep[1];
+        } else break :find_dep;
+        return dependencyInner(b, dep_name, pkg.build_root, pkg.build_zig, pkg.deps, args);
+    }
+
+    const full_path = b.pathFromRoot("build.zig.zon");
+    debug.panic("'{}' is not a build.zig struct of a dependecy in '{s}'", .{ build_zig, full_path });
+}
+
 pub fn anonymousDependency(
     b: *Build,
     /// The path to the directory containing the dependency's build.zig file,
