@@ -693,9 +693,11 @@ pub const Response = struct {
 
         switch (res.transfer_encoding) {
             .chunked => {
-                try res.connection.writer().print("{x}\r\n", .{bytes.len});
-                try res.connection.writeAll(bytes);
-                try res.connection.writeAll("\r\n");
+                if (bytes.len > 0) {
+                    try res.connection.writer().print("{x}\r\n", .{bytes.len});
+                    try res.connection.writeAll(bytes);
+                    try res.connection.writeAll("\r\n");
+                }
 
                 return bytes.len;
             },
