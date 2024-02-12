@@ -1075,16 +1075,16 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
+    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
+    if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
+    if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
+
     const csu = try CsuObjects.init(arena, comp);
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
-
-    if (self.zigObjectPtr()) |zig_object| try zig_object.flushModule(self);
-    if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
-    if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
     // Here we will parse input positional and library files (if referenced).
     // This will roughly match in any linker backend we support.
@@ -1245,13 +1245,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
                 .{@errorName(e)},
             ),
         };
-    }
-
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
-
-    // Init all objects
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.init(self);
     }
 
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
@@ -1651,7 +1644,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     Compilation.dump_argv(argv.items);
 }
 
-const ParseError = error{
+pub const ParseError = error{
     MalformedObject,
     MalformedArchive,
     InvalidCpuArch,
@@ -1662,6 +1655,7 @@ const ParseError = error{
     FileSystem,
     NotSupported,
     InvalidCharacter,
+    UnknownFileType,
 } || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
 
 pub fn parsePositional(self: *Elf, path: []const u8, must_link: bool) ParseError!void {

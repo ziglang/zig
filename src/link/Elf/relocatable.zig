@@ -7,18 +7,20 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     try positionals.ensureUnusedCapacity(comp.objects.len);
     positionals.appendSliceAssumeCapacity(comp.objects);
 
-    // This is a set of object files emitted by clang in a single `build-exe` invocation.
-    // For instance, the implicit `a.o` as compiled by `zig build-exe a.c` will end up
-    // in this set.
     for (comp.c_object_table.keys()) |key| {
         try positionals.append(.{ .path = key.status.success.object_path });
     }
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
+    if (comp.include_compiler_rt) {
+        try positionals.append(.{ .path = comp.compiler_rt_obj.?.full_object_path });
+    }
+
     for (positionals.items) |obj| {
-        elf_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+        parsePositional(elf_file, obj.path) catch |err| switch (err) {
             error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.UnknownFileType => try elf_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
             else => |e| try elf_file.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -172,13 +174,6 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
 
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
-    // Init all objects
-    for (elf_file.objects.items) |index| {
-        try elf_file.file(index).?.object.init(elf_file);
-    }
-
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
-
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
     // input Object files.
@@ -212,6 +207,55 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     try elf_file.writeElfHeader();
 
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
+}
+
+fn parsePositional(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+    if (try Object.isObject(path)) {
+        try parseObject(elf_file, path);
+    } else if (try Archive.isArchive(path)) {
+        try parseArchive(elf_file, path);
+    } else return error.UnknownFileType;
+    // TODO: should we check for LD script?
+    // Actually, should we even unpack an archive?
+}
+
+fn parseObject(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+    const gpa = elf_file.base.comp.gpa;
+    const handle = try std.fs.cwd().openFile(path, .{});
+    const fh = try elf_file.addFileHandle(handle);
+
+    const index = @as(File.Index, @intCast(try elf_file.files.addOne(gpa)));
+    elf_file.files.set(index, .{ .object = .{
+        .path = try gpa.dupe(u8, path),
+        .file_handle = fh,
+        .index = index,
+    } });
+    try elf_file.objects.append(gpa, index);
+
+    const object = elf_file.file(index).?.object;
+    try object.parseAr(elf_file);
+}
+
+fn parseArchive(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+    const gpa = elf_file.base.comp.gpa;
+    const handle = try std.fs.cwd().openFile(path, .{});
+    const fh = try elf_file.addFileHandle(handle);
+
+    var archive = Archive{};
+    defer archive.deinit(gpa);
+    try archive.parse(elf_file, path, fh);
+
+    const objects = try archive.objects.toOwnedSlice(gpa);
+    defer gpa.free(objects);
+
+    for (objects) |extracted| {
+        const index = @as(File.Index, @intCast(try elf_file.files.addOne(gpa)));
+        elf_file.files.set(index, .{ .object = extracted });
+        const object = &elf_file.files.items(.data)[index].object;
+        object.index = index;
+        try object.parseAr(elf_file);
+        try elf_file.objects.append(gpa, index);
+    }
 }
 
 fn claimUnresolved(elf_file: *Elf) void {
@@ -518,3 +562,4 @@ const Archive = @import("Archive.zig");
 const Compilation = @import("../../Compilation.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
+const Object = @import("Object.zig");
