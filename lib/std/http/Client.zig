@@ -610,7 +610,7 @@ pub const Request = struct {
         req.response.headers.deinit();
 
         if (req.connection) |connection| {
-            if (!req.response.parser.done) {
+            if (req.response.parser.state != .complete) {
                 // If the response wasn't fully read, then we need to close the connection.
                 connection.closing = true;
             }
@@ -624,7 +624,7 @@ pub const Request = struct {
     // This function must deallocate all resources associated with the request, or keep those which will be used
     // This needs to be kept in sync with deinit and request
     fn redirect(req: *Request, uri: Uri) !void {
-        assert(req.response.parser.done);
+        assert(req.response.parser.state == .complete);
 
         switch (req.response.compression) {
             .none => {},
@@ -794,12 +794,12 @@ pub const Request = struct {
     }
 
     fn transferRead(req: *Request, buf: []u8) TransferReadError!usize {
-        if (req.response.parser.done) return 0;
+        if (req.response.parser.state == .complete) return 0;
 
         var index: usize = 0;
         while (index == 0) {
             const amt = try req.response.parser.read(req.connection.?, buf[index..], req.response.skip);
-            if (amt == 0 and req.response.parser.done) break;
+            if (amt == 0 and req.response.parser.state == .complete) break;
             index += amt;
         }
 
@@ -840,7 +840,7 @@ pub const Request = struct {
             try req.response.parse(req.response.parser.get(), false);
 
             if (req.response.status == .@"continue") {
-                req.response.parser.done = true; // we're done parsing the continue response, reset to prepare for the real response
+                req.response.parser.state = .complete; // we're done parsing the continue response, reset to prepare for the real response
                 req.response.parser.reset();
 
                 if (req.handle_continue)
@@ -852,7 +852,7 @@ pub const Request = struct {
             // we're switching protocols, so this connection is no longer doing http
             if (req.method == .CONNECT and req.response.status.class() == .success) {
                 req.connection.?.closing = false;
-                req.response.parser.done = true;
+                req.response.parser.state = .complete;
 
                 return; // the connection is not HTTP past this point, return to the caller
             }
@@ -872,8 +872,10 @@ pub const Request = struct {
             // Any response to a HEAD request and any response with a 1xx (Informational), 204 (No Content), or 304 (Not Modified)
             // status code is always terminated by the first empty line after the header fields, regardless of the header fields
             // present in the message
-            if (req.method == .HEAD or req.response.status.class() == .informational or req.response.status == .no_content or req.response.status == .not_modified) {
-                req.response.parser.done = true;
+            if (req.method == .HEAD or req.response.status.class() == .informational or
+                req.response.status == .no_content or req.response.status == .not_modified)
+            {
+                req.response.parser.state = .complete;
 
                 return; // the response is empty, no further setup or redirection is necessary
             }
@@ -889,7 +891,7 @@ pub const Request = struct {
             } else if (req.response.content_length) |cl| {
                 req.response.parser.next_chunk_length = cl;
 
-                if (cl == 0) req.response.parser.done = true;
+                if (cl == 0) req.response.parser.state = .complete;
             } else {
                 // read until the connection is closed
                 req.response.parser.next_chunk_length = std.math.maxInt(u64);
@@ -947,7 +949,7 @@ pub const Request = struct {
                 try req.send(.{});
             } else {
                 req.response.skip = false;
-                if (!req.response.parser.done) {
+                if (req.response.parser.state != .complete) {
                     switch (req.response.transfer_compression) {
                         .identity => req.response.compression = .none,
                         .compress, .@"x-compress" => return error.CompressionNotSupported,

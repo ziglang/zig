@@ -395,7 +395,7 @@ pub const Response = struct {
             return .reset;
         }
 
-        if (!res.request.parser.done) {
+        if (res.request.parser.state != .complete) {
             // If the response wasn't fully read, then we need to close the connection.
             res.connection.closing = true;
             return .closing;
@@ -534,12 +534,12 @@ pub const Response = struct {
     }
 
     fn transferRead(res: *Response, buf: []u8) TransferReadError!usize {
-        if (res.request.parser.done) return 0;
+        if (res.request.parser.state == .complete) return 0;
 
         var index: usize = 0;
         while (index == 0) {
             const amt = try res.request.parser.read(&res.connection, buf[index..], false);
-            if (amt == 0 and res.request.parser.done) break;
+            if (amt == 0 and res.request.parser.state == .complete) break;
             index += amt;
         }
 
@@ -596,12 +596,12 @@ pub const Response = struct {
         } else if (res.request.content_length) |cl| {
             res.request.parser.next_chunk_length = cl;
 
-            if (cl == 0) res.request.parser.done = true;
+            if (cl == 0) res.request.parser.state = .complete;
         } else {
-            res.request.parser.done = true;
+            res.request.parser.state = .complete;
         }
 
-        if (!res.request.parser.done) {
+        if (res.request.parser.state != .complete) {
             switch (res.request.transfer_compression) {
                 .identity => res.request.compression = .none,
                 .compress, .@"x-compress" => return error.CompressionNotSupported,

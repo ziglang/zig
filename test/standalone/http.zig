@@ -165,10 +165,11 @@ fn handleRequest(res: *Server.Response) !void {
 var handle_new_requests = true;
 
 fn runServer(srv: *Server) !void {
+    var client_header_buffer: [1024]u8 = undefined;
     outer: while (handle_new_requests) {
         var res = try srv.accept(.{
             .allocator = salloc,
-            .header_strategy = .{ .dynamic = max_header_size },
+            .client_header_buffer = &client_header_buffer,
         });
         defer res.deinit();
 
@@ -244,7 +245,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -269,7 +273,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -293,7 +300,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.HEAD, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.HEAD, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -319,7 +329,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -344,7 +357,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.HEAD, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.HEAD, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -370,7 +386,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -397,7 +416,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.POST, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.POST, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         req.transfer_encoding = .{ .content_length = 14 };
@@ -429,7 +451,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -456,7 +481,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.POST, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.POST, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         req.transfer_encoding = .chunked;
@@ -486,7 +514,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -510,7 +541,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -534,7 +568,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -558,7 +595,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -580,7 +620,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.GET, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         try req.send(.{});
@@ -628,7 +671,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.POST, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.POST, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         req.transfer_encoding = .chunked;
@@ -659,7 +705,10 @@ pub fn main() !void {
         const uri = try std.Uri.parse(location);
 
         log.info("{s}", .{location});
-        var req = try client.open(.POST, uri, h, .{});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.POST, uri, h, .{
+            .server_header_buffer = &server_header_buffer,
+        });
         defer req.deinit();
 
         req.transfer_encoding = .chunked;
@@ -678,9 +727,17 @@ pub fn main() !void {
         var requests = try calloc.alloc(http.Client.Request, total_connections);
         defer calloc.free(requests);
 
+        var header_bufs = std.ArrayList([]u8).init(calloc);
+        defer header_bufs.deinit();
+        defer for (header_bufs.items) |item| calloc.free(item);
+
         for (0..total_connections) |i| {
-            var req = try client.open(.GET, uri, .{ .allocator = calloc }, .{});
-            req.response.parser.done = true;
+            const headers_buf = try calloc.alloc(u8, 1024);
+            try header_bufs.append(headers_buf);
+            var req = try client.open(.GET, uri, .{ .allocator = calloc }, .{
+                .server_header_buffer = headers_buf,
+            });
+            req.response.parser.state = .complete;
             req.connection.?.closing = false;
             requests[i] = req;
         }
