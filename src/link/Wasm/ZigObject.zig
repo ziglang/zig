@@ -1213,6 +1213,6 @@ const StringTable = @import("../StringTable.zig");
 const Symbol = @import("Symbol.zig");
 const Type = @import("../../type.zig").Type;
 const TypedValue = @import("../../TypedValue.zig");
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");
 const Wasm = @import("../Wasm.zig");
 const ZigObject = @This();

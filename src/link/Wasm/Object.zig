@@ -127,7 +127,8 @@ pub const InitError = error{NotObjectFile} || ParseError || std.fs.File.ReadErro
 /// This also parses and verifies the object file.
 /// When a max size is given, will only parse up to the given size,
 /// else will read until the end of the file.
-pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_size: ?usize) InitError!Object {
+pub fn create(wasm_file: *const Wasm, file: std.fs.File, name: []const u8, maybe_max_size: ?usize) InitError!Object {
+    const gpa = wasm_file.base.comp.gpa;
     var object: Object = .{
         .file = file,
         .path = try gpa.dupe(u8, name),
@@ -151,7 +152,7 @@ pub fn create(gpa: Allocator, file: std.fs.File, name: []const u8, maybe_max_siz
     }
     var fbs = std.io.fixedBufferStream(file_contents);
 
-    try object.parse(gpa, fbs.reader(), &is_object_file);
+    try object.parse(gpa, wasm_file, fbs.reader(), &is_object_file);
     errdefer object.deinit(gpa);
     if (!is_object_file) return error.NotObjectFile;
 
@@ -224,7 +225,7 @@ pub fn findImport(object: *const Object, sym: Symbol) types.Import {
 /// we initialize a new table symbol that corresponds to that import and return that symbol.
 ///
 /// When the object file is *NOT* MVP, we return `null`.
-fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
+fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?Symbol {
     var table_count: usize = 0;
     for (object.symtable) |sym| {
         if (sym.tag == .table) table_count += 1;
@@ -234,21 +235,27 @@ fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
     if (object.imported_tables_count == table_count) return null;
 
     if (table_count != 0) {
-        log.err("Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
             object.imported_tables_count,
             table_count,
         });
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
     // MVP object files cannot have any table definitions, only imports (for the indirect function table).
     if (object.tables.len > 0) {
-        log.err("Unexpected table definition without representing table symbols.", .{});
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Unexpected table definition without representing table symbols.", .{});
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.UnexpectedTable;
     }
 
     if (object.imported_tables_count != 1) {
-        log.err("Found more than one table import, but no representing table symbols", .{});
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Found more than one table import, but no representing table symbols", .{});
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -259,7 +266,9 @@ fn checkLegacyIndirectFunctionTable(object: *Object) !?Symbol {
     } else unreachable;
 
     if (!std.mem.eql(u8, object.string_table.get(table_import.name), "__indirect_function_table")) {
-        log.err("Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
+        var err = try wasm_file.addErrorWithNotes(1);
+        try err.addMsg(wasm_file, "Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
+        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -312,8 +321,8 @@ pub const ParseError = error{
     UnknownFeature,
 };
 
-fn parse(object: *Object, gpa: Allocator, reader: anytype, is_object_file: *bool) Parser(@TypeOf(reader)).Error!void {
-    var parser = Parser(@TypeOf(reader)).init(object, reader);
+fn parse(object: *Object, gpa: Allocator, wasm_file: *const Wasm, reader: anytype, is_object_file: *bool) Parser(@TypeOf(reader)).Error!void {
+    var parser = Parser(@TypeOf(reader)).init(object, wasm_file, reader);
     return parser.parseObject(gpa, is_object_file);
 }
 
@@ -325,9 +334,11 @@ fn Parser(comptime ReaderType: type) type {
         reader: std.io.CountingReader(ReaderType),
         /// Object file we're building
         object: *Object,
+        /// Read-only reference to the WebAssembly linker
+        wasm_file: *const Wasm,
 
-        fn init(object: *Object, reader: ReaderType) ObjectParser {
-            return .{ .object = object, .reader = std.io.countingReader(reader) };
+        fn init(object: *Object, wasm_file: *const Wasm, reader: ReaderType) ObjectParser {
+            return .{ .object = object, .wasm_file = wasm_file, .reader = std.io.countingReader(reader) };
         }
 
         /// Verifies that the first 4 bytes contains \0Asm
@@ -585,7 +596,9 @@ fn Parser(comptime ReaderType: type) type {
                 try reader.readNoEof(name);
 
                 const tag = types.known_features.get(name) orelse {
-                    log.err("Object file contains unknown feature: {s}", .{name});
+                    var err = try parser.wasm_file.addErrorWithNotes(1);
+                    try err.addMsg(parser.wasm_file, "Object file contains unknown feature: {s}", .{name});
+                    try err.addNote(parser.wasm_file, "defined in '{s}'", .{parser.object.path});
                     return error.UnknownFeature;
                 };
                 feature.* = .{
@@ -754,7 +767,7 @@ fn Parser(comptime ReaderType: type) type {
 
                     // we found all symbols, check for indirect function table
                     // in case of an MVP object file
-                    if (try parser.object.checkLegacyIndirectFunctionTable()) |symbol| {
+                    if (try parser.object.checkLegacyIndirectFunctionTable(parser.wasm_file)) |symbol| {
                         try symbols.append(symbol);
                         log.debug("Found legacy indirect function table. Created symbol", .{});
                     }
