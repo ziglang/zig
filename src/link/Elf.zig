@@ -35,6 +35,10 @@ llvm_object: ?*LlvmObject = null,
 /// Index of each input file also encodes the priority or precedence of one input file
 /// over another.
 files: std.MultiArrayList(File.Entry) = .{},
+/// Long-lived list of all file descriptors.
+/// We store them globally rather than per actual File so that we can re-use
+/// one file handle per every object file within an archive.
+file_handles: std.ArrayListUnmanaged(File.Handle) = .{},
 zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
 objects: std.ArrayListUnmanaged(File.Index) = .{},
@@ -443,6 +447,11 @@ pub fn deinit(self: *Elf) void {
     const gpa = self.base.comp.gpa;
 
     if (self.llvm_object) |llvm_object| llvm_object.deinit();
+
+    for (self.file_handles.items) |fh| {
+        fh.close();
+    }
+    self.file_handles.deinit(gpa);
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
         .null => {},
@@ -1244,9 +1253,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     for (self.objects.items) |index| {
         try self.file(index).?.object.init(self);
     }
-    for (self.shared_objects.items) |index| {
-        try self.file(index).?.shared_object.init(self);
-    }
 
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
@@ -1463,7 +1469,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
         try file_ptr.updateArStrtab(gpa, &ar_strtab);
-        file_ptr.updateArSize();
+        try file_ptr.updateArSize(self);
     }
 
     // Update file offsets of contributing objects.
@@ -1515,7 +1521,7 @@ pub fn flushStaticLib(self: *Elf, comp: *Compilation, module_obj_path: ?[]const 
     // Write object files
     for (files.items) |index| {
         if (!mem.isAligned(buffer.items.len, 2)) try buffer.writer().writeByte(0);
-        try self.file(index).?.writeAr(buffer.writer());
+        try self.file(index).?.writeAr(self, buffer.writer());
     }
 
     assert(buffer.items.len == total_size);
@@ -1902,13 +1908,13 @@ fn parseObject(self: *Elf, path: []const u8) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const in_file = try std.fs.cwd().openFile(path, .{});
-    defer in_file.close();
-    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    const handle = try std.fs.cwd().openFile(path, .{});
+    const fh = try self.addFileHandle(handle);
+
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
         .path = try gpa.dupe(u8, path),
-        .data = data,
+        .file_handle = fh,
         .index = index,
     } });
     try self.objects.append(gpa, index);
@@ -1922,12 +1928,12 @@ fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const in_file = try std.fs.cwd().openFile(path, .{});
-    defer in_file.close();
-    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
-    var archive = Archive{ .path = try gpa.dupe(u8, path), .data = data };
+    const handle = try std.fs.cwd().openFile(path, .{});
+    const fh = try self.addFileHandle(handle);
+
+    var archive = Archive{};
     defer archive.deinit(gpa);
-    try archive.parse(self);
+    try archive.parse(self, path, fh);
 
     const objects = try archive.objects.toOwnedSlice(gpa);
     defer gpa.free(objects);
@@ -1948,13 +1954,12 @@ fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const in_file = try std.fs.cwd().openFile(lib.path, .{});
-    defer in_file.close();
-    const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
+    const handle = try std.fs.cwd().openFile(lib.path, .{});
+    defer handle.close();
+
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .shared_object = .{
         .path = try gpa.dupe(u8, lib.path),
-        .data = data,
         .index = index,
         .needed = lib.needed,
         .alive = lib.needed,
@@ -1962,7 +1967,7 @@ fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     try self.shared_objects.append(gpa, index);
 
     const shared_object = self.file(index).?.shared_object;
-    try shared_object.parse(self);
+    try shared_object.parse(self, handle);
 }
 
 fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
@@ -2135,7 +2140,7 @@ fn resolveSymbols(self: *Elf) void {
             const cg = self.comdatGroup(cg_index);
             const cg_owner = self.comdatGroupOwner(cg.owner);
             if (cg_owner.file != index) {
-                for (object.comdatGroupMembers(cg.shndx)) |shndx| {
+                for (cg.comdatGroupMembers(self)) |shndx| {
                     const atom_index = object.atoms.items[shndx];
                     if (self.atom(atom_index)) |atom_ptr| {
                         atom_ptr.flags.alive = false;
@@ -5862,6 +5867,19 @@ pub fn file(self: *Elf, index: File.Index) ?File {
     };
 }
 
+pub fn addFileHandle(self: *Elf, handle: std.fs.File) !File.HandleIndex {
+    const gpa = self.base.comp.gpa;
+    const index: File.HandleIndex = @intCast(self.file_handles.items.len);
+    const fh = try self.file_handles.addOne(gpa);
+    fh.* = handle;
+    return index;
+}
+
+pub fn fileHandle(self: Elf, index: File.HandleIndex) File.Handle {
+    assert(index < self.file_handles.items.len);
+    return self.file_handles.items[index];
+}
+
 /// Returns pointer-to-symbol described at sym_index.
 pub fn symbol(self: *Elf, sym_index: Symbol.Index) *Symbol {
     return &self.symbols.items[sym_index];
@@ -6395,6 +6413,15 @@ fn fmtDumpState(
     }
 }
 
+/// Caller owns the memory.
+pub fn preadAllAlloc(allocator: Allocator, handle: std.fs.File, offset: usize, size: usize) ![]u8 {
+    const buffer = try allocator.alloc(u8, size);
+    errdefer allocator.free(buffer);
+    const amt = try handle.preadAll(buffer, offset);
+    if (amt != size) return error.InputOutput;
+    return buffer;
+}
+
 /// Binary search
 pub fn bsearch(comptime T: type, haystack: []align(1) const T, predicate: anytype) usize {
     if (!@hasDecl(@TypeOf(predicate), "predicate"))
@@ -6441,12 +6468,22 @@ pub const base_tag: link.File.Tag = .elf;
 
 const ComdatGroupOwner = struct {
     file: File.Index = 0,
+
     const Index = u32;
 };
 
 pub const ComdatGroup = struct {
     owner: ComdatGroupOwner.Index,
-    shndx: u16,
+    file: File.Index,
+    shndx: u32,
+    members_start: u32,
+    members_len: u32,
+
+    pub fn comdatGroupMembers(cg: ComdatGroup, elf_file: *Elf) []const u32 {
+        const object = elf_file.file(cg.file).?.object;
+        return object.comdat_group_data.items[cg.members_start..][0..cg.members_len];
+    }
+
     pub const Index = u32;
 };
 

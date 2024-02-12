@@ -5,7 +5,6 @@ pub const Fde = struct {
     cie_index: u32,
     rel_index: u32 = 0,
     rel_num: u32 = 0,
-    rel_section_index: u32 = 0,
     input_section_index: u32 = 0,
     file_index: u32 = 0,
     alive: bool = true,
@@ -20,10 +19,9 @@ pub const Fde = struct {
         return base + fde.out_offset;
     }
 
-    pub fn data(fde: Fde, elf_file: *Elf) []const u8 {
+    pub fn data(fde: Fde, elf_file: *Elf) []u8 {
         const object = elf_file.file(fde.file_index).?.object;
-        const contents = object.shdrContents(fde.input_section_index);
-        return contents[fde.offset..][0..fde.calcSize()];
+        return object.eh_frame_data.items[fde.offset..][0..fde.calcSize()];
     }
 
     pub fn cie(fde: Fde, elf_file: *Elf) Cie {
@@ -50,7 +48,7 @@ pub const Fde = struct {
 
     pub fn relocs(fde: Fde, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
         const object = elf_file.file(fde.file_index).?.object;
-        return object.getRelocs(fde.rel_section_index)[fde.rel_index..][0..fde.rel_num];
+        return object.relocs.items[fde.rel_index..][0..fde.rel_num];
     }
 
     pub fn format(
@@ -106,7 +104,6 @@ pub const Cie = struct {
     size: usize,
     rel_index: u32 = 0,
     rel_num: u32 = 0,
-    rel_section_index: u32 = 0,
     input_section_index: u32 = 0,
     file_index: u32 = 0,
     /// Includes 4byte size cell.
@@ -121,10 +118,9 @@ pub const Cie = struct {
         return base + cie.out_offset;
     }
 
-    pub fn data(cie: Cie, elf_file: *Elf) []const u8 {
+    pub fn data(cie: Cie, elf_file: *Elf) []u8 {
         const object = elf_file.file(cie.file_index).?.object;
-        const contents = object.shdrContents(cie.input_section_index);
-        return contents[cie.offset..][0..cie.calcSize()];
+        return object.eh_frame_data.items[cie.offset..][0..cie.calcSize()];
     }
 
     pub fn calcSize(cie: Cie) usize {
@@ -133,7 +129,7 @@ pub const Cie = struct {
 
     pub fn relocs(cie: Cie, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
         const object = elf_file.file(cie.file_index).?.object;
-        return object.getRelocs(cie.rel_section_index)[cie.rel_index..][0..cie.rel_num];
+        return object.relocs.items[cie.rel_index..][0..cie.rel_num];
     }
 
     pub fn eql(cie: Cie, other: Cie, elf_file: *Elf) bool {
@@ -330,9 +326,6 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 }
 
 pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-
     relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
 
     for (elf_file.objects.items) |index| {
@@ -341,8 +334,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
         for (object.cies.items) |cie| {
             if (!cie.alive) continue;
 
-            const contents = try gpa.dupe(u8, cie.data(elf_file));
-            defer gpa.free(contents);
+            const contents = cie.data(elf_file);
 
             for (cie.relocs(elf_file)) |rel| {
                 const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
@@ -359,8 +351,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
         for (object.fdes.items) |fde| {
             if (!fde.alive) continue;
 
-            const contents = try gpa.dupe(u8, fde.data(elf_file));
-            defer gpa.free(contents);
+            const contents = fde.data(elf_file);
 
             std.mem.writeInt(
                 i32,
@@ -382,9 +373,6 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
 }
 
 pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
@@ -400,8 +388,7 @@ pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
         for (object.fdes.items) |fde| {
             if (!fde.alive) continue;
 
-            const contents = try gpa.dupe(u8, fde.data(elf_file));
-            defer gpa.free(contents);
+            const contents = fde.data(elf_file);
 
             std.mem.writeInt(
                 i32,

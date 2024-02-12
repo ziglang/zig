@@ -1582,15 +1582,14 @@ pub const ComdatGroupSection = struct {
 
     pub fn size(cgs: ComdatGroupSection, elf_file: *Elf) usize {
         const cg = elf_file.comdatGroup(cgs.cg_index);
-        const object = cgs.file(elf_file).?.object;
-        const members = object.comdatGroupMembers(cg.shndx);
+        const members = cg.comdatGroupMembers(elf_file);
         return (members.len + 1) * @sizeOf(u32);
     }
 
     pub fn write(cgs: ComdatGroupSection, elf_file: *Elf, writer: anytype) !void {
         const cg = elf_file.comdatGroup(cgs.cg_index);
         const object = cgs.file(elf_file).?.object;
-        const members = object.comdatGroupMembers(cg.shndx);
+        const members = cg.comdatGroupMembers(elf_file);
         try writer.writeInt(u32, elf.GRP_COMDAT, .little);
         for (members) |shndx| {
             const shdr = object.shdrs.items[shndx];

@@ -22,6 +22,12 @@ output_section_index: u16 = 0,
 /// Index of the input section containing this atom's relocs.
 relocs_section_index: u32 = 0,
 
+/// Start index of the relocations belonging to this atom.
+rel_index: u32 = 0,
+
+/// Number of relocations belonging to this atom.
+rel_num: u32 = 0,
+
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
@@ -52,7 +58,7 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
     return elf_file.file(self.file_index);
 }
 
-pub fn inputShdr(self: Atom, elf_file: *Elf) Object.ElfShdr {
+pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
     return switch (self.file(elf_file).?) {
         .object => |x| x.shdrs.items[self.input_section_index],
         .zig_object => |x| x.inputShdr(self.atom_index, elf_file),
@@ -289,7 +295,7 @@ pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
     const shndx = self.relocsShndx() orelse return &[0]elf.Elf64_Rela{};
     return switch (self.file(elf_file).?) {
         .zig_object => |x| x.relocs.items[shndx].items,
-        .object => |x| x.getRelocs(shndx),
+        .object => |x| x.relocs.items[self.rel_index..][0..self.rel_num],
         else => unreachable,
     };
 }

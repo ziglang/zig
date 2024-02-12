@@ -305,19 +305,16 @@ pub fn addAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
 }
 
 /// TODO actually create fake input shdrs and return that instead.
-pub fn inputShdr(self: ZigObject, atom_index: Atom.Index, elf_file: *Elf) Object.ElfShdr {
+pub fn inputShdr(self: ZigObject, atom_index: Atom.Index, elf_file: *Elf) elf.Elf64_Shdr {
     _ = self;
-    const shdr = shdr: {
-        const atom = elf_file.atom(atom_index) orelse break :shdr Elf.null_shdr;
-        const shndx = atom.outputShndx() orelse break :shdr Elf.null_shdr;
-        var shdr = elf_file.shdrs.items[shndx];
-        shdr.sh_addr = 0;
-        shdr.sh_offset = 0;
-        shdr.sh_size = atom.size;
-        shdr.sh_addralign = atom.alignment.toByteUnits(1);
-        break :shdr shdr;
-    };
-    return Object.ElfShdr.fromElf64Shdr(shdr) catch unreachable;
+    const atom = elf_file.atom(atom_index) orelse return Elf.null_shdr;
+    const shndx = atom.outputShndx() orelse return Elf.null_shdr;
+    var shdr = elf_file.shdrs.items[shndx];
+    shdr.sh_addr = 0;
+    shdr.sh_offset = 0;
+    shdr.sh_size = atom.size;
+    shdr.sh_addralign = atom.alignment.toByteUnits(1);
+    return shdr;
 }
 
 pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) void {
@@ -525,7 +522,7 @@ pub fn writeAr(self: ZigObject, writer: anytype) !void {
             .{ .name = name }
         else
             .{ .name_off = self.output_ar_state.name_off },
-        .size = @intCast(self.data.items.len),
+        .size = self.data.items.len,
     });
     try writer.writeAll(mem.asBytes(&hdr));
     try writer.writeAll(self.data.items);
