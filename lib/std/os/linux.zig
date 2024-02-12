@@ -5004,9 +5004,7 @@ pub const rusage = extern struct {
     pub const THREAD = 1;
 };
 
-pub const cc_t = u8;
 pub const speed_t = u32;
-pub const tcflag_t = u32;
 
 pub const NCCS = 32;
 
@@ -5124,21 +5122,84 @@ pub const V = switch (native_arch) {
     },
 };
 
-pub const IGNBRK: tcflag_t = 1;
-pub const BRKINT: tcflag_t = 2;
-pub const IGNPAR: tcflag_t = 4;
-pub const PARMRK: tcflag_t = 8;
-pub const INPCK: tcflag_t = 16;
-pub const ISTRIP: tcflag_t = 32;
-pub const INLCR: tcflag_t = 64;
-pub const IGNCR: tcflag_t = 128;
-pub const ICRNL: tcflag_t = 256;
-pub const IUCLC: tcflag_t = 512;
-pub const IXON: tcflag_t = 1024;
-pub const IXANY: tcflag_t = 2048;
-pub const IXOFF: tcflag_t = 4096;
-pub const IMAXBEL: tcflag_t = 8192;
-pub const IUTF8: tcflag_t = 16384;
+pub const tc_iflag_t = packed struct (u32) {
+    IGNBRK: bool = false,
+    BRKINT: bool = false,
+    IGNPAR: bool = false,
+    PARMRK: bool = false,
+    INPCK: bool = false,
+    ISTRIP: bool = false,
+    INLCR: bool = false,
+    IGNCR: bool = false,
+    ICRNL: bool = false,
+    IUCLC: bool = false,
+    IXON: bool = false,
+    IXANY: bool = false,
+    IXOFF: bool = false,
+    IMAXBEL: bool = false,
+    IUTF8: bool = false,
+    _: u17 = 0,
+};
+
+pub const cc_t = switch (native_arch) {
+    .mips, .mipsel, .mips64, .mips64el => enum(u8){
+        VINTR    =  0,
+        VQUIT    =  1,
+        VERASE   =  2,
+        VKILL    =  3,
+        VMIN     =  4,
+        VTIME    =  5,
+        VEOL2    =  6,
+        VSWTC    =  7,
+        VSTART   =  8,
+        VSTOP    =  9,
+        VSUSP    = 10,
+        VREPRINT = 12,
+        VDISCARD = 13,
+        VWERASE  = 14,
+        VLNEXT   = 15,
+        VEOF     = 16,
+        VEOL     = 17,
+    },
+    .powerpc, .powerpc64, .powerpc64le => enum(u8) {
+        VINTR    =  0,
+        VQUIT    =  1,
+        VERASE   =  2,
+        VKILL    =  3,
+        VEOF     =  4,
+        VMIN     =  5,
+        VEOL     =  6,
+        VTIME    =  7,
+        VEOL2    =  8,
+        VSWTC    =  9,
+        VWERASE  = 10,
+        VREPRINT = 11,
+        VSUSP    = 12,
+        VSTART   = 13,
+        VSTOP    = 14,
+        VLNEXT   = 15,
+        VDISCARD = 16,
+    },
+    else => enum(u8) {
+        VINTR = 0,
+        VQUIT = 1,
+        VERASE = 2,
+        VKILL = 3,
+        VEOF = 4,
+        VTIME = 5,
+        VMIN = 6,
+        VSWTC = 7,
+        VSTART = 8,
+        VSTOP = 9,
+        VSUSP = 10,
+        VEOL = 11,
+        VREPRINT = 12,
+        VDISCARD = 13,
+        VWERASE = 14,
+        VLNEXT = 15,
+        VEOL2 = 16,
+    },
+};
 
 pub const OPOST: tcflag_t = 1;
 pub const OLCUC: tcflag_t = 2;
@@ -5148,6 +5209,7 @@ pub const ONOCR: tcflag_t = 16;
 pub const ONLRET: tcflag_t = 32;
 pub const OFILL: tcflag_t = 64;
 pub const OFDEL: tcflag_t = 128;
+
 pub const VTDLY: tcflag_t = 16384;
 pub const VT0: tcflag_t = 0;
 pub const VT1: tcflag_t = 16384;
@@ -5182,10 +5244,10 @@ pub const TCSA = enum(c_uint) {
 };
 
 pub const termios = extern struct {
-    iflag: tcflag_t,
-    oflag: tcflag_t,
-    cflag: tcflag_t,
-    lflag: tcflag_t,
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
     line: cc_t,
     cc: [NCCS]cc_t,
     ispeed: speed_t,

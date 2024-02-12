@@ -806,30 +806,6 @@ pub const T = struct {
     pub const IOCXMTFRAME = 0x80087444;
 };
 
-// Term
-const V = struct {
-    pub const EOF = 0; // ICANON
-    pub const EOL = 1; // ICANON
-    pub const EOL2 = 2; // ICANON
-    pub const ERASE = 3; // ICANON
-    pub const WERASE = 4; // ICANON
-    pub const KILL = 5; // ICANON
-    pub const REPRINT = 6; // ICANON
-    //  7    spare 1
-    pub const INTR = 8; // ISIG
-    pub const QUIT = 9; // ISIG
-    pub const SUSP = 10; // ISIG
-    pub const DSUSP = 11; // ISIG
-    pub const START = 12; // IXON, IXOFF
-    pub const STOP = 13; // IXON, IXOFF
-    pub const LNEXT = 14; // IEXTEN
-    pub const DISCARD = 15; // IEXTEN
-    pub const MIN = 16; // !ICANON
-    pub const TIME = 17; // !ICANON
-    pub const STATUS = 18; // ICANON
-    //  19      spare 2
-};
-
 // Input flags - software input processing
 pub const IGNBRK: tcflag_t = 0x00000001; // ignore BREAK condition
 pub const BRKINT: tcflag_t = 0x00000002; // map BREAK to SIGINT
@@ -876,7 +852,6 @@ pub const CHWFLOW: tcflag_t = (MDMBUF | CRTSCTS | CDTRCTS); // all types of hw f
 
 pub const tcflag_t = c_uint;
 pub const speed_t = c_uint;
-pub const cc_t = u8;
 
 pub const NCCS = 20;
 
@@ -885,7 +860,7 @@ pub const termios = extern struct {
     oflag: tcflag_t, // output flags
     cflag: tcflag_t, // control flags
     lflag: tcflag_t, // local flags
-    cc: [NCCS]cc_t, // control chars
+    cc: [NCCS]std.c.cc_t, // control chars
     ispeed: c_int, // input speed
     ospeed: c_int, // output speed
 };

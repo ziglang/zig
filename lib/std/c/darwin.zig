@@ -2692,31 +2692,8 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-// Term
-pub const V = struct {
-    pub const EOF = 0;
-    pub const EOL = 1;
-    pub const EOL2 = 2;
-    pub const ERASE = 3;
-    pub const WERASE = 4;
-    pub const KILL = 5;
-    pub const REPRINT = 6;
-    pub const INTR = 8;
-    pub const QUIT = 9;
-    pub const SUSP = 10;
-    pub const DSUSP = 11;
-    pub const START = 12;
-    pub const STOP = 13;
-    pub const LNEXT = 14;
-    pub const DISCARD = 15;
-    pub const MIN = 16;
-    pub const TIME = 17;
-    pub const STATUS = 18;
-};
-
 pub const NCCS = 20; // 2 spares (7, 19)
 
-pub const cc_t = u8;
 pub const speed_t = u64;
 pub const tcflag_t = u64;
 
@@ -2859,7 +2836,7 @@ pub const termios = extern struct {
     oflag: tcflag_t, // output flags
     cflag: tcflag_t, // control flags
     lflag: tcflag_t, // local flags
-    cc: [NCCS]cc_t, // control chars
+    cc: [NCCS]std.c.cc_t, // control chars
     ispeed: speed_t align(8), // input speed
     ospeed: speed_t, // output speed
 };

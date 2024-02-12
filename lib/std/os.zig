@@ -139,6 +139,7 @@ pub const W = system.W;
 pub const addrinfo = system.addrinfo;
 pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
+pub const cc_t = system.cc_t;
 pub const clock_t = system.clock_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;

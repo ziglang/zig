@@ -950,7 +950,6 @@ pub const directory_which = enum(c_int) {
     _,
 };
 
-pub const cc_t = u8;
 pub const speed_t = u8;
 pub const tcflag_t = u32;
 
@@ -961,10 +960,10 @@ pub const termios = extern struct {
     c_oflag: tcflag_t,
     c_cflag: tcflag_t,
     c_lflag: tcflag_t,
-    c_line: cc_t,
+    c_line: std.c.cc_t,
     c_ispeed: speed_t,
     c_ospeed: speed_t,
-    cc_t: [NCCS]cc_t,
+    cc_t: [NCCS]std.c.cc_t,
 };
 
 pub const MSG_NOSIGNAL = 0x0800;

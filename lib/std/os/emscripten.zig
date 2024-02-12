@@ -1098,23 +1098,6 @@ pub const stack_t = extern struct {
     size: usize,
 };
 
-pub const cc_t = u8;
-pub const speed_t = u32;
-pub const tcflag_t = u32;
-
-pub const NCCS = 32;
-
-pub const termios = extern struct {
-    iflag: tcflag_t,
-    oflag: tcflag_t,
-    cflag: tcflag_t,
-    lflag: tcflag_t,
-    line: cc_t,
-    cc: [NCCS]cc_t,
-    ispeed: speed_t,
-    ospeed: speed_t,
-};
-
 pub const timespec = extern struct {
     tv_sec: time_t,
     tv_nsec: isize,

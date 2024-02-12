@@ -72,8 +72,6 @@ pub const sigset_t = emscripten.sigset_t;
 pub const sockaddr = emscripten.sockaddr;
 pub const socklen_t = emscripten.socklen_t;
 pub const stack_t = emscripten.stack_t;
-pub const tcflag_t = emscripten.tcflag_t;
-pub const termios = emscripten.termios;
 pub const time_t = emscripten.time_t;
 pub const timespec = emscripten.timespec;
 pub const timeval = emscripten.timeval;
@@ -179,4 +177,20 @@ pub const dirent = struct {
     reclen: c_ushort,
     type: u8,
     name: [256]u8,
+};
+
+pub const speed_t = u32;
+pub const tcflag_t = u32;
+
+pub const NCCS = 32;
+
+pub const termios = extern struct {
+    iflag: tcflag_t,
+    oflag: tcflag_t,
+    cflag: tcflag_t,
+    lflag: tcflag_t,
+    line: std.c.cc_t,
+    cc: [NCCS]std.c.cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
 };
