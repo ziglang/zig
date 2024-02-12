@@ -55,7 +55,6 @@ global_base: ?u64 = null,
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filter: ?[]const u8,
-test_evented_io: bool = false,
 test_runner: ?[]const u8,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -1305,10 +1304,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     if (self.filter) |filter| {
         try zig_args.append("--test-filter");
         try zig_args.append(filter);
-    }
-
-    if (self.test_evented_io) {
-        try zig_args.append("--test-evented-io");
     }
 
     if (self.test_runner) |test_runner| {

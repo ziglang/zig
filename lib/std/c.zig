@@ -4,6 +4,10 @@ const c = @This();
 const page_size = std.mem.page_size;
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
+const wasi = @import("c/wasi.zig");
+const native_abi = builtin.abi;
+const native_arch = builtin.cpu.arch;
+const native_os = builtin.os.tag;
 
 /// If not linking libc, returns false.
 /// If linking musl libc, returns true.
@@ -13,7 +17,7 @@ const iovec_const = std.os.iovec_const;
 pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
     return comptime blk: {
         if (!builtin.link_libc) break :blk false;
-        if (builtin.abi.isMusl()) break :blk true;
+        if (native_abi.isMusl()) break :blk true;
         if (builtin.target.isGnuLibC()) {
             const ver = builtin.os.version_range.linux.glibc;
             const order = ver.order(glibc_version);
@@ -27,7 +31,7 @@ pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
     };
 }
 
-pub usingnamespace switch (builtin.os.tag) {
+pub usingnamespace switch (native_os) {
     .linux => @import("c/linux.zig"),
     .windows => @import("c/windows.zig"),
     .macos, .ios, .tvos, .watchos => @import("c/darwin.zig"),
@@ -36,19 +40,649 @@ pub usingnamespace switch (builtin.os.tag) {
     .dragonfly => @import("c/dragonfly.zig"),
     .openbsd => @import("c/openbsd.zig"),
     .haiku => @import("c/haiku.zig"),
-    .hermit => @import("c/hermit.zig"),
     .solaris, .illumos => @import("c/solaris.zig"),
-    .fuchsia => @import("c/fuchsia.zig"),
-    .minix => @import("c/minix.zig"),
     .emscripten => @import("c/emscripten.zig"),
-    .wasi => @import("c/wasi.zig"),
+    .wasi => wasi,
     else => struct {},
 };
 
-pub const whence_t = if (builtin.os.tag == .wasi) std.os.wasi.whence_t else c_int;
+pub const pthread_mutex_t = switch (native_os) {
+    .linux, .minix => extern struct {
+        data: [data_len]u8 align(@alignOf(usize)) = [_]u8{0} ** data_len,
+
+        const data_len = switch (native_abi) {
+            .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
+            .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
+                .aarch64 => 48,
+                .x86_64 => if (native_abi == .gnux32) 40 else 32,
+                .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
+                else => if (@sizeOf(usize) == 8) 40 else 24,
+            },
+            .android => if (@sizeOf(usize) == 8) 40 else 4,
+            else => @compileError("unsupported ABI"),
+        };
+    },
+    .macos, .ios, .tvos, .watchos => extern struct {
+        sig: c_long = 0x32AAABA7,
+        data: [data_len]u8 = [_]u8{0} ** data_len,
+
+        const data_len = if (@sizeOf(usize) == 8) 56 else 40;
+    },
+    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+        inner: ?*anyopaque = null,
+    },
+    .hermit => extern struct {
+        ptr: usize = std.math.maxInt(usize),
+    },
+    .netbsd => extern struct {
+        magic: u32 = 0x33330003,
+        errorcheck: c.padded_pthread_spin_t = 0,
+        ceiling: c.padded_pthread_spin_t = 0,
+        owner: usize = 0,
+        waiters: ?*u8 = null,
+        recursed: u32 = 0,
+        spare2: ?*anyopaque = null,
+    },
+    .haiku => extern struct {
+        flags: u32 = 0,
+        lock: i32 = 0,
+        unused: i32 = -42,
+        owner: i32 = -1,
+        owner_count: i32 = 0,
+    },
+    .solaris, .illumos => extern struct {
+        flag1: u16 = 0,
+        flag2: u8 = 0,
+        ceiling: u8 = 0,
+        type: u16 = 0,
+        magic: u16 = 0x4d58,
+        lock: u64 = 0,
+        data: u64 = 0,
+    },
+    .fuchsia => extern struct {
+        data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
+    },
+    .emscripten => extern struct {
+        data: [24]u8 align(4) = [_]u8{0} ** 24,
+    },
+    else => @compileError("target libc does not have pthread_mutex_t"),
+};
+
+pub const pthread_cond_t = switch (native_os) {
+    .linux => extern struct {
+        data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
+    },
+    .macos, .ios, .tvos, .watchos => extern struct {
+        sig: c_long = 0x3CB0B1BB,
+        data: [data_len]u8 = [_]u8{0} ** data_len,
+        const data_len = if (@sizeOf(usize) == 8) 40 else 24;
+    },
+    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+        inner: ?*anyopaque = null,
+    },
+    .hermit => extern struct {
+        ptr: usize = std.math.maxInt(usize),
+    },
+    .netbsd => extern struct {
+        magic: u32 = 0x55550005,
+        lock: c.pthread_spin_t = 0,
+        waiters_first: ?*u8 = null,
+        waiters_last: ?*u8 = null,
+        mutex: ?*pthread_mutex_t = null,
+        private: ?*anyopaque = null,
+    },
+    .haiku => extern struct {
+        flags: u32 = 0,
+        unused: i32 = -42,
+        mutex: ?*anyopaque = null,
+        waiter_count: i32 = 0,
+        lock: i32 = 0,
+    },
+    .solaris, .illumos => extern struct {
+        flag: [4]u8 = [_]u8{0} ** 4,
+        type: u16 = 0,
+        magic: u16 = 0x4356,
+        data: u64 = 0,
+    },
+    .fuchsia, .minix, .emscripten => extern struct {
+        data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
+    },
+    else => @compileError("target libc does not have pthread_cond_t"),
+};
+
+pub const pthread_rwlock_t = switch (native_os) {
+    .linux => switch (native_abi) {
+        .android => switch (@sizeOf(usize)) {
+            4 => extern struct {
+                data: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
+            },
+            8 => extern struct {
+                data: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+            },
+            else => @compileError("impossible pointer size"),
+        },
+        else => extern struct {
+            data: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+        },
+    },
+    .macos, .ios, .tvos, .watchos => extern struct {
+        sig: c_long = 0x2DA8B3B4,
+        data: [192]u8 = [_]u8{0} ** 192,
+    },
+    .freebsd, .kfreebsd, .dragonfly, .openbsd => extern struct {
+        ptr: ?*anyopaque = null,
+    },
+    .hermit => extern struct {
+        ptr: usize = std.math.maxInt(usize),
+    },
+    .netbsd => extern struct {
+        magic: c_uint = 0x99990009,
+        interlock: switch (builtin.cpu.arch) {
+            .aarch64, .sparc, .x86_64, .x86 => u8,
+            .arm, .powerpc => c_int,
+            else => unreachable,
+        } = 0,
+        rblocked_first: ?*u8 = null,
+        rblocked_last: ?*u8 = null,
+        wblocked_first: ?*u8 = null,
+        wblocked_last: ?*u8 = null,
+        nreaders: c_uint = 0,
+        owner: ?pthread_t = null,
+        private: ?*anyopaque = null,
+    },
+    .solaris, .illumos => extern struct {
+        readers: i32 = 0,
+        type: u16 = 0,
+        magic: u16 = 0x5257,
+        mutex: pthread_mutex_t = .{},
+        readercv: pthread_cond_t = .{},
+        writercv: pthread_cond_t = .{},
+    },
+    .fuchsia => extern struct {
+        size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
+    },
+    .emscripten => extern struct {
+        size: [32]u8 align(4) = [_]u8{0} ** 32,
+    },
+    else => @compileError("target libc does not have pthread_rwlock_t"),
+};
+
+pub const AT = switch (native_os) {
+    .linux => std.os.linux.AT,
+    .windows => struct {
+        /// Remove directory instead of unlinking file
+        pub const REMOVEDIR = 0x200;
+    },
+    .macos, .ios, .tvos, .watchos => struct {
+        pub const FDCWD = -2;
+        /// Use effective ids in access check
+        pub const EACCESS = 0x0010;
+        /// Act on the symlink itself not the target
+        pub const SYMLINK_NOFOLLOW = 0x0020;
+        /// Act on target of symlink
+        pub const SYMLINK_FOLLOW = 0x0040;
+        /// Path refers to directory
+        pub const REMOVEDIR = 0x0080;
+    },
+    .freebsd, .kfreebsd => struct {
+        /// Magic value that specify the use of the current working directory
+        /// to determine the target of relative file paths in the openat() and
+        /// similar syscalls.
+        pub const FDCWD = -100;
+        /// Check access using effective user and group ID
+        pub const EACCESS = 0x0100;
+        /// Do not follow symbolic links
+        pub const SYMLINK_NOFOLLOW = 0x0200;
+        /// Follow symbolic link
+        pub const SYMLINK_FOLLOW = 0x0400;
+        /// Remove directory instead of file
+        pub const REMOVEDIR = 0x0800;
+        /// Fail if not under dirfd
+        pub const BENEATH = 0x1000;
+    },
+    .netbsd => struct {
+        /// Magic value that specify the use of the current working directory
+        /// to determine the target of relative file paths in the openat() and
+        /// similar syscalls.
+        pub const FDCWD = -100;
+        /// Check access using effective user and group ID
+        pub const EACCESS = 0x0100;
+        /// Do not follow symbolic links
+        pub const SYMLINK_NOFOLLOW = 0x0200;
+        /// Follow symbolic link
+        pub const SYMLINK_FOLLOW = 0x0400;
+        /// Remove directory instead of file
+        pub const REMOVEDIR = 0x0800;
+    },
+    .dragonfly => struct {
+        pub const FDCWD = -328243;
+        pub const SYMLINK_NOFOLLOW = 1;
+        pub const REMOVEDIR = 2;
+        pub const EACCESS = 4;
+        pub const SYMLINK_FOLLOW = 8;
+    },
+    .openbsd => struct {
+        /// Magic value that specify the use of the current working directory
+        /// to determine the target of relative file paths in the openat() and
+        /// similar syscalls.
+        pub const FDCWD = -100;
+        /// Check access using effective user and group ID
+        pub const EACCESS = 0x01;
+        /// Do not follow symbolic links
+        pub const SYMLINK_NOFOLLOW = 0x02;
+        /// Follow symbolic link
+        pub const SYMLINK_FOLLOW = 0x04;
+        /// Remove directory instead of file
+        pub const REMOVEDIR = 0x08;
+    },
+    .haiku => struct {
+        pub const FDCWD = -1;
+        pub const SYMLINK_NOFOLLOW = 0x01;
+        pub const SYMLINK_FOLLOW = 0x02;
+        pub const REMOVEDIR = 0x04;
+        pub const EACCESS = 0x08;
+    },
+    .solaris, .illumos => struct {
+        /// Magic value that specify the use of the current working directory
+        /// to determine the target of relative file paths in the openat() and
+        /// similar syscalls.
+        pub const FDCWD: c.fd_t = @bitCast(@as(u32, 0xffd19553));
+        /// Do not follow symbolic links
+        pub const SYMLINK_NOFOLLOW = 0x1000;
+        /// Follow symbolic link
+        pub const SYMLINK_FOLLOW = 0x2000;
+        /// Remove directory instead of file
+        pub const REMOVEDIR = 0x1;
+        pub const TRIGGER = 0x2;
+        /// Check access using effective user and group ID
+        pub const EACCESS = 0x4;
+    },
+    .emscripten => struct {
+        pub const FDCWD = -100;
+        pub const SYMLINK_NOFOLLOW = 0x100;
+        pub const REMOVEDIR = 0x200;
+        pub const SYMLINK_FOLLOW = 0x400;
+        pub const NO_AUTOMOUNT = 0x800;
+        pub const EMPTY_PATH = 0x1000;
+        pub const STATX_SYNC_TYPE = 0x6000;
+        pub const STATX_SYNC_AS_STAT = 0x0000;
+        pub const STATX_FORCE_SYNC = 0x2000;
+        pub const STATX_DONT_SYNC = 0x4000;
+        pub const RECURSIVE = 0x8000;
+    },
+    .wasi => struct {
+        pub const SYMLINK_NOFOLLOW = 0x100;
+        pub const SYMLINK_FOLLOW = 0x400;
+        pub const REMOVEDIR: u32 = 0x4;
+        /// When linking libc, we follow their convention and use -2 for current working directory.
+        /// However, without libc, Zig does a different convention: it assumes the
+        /// current working directory is the first preopen. This behavior can be
+        /// overridden with a public function called `wasi_cwd` in the root source
+        /// file.
+        pub const FDCWD: c.fd_t = if (builtin.link_libc) -2 else 3;
+    },
+
+    else => @compileError("target libc does not have AT"),
+};
+
+pub const O = switch (native_os) {
+    .linux => std.os.linux.O,
+    .emscripten => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .wasi => packed struct(u32) {
+        APPEND: bool = false,
+        DSYNC: bool = false,
+        NONBLOCK: bool = false,
+        RSYNC: bool = false,
+        SYNC: bool = false,
+        _5: u7 = 0,
+        CREAT: bool = false,
+        DIRECTORY: bool = false,
+        EXCL: bool = false,
+        TRUNC: bool = false,
+        _16: u8 = 0,
+        NOFOLLOW: bool = false,
+        EXEC: bool = false,
+        read: bool = false,
+        SEARCH: bool = false,
+        write: bool = false,
+        _: u3 = 0,
+    },
+    .solaris, .illumos => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        NDELAY: bool = false,
+        APPEND: bool = false,
+        SYNC: bool = false,
+        _5: u1 = 0,
+        DSYNC: bool = false,
+        NONBLOCK: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        _12: u1 = 0,
+        LARGEFILE: bool = false,
+        XATTR: bool = false,
+        RSYNC: bool = false,
+        _16: u1 = 0,
+        NOFOLLOW: bool = false,
+        NOLINKS: bool = false,
+        _19: u2 = 0,
+        SEARCH: bool = false,
+        EXEC: bool = false,
+        CLOEXEC: bool = false,
+        DIRECTORY: bool = false,
+        DIRECT: bool = false,
+        _: u6 = 0,
+    },
+    .netbsd => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        NONBLOCK: bool = false,
+        APPEND: bool = false,
+        SHLOCK: bool = false,
+        EXLOCK: bool = false,
+        ASYNC: bool = false,
+        SYNC: bool = false,
+        NOFOLLOW: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        _12: u3 = 0,
+        NOCTTY: bool = false,
+        DSYNC: bool = false,
+        RSYNC: bool = false,
+        ALT_IO: bool = false,
+        DIRECT: bool = false,
+        _20: u1 = 0,
+        DIRECTORY: bool = false,
+        CLOEXEC: bool = false,
+        SEARCH: bool = false,
+        _: u8 = 0,
+    },
+    .openbsd => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        NONBLOCK: bool = false,
+        APPEND: bool = false,
+        SHLOCK: bool = false,
+        EXLOCK: bool = false,
+        ASYNC: bool = false,
+        SYNC: bool = false,
+        NOFOLLOW: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        _12: u3 = 0,
+        NOCTTY: bool = false,
+        CLOEXEC: bool = false,
+        DIRECTORY: bool = false,
+        _: u14 = 0,
+    },
+    .haiku => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CLOEXEC: bool = false,
+        NONBLOCK: bool = false,
+        EXCL: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NOCTTY: bool = false,
+        NOTRAVERSE: bool = false,
+        _14: u2 = 0,
+        SYNC: bool = false,
+        RSYNC: bool = false,
+        DSYNC: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false,
+        DIRECTORY: bool = false,
+        _: u10 = 0,
+    },
+    .macos, .ios, .tvos, .watchos => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        NONBLOCK: bool = false,
+        APPEND: bool = false,
+        SHLOCK: bool = false,
+        EXLOCK: bool = false,
+        ASYNC: bool = false,
+        SYNC: bool = false,
+        NOFOLLOW: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        _12: u3 = 0,
+        EVTONLY: bool = false,
+        _16: u1 = 0,
+        NOCTTY: bool = false,
+        _18: u2 = 0,
+        DIRECTORY: bool = false,
+        SYMLINK: bool = false,
+        DSYNC: bool = false,
+        _23: u1 = 0,
+        CLOEXEC: bool = false,
+        _25: u4 = 0,
+        ALERT: bool = false,
+        _30: u1 = 0,
+        POPUP: bool = false,
+    },
+    .dragonfly => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        NONBLOCK: bool = false,
+        APPEND: bool = false,
+        SHLOCK: bool = false,
+        EXLOCK: bool = false,
+        ASYNC: bool = false,
+        SYNC: bool = false,
+        NOFOLLOW: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        _12: u3 = 0,
+        NOCTTY: bool = false,
+        DIRECT: bool = false,
+        CLOEXEC: bool = false,
+        FBLOCKING: bool = false,
+        FNONBLOCKING: bool = false,
+        FAPPEND: bool = false,
+        FOFFSET: bool = false,
+        FSYNCWRITE: bool = false,
+        FASYNCWRITE: bool = false,
+        _24: u3 = 0,
+        DIRECTORY: bool = false,
+        _: u4 = 0,
+    },
+    .freebsd => packed struct(u32) {
+        ACCMODE: std.os.ACCMODE = .RDONLY,
+        NONBLOCK: bool = false,
+        APPEND: bool = false,
+        SHLOCK: bool = false,
+        EXLOCK: bool = false,
+        ASYNC: bool = false,
+        SYNC: bool = false,
+        NOFOLLOW: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        DSYNC: bool = false,
+        _13: u2 = 0,
+        NOCTTY: bool = false,
+        DIRECT: bool = false,
+        DIRECTORY: bool = false,
+        NOATIME: bool = false,
+        _19: u1 = 0,
+        CLOEXEC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    else => @compileError("target libc does not have O"),
+};
+
+pub const MAP = switch (native_os) {
+    .linux => std.os.linux.MAP,
+    .emscripten => packed struct(u32) {
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+            SHARED_VALIDATE = 0x03,
+        },
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _6: u2 = 0,
+        GROWSDOWN: bool = false,
+        _9: u2 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _: u11 = 0,
+    },
+    .solaris, .illumos => packed struct(u32) {
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
+        FIXED: bool = false,
+        RENAME: bool = false,
+        NORESERVE: bool = false,
+        @"32BIT": bool = false,
+        ANONYMOUS: bool = false,
+        ALIGN: bool = false,
+        TEXT: bool = false,
+        INITDATA: bool = false,
+        _: u20 = 0,
+    },
+    .netbsd => packed struct(u32) {
+        TYPE: enum(u2) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
+        REMAPDUP: bool = false,
+        _3: u1 = 0,
+        FIXED: bool = false,
+        RENAME: bool = false,
+        NORESERVE: bool = false,
+        INHERIT: bool = false,
+        _8: u1 = 0,
+        HASSEMAPHORE: bool = false,
+        TRYFIXED: bool = false,
+        WIRED: bool = false,
+        ANONYMOUS: bool = false,
+        STACK: bool = false,
+        _: u18 = 0,
+    },
+    .openbsd => packed struct(u32) {
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
+        FIXED: bool = false,
+        _5: u7 = 0,
+        ANONYMOUS: bool = false,
+        _13: u1 = 0,
+        STACK: bool = false,
+        CONCEAL: bool = false,
+        _: u16 = 0,
+    },
+    .haiku => packed struct(u32) {
+        TYPE: enum(u2) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        NORESERVE: bool = false,
+        _: u27 = 0,
+    },
+    .macos, .ios, .tvos, .watchos => packed struct(u32) {
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
+        FIXED: bool = false,
+        _5: u1 = 0,
+        NORESERVE: bool = false,
+        _7: u2 = 0,
+        HASSEMAPHORE: bool = false,
+        NOCACHE: bool = false,
+        _11: u1 = 0,
+        ANONYMOUS: bool = false,
+        _: u19 = 0,
+    },
+    .dragonfly => packed struct(u32) {
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
+        FIXED: bool = false,
+        RENAME: bool = false,
+        NORESERVE: bool = false,
+        INHERIT: bool = false,
+        NOEXTEND: bool = false,
+        HASSEMAPHORE: bool = false,
+        STACK: bool = false,
+        NOSYNC: bool = false,
+        ANONYMOUS: bool = false,
+        VPAGETABLE: bool = false,
+        _14: u2 = 0,
+        TRYFIXED: bool = false,
+        NOCORE: bool = false,
+        SIZEALIGN: bool = false,
+        _: u13 = 0,
+    },
+    .freebsd => packed struct(u32) {
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
+        FIXED: bool = false,
+        _5: u5 = 0,
+        STACK: bool = false,
+        NOSYNC: bool = false,
+        ANONYMOUS: bool = false,
+        GUARD: bool = false,
+        EXCL: bool = false,
+        _15: u2 = 0,
+        NOCORE: bool = false,
+        PREFAULT_READ: bool = false,
+        @"32BIT": bool = false,
+        _: u12 = 0,
+    },
+    else => @compileError("target libc does not have MAP"),
+};
+
+/// Used by libc to communicate failure. Not actually part of the underlying syscall.
+pub const MAP_FAILED: *anyopaque = @ptrFromInt(std.math.maxInt(usize));
+
+pub const whence_t = if (native_os == .wasi) std.os.wasi.whence_t else c_int;
 
 // Unix-like systems
-pub usingnamespace switch (builtin.os.tag) {
+pub usingnamespace switch (native_os) {
     .netbsd, .windows => struct {},
     else => struct {
         pub const DIR = opaque {};
@@ -83,25 +717,40 @@ pub usingnamespace switch (builtin.os.tag) {
     },
 };
 
-pub usingnamespace switch (builtin.os.tag) {
-    .netbsd, .macos, .ios, .watchos, .tvos, .windows => struct {},
-    else => struct {
-        pub extern "c" fn fstat(fd: c.fd_t, buf: *c.Stat) c_int;
-        pub extern "c" fn readdir(dp: *c.DIR) ?*c.dirent;
+pub const fstat = switch (native_os) {
+    .netbsd => private.__fstat50,
+    .macos, .ios, .watchos, .tvos => switch (native_arch) {
+        .aarch64 => private.fstat,
+        else => private.@"fstat$INODE64",
     },
+    else => private.fstat,
 };
 
-pub usingnamespace switch (builtin.os.tag) {
-    .macos, .ios, .watchos, .tvos => struct {},
-    else => struct {
-        pub extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
-        pub extern "c" fn fstatat(dirfd: c.fd_t, path: [*:0]const u8, stat_buf: *c.Stat, flags: u32) c_int;
+pub const fstatat = switch (native_os) {
+    .macos, .ios, .watchos, .tvos => switch (native_arch) {
+        .aarch64 => private.fstatat,
+        else => private.@"fstatat$INODE64",
     },
+    else => private.fstatat,
+};
+
+pub const readdir = switch (native_os) {
+    .macos, .ios, .watchos, .tvos => switch (native_arch) {
+        .aarch64 => private.readdir,
+        else => private.@"readdir$INODE64",
+    },
+    .windows => @compileError("not available"),
+    else => private.readdir,
+};
+
+pub const realpath = switch (native_os) {
+    .macos, .ios, .watchos, .tvos => private.@"realpath$DARWIN_EXTSN",
+    else => private.realpath,
 };
 
 pub fn getErrno(rc: anytype) c.E {
     if (rc == -1) {
-        return @as(c.E, @enumFromInt(c._errno().*));
+        return @enumFromInt(c._errno().*);
     } else {
         return .SUCCESS;
     }
@@ -121,8 +770,8 @@ pub extern "c" fn _exit(code: c_int) noreturn;
 pub extern "c" fn isatty(fd: c.fd_t) c_int;
 pub extern "c" fn close(fd: c.fd_t) c_int;
 pub extern "c" fn lseek(fd: c.fd_t, offset: c.off_t, whence: whence_t) c.off_t;
-pub extern "c" fn open(path: [*:0]const u8, oflag: c_uint, ...) c_int;
-pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn open(path: [*:0]const u8, oflag: O, ...) c_int;
+pub extern "c" fn openat(fd: c_int, path: [*:0]const u8, oflag: O, ...) c_int;
 pub extern "c" fn ftruncate(fd: c_int, length: c.off_t) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: c.fd_t, buf: [*]u8, nbyte: usize) isize;
@@ -133,7 +782,7 @@ pub extern "c" fn writev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint) i
 pub extern "c" fn pwritev(fd: c_int, iov: [*]const iovec_const, iovcnt: c_uint, offset: c.off_t) isize;
 pub extern "c" fn write(fd: c.fd_t, buf: [*]const u8, nbyte: usize) isize;
 pub extern "c" fn pwrite(fd: c.fd_t, buf: [*]const u8, nbyte: usize, offset: c.off_t) isize;
-pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: c.fd_t, offset: c.off_t) *anyopaque;
+pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: c.fd_t, offset: c.off_t) *anyopaque;
 pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
 pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
 pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) c_int;
@@ -206,7 +855,7 @@ pub extern "c" fn recv(
     arg1: ?*anyopaque,
     arg2: usize,
     arg3: c_int,
-) if (builtin.os.tag == .windows) c_int else isize;
+) if (native_os == .windows) c_int else isize;
 pub extern "c" fn recvfrom(
     sockfd: c.fd_t,
     noalias buf: *anyopaque,
@@ -214,7 +863,7 @@ pub extern "c" fn recvfrom(
     flags: u32,
     noalias src_addr: ?*c.sockaddr,
     noalias addrlen: ?*c.socklen_t,
-) if (builtin.os.tag == .windows) c_int else isize;
+) if (native_os == .windows) c_int else isize;
 pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *c.msghdr, flags: u32) isize;
 
 pub extern "c" fn kill(pid: c.pid_t, sig: c_int) c_int;
@@ -350,18 +999,18 @@ pub extern "c" fn dn_expand(
     length: c_int,
 ) c_int;
 
-pub const PTHREAD_MUTEX_INITIALIZER = c.pthread_mutex_t{};
-pub extern "c" fn pthread_mutex_lock(mutex: *c.pthread_mutex_t) c.E;
-pub extern "c" fn pthread_mutex_unlock(mutex: *c.pthread_mutex_t) c.E;
-pub extern "c" fn pthread_mutex_trylock(mutex: *c.pthread_mutex_t) c.E;
-pub extern "c" fn pthread_mutex_destroy(mutex: *c.pthread_mutex_t) c.E;
+pub const PTHREAD_MUTEX_INITIALIZER = pthread_mutex_t{};
+pub extern "c" fn pthread_mutex_lock(mutex: *pthread_mutex_t) c.E;
+pub extern "c" fn pthread_mutex_unlock(mutex: *pthread_mutex_t) c.E;
+pub extern "c" fn pthread_mutex_trylock(mutex: *pthread_mutex_t) c.E;
+pub extern "c" fn pthread_mutex_destroy(mutex: *pthread_mutex_t) c.E;
 
-pub const PTHREAD_COND_INITIALIZER = c.pthread_cond_t{};
-pub extern "c" fn pthread_cond_wait(noalias cond: *c.pthread_cond_t, noalias mutex: *c.pthread_mutex_t) c.E;
-pub extern "c" fn pthread_cond_timedwait(noalias cond: *c.pthread_cond_t, noalias mutex: *c.pthread_mutex_t, noalias abstime: *const c.timespec) c.E;
-pub extern "c" fn pthread_cond_signal(cond: *c.pthread_cond_t) c.E;
-pub extern "c" fn pthread_cond_broadcast(cond: *c.pthread_cond_t) c.E;
-pub extern "c" fn pthread_cond_destroy(cond: *c.pthread_cond_t) c.E;
+pub const PTHREAD_COND_INITIALIZER = pthread_cond_t{};
+pub extern "c" fn pthread_cond_wait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t) c.E;
+pub extern "c" fn pthread_cond_timedwait(noalias cond: *pthread_cond_t, noalias mutex: *pthread_mutex_t, noalias abstime: *const c.timespec) c.E;
+pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) c.E;
+pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) c.E;
+pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) c.E;
 
 pub extern "c" fn pthread_rwlock_destroy(rwl: *c.pthread_rwlock_t) callconv(.C) c.E;
 pub extern "c" fn pthread_rwlock_rdlock(rwl: *c.pthread_rwlock_t) callconv(.C) c.E;
@@ -400,14 +1049,14 @@ pub usingnamespace if (builtin.target.isAndroid()) struct {
     // android bionic libc does not implement getcontext,
     // and std.os.linux.getcontext also cannot be built for
     // bionic libc currently.
-} else if (builtin.os.tag == .linux and builtin.target.isMusl()) struct {
+} else if (native_os == .linux and builtin.target.isMusl()) struct {
     // musl does not implement getcontext
     pub const getcontext = std.os.linux.getcontext;
 } else struct {
     pub extern "c" fn getcontext(ucp: *std.os.ucontext_t) c_int;
 };
 
-pub const max_align_t = if (builtin.abi == .msvc)
+pub const max_align_t = if (native_abi == .msvc)
     f64
 else if (builtin.target.isDarwin())
     c_longdouble
@@ -416,3 +1065,25 @@ else
         a: c_longlong,
         b: c_longdouble,
     };
+
+const private = struct {
+    extern "c" fn fstat(fd: c.fd_t, buf: *c.Stat) c_int;
+    /// On x86_64 Darwin, fstat has to be manually linked with $INODE64 suffix to
+    /// force 64bit version.
+    /// Note that this is fixed on aarch64 and no longer necessary.
+    extern "c" fn @"fstat$INODE64"(fd: c.fd_t, buf: *c.Stat) c_int;
+
+    extern "c" fn fstatat(dirfd: c.fd_t, path: [*:0]const u8, stat_buf: *c.Stat, flags: u32) c_int;
+    /// On x86_64 Darwin, fstatat has to be manually linked with $INODE64 suffix to
+    /// force 64bit version.
+    /// Note that this is fixed on aarch64 and no longer necessary.
+    extern "c" fn @"fstatat$INODE64"(dirfd: c.fd_t, path_name: [*:0]const u8, buf: *c.Stat, flags: u32) c_int;
+
+    extern "c" fn __fstat50(fd: c.fd_t, buf: *c.Stat) c_int;
+
+    extern "c" fn readdir(dir: *c.DIR) ?*c.dirent;
+    extern "c" fn @"readdir$INODE64"(dir: *c.DIR) ?*c.dirent;
+
+    extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+};

@@ -341,8 +341,8 @@ pub const Block = struct {
     label: ?*Label = null,
     inlining: ?*Inlining,
     /// If runtime_index is not 0 then one of these is guaranteed to be non null.
-    runtime_cond: ?LazySrcLoc = null,
-    runtime_loop: ?LazySrcLoc = null,
+    runtime_cond: ?Module.SrcLoc = null,
+    runtime_loop: ?Module.SrcLoc = null,
     /// This Decl is the Decl according to the Zig source code corresponding to this Block.
     /// This can vary during inline or comptime function calls. See `Sema.owner_decl`
     /// for the one that will be the same for all Block instances.
@@ -1504,7 +1504,7 @@ fn analyzeBodyInner(
                             const msg = try sema.errMsg(block, src, "comptime control flow inside runtime block", .{});
                             errdefer msg.destroy(sema.gpa);
 
-                            try sema.errNote(block, runtime_src, msg, "runtime control flow here", .{});
+                            try mod.errNoteNonLazy(runtime_src, msg, "runtime control flow here", .{});
                             break :msg msg;
                         };
                         return sema.failWithOwnedErrorMsg(block, msg);
@@ -5761,7 +5761,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     var child_block = parent_block.makeSubBlock();
     child_block.label = &label;
     child_block.runtime_cond = null;
-    child_block.runtime_loop = src;
+    child_block.runtime_loop = src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
     child_block.runtime_index.increment();
     const merges = &child_block.label.?.merges;
 
@@ -6049,7 +6049,7 @@ fn analyzeBlockBody(
             errdefer msg.destroy(sema.gpa);
 
             const runtime_src = child_block.runtime_cond orelse child_block.runtime_loop.?;
-            try sema.errNote(child_block, runtime_src, msg, "runtime control flow here", .{});
+            try mod.errNoteNonLazy(runtime_src, msg, "runtime control flow here", .{});
 
             const child_src_decl = mod.declPtr(child_block.src_decl);
             try sema.explainWhyTypeIsComptime(msg, type_src.toSrcLoc(child_src_decl, mod), resolved_ty);
@@ -7458,6 +7458,9 @@ fn analyzeCall(
             .is_comptime = is_comptime_call,
             .comptime_reason = comptime_reason,
             .error_return_trace_index = block.error_return_trace_index,
+            .runtime_cond = block.runtime_cond,
+            .runtime_loop = block.runtime_loop,
+            .runtime_index = block.runtime_index,
         };
 
         const merges = &child_block.inlining.?.merges;
@@ -11533,7 +11536,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     var sub_block = child_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = main_operand_src;
+    sub_block.runtime_cond = main_operand_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
     sub_block.runtime_index.increment();
     defer sub_block.instructions.deinit(gpa);
 
@@ -12268,7 +12271,7 @@ fn analyzeSwitchRuntimeBlock(
 
     var case_block = child_block.makeSubBlock();
     case_block.runtime_loop = null;
-    case_block.runtime_cond = operand_src;
+    case_block.runtime_cond = operand_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
     case_block.runtime_index.increment();
     defer case_block.instructions.deinit(gpa);
 
@@ -18810,7 +18813,7 @@ fn zirBoolBr(
 
     var child_block = parent_block.makeSubBlock();
     child_block.runtime_loop = null;
-    child_block.runtime_cond = lhs_src;
+    child_block.runtime_cond = lhs_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
     child_block.runtime_index.increment();
     defer child_block.instructions.deinit(gpa);
 
@@ -19004,7 +19007,7 @@ fn zirCondbr(
     // instructions array in between using it for the then block and else block.
     var sub_block = parent_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = cond_src;
+    sub_block.runtime_cond = cond_src.toSrcLoc(mod.declPtr(parent_block.src_decl), mod);
     sub_block.runtime_index.increment();
     defer sub_block.instructions.deinit(gpa);
 
@@ -23543,7 +23546,7 @@ fn checkComptimeVarStore(
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "store to comptime variable depends on runtime condition", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(block, cond_src, msg, "runtime condition here", .{});
+                try sema.mod.errNoteNonLazy(cond_src, msg, "runtime condition here", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
@@ -23552,7 +23555,7 @@ fn checkComptimeVarStore(
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "cannot store to comptime variable in non-inline loop", .{});
                 errdefer msg.destroy(sema.gpa);
-                try sema.errNote(block, loop_src, msg, "non-inline loop here", .{});
+                try sema.mod.errNoteNonLazy(loop_src, msg, "non-inline loop here", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);

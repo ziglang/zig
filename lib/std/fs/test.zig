@@ -242,7 +242,12 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
                     const sub_path_c = try os.toPosixPath("symlink");
                     // the O_NOFOLLOW | O_PATH combination can obtain a fd to a symlink
                     // note that if O_DIRECTORY is set, then this will error with ENOTDIR
-                    const flags = os.O.NOFOLLOW | os.O.PATH | os.O.RDONLY | os.O.CLOEXEC;
+                    const flags: os.O = .{
+                        .NOFOLLOW = true,
+                        .PATH = true,
+                        .ACCMODE = .RDONLY,
+                        .CLOEXEC = true,
+                    };
                     const fd = try os.openatZ(ctx.dir.fd, &sub_path_c, flags, 0);
                     break :linux_symlink Dir{ .fd = fd };
                 },
@@ -1507,11 +1512,6 @@ test "open file with exclusive and shared nonblocking lock" {
 
 test "open file with exclusive lock twice, make sure second lock waits" {
     if (builtin.single_threaded) return error.SkipZigTest;
-
-    if (std.io.is_async) {
-        // This test starts its own threads and is not compatible with async I/O.
-        return error.SkipZigTest;
-    }
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {

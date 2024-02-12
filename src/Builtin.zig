@@ -3,7 +3,6 @@ zig_backend: std.builtin.CompilerBackend,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,
 is_test: bool,
-test_evented_io: bool,
 single_threaded: bool,
 link_libc: bool,
 link_libcpp: bool,
@@ -222,17 +221,6 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
             \\pub var test_functions: []const std.builtin.TestFn = undefined; // overwritten later
             \\
         );
-        if (opts.test_evented_io) {
-            try buffer.appendSlice(
-                \\pub const test_io_mode = .evented;
-                \\
-            );
-        } else {
-            try buffer.appendSlice(
-                \\pub const test_io_mode = .blocking;
-                \\
-            );
-        }
     }
 }
 

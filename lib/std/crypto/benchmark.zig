@@ -10,7 +10,7 @@ const crypto = std.crypto;
 const KiB = 1024;
 const MiB = 1024 * KiB;
 
-var prng = std.rand.DefaultPrng.init(0);
+var prng = std.Random.DefaultPrng.init(0);
 const random = prng.random();
 
 const Crypto = struct {

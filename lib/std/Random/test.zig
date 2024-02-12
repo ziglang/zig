@@ -1,9 +1,9 @@
 const std = @import("../std.zig");
 const math = std.math;
-const DefaultPrng = std.rand.DefaultPrng;
-const Random = std.rand.Random;
-const SplitMix64 = std.rand.SplitMix64;
-const DefaultCsprng = std.rand.DefaultCsprng;
+const Random = std.Random;
+const DefaultPrng = Random.DefaultPrng;
+const SplitMix64 = Random.SplitMix64;
+const DefaultCsprng = Random.DefaultCsprng;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 

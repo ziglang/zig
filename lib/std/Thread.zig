@@ -1237,7 +1237,7 @@ const LinuxThreadImpl = struct {
             null,
             map_bytes,
             os.PROT.NONE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         ) catch |err| switch (err) {

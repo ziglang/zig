@@ -4,7 +4,6 @@
 //! https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
 
 const std = @import("std");
-const Random = std.rand.Random;
 const mem = std.mem;
 const Isaac64 = @This();
 
@@ -30,8 +29,8 @@ pub fn init(init_s: u64) Isaac64 {
     return isaac;
 }
 
-pub fn random(self: *Isaac64) Random {
-    return Random.init(self, fill);
+pub fn random(self: *Isaac64) std.Random {
+    return std.Random.init(self, fill);
 }
 
 fn step(self: *Isaac64, mix: u64, base: usize, comptime m1: usize, comptime m2: usize) void {

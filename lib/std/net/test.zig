@@ -207,54 +207,6 @@ test "listen on a port, send bytes, receive bytes" {
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
 
-test "listen on a port, send bytes, receive bytes, async-only" {
-    if (!std.io.is_async) return error.SkipZigTest;
-
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
-        // TODO build abstractions for other operating systems
-        return error.SkipZigTest;
-    }
-
-    // TODO doing this at comptime crashed the compiler
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
-
-    var server = net.StreamServer.init(net.StreamServer.Options{});
-    defer server.deinit();
-    try server.listen(localhost);
-
-    var server_frame = async testServer(&server);
-    var client_frame = async testClient(server.listen_address);
-
-    try await server_frame;
-    try await client_frame;
-}
-
-test "listen on ipv4 try connect on ipv6 then ipv4" {
-    if (!std.io.is_async) return error.SkipZigTest;
-
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
-        // TODO build abstractions for other operating systems
-        return error.SkipZigTest;
-    }
-
-    // TODO doing this at comptime crashed the compiler
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
-
-    var server = net.StreamServer.init(net.StreamServer.Options{});
-    defer server.deinit();
-    try server.listen(localhost);
-
-    var server_frame = async testServer(&server);
-    var client_frame = async testClientToHost(
-        testing.allocator,
-        "localhost",
-        server.listen_address.getPort(),
-    );
-
-    try await server_frame;
-    try await client_frame;
-}
-
 test "listen on an in use port" {
     if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
         // TODO build abstractions for other operating systems

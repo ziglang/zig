@@ -250,7 +250,7 @@ test "ArenaAllocator (reset with preheating)" {
     var arena_allocator = ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     // provides some variance in the allocated data
-    var rng_src = std.rand.DefaultPrng.init(19930913);
+    var rng_src = std.Random.DefaultPrng.init(19930913);
     const random = rng_src.random();
     var rounds: usize = 25;
     while (rounds > 0) {

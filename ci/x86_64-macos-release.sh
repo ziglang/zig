@@ -25,6 +25,15 @@ cd $ZIGDIR
 git fetch --unshallow || true
 git fetch --tags
 
+# Test building from source without LLVM.
+git clean -fd
+rm -rf zig-out
+cc -o bootstrap bootstrap.c
+./bootstrap
+./zig2 build -Dno-lib
+# In order to run these behavior tests we need to move the `@cImport` ones to somewhere else.
+# ./zig-out/bin/zig test test/behavior.zig
+
 rm -rf build
 mkdir build
 cd build

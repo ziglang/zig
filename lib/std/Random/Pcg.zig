@@ -3,7 +3,6 @@
 //! PRNG
 
 const std = @import("std");
-const Random = std.rand.Random;
 const Pcg = @This();
 
 const default_multiplier = 6364136223846793005;
@@ -21,8 +20,8 @@ pub fn init(init_s: u64) Pcg {
     return pcg;
 }
 
-pub fn random(self: *Pcg) Random {
-    return Random.init(self, fill);
+pub fn random(self: *Pcg) std.Random {
+    return std.Random.init(self, fill);
 }
 
 fn next(self: *Pcg) u32 {
@@ -37,7 +36,7 @@ fn next(self: *Pcg) u32 {
 
 fn seed(self: *Pcg, init_s: u64) void {
     // Pcg requires 128-bits of seed.
-    var gen = std.rand.SplitMix64.init(init_s);
+    var gen = std.Random.SplitMix64.init(init_s);
     self.seedTwo(gen.next(), gen.next());
 }
 

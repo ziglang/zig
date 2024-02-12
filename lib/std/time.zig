@@ -9,11 +9,6 @@ pub const epoch = @import("time/epoch.zig");
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
-    // TODO: opting out of async sleeping?
-    if (std.io.is_async) {
-        return std.event.Loop.instance.?.sleep(nanoseconds);
-    }
-
     if (builtin.os.tag == .windows) {
         const big_ms_from_ns = nanoseconds / ns_per_ms;
         const ms = math.cast(os.windows.DWORD, big_ms_from_ns) orelse math.maxInt(os.windows.DWORD);
@@ -24,19 +19,17 @@ pub fn sleep(nanoseconds: u64) void {
     if (builtin.os.tag == .wasi) {
         const w = std.os.wasi;
         const userdata: w.userdata_t = 0x0123_45678;
-        const clock = w.subscription_clock_t{
-            .id = w.CLOCK.MONOTONIC,
+        const clock: w.subscription_clock_t = .{
+            .id = .MONOTONIC,
             .timeout = nanoseconds,
             .precision = 0,
             .flags = 0,
         };
-        const in = w.subscription_t{
+        const in: w.subscription_t = .{
             .userdata = userdata,
-            .u = w.subscription_u_t{
-                .tag = w.EVENTTYPE_CLOCK,
-                .u = w.subscription_u_u_t{
-                    .clock = clock,
-                },
+            .u = .{
+                .tag = .CLOCK,
+                .u = .{ .clock = clock },
             },
         };
 
@@ -97,35 +90,36 @@ pub fn microTimestamp() i64 {
 /// before the epoch.
 /// See `std.os.clock_gettime` for a POSIX timestamp.
 pub fn nanoTimestamp() i128 {
-    if (builtin.os.tag == .windows) {
-        // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
-        // which is 1601-01-01.
-        const epoch_adj = epoch.windows * (ns_per_s / 100);
-        var ft: os.windows.FILETIME = undefined;
-        os.windows.kernel32.GetSystemTimeAsFileTime(&ft);
-        const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-        return @as(i128, @as(i64, @bitCast(ft64)) + epoch_adj) * 100;
+    switch (builtin.os.tag) {
+        .windows => {
+            // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
+            // which is 1601-01-01.
+            const epoch_adj = epoch.windows * (ns_per_s / 100);
+            var ft: os.windows.FILETIME = undefined;
+            os.windows.kernel32.GetSystemTimeAsFileTime(&ft);
+            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+            return @as(i128, @as(i64, @bitCast(ft64)) + epoch_adj) * 100;
+        },
+        .wasi => {
+            var ns: os.wasi.timestamp_t = undefined;
+            const err = os.wasi.clock_time_get(.REALTIME, 1, &ns);
+            assert(err == .SUCCESS);
+            return ns;
+        },
+        .uefi => {
+            var value: std.os.uefi.Time = undefined;
+            const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
+            assert(status == .Success);
+            return value.toEpoch();
+        },
+        else => {
+            var ts: os.timespec = undefined;
+            os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
+                error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
+            };
+            return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
+        },
     }
-
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        var ns: os.wasi.timestamp_t = undefined;
-        const err = os.wasi.clock_time_get(os.wasi.CLOCK.REALTIME, 1, &ns);
-        assert(err == .SUCCESS);
-        return ns;
-    }
-
-    if (builtin.os.tag == .uefi) {
-        var value: std.os.uefi.Time = undefined;
-        const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-        assert(status == .Success);
-        return value.toEpoch();
-    }
-
-    var ts: os.timespec = undefined;
-    os.clock_gettime(os.CLOCK.REALTIME, &ts) catch |err| switch (err) {
-        error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
-    };
-    return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
 }
 
 test "timestamp" {
@@ -182,43 +176,43 @@ pub const Instant = struct {
 
     // true if we should use clock_gettime()
     const is_posix = switch (builtin.os.tag) {
-        .wasi => builtin.link_libc,
-        .windows, .uefi => false,
+        .windows, .uefi, .wasi => false,
         else => true,
     };
 
     /// Queries the system for the current moment of time as an Instant.
-    /// This is not guaranteed to be monotonic or steadily increasing, but for most implementations it is.
+    /// This is not guaranteed to be monotonic or steadily increasing, but for
+    /// most implementations it is.
     /// Returns `error.Unsupported` when a suitable clock is not detected.
     pub fn now() error{Unsupported}!Instant {
-        // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
-        if (builtin.os.tag == .windows) {
-            return Instant{ .timestamp = os.windows.QueryPerformanceCounter() };
-        }
-
-        // On WASI without libc, use clock_time_get directly.
-        if (builtin.os.tag == .wasi and !builtin.link_libc) {
-            var ns: os.wasi.timestamp_t = undefined;
-            const rc = os.wasi.clock_time_get(os.wasi.CLOCK.MONOTONIC, 1, &ns);
-            if (rc != .SUCCESS) return error.Unsupported;
-            return Instant{ .timestamp = ns };
-        }
-
-        if (builtin.os.tag == .uefi) {
-            var value: std.os.uefi.Time = undefined;
-            const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-            if (status != .Success) return error.Unsupported;
-            return Instant{ .timestamp = value.toEpoch() };
-        }
-
-        // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while suspended.
-        // On linux, use BOOTTIME instead of MONOTONIC as it ticks while suspended.
-        // On freebsd derivatives, use MONOTONIC_FAST as currently there's no precision tradeoff.
-        // On other posix systems, MONOTONIC is generally the fastest and ticks while suspended.
         const clock_id = switch (builtin.os.tag) {
+            .windows => {
+                // QPC on windows doesn't fail on >= XP/2000 and includes time suspended.
+                return Instant{ .timestamp = os.windows.QueryPerformanceCounter() };
+            },
+            .wasi => {
+                var ns: os.wasi.timestamp_t = undefined;
+                const rc = os.wasi.clock_time_get(.MONOTONIC, 1, &ns);
+                if (rc != .SUCCESS) return error.Unsupported;
+                return .{ .timestamp = ns };
+            },
+            .uefi => {
+                var value: std.os.uefi.Time = undefined;
+                const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
+                if (status != .Success) return error.Unsupported;
+                return Instant{ .timestamp = value.toEpoch() };
+            },
+            // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
+            // suspended.
             .macos, .ios, .tvos, .watchos => os.CLOCK.UPTIME_RAW,
+            // On freebsd derivatives, use MONOTONIC_FAST as currently there's
+            // no precision tradeoff.
             .freebsd, .dragonfly => os.CLOCK.MONOTONIC_FAST,
+            // On linux, use BOOTTIME instead of MONOTONIC as it ticks while
+            // suspended.
             .linux => os.CLOCK.BOOTTIME,
+            // On other posix systems, MONOTONIC is generally the fastest and
+            // ticks while suspended.
             else => os.CLOCK.MONOTONIC,
         };
 
@@ -267,7 +261,7 @@ pub const Instant = struct {
         }
 
         // WASI timestamps are directly in nanoseconds
-        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        if (builtin.os.tag == .wasi) {
             return self.timestamp - earlier.timestamp;
         }
 

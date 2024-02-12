@@ -10,7 +10,6 @@
 
 const std = @import("std");
 const mem = std.mem;
-const Random = std.rand.Random;
 const Self = @This();
 
 const Ascon = std.crypto.core.Ascon(.little);
@@ -39,9 +38,9 @@ pub fn addEntropy(self: *Self, bytes: []const u8) void {
     self.state.permute();
 }
 
-/// Returns a `std.rand.Random` structure backed by the current RNG.
-pub fn random(self: *Self) Random {
-    return Random.init(self, fill);
+/// Returns a `std.Random` structure backed by the current RNG.
+pub fn random(self: *Self) std.Random {
+    return std.Random.init(self, fill);
 }
 
 /// Fills the buffer with random bytes.

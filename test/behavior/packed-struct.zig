@@ -1248,3 +1248,32 @@ test "bitcasting a packed struct at comptime and using the result" {
         _ = Struct.bitcast(@as(u64, 0)).cannotReach();
     }
 }
+
+test "2-byte packed struct argument in C calling convention" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = packed struct(u16) {
+        x: u15 = 0,
+        y: u1 = 0,
+
+        fn foo(s: @This()) callconv(.C) i32 {
+            return s.x;
+        }
+        fn bar(s: @This()) !void {
+            try expect(foo(s) == 1);
+        }
+    };
+    {
+        var s: S = .{};
+        s.x += 1;
+        try S.bar(s);
+    }
+    comptime {
+        var s: S = .{};
+        s.x += 1;
+        try S.bar(s);
+    }
+}

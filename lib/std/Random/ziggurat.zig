@@ -10,7 +10,7 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const math = std.math;
-const Random = std.rand.Random;
+const Random = std.Random;
 
 pub fn next_f64(random: Random, comptime tables: ZigTable) f64 {
     while (true) {
@@ -127,7 +127,7 @@ pub fn norm_zero_case(random: Random, u: f64) f64 {
 }
 
 test "normal dist sanity" {
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = Random.DefaultPrng.init(0);
     const random = prng.random();
 
     var i: usize = 0;
@@ -156,7 +156,7 @@ pub fn exp_zero_case(random: Random, _: f64) f64 {
 }
 
 test "exp dist smoke test" {
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = Random.DefaultPrng.init(0);
     const random = prng.random();
 
     var i: usize = 0;

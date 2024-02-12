@@ -495,7 +495,7 @@ pub const ChildProcess = struct {
     }
 
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
-        const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
+        const pipe_flags: os.O = .{};
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
@@ -513,7 +513,7 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
-            os.openZ("/dev/null", os.O.RDWR, 0) catch |err| switch (err) {
+            os.openZ("/dev/null", .{ .ACCMODE = .RDWR }, 0) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable,
                 error.NoSpaceLeft => unreachable,
                 error.FileTooBig => unreachable,
@@ -572,7 +572,7 @@ pub const ChildProcess = struct {
                 // end with eventfd
                 break :blk [2]os.fd_t{ fd, fd };
             } else {
-                break :blk try os.pipe2(os.O.CLOEXEC);
+                break :blk try os.pipe2(.{ .CLOEXEC = true });
             }
         };
         errdefer destroyPipe(err_pipe);
@@ -667,7 +667,6 @@ pub const ChildProcess = struct {
                 .share_access = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
                 .sa = &saAttr,
                 .creation = windows.OPEN_EXISTING,
-                .io_mode = .blocking,
             }) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable, // not possible for "NUL"
                 error.PipeBusy => unreachable, // not possible for "NUL"
@@ -1493,20 +1492,12 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const file = File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = .blocking,
-    };
+    const file = File{ .handle = fd };
     file.writer().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const file = File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = .blocking,
-    };
+    const file = File{ .handle = fd };
     return @as(ErrInt, @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources));
 }
 

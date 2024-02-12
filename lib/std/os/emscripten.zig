@@ -127,20 +127,6 @@ pub const AF = struct {
     pub const MAX = PF.MAX;
 };
 
-pub const AT = struct {
-    pub const FDCWD = -100;
-    pub const SYMLINK_NOFOLLOW = 0x100;
-    pub const REMOVEDIR = 0x200;
-    pub const SYMLINK_FOLLOW = 0x400;
-    pub const NO_AUTOMOUNT = 0x800;
-    pub const EMPTY_PATH = 0x1000;
-    pub const STATX_SYNC_TYPE = 0x6000;
-    pub const STATX_SYNC_AS_STAT = 0x0000;
-    pub const STATX_FORCE_SYNC = 0x2000;
-    pub const STATX_DONT_SYNC = 0x4000;
-    pub const RECURSIVE = 0x8000;
-};
-
 pub const CLOCK = struct {
     pub const REALTIME = 0;
     pub const MONOTONIC = 1;
@@ -449,27 +435,6 @@ pub const MADV = struct {
     pub const SOFT_OFFLINE = 101;
 };
 
-pub const MAP = struct {
-    pub const SHARED = 0x01;
-    pub const PRIVATE = 0x02;
-    pub const SHARED_VALIDATE = 0x03;
-    pub const TYPE = 0x0f;
-    pub const FIXED = 0x10;
-    pub const ANON = 0x20;
-    pub const ANONYMOUS = ANON;
-    pub const NORESERVE = 0x4000;
-    pub const GROWSDOWN = 0x0100;
-    pub const DENYWRITE = 0x0800;
-    pub const EXECUTABLE = 0x1000;
-    pub const LOCKED = 0x2000;
-    pub const POPULATE = 0x8000;
-    pub const NONBLOCK = 0x10000;
-    pub const STACK = 0x20000;
-    pub const HUGETLB = 0x40000;
-    pub const SYNC = 0x80000;
-    pub const FIXED_NOREPLACE = 0x100000;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
@@ -498,33 +463,6 @@ pub const MSG = struct {
     pub const ZEROCOPY = 0x4000000;
     pub const FASTOPEN = 0x20000000;
     pub const CMSG_CLOEXEC = 0x40000000;
-};
-
-pub const O = struct {
-    pub const RDONLY = 0o0;
-    pub const WRONLY = 0o1;
-    pub const RDWR = 0o2;
-
-    pub const CREAT = 0o100;
-    pub const EXCL = 0o200;
-    pub const NOCTTY = 0o400;
-    pub const TRUNC = 0o1000;
-    pub const APPEND = 0o2000;
-    pub const NONBLOCK = 0o4000;
-    pub const DSYNC = 0o10000;
-    pub const SYNC = 0o4010000;
-    pub const RSYNC = 0o4010000;
-    pub const DIRECTORY = 0o200000;
-    pub const NOFOLLOW = 0o400000;
-    pub const CLOEXEC = 0o2000000;
-
-    pub const ASYNC = 0o20000;
-    pub const DIRECT = 0o40000;
-    pub const LARGEFILE = 0o100000;
-    pub const NOATIME = 0o1000000;
-    pub const PATH = 0o10000000;
-    pub const TMPFILE = 0o20200000;
-    pub const NDELAY = NONBLOCK;
 };
 
 pub const POLL = struct {
