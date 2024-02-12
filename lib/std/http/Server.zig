@@ -2,43 +2,6 @@
 //!
 //! This server assumes clients are well behaved and standard compliant; it
 //! deadlocks if a client holds a connection open without sending a request.
-//!
-//! Example usage:
-//!
-//! ```zig
-//! var server = Server.init(.{ .reuse_address = true });
-//! defer server.deinit();
-//!
-//! try server.listen(bind_addr);
-//!
-//! while (true) {
-//!     var res = try server.accept(.{ .allocator = gpa });
-//!     defer res.deinit();
-//!
-//!     while (res.reset() != .closing) {
-//!         res.wait() catch |err| switch (err) {
-//!             error.HttpHeadersInvalid => break,
-//!             error.HttpHeadersOversize => {
-//!                 res.status = .request_header_fields_too_large;
-//!                 res.send() catch break;
-//!                 break;
-//!             },
-//!             else => {
-//!                 res.status = .bad_request;
-//!                 res.send() catch break;
-//!                 break;
-//!             },
-//!         }
-//!
-//!         res.status = .ok;
-//!         res.transfer_encoding = .chunked;
-//!
-//!         try res.send();
-//!         try res.writeAll("Hello, World!\n");
-//!         try res.finish();
-//!     }
-//! }
-//! ```
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
