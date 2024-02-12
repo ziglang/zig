@@ -2692,9 +2692,6 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const speed_t = u64;
-pub const tcflag_t = u64;
-
 pub const IGNBRK: tcflag_t = 0x00000001; // ignore BREAK condition
 pub const BRKINT: tcflag_t = 0x00000002; // map BREAK to SIGINTR
 pub const IGNPAR: tcflag_t = 0x00000004; // ignore (discard) parity errors
@@ -2828,16 +2825,6 @@ pub const TCOOFF: tcflag_t = 1;
 pub const TCOON: tcflag_t = 2;
 pub const TCIOFF: tcflag_t = 3;
 pub const TCION: tcflag_t = 4;
-
-pub const termios = extern struct {
-    iflag: tcflag_t, // input flags
-    oflag: tcflag_t, // output flags
-    cflag: tcflag_t, // control flags
-    lflag: tcflag_t, // local flags
-    cc: [std.c.NCCS]std.c.cc_t, // control chars
-    ispeed: speed_t align(8), // input speed
-    ospeed: speed_t, // output speed
-};
 
 pub const winsize = extern struct {
     ws_row: u16,

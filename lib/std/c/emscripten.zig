@@ -178,17 +178,3 @@ pub const dirent = struct {
     type: u8,
     name: [256]u8,
 };
-
-pub const speed_t = u32;
-pub const tcflag_t = u32;
-
-pub const termios = extern struct {
-    iflag: tcflag_t,
-    oflag: tcflag_t,
-    cflag: tcflag_t,
-    lflag: tcflag_t,
-    line: std.c.cc_t,
-    cc: [std.c.NCCS]std.c.cc_t,
-    ispeed: speed_t,
-    ospeed: speed_t,
-};

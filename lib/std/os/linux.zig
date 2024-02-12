@@ -5005,6 +5005,7 @@ pub const rusage = extern struct {
 };
 
 pub const speed_t = u32;
+pub const tcflag_t = u32;
 
 pub const NCCS = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
@@ -5044,88 +5045,7 @@ pub const B3000000 = 0o0010015;
 pub const B3500000 = 0o0010016;
 pub const B4000000 = 0o0010017;
 
-pub const V = switch (native_arch) {
-    .powerpc, .powerpc64, .powerpc64le => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const EOF = 4;
-        pub const MIN = 5;
-        pub const EOL = 6;
-        pub const TIME = 7;
-        pub const EOL2 = 8;
-        pub const SWTC = 9;
-        pub const WERASE = 10;
-        pub const REPRINT = 11;
-        pub const SUSP = 12;
-        pub const START = 13;
-        pub const STOP = 14;
-        pub const LNEXT = 15;
-        pub const DISCARD = 16;
-    },
-    .sparc, .sparc64 => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const EOF = 4;
-        pub const EOL = 5;
-        pub const EOL2 = 6;
-        pub const SWTC = 7;
-        pub const START = 8;
-        pub const STOP = 9;
-        pub const SUSP = 10;
-        pub const DSUSP = 11;
-        pub const REPRINT = 12;
-        pub const DISCARD = 13;
-        pub const WERASE = 14;
-        pub const LNEXT = 15;
-        pub const MIN = EOF;
-        pub const TIME = EOL;
-    },
-    .mips, .mipsel, .mips64, .mips64el => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const MIN = 4;
-        pub const TIME = 5;
-        pub const EOL2 = 6;
-        pub const SWTC = 7;
-        pub const SWTCH = 7;
-        pub const START = 8;
-        pub const STOP = 9;
-        pub const SUSP = 10;
-        pub const REPRINT = 12;
-        pub const DISCARD = 13;
-        pub const WERASE = 14;
-        pub const LNEXT = 15;
-        pub const EOF = 16;
-        pub const EOL = 17;
-    },
-    else => struct {
-        pub const INTR = 0;
-        pub const QUIT = 1;
-        pub const ERASE = 2;
-        pub const KILL = 3;
-        pub const EOF = 4;
-        pub const TIME = 5;
-        pub const MIN = 6;
-        pub const SWTC = 7;
-        pub const START = 8;
-        pub const STOP = 9;
-        pub const SUSP = 10;
-        pub const EOL = 11;
-        pub const REPRINT = 12;
-        pub const DISCARD = 13;
-        pub const WERASE = 14;
-        pub const LNEXT = 15;
-        pub const EOL2 = 16;
-    },
-};
-
-pub const tc_iflag_t = packed struct (u32) {
+pub const tc_iflag_t = packed struct(u32) {
     IGNBRK: bool = false,
     BRKINT: bool = false,
     IGNPAR: bool = false,
@@ -5145,42 +5065,42 @@ pub const tc_iflag_t = packed struct (u32) {
 };
 
 pub const cc_t = switch (native_arch) {
-    .mips, .mipsel, .mips64, .mips64el => enum(u8){
-        VINTR    =  0,
-        VQUIT    =  1,
-        VERASE   =  2,
-        VKILL    =  3,
-        VMIN     =  4,
-        VTIME    =  5,
-        VEOL2    =  6,
-        VSWTC    =  7,
-        VSTART   =  8,
-        VSTOP    =  9,
-        VSUSP    = 10,
+    .mips, .mipsel, .mips64, .mips64el => enum(u8) {
+        VINTR = 0,
+        VQUIT = 1,
+        VERASE = 2,
+        VKILL = 3,
+        VMIN = 4,
+        VTIME = 5,
+        VEOL2 = 6,
+        VSWTC = 7,
+        VSTART = 8,
+        VSTOP = 9,
+        VSUSP = 10,
         VREPRINT = 12,
         VDISCARD = 13,
-        VWERASE  = 14,
-        VLNEXT   = 15,
-        VEOF     = 16,
-        VEOL     = 17,
+        VWERASE = 14,
+        VLNEXT = 15,
+        VEOF = 16,
+        VEOL = 17,
     },
-    .powerpc, .powerpc64, .powerpc64le => enum(u8) {
-        VINTR    =  0,
-        VQUIT    =  1,
-        VERASE   =  2,
-        VKILL    =  3,
-        VEOF     =  4,
-        VMIN     =  5,
-        VEOL     =  6,
-        VTIME    =  7,
-        VEOL2    =  8,
-        VSWTC    =  9,
-        VWERASE  = 10,
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum(u8) {
+        VINTR = 0,
+        VQUIT = 1,
+        VERASE = 2,
+        VKILL = 3,
+        VEOF = 4,
+        VMIN = 5,
+        VEOL = 6,
+        VTIME = 7,
+        VEOL2 = 8,
+        VSWTC = 9,
+        VWERASE = 10,
         VREPRINT = 11,
-        VSUSP    = 12,
-        VSTART   = 13,
-        VSTOP    = 14,
-        VLNEXT   = 15,
+        VSUSP = 12,
+        VSTART = 13,
+        VSTOP = 14,
+        VLNEXT = 15,
         VDISCARD = 16,
     },
     else => enum(u8) {
@@ -5246,15 +5166,27 @@ pub const TCSA = enum(c_uint) {
     _,
 };
 
-pub const termios = extern struct {
-    iflag: tc_iflag_t,
-    oflag: tc_oflag_t,
-    cflag: tc_cflag_t,
-    lflag: tc_lflag_t,
-    line: cc_t,
-    cc: [NCCS]cc_t,
-    ispeed: speed_t,
-    ospeed: speed_t,
+pub const termios = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
+        iflag: tcflag_t,
+        oflag: tcflag_t,
+        cflag: tcflag_t,
+        lflag: tcflag_t,
+        cc: [NCCS]cc_t,
+        line: cc_t,
+        ispeed: speed_t,
+        ospeed: speed_t,
+    },
+    else => extern struct {
+        iflag: tcflag_t,
+        oflag: tcflag_t,
+        cflag: tcflag_t,
+        lflag: tcflag_t,
+        line: cc_t,
+        cc: [NCCS]cc_t,
+        ispeed: speed_t,
+        ospeed: speed_t,
+    },
 };
 
 pub const SIOCGIFINDEX = 0x8933;

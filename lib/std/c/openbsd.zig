@@ -768,9 +768,6 @@ pub const AUTH = struct {
     pub const ALLOW: c_int = (OKAY | ROOTOKAY | SECURE);
 };
 
-pub const tcflag_t = c_uint;
-pub const speed_t = c_uint;
-
 // Input flags - software input processing
 pub const IGNBRK: tcflag_t = 0x00000001; // ignore BREAK condition
 pub const BRKINT: tcflag_t = 0x00000002; // map BREAK to SIGINT
@@ -815,16 +812,6 @@ pub const CRTS_IFLOW: tcflag_t = CRTSCTS; // XXX compat
 pub const CCTS_OFLOW: tcflag_t = CRTSCTS; // XXX compat
 pub const MDMBUF: tcflag_t = 0x00100000; // DTR/DCD hardware flow control
 pub const CHWFLOW: tcflag_t = (MDMBUF | CRTSCTS); // all types of hw flow control
-
-pub const termios = extern struct {
-    iflag: tcflag_t, // input flags
-    oflag: tcflag_t, // output flags
-    cflag: tcflag_t, // control flags
-    lflag: tcflag_t, // local flags
-    cc: [std.c.NCCS]std.c.cc_t, // control chars
-    ispeed: c_int, // input speed
-    ospeed: c_int, // output speed
-};
 
 // Commands passed to tcsetattr() for setting the termios structure.
 pub const TCSA = struct {

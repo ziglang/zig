@@ -850,19 +850,6 @@ pub const CDTRCTS: tcflag_t = 0x00020000; // DTR/CTS full-duplex flow control
 pub const MDMBUF: tcflag_t = 0x00100000; // DTR/DCD hardware flow control
 pub const CHWFLOW: tcflag_t = (MDMBUF | CRTSCTS | CDTRCTS); // all types of hw flow control
 
-pub const tcflag_t = c_uint;
-pub const speed_t = c_uint;
-
-pub const termios = extern struct {
-    iflag: tcflag_t, // input flags
-    oflag: tcflag_t, // output flags
-    cflag: tcflag_t, // control flags
-    lflag: tcflag_t, // local flags
-    cc: [std.c.NCCS]std.c.cc_t, // control chars
-    ispeed: c_int, // input speed
-    ospeed: c_int, // output speed
-};
-
 // Commands passed to tcsetattr() for setting the termios structure.
 pub const TCSA = struct {
     pub const NOW = 0; // make change immediate

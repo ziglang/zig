@@ -790,6 +790,84 @@ pub const NCCS = switch (native_os) {
     else => @compileError("target libc does not have NCCS"),
 };
 
+pub const termios = switch (native_os) {
+    .linux => std.os.linux.termios,
+    .macos, .ios, .tvos, .watchos => extern struct {
+        iflag: tcflag_t,
+        oflag: tcflag_t,
+        cflag: tcflag_t,
+        lflag: tcflag_t,
+        cc: [NCCS]cc_t,
+        ispeed: speed_t align(8),
+        ospeed: speed_t,
+    },
+    .freebsd, .kfreebsd, .netbsd, .dragonfly, .openbsd => extern struct {
+        iflag: tcflag_t,
+        oflag: tcflag_t,
+        cflag: tcflag_t,
+        lflag: tcflag_t,
+        cc: [NCCS]cc_t,
+        ispeed: speed_t,
+        ospeed: speed_t,
+    },
+    .haiku => extern struct {
+        iflag: tcflag_t,
+        oflag: tcflag_t,
+        cflag: tcflag_t,
+        lflag: tcflag_t,
+        line: cc_t,
+        ispeed: speed_t,
+        ospeed: speed_t,
+        cc: [NCCS]cc_t,
+    },
+    .solaris, .illumos => extern struct {
+        iflag: tcflag_t,
+        oflag: tcflag_t,
+        cflag: tcflag_t,
+        lflag: tcflag_t,
+        cc: [NCCS]cc_t,
+    },
+    .emscripten, .wasi => extern struct {
+        iflag: tcflag_t,
+        oflag: tcflag_t,
+        cflag: tcflag_t,
+        lflag: tcflag_t,
+        line: std.c.cc_t,
+        cc: [NCCS]cc_t,
+        ispeed: speed_t,
+        ospeed: speed_t,
+    },
+    else => @compileError("target libc does not have termios"),
+};
+
+pub const tcflag_t = switch (native_os) {
+    .linux => std.os.linux.tcflag_t,
+    .macos, .ios, .tvos, .watchos => u64,
+    .freebsd, .kfreebsd => c_uint,
+    .netbsd => c_uint,
+    .dragonfly => c_uint,
+    .openbsd => c_uint,
+    .haiku => u32,
+    .solaris, .illumos => c_uint,
+    .emscripten => u32,
+    .wasi => c_uint,
+    else => @compileError("target libc does not have tcflag_t"),
+};
+
+pub const speed_t = switch (native_os) {
+    .linux => std.os.linux.speed_t,
+    .macos, .ios, .tvos, .watchos => u64,
+    .freebsd, .kfreebsd => c_uint,
+    .netbsd => c_uint,
+    .dragonfly => c_uint,
+    .openbsd => c_uint,
+    .haiku => u8,
+    .solaris, .illumos => c_uint,
+    .emscripten => u32,
+    .wasi => c_uint,
+    else => @compileError("target libc does not have speed_t"),
+};
+
 pub const whence_t = if (native_os == .wasi) std.os.wasi.whence_t else c_int;
 
 // Unix-like systems
