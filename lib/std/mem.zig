@@ -1338,7 +1338,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
-        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (mem.eql(T, haystack[i..][0..needle.len], needle)) return i;
         if (i == 0) return null;
     }
 }
@@ -1349,7 +1349,7 @@ pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usiz
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (eql(T, haystack[i..][0..needle.len], needle)) return i;
     }
     return null;
 }
