@@ -2692,21 +2692,6 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const IGNBRK: tcflag_t = 0x00000001; // ignore BREAK condition
-pub const BRKINT: tcflag_t = 0x00000002; // map BREAK to SIGINTR
-pub const IGNPAR: tcflag_t = 0x00000004; // ignore (discard) parity errors
-pub const PARMRK: tcflag_t = 0x00000008; // mark parity and framing errors
-pub const INPCK: tcflag_t = 0x00000010; // enable checking of parity errors
-pub const ISTRIP: tcflag_t = 0x00000020; // strip 8th bit off chars
-pub const INLCR: tcflag_t = 0x00000040; // map NL into CR
-pub const IGNCR: tcflag_t = 0x00000080; // ignore CR
-pub const ICRNL: tcflag_t = 0x00000100; // map CR to NL (ala CRMOD)
-pub const IXON: tcflag_t = 0x00000200; // enable output flow control
-pub const IXOFF: tcflag_t = 0x00000400; // enable input flow control
-pub const IXANY: tcflag_t = 0x00000800; // any char will restart after stop
-pub const IMAXBEL: tcflag_t = 0x00002000; // ring bell on input queue full
-pub const IUTF8: tcflag_t = 0x00004000; // maintain state for UTF-8 VERASE
-
 pub const OPOST: tcflag_t = 0x00000001; //enable following output processing
 pub const ONLCR: tcflag_t = 0x00000002; // map NL to CR-NL (ala CRMOD)
 pub const OXTABS: tcflag_t = 0x00000004; // expand tabs to spaces

@@ -5005,7 +5005,6 @@ pub const rusage = extern struct {
 };
 
 pub const speed_t = u32;
-pub const tcflag_t = u32;
 
 pub const NCCS = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
@@ -5045,23 +5044,43 @@ pub const B3000000 = 0o0010015;
 pub const B3500000 = 0o0010016;
 pub const B4000000 = 0o0010017;
 
-pub const tc_iflag_t = packed struct(u32) {
-    IGNBRK: bool = false,
-    BRKINT: bool = false,
-    IGNPAR: bool = false,
-    PARMRK: bool = false,
-    INPCK: bool = false,
-    ISTRIP: bool = false,
-    INLCR: bool = false,
-    IGNCR: bool = false,
-    ICRNL: bool = false,
-    IUCLC: bool = false,
-    IXON: bool = false,
-    IXANY: bool = false,
-    IXOFF: bool = false,
-    IMAXBEL: bool = false,
-    IUTF8: bool = false,
-    _: u17 = 0,
+pub const tc_iflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        IGNBRK: bool = false,
+        BRKINT: bool = false,
+        IGNPAR: bool = false,
+        PARMRK: bool = false,
+        INPCK: bool = false,
+        ISTRIP: bool = false,
+        INLCR: bool = false,
+        IGNCR: bool = false,
+        ICRNL: bool = false,
+        IXON: bool = false,
+        IXOFF: bool = false,
+        IXANY: bool = false,
+        IUCLC: bool = false,
+        IMAXBEL: bool = false,
+        IUTF8: bool = false,
+        _: u17 = 0,
+    },
+    else => packed struct(u32) {
+        IGNBRK: bool = false,
+        BRKINT: bool = false,
+        IGNPAR: bool = false,
+        PARMRK: bool = false,
+        INPCK: bool = false,
+        ISTRIP: bool = false,
+        INLCR: bool = false,
+        IGNCR: bool = false,
+        ICRNL: bool = false,
+        IUCLC: bool = false,
+        IXON: bool = false,
+        IXANY: bool = false,
+        IXOFF: bool = false,
+        IMAXBEL: bool = false,
+        IUTF8: bool = false,
+        _: u17 = 0,
+    },
 };
 
 pub const cc_t = switch (native_arch) {
@@ -5124,6 +5143,8 @@ pub const cc_t = switch (native_arch) {
     },
 };
 
+pub const tcflag_t = u32;
+
 pub const OPOST: tcflag_t = 1;
 pub const OLCUC: tcflag_t = 2;
 pub const ONLCR: tcflag_t = 4;
@@ -5168,7 +5189,7 @@ pub const TCSA = enum(c_uint) {
 
 pub const termios = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
-        iflag: tcflag_t,
+        iflag: tc_iflag_t,
         oflag: tcflag_t,
         cflag: tcflag_t,
         lflag: tcflag_t,
@@ -5178,7 +5199,7 @@ pub const termios = switch (native_arch) {
         ospeed: speed_t,
     },
     else => extern struct {
-        iflag: tcflag_t,
+        iflag: tc_iflag_t,
         oflag: tcflag_t,
         cflag: tcflag_t,
         lflag: tcflag_t,
