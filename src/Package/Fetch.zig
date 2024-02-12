@@ -354,7 +354,8 @@ pub fn run(f: *Fetch) RunError!void {
                         .{ path_or_url, @errorName(file_err), @errorName(uri_err) },
                     ));
                 };
-                var resource = try f.initResource(uri);
+                var server_header_buffer: [header_buffer_size]u8 = undefined;
+                var resource = try f.initResource(uri, &server_header_buffer);
                 return runResource(f, uri.path, &resource, null);
             }
         },
@@ -415,7 +416,8 @@ pub fn run(f: *Fetch) RunError!void {
         f.location_tok,
         try eb.printString("invalid URI: {s}", .{@errorName(err)}),
     );
-    var resource = try f.initResource(uri);
+    var server_header_buffer: [header_buffer_size]u8 = undefined;
+    var resource = try f.initResource(uri, &server_header_buffer);
     return runResource(f, uri.path, &resource, remote.hash);
 }
 
@@ -876,7 +878,9 @@ const FileType = enum {
     }
 };
 
-fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
+const header_buffer_size = 16 * 1024;
+
+fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Resource {
     const gpa = f.arena.child_allocator;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
@@ -894,10 +898,12 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
-        var h = std.http.Headers{ .allocator = gpa };
+        var h: std.http.Headers = .{ .allocator = gpa };
         defer h.deinit();
 
-        var req = http_client.open(.GET, uri, h, .{}) catch |err| {
+        var req = http_client.open(.GET, uri, h, .{
+            .server_header_buffer = server_header_buffer,
+        }) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to connect to server: {s}",
                 .{@errorName(err)},
@@ -935,7 +941,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         transport_uri.scheme = uri.scheme["git+".len..];
         var redirect_uri: []u8 = undefined;
         var session: git.Session = .{ .transport = http_client, .uri = transport_uri };
-        session.discoverCapabilities(gpa, &redirect_uri) catch |err| switch (err) {
+        session.discoverCapabilities(gpa, &redirect_uri, server_header_buffer) catch |err| switch (err) {
             error.Redirected => {
                 defer gpa.free(redirect_uri);
                 return f.fail(f.location_tok, try eb.printString(
@@ -961,6 +967,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
             var ref_iterator = session.listRefs(gpa, .{
                 .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
                 .include_peeled = true,
+                .server_header_buffer = server_header_buffer,
             }) catch |err| {
                 return f.fail(f.location_tok, try eb.printString(
                     "unable to list refs: {s}",
@@ -1003,7 +1010,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{
             std.fmt.fmtSliceHexLower(&want_oid),
         }) catch unreachable;
-        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}) catch |err| {
+        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",
                 .{@errorName(err)},

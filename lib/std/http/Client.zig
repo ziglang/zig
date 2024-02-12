@@ -20,9 +20,7 @@ const proto = @import("protocol.zig");
 
 pub const disable_tls = std.options.http_disable_tls;
 
-/// Allocator used for all allocations made by the client.
-///
-/// This allocator must be thread-safe.
+/// Used for all client allocations. Must be thread-safe.
 allocator: Allocator,
 
 ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
@@ -35,10 +33,12 @@ next_https_rescan_certs: bool = true,
 /// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
 
-/// This is the proxy that will handle http:// connections. It *must not* be modified when the client has any active connections.
+/// This is the proxy that will handle http:// connections. It *must not* be
+/// modified when the client has any active connections.
 http_proxy: ?Proxy = null,
 
-/// This is the proxy that will handle https:// connections. It *must not* be modified when the client has any active connections.
+/// This is the proxy that will handle https:// connections. It *must not* be
+/// modified when the client has any active connections.
 https_proxy: ?Proxy = null,
 
 /// A set of linked lists of connections that can be reused.
@@ -609,10 +609,6 @@ pub const Request = struct {
         req.headers.deinit();
         req.response.headers.deinit();
 
-        if (req.response.parser.header_bytes_owned) {
-            req.response.parser.header_bytes.deinit(req.client.allocator);
-        }
-
         if (req.connection) |connection| {
             if (!req.response.parser.done) {
                 // If the response wasn't fully read, then we need to close the connection.
@@ -810,27 +806,38 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WaitError = RequestError || SendError || TransferReadError || proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError || error{ TooManyHttpRedirects, RedirectRequiresResend, HttpRedirectMissingLocation, CompressionInitializationFailed, CompressionNotSupported };
+    pub const WaitError = RequestError || SendError || TransferReadError ||
+        proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError ||
+        error{ // TODO: file zig fmt issue for this bad indentation
+        TooManyHttpRedirects,
+        RedirectRequiresResend,
+        HttpRedirectMissingLocation,
+        CompressionInitializationFailed,
+        CompressionNotSupported,
+    };
 
     /// Waits for a response from the server and parses any headers that are sent.
     /// This function will block until the final response is received.
     ///
-    /// If `handle_redirects` is true and the request has no payload, then this function will automatically follow
-    /// redirects. If a request payload is present, then this function will error with error.RedirectRequiresResend.
+    /// If `handle_redirects` is true and the request has no payload, then this
+    /// function will automatically follow redirects. If a request payload is
+    /// present, then this function will error with
+    /// error.RedirectRequiresResend.
     ///
-    /// Must be called after `send` and, if any data was written to the request body, then also after `finish`.
+    /// Must be called after `send` and, if any data was written to the request
+    /// body, then also after `finish`.
     pub fn wait(req: *Request) WaitError!void {
         while (true) { // handle redirects
             while (true) { // read headers
                 try req.connection.?.fill();
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.peek());
+                const nchecked = try req.response.parser.checkCompleteHead(req.connection.?.peek());
                 req.connection.?.drop(@intCast(nchecked));
 
                 if (req.response.parser.state.isContent()) break;
             }
 
-            try req.response.parse(req.response.parser.header_bytes.items, false);
+            try req.response.parse(req.response.parser.get(), false);
 
             if (req.response.status == .@"continue") {
                 req.response.parser.done = true; // we're done parsing the continue response, reset to prepare for the real response
@@ -891,7 +898,8 @@ pub const Request = struct {
             if (req.response.status.class() == .redirect and req.handle_redirects) {
                 req.response.skip = true;
 
-                // skip the body of the redirect response, this will at least leave the connection in a known good state.
+                // skip the body of the redirect response, this will at least
+                // leave the connection in a known good state.
                 const empty = @as([*]u8, undefined)[0..0];
                 assert(try req.transferRead(empty) == 0); // we're skipping, no buffer is necessary
 
@@ -908,7 +916,10 @@ pub const Request = struct {
                 const resolved_url = try req.uri.resolve(new_url, false, arena);
 
                 // is the redirect location on the same domain, or a subdomain of the original request?
-                const is_same_domain_or_subdomain = std.ascii.endsWithIgnoreCase(resolved_url.host.?, req.uri.host.?) and (resolved_url.host.?.len == req.uri.host.?.len or resolved_url.host.?[resolved_url.host.?.len - req.uri.host.?.len - 1] == '.');
+                const is_same_domain_or_subdomain =
+                    std.ascii.endsWithIgnoreCase(resolved_url.host.?, req.uri.host.?) and
+                    (resolved_url.host.?.len == req.uri.host.?.len or
+                    resolved_url.host.?[resolved_url.host.?.len - req.uri.host.?.len - 1] == '.');
 
                 if (resolved_url.host == null or !is_same_domain_or_subdomain or !std.ascii.eqlIgnoreCase(resolved_url.scheme, req.uri.scheme)) {
                     // we're redirecting to a different domain, strip privileged headers like cookies
@@ -957,7 +968,8 @@ pub const Request = struct {
         }
     }
 
-    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError || error{ DecompressionFailure, InvalidTrailers };
+    pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError ||
+        error{ DecompressionFailure, InvalidTrailers };
 
     pub const Reader = std.io.Reader(*Request, ReadError, read);
 
@@ -980,14 +992,16 @@ pub const Request = struct {
             while (!req.response.parser.state.isContent()) { // read trailing headers
                 try req.connection.?.fill();
 
-                const nchecked = try req.response.parser.checkCompleteHead(req.client.allocator, req.connection.?.peek());
+                const nchecked = try req.response.parser.checkCompleteHead(req.connection.?.peek());
                 req.connection.?.drop(@intCast(nchecked));
             }
 
             if (has_trail) {
-                // The response headers before the trailers are already guaranteed to be valid, so they will always be parsed again and cannot return an error.
+                // The response headers before the trailers are already
+                // guaranteed to be valid, so they will always be parsed again
+                // and cannot return an error.
                 // This will *only* fail for a malformed trailer.
-                req.response.parse(req.response.parser.header_bytes.items, true) catch return error.InvalidTrailers;
+                req.response.parse(req.response.parser.get(), true) catch return error.InvalidTrailers;
             }
         }
 
@@ -1362,13 +1376,11 @@ pub fn connectTunnel(
             .fragment = null,
         };
 
-        // we can use a small buffer here because a CONNECT response should be very small
         var buffer: [8096]u8 = undefined;
-
         var req = client.open(.CONNECT, uri, proxy.headers, .{
             .handle_redirects = false,
             .connection = conn,
-            .header_strategy = .{ .static = &buffer },
+            .server_header_buffer = &buffer,
         }) catch |err| {
             std.log.debug("err {}", .{err});
             break :tunnel err;
@@ -1445,7 +1457,9 @@ pub fn connect(client: *Client, host: []const u8, port: u16, protocol: Connectio
     return client.connectTcp(host, port, protocol);
 }
 
-pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError || std.fmt.ParseIntError || Connection.WriteError || error{
+pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
+    std.fmt.ParseIntError || Connection.WriteError ||
+    error{ // TODO: file a zig fmt issue for this bad indentation
     UnsupportedUrlScheme,
     UriMissingHost,
 
@@ -1456,36 +1470,29 @@ pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendE
 pub const RequestOptions = struct {
     version: http.Version = .@"HTTP/1.1",
 
-    /// Automatically ignore 100 Continue responses. This assumes you don't care, and will have sent the body before you
-    /// wait for the response.
+    /// Automatically ignore 100 Continue responses. This assumes you don't
+    /// care, and will have sent the body before you wait for the response.
     ///
-    /// If this is not the case AND you know the server will send a 100 Continue, set this to false and wait for a
-    /// response before sending the body. If you wait AND the server does not send a 100 Continue before you finish the
-    /// request, then the request *will* deadlock.
+    /// If this is not the case AND you know the server will send a 100
+    /// Continue, set this to false and wait for a response before sending the
+    /// body. If you wait AND the server does not send a 100 Continue before
+    /// you finish the request, then the request *will* deadlock.
     handle_continue: bool = true,
 
-    /// Automatically follow redirects. This will only follow redirects for repeatable requests (ie. with no payload or the server has acknowledged the payload)
+    /// Automatically follow redirects. This will only follow redirects for
+    /// repeatable requests (ie. with no payload or the server has acknowledged
+    /// the payload).
     handle_redirects: bool = true,
 
     /// How many redirects to follow before returning an error.
     max_redirects: u32 = 3,
-    header_strategy: StorageStrategy = .{ .dynamic = 16 * 1024 },
+    /// Externally-owned memory used to store the server's entire HTTP header.
+    /// `error.HttpHeadersOversize` is returned from read() when a
+    /// client sends too many bytes of HTTP headers.
+    server_header_buffer: []u8,
 
     /// Must be an already acquired connection.
     connection: ?*Connection = null,
-
-    pub const StorageStrategy = union(enum) {
-        /// In this case, the client's Allocator will be used to store the
-        /// entire HTTP header. This value is the maximum total size of
-        /// HTTP headers allowed, otherwise
-        /// error.HttpHeadersExceededSizeLimit is returned from read().
-        dynamic: usize,
-        /// This is used to store the entire HTTP header. If the HTTP
-        /// header is too big to fit, `error.HttpHeadersExceededSizeLimit`
-        /// is returned from read(). When this is used, `error.OutOfMemory`
-        /// cannot be returned from `read()`.
-        static: []u8,
-    };
 };
 
 pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
@@ -1502,7 +1509,13 @@ pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
 ///
 /// The caller is responsible for calling `deinit()` on the `Request`.
 /// This function is threadsafe.
-pub fn open(client: *Client, method: http.Method, uri: Uri, headers: http.Headers, options: RequestOptions) RequestError!Request {
+pub fn open(
+    client: *Client,
+    method: http.Method,
+    uri: Uri,
+    headers: http.Headers,
+    options: RequestOptions,
+) RequestError!Request {
     const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 
     const port: u16 = uri.port orelse switch (protocol) {
@@ -1541,10 +1554,7 @@ pub fn open(client: *Client, method: http.Method, uri: Uri, headers: http.Header
             .reason = undefined,
             .version = undefined,
             .headers = http.Headers{ .allocator = client.allocator, .owned = false },
-            .parser = switch (options.header_strategy) {
-                .dynamic => |max| proto.HeadersParser.initDynamic(max),
-                .static => |buf| proto.HeadersParser.initStatic(buf),
-            },
+            .parser = proto.HeadersParser.init(options.server_header_buffer),
         },
         .arena = undefined,
     };
@@ -1568,17 +1578,30 @@ pub const FetchOptions = struct {
     };
 
     pub const ResponseStrategy = union(enum) {
-        storage: RequestOptions.StorageStrategy,
+        storage: StorageStrategy,
         file: std.fs.File,
         none,
     };
 
-    header_strategy: RequestOptions.StorageStrategy = .{ .dynamic = 16 * 1024 },
+    pub const StorageStrategy = union(enum) {
+        /// In this case, the client's Allocator will be used to store the
+        /// entire HTTP header. This value is the maximum total size of
+        /// HTTP headers allowed, otherwise
+        /// error.HttpHeadersExceededSizeLimit is returned from read().
+        dynamic: usize,
+        /// This is used to store the entire HTTP header. If the HTTP
+        /// header is too big to fit, `error.HttpHeadersExceededSizeLimit`
+        /// is returned from read(). When this is used, `error.OutOfMemory`
+        /// cannot be returned from `read()`.
+        static: []u8,
+    };
+
+    server_header_buffer: ?[]u8 = null,
     response_strategy: ResponseStrategy = .{ .storage = .{ .dynamic = 16 * 1024 * 1024 } },
 
     location: Location,
     method: http.Method = .GET,
-    headers: http.Headers = http.Headers{ .allocator = std.heap.page_allocator, .owned = false },
+    headers: http.Headers = .{ .allocator = std.heap.page_allocator, .owned = false },
     payload: Payload = .none,
     raw_uri: bool = false,
 };
@@ -1613,9 +1636,10 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
         .url => |u| try Uri.parse(u),
         .uri => |u| u,
     };
+    var server_header_buffer: [16 * 1024]u8 = undefined;
 
     var req = try open(client, options.method, uri, options.headers, .{
-        .header_strategy = options.header_strategy,
+        .server_header_buffer = options.server_header_buffer orelse &server_header_buffer,
         .handle_redirects = options.payload == .none,
     });
     defer req.deinit();

@@ -34,54 +34,49 @@ pub const State = enum {
 
 pub const HeadersParser = struct {
     state: State = .start,
-    /// Whether or not `header_bytes` is allocated or was provided as a fixed buffer.
-    header_bytes_owned: bool,
-    /// Either a fixed buffer of len `max_header_bytes` or a dynamic buffer that can grow up to `max_header_bytes`.
+    /// A fixed buffer of len `max_header_bytes`.
     /// Pointers into this buffer are not stable until after a message is complete.
-    header_bytes: std.ArrayListUnmanaged(u8),
-    /// The maximum allowed size of `header_bytes`.
-    max_header_bytes: usize,
-    next_chunk_length: u64 = 0,
+    header_bytes_buffer: []u8,
+    header_bytes_len: u32,
+    next_chunk_length: u64,
     /// Whether this parser is done parsing a complete message.
     /// A message is only done when the entire payload has been read.
-    done: bool = false,
-
-    /// Initializes the parser with a dynamically growing header buffer of up to `max` bytes.
-    pub fn initDynamic(max: usize) HeadersParser {
-        return .{
-            .header_bytes = .{},
-            .max_header_bytes = max,
-            .header_bytes_owned = true,
-        };
-    }
+    done: bool,
 
     /// Initializes the parser with a provided buffer `buf`.
-    pub fn initStatic(buf: []u8) HeadersParser {
+    pub fn init(buf: []u8) HeadersParser {
         return .{
-            .header_bytes = .{ .items = buf[0..0], .capacity = buf.len },
-            .max_header_bytes = buf.len,
-            .header_bytes_owned = false,
+            .header_bytes_buffer = buf,
+            .header_bytes_len = 0,
+            .done = false,
+            .next_chunk_length = 0,
         };
     }
 
-    /// Completely resets the parser to it's initial state.
-    /// This must be called after a message is complete.
-    pub fn reset(r: *HeadersParser) void {
-        assert(r.done); // The message must be completely read before reset, otherwise the parser is in an invalid state.
-
-        r.header_bytes.clearRetainingCapacity();
-
-        r.* = .{
-            .header_bytes = r.header_bytes,
-            .max_header_bytes = r.max_header_bytes,
-            .header_bytes_owned = r.header_bytes_owned,
+    /// Reinitialize the parser.
+    /// Asserts the parser is in the "done" state.
+    pub fn reset(hp: *HeadersParser) void {
+        assert(hp.done);
+        hp.* = .{
+            .state = .start,
+            .header_bytes_buffer = hp.header_bytes_buffer,
+            .header_bytes_len = 0,
+            .done = false,
+            .next_chunk_length = 0,
         };
     }
 
-    /// Returns the number of bytes consumed by headers. This is always less than or equal to `bytes.len`.
-    /// You should check `r.state.isContent()` after this to check if the headers are done.
+    pub fn get(hp: HeadersParser) []u8 {
+        return hp.header_bytes_buffer[0..hp.header_bytes_len];
+    }
+
+    /// Returns the number of bytes consumed by headers. This is always less
+    /// than or equal to `bytes.len`.
+    /// You should check `r.state.isContent()` after this to check if the
+    /// headers are done.
     ///
-    /// If the amount returned is less than `bytes.len`, you may assume that the parser is in a content state and the
+    /// If the amount returned is less than `bytes.len`, you may assume that
+    /// the parser is in a content state and the
     /// first byte of content is located at `bytes[result]`.
     pub fn findHeadersEnd(r: *HeadersParser, bytes: []const u8) u32 {
         const vector_len: comptime_int = @max(std.simd.suggestVectorLength(u8) orelse 1, 8);
@@ -410,11 +405,14 @@ pub const HeadersParser = struct {
         }
     }
 
-    /// Returns the number of bytes consumed by the chunk size. This is always less than or equal to `bytes.len`.
-    /// You should check `r.state == .chunk_data` after this to check if the chunk size has been fully parsed.
+    /// Returns the number of bytes consumed by the chunk size. This is always
+    /// less than or equal to `bytes.len`.
+    /// You should check `r.state == .chunk_data` after this to check if the
+    /// chunk size has been fully parsed.
     ///
-    /// If the amount returned is less than `bytes.len`, you may assume that the parser is in the `chunk_data` state
-    /// and that the first byte of the chunk is at `bytes[result]`.
+    /// If the amount returned is less than `bytes.len`, you may assume that
+    /// the parser is in the `chunk_data` state and that the first byte of the
+    /// chunk is at `bytes[result]`.
     pub fn findChunkedLen(r: *HeadersParser, bytes: []const u8) u32 {
         const len = @as(u32, @intCast(bytes.len));
 
@@ -488,30 +486,27 @@ pub const HeadersParser = struct {
         return len;
     }
 
-    /// Returns whether or not the parser has finished parsing a complete message. A message is only complete after the
-    /// entire body has been read and any trailing headers have been parsed.
+    /// Returns whether or not the parser has finished parsing a complete
+    /// message. A message is only complete after the entire body has been read
+    /// and any trailing headers have been parsed.
     pub fn isComplete(r: *HeadersParser) bool {
         return r.done and r.state == .finished;
     }
 
-    pub const CheckCompleteHeadError = mem.Allocator.Error || error{HttpHeadersExceededSizeLimit};
+    pub const CheckCompleteHeadError = error{HttpHeadersOversize};
 
-    /// Pushes `in` into the parser. Returns the number of bytes consumed by the header. Any header bytes are appended
-    /// to the `header_bytes` buffer.
-    ///
-    /// This function only uses `allocator` if `r.header_bytes_owned` is true, and may be undefined otherwise.
-    pub fn checkCompleteHead(r: *HeadersParser, allocator: std.mem.Allocator, in: []const u8) CheckCompleteHeadError!u32 {
-        if (r.state.isContent()) return 0;
+    /// Pushes `in` into the parser. Returns the number of bytes consumed by
+    /// the header. Any header bytes are appended to `header_bytes_buffer`.
+    pub fn checkCompleteHead(hp: *HeadersParser, in: []const u8) CheckCompleteHeadError!u32 {
+        if (hp.state.isContent()) return 0;
 
-        const i = r.findHeadersEnd(in);
+        const i = hp.findHeadersEnd(in);
         const data = in[0..i];
-        if (r.header_bytes.items.len + data.len > r.max_header_bytes) {
-            return error.HttpHeadersExceededSizeLimit;
-        } else {
-            if (r.header_bytes_owned) try r.header_bytes.ensureUnusedCapacity(allocator, data.len);
+        if (hp.header_bytes_len + data.len > hp.header_bytes_buffer.len)
+            return error.HttpHeadersOversize;
 
-            r.header_bytes.appendSliceAssumeCapacity(data);
-        }
+        @memcpy(hp.header_bytes_buffer[hp.header_bytes_len..][0..data.len], data);
+        hp.header_bytes_len += @intCast(data.len);
 
         return i;
     }
@@ -520,7 +515,8 @@ pub const HeadersParser = struct {
         HttpChunkInvalid,
     };
 
-    /// Reads the body of the message into `buffer`. Returns the number of bytes placed in the buffer.
+    /// Reads the body of the message into `buffer`. Returns the number of
+    /// bytes placed in the buffer.
     ///
     /// If `skip` is true, the buffer will be unused and the body will be skipped.
     ///
@@ -718,7 +714,7 @@ test "HeadersParser.findHeadersEnd" {
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\nHello";
 
     for (0..36) |i| {
-        r = HeadersParser.initDynamic(0);
+        r = HeadersParser.init(&.{});
         try std.testing.expectEqual(@as(u32, @intCast(i)), r.findHeadersEnd(data[0..i]));
         try std.testing.expectEqual(@as(u32, @intCast(35 - i)), r.findHeadersEnd(data[i..]));
     }
@@ -728,7 +724,7 @@ test "HeadersParser.findChunkedLen" {
     var r: HeadersParser = undefined;
     const data = "Ff\r\nf0f000 ; ext\n0\r\nffffffffffffffffffffffffffffffffffffffff\r\n";
 
-    r = HeadersParser.initDynamic(0);
+    r = HeadersParser.init(&.{});
     r.state = .chunk_head_size;
     r.next_chunk_length = 0;
 
@@ -761,9 +757,9 @@ test "HeadersParser.findChunkedLen" {
 
 test "HeadersParser.read length" {
     // mock BufferedConnection for read
+    var headers_buf: [256]u8 = undefined;
 
-    var r = HeadersParser.initDynamic(256);
-    defer r.header_bytes.deinit(std.testing.allocator);
+    var r = HeadersParser.init(&headers_buf);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nHello";
 
     var conn: MockBufferedConnection = .{
@@ -773,8 +769,8 @@ test "HeadersParser.read length" {
     while (true) { // read headers
         try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@as(u16, @intCast(nchecked)));
+        const nchecked = try r.checkCompleteHead(conn.peek());
+        conn.drop(@intCast(nchecked));
 
         if (r.state.isContent()) break;
     }
@@ -786,14 +782,14 @@ test "HeadersParser.read length" {
     try std.testing.expectEqual(@as(usize, 5), len);
     try std.testing.expectEqualStrings("Hello", buf[0..len]);
 
-    try std.testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\n", r.header_bytes.items);
+    try std.testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\n", r.get());
 }
 
 test "HeadersParser.read chunked" {
     // mock BufferedConnection for read
 
-    var r = HeadersParser.initDynamic(256);
-    defer r.header_bytes.deinit(std.testing.allocator);
+    var headers_buf: [256]u8 = undefined;
+    var r = HeadersParser.init(&headers_buf);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\n\r\n";
 
     var conn: MockBufferedConnection = .{
@@ -803,8 +799,8 @@ test "HeadersParser.read chunked" {
     while (true) { // read headers
         try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@as(u16, @intCast(nchecked)));
+        const nchecked = try r.checkCompleteHead(conn.peek());
+        conn.drop(@intCast(nchecked));
 
         if (r.state.isContent()) break;
     }
@@ -815,14 +811,14 @@ test "HeadersParser.read chunked" {
     try std.testing.expectEqual(@as(usize, 5), len);
     try std.testing.expectEqualStrings("Hello", buf[0..len]);
 
-    try std.testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n", r.header_bytes.items);
+    try std.testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n", r.get());
 }
 
 test "HeadersParser.read chunked trailer" {
     // mock BufferedConnection for read
 
-    var r = HeadersParser.initDynamic(256);
-    defer r.header_bytes.deinit(std.testing.allocator);
+    var headers_buf: [256]u8 = undefined;
+    var r = HeadersParser.init(&headers_buf);
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\nContent-Type: text/plain\r\n\r\n";
 
     var conn: MockBufferedConnection = .{
@@ -832,8 +828,8 @@ test "HeadersParser.read chunked trailer" {
     while (true) { // read headers
         try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@as(u16, @intCast(nchecked)));
+        const nchecked = try r.checkCompleteHead(conn.peek());
+        conn.drop(@intCast(nchecked));
 
         if (r.state.isContent()) break;
     }
@@ -847,11 +843,11 @@ test "HeadersParser.read chunked trailer" {
     while (true) { // read headers
         try conn.fill();
 
-        const nchecked = try r.checkCompleteHead(std.testing.allocator, conn.peek());
-        conn.drop(@as(u16, @intCast(nchecked)));
+        const nchecked = try r.checkCompleteHead(conn.peek());
+        conn.drop(@intCast(nchecked));
 
         if (r.state.isContent()) break;
     }
 
-    try std.testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: localhost\r\n\r\nContent-Type: text/plain\r\n\r\n", r.header_bytes.items);
+    try std.testing.expectEqualStrings("GET / HTTP/1.1\r\nHost: localhost\r\n\r\nContent-Type: text/plain\r\n\r\n", r.get());
 }
