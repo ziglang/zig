@@ -142,7 +142,10 @@ pub const meta = @import("meta.zig");
 /// Networking.
 pub const net = @import("net.zig");
 
-/// Wrappers around OS-specific APIs.
+/// POSIX-like API layer.
+pub const posix = @import("os.zig");
+
+/// Non-portable Operating System-specific API.
 pub const os = @import("os.zig");
 
 pub const once = @import("once.zig").once;

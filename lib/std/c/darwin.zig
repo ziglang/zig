@@ -169,30 +169,7 @@ pub const COPYFILE_DATA = 1 << 3;
 pub const copyfile_state_t = *opaque {};
 pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: u32) c_int;
 
-pub extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
-pub const realpath = @"realpath$DARWIN_EXTSN";
-
 pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) isize;
-
-const private = struct {
-    extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
-    /// On x86_64 Darwin, fstat has to be manually linked with $INODE64 suffix to
-    /// force 64bit version.
-    /// Note that this is fixed on aarch64 and no longer necessary.
-    extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
-
-    extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
-    /// On x86_64 Darwin, fstatat has to be manually linked with $INODE64 suffix to
-    /// force 64bit version.
-    /// Note that this is fixed on aarch64 and no longer necessary.
-    extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *Stat, flags: u32) c_int;
-
-    extern "c" fn readdir(dir: *std.c.DIR) ?*dirent;
-    extern "c" fn @"readdir$INODE64"(dir: *std.c.DIR) ?*dirent;
-};
-pub const fstat = if (native_arch == .aarch64) private.fstat else private.@"fstat$INODE64";
-pub const fstatat = if (native_arch == .aarch64) private.fstatat else private.@"fstatat$INODE64";
-pub const readdir = if (native_arch == .aarch64) private.readdir else private.@"readdir$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_continuous_time() u64;
@@ -866,21 +843,7 @@ pub const qos_class_t = enum(c_uint) {
     QOS_CLASS_UNSPECIFIED = 0x00,
 };
 
-pub const pthread_mutex_t = extern struct {
-    __sig: c_long = 0x32AAABA7,
-    __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,
-};
-pub const pthread_cond_t = extern struct {
-    __sig: c_long = 0x3CB0B1BB,
-    __opaque: [__PTHREAD_COND_SIZE__]u8 = [_]u8{0} ** __PTHREAD_COND_SIZE__,
-};
-pub const pthread_rwlock_t = extern struct {
-    __sig: c_long = 0x2DA8B3B4,
-    __opaque: [192]u8 = [_]u8{0} ** 192,
-};
 pub const sem_t = c_int;
-const __PTHREAD_MUTEX_SIZE__ = if (@sizeOf(usize) == 8) 56 else 40;
-const __PTHREAD_COND_SIZE__ = if (@sizeOf(usize) == 8) 40 else 24;
 
 pub const pthread_attr_t = extern struct {
     __sig: c_long,
@@ -1202,16 +1165,12 @@ pub const Sigaction = extern struct {
 };
 
 pub const dirent = extern struct {
-    d_ino: u64,
-    d_seekoff: u64,
-    d_reclen: u16,
-    d_namlen: u16,
-    d_type: u8,
-    d_name: [1024]u8,
-
-    pub fn reclen(self: dirent) u16 {
-        return self.d_reclen;
-    }
+    ino: u64,
+    seekoff: u64,
+    reclen: u16,
+    namlen: u16,
+    type: u8,
+    name: [1024]u8,
 };
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
@@ -1345,49 +1304,6 @@ pub const F_OK = 0;
 pub const X_OK = 1;
 pub const W_OK = 2;
 pub const R_OK = 4;
-
-pub const O = struct {
-    pub const PATH = 0x0000;
-    /// open for reading only
-    pub const RDONLY = 0x0000;
-    /// open for writing only
-    pub const WRONLY = 0x0001;
-    /// open for reading and writing
-    pub const RDWR = 0x0002;
-    /// do not block on open or for data to become available
-    pub const NONBLOCK = 0x0004;
-    /// append on each write
-    pub const APPEND = 0x0008;
-    /// create file if it does not exist
-    pub const CREAT = 0x0200;
-    /// truncate size to 0
-    pub const TRUNC = 0x0400;
-    /// error if CREAT and the file exists
-    pub const EXCL = 0x0800;
-    /// atomically obtain a shared lock
-    pub const SHLOCK = 0x0010;
-    /// atomically obtain an exclusive lock
-    pub const EXLOCK = 0x0020;
-    /// do not follow symlinks
-    pub const NOFOLLOW = 0x0100;
-    /// allow open of symlinks
-    pub const SYMLINK = 0x200000;
-    /// descriptor requested for event notifications only
-    pub const EVTONLY = 0x8000;
-    /// mark as close-on-exec
-    pub const CLOEXEC = 0x1000000;
-    pub const ACCMODE = 3;
-    pub const ALERT = 536870912;
-    pub const ASYNC = 64;
-    pub const DIRECTORY = 1048576;
-    pub const DP_GETRAWENCRYPTED = 1;
-    pub const DP_GETRAWUNENCRYPTED = 2;
-    pub const DSYNC = 4194304;
-    pub const FSYNC = SYNC;
-    pub const NOCTTY = 131072;
-    pub const POPUP = 2147483648;
-    pub const SYNC = 128;
-};
 
 pub const SEEK = struct {
     pub const SET = 0x0;
@@ -2528,18 +2444,6 @@ pub const S = struct {
 };
 
 pub const HOST_NAME_MAX = 72;
-
-pub const AT = struct {
-    pub const FDCWD = -2;
-    /// Use effective ids in access check
-    pub const EACCESS = 0x0010;
-    /// Act on the symlink itself not the target
-    pub const SYMLINK_NOFOLLOW = 0x0020;
-    /// Act on target of symlink
-    pub const SYMLINK_FOLLOW = 0x0040;
-    /// Path refers to directory
-    pub const REMOVEDIR = 0x0080;
-};
 
 pub const addrinfo = extern struct {
     flags: i32,

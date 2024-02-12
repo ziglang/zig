@@ -18,9 +18,6 @@ pub extern "c" fn _lwp_self() lwpid_t;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
-pub extern "c" fn __fstat50(fd: fd_t, buf: *Stat) c_int;
-pub const fstat = __fstat50;
-
 pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
 pub const stat = __stat50;
 
@@ -61,41 +58,6 @@ pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: u
 
 pub extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
 pub const msync = __msync13;
-
-pub const pthread_mutex_t = extern struct {
-    magic: u32 = 0x33330003,
-    errorcheck: padded_pthread_spin_t = 0,
-    ceiling: padded_pthread_spin_t = 0,
-    owner: usize = 0,
-    waiters: ?*u8 = null,
-    recursed: u32 = 0,
-    spare2: ?*anyopaque = null,
-};
-
-pub const pthread_cond_t = extern struct {
-    magic: u32 = 0x55550005,
-    lock: pthread_spin_t = 0,
-    waiters_first: ?*u8 = null,
-    waiters_last: ?*u8 = null,
-    mutex: ?*pthread_mutex_t = null,
-    private: ?*anyopaque = null,
-};
-
-pub const pthread_rwlock_t = extern struct {
-    magic: c_uint = 0x99990009,
-    interlock: switch (builtin.cpu.arch) {
-        .aarch64, .sparc, .x86_64, .x86 => u8,
-        .arm, .powerpc => c_int,
-        else => unreachable,
-    } = 0,
-    rblocked_first: ?*u8 = null,
-    rblocked_last: ?*u8 = null,
-    wblocked_first: ?*u8 = null,
-    wblocked_last: ?*u8 = null,
-    nreaders: c_uint = 0,
-    owner: ?std.c.pthread_t = null,
-    private: ?*anyopaque = null,
-};
 
 const pthread_spin_t = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
@@ -337,15 +299,11 @@ pub const timeval = extern struct {
 pub const MAXNAMLEN = 511;
 
 pub const dirent = extern struct {
-    d_fileno: ino_t,
-    d_reclen: u16,
-    d_namlen: u16,
-    d_type: u8,
-    d_name: [MAXNAMLEN + 1]u8,
-
-    pub fn reclen(self: dirent) u16 {
-        return self.d_reclen;
-    }
+    fileno: ino_t,
+    reclen: u16,
+    namlen: u16,
+    type: u8,
+    name: [MAXNAMLEN + 1]u8,
 };
 
 pub const SOCK = struct {
@@ -629,53 +587,6 @@ pub const F_OK = 0; // test for existence of file
 pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
-
-pub const O = struct {
-    /// open for reading only
-    pub const RDONLY = 0x00000000;
-    /// open for writing only
-    pub const WRONLY = 0x00000001;
-    /// open for reading and writing
-    pub const RDWR = 0x00000002;
-    /// mask for above modes
-    pub const ACCMODE = 0x00000003;
-    /// no delay
-    pub const NONBLOCK = 0x00000004;
-    /// set append mode
-    pub const APPEND = 0x00000008;
-    /// open with shared file lock
-    pub const SHLOCK = 0x00000010;
-    /// open with exclusive file lock
-    pub const EXLOCK = 0x00000020;
-    /// signal pgrp when data ready
-    pub const ASYNC = 0x00000040;
-    /// synchronous writes
-    pub const SYNC = 0x00000080;
-    /// don't follow symlinks on the last
-    pub const NOFOLLOW = 0x00000100;
-    /// create if nonexistent
-    pub const CREAT = 0x00000200;
-    /// truncate to zero length
-    pub const TRUNC = 0x00000400;
-    /// error if already exists
-    pub const EXCL = 0x00000800;
-    /// don't assign controlling terminal
-    pub const NOCTTY = 0x00008000;
-    /// write: I/O data completion
-    pub const DSYNC = 0x00010000;
-    /// read: I/O completion as for write
-    pub const RSYNC = 0x00020000;
-    /// use alternate i/o semantics
-    pub const ALT_IO = 0x00040000;
-    /// direct I/O hint
-    pub const DIRECT = 0x00080000;
-    /// fail if not a directory
-    pub const DIRECTORY = 0x00200000;
-    /// set close on exec
-    pub const CLOEXEC = 0x00400000;
-    /// skip search permission checks
-    pub const SEARCH = 0x00800000;
-};
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -1464,21 +1375,6 @@ pub const S = struct {
     pub fn IWHT(m: u32) bool {
         return m & IFMT == IFWHT;
     }
-};
-
-pub const AT = struct {
-    /// Magic value that specify the use of the current working directory
-    /// to determine the target of relative file paths in the openat() and
-    /// similar syscalls.
-    pub const FDCWD = -100;
-    /// Check access using effective user and group ID
-    pub const EACCESS = 0x0100;
-    /// Do not follow symbolic links
-    pub const SYMLINK_NOFOLLOW = 0x0200;
-    /// Follow symbolic link
-    pub const SYMLINK_FOLLOW = 0x0400;
-    /// Remove directory instead of file
-    pub const REMOVEDIR = 0x0800;
 };
 
 pub const HOST_NAME_MAX = 255;

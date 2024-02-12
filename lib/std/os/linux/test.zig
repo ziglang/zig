@@ -37,7 +37,7 @@ test "timer" {
     var err: linux.E = linux.getErrno(epoll_fd);
     try expect(err == .SUCCESS);
 
-    const timer_fd = linux.timerfd_create(linux.CLOCK.MONOTONIC, 0);
+    const timer_fd = linux.timerfd_create(linux.CLOCK.MONOTONIC, .{});
     try expect(linux.getErrno(timer_fd) == .SUCCESS);
 
     const time_interval = linux.timespec{
@@ -50,7 +50,7 @@ test "timer" {
         .it_value = time_interval,
     };
 
-    err = linux.getErrno(linux.timerfd_settime(@as(i32, @intCast(timer_fd)), 0, &new_time, null));
+    err = linux.getErrno(linux.timerfd_settime(@as(i32, @intCast(timer_fd)), .{}, &new_time, null));
     try expect(err == .SUCCESS);
 
     var event = linux.epoll_event{

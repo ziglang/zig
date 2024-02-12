@@ -290,47 +290,57 @@ pub const Stat = struct {
     /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
     ctime: i128,
 
-    pub fn fromSystem(st: posix.system.Stat) Stat {
+    pub fn fromSystem(st: posix.Stat) Stat {
         const atime = st.atime();
         const mtime = st.mtime();
         const ctime = st.ctime();
-        const kind: Kind = if (builtin.os.tag == .wasi and !builtin.link_libc) switch (st.filetype) {
-            .BLOCK_DEVICE => .block_device,
-            .CHARACTER_DEVICE => .character_device,
-            .DIRECTORY => .directory,
-            .SYMBOLIC_LINK => .sym_link,
-            .REGULAR_FILE => .file,
-            .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
-            else => .unknown,
-        } else blk: {
-            const m = st.mode & posix.S.IFMT;
-            switch (m) {
-                posix.S.IFBLK => break :blk .block_device,
-                posix.S.IFCHR => break :blk .character_device,
-                posix.S.IFDIR => break :blk .directory,
-                posix.S.IFIFO => break :blk .named_pipe,
-                posix.S.IFLNK => break :blk .sym_link,
-                posix.S.IFREG => break :blk .file,
-                posix.S.IFSOCK => break :blk .unix_domain_socket,
-                else => {},
-            }
-            if (builtin.os.tag.isSolarish()) switch (m) {
-                posix.S.IFDOOR => break :blk .door,
-                posix.S.IFPORT => break :blk .event_port,
-                else => {},
-            };
-
-            break :blk .unknown;
-        };
-
-        return Stat{
+        return .{
             .inode = st.ino,
-            .size = @as(u64, @bitCast(st.size)),
+            .size = @bitCast(st.size),
             .mode = st.mode,
-            .kind = kind,
+            .kind = k: {
+                const m = st.mode & posix.S.IFMT;
+                switch (m) {
+                    posix.S.IFBLK => break :k .block_device,
+                    posix.S.IFCHR => break :k .character_device,
+                    posix.S.IFDIR => break :k .directory,
+                    posix.S.IFIFO => break :k .named_pipe,
+                    posix.S.IFLNK => break :k .sym_link,
+                    posix.S.IFREG => break :k .file,
+                    posix.S.IFSOCK => break :k .unix_domain_socket,
+                    else => {},
+                }
+                if (builtin.os.tag.isSolarish()) switch (m) {
+                    posix.S.IFDOOR => break :k .door,
+                    posix.S.IFPORT => break :k .event_port,
+                    else => {},
+                };
+
+                break :k .unknown;
+            },
             .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
             .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
             .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+        };
+    }
+
+    pub fn fromWasi(st: std.os.wasi.filestat_t) Stat {
+        return .{
+            .inode = st.ino,
+            .size = @bitCast(st.size),
+            .mode = 0,
+            .kind = switch (st.filetype) {
+                .BLOCK_DEVICE => .block_device,
+                .CHARACTER_DEVICE => .character_device,
+                .DIRECTORY => .directory,
+                .SYMBOLIC_LINK => .sym_link,
+                .REGULAR_FILE => .file,
+                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+                else => .unknown,
+            },
+            .atime = st.atim,
+            .mtime = st.mtim,
+            .ctime = st.ctim,
         };
     }
 };
@@ -355,7 +365,7 @@ pub fn stat(self: File) StatError!Stat {
             .ACCESS_DENIED => return error.AccessDenied,
             else => return windows.unexpectedStatus(rc),
         }
-        return Stat{
+        return .{
             .inode = info.InternalInformation.IndexNumber,
             .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
             .mode = 0,
@@ -383,6 +393,11 @@ pub fn stat(self: File) StatError!Stat {
             .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
             .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
         };
+    }
+
+    if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        const st = try posix.fstat_wasi(self.handle);
+        return Stat.fromWasi(st);
     }
 
     const st = try posix.fstat(self.handle);
@@ -576,10 +591,11 @@ pub fn setPermissions(self: File, permissions: Permissions) SetPermissionsError!
 /// Cross-platform representation of file metadata.
 /// Platform-specific functionality is available through the `inner` field.
 pub const Metadata = struct {
-    /// You may use the `inner` field to use platform-specific functionality
+    /// Exposes platform-specific functionality.
     inner: switch (builtin.os.tag) {
         .windows => MetadataWindows,
         .linux => MetadataLinux,
+        .wasi => MetadataWasi,
         else => MetadataUnix,
     },
 
@@ -628,12 +644,12 @@ pub const MetadataUnix = struct {
 
     /// Returns the size of the file
     pub fn size(self: Self) u64 {
-        return @as(u64, @intCast(self.stat.size));
+        return @intCast(self.stat.size);
     }
 
     /// Returns a `Permissions` struct, representing the permissions on the file
     pub fn permissions(self: Self) Permissions {
-        return Permissions{ .inner = PermissionsUnix{ .mode = self.stat.mode } };
+        return .{ .inner = .{ .mode = self.stat.mode } };
     }
 
     /// Returns the `Kind` of the file
@@ -756,6 +772,42 @@ pub const MetadataLinux = struct {
     }
 };
 
+pub const MetadataWasi = struct {
+    stat: std.os.wasi.filestat_t,
+
+    pub fn size(self: @This()) u64 {
+        return self.stat.size;
+    }
+
+    pub fn permissions(self: @This()) Permissions {
+        return .{ .inner = .{ .mode = self.stat.mode } };
+    }
+
+    pub fn kind(self: @This()) Kind {
+        return switch (self.stat.filetype) {
+            .BLOCK_DEVICE => .block_device,
+            .CHARACTER_DEVICE => .character_device,
+            .DIRECTORY => .directory,
+            .SYMBOLIC_LINK => .sym_link,
+            .REGULAR_FILE => .file,
+            .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
+            else => .unknown,
+        };
+    }
+
+    pub fn accessed(self: @This()) i128 {
+        return self.stat.atim;
+    }
+
+    pub fn modified(self: @This()) i128 {
+        return self.stat.mtim;
+    }
+
+    pub fn created(self: @This()) ?i128 {
+        return self.stat.ctim;
+    }
+};
+
 pub const MetadataWindows = struct {
     attributes: windows.DWORD,
     reparse_tag: windows.DWORD,
@@ -773,7 +825,7 @@ pub const MetadataWindows = struct {
 
     /// Returns a `Permissions` struct, representing the permissions on the file
     pub fn permissions(self: Self) Permissions {
-        return Permissions{ .inner = PermissionsWindows{ .attributes = self.attributes } };
+        return .{ .inner = .{ .attributes = self.attributes } };
     }
 
     /// Returns the `Kind` of the file.
@@ -811,7 +863,7 @@ pub const MetadataWindows = struct {
 pub const MetadataError = posix.FStatError;
 
 pub fn metadata(self: File) MetadataError!Metadata {
-    return Metadata{
+    return .{
         .inner = switch (builtin.os.tag) {
             .windows => blk: {
                 var io_status_block: windows.IO_STATUS_BLOCK = undefined;
@@ -846,7 +898,7 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     break :reparse_blk 0;
                 };
 
-                break :blk MetadataWindows{
+                break :blk .{
                     .attributes = info.BasicInformation.FileAttributes,
                     .reparse_tag = reparse_tag,
                     ._size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
@@ -887,16 +939,12 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     else => |err| return posix.unexpectedErrno(err),
                 }
 
-                break :blk MetadataLinux{
+                break :blk .{
                     .statx = stx,
                 };
             },
-            else => blk: {
-                const st = try posix.fstat(self.handle);
-                break :blk MetadataUnix{
-                    .stat = st,
-                };
-            },
+            .wasi => .{ .stat = try posix.fstat_wasi(self.handle) },
+            else => .{ .stat = try posix.fstat(self.handle) },
         },
     };
 }

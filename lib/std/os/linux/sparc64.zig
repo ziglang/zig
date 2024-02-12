@@ -195,29 +195,6 @@ pub fn restore_rt() callconv(.C) void {
     );
 }
 
-pub const O = struct {
-    pub const CREAT = 0x200;
-    pub const EXCL = 0x800;
-    pub const NOCTTY = 0x8000;
-    pub const TRUNC = 0x400;
-    pub const APPEND = 0x8;
-    pub const NONBLOCK = 0x4000;
-    pub const SYNC = 0x802000;
-    pub const DSYNC = 0x2000;
-    pub const RSYNC = SYNC;
-    pub const DIRECTORY = 0x10000;
-    pub const NOFOLLOW = 0x20000;
-    pub const CLOEXEC = 0x400000;
-
-    pub const ASYNC = 0x40;
-    pub const DIRECT = 0x100000;
-    pub const LARGEFILE = 0;
-    pub const NOATIME = 0x200000;
-    pub const PATH = 0x1000000;
-    pub const TMPFILE = 0x2010000;
-    pub const NDELAY = NONBLOCK | 0x4;
-};
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;

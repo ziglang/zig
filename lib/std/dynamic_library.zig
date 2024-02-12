@@ -115,7 +115,7 @@ pub const ElfDynLib = struct {
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) !ElfDynLib {
-        const fd = try os.open(path, 0, os.O.RDONLY | os.O.CLOEXEC);
+        const fd = try os.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
         defer os.close(fd);
 
         const stat = try os.fstat(fd);

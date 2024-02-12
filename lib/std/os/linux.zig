@@ -20,6 +20,7 @@ const is_ppc64 = native_arch.isPPC64();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.os.iovec;
 const iovec_const = std.os.iovec_const;
+const ACCMODE = std.os.ACCMODE;
 
 test {
     if (builtin.os.tag == .linux) {
@@ -241,12 +242,145 @@ pub const MAP = switch (native_arch) {
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
-pub const O = struct {
-    pub usingnamespace arch_bits.O;
-
-    pub const RDONLY = 0o0;
-    pub const WRONLY = 0o1;
-    pub const RDWR = 0o2;
+pub const O = switch (native_arch) {
+    .x86_64 => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        _15: u1 = 0,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .x86, .riscv64 => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .aarch64, .aarch64_be, .arm, .thumb => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .sparc64 => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u1 = 0,
+        APPEND: bool = false,
+        _4: u2 = 0,
+        ASYNC: bool = false,
+        _7: u2 = 0,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        _12: u1 = 0,
+        DSYNC: bool = false,
+        NONBLOCK: bool = false,
+        NOCTTY: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        _18: u2 = 0,
+        DIRECT: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u6 = 0,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u1 = 0,
+        APPEND: bool = false,
+        DSYNC: bool = false,
+        _5: u2 = 0,
+        NONBLOCK: bool = false,
+        CREAT: bool = false,
+        TRUNC: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        ASYNC: bool = false,
+        LARGEFILE: bool = false,
+        SYNC: bool = false,
+        DIRECT: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _20: u1 = 0,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        LARGEFILE: bool = false,
+        DIRECT: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        SYNC: bool = false,
+        PATH: bool = false,
+        TMPFILE: bool = false,
+        _: u9 = 0,
+    },
+    else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
 pub usingnamespace @import("linux/io_uring.zig");
@@ -620,20 +754,20 @@ pub fn umount2(special: [*:0]const u8, flags: u32) usize {
     return syscall2(.umount2, @intFromPtr(special), flags);
 }
 
-pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, offset: i64) usize {
+pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, offset: i64) usize {
     if (@hasField(SYS, "mmap2")) {
         // Make sure the offset is also specified in multiples of page size
         if ((offset & (MMAP2_UNIT - 1)) != 0)
-            return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.INVAL))));
+            return @bitCast(-@as(isize, @intFromEnum(E.INVAL)));
 
         return syscall6(
             .mmap2,
             @intFromPtr(address),
             length,
             prot,
-            flags,
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(usize, @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT)),
+            @as(u32, @bitCast(flags)),
+            @bitCast(@as(isize, fd)),
+            @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
         );
     } else {
         return syscall6(
@@ -641,8 +775,8 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: u32, fd: i32, of
             @intFromPtr(address),
             length,
             prot,
-            flags,
-            @as(usize, @bitCast(@as(isize, fd))),
+            @as(u32, @bitCast(flags)),
+            @bitCast(@as(isize, fd)),
             @as(u64, @bitCast(offset)),
         );
     }
@@ -840,12 +974,12 @@ pub fn pipe(fd: *[2]i32) usize {
     }
 }
 
-pub fn pipe2(fd: *[2]i32, flags: u32) usize {
-    return syscall2(.pipe2, @intFromPtr(fd), flags);
+pub fn pipe2(fd: *[2]i32, flags: O) usize {
+    return syscall2(.pipe2, @intFromPtr(fd), @as(u32, @bitCast(flags)));
 }
 
 pub fn write(fd: i32, buf: [*]const u8, count: usize) usize {
-    return syscall3(.write, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(buf), count);
+    return syscall3(.write, @bitCast(@as(isize, fd)), @intFromPtr(buf), count);
 }
 
 pub fn ftruncate(fd: i32, length: i64) usize {
@@ -958,15 +1092,15 @@ pub fn renameat2(oldfd: i32, oldpath: [*:0]const u8, newfd: i32, newpath: [*:0]c
     );
 }
 
-pub fn open(path: [*:0]const u8, flags: u32, perm: mode_t) usize {
+pub fn open(path: [*:0]const u8, flags: O, perm: mode_t) usize {
     if (@hasField(SYS, "open")) {
-        return syscall3(.open, @intFromPtr(path), flags, perm);
+        return syscall3(.open, @intFromPtr(path), @as(u32, @bitCast(flags)), perm);
     } else {
         return syscall4(
             .openat,
-            @as(usize, @bitCast(@as(isize, AT.FDCWD))),
+            @bitCast(@as(isize, AT.FDCWD)),
             @intFromPtr(path),
-            flags,
+            @as(u32, @bitCast(flags)),
             perm,
         );
     }
@@ -976,9 +1110,9 @@ pub fn create(path: [*:0]const u8, perm: mode_t) usize {
     return syscall2(.creat, @intFromPtr(path), perm);
 }
 
-pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, mode: mode_t) usize {
+pub fn openat(dirfd: i32, path: [*:0]const u8, flags: O, mode: mode_t) usize {
     // dirfd could be negative, for example AT.FDCWD is -100
-    return syscall4(.openat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), flags, mode);
+    return syscall4(.openat, @bitCast(@as(isize, dirfd)), @intFromPtr(path), @as(u32, @bitCast(flags)), mode);
 }
 
 /// See also `clone` (from the arch-specific include)
@@ -1800,8 +1934,8 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: i32, flags: u32) usize {
-    return syscall2(.timerfd_create, @as(usize, @bitCast(@as(isize, clockid))), flags);
+pub fn timerfd_create(clockid: i32, flags: TFD) usize {
+    return syscall2(.timerfd_create, @bitCast(@as(isize, clockid)), @as(u32, @bitCast(flags)));
 }
 
 pub const itimerspec = extern struct {
@@ -1810,11 +1944,11 @@ pub const itimerspec = extern struct {
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
-    return syscall2(.timerfd_gettime, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(curr_value));
+    return syscall2(.timerfd_gettime, @bitCast(@as(isize, fd)), @intFromPtr(curr_value));
 }
 
-pub fn timerfd_settime(fd: i32, flags: u32, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(.timerfd_settime, @as(usize, @bitCast(@as(isize, fd))), flags, @intFromPtr(new_value), @intFromPtr(old_value));
+pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
+    return syscall4(.timerfd_settime, @bitCast(@as(isize, fd)), @as(u32, @bitCast(flags)), @intFromPtr(new_value), @intFromPtr(old_value));
 }
 
 // Flags for the 'setitimer' system call
@@ -2478,19 +2612,10 @@ pub const SIG = if (is_mips) struct {
 pub const kernel_rwf = u32;
 
 pub const RWF = struct {
-    /// high priority request, poll if possible
     pub const HIPRI: kernel_rwf = 0x00000001;
-
-    /// per-IO O.DSYNC
     pub const DSYNC: kernel_rwf = 0x00000002;
-
-    /// per-IO O.SYNC
     pub const SYNC: kernel_rwf = 0x00000004;
-
-    /// per-IO, return -EAGAIN if operation would block
     pub const NOWAIT: kernel_rwf = 0x00000008;
-
-    /// per-IO O.APPEND
     pub const APPEND: kernel_rwf = 0x00000010;
 };
 
@@ -3257,7 +3382,7 @@ pub const T = struct {
 };
 
 pub const EPOLL = struct {
-    pub const CLOEXEC = O.CLOEXEC;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
 
     pub const CTL_ADD = 1;
     pub const CTL_DEL = 2;
@@ -3338,8 +3463,8 @@ pub const CLONE = struct {
 
 pub const EFD = struct {
     pub const SEMAPHORE = 1;
-    pub const CLOEXEC = O.CLOEXEC;
-    pub const NONBLOCK = O.NONBLOCK;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
+    pub const NONBLOCK = 1 << @bitOffsetOf(O, "NONBLOCK");
 };
 
 pub const MS = struct {
@@ -3388,8 +3513,8 @@ pub const MNT = struct {
 pub const UMOUNT_NOFOLLOW = 8;
 
 pub const IN = struct {
-    pub const CLOEXEC = O.CLOEXEC;
-    pub const NONBLOCK = O.NONBLOCK;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
+    pub const NONBLOCK = 1 << @bitOffsetOf(O, "NONBLOCK");
 
     pub const ACCESS = 0x00000001;
     pub const MODIFY = 0x00000002;
@@ -3534,12 +3659,40 @@ pub const UTIME = struct {
     pub const OMIT = 0x3ffffffe;
 };
 
-pub const TFD = struct {
-    pub const NONBLOCK = O.NONBLOCK;
-    pub const CLOEXEC = O.CLOEXEC;
+const TFD_TIMER = packed struct(u32) {
+    ABSTIME: bool = false,
+    CANCEL_ON_SET: bool = false,
+    _: u30 = 0,
+};
 
-    pub const TIMER_ABSTIME = 1;
-    pub const TIMER_CANCEL_ON_SET = (1 << 1);
+pub const TFD = switch (native_arch) {
+    .sparc64 => packed struct(u32) {
+        _0: u14 = 0,
+        NONBLOCK: bool = false,
+        _15: u7 = 0,
+        CLOEXEC: bool = false,
+        _: u9 = 0,
+
+        pub const TIMER = TFD_TIMER;
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        _0: u7 = 0,
+        NONBLOCK: bool = false,
+        _8: u11 = 0,
+        CLOEXEC: bool = false,
+        _: u12 = 0,
+
+        pub const TIMER = TFD_TIMER;
+    },
+    else => packed struct(u32) {
+        _0: u11 = 0,
+        NONBLOCK: bool = false,
+        _12: u7 = 0,
+        CLOEXEC: bool = false,
+        _: u12 = 0,
+
+        pub const TIMER = TFD_TIMER;
+    },
 };
 
 pub const winsize = extern struct {
@@ -3603,8 +3756,8 @@ pub const empty_sigset = [_]u32{0} ** sigset_len;
 pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
 pub const SFD = struct {
-    pub const CLOEXEC = O.CLOEXEC;
-    pub const NONBLOCK = O.NONBLOCK;
+    pub const CLOEXEC = 1 << @bitOffsetOf(O, "CLOEXEC");
+    pub const NONBLOCK = 1 << @bitOffsetOf(O, "NONBLOCK");
 };
 
 pub const signalfd_siginfo = extern struct {
@@ -3865,15 +4018,11 @@ pub const inotify_event = extern struct {
 };
 
 pub const dirent64 = extern struct {
-    d_ino: u64,
-    d_off: u64,
-    d_reclen: u16,
-    d_type: u8,
-    d_name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
-
-    pub fn reclen(self: dirent64) u16 {
-        return self.d_reclen;
-    }
+    ino: u64,
+    off: u64,
+    reclen: u16,
+    type: u8,
+    name: u8, // field address is the address of first byte of name https://github.com/ziglang/zig/issues/173
 };
 
 pub const dl_phdr_info = extern struct {
