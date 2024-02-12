@@ -368,7 +368,7 @@ pub const O = switch (native_os) {
         write: bool = false,
         _: u3 = 0,
     },
-    .solaris => packed struct(u32) {
+    .solaris, .illumos => packed struct(u32) {
         ACCMODE: std.os.ACCMODE = .RDONLY,
         NDELAY: bool = false,
         APPEND: bool = false,
