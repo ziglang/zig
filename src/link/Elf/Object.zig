@@ -126,7 +126,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
     try self.strtab.appendSlice(allocator, shstrtab);
 
     const symtab_index = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
-        elf.SHT_SYMTAB => break @as(u16, @intCast(i)),
+        elf.SHT_SYMTAB => break @as(u32, @intCast(i)),
         else => {},
     } else null;
 
@@ -223,7 +223,7 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
             => {},
 
             else => {
-                const shndx = @as(u16, @intCast(i));
+                const shndx = @as(u32, @intCast(i));
                 if (self.skipShdr(shndx, elf_file)) continue;
                 try self.addAtom(allocator, handle, shdr, shndx, elf_file);
             },
@@ -268,7 +268,7 @@ fn addAtom(self: *Object, allocator: Allocator, handle: std.fs.File, shdr: elf.E
     }
 }
 
-fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
+fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u32 {
     const name = blk: {
         const name = self.getString(shdr.sh_name);
         if (elf_file.base.isRelocatable()) break :blk name;
@@ -316,7 +316,7 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{O
     return out_shndx;
 }
 
-fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
+fn skipShdr(self: *Object, index: u32, elf_file: *Elf) bool {
     const comp = elf_file.base.comp;
     const shdr = self.shdrs.items[index];
     const name = self.getString(shdr.sh_name);
@@ -673,7 +673,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;
-        const shndx = @as(u16, @intCast(self.shdrs.items.len));
+        const shndx = @as(u32, @intCast(self.shdrs.items.len));
         const shdr = try self.shdrs.addOne(gpa);
         const sh_size = math.cast(usize, this_sym.st_size) orelse return error.Overflow;
         shdr.* = .{

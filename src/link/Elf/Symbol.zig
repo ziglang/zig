@@ -15,7 +15,7 @@ file_index: File.Index = 0,
 atom_index: Atom.Index = 0,
 
 /// Assigned output section index for this atom.
-output_section_index: u16 = 0,
+output_section_index: u32 = 0,
 
 /// Index of the source symbol this symbol references.
 /// Use `elfSym` to pull the source symbol from the relevant file.
@@ -37,7 +37,7 @@ pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
         file_ptr != .linker_defined;
 }
 
-pub fn outputShndx(symbol: Symbol) ?u16 {
+pub fn outputShndx(symbol: Symbol) ?u32 {
     if (symbol.output_section_index == 0) return null;
     return symbol.output_section_index;
 }
@@ -237,12 +237,12 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         if (file_ptr == .shared_object) break :blk elf.STB_GLOBAL;
         break :blk esym.st_bind();
     };
-    const st_shndx = blk: {
-        if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
+    const st_shndx: u16 = blk: {
+        if (symbol.flags.has_copy_rel) break :blk @intCast(elf_file.copy_rel_section_index.?);
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
         if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
-        break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
+        break :blk @intCast(symbol.outputShndx() orelse elf.SHN_UNDEF);
     };
     const st_value = blk: {
         if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);

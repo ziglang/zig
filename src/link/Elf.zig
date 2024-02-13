@@ -138,40 +138,40 @@ comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
 
 /// Tracked section headers with incremental updates to Zig object.
 /// .rela.* sections are only used when emitting a relocatable object file.
-zig_text_section_index: ?u16 = null,
-zig_data_rel_ro_section_index: ?u16 = null,
-zig_data_section_index: ?u16 = null,
-zig_bss_section_index: ?u16 = null,
-zig_got_section_index: ?u16 = null,
+zig_text_section_index: ?u32 = null,
+zig_data_rel_ro_section_index: ?u32 = null,
+zig_data_section_index: ?u32 = null,
+zig_bss_section_index: ?u32 = null,
+zig_got_section_index: ?u32 = null,
 
-debug_info_section_index: ?u16 = null,
-debug_abbrev_section_index: ?u16 = null,
-debug_str_section_index: ?u16 = null,
-debug_aranges_section_index: ?u16 = null,
-debug_line_section_index: ?u16 = null,
+debug_info_section_index: ?u32 = null,
+debug_abbrev_section_index: ?u32 = null,
+debug_str_section_index: ?u32 = null,
+debug_aranges_section_index: ?u32 = null,
+debug_line_section_index: ?u32 = null,
 
-copy_rel_section_index: ?u16 = null,
-dynamic_section_index: ?u16 = null,
-dynstrtab_section_index: ?u16 = null,
-dynsymtab_section_index: ?u16 = null,
-eh_frame_section_index: ?u16 = null,
-eh_frame_rela_section_index: ?u16 = null,
-eh_frame_hdr_section_index: ?u16 = null,
-hash_section_index: ?u16 = null,
-gnu_hash_section_index: ?u16 = null,
-got_section_index: ?u16 = null,
-got_plt_section_index: ?u16 = null,
-interp_section_index: ?u16 = null,
-plt_section_index: ?u16 = null,
-plt_got_section_index: ?u16 = null,
-rela_dyn_section_index: ?u16 = null,
-rela_plt_section_index: ?u16 = null,
-versym_section_index: ?u16 = null,
-verneed_section_index: ?u16 = null,
+copy_rel_section_index: ?u32 = null,
+dynamic_section_index: ?u32 = null,
+dynstrtab_section_index: ?u32 = null,
+dynsymtab_section_index: ?u32 = null,
+eh_frame_section_index: ?u32 = null,
+eh_frame_rela_section_index: ?u32 = null,
+eh_frame_hdr_section_index: ?u32 = null,
+hash_section_index: ?u32 = null,
+gnu_hash_section_index: ?u32 = null,
+got_section_index: ?u32 = null,
+got_plt_section_index: ?u32 = null,
+interp_section_index: ?u32 = null,
+plt_section_index: ?u32 = null,
+plt_got_section_index: ?u32 = null,
+rela_dyn_section_index: ?u32 = null,
+rela_plt_section_index: ?u32 = null,
+versym_section_index: ?u32 = null,
+verneed_section_index: ?u32 = null,
 
-shstrtab_section_index: ?u16 = null,
-strtab_section_index: ?u16 = null,
-symtab_section_index: ?u16 = null,
+shstrtab_section_index: ?u32 = null,
+strtab_section_index: ?u32 = null,
+symtab_section_index: ?u32 = null,
 
 // Linker-defined symbols
 dynamic_index: ?Symbol.Index = null,
@@ -931,7 +931,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     try self.base.file.?.pwriteAll(&[1]u8{0}, end_pos);
 }
 
-pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
+pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
     const shdr = &self.shdrs.items[shdr_index];
     const maybe_phdr = if (self.phdr_to_shdr_table.get(shdr_index)) |phndx| &self.phdrs.items[phndx] else null;
     const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
@@ -981,7 +981,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u16, needed_size: u64) !void {
 
 pub fn growNonAllocSection(
     self: *Elf,
-    shdr_index: u16,
+    shdr_index: u32,
     needed_size: u64,
     min_alignment: u32,
     requires_file_copy: bool,
@@ -1018,7 +1018,7 @@ pub fn growNonAllocSection(
     self.markDirty(shdr_index);
 }
 
-pub fn markDirty(self: *Elf, shdr_index: u16) void {
+pub fn markDirty(self: *Elf, shdr_index: u32) void {
     const zig_object = self.zigObjectPtr().?;
     if (zig_object.dwarf) |_| {
         if (self.debug_info_section_index.? == shdr_index) {
@@ -2969,7 +2969,7 @@ pub fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u16, hdr_buf[index..][0..2], e_shnum, endian);
     index += 2;
 
-    mem.writeInt(u16, hdr_buf[index..][0..2], self.shstrtab_section_index.?, endian);
+    mem.writeInt(u16, hdr_buf[index..][0..2], @intCast(self.shstrtab_section_index.?), endian);
     index += 2;
 
     assert(index == e_ehsize);
@@ -3709,7 +3709,7 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
     }
 }
 
-fn shdrRank(self: *Elf, shndx: u16) u8 {
+fn shdrRank(self: *Elf, shndx: u32) u8 {
     const shdr = self.shdrs.items[shndx];
     const name = self.getShString(shdr.sh_name);
     const flags = shdr.sh_flags;
@@ -3759,7 +3759,7 @@ fn shdrRank(self: *Elf, shndx: u16) u8 {
 
 pub fn sortShdrs(self: *Elf) !void {
     const Entry = struct {
-        shndx: u16,
+        shndx: u32,
 
         pub fn lessThan(elf_file: *Elf, lhs: @This(), rhs: @This()) bool {
             return elf_file.shdrRank(lhs.shndx) < elf_file.shdrRank(rhs.shndx);
@@ -3770,15 +3770,15 @@ pub fn sortShdrs(self: *Elf) !void {
     var entries = try std.ArrayList(Entry).initCapacity(gpa, self.shdrs.items.len);
     defer entries.deinit();
     for (0..self.shdrs.items.len) |shndx| {
-        entries.appendAssumeCapacity(.{ .shndx = @as(u16, @intCast(shndx)) });
+        entries.appendAssumeCapacity(.{ .shndx = @intCast(shndx) });
     }
 
     mem.sort(Entry, entries.items, self, Entry.lessThan);
 
-    const backlinks = try gpa.alloc(u16, entries.items.len);
+    const backlinks = try gpa.alloc(u32, entries.items.len);
     defer gpa.free(backlinks);
     for (entries.items, 0..) |entry, i| {
-        backlinks[entry.shndx] = @as(u16, @intCast(i));
+        backlinks[entry.shndx] = @intCast(i);
     }
 
     const slice = try self.shdrs.toOwnedSlice(gpa);
@@ -3792,10 +3792,10 @@ pub fn sortShdrs(self: *Elf) !void {
     try self.resetShdrIndexes(backlinks);
 }
 
-fn resetShdrIndexes(self: *Elf, backlinks: []const u16) !void {
+fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
     const gpa = self.base.comp.gpa;
 
-    for (&[_]*?u16{
+    for (&[_]*?u32{
         &self.eh_frame_section_index,
         &self.eh_frame_rela_section_index,
         &self.eh_frame_hdr_section_index,
@@ -4191,7 +4191,7 @@ pub fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
     // virtual and file offsets. However, the simple one will do for one
     // as we are more interested in quick turnaround and compatibility
     // with `findFreeSpace` mechanics than anything else.
-    const Cover = std.ArrayList(u16);
+    const Cover = std.ArrayList(u32);
     const gpa = self.base.comp.gpa;
     var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
@@ -4347,7 +4347,7 @@ pub fn allocateNonAllocSections(self: *Elf) !void {
 }
 
 fn allocateSpecialPhdrs(self: *Elf) void {
-    for (&[_]struct { ?u16, ?u16 }{
+    for (&[_]struct { ?u16, ?u32 }{
         .{ self.phdr_interp_index, self.interp_section_index },
         .{ self.phdr_dynamic_index, self.dynamic_section_index },
         .{ self.phdr_gnu_eh_frame_index, self.eh_frame_hdr_section_index },
@@ -4370,7 +4370,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
     if (self.phdr_tls_index) |index| {
         const slice = self.shdrs.items;
         const phdr = &self.phdrs.items[index];
-        var shndx: u16 = 0;
+        var shndx: u32 = 0;
         while (shndx < slice.len) {
             const shdr = slice[shndx];
             if (shdr.sh_flags & elf.SHF_TLS == 0) {
@@ -5138,8 +5138,8 @@ const CsuObjects = struct {
     }
 };
 
-pub fn isZigSection(self: Elf, shndx: u16) bool {
-    inline for (&[_]?u16{
+pub fn isZigSection(self: Elf, shndx: u32) bool {
+    inline for (&[_]?u32{
         self.zig_text_section_index,
         self.zig_data_rel_ro_section_index,
         self.zig_data_section_index,
@@ -5153,8 +5153,8 @@ pub fn isZigSection(self: Elf, shndx: u16) bool {
     return false;
 }
 
-pub fn isDebugSection(self: Elf, shndx: u16) bool {
-    inline for (&[_]?u16{
+pub fn isDebugSection(self: Elf, shndx: u32) bool {
+    inline for (&[_]?u32{
         self.debug_info_section_index,
         self.debug_abbrev_section_index,
         self.debug_str_section_index,
@@ -5192,7 +5192,7 @@ fn addPhdr(self: *Elf, opts: struct {
     return index;
 }
 
-pub fn addRelaShdr(self: *Elf, name: [:0]const u8, shndx: u16) !u16 {
+pub fn addRelaShdr(self: *Elf, name: [:0]const u8, shndx: u32) !u32 {
     const entsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Rela),
         .p64 => @sizeOf(elf.Elf64_Rela),
@@ -5223,9 +5223,9 @@ pub const AddSectionOpts = struct {
     offset: u64 = 0,
 };
 
-pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
+pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
     const gpa = self.base.comp.gpa;
-    const index = @as(u16, @intCast(self.shdrs.items.len));
+    const index = @as(u32, @intCast(self.shdrs.items.len));
     const shdr = try self.shdrs.addOne(gpa);
     shdr.* = .{
         .sh_name = try self.insertShString(opts.name),
@@ -5242,10 +5242,10 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u16 {
     return index;
 }
 
-pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u16 {
+pub fn sectionByName(self: *Elf, name: [:0]const u8) ?u32 {
     for (self.shdrs.items, 0..) |*shdr, i| {
         const this_name = self.getShString(shdr.sh_name);
-        if (mem.eql(u8, this_name, name)) return @as(u16, @intCast(i));
+        if (mem.eql(u8, this_name, name)) return @intCast(i);
     } else return null;
 }
 

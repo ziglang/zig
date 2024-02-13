@@ -17,7 +17,7 @@ alignment: Alignment = .@"1",
 input_section_index: u32 = 0,
 
 /// Index of the output section.
-output_section_index: u16 = 0,
+output_section_index: u32 = 0,
 
 /// Index of the input section containing this atom's relocs.
 relocs_section_index: u32 = 0,
@@ -77,7 +77,7 @@ pub fn relocsShndx(self: Atom) ?u32 {
     return self.relocs_section_index;
 }
 
-pub fn outputShndx(self: Atom) ?u16 {
+pub fn outputShndx(self: Atom) ?u32 {
     if (self.output_section_index == 0) return null;
     return self.output_section_index;
 }

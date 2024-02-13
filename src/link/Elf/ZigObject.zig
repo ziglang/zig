@@ -840,7 +840,7 @@ fn getDeclShdrIndex(
     elf_file: *Elf,
     decl: *const Module.Decl,
     code: []const u8,
-) error{OutOfMemory}!u16 {
+) error{OutOfMemory}!u32 {
     _ = self;
     const mod = elf_file.base.comp.module.?;
     const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
@@ -894,7 +894,7 @@ fn updateDeclCode(
     elf_file: *Elf,
     decl_index: InternPool.DeclIndex,
     sym_index: Symbol.Index,
-    shdr_index: u16,
+    shdr_index: u32,
     code: []const u8,
     stt_bits: u8,
 ) !void {
@@ -993,7 +993,7 @@ fn updateTlv(
     elf_file: *Elf,
     decl_index: InternPool.DeclIndex,
     sym_index: Symbol.Index,
-    shndx: u16,
+    shndx: u32,
     code: []const u8,
 ) !void {
     const gpa = elf_file.base.comp.gpa;
@@ -1334,7 +1334,7 @@ fn lowerConst(
     name: []const u8,
     tv: TypedValue,
     required_alignment: InternPool.Alignment,
-    output_section_index: u16,
+    output_section_index: u32,
     src_loc: Module.SrcLoc,
 ) !LowerConstResult {
     const gpa = elf_file.base.comp.gpa;
