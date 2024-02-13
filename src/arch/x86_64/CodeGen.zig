@@ -13500,6 +13500,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         } else if (constraint.len == 1 and std.ascii.isDigit(constraint[0])) arg: {
             const index = std.fmt.charToDigit(constraint[0], 10) catch unreachable;
             if (index >= args.items.len) return self.fail("constraint out of bounds: '{s}'", .{constraint});
+            try self.genCopy(ty, args.items[index], input_mcv, .{});
             break :arg args.items[index];
         } else return self.fail("invalid constraint: '{s}'", .{constraint});
         if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
