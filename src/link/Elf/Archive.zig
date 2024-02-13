@@ -21,18 +21,17 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
     const handle = elf_file.fileHandle(handle_index);
     const size = (try handle.stat()).size;
 
-    const reader = handle.reader();
-    _ = try reader.readBytesNoEof(elf.ARMAG.len);
-
     var pos: usize = elf.ARMAG.len;
     while (true) {
         if (pos >= size) break;
-        if (!mem.isAligned(pos, 2)) {
-            try handle.seekBy(1);
-            pos += 1;
-        }
+        if (!mem.isAligned(pos, 2)) pos += 1;
 
-        const hdr = try reader.readStruct(elf.ar_hdr);
+        var hdr_buffer: [@sizeOf(elf.ar_hdr)]u8 = undefined;
+        {
+            const amt = try handle.preadAll(&hdr_buffer, pos);
+            if (amt != @sizeOf(elf.ar_hdr)) return error.InputOutput;
+        }
+        const hdr = @as(*align(1) const elf.ar_hdr, @ptrCast(&hdr_buffer)).*;
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
@@ -44,7 +43,6 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
 
         const obj_size = try hdr.size();
         defer {
-            _ = handle.seekBy(obj_size) catch {};
             pos += obj_size;
         }
 
