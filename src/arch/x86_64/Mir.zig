@@ -762,8 +762,11 @@ pub const Inst = struct {
         /// Uses `imm` payload.
         rel,
         /// Register, memory operands.
-        /// Uses `rx` payload.
+        /// Uses `rx` payload with extra data of type `Memory`.
         rm,
+        /// Register, memory, register operands.
+        /// Uses `rrx` payload with extra data of type `Memory`.
+        rmr,
         /// Register, memory, immediate (word) operands.
         /// Uses `rix` payload with extra data of type `Memory`.
         rmi,
@@ -776,6 +779,9 @@ pub const Inst = struct {
         /// Register, register, memory.
         /// Uses `rrix` payload with extra data of type `Memory`.
         rrm,
+        /// Register, register, memory, register.
+        /// Uses `rrrx` payload with extra data of type `Memory`.
+        rrmr,
         /// Register, register, memory, immediate (byte) operands.
         /// Uses `rrix` payload with extra data of type `Memory`.
         rrmi,
@@ -951,6 +957,14 @@ pub const Inst = struct {
             fixes: Fixes = ._,
             r1: Register,
             r2: Register,
+            payload: u32,
+        },
+        /// Register, register, register, followed by Custom payload found in extra.
+        rrrx: struct {
+            fixes: Fixes = ._,
+            r1: Register,
+            r2: Register,
+            r3: Register,
             payload: u32,
         },
         /// Register, byte immediate, followed by Custom payload found in extra.
