@@ -898,10 +898,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
-        var h: std.http.Headers = .{ .allocator = gpa };
-        defer h.deinit();
-
-        var req = http_client.open(.GET, uri, h, .{
+        var req = http_client.open(.GET, uri, .{
             .server_header_buffer = server_header_buffer,
         }) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
@@ -1043,7 +1040,7 @@ fn unpackResource(
 
         .http_request => |req| ft: {
             // Content-Type takes first precedence.
-            const content_type = req.response.headers.getFirstValue("Content-Type") orelse
+            const content_type = req.response.content_type orelse
                 return f.fail(f.location_tok, try eb.addString("missing 'Content-Type' header"));
 
             // Extract the MIME type, ignoring charset and boundary directives
@@ -1076,7 +1073,7 @@ fn unpackResource(
             }
 
             // Next, the filename from 'content-disposition: attachment' takes precedence.
-            if (req.response.headers.getFirstValue("Content-Disposition")) |cd_header| {
+            if (req.response.content_disposition) |cd_header| {
                 break :ft FileType.fromContentDisposition(cd_header) orelse {
                     return f.fail(f.location_tok, try eb.printString(
                         "unsupported Content-Disposition header value: '{s}' for Content-Type=application/octet-stream",

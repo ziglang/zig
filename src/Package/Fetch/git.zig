@@ -530,13 +530,12 @@ pub const Session = struct {
         info_refs_uri.query = "service=git-upload-pack";
         info_refs_uri.fragment = null;
 
-        var headers = std.http.Headers.init(allocator);
-        defer headers.deinit();
-        try headers.append("Git-Protocol", "version=2");
-
-        var request = try session.transport.open(.GET, info_refs_uri, headers, .{
-            .max_redirects = 3,
+        var request = try session.transport.open(.GET, info_refs_uri, .{
+            .redirect_behavior = @enumFromInt(3),
             .server_header_buffer = http_headers_buffer,
+            .extra_headers = &.{
+                .{ .name = "Git-Protocol", .value = "version=2" },
+            },
         });
         errdefer request.deinit();
         try request.send(.{});
@@ -544,7 +543,12 @@ pub const Session = struct {
 
         try request.wait();
         if (request.response.status != .ok) return error.ProtocolError;
-        if (request.redirects_left < 3) {
+        // Pretty sure this is dead code - in order for a redirect to occur, the status
+        // code would need to be in the 300s and then it would not be "OK" which is checked
+        // on the line above.
+        var runtime_false = false;
+        _ = &runtime_false;
+        if (runtime_false) {
             if (!mem.endsWith(u8, request.uri.path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
             new_uri.path = new_uri.path[0 .. new_uri.path.len - "/info/refs".len];
@@ -634,11 +638,6 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var headers = std.http.Headers.init(allocator);
-        defer headers.deinit();
-        try headers.append("Content-Type", "application/x-git-upload-pack-request");
-        try headers.append("Git-Protocol", "version=2");
-
         var body = std.ArrayListUnmanaged(u8){};
         defer body.deinit(allocator);
         const body_writer = body.writer(allocator);
@@ -660,9 +659,13 @@ pub const Session = struct {
         }
         try Packet.write(.flush, body_writer);
 
-        var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
-            .handle_redirects = false,
+        var request = try session.transport.open(.POST, upload_pack_uri, .{
+            .redirect_behavior = .unhandled,
             .server_header_buffer = options.server_header_buffer,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
+                .{ .name = "Git-Protocol", .value = "version=2" },
+            },
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
@@ -738,11 +741,6 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var headers = std.http.Headers.init(allocator);
-        defer headers.deinit();
-        try headers.append("Content-Type", "application/x-git-upload-pack-request");
-        try headers.append("Git-Protocol", "version=2");
-
         var body = std.ArrayListUnmanaged(u8){};
         defer body.deinit(allocator);
         const body_writer = body.writer(allocator);
@@ -766,9 +764,13 @@ pub const Session = struct {
         try Packet.write(.{ .data = "done\n" }, body_writer);
         try Packet.write(.flush, body_writer);
 
-        var request = try session.transport.open(.POST, upload_pack_uri, headers, .{
-            .handle_redirects = false,
+        var request = try session.transport.open(.POST, upload_pack_uri, .{
+            .redirect_behavior = .not_allowed,
             .server_header_buffer = http_headers_buffer,
+            .extra_headers = &.{
+                .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
+                .{ .name = "Git-Protocol", .value = "version=2" },
+            },
         });
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
