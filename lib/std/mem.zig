@@ -1526,6 +1526,52 @@ test "count" {
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
+/// Returns the number of occurrences of `needle` inside `haystack`.
+pub fn countScalar(comptime T: type, haystack: []const u8, needle: T) usize {
+    const v_len = std.simd.suggestVectorLength(T) orelse return countScalarNaive(T, haystack, needle);
+    const V = @Vector(v_len, T);
+
+    // experimentally determined, see #18917
+    if (haystack.len < 1 << 10) return std.mem.count(u8, haystack, &.{needle});
+
+    const aligned = std.mem.alignInSlice(@as([]T, @constCast(haystack)), @alignOf(V)) orelse return countScalarNaive(T, haystack, needle);
+    const v_aligned_ptr: [*]const V = @ptrCast(aligned.ptr);
+    const v_aligned = v_aligned_ptr[0 .. aligned.len / v_len];
+
+    var result = countScalarNaive(T, haystack[0 .. haystack.len - aligned.len], needle);
+
+    for (v_aligned) |vec| {
+        result += std.simd.countTrues(vec == @as(V, @splat(needle)));
+    }
+
+    return result + countScalarNaive(T, aligned[v_aligned.len * v_len ..], needle);
+}
+
+fn countScalarNaive(comptime T: type, buffer: []const u8, scalar: T) usize {
+    var result: usize = 0;
+    for (buffer) |x| {
+        result += @intFromBool(x == scalar);
+    }
+    return result;
+}
+
+test countScalar {
+    var random_buf: [(8 << 10) - 1]u8 = undefined;
+
+    var r = std.rand.DefaultPrng.init(420);
+    r.random().bytes(&random_buf);
+    const scalar = r.random().int(u8);
+
+    random_buf[random_buf.len - 1] = scalar;
+
+    const correct_count = std.mem.count(u8, &random_buf, &.{scalar});
+    const correct_count_naive = countScalarNaive(u8, &random_buf, scalar);
+    const our_count = countScalar(u8, &random_buf, scalar);
+
+    try std.testing.expectEqual(correct_count_naive, our_count);
+    try std.testing.expectEqual(correct_count, our_count);
+}
+
 /// Returns true if the haystack contains expected_count or more needles
 /// needle.len must be > 0
 /// does not count overlapping needles
