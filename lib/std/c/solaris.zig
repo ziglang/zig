@@ -698,20 +698,6 @@ pub const SEEK = struct {
     pub const HOLE = 4;
 };
 
-pub const tcflag_t = c_uint;
-pub const cc_t = u8;
-pub const speed_t = c_uint;
-
-pub const NCCS = 19;
-
-pub const termios = extern struct {
-    c_iflag: tcflag_t,
-    c_oflag: tcflag_t,
-    c_cflag: tcflag_t,
-    c_lflag: tcflag_t,
-    c_cc: [NCCS]cc_t,
-};
-
 fn tioc(t: u16, num: u8) u16 {
     return (t << 8) | num;
 }
