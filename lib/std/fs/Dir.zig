@@ -1179,6 +1179,8 @@ pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOp
     };
 }
 
+pub const RealPathError = posix.RealPathError;
+
 ///  This function returns the canonicalized absolute pathname of
 /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
 /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
@@ -1186,7 +1188,7 @@ pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOp
 /// This function is not universally supported by all platforms.
 /// Currently supported hosts are: Linux, macOS, and Windows.
 /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
-pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
+pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("realpath is not available on WASI");
     }
@@ -1200,7 +1202,7 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
 
 /// Same as `Dir.realpath` except `pathname` is null-terminated.
 /// See also `Dir.realpath`, `realpathZ`.
-pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
+pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try posix.windows.cStrToPrefixedFileW(self.fd, pathname);
         return self.realpathW(pathname_w.span(), out_buffer);
@@ -1219,7 +1221,9 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
     };
 
     const fd = posix.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
-        error.FileLocksNotSupported => unreachable,
+        error.FileLocksNotSupported => return error.Unexpected,
+        error.FileBusy => return error.Unexpected,
+        error.WouldBlock => return error.Unexpected,
         else => |e| return e,
     };
     defer posix.close(fd);
@@ -1244,7 +1248,7 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
 
 /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
 /// See also `Dir.realpath`, `realpathW`.
-pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
+pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
     const w = std.os.windows;
 
     const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
@@ -1265,27 +1269,31 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
     };
     defer w.CloseHandle(h_file);
 
-    // Use of MAX_PATH_BYTES here is valid as the realpath function does not
-    // have a variant that takes an arbitrary-size buffer.
-    // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
-    // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
-    // paths. musl supports passing NULL but restricts the output to PATH_MAX
-    // anyway.
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const out_path = try posix.getFdPath(h_file, &buffer);
-
-    if (out_path.len > out_buffer.len) {
+    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
+    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
+    var big_out_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const end_index = std.unicode.utf16leToUtf8(&big_out_buf, wide_slice) catch |e| switch (e) {
+        // TODO: Windows file paths can be arbitrary arrays of u16 values and
+        // must not fail with InvalidUtf8.
+        error.DanglingSurrogateHalf,
+        error.ExpectedSecondSurrogateHalf,
+        error.UnexpectedSecondSurrogateHalf,
+        error.CodepointTooLarge,
+        error.Utf8CannotEncodeSurrogateHalf,
+        => return error.InvalidUtf8,
+    };
+    if (end_index > out_buffer.len)
         return error.NameTooLong;
-    }
-
-    const result = out_buffer[0..out_path.len];
-    @memcpy(result, out_path);
+    const result = out_buffer[0..end_index];
+    @memcpy(result, big_out_buf[0..end_index]);
     return result;
 }
 
+pub const RealPathAllocError = RealPathError || Allocator.Error;
+
 /// Same as `Dir.realpath` except caller must free the returned memory.
 /// See also `Dir.realpath`.
-pub fn realpathAlloc(self: Dir, allocator: Allocator, pathname: []const u8) ![]u8 {
+pub fn realpathAlloc(self: Dir, allocator: Allocator, pathname: []const u8) RealPathAllocError![]u8 {
     // Use of MAX_PATH_BYTES here is valid as the realpath function does not
     // have a variant that takes an arbitrary-size buffer.
     // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
