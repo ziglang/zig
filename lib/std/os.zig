@@ -2602,6 +2602,12 @@ pub const RenameError = error{
     PipeBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    /// On Windows, antivirus software is enabled by default. It can be
+    /// disabled, but Windows Update sometimes ignores the user's preference
+    /// and re-enables it. When enabled, antivirus software on Windows
+    /// intercepts file system operations and makes them significantly slower
+    /// in addition to possibly failing with this error code.
+    AntivirusInterference,
 } || UnexpectedError;
 
 /// Change the name or location of a file.
@@ -2927,9 +2933,10 @@ pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!v
         .creation = windows.FILE_CREATE,
         .filter = .dir_only,
     }) catch |err| switch (err) {
-        error.IsDir => unreachable,
-        error.PipeBusy => unreachable,
-        error.WouldBlock => unreachable,
+        error.IsDir => return error.Unexpected,
+        error.PipeBusy => return error.Unexpected,
+        error.WouldBlock => return error.Unexpected,
+        error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
     };
     windows.CloseHandle(sub_dir_handle);
@@ -3006,9 +3013,10 @@ pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
         .creation = windows.FILE_CREATE,
         .filter = .dir_only,
     }) catch |err| switch (err) {
-        error.IsDir => unreachable,
-        error.PipeBusy => unreachable,
-        error.WouldBlock => unreachable,
+        error.IsDir => return error.Unexpected,
+        error.PipeBusy => return error.Unexpected,
+        error.WouldBlock => return error.Unexpected,
+        error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
     };
     windows.CloseHandle(sub_dir_handle);
@@ -5347,6 +5355,13 @@ pub const RealPathError = error{
     NetworkNotFound,
 
     PathAlreadyExists,
+
+    /// On Windows, antivirus software is enabled by default. It can be
+    /// disabled, but Windows Update sometimes ignores the user's preference
+    /// and re-enables it. When enabled, antivirus software on Windows
+    /// intercepts file system operations and makes them significantly slower
+    /// in addition to possibly failing with this error code.
+    AntivirusInterference,
 } || UnexpectedError;
 
 /// Return the canonicalized absolute pathname.
@@ -5441,15 +5456,17 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPat
 
 pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
     return switch (os.tag) {
-        // zig fmt: off
         .windows,
-        .macos, .ios, .watchos, .tvos,
+        .macos,
+        .ios,
+        .watchos,
+        .tvos,
         .linux,
         .solaris,
         .illumos,
         .freebsd,
         => true,
-        // zig fmt: on
+
         .dragonfly => os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) != .lt,
         .netbsd => os.version_range.semver.max.order(.{ .major = 10, .minor = 0, .patch = 0 }) != .lt,
         else => false,
@@ -5469,8 +5486,10 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
             const wide_slice = try windows.GetFinalPathNameByHandle(fd, .{}, wide_buf[0..]);
 
-            // Trust that Windows gives us valid UTF-16LE.
-            const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch unreachable;
+            // TODO: Windows file paths can be arbitrary arrays of u16 values
+            // and must not fail with InvalidUtf8.
+            const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch
+                return error.InvalidUtf8;
             return out_buffer[0..end_index];
         },
         .macos, .ios, .watchos, .tvos => {

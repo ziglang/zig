@@ -668,13 +668,14 @@ pub const ChildProcess = struct {
                 .sa = &saAttr,
                 .creation = windows.OPEN_EXISTING,
             }) catch |err| switch (err) {
-                error.PathAlreadyExists => unreachable, // not possible for "NUL"
-                error.PipeBusy => unreachable, // not possible for "NUL"
-                error.FileNotFound => unreachable, // not possible for "NUL"
-                error.AccessDenied => unreachable, // not possible for "NUL"
-                error.NameTooLong => unreachable, // not possible for "NUL"
-                error.WouldBlock => unreachable, // not possible for "NUL"
-                error.NetworkNotFound => unreachable, // not possible for "NUL"
+                error.PathAlreadyExists => return error.Unexpected, // not possible for "NUL"
+                error.PipeBusy => return error.Unexpected, // not possible for "NUL"
+                error.FileNotFound => return error.Unexpected, // not possible for "NUL"
+                error.AccessDenied => return error.Unexpected, // not possible for "NUL"
+                error.NameTooLong => return error.Unexpected, // not possible for "NUL"
+                error.WouldBlock => return error.Unexpected, // not possible for "NUL"
+                error.NetworkNotFound => return error.Unexpected, // not possible for "NUL"
+                error.AntivirusInterference => return error.Unexpected, // not possible for "NUL"
                 else => |e| return e,
             }
         else

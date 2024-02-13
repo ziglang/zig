@@ -766,6 +766,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.PipeBusy => unreachable, // Windows-only
         error.SharingViolation => unreachable, // Windows-only
         error.NetworkNotFound => unreachable, // Windows-only
+        error.AntivirusInterference => unreachable, // Windows-only
         error.FileLocksNotSupported => unreachable, // No lock requested.
         error.NoSpaceLeft => unreachable, // read-only
         error.PathAlreadyExists => unreachable, // read-only
@@ -1003,6 +1004,7 @@ fn detectAbiAndDynamicLinker(
                 error.FileLocksNotSupported => unreachable,
                 error.WouldBlock => unreachable,
                 error.FileBusy => unreachable, // opened without write permissions
+                error.AntivirusInterference => unreachable, // Windows-only error
 
                 error.IsDir,
                 error.NotDir,
