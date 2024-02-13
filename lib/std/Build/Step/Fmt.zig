@@ -52,7 +52,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv: std.ArrayListUnmanaged([]const u8) = .{};
     try argv.ensureUnusedCapacity(arena, 2 + 1 + self.paths.len + 2 * self.exclude_paths.len);
 
-    argv.appendAssumeCapacity(b.zig_exe);
+    argv.appendAssumeCapacity(b.graph.zig_exe);
     argv.appendAssumeCapacity("fmt");
 
     if (self.check) {

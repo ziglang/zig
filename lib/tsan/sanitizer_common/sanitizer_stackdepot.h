@@ -22,18 +22,18 @@ namespace __sanitizer {
 // StackDepot efficiently stores huge amounts of stack traces.
 struct StackDepotNode;
 struct StackDepotHandle {
-  StackDepotNode *node_;
-  StackDepotHandle() : node_(nullptr) {}
-  explicit StackDepotHandle(StackDepotNode *node) : node_(node) {}
-  bool valid() { return node_; }
-  u32 id();
-  int use_count();
+  StackDepotNode *node_ = nullptr;
+  u32 id_ = 0;
+  StackDepotHandle(StackDepotNode *node, u32 id) : node_(node), id_(id) {}
+  bool valid() const { return node_; }
+  u32 id() const { return id_; }
+  int use_count() const;
   void inc_use_count_unsafe();
 };
 
 const int kStackDepotMaxUseCount = 1U << (SANITIZER_ANDROID ? 16 : 20);
 
-StackDepotStats *StackDepotGetStats();
+StackDepotStats StackDepotGetStats();
 u32 StackDepotPut(StackTrace stack);
 StackDepotHandle StackDepotPut_WithHandle(StackTrace stack);
 // Retrieves a stored stack trace by the id.
@@ -42,30 +42,9 @@ StackTrace StackDepotGet(u32 id);
 void StackDepotLockAll();
 void StackDepotUnlockAll();
 void StackDepotPrintAll();
+void StackDepotStopBackgroundThread();
 
-// Instantiating this class creates a snapshot of StackDepot which can be
-// efficiently queried with StackDepotGet(). You can use it concurrently with
-// StackDepot, but the snapshot is only guaranteed to contain those stack traces
-// which were stored before it was instantiated.
-class StackDepotReverseMap {
- public:
-  StackDepotReverseMap();
-  StackTrace Get(u32 id);
-
- private:
-  struct IdDescPair {
-    u32 id;
-    StackDepotNode *desc;
-
-    static bool IdComparator(const IdDescPair &a, const IdDescPair &b);
-  };
-
-  InternalMmapVector<IdDescPair> map_;
-
-  // Disallow evil constructors.
-  StackDepotReverseMap(const StackDepotReverseMap&);
-  void operator=(const StackDepotReverseMap&);
-};
+void StackDepotTestOnlyUnmap();
 
 } // namespace __sanitizer
 

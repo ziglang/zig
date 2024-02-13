@@ -12,11 +12,10 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$PATH"
+export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
-git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
 

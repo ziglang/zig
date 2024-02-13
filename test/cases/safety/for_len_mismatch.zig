@@ -12,6 +12,7 @@ pub fn main() !void {
     var runtime_i: usize = 1;
     var j: usize = 3;
     var slice = "too long";
+    _ = .{ &runtime_i, &j, &slice };
     for (runtime_i..j, slice) |a, b| {
         _ = a;
         _ = b;

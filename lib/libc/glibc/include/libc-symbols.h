@@ -155,6 +155,18 @@
   extern __typeof (name) aliasname __attribute__ ((weak, alias (#name))) \
     __attribute_copy__ (name);
 
+/* Zig patch.  weak_hidden_alias was removed from glibc v2.36 (v2.37?), Zig
+   needs it for the v2.32 and earlier {f,l,}stat wrappers, so only include
+   in this header for 2.32 and earlier. */
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ <= 32) || __GLIBC__ < 2
+# define weak_hidden_alias(name, aliasname) \
+  _weak_hidden_alias (name, aliasname)
+# define _weak_hidden_alias(name, aliasname) \
+  extern __typeof (name) aliasname \
+    __attribute__ ((weak, alias (#name), __visibility__ ("hidden"))) \
+    __attribute_copy__ (name);
+#endif
+
 /* Declare SYMBOL as weak undefined symbol (resolved to 0 if not defined).  */
 # define weak_extern(symbol) _weak_extern (weak symbol)
 # define _weak_extern(expr) _Pragma (#expr)

@@ -141,29 +141,6 @@ pub fn restore_rt() callconv(.Naked) noreturn {
 
 pub const MMAP2_UNIT = 4096;
 
-pub const O = struct {
-    pub const CREAT = 0o100;
-    pub const EXCL = 0o200;
-    pub const NOCTTY = 0o400;
-    pub const TRUNC = 0o1000;
-    pub const APPEND = 0o2000;
-    pub const NONBLOCK = 0o4000;
-    pub const DSYNC = 0o10000;
-    pub const SYNC = 0o4010000;
-    pub const RSYNC = 0o4010000;
-    pub const DIRECTORY = 0o40000;
-    pub const NOFOLLOW = 0o100000;
-    pub const CLOEXEC = 0o2000000;
-
-    pub const ASYNC = 0o20000;
-    pub const DIRECT = 0o200000;
-    pub const LARGEFILE = 0o400000;
-    pub const NOATIME = 0o1000000;
-    pub const PATH = 0o10000000;
-    pub const TMPFILE = 0o20040000;
-    pub const NDELAY = NONBLOCK;
-};
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;
@@ -195,19 +172,6 @@ pub const LOCK = struct {
     pub const EX = 2;
     pub const UN = 8;
     pub const NB = 4;
-};
-
-pub const MAP = struct {
-    /// stack-like segment
-    pub const GROWSDOWN = 0x0100;
-    /// ETXTBSY
-    pub const DENYWRITE = 0x0800;
-    /// mark it as an executable
-    pub const EXECUTABLE = 0x1000;
-    /// pages are locked
-    pub const LOCKED = 0x2000;
-    /// don't check for reservations
-    pub const NORESERVE = 0x4000;
 };
 
 pub const VDSO = struct {

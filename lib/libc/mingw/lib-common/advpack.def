@@ -21,10 +21,8 @@ AdvInstallFileW
 CloseINFEngine
 DelNode
 DelNodeA
-DelNodeRunDLL32
 DelNodeRunDLL32W
 DelNodeW
-DoInfInstall
 ExecuteCab
 ExecuteCabA
 ExecuteCabW
@@ -34,7 +32,6 @@ ExtractFilesW
 FileSaveMarkNotExist
 FileSaveMarkNotExistA
 FileSaveMarkNotExistW
-FileSaveRestore
 FileSaveRestoreOnINF
 FileSaveRestoreOnINFA
 FileSaveRestoreOnINFW
@@ -47,7 +44,6 @@ GetVersionFromFileExW
 GetVersionFromFileW
 IsNTAdmin
 LaunchINFSection
-LaunchINFSectionEx
 LaunchINFSectionExW
 LaunchINFSectionW
 NeedReboot
@@ -70,7 +66,6 @@ RegSaveRestoreOnINF
 RegSaveRestoreOnINFA
 RegSaveRestoreOnINFW
 RegSaveRestoreW
-RegisterOCX
 RunSetupCommand
 RunSetupCommandA
 RunSetupCommandW

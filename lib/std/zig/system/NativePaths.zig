@@ -5,7 +5,6 @@ const process = std.process;
 const mem = std.mem;
 
 const NativePaths = @This();
-const NativeTargetInfo = std.zig.system.NativeTargetInfo;
 
 arena: Allocator,
 include_dirs: std.ArrayListUnmanaged([]const u8) = .{},
@@ -14,8 +13,7 @@ framework_dirs: std.ArrayListUnmanaged([]const u8) = .{},
 rpaths: std.ArrayListUnmanaged([]const u8) = .{},
 warnings: std.ArrayListUnmanaged([]const u8) = .{},
 
-pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
-    const native_target = native_info.target;
+pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
     var self: NativePaths = .{ .arena = arena };
     var is_nix = false;
     if (process.getEnvVarOwned(arena, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
@@ -58,9 +56,17 @@ pub fn detect(arena: Allocator, native_info: NativeTargetInfo) !NativePaths {
                     break;
                 };
                 try self.addRPath(rpath);
-            } else if (word.len > 2 and word[0] == '-' and word[1] == 'L') {
+            } else if (mem.eql(u8, word, "-L") or mem.eql(u8, word, "-l")) {
+                _ = it.next() orelse {
+                    try self.addWarning("Expected argument after -L or -l in NIX_LDFLAGS");
+                    break;
+                };
+            } else if (mem.startsWith(u8, word, "-L")) {
                 const lib_path = word[2..];
                 try self.addLibDir(lib_path);
+                try self.addRPath(lib_path);
+            } else if (mem.startsWith(u8, word, "-l")) {
+                // Ignore this argument.
             } else {
                 try self.addWarningFmt("Unrecognized C flag from NIX_LDFLAGS: {s}", .{word});
                 break;

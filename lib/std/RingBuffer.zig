@@ -176,7 +176,7 @@ pub fn readLastAssumeLength(self: *RingBuffer, dest: []u8, length: usize) void {
     const part2_len = length - part1_len;
     @memcpy(dest[0..part1_len], self.data[data_start..part1_data_end]);
     @memcpy(dest[part1_len..length], self.data[0..part2_len]);
-    self.write_index = if (self.write_index >= self.data_len) self.write_index - length else data_start;
+    self.write_index = if (self.write_index >= self.data.len) self.write_index - length else data_start;
 }
 
 /// Returns `true` if the ring buffer is empty and `false` otherwise.

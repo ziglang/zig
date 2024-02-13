@@ -3,7 +3,7 @@ const Moo = enum(u8) {
     Over,
 };
 pub export fn entry() void {
-    var y = Moo.Last;
+    const y = Moo.Last;
     _ = y;
 }
 

@@ -11,12 +11,12 @@ export fn entry2() void {
 export fn entry3() void {
     var spartan_count: u16 = 300;
     var byte: u8 = spartan_count;
-    _ = byte;
+    _ = .{ &spartan_count, &byte };
 }
 export fn entry4() void {
     var signed: i8 = -1;
     var unsigned: u64 = signed;
-    _ = unsigned;
+    _ = .{ &signed, &unsigned };
 }
 
 // error

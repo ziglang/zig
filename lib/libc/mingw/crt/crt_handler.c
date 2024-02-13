@@ -13,16 +13,6 @@
 #include <signal.h>
 #include <stdio.h>
 
-#if defined (_WIN64) && defined (__ia64__)
-#error FIXME: Unsupported __ImageBase implementation.
-#else
-#ifndef _MSC_VER
-#define __ImageBase __MINGW_LSYMBOL(_image_base__)
-#endif
-/* This symbol is defined by the linker.  */
-extern IMAGE_DOS_HEADER __ImageBase;
-#endif
-
 #pragma pack(push,1)
 typedef struct _UNWIND_INFO {
   BYTE VersionAndFlags;

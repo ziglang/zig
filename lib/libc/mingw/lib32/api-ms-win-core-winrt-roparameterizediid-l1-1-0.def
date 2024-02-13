@@ -1,7 +1,0 @@
-LIBRARY api-ms-win-core-winrt-roparameterizediid-l1-1-0
-
-EXPORTS
-
-RoFreeParameterizedTypeExtra@4
-RoGetParameterizedTypeInstanceIID@20
-RoParameterizedTypeExtraGetTypeSignature@4

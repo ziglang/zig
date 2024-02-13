@@ -4,6 +4,28 @@ const net = std.net;
 const mem = std.mem;
 const testing = std.testing;
 
+test "parse and render IP addresses at comptime" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    comptime {
+        var ipAddrBuffer: [16]u8 = undefined;
+        // Parses IPv6 at comptime
+        const ipv6addr = net.Address.parseIp("::1", 0) catch unreachable;
+        var ipv6 = std.fmt.bufPrint(ipAddrBuffer[0..], "{}", .{ipv6addr}) catch unreachable;
+        try std.testing.expect(std.mem.eql(u8, "::1", ipv6[1 .. ipv6.len - 3]));
+
+        // Parses IPv4 at comptime
+        const ipv4addr = net.Address.parseIp("127.0.0.1", 0) catch unreachable;
+        var ipv4 = std.fmt.bufPrint(ipAddrBuffer[0..], "{}", .{ipv4addr}) catch unreachable;
+        try std.testing.expect(std.mem.eql(u8, "127.0.0.1", ipv4[0 .. ipv4.len - 2]));
+
+        // Returns error for invalid IP addresses at comptime
+        try testing.expectError(error.InvalidIPAddressFormat, net.Address.parseIp("::123.123.123.123", 0));
+        try testing.expectError(error.InvalidIPAddressFormat, net.Address.parseIp("127.01.0.1", 0));
+        try testing.expectError(error.InvalidIPAddressFormat, net.Address.resolveIp("::123.123.123.123", 0));
+        try testing.expectError(error.InvalidIPAddressFormat, net.Address.resolveIp("127.01.0.1", 0));
+    }
+}
+
 test "parse and render IPv6 addresses" {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
@@ -33,12 +55,12 @@ test "parse and render IPv6 addresses" {
         "::ffff:123.5.123.5",
     };
     for (ips, 0..) |ip, i| {
-        var addr = net.Address.parseIp6(ip, 0) catch unreachable;
+        const addr = net.Address.parseIp6(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, printed[i], newIp[1 .. newIp.len - 3]));
 
         if (builtin.os.tag == .linux) {
-            var addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
+            const addr_via_resolve = net.Address.resolveIp6(ip, 0) catch unreachable;
             var newResolvedIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr_via_resolve}) catch unreachable;
             try std.testing.expect(std.mem.eql(u8, printed[i], newResolvedIp[1 .. newResolvedIp.len - 3]));
         }
@@ -80,7 +102,7 @@ test "parse and render IPv4 addresses" {
         "123.255.0.91",
         "127.0.0.1",
     }) |ip| {
-        var addr = net.Address.parseIp4(ip, 0) catch unreachable;
+        const addr = net.Address.parseIp4(ip, 0) catch unreachable;
         var newIp = std.fmt.bufPrint(buffer[0..], "{}", .{addr}) catch unreachable;
         try std.testing.expect(std.mem.eql(u8, ip, newIp[0 .. newIp.len - 2]));
     }
@@ -185,54 +207,6 @@ test "listen on a port, send bytes, receive bytes" {
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
 
-test "listen on a port, send bytes, receive bytes, async-only" {
-    if (!std.io.is_async) return error.SkipZigTest;
-
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
-        // TODO build abstractions for other operating systems
-        return error.SkipZigTest;
-    }
-
-    // TODO doing this at comptime crashed the compiler
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
-
-    var server = net.StreamServer.init(net.StreamServer.Options{});
-    defer server.deinit();
-    try server.listen(localhost);
-
-    var server_frame = async testServer(&server);
-    var client_frame = async testClient(server.listen_address);
-
-    try await server_frame;
-    try await client_frame;
-}
-
-test "listen on ipv4 try connect on ipv6 then ipv4" {
-    if (!std.io.is_async) return error.SkipZigTest;
-
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
-        // TODO build abstractions for other operating systems
-        return error.SkipZigTest;
-    }
-
-    // TODO doing this at comptime crashed the compiler
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
-
-    var server = net.StreamServer.init(net.StreamServer.Options{});
-    defer server.deinit();
-    try server.listen(localhost);
-
-    var server_frame = async testServer(&server);
-    var client_frame = async testClientToHost(
-        testing.allocator,
-        "localhost",
-        server.listen_address.getPort(),
-    );
-
-    try await server_frame;
-    try await client_frame;
-}
-
 test "listen on an in use port" {
     if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
         // TODO build abstractions for other operating systems
@@ -303,10 +277,10 @@ test "listen on a unix socket, send bytes, receive bytes" {
     var server = net.StreamServer.init(.{});
     defer server.deinit();
 
-    var socket_path = try generateFileName("socket.unix");
+    const socket_path = try generateFileName("socket.unix");
     defer testing.allocator.free(socket_path);
 
-    var socket_addr = try net.Address.initUnix(socket_path);
+    const socket_addr = try net.Address.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
     try server.listen(socket_addr);
 
@@ -339,4 +313,33 @@ fn generateFileName(base_name: []const u8) ![]const u8 {
     var sub_path: [sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
     return std.fmt.allocPrint(testing.allocator, "{s}-{s}", .{ sub_path[0..], base_name });
+}
+
+test "non-blocking tcp server" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (true) {
+        // https://github.com/ziglang/zig/issues/18315
+        return error.SkipZigTest;
+    }
+
+    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+    var server = net.StreamServer.init(.{ .force_nonblocking = true });
+    defer server.deinit();
+    try server.listen(localhost);
+
+    const accept_err = server.accept();
+    try testing.expectError(error.WouldBlock, accept_err);
+
+    const socket_file = try net.tcpConnectToAddress(server.listen_address);
+    defer socket_file.close();
+
+    var client = try server.accept();
+    defer client.stream.close();
+    const stream = client.stream.writer();
+    try stream.print("hello from server\n", .{});
+
+    var buf: [100]u8 = undefined;
+    const len = try socket_file.read(&buf);
+    const msg = buf[0..len];
+    try testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }

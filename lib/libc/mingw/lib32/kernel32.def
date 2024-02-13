@@ -11,6 +11,7 @@ AcquireSRWLockExclusive@4
 AcquireSRWLockShared@4
 ActivateActCtx@8
 ActivateActCtxWorker@8
+ActivatePackageVirtualizationContext@8
 AddAtomA@4
 AddAtomW@4
 AddConsoleAliasA@12
@@ -33,7 +34,7 @@ AllocateUserPhysicalPages@12
 AllocateUserPhysicalPagesNuma@16
 AppPolicyGetClrCompat@8
 AppPolicyGetCreateFileAccess@8
-AAppPolicyGetLifecycleManagement@8
+AppPolicyGetLifecycleManagement@8
 AppPolicyGetMediaFoundationCodecLoading@8
 AppPolicyGetProcessTerminationMethod@8
 AppPolicyGetShowDeveloperDiagnostic@8
@@ -43,6 +44,7 @@ AppXGetOSMaxVersionTested@8
 ApplicationRecoveryFinished@4
 ApplicationRecoveryInProgress@4
 AreFileApisANSI@0
+AreShortNamesEnabled@8
 AssignProcessToJobObject@8
 AttachConsole@4
 BackupRead@28
@@ -116,6 +118,12 @@ BuildCommDCBA@8
 BuildCommDCBAndTimeoutsA@12
 BuildCommDCBAndTimeoutsW@12
 BuildCommDCBW@8
+BuildIoRingCancelRequest@20
+BuildIoRingFlushFile@24
+BuildIoRingReadFile@44
+BuildIoRingRegisterBuffers@16
+BuildIoRingRegisterFileHandles@16
+BuildIoRingWriteFile@48
 CallNamedPipeA@28
 CallNamedPipeW@28
 CallbackMayRunLong@4
@@ -142,6 +150,7 @@ ClearCommBreak@4
 ClearCommError@12
 CloseConsoleHandle@4
 CloseHandle@4
+CloseIoRing@4
 ClosePackageInfo@4
 ClosePrivateNamespace@8
 CloseProfileUserMapping@0
@@ -218,6 +227,7 @@ CreateHardLinkTransactedA@16
 CreateHardLinkTransactedW@16
 CreateHardLinkW@12
 CreateIoCompletionPort@16
+CreateIoRing@24
 CreateJobObjectA@8
 CreateJobObjectW@8
 CreateJobSet@12
@@ -230,12 +240,14 @@ CreateMutexExW@16
 CreateMutexW@12
 CreateNamedPipeA@32
 CreateNamedPipeW@32
+CreatePackageVirtualizationContext@8
 CreatePipe@16
 CreatePrivateNamespaceA@12
 CreatePrivateNamespaceW@12
 CreateProcessA@40
-CreateProcessAsUserA@44
-CreateProcessAsUserW@44
+; MSDN says these are exported from ADVAPI32.DLL.
+; CreateProcessAsUserA@44
+; CreateProcessAsUserW@44
 CreateProcessInternalA@48
 CreateProcessInternalW@48
 CreateProcessW@40
@@ -270,6 +282,7 @@ CreateWaitableTimerW@12
 CtrlRoutine@4
 DeactivateActCtx@8
 DeactivateActCtxWorker@8
+DeactivatePackageVirtualizationContext@4
 DebugActiveProcess@4
 DebugActiveProcessStop@4
 DebugBreak@0
@@ -310,6 +323,8 @@ DosPathToSessionPathW@12
 DuplicateConsoleHandle@16
 DuplicateEncryptionInfoFileExt@20
 DuplicateHandle@28
+DuplicatePackageVirtualizationContext@8
+EnableProcessOptionalXStateFeatures@8
 EnableThreadProfiling@20
 EncodePointer@4
 EncodeSystemPointer@4
@@ -548,6 +563,7 @@ GetCurrentPackageFullName@8
 GetCurrentPackageId@8
 GetCurrentPackageInfo@16
 GetCurrentPackagePath@8
+GetCurrentPackageVirtualizationContext@0
 GetCurrentProcess@0
 GetCurrentProcessId@0
 GetCurrentProcessorNumber@0
@@ -620,6 +636,7 @@ GetGeoInfoEx@16
 GetGeoInfoW@20
 GetHandleContext@4
 GetHandleInformation@8
+GetIoRingInfo@8
 GetLargePageMinimum@0
 GetLargestConsoleWindowSize@4
 GetLastError@0
@@ -636,6 +653,7 @@ GetLongPathNameA@12
 GetLongPathNameTransactedA@16
 GetLongPathNameTransactedW@16
 GetLongPathNameW@12
+GetMachineTypeAttributes@8
 GetMailslotInfo@20
 GetMaximumProcessorCount@4
 GetMaximumProcessorGroupCount@0
@@ -664,6 +682,7 @@ GetNumaAvailableMemoryNode@8
 GetNumaAvailableMemoryNodeEx@8
 GetNumaHighestNodeNumber@4
 GetNumaNodeNumberFromHandle@8
+GetNumaNodeProcessorMask2@16
 GetNumaNodeProcessorMask@8
 GetNumaNodeProcessorMaskEx@8
 GetNumaProcessorNode@8
@@ -684,7 +703,7 @@ GetPackageFamilyName@12
 GetPackageFullName@12
 GetPackageId@12
 GetPackageInfo@20
-GetPackagePath@24
+GetPackagePath@16
 GetPackagePathByFullName@12
 GetPackagesByPackageFamily@20
 GetPhysicallyInstalledSystemMemory@4
@@ -702,6 +721,7 @@ GetPrivateProfileStructW@20
 GetProcAddress@8
 GetProcessAffinityMask@12
 GetProcessDEPPolicy@12
+GetProcessDefaultCpuSetMasks@16
 GetProcessDefaultCpuSets@16
 GetProcessGroupAffinity@12
 GetProcessHandleCount@8
@@ -720,6 +740,7 @@ GetProcessUserModeExceptionPolicy@4
 GetProcessVersion@4
 GetProcessWorkingSetSize@12
 GetProcessWorkingSetSizeEx@16
+GetProcessesInVirtualizationContext@12
 GetProcessorSystemCycleTime@12
 GetProductInfo@20
 GetProductName@8
@@ -774,8 +795,11 @@ GetTempFileNameA@16
 GetTempFileNameW@16
 GetTempPathA@8
 GetTempPathW@8
+GetTempPath2A@8
+GetTempPath2W@8
 GetThreadContext@8
 GetThreadDescription@8
+GetThreadEnabledXStateFeatures@0
 GetThreadErrorMode@0
 GetThreadGroupAffinity@8
 GetThreadIOPendingFlag@8
@@ -786,6 +810,7 @@ GetThreadLocale@0
 GetThreadPreferredUILanguages@16
 GetThreadPriority@4
 GetThreadPriorityBoost@8
+GetThreadSelectedCpuSetMasks@16
 GetThreadSelectedCpuSets@16
 GetThreadSelectorEntry@12
 GetThreadTimes@20
@@ -883,7 +908,6 @@ InitOnceInitialize@4
 InitializeConditionVariable@4
 InitializeContext2@24
 InitializeContext@16
-InitializeCriticalSection@4
 InitializeCriticalSectionAndSpinCount@8
 InitializeCriticalSectionEx@12
 InitializeEnclave@20
@@ -917,6 +941,7 @@ IsDBCSLeadByte@4
 IsDBCSLeadByteEx@8
 IsDebuggerPresent@0
 IsEnclaveTypeSupported@4
+IsIoRingOpSupported@8
 IsNLSDefinedString@20
 IsNativeVhdBoot@4
 IsNormalizedString@12
@@ -927,6 +952,7 @@ IsSystemResumeAutomatic@0
 IsThreadAFiber@0
 IsThreadpoolTimerSet@4
 IsTimeZoneRedirectionEnabled@0
+IsUserCetAvailableInEnvironment@4
 IsValidCalDateTime@8
 IsValidCodePage@4
 IsValidLanguageGroup@8
@@ -1069,7 +1095,8 @@ OpenSemaphoreW@12
 OpenState@0
 OpenStateExplicit@8
 OpenThread@12
-OpenThreadToken@16
+; MSDN says this is exported from ADVAPI32.DLL.
+; OpenThreadToken@16
 OpenWaitableTimerA@12
 OpenWaitableTimerW@12
 OutputDebugStringA@4
@@ -1083,6 +1110,7 @@ ParseApplicationUserModelId@20
 PeekConsoleInputA@16
 PeekConsoleInputW@16
 PeekNamedPipe@24
+PopIoRingCompletion@8
 PostQueuedCompletionStatus@16
 PowerClearRequest@8
 PowerCreateRequest@4
@@ -1124,6 +1152,7 @@ QueryIdleProcessorCycleTime@8
 QueryIdleProcessorCycleTimeEx@12
 QueryInformationJobObject@20
 QueryIoRateControlInformationJobObject@16
+QueryIoRingCapabilities@4
 QueryMemoryResourceNotification@8
 QueryPerformanceCounter@4
 QueryPerformanceFrequency@4
@@ -1134,6 +1163,7 @@ QueryThreadCycleTime@8
 QueryThreadProfiling@8
 QueryThreadpoolStackInformation@8
 QueryUnbiasedInterruptTime@4
+QueueUserAPC2@16
 QueueUserAPC@12
 QueueUserWorkItem@12
 QueryWin31IniFilesMappedToRegistry@16
@@ -1171,7 +1201,6 @@ ReadFileScatter@20
 ReadFileVlm@20
 ReadProcessMemory@20
 ReadThreadProfilingData@12
-ReclaimVirtualMemory@8
 ;
 ; MSDN says these functions are exported
 ; from advapi32.dll. Commented out for
@@ -1238,6 +1267,7 @@ ReleaseActCtx@4
 ReleaseActCtxWorker@4
 ReleaseMutex@4
 ReleaseMutexWhenCallbackReturns@8
+ReleasePackageVirtualizationContext@4
 ReleaseSRWLockExclusive@4
 ReleaseSRWLockShared@4
 ReleaseSemaphore@12
@@ -1264,7 +1294,6 @@ ResetWriteWatch@8
 ResizePseudoConsole@8
 ResolveDelayLoadedAPI@24
 ResolveDelayLoadsFromDll@12
-ResolveLocaleName@12
 RestoreLastError@4
 ResumeThread@4
 RtlCaptureContext@4
@@ -1368,6 +1397,7 @@ SetHandleCount@4
 SetHandleInformation@12
 SetInformationJobObject@16
 SetIoRateControlInformationJobObject@8
+SetIoRingCompletionEvent@8
 SetLastConsoleEventActive@0
 SetLastError@4
 SetLocalPrimaryComputerNameA@8
@@ -1383,7 +1413,10 @@ SetPriorityClass@8
 SetProcessAffinityMask@8
 SetProcessAffinityUpdateMode@8
 SetProcessDEPPolicy@4
+SetProcessDefaultCpuSetMasks@12
 SetProcessDefaultCpuSets@12
+SetProcessDynamicEHContinuationTargets@12
+SetProcessDynamicEnforcedCetCompatibleRanges@12
 SetProcessInformation@16
 SetProcessMitigationPolicy@12
 SetProcessPreferredUILanguages@12
@@ -1416,9 +1449,11 @@ SetThreadLocale@4
 SetThreadPreferredUILanguages@12
 SetThreadPriority@8
 SetThreadPriorityBoost@8
+SetThreadSelectedCpuSetMasks@12
 SetThreadSelectedCpuSets@12
 SetThreadStackGuarantee@4
-SetThreadToken@8
+; MSDN says this is exported from ADVAPI32.DLL.
+; SetThreadToken@8
 SetThreadUILanguage@4
 SetThreadpoolStackInformation@8
 SetThreadpoolThreadMaximum@8
@@ -1452,6 +1487,7 @@ SleepEx@8
 SortCloseHandle@4
 SortGetHandle@12
 StartThreadpoolIo@4
+SubmitIoRing@16
 SubmitThreadpoolWork@4
 SuspendThread@4
 SwitchToFiber@4
@@ -1498,6 +1534,7 @@ UnhandledExceptionFilter@4
 UnlockFile@20
 UnlockFileEx@20
 UnmapViewOfFile@4
+UnmapViewOfFileEx@8
 UnmapViewOfFileVlm@4
 UnregisterApplicationRecoveryCallback@0
 UnregisterApplicationRestart@0
@@ -1538,6 +1575,7 @@ VirtualUnlock@8
 WTSGetActiveConsoleSessionId@0
 WaitCommEvent@12
 WaitForDebugEvent@8
+WaitForDebugEventEx@8
 WaitForMultipleObjects@16
 WaitForMultipleObjectsEx@20
 WaitForSingleObject@8
@@ -1618,7 +1656,6 @@ WriteProfileSectionW@8
 WriteProfileStringA@12
 WriteProfileStringW@12
 WriteTapemark@16
-WTSGetActiveConsoleSessionId@0
 ZombifyActCtx@4
 ZombifyActCtxWorker@4
 _hread@12

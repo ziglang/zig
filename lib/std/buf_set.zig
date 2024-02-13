@@ -17,8 +17,7 @@ pub const BufSet = struct {
     /// be used internally for both backing allocations and
     /// string duplication.
     pub fn init(a: Allocator) BufSet {
-        var self = BufSet{ .hash_map = BufSetHashMap.init(a) };
-        return self;
+        return .{ .hash_map = BufSetHashMap.init(a) };
     }
 
     /// Free a BufSet along with all stored keys.
@@ -76,8 +75,8 @@ pub const BufSet = struct {
         self: *const BufSet,
         new_allocator: Allocator,
     ) Allocator.Error!BufSet {
-        var cloned_hashmap = try self.hash_map.cloneWithAllocator(new_allocator);
-        var cloned = BufSet{ .hash_map = cloned_hashmap };
+        const cloned_hashmap = try self.hash_map.cloneWithAllocator(new_allocator);
+        const cloned = BufSet{ .hash_map = cloned_hashmap };
         var it = cloned.hash_map.keyIterator();
         while (it.next()) |key_ptr| {
             key_ptr.* = try cloned.copy(key_ptr.*);
@@ -134,7 +133,7 @@ test "BufSet clone" {
 }
 
 test "BufSet.clone with arena" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 

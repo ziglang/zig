@@ -45,22 +45,6 @@ pub const pthread_attr_t = extern struct {
     __stack_address: ?*anyopaque,
 };
 
-pub const pthread_mutex_t = extern struct {
-    flags: u32 = 0,
-    lock: i32 = 0,
-    unused: i32 = -42,
-    owner: i32 = -1,
-    owner_count: i32 = 0,
-};
-
-pub const pthread_cond_t = extern struct {
-    flags: u32 = 0,
-    unused: i32 = -42,
-    mutex: ?*anyopaque = null,
-    waiter_count: i32 = 0,
-    lock: i32 = 0,
-};
-
 pub const EAI = enum(c_int) {
     /// address family for hostname not supported
     ADDRFAMILY = 1,
@@ -238,16 +222,12 @@ pub const timespec = extern struct {
 };
 
 pub const dirent = extern struct {
-    d_dev: i32,
-    d_pdev: i32,
-    d_ino: i64,
-    d_pino: i64,
-    d_reclen: u16,
-    d_name: [256]u8,
-
-    pub fn reclen(self: dirent) u16 {
-        return self.d_reclen;
-    }
+    dev: i32,
+    pdev: i32,
+    ino: i64,
+    pino: i64,
+    reclen: u16,
+    name: [256]u8,
 };
 
 pub const B_OS_NAME_LENGTH = 32; // OS.h
@@ -408,22 +388,6 @@ pub const CLOCK = struct {
     pub const THREAD_CPUTIME_ID = -3;
 };
 
-pub const MAP = struct {
-    /// mmap() error return code
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    /// changes are seen by others
-    pub const SHARED = 0x01;
-    /// changes are only seen by caller
-    pub const PRIVATE = 0x02;
-    /// require mapping to specified addr
-    pub const FIXED = 0x04;
-    /// no underlying object
-    pub const ANONYMOUS = 0x0008;
-    pub const ANON = ANONYMOUS;
-    /// don't commit memory
-    pub const NORESERVE = 0x10;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
@@ -525,32 +489,6 @@ pub const F_OK = 0; // test for existence of file
 pub const X_OK = 1; // test for execute or search permission
 pub const W_OK = 2; // test for write permission
 pub const R_OK = 4; // test for read permission
-
-pub const O = struct {
-    pub const RDONLY = 0x0000;
-    pub const WRONLY = 0x0001;
-    pub const RDWR = 0x0002;
-    pub const ACCMODE = 0x0003;
-    pub const RWMASK = ACCMODE;
-
-    pub const EXCL = 0x0100;
-    pub const CREAT = 0x0200;
-    pub const TRUNC = 0x0400;
-    pub const NOCTTY = 0x1000;
-    pub const NOTRAVERSE = 0x2000;
-
-    pub const CLOEXEC = 0x00000040;
-    pub const NONBLOCK = 0x00000080;
-    pub const NDELAY = NONBLOCK;
-    pub const APPEND = 0x00000800;
-    pub const SYNC = 0x00010000;
-    pub const RSYNC = 0x00020000;
-    pub const DSYNC = 0x00040000;
-    pub const NOFOLLOW = 0x00080000;
-    pub const DIRECT = 0x00100000;
-    pub const NOCACHE = DIRECT;
-    pub const DIRECTORY = 0x00200000;
-};
 
 pub const F = struct {
     pub const DUPFD = 0x0001;
@@ -939,14 +877,6 @@ pub const S = struct {
 
 pub const HOST_NAME_MAX = 255;
 
-pub const AT = struct {
-    pub const FDCWD = -1;
-    pub const SYMLINK_NOFOLLOW = 0x01;
-    pub const SYMLINK_FOLLOW = 0x02;
-    pub const REMOVEDIR = 0x04;
-    pub const EACCESS = 0x08;
-};
-
 pub const addrinfo = extern struct {
     flags: i32,
     family: i32,
@@ -1018,23 +948,6 @@ pub const directory_which = enum(c_int) {
     B_USER_SETTINGS_DIRECTORY = 0xbbe,
 
     _,
-};
-
-pub const cc_t = u8;
-pub const speed_t = u8;
-pub const tcflag_t = u32;
-
-pub const NCCS = 11;
-
-pub const termios = extern struct {
-    c_iflag: tcflag_t,
-    c_oflag: tcflag_t,
-    c_cflag: tcflag_t,
-    c_lflag: tcflag_t,
-    c_line: cc_t,
-    c_ispeed: speed_t,
-    c_ospeed: speed_t,
-    cc_t: [NCCS]cc_t,
 };
 
 pub const MSG_NOSIGNAL = 0x0800;

@@ -8,6 +8,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const arch = builtin.cpu.arch;
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const common = @import("common.zig");
 
@@ -48,7 +49,7 @@ pub fn sinf(x: f32) callconv(.C) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x!=0 and underflow if subnormal
-            math.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
+            mem.doNotOptimizeAway(if (ix < 0x00800000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return trig.__sindf(x);
@@ -97,7 +98,7 @@ pub fn sin(x: f64) callconv(.C) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e500000) { // |x| < 2**-26
             // raise inexact if x != 0 and underflow if subnormal
-            math.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
+            mem.doNotOptimizeAway(if (ix < 0x00100000) x / 0x1p120 else x + 0x1p120);
             return x;
         }
         return trig.__sin(x, 0.0, 0);

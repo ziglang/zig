@@ -56,7 +56,7 @@
 //                                      tramp:  jmp QWORD [addr]
 //                                       addr:  .bytes <hook>
 //
-//    Note: <real> is equilavent to <label>.
+//    Note: <real> is equivalent to <label>.
 //
 // 3) HotPatch
 //
@@ -141,8 +141,29 @@ static const int kBranchLength =
     FIRST_32_SECOND_64(kJumpInstructionLength, kIndirectJumpInstructionLength);
 static const int kDirectBranchLength = kBranchLength + kAddressLength;
 
+#  if defined(_MSC_VER)
+#    define INTERCEPTION_FORMAT(f, a)
+#  else
+#    define INTERCEPTION_FORMAT(f, a) __attribute__((format(printf, f, a)))
+#  endif
+
+static void (*ErrorReportCallback)(const char *format, ...)
+    INTERCEPTION_FORMAT(1, 2);
+
+void SetErrorReportCallback(void (*callback)(const char *format, ...)) {
+  ErrorReportCallback = callback;
+}
+
+#  define ReportError(...)                \
+    do {                                  \
+      if (ErrorReportCallback)            \
+        ErrorReportCallback(__VA_ARGS__); \
+    } while (0)
+
 static void InterceptionFailed() {
-  // Do we have a good way to abort with an error message here?
+  ReportError("interception_win: failed due to an unrecoverable error.\n");
+  // This acts like an abort when no debugger is attached. According to an old
+  // comment, calling abort() leads to an infinite recursion in CheckFailed.
   __debugbreak();
 }
 
@@ -249,8 +270,13 @@ static void WritePadding(uptr from, uptr size) {
 }
 
 static void WriteJumpInstruction(uptr from, uptr target) {
-  if (!DistanceIsWithin2Gig(from + kJumpInstructionLength, target))
+  if (!DistanceIsWithin2Gig(from + kJumpInstructionLength, target)) {
+    ReportError(
+        "interception_win: cannot write jmp further than 2GB away, from %p to "
+        "%p.\n",
+        (void *)from, (void *)target);
     InterceptionFailed();
+  }
   ptrdiff_t offset = target - from - kJumpInstructionLength;
   *(u8*)from = 0xE9;
   *(u32*)(from + 1) = offset;
@@ -274,6 +300,10 @@ static void WriteIndirectJumpInstruction(uptr from, uptr indirect_target) {
   int offset = indirect_target - from - kIndirectJumpInstructionLength;
   if (!DistanceIsWithin2Gig(from + kIndirectJumpInstructionLength,
                             indirect_target)) {
+    ReportError(
+        "interception_win: cannot write indirect jmp with target further than "
+        "2GB away, from %p to %p.\n",
+        (void *)from, (void *)indirect_target);
     InterceptionFailed();
   }
   *(u16*)from = 0x25FF;
@@ -398,8 +428,44 @@ static uptr AllocateMemoryForTrampoline(uptr image_address, size_t size) {
   return allocated_space;
 }
 
+// The following prologues cannot be patched because of the short jump
+// jumping to the patching region.
+
+#if SANITIZER_WINDOWS64
+// ntdll!wcslen in Win11
+//   488bc1          mov     rax,rcx
+//   0fb710          movzx   edx,word ptr [rax]
+//   4883c002        add     rax,2
+//   6685d2          test    dx,dx
+//   75f4            jne     -12
+static const u8 kPrologueWithShortJump1[] = {
+    0x48, 0x8b, 0xc1, 0x0f, 0xb7, 0x10, 0x48, 0x83,
+    0xc0, 0x02, 0x66, 0x85, 0xd2, 0x75, 0xf4,
+};
+
+// ntdll!strrchr in Win11
+//   4c8bc1          mov     r8,rcx
+//   8a01            mov     al,byte ptr [rcx]
+//   48ffc1          inc     rcx
+//   84c0            test    al,al
+//   75f7            jne     -9
+static const u8 kPrologueWithShortJump2[] = {
+    0x4c, 0x8b, 0xc1, 0x8a, 0x01, 0x48, 0xff, 0xc1,
+    0x84, 0xc0, 0x75, 0xf7,
+};
+#endif
+
 // Returns 0 on error.
 static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
+#if SANITIZER_WINDOWS64
+  if (memcmp((u8*)address, kPrologueWithShortJump1,
+             sizeof(kPrologueWithShortJump1)) == 0 ||
+      memcmp((u8*)address, kPrologueWithShortJump2,
+             sizeof(kPrologueWithShortJump2)) == 0) {
+    return 0;
+  }
+#endif
+
   switch (*(u64*)address) {
     case 0x90909090909006EB:  // stub: jmp over 6 x nop.
       return 8;
@@ -456,6 +522,7 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0xFF8B:  // 8B FF : mov edi, edi
     case 0xEC8B:  // 8B EC : mov ebp, esp
     case 0xc889:  // 89 C8 : mov eax, ecx
+    case 0xE589:  // 89 E5 : mov ebp, esp
     case 0xC18B:  // 8B C1 : mov eax, ecx
     case 0xC033:  // 33 C0 : xor eax, eax
     case 0xC933:  // 33 C9 : xor ecx, ecx
@@ -477,6 +544,14 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0xA1:  // A1 XX XX XX XX XX XX XX XX :
                 //   movabs eax, dword ptr ds:[XXXXXXXX]
       return 9;
+
+    case 0x83:
+      const u8 next_byte = *(u8*)(address + 1);
+      const u8 mod = next_byte >> 6;
+      const u8 rm = next_byte & 7;
+      if (mod == 1 && rm == 4)
+        return 5;  // 83 ModR/M SIB Disp8 Imm8
+                   //   add|or|adc|sbb|and|sub|xor|cmp [r+disp8], imm8
   }
 
   switch (*(u16*)address) {
@@ -493,6 +568,8 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x5641:  // push r14
     case 0x5741:  // push r15
     case 0x9066:  // Two-byte NOP
+    case 0xc084:  // test al, al
+    case 0x018a:  // mov al, byte ptr [rcx]
       return 2;
 
     case 0x058B:  // 8B 05 XX XX XX XX : mov eax, dword ptr [XX XX XX XX]
@@ -509,6 +586,7 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0xd12b48:    // 48 2b d1 : sub rdx, rcx
     case 0x07c1f6:    // f6 c1 07 : test cl, 0x7
     case 0xc98548:    // 48 85 C9 : test rcx, rcx
+    case 0xd28548:    // 48 85 d2 : test rdx, rdx
     case 0xc0854d:    // 4d 85 c0 : test r8, r8
     case 0xc2b60f:    // 0f b6 c2 : movzx eax, dl
     case 0xc03345:    // 45 33 c0 : xor r8d, r8d
@@ -522,6 +600,7 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0xca2b48:    // 48 2b ca : sub rcx, rdx
     case 0x10b70f:    // 0f b7 10 : movzx edx, WORD PTR [rax]
     case 0xc00b4d:    // 3d 0b c0 : or r8, r8
+    case 0xc08b41:    // 41 8b c0 : mov eax, r8d
     case 0xd18b48:    // 48 8b d1 : mov rdx, rcx
     case 0xdc8b4c:    // 4c 8b dc : mov r11, rsp
     case 0xd18b4c:    // 4c 8b d1 : mov r10, rcx
@@ -556,6 +635,7 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x246c8948:  // 48 89 6C 24 XX : mov QWORD ptr [rsp + XX], rbp
     case 0x245c8948:  // 48 89 5c 24 XX : mov QWORD PTR [rsp + XX], rbx
     case 0x24748948:  // 48 89 74 24 XX : mov QWORD PTR [rsp + XX], rsi
+    case 0x247c8948:  // 48 89 7c 24 XX : mov QWORD PTR [rsp + XX], rdi
     case 0x244C8948:  // 48 89 4C 24 XX : mov QWORD PTR [rsp + XX], rcx
     case 0x24548948:  // 48 89 54 24 XX : mov QWORD PTR [rsp + XX], rdx
     case 0x244c894c:  // 4c 89 4c 24 XX : mov QWORD PTR [rsp + XX], r9
@@ -592,6 +672,8 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x24448B:  // 8B 44 24 XX : mov eax, dword ptr [esp + XX]
     case 0x244C8B:  // 8B 4C 24 XX : mov ecx, dword ptr [esp + XX]
     case 0x24548B:  // 8B 54 24 XX : mov edx, dword ptr [esp + XX]
+    case 0x245C8B:  // 8B 5C 24 XX : mov ebx, dword ptr [esp + XX]
+    case 0x246C8B:  // 8B 6C 24 XX : mov ebp, dword ptr [esp + XX]
     case 0x24748B:  // 8B 74 24 XX : mov esi, dword ptr [esp + XX]
     case 0x247C8B:  // 8B 7C 24 XX : mov edi, dword ptr [esp + XX]
       return 4;
@@ -603,12 +685,20 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
   }
 #endif
 
-  // Unknown instruction!
-  // FIXME: Unknown instruction failures might happen when we add a new
-  // interceptor or a new compiler version. In either case, they should result
-  // in visible and readable error messages. However, merely calling abort()
-  // leads to an infinite recursion in CheckFailed.
-  InterceptionFailed();
+  // Unknown instruction! This might happen when we add a new interceptor, use
+  // a new compiler version, or if Windows changed how some functions are
+  // compiled. In either case, we print the address and 8 bytes of instructions
+  // to notify the user about the error and to help identify the unknown
+  // instruction. Don't treat this as a fatal error, though we can break the
+  // debugger if one has been attached.
+  u8 *bytes = (u8 *)address;
+  ReportError(
+      "interception_win: unhandled instruction at %p: %02x %02x %02x %02x %02x "
+      "%02x %02x %02x\n",
+      (void *)address, bytes[0], bytes[1], bytes[2], bytes[3], bytes[4],
+      bytes[5], bytes[6], bytes[7]);
+  if (::IsDebuggerPresent())
+    __debugbreak();
   return 0;
 }
 
@@ -629,6 +719,8 @@ static bool CopyInstructions(uptr to, uptr from, size_t size) {
   while (cursor != size) {
     size_t rel_offset = 0;
     size_t instruction_size = GetInstructionSize(from + cursor, &rel_offset);
+    if (!instruction_size)
+      return false;
     _memcpy((void*)(to + cursor), (void*)(from + cursor),
             (size_t)instruction_size);
     if (rel_offset) {
@@ -689,7 +781,7 @@ bool OverrideFunctionWithRedirectJump(
     return false;
 
   if (orig_old_func) {
-    uptr relative_offset = *(u32*)(old_func + 1);
+    sptr relative_offset = *(s32 *)(old_func + 1);
     uptr absolute_target = old_func + relative_offset + kJumpInstructionLength;
     *orig_old_func = absolute_target;
   }
@@ -846,6 +938,10 @@ static void **InterestingDLLsAvailable() {
       "msvcr120.dll",      // VS2013
       "vcruntime140.dll",  // VS2015
       "ucrtbase.dll",      // Universal CRT
+#if (defined(__MINGW32__) && defined(__i386__))
+      "libc++.dll",        // libc++
+      "libunwind.dll",     // libunwind
+#endif
       // NTDLL should go last as it exports some functions that we should
       // override in the CRT [presumably only used internally].
       "ntdll.dll", NULL};
@@ -1019,4 +1115,4 @@ bool OverrideImportedFunction(const char *module_to_patch,
 
 }  // namespace __interception
 
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE

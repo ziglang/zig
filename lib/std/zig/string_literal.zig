@@ -288,7 +288,7 @@ test "parse" {
 
     var fixed_buf_mem: [64]u8 = undefined;
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(&fixed_buf_mem);
-    var alloc = fixed_buf_alloc.allocator();
+    const alloc = fixed_buf_alloc.allocator();
 
     try expectError(error.InvalidLiteral, parseAlloc(alloc, "\"\\x6\""));
     try expect(eql(u8, "foo\nbar", try parseAlloc(alloc, "\"foo\\nbar\"")));

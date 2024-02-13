@@ -22,7 +22,9 @@ pub fn with(comptime Properties: type) type {
             return .{};
         }
         pub fn tagFromName(name: []const u8) ?Tag {
-            return @enumFromInt(name.len);
+            var res: u16 = 0;
+            for (name) |c| res +%= c;
+            return @enumFromInt(res);
         }
         pub const NameBuf = struct {
             pub fn span(_: *const NameBuf) []const u8 {

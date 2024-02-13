@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
@@ -10,11 +11,11 @@ test "super basic invocations" {
         }
     }.foo;
     try expect(@call(.auto, foo, .{}) == 1234);
-    try comptime expect(@call(.always_inline, foo, .{}) == 1234);
+    comptime assert(@call(.always_inline, foo, .{}) == 1234);
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        try comptime expect(result);
+        comptime assert(result);
     }
 }
 
@@ -42,11 +43,12 @@ test "basic invocations" {
     {
         // comptime call without comptime keyword
         const result = @call(.compile_time, foo, .{}) == 1234;
-        try comptime expect(result);
+        comptime assert(result);
     }
     {
         // call of non comptime-known function
         var alias_foo = &foo;
+        _ = &alias_foo;
         try expect(@call(.no_async, alias_foo, .{}) == 1234);
         try expect(@call(.never_tail, alias_foo, .{}) == 1234);
         try expect(@call(.never_inline, alias_foo, .{}) == 1234);
@@ -66,12 +68,13 @@ test "tuple parameters" {
     }.add;
     var a: i32 = 12;
     var b: i32 = 34;
+    _ = .{ &a, &b };
     try expect(@call(.auto, add, .{ a, 34 }) == 46);
     try expect(@call(.auto, add, .{ 12, b }) == 46);
     try expect(@call(.auto, add, .{ a, b }) == 46);
     try expect(@call(.auto, add, .{ 12, 34 }) == 46);
     if (false) {
-        try comptime expect(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
+        comptime assert(@call(.auto, add, .{ 12, 34 }) == 46); // TODO
     }
     try expect(comptime @call(.auto, add, .{ 12, 34 }) == 46);
     {
@@ -101,6 +104,7 @@ test "result location of function call argument through runtime condition and st
         }
     };
     var runtime = true;
+    _ = &runtime;
     try namespace.foo(.{
         .e = if (!runtime) .a else .b,
     });
@@ -445,6 +449,7 @@ test "non-anytype generic parameters provide result type" {
 
     var rt_u16: u16 = 123;
     var rt_u32: u32 = 0x10000222;
+    _ = .{ &rt_u16, &rt_u32 };
 
     try S.f(u8, @intCast(rt_u16));
     try S.f(u8, @intCast(123));
@@ -470,6 +475,7 @@ test "argument to generic function has correct result type" {
 
         fn doTheTest() !void {
             var t = true;
+            _ = &t;
 
             // Since the enum literal passes through a runtime conditional here, these can only
             // compile if RLS provides the correct result type to the argument
@@ -493,4 +499,152 @@ test "call inline fn through pointer" {
     };
     const f = &S.foo;
     try f(123);
+}
+
+test "call coerced function" {
+    const T = struct {
+        x: f64,
+        const T = @This();
+        usingnamespace Implement(1);
+        const F = fn (comptime f64) type;
+        const Implement: F = opaque {
+            fn implementer(comptime val: anytype) type {
+                return opaque {
+                    fn incr(self: T) T {
+                        return .{ .x = self.x + val };
+                    }
+                };
+            }
+        }.implementer;
+    };
+
+    const a = T{ .x = 3 };
+    try std.testing.expect(a.incr().x == 4);
+}
+
+test "call function in comptime field" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        comptime capacity: fn () u64 = capacity_,
+        fn capacity_() u64 {
+            return 64;
+        }
+    };
+    try std.testing.expect((S{}).capacity() == 64);
+}
+
+test "call function pointer in comptime field" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Auto = struct {
+        auto: [max_len]u8 = undefined,
+        offset: u64 = 0,
+
+        comptime capacity: *const fn () u64 = capacity,
+
+        const max_len: u64 = 32;
+
+        fn capacity() u64 {
+            return max_len;
+        }
+    };
+
+    const a: Auto = .{ .offset = 16, .capacity = Auto.capacity };
+    try std.testing.expect(a.capacity() == 32);
+    try std.testing.expect((a.capacity)() == 32);
+}
+
+test "generic function pointer can be called" {
+    const S = struct {
+        var ok = false;
+        fn foo(x: anytype) void {
+            ok = x;
+        }
+    };
+    const x = &S.foo;
+    x(true);
+    try expect(S.ok);
+}
+
+test "value returned from comptime function is comptime known" {
+    const S = struct {
+        fn fields(comptime T: type) switch (@typeInfo(T)) {
+            .Struct => []const std.builtin.Type.StructField,
+            else => unreachable,
+        } {
+            return switch (@typeInfo(T)) {
+                .Struct => |info| info.fields,
+                else => unreachable,
+            };
+        }
+    };
+    const fields_list = S.fields(@TypeOf(.{}));
+    if (fields_list.len != 0)
+        @compileError("Argument count mismatch");
+}
+
+test "registers get overwritten when ignoring return" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.cpu.arch != .x86_64 or builtin.os.tag != .linux) return error.SkipZigTest;
+
+    const S = struct {
+        fn open() usize {
+            return 42;
+        }
+        fn write(fd: usize, a: [*]const u8, len: usize) usize {
+            return syscall4(.WRITE, fd, @intFromPtr(a), len);
+        }
+        fn syscall4(_: enum { WRITE }, _: usize, _: usize, _: usize) usize {
+            return 23;
+        }
+        fn close(fd: usize) usize {
+            if (fd != 42)
+                unreachable;
+            return 0;
+        }
+    };
+
+    const fd = S.open();
+    _ = S.write(fd, "a", 1);
+    _ = S.close(fd);
+}
+
+test "call with union with zero sized field is not memorized incorrectly" {
+    const U = union(enum) {
+        T: type,
+        N: void,
+        fn S(comptime query: @This()) type {
+            return struct {
+                fn tag() type {
+                    return query.T;
+                }
+            };
+        }
+    };
+    const s1 = U.S(U{ .T = u32 }).tag();
+    try std.testing.expectEqual(u32, s1);
+
+    const s2 = U.S(U{ .T = u64 }).tag();
+    try std.testing.expectEqual(u64, s2);
+}
+
+test "function call with cast to anyopaque pointer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    const Foo = struct {
+        y: u8,
+        var foo: @This() = undefined;
+        const t = &foo;
+
+        fn bar(pointer: ?*anyopaque) void {
+            _ = pointer;
+        }
+    };
+    Foo.bar(Foo.t);
 }

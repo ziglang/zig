@@ -9,7 +9,7 @@ const Payload = packed union(Letter) {
     C: bool,
 };
 export fn entry() void {
-    var a = Payload{ .A = 1234 };
+    const a: Payload = .{ .A = 1234 };
     _ = a;
 }
 

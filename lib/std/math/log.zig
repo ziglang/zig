@@ -24,11 +24,8 @@ pub fn log(comptime T: type, base: T, x: T) T {
             return @as(comptime_float, @log(@as(f64, x)) / @log(float_base));
         },
 
-        // TODO: implement integer log without using float math.
-        // The present implementation is incorrect, for example
-        // `log(comptime_int, 9, 59049)` should return `5` and not `4`.
         .ComptimeInt => {
-            return @as(comptime_int, @floor(@log(@as(f64, x)) / @log(float_base)));
+            return @as(comptime_int, math.log_int(comptime_int, base, x));
         },
 
         .Int => |IntType| switch (IntType.signedness) {

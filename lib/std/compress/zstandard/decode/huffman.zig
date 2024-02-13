@@ -54,7 +54,7 @@ fn decodeFseHuffmanTreeSlice(src: []const u8, compressed_size: usize, weights: *
 
     const start_index = std.math.cast(usize, counting_reader.bytes_read) orelse
         return error.MalformedHuffmanTree;
-    var huff_data = src[start_index..compressed_size];
+    const huff_data = src[start_index..compressed_size];
     var huff_bits: readers.ReverseBitReader = undefined;
     huff_bits.init(huff_data) catch return error.MalformedHuffmanTree;
 

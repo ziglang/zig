@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 const io = std.io;
 const mem = std.mem;
 const testing = std.testing;
@@ -20,32 +21,35 @@ pub fn PeekStream(
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, buffer_type);
 
-        pub usingnamespace switch (buffer_type) {
-            .Static => struct {
-                pub fn init(base: ReaderType) Self {
-                    return .{
-                        .unbuffered_reader = base,
-                        .fifo = FifoType.init(),
-                    };
-                }
-            },
-            .Slice => struct {
-                pub fn init(base: ReaderType, buf: []u8) Self {
-                    return .{
-                        .unbuffered_reader = base,
-                        .fifo = FifoType.init(buf),
-                    };
-                }
-            },
-            .Dynamic => struct {
-                pub fn init(base: ReaderType, allocator: mem.Allocator) Self {
-                    return .{
-                        .unbuffered_reader = base,
-                        .fifo = FifoType.init(allocator),
-                    };
-                }
-            },
+        pub const init = switch (buffer_type) {
+            .Static => initStatic,
+            .Slice => initSlice,
+            .Dynamic => initDynamic,
         };
+
+        fn initStatic(base: ReaderType) Self {
+            comptime assert(buffer_type == .Static);
+            return .{
+                .unbuffered_reader = base,
+                .fifo = FifoType.init(),
+            };
+        }
+
+        fn initSlice(base: ReaderType, buf: []u8) Self {
+            comptime assert(buffer_type == .Slice);
+            return .{
+                .unbuffered_reader = base,
+                .fifo = FifoType.init(buf),
+            };
+        }
+
+        fn initDynamic(base: ReaderType, allocator: mem.Allocator) Self {
+            comptime assert(buffer_type == .Dynamic);
+            return .{
+                .unbuffered_reader = base,
+                .fifo = FifoType.init(allocator),
+            };
+        }
 
         pub fn putBackByte(self: *Self, byte: u8) !void {
             try self.putBack(&[_]u8{byte});

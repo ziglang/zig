@@ -20,6 +20,9 @@ DECLARE_HANDLE(HIORING);
 
 typedef enum IORING_SQE_FLAGS {
   IOSQE_FLAGS_NONE = 0
+#if NTDDI_VERSION >= NTDDI_WIN10_NI
+  , IOSQE_FLAGS_DRAIN_PRECEDING_OPS = 0x00000001
+#endif
 } IORING_SQE_FLAGS;
 DEFINE_ENUM_FLAG_OPERATORS(IORING_SQE_FLAGS)
 
@@ -130,6 +133,10 @@ STDAPI BuildIoRingCancelRequest(HIORING ioRing, IORING_HANDLE_REF file, UINT_PTR
 STDAPI BuildIoRingReadFile(HIORING ioRing, IORING_HANDLE_REF fileRef, IORING_BUFFER_REF dataRef, UINT32 numberOfBytesToRead, UINT64 fileOffset, UINT_PTR userData, IORING_SQE_FLAGS flags);
 STDAPI BuildIoRingRegisterFileHandles(HIORING ioRing, UINT32 count, HANDLE const handles[], UINT_PTR userData);
 STDAPI BuildIoRingRegisterBuffers(HIORING ioRing, UINT32 count, IORING_BUFFER_INFO const buffers[], UINT_PTR userData);
+#if NTDDI_VERSION >= NTDDI_WIN10_NI
+STDAPI BuildIoRingWriteFile(HIORING ioRing, IORING_HANDLE_REF fileRef, IORING_BUFFER_REF bufferRef, UINT32 numberOfBytesToWrite, UINT64 fileOffset, FILE_WRITE_FLAGS writeFlags, UINT_PTR userData, IORING_SQE_FLAGS sqeFlags);
+STDAPI BuildIoRingFlushFile(HIORING ioRing, IORING_HANDLE_REF fileRef, FILE_FLUSH_MODE flushMode, UINT_PTR userData, IORING_SQE_FLAGS sqeFlags);
+#endif
 
 #ifdef __cplusplus
 }

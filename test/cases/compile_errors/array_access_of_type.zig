@@ -1,6 +1,6 @@
 export fn foo() void {
     var b: u8[40] = undefined;
-    _ = b;
+    _ = &b;
 }
 
 // error

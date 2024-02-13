@@ -1,5 +1,6 @@
 pub fn f() void {
     var bar: bool = true;
+    _ = &bar;
     const S = struct {
         fn baz() bool {
             return bar;
@@ -10,6 +11,6 @@ pub fn f() void {
 
 // error
 //
-// :5:20: error: mutable 'bar' not accessible from here
+// :6:20: error: mutable 'bar' not accessible from here
 // :2:9: note: declared mutable here
-// :3:15: note: crosses namespace boundary here
+// :4:15: note: crosses namespace boundary here

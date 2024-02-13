@@ -4,6 +4,7 @@ fn add(a: i32, b: i32) i32 {
 
 pub fn main() void {
     var a: i32 = -5;
+    _ = &a;
     const x = add(a, 7);
     var y = add(2, 0);
     y -= x;

@@ -247,6 +247,31 @@ WS2TCPIP_INLINE int IN6_ADDR_EQUAL(const struct in6_addr *a, const struct in6_ad
 
 #define IN6_ARE_ADDR_EQUAL IN6_ADDR_EQUAL
 
+#define TCP_OFFLOAD_NO_PREFERENCE 0
+#define TCP_OFFLOAD_NOT_PREFERRED 1
+#define TCP_OFFLOAD_PREFERRED 2
+
+/* TCP_NODELAY is in winsock.h and winsock2.h */
+#define TCP_EXPEDITED_1122 0x0002
+#define TCP_KEEPALIVE 3
+#define TCP_MAXSEG 4
+#define TCP_MAXRT 5
+#define TCP_STDURG 6
+#define TCP_NOURG 7
+#define TCP_ATMARK 8
+#define TCP_NOSYNRETRIES 9
+#define TCP_TIMESTAMPS 10
+#define TCP_OFFLOAD_PREFERENCE 11
+#define TCP_CONGESTION_ALGORITHM 12
+#define TCP_DELAY_FIN_ACK 13
+#define TCP_MAXRTMS 14
+#define TCP_FASTOPEN 15
+#define TCP_KEEPCNT 16
+#define TCP_KEEPIDLE TCP_KEEPALIVE
+#define TCP_KEEPINTVL 17
+#define TCP_FAIL_CONNECT_ON_ICMP_ERROR 18
+#define TCP_ICMP_ERROR_INFO 19
+
 #ifdef __cplusplus
 }
 #endif

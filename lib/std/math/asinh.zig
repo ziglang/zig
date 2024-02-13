@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
@@ -46,7 +47,7 @@ fn asinh32(x: f32) f32 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.doNotOptimizeAway(rx + 0x1.0p120);
+        mem.doNotOptimizeAway(rx + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;
@@ -73,7 +74,7 @@ fn asinh64(x: f64) f64 {
     }
     // |x| < 0x1p-12, inexact if x != 0
     else {
-        math.doNotOptimizeAway(rx + 0x1.0p120);
+        mem.doNotOptimizeAway(rx + 0x1.0p120);
     }
 
     return if (s != 0) -rx else rx;

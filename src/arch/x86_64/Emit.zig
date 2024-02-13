@@ -50,19 +50,20 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
-                    const atom_index =
-                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
-                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
-                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
-                    else
-                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
-                    try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                        .type = .branch,
-                        .target = target,
+                    const atom = macho_file.getSymbol(symbol.atom_index).getAtom(macho_file).?;
+                    const sym_index = macho_file.getZigObject().?.symbols.items[symbol.sym_index];
+                    try atom.addReloc(macho_file, .{
+                        .tag = .@"extern",
                         .offset = end_offset - 4,
+                        .target = sym_index,
                         .addend = 0,
-                        .pcrel = true,
-                        .length = 2,
+                        .type = .branch,
+                        .meta = .{
+                            .pcrel = true,
+                            .has_subtractor = false,
+                            .length = 2,
+                            .symbolnum = @intCast(symbol.sym_index),
+                        },
                     });
                 } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     // Add relocation to the decl.
@@ -103,10 +104,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                    const is_obj_or_static_lib = switch (emit.lower.bin_file.options.output_mode) {
+                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
                         .Exe => false,
                         .Obj => true,
-                        .Lib => emit.lower.bin_file.options.link_mode == .Static,
+                        .Lib => emit.lower.link_mode == .Static,
                     };
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
                     const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
@@ -114,7 +115,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
                         _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
                     }
-                    if (emit.lower.bin_file.options.pic) {
+                    if (emit.lower.pic) {
                         const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
                             link.File.Elf.R_X86_64_ZIG_GOTPCREL
                         else if (sym.flags.needs_got)
@@ -149,33 +150,49 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                         }
                     }
+                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
+                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
+                        .Exe => false,
+                        .Obj => true,
+                        .Lib => emit.lower.link_mode == .Static,
+                    };
+                    const atom = macho_file.getSymbol(data.atom_index).getAtom(macho_file).?;
+                    const sym_index = macho_file.getZigObject().?.symbols.items[data.sym_index];
+                    const sym = macho_file.getSymbol(sym_index);
+                    if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
+                        _ = try sym.getOrCreateZigGotEntry(sym_index, macho_file);
+                    }
+                    const @"type": link.File.MachO.Relocation.Type = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
+                        .zig_got_load
+                    else if (sym.flags.needs_got)
+                        // TODO: it is possible to emit .got_load here that can potentially be relaxed
+                        // however this requires always to use a MOVQ mnemonic
+                        .got
+                    else if (sym.flags.tlv)
+                        .tlv
+                    else
+                        .signed;
+                    try atom.addReloc(macho_file, .{
+                        .tag = .@"extern",
+                        .offset = @intCast(end_offset - 4),
+                        .target = sym_index,
+                        .addend = 0,
+                        .type = @"type",
+                        .meta = .{
+                            .pcrel = true,
+                            .has_subtractor = false,
+                            .length = 2,
+                            .symbolnum = @intCast(data.sym_index),
+                        },
+                    });
                 } else unreachable,
                 .linker_got,
                 .linker_direct,
                 .linker_import,
-                .linker_tlv,
                 => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |_| {
                     unreachable;
-                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
-                    const atom_index =
-                        macho_file.getAtomIndexForSymbol(.{ .sym_index = symbol.atom_index }).?;
-                    const target = if (link.File.MachO.global_symbol_bit & symbol.sym_index != 0)
-                        macho_file.getGlobalByIndex(link.File.MachO.global_symbol_mask & symbol.sym_index)
-                    else
-                        link.File.MachO.SymbolWithLoc{ .sym_index = symbol.sym_index };
-                    try link.File.MachO.Atom.addRelocation(macho_file, atom_index, .{
-                        .type = switch (lowered_relocs[0].target) {
-                            .linker_got => .got,
-                            .linker_direct => .signed,
-                            .linker_tlv => .tlv,
-                            else => unreachable,
-                        },
-                        .target = target,
-                        .offset = @intCast(end_offset - 4),
-                        .addend = 0,
-                        .pcrel = true,
-                        .length = 2,
-                    });
+                } else if (emit.lower.bin_file.cast(link.File.MachO)) |_| {
+                    unreachable;
                 } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
                     const atom_index = coff_file.getAtomIndexForSymbol(.{
                         .sym_index = symbol.atom_index,
@@ -309,7 +326,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
     const delta_line = @as(i33, line) - @as(i33, emit.prev_di_line);
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
-    log.debug("  (advance pc={d} and line={d})", .{ delta_line, delta_pc });
+    log.debug("  (advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dw| {
             if (column != emit.prev_di_column) try dw.setColumn(column);

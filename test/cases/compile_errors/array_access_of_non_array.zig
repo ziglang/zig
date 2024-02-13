@@ -3,7 +3,7 @@ export fn f() void {
     bad[0] = bad[0];
 }
 export fn g() void {
-    var bad: bool = undefined;
+    const bad: bool = undefined;
     _ = bad[0];
 }
 

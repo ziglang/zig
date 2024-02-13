@@ -1,8 +1,7 @@
 const Err = error{Foo};
 
 fn foo() u8 {
-    var x = @as(u8, @intCast(9));
-    return x;
+    return @intCast(9);
 }
 
 pub fn main() !u8 {

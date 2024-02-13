@@ -105,7 +105,7 @@ fn main2() callconv(.C) c_int {
     return 0;
 }
 
-fn _start2() noreturn {
+fn _start2() callconv(.C) noreturn {
     callMain2();
 }
 
@@ -347,7 +347,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.ntdll.RtlExitUserProcess(initEventLoopAndCallMain());
+    std.os.windows.ntdll.RtlExitUserProcess(callMain());
 }
 
 fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -358,7 +358,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    const result: std.os.windows.INT = initEventLoopAndCallWinMain();
+    const result: std.os.windows.INT = call_wWinMain();
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
@@ -422,7 +422,7 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
         expandStackSize(phdrs);
     }
 
-    std.os.exit(@call(.always_inline, callMainWithArgs, .{ argc, argv, envp }));
+    std.os.exit(callMainWithArgs(argc, argv, envp));
 }
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
@@ -459,14 +459,14 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     }
 }
 
-fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
+inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
     std.debug.maybeEnableSegfaultHandler();
     std.os.maybeIgnoreSigpipe();
 
-    return initEventLoopAndCallMain();
+    return callMain();
 }
 
 fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
@@ -481,92 +481,18 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
         expandStackSize(phdrs);
     }
 
-    return @call(.always_inline, callMainWithArgs, .{ @as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp });
+    return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp);
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
     std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
-    return @call(.always_inline, callMain, .{});
+    return callMain();
 }
 
 // General error message for a malformed return type
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
-// This is marked inline because for some reason LLVM in release mode fails to inline it,
-// and we want fewer call frames in stack traces.
-inline fn initEventLoopAndCallMain() u8 {
-    if (std.event.Loop.instance) |loop| {
-        if (loop == std.event.Loop.default_instance) {
-            loop.init() catch |err| {
-                std.log.err("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                return 1;
-            };
-            defer loop.deinit();
-
-            var result: u8 = undefined;
-            var frame: @Frame(callMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callMainAsync, .{loop});
-            loop.run();
-            return result;
-        }
-    }
-
-    // This is marked inline because for some reason LLVM in release mode fails to inline it,
-    // and we want fewer call frames in stack traces.
-    return @call(.always_inline, callMain, .{});
-}
-
-// This is marked inline because for some reason LLVM in release mode fails to inline it,
-// and we want fewer call frames in stack traces.
-// TODO This function is duplicated from initEventLoopAndCallMain instead of using generics
-// because it is working around stage1 compiler bugs.
-inline fn initEventLoopAndCallWinMain() std.os.windows.INT {
-    if (std.event.Loop.instance) |loop| {
-        if (loop == std.event.Loop.default_instance) {
-            loop.init() catch |err| {
-                std.log.err("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                return 1;
-            };
-            defer loop.deinit();
-
-            var result: std.os.windows.INT = undefined;
-            var frame: @Frame(callWinMainAsync) = undefined;
-            _ = @asyncCall(&frame, &result, callWinMainAsync, .{loop});
-            loop.run();
-            return result;
-        }
-    }
-
-    // This is marked inline because for some reason LLVM in release mode fails to inline it,
-    // and we want fewer call frames in stack traces.
-    return @call(.always_inline, call_wWinMain, .{});
-}
-
-fn callMainAsync(loop: *std.event.Loop) callconv(.Async) u8 {
-    // This prevents the event loop from terminating at least until main() has returned.
-    // TODO This shouldn't be needed here; it should be in the event loop code.
-    loop.beginOneEvent();
-    defer loop.finishOneEvent();
-    return callMain();
-}
-
-fn callWinMainAsync(loop: *std.event.Loop) callconv(.Async) std.os.windows.INT {
-    // This prevents the event loop from terminating at least until main() has returned.
-    // TODO This shouldn't be needed here; it should be in the event loop code.
-    loop.beginOneEvent();
-    defer loop.finishOneEvent();
-    return call_wWinMain();
-}
-
-// This is not marked inline because it is called with @asyncCall when
-// there is an event loop.
-pub fn callMain() u8 {
+pub inline fn callMain() u8 {
     switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
         .NoReturn => {
             root.main();

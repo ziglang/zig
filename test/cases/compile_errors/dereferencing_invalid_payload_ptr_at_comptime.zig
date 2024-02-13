@@ -16,7 +16,7 @@ comptime {
     _ = payload_ptr.*;
 }
 comptime {
-    var val: u8 = 15;
+    const val: u8 = 15;
     var err_union: anyerror!u8 = val;
 
     const payload_ptr = &(err_union catch unreachable);

@@ -24,6 +24,8 @@ WNetAddConnection2A
 WNetAddConnection2W
 WNetAddConnection3A
 WNetAddConnection3W
+WNetAddConnection4A
+WNetAddConnection4W
 WNetAddConnectionA
 WNetAddConnectionW
 WNetCancelConnection2A
@@ -92,3 +94,5 @@ WNetSetLastErrorW
 WNetSupportGlobalEnum
 WNetUseConnectionA
 WNetUseConnectionW
+WNetUseConnection4A
+WNetUseConnection4W

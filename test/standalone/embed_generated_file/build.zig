@@ -7,10 +7,10 @@ pub fn build(b: *std.Build) void {
     const bootloader = b.addExecutable(.{
         .name = "bootloader",
         .root_source_file = .{ .path = "bootloader.zig" },
-        .target = .{
+        .target = b.resolveTargetQuery(.{
             .cpu_arch = .x86,
             .os_tag = .freestanding,
-        },
+        }),
         .optimize = .ReleaseSmall,
     });
 
@@ -18,8 +18,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "main.zig" },
         .optimize = .Debug,
     });
-    exe.addAnonymousModule("bootloader.elf", .{
-        .source_file = bootloader.getEmittedBin(),
+    exe.root_module.addAnonymousImport("bootloader.elf", .{
+        .root_source_file = bootloader.getEmittedBin(),
     });
 
     // TODO: actually check the output

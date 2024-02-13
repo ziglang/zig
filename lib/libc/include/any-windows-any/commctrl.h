@@ -2425,6 +2425,7 @@ extern "C" {
 
 #define LVFI_PARAM 0x1
 #define LVFI_STRING 0x2
+#define LVFI_SUBSTRING 0x4  /* Same as LVFI_PARTIAL */
 #define LVFI_PARTIAL 0x8
 #define LVFI_WRAP 0x20
 #define LVFI_NEARESTXY 0x40

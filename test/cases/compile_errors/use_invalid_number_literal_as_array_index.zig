@@ -1,7 +1,7 @@
 var v = 25;
 export fn entry() void {
     var arr: [v]u8 = undefined;
-    _ = arr;
+    _ = &arr;
 }
 
 // error

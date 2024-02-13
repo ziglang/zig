@@ -38,16 +38,18 @@ test "void optional" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: ?void = {};
+    _ = &x;
     try expect(x != null);
 }
 
 test "void array as a local variable initializer" {
     var x = [_]void{{}} ** 1004;
+    _ = &x[0];
     _ = x[0];
 }
 
 const void_constant = {};
 test "reference to void constants" {
     var a = void_constant;
-    _ = a;
+    _ = &a;
 }

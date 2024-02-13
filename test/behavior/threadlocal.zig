@@ -35,7 +35,7 @@ test "pointer to thread local array" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const s = "Hello world";
-    std.mem.copy(u8, buffer[0..], s);
+    @memcpy(buffer[0..s.len], s);
     try std.testing.expectEqualSlices(u8, buffer[0..], s);
 }
 

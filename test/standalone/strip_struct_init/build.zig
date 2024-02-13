@@ -9,8 +9,8 @@ pub fn build(b: *std.Build) void {
     const main = b.addTest(.{
         .root_source_file = .{ .path = "main.zig" },
         .optimize = optimize,
+        .strip = true,
     });
-    main.strip = true;
 
     test_step.dependOn(&b.addRunArtifact(main).step);
 }

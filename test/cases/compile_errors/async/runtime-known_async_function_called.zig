@@ -4,6 +4,7 @@ export fn entry() void {
 fn amain() void {
     var ptr = afunc;
     _ = ptr();
+    _ = &ptr;
 }
 fn afunc() callconv(.Async) void {}
 

@@ -129,6 +129,7 @@ test "cast" {
     try testing.expectEqual(@as(?*anyopaque, @ptrFromInt(2)), cast(?*anyopaque, @as(*u8, @ptrFromInt(2))));
 
     var foo: c_int = -1;
+    _ = &foo;
     try testing.expect(cast(*anyopaque, -1) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(*anyopaque, foo) == @as(*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
     try testing.expect(cast(?*anyopaque, -1) == @as(?*anyopaque, @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))))));
@@ -251,7 +252,7 @@ test "sizeof" {
     try testing.expect(sizeof(anyopaque) == 1);
 }
 
-pub const CIntLiteralBase = enum { decimal, octal, hexadecimal };
+pub const CIntLiteralBase = enum { decimal, octal, hex };
 
 /// Deprecated: use `CIntLiteralBase`
 pub const CIntLiteralRadix = CIntLiteralBase;
@@ -288,13 +289,13 @@ pub fn promoteIntLiteral(
 }
 
 test "promoteIntLiteral" {
-    const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hexadecimal);
+    const signed_hex = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .hex);
     try testing.expectEqual(c_uint, @TypeOf(signed_hex));
 
     if (math.maxInt(c_longlong) == math.maxInt(c_int)) return;
 
     const signed_decimal = promoteIntLiteral(c_int, math.maxInt(c_int) + 1, .decimal);
-    const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hexadecimal);
+    const unsigned = promoteIntLiteral(c_uint, math.maxInt(c_uint) + 1, .hex);
 
     if (math.maxInt(c_long) > math.maxInt(c_int)) {
         try testing.expectEqual(c_long, @TypeOf(signed_decimal));
@@ -601,22 +602,22 @@ test "WL_CONTAINER_OF" {
         a: u32 = 0,
         b: u32 = 0,
     };
-    var x = S{};
-    var y = S{};
-    var ptr = Macros.WL_CONTAINER_OF(&x.b, &y, "b");
+    const x = S{};
+    const y = S{};
+    const ptr = Macros.WL_CONTAINER_OF(&x.b, &y, "b");
     try testing.expectEqual(&x, ptr);
 }
 
 test "CAST_OR_CALL casting" {
-    var arg = @as(c_int, 1000);
-    var casted = Macros.CAST_OR_CALL(u8, arg);
+    const arg: c_int = 1000;
+    const casted = Macros.CAST_OR_CALL(u8, arg);
     try testing.expectEqual(cast(u8, arg), casted);
 
     const S = struct {
         x: u32 = 0,
     };
-    var s = S{};
-    var casted_ptr = Macros.CAST_OR_CALL(*u8, &s);
+    var s: S = .{};
+    const casted_ptr = Macros.CAST_OR_CALL(*u8, &s);
     try testing.expectEqual(cast(*u8, &s), casted_ptr);
 }
 

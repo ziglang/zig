@@ -10,6 +10,7 @@ pub const Class = enum {
     win_i128,
     float,
     float_combine,
+    integer_per_element,
 };
 
 pub fn classifyWindows(ty: Type, mod: *Module) Class {
@@ -161,6 +162,31 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
         .Vector => {
             const elem_ty = ty.childType(mod);
             const bits = elem_ty.bitSize(mod) * ty.arrayLen(mod);
+            if (elem_ty.toIntern() == .bool_type) {
+                if (bits <= 32) return .{
+                    .integer, .none, .none, .none,
+                    .none,    .none, .none, .none,
+                };
+                if (bits <= 64) return .{
+                    .sse,  .none, .none, .none,
+                    .none, .none, .none, .none,
+                };
+                if (ctx == .arg) {
+                    if (bits <= 128) return .{
+                        .integer_per_element, .none, .none, .none,
+                        .none,                .none, .none, .none,
+                    };
+                    if (bits <= 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{
+                        .integer_per_element, .none, .none, .none,
+                        .none,                .none, .none, .none,
+                    };
+                    if (bits <= 512 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{
+                        .integer_per_element, .none, .none, .none,
+                        .none,                .none, .none, .none,
+                    };
+                }
+                return memory_class;
+            }
             if (bits <= 64) return .{
                 .sse,  .none, .none, .none,
                 .none, .none, .none, .none,
@@ -224,7 +250,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             var result_i: usize = 0; // out of 8
             var byte_i: usize = 0; // out of 8
             for (struct_type.field_types.get(ip), 0..) |field_ty_ip, i| {
-                const field_ty = field_ty_ip.toType();
+                const field_ty = Type.fromInterned(field_ty_ip);
                 const field_align = struct_type.fieldAlign(ip, i);
                 if (field_align != .none and field_align.compare(.lt, field_ty.abiAlignment(mod)))
                     return memory_class;
@@ -342,12 +368,12 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
                 const field_align = union_obj.fieldAlign(ip, @intCast(field_index));
                 if (field_align != .none and
-                    field_align.compare(.lt, field_ty.toType().abiAlignment(mod)))
+                    field_align.compare(.lt, Type.fromInterned(field_ty).abiAlignment(mod)))
                 {
                     return memory_class;
                 }
                 // Combine this field with the previous one.
-                const field_class = classifySystemV(field_ty.toType(), mod, .field);
+                const field_class = classifySystemV(Type.fromInterned(field_ty), mod, .field);
                 for (&result, 0..) |*result_item, i| {
                     const field_item = field_class[i];
                     // "If both classes are equal, this is the resulting class."
@@ -570,4 +596,4 @@ const Module = @import("../../Module.zig");
 const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");

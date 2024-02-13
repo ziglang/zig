@@ -49,7 +49,7 @@ int __cdecl mkstemp (char *template_name)
         }
         fd = _sopen(template_name,
                 _O_RDWR | _O_CREAT | _O_EXCL | _O_BINARY,
-                _SH_DENYRW, _S_IREAD | _S_IWRITE);
+                _SH_DENYNO, _S_IREAD | _S_IWRITE);
         if (fd != -1) return fd;
         if (fd == -1 && errno != EEXIST) return -1;
     }

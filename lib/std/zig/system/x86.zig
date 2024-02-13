@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Target = std.Target;
-const CrossTarget = std.zig.CrossTarget;
 
 const XCR0_XMM = 0x02;
 const XCR0_YMM = 0x04;
@@ -23,8 +22,8 @@ inline fn hasMask(input: u32, mask: u32) bool {
     return (input & mask) == mask;
 }
 
-pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, cross_target: CrossTarget) Target.Cpu {
-    _ = cross_target;
+pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, query: Target.Query) Target.Cpu {
+    _ = query;
     var cpu = Target.Cpu{
         .arch = arch,
         .model = Target.Cpu.Model.generic(arch),

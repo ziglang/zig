@@ -82,3 +82,18 @@ test {
 comptime {
     _ = @import("usingnamespace/file_1.zig");
 }
+
+const Bar = struct {
+    usingnamespace Mixin;
+};
+
+const Mixin = struct {
+    pub fn two(self: Bar) void {
+        _ = self;
+    }
+};
+
+test "container member access usingnamespace decls" {
+    var foo = Bar{};
+    foo.two();
+}

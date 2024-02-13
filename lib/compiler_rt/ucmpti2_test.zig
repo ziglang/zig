@@ -2,7 +2,7 @@ const cmp = @import("cmp.zig");
 const testing = @import("std").testing;
 
 fn test__ucmpti2(a: u128, b: u128, expected: i32) !void {
-    var result = cmp.__ucmpti2(a, b);
+    const result = cmp.__ucmpti2(a, b);
     try testing.expectEqual(expected, result);
 }
 

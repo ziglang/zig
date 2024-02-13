@@ -28,9 +28,6 @@ pub const File = struct {
     sub_path: []const u8,
     contents: Contents,
 
-    /// deprecated: use `getPath`
-    pub const getFileSource = getPath;
-
     pub fn getPath(self: *File) std.Build.LazyPath {
         return .{ .generated = &self.generated_file };
     }
@@ -126,10 +123,6 @@ pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8)
     }) catch @panic("OOM");
 }
 
-pub const getFileSource = @compileError("Deprecated; use the return value from add()/addCopyFile(), or use files[i].getPath()");
-
-pub const getDirectorySource = getDirectory;
-
 /// Returns a `LazyPath` representing the base directory that contains all the
 /// files from this `WriteFile`.
 pub fn getDirectory(wf: *WriteFile) std.Build.LazyPath {
@@ -197,7 +190,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // If, for example, a hard-coded path was used as the location to put WriteFile
     // files, then two WriteFiles executing in parallel might clobber each other.
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     // Random bytes to make WriteFile unique. Refresh this with

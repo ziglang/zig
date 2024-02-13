@@ -247,7 +247,7 @@ pub fn innerParse(
             }
         },
         .Enum => {
-            if (comptime std.meta.trait.hasFn("jsonParse")(T)) {
+            if (std.meta.hasFn(T, "jsonParse")) {
                 return T.jsonParse(allocator, source, options);
             }
 
@@ -260,7 +260,7 @@ pub fn innerParse(
             return sliceToEnum(T, slice);
         },
         .Union => |unionInfo| {
-            if (comptime std.meta.trait.hasFn("jsonParse")(T)) {
+            if (std.meta.hasFn(T, "jsonParse")) {
                 return T.jsonParse(allocator, source, options);
             }
 
@@ -318,7 +318,7 @@ pub fn innerParse(
                 return r;
             }
 
-            if (comptime std.meta.trait.hasFn("jsonParse")(T)) {
+            if (std.meta.hasFn(T, "jsonParse")) {
                 return T.jsonParse(allocator, source, options);
             }
 
@@ -581,7 +581,7 @@ pub fn innerParseFromValue(
             }
         },
         .Enum => {
-            if (comptime std.meta.trait.hasFn("jsonParseFromValue")(T)) {
+            if (std.meta.hasFn(T, "jsonParseFromValue")) {
                 return T.jsonParseFromValue(allocator, source, options);
             }
 
@@ -593,7 +593,7 @@ pub fn innerParseFromValue(
             }
         },
         .Union => |unionInfo| {
-            if (comptime std.meta.trait.hasFn("jsonParseFromValue")(T)) {
+            if (std.meta.hasFn(T, "jsonParseFromValue")) {
                 return T.jsonParseFromValue(allocator, source, options);
             }
 
@@ -635,7 +635,7 @@ pub fn innerParseFromValue(
                 return r;
             }
 
-            if (comptime std.meta.trait.hasFn("jsonParseFromValue")(T)) {
+            if (std.meta.hasFn(T, "jsonParseFromValue")) {
                 return T.jsonParseFromValue(allocator, source, options);
             }
 

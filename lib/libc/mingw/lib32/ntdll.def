@@ -163,7 +163,6 @@ LdrLoadAlternateResourceModule@16
 LdrLoadAlternateResourceModuleEx@20
 LdrLoadDll@16
 LdrLoadEnclaveModule@12
-LdrAlternateResourcesEnabled@0
 LdrLockLoaderLock@12
 LdrOpenImageFileOptionsKey@12
 LdrParentInterlockedPopEntrySList@0
@@ -957,7 +956,6 @@ RtlDeleteSecurityObject@4
 RtlDeleteTimer@12
 RtlDeleteTimerQueue@4
 RtlDeleteTimerQueueEx@8
-RtlDeNormalizeProcessParams@4
 RtlDeregisterSecureMemoryCacheCallback@4
 RtlDeregisterWait@4
 RtlDeregisterWaitEx@8
@@ -1128,7 +1126,6 @@ RtlGetLengthWithoutTrailingPathSeperators@12
 RtlGetLocaleFileMappingAddress@12
 RtlGetLongestNtPathLength@0
 RtlGetMultiTimePrecise@12
-RtlGetLongestNtPathLength@0
 RtlGetNativeSystemInformation@16
 RtlGetNextRange@12
 RtlGetNextEntryHashTable@8
@@ -1167,7 +1164,6 @@ RtlGetUserInfoHeap@20
 RtlGetUserPreferredUILanguages@20
 RtlGetVersion@4
 RtlGuardCheckLongJumpTarget@12
-RtlGUIDFromString@8
 RtlHashUnicodeString@16
 RtlHeapTrkInitialize@4
 RtlIdentifierAuthoritySid@4

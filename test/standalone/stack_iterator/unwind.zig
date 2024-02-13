@@ -9,7 +9,7 @@ noinline fn frame3(expected: *[4]usize, unwound: *[4]usize) void {
     var context: debug.ThreadContext = undefined;
     testing.expect(debug.getContext(&context)) catch @panic("failed to getContext");
 
-    var debug_info = debug.getSelfDebugInfo() catch @panic("failed to openSelfDebugInfo");
+    const debug_info = debug.getSelfDebugInfo() catch @panic("failed to openSelfDebugInfo");
     var it = debug.StackIterator.initWithContext(expected[0], debug_info, &context) catch @panic("failed to initWithContext");
     defer it.deinit();
 
@@ -76,7 +76,7 @@ noinline fn frame1(expected: *[4]usize, unwound: *[4]usize) void {
     // Use a stack frame that is too big to encode in __unwind_info's stack-immediate encoding
     // to exercise the stack-indirect encoding path
     var pad: [std.math.maxInt(u8) * @sizeOf(usize) + 1]u8 = undefined;
-    _ = pad;
+    _ = std.mem.doNotOptimizeAway(&pad);
 
     frame2(expected, unwound);
 }

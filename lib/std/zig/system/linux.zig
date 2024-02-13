@@ -5,10 +5,7 @@ const io = std.io;
 const fs = std.fs;
 const fmt = std.fmt;
 const testing = std.testing;
-
 const Target = std.Target;
-const CrossTarget = std.zig.CrossTarget;
-
 const assert = std.debug.assert;
 
 const SparcCpuinfoImpl = struct {
@@ -331,7 +328,7 @@ fn CpuinfoParser(comptime impl: anytype) type {
 }
 
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
-    var f = fs.openFileAbsolute("/proc/cpuinfo", .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
+    var f = fs.openFileAbsolute("/proc/cpuinfo", .{}) catch |err| switch (err) {
         else => return null,
     };
     defer f.close();

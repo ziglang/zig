@@ -1,7 +1,7 @@
-const Foo = struct {};
+const Foo = struct { a: u32 };
 export fn a() void {
     const T = [*c]Foo;
-    var t: T = undefined;
+    const t: T = undefined;
     _ = t;
 }
 

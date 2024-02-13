@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 test "comptime slice-sentinel in bounds (unterminated)" {
     // array
     comptime {

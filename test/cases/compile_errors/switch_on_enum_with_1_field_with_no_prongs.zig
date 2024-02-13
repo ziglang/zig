@@ -1,7 +1,7 @@
 const Foo = enum { M };
 
 export fn entry() void {
-    var f = Foo.M;
+    const f = Foo.M;
     switch (f) {}
 }
 

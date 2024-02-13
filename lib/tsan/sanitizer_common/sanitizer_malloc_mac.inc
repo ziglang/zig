@@ -12,7 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_common/sanitizer_platform.h"
-#if !SANITIZER_MAC
+#if !SANITIZER_APPLE
 #error "This file should only be compiled on Darwin."
 #endif
 
@@ -23,6 +23,7 @@
 #include <sys/mman.h>
 
 #include "interception/interception.h"
+#include "sanitizer_common/sanitizer_allocator_dlsym.h"
 #include "sanitizer_common/sanitizer_mac.h"
 
 // Similar code is used in Google Perftools,
@@ -192,20 +193,15 @@ void *__sanitizer_mz_malloc(malloc_zone_t *zone, uptr size) {
   return p;
 }
 
+struct DlsymAlloc : public DlSymAllocator<DlsymAlloc> {
+  static bool UseImpl() { return !COMMON_MALLOC_SANITIZER_INITIALIZED; }
+};
+
 extern "C"
 SANITIZER_INTERFACE_ATTRIBUTE
 void *__sanitizer_mz_calloc(malloc_zone_t *zone, size_t nmemb, size_t size) {
-  if (UNLIKELY(!COMMON_MALLOC_SANITIZER_INITIALIZED)) {
-    // Hack: dlsym calls calloc before REAL(calloc) is retrieved from dlsym.
-    const size_t kCallocPoolSize = 1024;
-    static uptr calloc_memory_for_dlsym[kCallocPoolSize];
-    static size_t allocated;
-    size_t size_in_words = ((nmemb * size) + kWordSize - 1) / kWordSize;
-    void *mem = (void*)&calloc_memory_for_dlsym[allocated];
-    allocated += size_in_words;
-    CHECK(allocated < kCallocPoolSize);
-    return mem;
-  }
+  if (DlsymAlloc::Use())
+    return DlsymAlloc::Callocate(nmemb, size);
   COMMON_MALLOC_CALLOC(nmemb, size);
   return p;
 }
@@ -223,6 +219,8 @@ extern "C"
 SANITIZER_INTERFACE_ATTRIBUTE
 void __sanitizer_mz_free(malloc_zone_t *zone, void *ptr) {
   if (!ptr) return;
+  if (DlsymAlloc::PointerIsMine(ptr))
+    return DlsymAlloc::Free(ptr);
   COMMON_MALLOC_FREE(ptr);
 }
 

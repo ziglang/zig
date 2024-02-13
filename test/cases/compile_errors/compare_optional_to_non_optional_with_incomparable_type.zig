@@ -1,6 +1,6 @@
 export fn entry() void {
-    var x: ?[3]i32 = undefined;
-    var y: [3]i32 = undefined;
+    const x: ?[3]i32 = undefined;
+    const y: [3]i32 = undefined;
     _ = (x == y);
 }
 

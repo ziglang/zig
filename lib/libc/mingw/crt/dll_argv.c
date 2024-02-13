@@ -12,11 +12,10 @@
 
 extern int _dowildcard;
 
-#ifdef WPRFLAG
 int __CRTDECL
+#ifdef _UNICODE
 __wsetargv (void)
 #else
-int __CRTDECL
 __setargv (void)
 #endif
 {

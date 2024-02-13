@@ -9,7 +9,7 @@ pub export fn entry1() void {
     };
 
     var a = U{ .b = undefined };
-    _ = a;
+    _ = &a;
 }
 pub export fn entry2() void {
     const U = union(enum) {
@@ -25,7 +25,7 @@ pub export fn entry3() void {
     };
     var e = @typeInfo(U).Union.tag_type.?.a;
     var u: U = undefined;
-    u = e;
+    u = (&e).*;
 }
 
 // error
@@ -38,6 +38,6 @@ pub export fn entry3() void {
 // :19:10: error: cannot initialize 'noreturn' field of union
 // :16:9: note: field 'a' declared here
 // :15:15: note: union declared here
-// :28:9: error: runtime coercion from enum '@typeInfo(tmp.entry3.U).Union.tag_type.?' to union 'tmp.entry3.U' which has a 'noreturn' field
+// :28:13: error: runtime coercion from enum '@typeInfo(tmp.entry3.U).Union.tag_type.?' to union 'tmp.entry3.U' which has a 'noreturn' field
 // :23:9: note: 'noreturn' field here
 // :22:15: note: union declared here

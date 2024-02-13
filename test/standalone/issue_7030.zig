@@ -1,7 +1,7 @@
 const std = @import("std");
 
-pub const std_options = struct {
-    pub const logFn = log;
+pub const std_options = .{
+    .logFn = log,
 };
 
 pub fn log(

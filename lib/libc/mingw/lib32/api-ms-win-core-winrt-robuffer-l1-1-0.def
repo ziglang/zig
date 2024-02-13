@@ -1,5 +1,0 @@
-LIBRARY api-ms-win-core-winrt-robuffer-l1-1-0
-
-EXPORTS
-
-RoGetBufferMarshaler@4

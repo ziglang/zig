@@ -11,7 +11,6 @@ pub extern "c" fn _msize(memblock: ?*anyopaque) usize;
 //       need to verify which of these is actually supported on windows
 pub extern "c" fn clock_getres(clk_id: c_int, tp: *timespec) c_int;
 pub extern "c" fn clock_gettime(clk_id: c_int, tp: *timespec) c_int;
-pub extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
 pub extern "c" fn getrusage(who: c_int, usage: *rusage) c_int;
 pub extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
 pub extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
@@ -200,11 +199,6 @@ pub const STRUNCATE = 80;
 
 pub const F_OK = 0;
 
-/// Remove directory instead of unlinking file
-pub const AT = struct {
-    pub const REMOVEDIR = 0x200;
-};
-
 pub const in_port_t = u16;
 pub const sa_family_t = ws2_32.ADDRESS_FAMILY;
 pub const socklen_t = ws2_32.socklen_t;
@@ -228,32 +222,5 @@ pub const POLL = ws2_32.POLL;
 pub const SOL = ws2_32.SOL;
 pub const SO = ws2_32.SO;
 pub const PVD_CONFIG = ws2_32.PVD_CONFIG;
-
-pub const O = struct {
-    pub const RDONLY = 0o0;
-    pub const WRONLY = 0o1;
-    pub const RDWR = 0o2;
-
-    pub const CREAT = 0o100;
-    pub const EXCL = 0o200;
-    pub const NOCTTY = 0o400;
-    pub const TRUNC = 0o1000;
-    pub const APPEND = 0o2000;
-    pub const NONBLOCK = 0o4000;
-    pub const DSYNC = 0o10000;
-    pub const SYNC = 0o4010000;
-    pub const RSYNC = 0o4010000;
-    pub const DIRECTORY = 0o200000;
-    pub const NOFOLLOW = 0o400000;
-    pub const CLOEXEC = 0o2000000;
-
-    pub const ASYNC = 0o20000;
-    pub const DIRECT = 0o40000;
-    pub const LARGEFILE = 0;
-    pub const NOATIME = 0o1000000;
-    pub const PATH = 0o10000000;
-    pub const TMPFILE = 0o20200000;
-    pub const NDELAY = NONBLOCK;
-};
 
 pub const IFNAMESIZE = 30;

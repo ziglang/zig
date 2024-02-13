@@ -1,5 +1,5 @@
 export fn entry() void {
-    var a: [*c]void = undefined;
+    const a: [*c]void = undefined;
     _ = a;
 }
 
@@ -7,5 +7,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:16: error: C pointers cannot point to non-C-ABI-compatible type 'void'
-// :2:16: note: 'void' is a zero bit type; for C 'void' use 'anyopaque'
+// :2:18: error: C pointers cannot point to non-C-ABI-compatible type 'void'
+// :2:18: note: 'void' is a zero bit type; for C 'void' use 'anyopaque'

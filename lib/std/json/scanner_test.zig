@@ -200,7 +200,7 @@ const number_test_stems = .{
     .{ "", "e0", "E0", "e+0", "e-0", "e9999999999999999999999999999" },
 };
 const number_test_items = blk: {
-    comptime var ret: []const []const u8 = &[_][]const u8{};
+    var ret: []const []const u8 = &[_][]const u8{};
     for (number_test_stems[0]) |s0| {
         for (number_test_stems[1]) |s1| {
             for (number_test_stems[2]) |s2| {

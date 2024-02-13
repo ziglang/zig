@@ -117,7 +117,7 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 	ULong x;
 #endif
 	Bigint *b, *b1, *delta, *mlo, *mhi, *S;
-	union _dbl_union d, d2, eps;
+	union _dbl_union d, d2, eps, eps1;
 	double ds;
 	char *s, *s0;
 #ifdef SET_INEXACT
@@ -282,7 +282,7 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 			break;
 		case 2:
 			leftright = 0;
-			/* no break */
+			/* fallthrough */
 		case 4:
 			if (ndigits <= 0)
 				ndigits = 1;
@@ -290,7 +290,7 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 			break;
 		case 3:
 			leftright = 0;
-			/* no break */
+			/* fallthrough */
 		case 5:
 			i = ndigits + k + 1;
 			ilim = i;
@@ -363,12 +363,28 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 			 * generating digits needed.
 			 */
 			dval(&eps) = 0.5/tens[ilim-1] - dval(&eps);
+			if (k0 < 0 && j2 >= 307) {
+				eps1.d = 1.01e256; /* 1.01 allows roundoff in the next few lines */
+				word0(&eps1) -= Exp_msk1 * (Bias+P-1);
+				dval(&eps1) *= tens[j2 & 0xf];
+				for(i = 0, j = (j2-256) >> 4; j; j >>= 1, i++)
+					if (j & 1)
+						dval(&eps1) *= bigtens[i];
+				if (eps.d < eps1.d)
+					eps.d = eps1.d;
+				if (10. - d.d < 10.*eps.d && eps.d < 1.) {
+					/* eps.d < 1. excludes trouble with the tiniest denormal */
+					*s++ = '1';
+					++k;
+					goto ret1;
+				}
+			}
 			for(i = 0;;) {
 				L = dval(&d);
 				dval(&d) -= L;
 				*s++ = '0' + (int)L;
 				if (dval(&d) < dval(&eps))
-					goto ret1;
+					goto retc;
 				if (1. - dval(&d) < dval(&eps))
 					goto bump_up;
 				if (++i >= ilim)
@@ -389,11 +405,8 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 				if (i == ilim) {
 					if (dval(&d) > 0.5 + dval(&eps))
 						goto bump_up;
-					else if (dval(&d) < 0.5 - dval(&eps)) {
-						while(*--s == '0');
-						s++;
-						goto ret1;
-					}
+					else if (dval(&d) < 0.5 - dval(&eps))
+						goto retc;
 					break;
 				}
 			}
@@ -439,7 +452,7 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 #ifdef Honor_FLT_ROUNDS
 				if (mode > 1)
 				 switch(Rounding) {
-				  case 0: goto ret1;
+				  case 0: goto retc;
 				  case 2: goto bump_up;
 				 }
 #endif
@@ -462,7 +475,7 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 				break;
 			}
 		}
-		goto ret1;
+		goto retc;
 	}
 
 	m2 = b2;
@@ -650,7 +663,7 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 			}
 			if (j2 > 0) {
 #ifdef Honor_FLT_ROUNDS
-				if (!Rounding)
+				if (!Rounding && mode > 1)
 					goto accept_dig;
 #endif
 				if (dig == '9') { /* possible if i == 1 */
@@ -729,6 +742,10 @@ char *__dtoa (double d0, int mode, int ndigits, int *decpt, int *sign, char **rv
 			Bfree(mlo);
 		Bfree(mhi);
 	}
+retc:
+	while(s > s0 && s[-1] == '0')
+		--s;
+	/* fallthrough */
  ret1:
 #ifdef SET_INEXACT
 	if (inexact) {

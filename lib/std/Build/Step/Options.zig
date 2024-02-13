@@ -14,6 +14,7 @@ generated_file: GeneratedFile,
 
 contents: std.ArrayList(u8),
 args: std.ArrayList(Arg),
+encountered_types: std.StringHashMap(void),
 
 pub fn create(owner: *std.Build) *Options {
     const self = owner.allocator.create(Options) catch @panic("OOM");
@@ -27,6 +28,7 @@ pub fn create(owner: *std.Build) *Options {
         .generated_file = undefined,
         .contents = std.ArrayList(u8).init(owner.allocator),
         .args = std.ArrayList(Arg).init(owner.allocator),
+        .encountered_types = std.StringHashMap(void).init(owner.allocator),
     };
     self.generated_file = .{ .step = &self.step };
 
@@ -101,11 +103,14 @@ fn addOptionFallible(self: *Options, comptime T: type, name: []const u8, value: 
     }
     switch (@typeInfo(T)) {
         .Enum => |enum_info| {
-            try out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))});
-            inline for (enum_info.fields) |field| {
-                try out.print("    {},\n", .{std.zig.fmtId(field.name)});
+            const gop = try self.encountered_types.getOrPut(@typeName(T));
+            if (!gop.found_existing) {
+                try out.print("pub const {} = enum {{\n", .{std.zig.fmtId(@typeName(T))});
+                inline for (enum_info.fields) |field| {
+                    try out.print("    {},\n", .{std.zig.fmtId(field.name)});
+                }
+                try out.writeAll("};\n");
             }
-            try out.writeAll("};\n");
             try out.print("pub const {}: {s} = .{s};\n", .{
                 std.zig.fmtId(name),
                 std.zig.fmtId(@typeName(T)),
@@ -165,9 +170,6 @@ fn printLiteral(out: anytype, val: anytype, indent: u8) !void {
     }
 }
 
-/// deprecated: use `addOptionPath`
-pub const addOptionFileSource = addOptionPath;
-
 /// The value is the path in the cache dir.
 /// Adds a dependency automatically.
 pub fn addOptionPath(
@@ -189,14 +191,15 @@ pub fn addOptionArtifact(self: *Options, name: []const u8, artifact: *Step.Compi
 
 pub fn createModule(self: *Options) *std.Build.Module {
     return self.step.owner.createModule(.{
-        .source_file = self.getOutput(),
-        .dependencies = &.{},
+        .root_source_file = self.getOutput(),
     });
 }
 
 /// deprecated: use `getOutput`
 pub const getSource = getOutput;
 
+/// Returns the main artifact of this Build Step which is a Zig source file
+/// generated from the key-value pairs of the Options.
 pub fn getOutput(self: *Options) LazyPath {
     return .{ .generated = &self.generated_file };
 }
@@ -219,7 +222,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const basename = "options.zig";
 
     // Hash contents to file name.
-    var hash = b.cache.hash;
+    var hash = b.graph.cache.hash;
     // Random bytes to make unique. Refresh this with new random bytes when
     // implementation is modified in a non-backwards-compatible way.
     hash.add(@as(u32, 0xad95e922));
@@ -298,29 +301,38 @@ test Options {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const host = try std.zig.system.NativeTargetInfo.detect(.{});
-
-    var cache: std.Build.Cache = .{
-        .gpa = arena.allocator(),
-        .manifest_dir = std.fs.cwd(),
+    var graph: std.Build.Graph = .{
+        .arena = arena.allocator(),
+        .cache = .{
+            .gpa = arena.allocator(),
+            .manifest_dir = std.fs.cwd(),
+        },
+        .zig_exe = "test",
+        .env_map = std.process.EnvMap.init(arena.allocator()),
+        .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
     };
 
     var builder = try std.Build.create(
-        arena.allocator(),
-        "test",
+        &graph,
         .{ .path = "test", .handle = std.fs.cwd() },
         .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        host,
-        &cache,
         &.{},
     );
-    defer builder.destroy();
+
+    builder.host = .{
+        .query = .{},
+        .result = try std.zig.system.resolveTargetQuery(.{}),
+    };
 
     const options = builder.addOptions();
 
     const KeywordEnum = enum {
         @"0.8.1",
+    };
+
+    const NormalEnum = enum {
+        foo,
+        bar,
     };
 
     const nested_array = [2][2]u16{
@@ -339,6 +351,8 @@ test Options {
     options.addOption([]const []const u16, "nested_slice", nested_slice);
     options.addOption(KeywordEnum, "keyword_enum", .@"0.8.1");
     options.addOption(std.SemanticVersion, "semantic_version", try std.SemanticVersion.parse("0.1.2-foo+bar"));
+    options.addOption(NormalEnum, "normal1", NormalEnum.foo);
+    options.addOption(NormalEnum, "normal2", NormalEnum.bar);
 
     try std.testing.expectEqualStrings(
         \\pub const option1: usize = 1;
@@ -378,6 +392,12 @@ test Options {
         \\    .pre = "foo",
         \\    .build = "bar",
         \\};
+        \\pub const @"Build.Step.Options.decltest.Options.NormalEnum" = enum {
+        \\    foo,
+        \\    bar,
+        \\};
+        \\pub const normal1: @"Build.Step.Options.decltest.Options.NormalEnum" = .foo;
+        \\pub const normal2: @"Build.Step.Options.decltest.Options.NormalEnum" = .bar;
         \\
     , options.contents.items);
 

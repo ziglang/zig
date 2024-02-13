@@ -11,7 +11,7 @@
 #define __MINGW64_STRINGIFY(x) \
   __STRINGIFY(x)
 
-#define __MINGW64_VERSION_MAJOR 10
+#define __MINGW64_VERSION_MAJOR 12
 #define __MINGW64_VERSION_MINOR 0
 #define __MINGW64_VERSION_BUGFIX 0
 
@@ -294,7 +294,7 @@
 #  define __mingw_static_ovr __mingw_ovr
 #endif /* __cplusplus */
 
-#if __MINGW_GNUC_PREREQ(4, 3) && !defined(__clang__)
+#if __MINGW_GNUC_PREREQ(4, 3) || defined(__clang__)
 #  define __mingw_attribute_artificial \
      __attribute__((__artificial__))
 #else
@@ -303,8 +303,23 @@
 
 #define __MINGW_SELECTANY  __attribute__((__selectany__))
 
+#pragma push_macro("__has_builtin")
+#ifndef __has_builtin
+#  define __has_builtin(x) 0
+#endif
+
 #if _FORTIFY_SOURCE > 0 && __OPTIMIZE__ > 0 && __MINGW_GNUC_PREREQ(4, 1)
-#  if _FORTIFY_SOURCE > 1
+#  if _FORTIFY_SOURCE > 3
+#    warning Using _FORTIFY_SOURCE=3 (levels > 3 are not supported)
+#  endif
+#  if _FORTIFY_SOURCE > 2
+#    if __has_builtin(__builtin_dynamic_object_size)
+#      define __MINGW_FORTIFY_LEVEL 3
+#    else
+#      warning Using _FORTIFY_SOURCE=2 (level 3 requires __builtin_dynamic_object_size support)
+#      define __MINGW_FORTIFY_LEVEL 2
+#    endif
+#  elif _FORTIFY_SOURCE > 1
 #    define __MINGW_FORTIFY_LEVEL 2
 #  else
 #    define __MINGW_FORTIFY_LEVEL 1
@@ -322,16 +337,26 @@
      void __cdecl __mingw_chk_fail_warn(void) __MINGW_ASM_CALL(__chk_fail) \
      __attribute__((__noreturn__)) \
      __attribute__((__warning__("Buffer overflow detected")))
-#  define __mingw_bos(p, maxtype) \
-     __builtin_object_size((p), ((maxtype) > 0) && (__MINGW_FORTIFY_LEVEL > 1))
-#  define __mingw_bos_known(p) \
-     (__mingw_bos(p, 0) != (size_t)-1)
+#  if __MINGW_FORTIFY_LEVEL > 2
+#    define __mingw_bos(p, maxtype) \
+       __builtin_dynamic_object_size((p), (maxtype) > 0)
+#    define __mingw_bos_known(p) \
+       (__builtin_object_size(p, 0) != (size_t)-1 \
+       || !__builtin_constant_p(__mingw_bos(p, 0)))
+#  else
+#    define __mingw_bos(p, maxtype) \
+       __builtin_object_size((p), ((maxtype) > 0) && (__MINGW_FORTIFY_LEVEL > 1))
+#    define __mingw_bos_known(p) \
+       (__mingw_bos(p, 0) != (size_t)-1)
+#  endif
 #  define __mingw_bos_cond_chk(c) \
      (__builtin_expect((c), 1) ? (void)0 : __chk_fail())
 #  define __mingw_bos_ptr_chk(p, n, maxtype) \
      __mingw_bos_cond_chk(!__mingw_bos_known(p) || __mingw_bos(p, maxtype) >= (size_t)(n))
 #  define __mingw_bos_ptr_chk_warn(p, n, maxtype) \
-     (__mingw_bos_known(p) && __builtin_constant_p((n)) && __mingw_bos(p, maxtype) < (size_t)(n) \
+     ((__mingw_bos_known(p) \
+     && __builtin_constant_p(__mingw_bos(p, maxtype) < (size_t)(n)) \
+     && __mingw_bos(p, maxtype) < (size_t)(n)) \
      ? __mingw_chk_fail_warn() : __mingw_bos_ptr_chk(p, n, maxtype))
 #  define __mingw_bos_ovr __mingw_ovr \
      __attribute__((__always_inline__)) \
@@ -345,13 +370,18 @@
 
 /* If _FORTIFY_SOURCE is enabled, some inline functions may use
    __builtin_va_arg_pack().  GCC may report an error if the address
-   of such a function is used.  Set _FORTIFY_VA_ARG=0 in this case.  */
-#if __MINGW_FORTIFY_LEVEL > 0 && __MINGW_GNUC_PREREQ(4, 3) && !defined(__clang__) \
+   of such a function is used.  Set _FORTIFY_VA_ARG=0 in this case.
+   Clang doesn't, as of version 15, yet implement __builtin_va_arg_pack().  */
+#if __MINGW_FORTIFY_LEVEL > 0 \
+    && ((__MINGW_GNUC_PREREQ(4, 3) && !defined(__clang__)) \
+    || __has_builtin(__builtin_va_arg_pack)) \
     && (!defined(_FORTIFY_VA_ARG) || _FORTIFY_VA_ARG > 0)
 #  define __MINGW_FORTIFY_VA_ARG 1
 #else
 #  define __MINGW_FORTIFY_VA_ARG 0
 #endif
+
+#pragma pop_macro("__has_builtin")
 
 /* Enable workaround for ABI incompatibility on affected platforms */
 #ifndef WIDL_EXPLICIT_AGGREGATE_RETURNS

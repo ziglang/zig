@@ -14,7 +14,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const lib_a = b.addStaticLibrary(.{
         .name = "a",
         .optimize = optimize,
-        .target = .{},
+        .target = b.host,
     });
     lib_a.addCSourceFile(.{ .file = .{ .path = "a.c" }, .flags = &[_][]const u8{} });
     lib_a.addIncludePath(.{ .path = "." });
@@ -22,7 +22,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const lib_b = b.addStaticLibrary(.{
         .name = "b",
         .optimize = optimize,
-        .target = .{},
+        .target = b.host,
     });
     lib_b.addCSourceFile(.{ .file = .{ .path = "b.c" }, .flags = &[_][]const u8{} });
     lib_b.addIncludePath(.{ .path = "." });

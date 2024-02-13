@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const maxInt = std.math.maxInt;
 
@@ -40,7 +41,7 @@ fn atanh_32(x: f32) f32 {
         if (u < 0x3F800000 - (32 << 23)) {
             // underflow
             if (u < (1 << 23)) {
-                math.doNotOptimizeAway(y * y);
+                mem.doNotOptimizeAway(y * y);
             }
         }
         // |x| < 0.5
@@ -69,7 +70,7 @@ fn atanh_64(x: f64) f64 {
         if (e < 0x3FF - 32) {
             // underflow
             if (e == 0) {
-                math.doNotOptimizeAway(@as(f32, @floatCast(y)));
+                mem.doNotOptimizeAway(@as(f32, @floatCast(y)));
             }
         }
         // |x| < 0.5

@@ -87,7 +87,7 @@ fn parseSystemVersion(buf: []const u8) !std.SemanticVersion {
     const ver = try svt.expectContent();
     try svt.skipUntilTag(.end, "string");
 
-    return try std.zig.CrossTarget.parseVersion(ver);
+    return try std.Target.Query.parseVersion(ver);
 }
 
 const SystemVersionTokenizer = struct {

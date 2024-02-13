@@ -1,5 +1,5 @@
 export fn entry() void {
-    var x: u32 = 0;
+    const x: u32 = 0;
     switch (x) {}
 }
 

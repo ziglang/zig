@@ -184,6 +184,7 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
             base: Scope,
             sym_table: SymbolTable,
             macro_table: SymbolTable,
+            blank_macros: std.StringArrayHashMap(void),
             context: *Context,
             nodes: std.ArrayList(Node),
 
@@ -195,6 +196,7 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
                     },
                     .sym_table = SymbolTable.init(c.gpa),
                     .macro_table = SymbolTable.init(c.gpa),
+                    .blank_macros = std.StringArrayHashMap(void).init(c.gpa),
                     .context = c,
                     .nodes = std.ArrayList(Node).init(c.gpa),
                 };
@@ -203,6 +205,7 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
             pub fn deinit(scope: *Root) void {
                 scope.sym_table.deinit();
                 scope.macro_table.deinit();
+                scope.blank_macros.deinit();
                 scope.nodes.deinit();
             }
 
@@ -291,6 +294,14 @@ pub fn ScopeExtra(comptime Context: type, comptime Type: type) type {
         }
 
         pub fn skipVariableDiscard(inner: *Scope, name: []const u8) void {
+            if (true) {
+                // TODO: due to 'local variable is never mutated' errors, we can
+                // only skip discards if a variable is used as an lvalue, which
+                // we don't currently have detection for in translate-c.
+                // Once #17584 is completed, perhaps we can do away with this
+                // logic entirely, and instead rely on render to fixup code.
+                return;
+            }
             var scope = inner;
             while (true) {
                 switch (scope.id) {

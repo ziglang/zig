@@ -2,7 +2,8 @@ export fn entry() void {
     const U = union { A: u32, B: u64 };
     var u = U{ .A = 42 };
     var ok = u == .A;
-    _ = ok;
+    _ = &u;
+    _ = &ok;
 }
 
 // error

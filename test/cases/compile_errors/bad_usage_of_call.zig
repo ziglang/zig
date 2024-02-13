@@ -11,7 +11,7 @@ export fn entry4() void {
     @call(.never_inline, bar, .{});
 }
 export fn entry5(c: bool) void {
-    var baz = if (c) &baz1 else &baz2;
+    const baz = if (c) &baz1 else &baz2;
     @call(.compile_time, baz, .{});
 }
 export fn entry6() void {
@@ -22,6 +22,7 @@ export fn entry7() void {
 }
 pub export fn entry() void {
     var call_me: *const fn () void = undefined;
+    _ = &call_me;
     @call(.always_inline, call_me, .{});
 }
 
@@ -45,4 +46,4 @@ noinline fn dummy2() void {}
 // :15:26: error: modifier 'compile_time' requires a comptime-known function
 // :18:9: error: 'always_inline' call of noinline function
 // :21:9: error: 'always_inline' call of noinline function
-// :25:27: error: modifier 'always_inline' requires a comptime-known function
+// :26:27: error: modifier 'always_inline' requires a comptime-known function

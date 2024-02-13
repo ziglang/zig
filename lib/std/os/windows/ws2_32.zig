@@ -11,11 +11,11 @@ const USHORT = windows.USHORT;
 const WCHAR = windows.WCHAR;
 const BOOL = windows.BOOL;
 const HANDLE = windows.HANDLE;
-const timeval = windows.timeval;
 const HWND = windows.HWND;
 const INT = windows.INT;
 const SHORT = windows.SHORT;
 const CHAR = windows.CHAR;
+const LONG = windows.LONG;
 const ULONG = windows.ULONG;
 const LPARAM = windows.LPARAM;
 const FARPROC = windows.FARPROC;
@@ -1259,6 +1259,11 @@ pub const hostent = extern struct {
     h_addrtype: i16,
     h_length: i16,
     h_addr_list: **i8,
+};
+
+pub const timeval = extern struct {
+    tv_sec: LONG,
+    tv_usec: LONG,
 };
 
 // https://docs.microsoft.com/en-au/windows/win32/winsock/windows-sockets-error-codes-2

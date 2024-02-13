@@ -11,10 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "sanitizer_allocator_internal.h"
-#include "sanitizer_platform.h"
+#include "sanitizer_common.h"
 #include "sanitizer_internal_defs.h"
 #include "sanitizer_libc.h"
 #include "sanitizer_placement_new.h"
+#include "sanitizer_platform.h"
 #include "sanitizer_symbolizer_internal.h"
 
 namespace __sanitizer {
@@ -30,6 +31,7 @@ void AddressInfo::Clear() {
   InternalFree(file);
   internal_memset(this, 0, sizeof(AddressInfo));
   function_offset = kUnknown;
+  uuid_size = 0;
 }
 
 void AddressInfo::FillModuleInfo(const char *mod_name, uptr mod_offset,
@@ -37,6 +39,16 @@ void AddressInfo::FillModuleInfo(const char *mod_name, uptr mod_offset,
   module = internal_strdup(mod_name);
   module_offset = mod_offset;
   module_arch = mod_arch;
+  uuid_size = 0;
+}
+
+void AddressInfo::FillModuleInfo(const LoadedModule &mod) {
+  module = internal_strdup(mod.full_name());
+  module_offset = address - mod.base_address();
+  module_arch = mod.arch();
+  if (mod.uuid_size())
+    internal_memcpy(uuid, mod.uuid(), mod.uuid_size());
+  uuid_size = mod.uuid_size();
 }
 
 SymbolizedStack::SymbolizedStack() : next(nullptr), info() {}
@@ -124,12 +136,6 @@ Symbolizer::SymbolizerScope::SymbolizerScope(const Symbolizer *sym)
 Symbolizer::SymbolizerScope::~SymbolizerScope() {
   if (sym_->end_hook_)
     sym_->end_hook_();
-}
-
-void Symbolizer::LateInitializeTools() {
-  for (auto &tool : tools_) {
-    tool.LateInitialize();
-  }
 }
 
 }  // namespace __sanitizer

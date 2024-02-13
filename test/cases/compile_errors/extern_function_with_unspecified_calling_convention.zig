@@ -1,8 +1,8 @@
 const Foo = extern struct {
-    f: *const fn() void,
+    f: *const fn () void,
 };
 
-pub fn entry() void {
+export fn entry() void {
     _ = (Foo{}).f;
 }
 

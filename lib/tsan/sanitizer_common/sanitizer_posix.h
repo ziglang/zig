@@ -20,10 +20,7 @@
 #include "sanitizer_platform_limits_posix.h"
 #include "sanitizer_platform_limits_solaris.h"
 
-#if !SANITIZER_POSIX
-// Make it hard to accidentally use any of functions declared in this file:
-#error This file should only be included on POSIX
-#endif
+#if SANITIZER_POSIX
 
 namespace __sanitizer {
 
@@ -93,7 +90,7 @@ int real_pthread_join(void *th, void **ret);
   }                                                                            \
   }  // namespace __sanitizer
 
-int my_pthread_attr_getstack(void *attr, void **addr, uptr *size);
+int internal_pthread_attr_getstack(void *attr, void **addr, uptr *size);
 
 // A routine named real_sigaction() must be implemented by each sanitizer in
 // order for internal_sigaction() to bypass interceptors.
@@ -123,7 +120,12 @@ int GetNamedMappingFd(const char *name, uptr size, int *flags);
 // alive at least as long as the mapping exists.
 void DecorateMapping(uptr addr, uptr size, const char *name);
 
+#  if !SANITIZER_FREEBSD
+#    define __sanitizer_dirsiz(dp) ((dp)->d_reclen)
+#  endif
 
 }  // namespace __sanitizer
+
+#endif  // SANITIZER_POSIX
 
 #endif  // SANITIZER_POSIX_H

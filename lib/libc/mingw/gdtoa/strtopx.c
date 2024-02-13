@@ -31,6 +31,8 @@ THIS SOFTWARE.
 
 #include "gdtoaimp.h"
 
+ extern UShort NanDflt_ldus_D2A[5];
+
 #undef _0
 #undef _1
 
@@ -63,7 +65,7 @@ typedef union lD {
 static int __strtopx (const char *s, char **sp, lD *V)
 {
 	static FPI fpi0 = { 64, 1-16383-64+1, 32766 - 16383 - 64 + 1, 1, SI,
-			   Int_max };
+			   Int_max /*unused*/ };
 	ULong bits[2];
 	Long expo;
 	int k;
@@ -103,11 +105,11 @@ static int __strtopx (const char *s, char **sp, lD *V)
 		break;
 
 	  case STRTOG_NaN:
-		L[0] = ldus_QNAN0;
-		L[1] = ldus_QNAN1;
-		L[2] = ldus_QNAN2;
-		L[3] = ldus_QNAN3;
-		L[4] = ldus_QNAN4;
+		L[_4] = NanDflt_ldus_D2A[0];
+		L[_3] = NanDflt_ldus_D2A[1];
+		L[_2] = NanDflt_ldus_D2A[2];
+		L[_1] = NanDflt_ldus_D2A[3];
+		L[_0] = NanDflt_ldus_D2A[4];
 	}
 	if (k & STRTOG_Neg)
 		L[_0] |= 0x8000;

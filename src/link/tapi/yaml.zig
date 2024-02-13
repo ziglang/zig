@@ -491,7 +491,7 @@ pub fn stringify(allocator: Allocator, input: anytype, writer: anytype) !void {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var maybe_value = try Value.encode(arena.allocator(), input);
+    const maybe_value = try Value.encode(arena.allocator(), input);
 
     if (maybe_value) |value| {
         // TODO should we output as an explicit doc?

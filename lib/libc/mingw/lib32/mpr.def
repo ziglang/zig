@@ -7,6 +7,8 @@ WNetAddConnection2A@16
 WNetAddConnection2W@16
 WNetAddConnection3A@20
 WNetAddConnection3W@20
+WNetAddConnection4A@28
+WNetAddConnection4W@28
 WNetAddConnectionA@12
 WNetAddConnectionW@12
 WNetCancelConnection2A@12
@@ -70,3 +72,5 @@ WNetSetLastErrorW@12
 WNetSupportGlobalEnum@4
 WNetUseConnectionA@32
 WNetUseConnectionW@32
+WNetUseConnection4A@40
+WNetUseConnection4W@40

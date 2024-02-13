@@ -22,6 +22,7 @@ test "inline prong ranges" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: usize = 0;
+    _ = &x;
     switch (x) {
         inline 0...20, 24 => |item| {
             if (item > 25) @compileError("bad");
@@ -36,6 +37,7 @@ test "inline switch enums" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: E = .a;
+    _ = &x;
     switch (x) {
         inline .a, .b => |aorb| if (aorb != .a and aorb != .b) @compileError("bad"),
         inline .c, .d => |cord| if (cord != .c and cord != .d) @compileError("bad"),
@@ -49,6 +51,7 @@ test "inline switch unions" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: U = .a;
+    _ = &x;
     switch (x) {
         inline .a, .b => |aorb, tag| {
             if (tag == .a) {
@@ -74,6 +77,7 @@ test "inline else bool" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a = true;
+    _ = &a;
     switch (a) {
         true => {},
         inline else => |val| if (val != false) @compileError("bad"),
@@ -86,6 +90,7 @@ test "inline else error" {
 
     const Err = error{ a, b, c };
     var a = Err.a;
+    _ = &a;
     switch (a) {
         error.a => {},
         inline else => |val| comptime if (val == error.a) @compileError("bad"),
@@ -98,6 +103,7 @@ test "inline else enum" {
 
     const E2 = enum(u8) { a = 2, b = 3, c = 4, d = 5 };
     var a: E2 = .a;
+    _ = &a;
     switch (a) {
         .a, .b => {},
         inline else => |val| comptime if (@intFromEnum(val) < 4) @compileError("bad"),
@@ -109,6 +115,7 @@ test "inline else int with gaps" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: u8 = 0;
+    _ = &a;
     switch (a) {
         1...125, 128...254 => {},
         inline else => |val| {
@@ -126,6 +133,7 @@ test "inline else int all values" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: u2 = 0;
+    _ = &a;
     switch (a) {
         inline else => |val| {
             if (val != 0 and

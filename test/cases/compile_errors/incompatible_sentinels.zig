@@ -8,11 +8,11 @@ export fn entry2(ptr: [*]u8) [*:0]u8 {
 }
 export fn entry3() void {
     var array: [2:0]u8 = [_:255]u8{ 1, 2 };
-    _ = array;
+    _ = &array;
 }
 export fn entry4() void {
     var array: [2:0]u8 = [_]u8{ 1, 2 };
-    _ = array;
+    _ = &array;
 }
 
 // error

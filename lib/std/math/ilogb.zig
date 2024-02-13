@@ -38,8 +38,8 @@ fn ilogbX(comptime T: type, x: T) i32 {
 
     const absMask = signBit - 1;
 
-    var u = @as(Z, @bitCast(x)) & absMask;
-    var e = @as(i32, @intCast(u >> significandBits));
+    const u = @as(Z, @bitCast(x)) & absMask;
+    const e: i32 = @intCast(u >> significandBits);
 
     if (e == 0) {
         if (u == 0) {

@@ -6,7 +6,7 @@ fn acceptRuntime(value: u64) void {
 }
 pub export fn entry() void {
     var value: u64 = 0;
-    acceptRuntime(value);
+    acceptRuntime((&value).*);
 }
 
 // error

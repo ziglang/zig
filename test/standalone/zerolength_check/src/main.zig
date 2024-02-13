@@ -1,14 +1,14 @@
 const std = @import("std");
 
 test {
-    var dest = foo();
-    var source = foo();
+    const dest = foo();
+    const source = foo();
 
     @memcpy(dest, source);
     @memset(dest, 4);
     @memset(dest, undefined);
 
-    var dest2 = foo2();
+    const dest2 = foo2();
     @memset(dest2, 0);
 }
 

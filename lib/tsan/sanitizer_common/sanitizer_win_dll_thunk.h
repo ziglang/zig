@@ -84,7 +84,7 @@ extern "C" int __dll_thunk_init();
 // which isn't a big deal.
 #define INTERCEPT_LIBRARY_FUNCTION(name)                                       \
   extern "C" void name();                                                      \
-  INTERCEPT_OR_DIE(WRAPPER_NAME(name), name)
+  INTERCEPT_OR_DIE(STRINGIFY(WRAP(name)), name)
 
 // Use these macros for functions that could be called before __dll_thunk_init()
 // is executed and don't lead to errors if defined (free, malloc, etc).

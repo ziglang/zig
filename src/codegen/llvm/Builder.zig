@@ -577,6 +577,7 @@ pub const Type = enum(u32) {
 
     pub fn isSized(self: Type, builder: *const Builder) Allocator.Error!bool {
         var visited: IsSizedVisited = .{};
+        defer visited.deinit(builder.gpa);
         const result = try self.isSizedVisited(&visited, builder);
         if (builder.useLibLlvm()) assert(result == self.toLlvm(builder).isSized().toBool());
         return result;
@@ -4766,6 +4767,7 @@ pub const Function = struct {
         if (self.metadata) |metadata| gpa.free(metadata[0..self.instructions.len]);
         gpa.free(self.names[0..self.instructions.len]);
         self.instructions.deinit(gpa);
+        gpa.free(self.blocks);
         self.* = undefined;
     }
 
@@ -6579,10 +6581,16 @@ pub const WipFunction = struct {
 
     pub fn deinit(self: *WipFunction) void {
         self.extra.deinit(self.builder.gpa);
+        self.metadata.deinit(self.builder.gpa);
+        self.names.deinit(self.builder.gpa);
         self.instructions.deinit(self.builder.gpa);
         for (self.blocks.items) |*b| b.instructions.deinit(self.builder.gpa);
         self.blocks.deinit(self.builder.gpa);
-        if (self.builder.useLibLlvm()) self.llvm.builder.dispose();
+        if (self.builder.useLibLlvm()) {
+            self.llvm.instructions.deinit(self.builder.gpa);
+            self.llvm.blocks.deinit(self.builder.gpa);
+            self.llvm.builder.dispose();
+        }
         self.* = undefined;
     }
 
@@ -9978,10 +9986,10 @@ fn fnTypeAssumeCapacity(
         }
         pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
             const rhs_data = ctx.builder.type_items.items[rhs_index];
+            if (rhs_data.tag != tag) return false;
             var rhs_extra = ctx.builder.typeExtraDataTrail(Type.Function, rhs_data.data);
             const rhs_params = rhs_extra.trail.next(rhs_extra.data.params_len, Type, ctx.builder);
-            return rhs_data.tag == tag and lhs_key.ret == rhs_extra.data.ret and
-                std.mem.eql(Type, lhs_key.params, rhs_params);
+            return lhs_key.ret == rhs_extra.data.ret and std.mem.eql(Type, lhs_key.params, rhs_params);
         }
     };
     const gop = self.type_map.getOrPutAssumeCapacityAdapted(
@@ -10161,9 +10169,10 @@ fn structTypeAssumeCapacity(
         }
         pub fn eql(ctx: @This(), lhs_key: []const Type, _: void, rhs_index: usize) bool {
             const rhs_data = ctx.builder.type_items.items[rhs_index];
+            if (rhs_data.tag != tag) return false;
             var rhs_extra = ctx.builder.typeExtraDataTrail(Type.Structure, rhs_data.data);
             const rhs_fields = rhs_extra.trail.next(rhs_extra.data.fields_len, Type, ctx.builder);
-            return rhs_data.tag == tag and std.mem.eql(Type, lhs_key, rhs_fields);
+            return std.mem.eql(Type, lhs_key, rhs_fields);
         }
     };
     const gop = self.type_map.getOrPutAssumeCapacityAdapted(fields, Adapter{ .builder = self });

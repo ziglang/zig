@@ -1,6 +1,7 @@
 comptime {
     var c_ptr: [*c]u8 = 0;
-    var zig_ptr: *u8 = c_ptr;
+    const zig_ptr: *u8 = c_ptr;
+    _ = &c_ptr;
     _ = zig_ptr;
 }
 
@@ -8,4 +9,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :3:24: error: null pointer casted to type '*u8'
+// :3:26: error: null pointer casted to type '*u8'

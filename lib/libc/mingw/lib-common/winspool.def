@@ -91,7 +91,6 @@ DeviceCapabilities
 DeviceCapabilitiesA
 DeviceCapabilitiesW
 DevicePropertySheets
-DocumentEvent
 DocumentPropertiesA
 DocumentPropertiesW
 DocumentPropertySheets
@@ -171,9 +170,6 @@ PlayGdiScriptOnPrinterIC
 PrinterMessageBoxA
 PrinterMessageBoxW
 PrinterProperties
-QueryColorProfile
-QueryRemoteFonts
-QuerySpoolMode
 ReadPrinter
 RegisterForPrintAsyncNotifications
 ReportJobProcessingProgress
@@ -196,11 +192,9 @@ SetPrinterDataExW
 SetPrinterDataW
 SetPrinterW
 SplDriverUnloadComplete
-SpoolerDevQueryPrintW
 SpoolerInit
 SpoolerPrinterEvent
 StartDocDlgA
-StartDocDlgW
 StartDocPrinterA
 StartDocPrinterW
 StartPagePrinter

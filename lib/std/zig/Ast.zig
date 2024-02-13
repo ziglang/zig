@@ -1433,8 +1433,8 @@ pub fn containerField(tree: Ast, node: Node.Index) full.ContainerField {
     return tree.fullContainerFieldComponents(.{
         .main_token = main_token,
         .type_expr = data.lhs,
-        .value_expr = extra.value_expr,
         .align_expr = extra.align_expr,
+        .value_expr = extra.value_expr,
         .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
             tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
@@ -1447,8 +1447,8 @@ pub fn containerFieldInit(tree: Ast, node: Node.Index) full.ContainerField {
     return tree.fullContainerFieldComponents(.{
         .main_token = main_token,
         .type_expr = data.lhs,
-        .value_expr = data.rhs,
         .align_expr = 0,
+        .value_expr = data.rhs,
         .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
             tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
@@ -1461,8 +1461,8 @@ pub fn containerFieldAlign(tree: Ast, node: Node.Index) full.ContainerField {
     return tree.fullContainerFieldComponents(.{
         .main_token = main_token,
         .type_expr = data.lhs,
-        .value_expr = 0,
         .align_expr = data.rhs,
+        .value_expr = 0,
         .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
             tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
@@ -2565,8 +2565,8 @@ pub const full = struct {
         pub const Components = struct {
             main_token: TokenIndex,
             type_expr: Node.Index,
-            value_expr: Node.Index,
             align_expr: Node.Index,
+            value_expr: Node.Index,
             tuple_like: bool,
         };
 
@@ -3269,13 +3269,13 @@ pub const Node = struct {
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_multi,
-        /// `fn (a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
+        /// `fn (a: b) addrspace(e) linksection(f) callconv(g) rhs`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_one,
-        /// `fn (a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
+        /// `fn (a: b, c: d) addrspace(e) linksection(f) callconv(g) rhs`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
@@ -3427,8 +3427,8 @@ pub const Node = struct {
     };
 
     pub const ArrayTypeSentinel = struct {
-        elem_type: Index,
         sentinel: Index,
+        elem_type: Index,
     };
 
     pub const PtrType = struct {
@@ -3458,8 +3458,8 @@ pub const Node = struct {
     };
 
     pub const ContainerField = struct {
-        value_expr: Index,
         align_expr: Index,
+        value_expr: Index,
     };
 
     pub const GlobalVarDecl = struct {

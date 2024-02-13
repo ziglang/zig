@@ -1039,7 +1039,7 @@ typedef union
     signed short         __pformat_fpreg_exponent;
   };
   unsigned short         __pformat_fpreg_bitmap[5];
-  unsigned long          __pformat_fpreg_bits;
+  unsigned int           __pformat_fpreg_bits;
 } __pformat_fpreg_t;
 
 #ifdef _WIN32
@@ -2509,6 +2509,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
              */
             length = PFORMAT_LENGTH_LONG;
 
+            /* fallthrough */
+
           case 'c':
             /*
              * Single, (or single multibyte), character output...
@@ -2552,6 +2554,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
              * and simply fall through.
              */
             length = PFORMAT_LENGTH_LONG;
+
+            /* fallthrough */
 
           case 's':
             if( (length == PFORMAT_LENGTH_LONG)
@@ -2717,6 +2721,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
              */
             stream.flags |= PFORMAT_XCASE;
 
+            /* fallthrough */
+
           case 'E':
             /*
              * Floating point format, with upper case exponent indicator
@@ -2762,6 +2768,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
              */
             stream.flags |= PFORMAT_XCASE;
 
+            /* fallthrough */
+
           case 'F':
             /*
              * Fixed case format using upper case, or lower case on
@@ -2804,6 +2812,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
              * mode, and simply fall through...
              */
             stream.flags |= PFORMAT_XCASE;
+
+            /* fallthrough */
 
           case 'G':
             /*
@@ -2848,6 +2858,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
              * fall through...
              */
             stream.flags |= PFORMAT_XCASE;
+
+            /* fallthrough */
 
           case 'A':
             /*
@@ -3205,6 +3217,8 @@ __pformat (int flags, void *dest, int max, const APICHAR *fmt, va_list argv)
               stream.flags |= PFORMAT_ZEROFILL;
               break;
             }
+
+            /* fallthrough */
 
           default:
             /*

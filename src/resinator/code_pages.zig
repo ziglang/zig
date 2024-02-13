@@ -302,8 +302,8 @@ pub const Utf8 = struct {
 
         pub fn decode(bytes: []const u8) Codepoint {
             std.debug.assert(bytes.len > 0);
-            var first_byte = bytes[0];
-            var expected_len = sequenceLength(first_byte) orelse {
+            const first_byte = bytes[0];
+            const expected_len = sequenceLength(first_byte) orelse {
                 return .{ .value = Codepoint.invalid, .byte_len = 1 };
             };
             if (expected_len == 1) return .{ .value = first_byte, .byte_len = 1 };
@@ -367,7 +367,7 @@ pub const Utf8 = struct {
 
 test "Utf8.WellFormedDecoder" {
     const invalid_utf8 = "\xF0\x80";
-    var decoded = Utf8.WellFormedDecoder.decode(invalid_utf8);
+    const decoded = Utf8.WellFormedDecoder.decode(invalid_utf8);
     try std.testing.expectEqual(Codepoint.invalid, decoded.value);
     try std.testing.expectEqual(@as(usize, 2), decoded.byte_len);
 }

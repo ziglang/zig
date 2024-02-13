@@ -1191,6 +1191,13 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
 #define CM_WaitNoPendingInstallEvents CMP_WaitNoPendingInstallEvents
   DWORD WINAPI CM_WaitNoPendingInstallEvents(DWORD dwTimeout);
 
+#if WINVER >= _WIN32_WINNT_WIN8
+
+  CMAPI CONFIGRET WINAPI CM_Register_Notification(PCM_NOTIFY_FILTER pFilter, PVOID pContext, PCM_NOTIFY_CALLBACK pCallback, PHCMNOTIFICATION pNotifyContext);
+  CMAPI CONFIGRET WINAPI CM_Unregister_Notification(HCMNOTIFICATION NotifyContext);
+
+#endif /* WINVER >= _WIN32_WINNT_WIN8 */
+
 #define CR_SUCCESS (0x00000000)
 #define CR_DEFAULT (0x00000001)
 #define CR_OUT_OF_MEMORY (0x00000002)

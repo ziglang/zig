@@ -1,6 +1,6 @@
 comptime {
     const z = i32!i32;
-    var x: z = undefined;
+    const x: z = undefined;
     _ = x;
 }
 

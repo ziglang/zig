@@ -4,7 +4,7 @@ const S = struct {
 };
 pub export fn entry() void {
     var s: S = undefined;
-    _ = s;
+    _ = &s;
 }
 
 // error

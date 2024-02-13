@@ -1,6 +1,6 @@
 export fn entry() void {
     _ = @Type(@typeInfo(struct {
-        const foo = 1;
+        pub const foo = 1;
     }));
 }
 

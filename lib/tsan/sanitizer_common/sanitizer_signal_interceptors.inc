@@ -29,12 +29,21 @@ using namespace __sanitizer;
 #endif
 
 #ifndef SIGNAL_INTERCEPTOR_SIGACTION_IMPL
-#define SIGNAL_INTERCEPTOR_SIGACTION_IMPL(signum, act, oldact) \
-  { return REAL(sigaction_symname)(signum, act, oldact); }
+#  define SIGNAL_INTERCEPTOR_SIGACTION_IMPL(signum, act, oldact)              \
+    {                                                                         \
+      if (!REAL(sigaction_symname)) {                                         \
+        Printf(                                                               \
+            "Warning: REAL(sigaction_symname) == nullptr. This may happen "   \
+            "if you link with ubsan statically. Sigaction will not work.\n"); \
+        return -1;                                                            \
+      }                                                                       \
+      return REAL(sigaction_symname)(signum, act, oldact);                    \
+    }
 #endif
 
 #if SANITIZER_INTERCEPT_BSD_SIGNAL
 INTERCEPTOR(uptr, bsd_signal, int signum, uptr handler) {
+  SIGNAL_INTERCEPTOR_ENTER();
   if (GetHandleSignalMode(signum) == kHandleSignalExclusive) return 0;
   SIGNAL_INTERCEPTOR_SIGNAL_IMPL(bsd_signal, signum, handler);
 }
@@ -45,6 +54,7 @@ INTERCEPTOR(uptr, bsd_signal, int signum, uptr handler) {
 
 #if SANITIZER_INTERCEPT_SIGNAL_AND_SIGACTION
 INTERCEPTOR(uptr, signal, int signum, uptr handler) {
+  SIGNAL_INTERCEPTOR_ENTER();
   if (GetHandleSignalMode(signum) == kHandleSignalExclusive)
     return (uptr) nullptr;
   SIGNAL_INTERCEPTOR_SIGNAL_IMPL(signal, signum, handler);
@@ -53,6 +63,7 @@ INTERCEPTOR(uptr, signal, int signum, uptr handler) {
 
 INTERCEPTOR(int, sigaction_symname, int signum,
             const __sanitizer_sigaction *act, __sanitizer_sigaction *oldact) {
+  SIGNAL_INTERCEPTOR_ENTER();
   if (GetHandleSignalMode(signum) == kHandleSignalExclusive) {
     if (!oldact) return 0;
     act = nullptr;

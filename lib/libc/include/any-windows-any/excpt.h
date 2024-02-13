@@ -49,8 +49,8 @@ extern "C" {
 
 #define GetExceptionCode _exception_code
 #define exception_code _exception_code
-#define GetExceptionInformation (struct _EXCEPTION_POINTERS *)_exception_info
-#define exception_info (struct _EXCEPTION_POINTERS *)_exception_info
+#define GetExceptionInformation() ((struct _EXCEPTION_POINTERS *)_exception_info())
+#define exception_info() ((struct _EXCEPTION_POINTERS *)_exception_info())
 #define AbnormalTermination _abnormal_termination
 #define abnormal_termination _abnormal_termination
 

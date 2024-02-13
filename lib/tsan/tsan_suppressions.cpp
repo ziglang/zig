@@ -10,15 +10,16 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "tsan_suppressions.h"
+
 #include "sanitizer_common/sanitizer_common.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_placement_new.h"
 #include "sanitizer_common/sanitizer_suppressions.h"
-#include "tsan_suppressions.h"
-#include "tsan_rtl.h"
 #include "tsan_flags.h"
 #include "tsan_mman.h"
 #include "tsan_platform.h"
+#include "tsan_rtl.h"
 
 #if !SANITIZER_GO
 // Suppressions for true/false positives in standard libraries.

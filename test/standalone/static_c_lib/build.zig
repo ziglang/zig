@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     const foo = b.addStaticLibrary(.{
         .name = "foo",
         .optimize = optimize,
-        .target = .{},
+        .target = b.host,
     });
     foo.addCSourceFile(.{ .file = .{ .path = "foo.c" }, .flags = &[_][]const u8{} });
     foo.addIncludePath(.{ .path = "." });

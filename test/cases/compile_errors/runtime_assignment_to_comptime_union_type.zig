@@ -4,6 +4,7 @@ const Foo = union {
 };
 export fn f() void {
     var x: u8 = 0;
+    _ = &x;
     const foo = Foo{ .Bar = x };
     _ = foo;
 }
@@ -12,5 +13,5 @@ export fn f() void {
 // backend=stage2
 // target=native
 //
-// :7:23: error: unable to resolve comptime value
-// :7:23: note: initializer of comptime only union must be comptime-known
+// :8:23: error: unable to resolve comptime value
+// :8:23: note: initializer of comptime only union must be comptime-known

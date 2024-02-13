@@ -2,6 +2,7 @@ export fn entry() void {
     var var_1: f32 = undefined;
     var var_2: u32 = undefined;
     _ = @TypeOf(var_1, var_2);
+    _ = .{ &var_1, &var_2 };
 }
 
 // error

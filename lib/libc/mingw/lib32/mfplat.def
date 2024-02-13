@@ -245,6 +245,5 @@ MFUnwrapMediaType@8
 MFValidateMediaTypeSize@24
 MFWrapMediaType@16
 MFWrapSocket@28
-MFllMulDiv@32
 PropVariantFromStream@8
 PropVariantToStream@8

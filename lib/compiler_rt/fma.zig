@@ -59,13 +59,13 @@ pub fn fma(x: f64, y: f64, z: f64) callconv(.C) f64 {
     }
 
     const x1 = math.frexp(x);
-    var ex = x1.exponent;
-    var xs = x1.significand;
+    const ex = x1.exponent;
+    const xs = x1.significand;
     const x2 = math.frexp(y);
-    var ey = x2.exponent;
-    var ys = x2.significand;
+    const ey = x2.exponent;
+    const ys = x2.significand;
     const x3 = math.frexp(z);
-    var ez = x3.exponent;
+    const ez = x3.exponent;
     var zs = x3.significand;
 
     var spread = ex + ey - ez;
@@ -118,13 +118,13 @@ pub fn fmaq(x: f128, y: f128, z: f128) callconv(.C) f128 {
     }
 
     const x1 = math.frexp(x);
-    var ex = x1.exponent;
-    var xs = x1.significand;
+    const ex = x1.exponent;
+    const xs = x1.significand;
     const x2 = math.frexp(y);
-    var ey = x2.exponent;
-    var ys = x2.significand;
+    const ey = x2.exponent;
+    const ys = x2.significand;
     const x3 = math.frexp(z);
-    var ez = x3.exponent;
+    const ez = x3.exponent;
     var zs = x3.significand;
 
     var spread = ex + ey - ez;
@@ -181,15 +181,15 @@ fn dd_mul(a: f64, b: f64) dd {
     var p = a * split;
     var ha = a - p;
     ha += p;
-    var la = a - ha;
+    const la = a - ha;
 
     p = b * split;
     var hb = b - p;
     hb += p;
-    var lb = b - hb;
+    const lb = b - hb;
 
     p = ha * hb;
-    var q = ha * lb + la * hb;
+    const q = ha * lb + la * hb;
 
     ret.hi = p + q;
     ret.lo = p - ret.hi + q + la * lb;
@@ -301,15 +301,15 @@ fn dd_mul128(a: f128, b: f128) dd128 {
     var p = a * split;
     var ha = a - p;
     ha += p;
-    var la = a - ha;
+    const la = a - ha;
 
     p = b * split;
     var hb = b - p;
     hb += p;
-    var lb = b - hb;
+    const lb = b - hb;
 
     p = ha * hb;
-    var q = ha * lb + la * hb;
+    const q = ha * lb + la * hb;
 
     ret.hi = p + q;
     ret.lo = p - ret.hi + q + la * lb;

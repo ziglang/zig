@@ -1,7 +1,7 @@
 export fn f() void {
     const U = union(enum) { a: u32, b: *u8 };
     var u: U = undefined;
-    switch (u) {
+    switch ((&u).*) {
         .a, .b => |val| _ = val,
     }
 }
@@ -9,7 +9,7 @@ export fn f() void {
 export fn g() void {
     const U = union(enum) { a: u64, b: u32 };
     var u: U = undefined;
-    switch (u) {
+    switch ((&u).*) {
         .a, .b => |*ptr| _ = ptr,
     }
 }

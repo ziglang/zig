@@ -13,25 +13,25 @@
 
 #include "sanitizer_platform.h"
 #if SANITIZER_POSIX
-#include "sanitizer_allocator_internal.h"
-#include "sanitizer_common.h"
-#include "sanitizer_file.h"
-#include "sanitizer_flags.h"
-#include "sanitizer_internal_defs.h"
-#include "sanitizer_linux.h"
-#include "sanitizer_placement_new.h"
-#include "sanitizer_posix.h"
-#include "sanitizer_procmaps.h"
-#include "sanitizer_symbolizer_internal.h"
-#include "sanitizer_symbolizer_libbacktrace.h"
-#include "sanitizer_symbolizer_mac.h"
+#  include <dlfcn.h>  // for dlsym()
+#  include <errno.h>
+#  include <stdint.h>
+#  include <stdlib.h>
+#  include <sys/wait.h>
+#  include <unistd.h>
 
-#include <dlfcn.h>   // for dlsym()
-#include <errno.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <sys/wait.h>
-#include <unistd.h>
+#  include "sanitizer_allocator_internal.h"
+#  include "sanitizer_common.h"
+#  include "sanitizer_file.h"
+#  include "sanitizer_flags.h"
+#  include "sanitizer_internal_defs.h"
+#  include "sanitizer_linux.h"
+#  include "sanitizer_placement_new.h"
+#  include "sanitizer_posix.h"
+#  include "sanitizer_procmaps.h"
+#  include "sanitizer_symbolizer_internal.h"
+#  include "sanitizer_symbolizer_libbacktrace.h"
+#  include "sanitizer_symbolizer_mac.h"
 
 // C++ demangling function, as required by Itanium C++ ABI. This is weak,
 // because we do not require a C++ ABI library to be linked to a program
@@ -72,7 +72,6 @@ static swift_demangle_ft swift_demangle_f;
 // symbolication.
 static void InitializeSwiftDemangler() {
   swift_demangle_f = (swift_demangle_ft)dlsym(RTLD_DEFAULT, "swift_demangle");
-  (void)dlerror(); // Cleanup error message in case of failure
 }
 
 // Attempts to demangle a Swift name. The demangler will return nullptr if a
@@ -155,7 +154,7 @@ bool SymbolizerProcess::StartSymbolizerSubprocess() {
   }
 
   if (use_posix_spawn_) {
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
     fd_t fd = internal_spawn(argv, const_cast<const char **>(GetEnvP()), &pid);
     if (fd == kInvalidFd) {
       Report("WARNING: failed to spawn external symbolizer (errno: %d)\n",
@@ -165,9 +164,9 @@ bool SymbolizerProcess::StartSymbolizerSubprocess() {
 
     input_fd_ = fd;
     output_fd_ = fd;
-#else  // SANITIZER_MAC
+#else  // SANITIZER_APPLE
     UNIMPLEMENTED();
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE
   } else {
     fd_t infd[2] = {}, outfd[2] = {};
     if (!CreateTwoHighNumberedPipes(infd, outfd)) {
@@ -213,31 +212,36 @@ class Addr2LineProcess final : public SymbolizerProcess {
                const char *(&argv)[kArgVMax]) const override {
     int i = 0;
     argv[i++] = path_to_binary;
-    argv[i++] = "-iCfe";
+    if (common_flags()->demangle)
+      argv[i++] = "-C";
+    if (common_flags()->symbolize_inline_frames)
+      argv[i++] = "-i";
+    argv[i++] = "-fe";
     argv[i++] = module_name_;
     argv[i++] = nullptr;
+    CHECK_LE(i, kArgVMax);
   }
 
   bool ReachedEndOfOutput(const char *buffer, uptr length) const override;
 
-  bool ReadFromSymbolizer(char *buffer, uptr max_length) override {
-    if (!SymbolizerProcess::ReadFromSymbolizer(buffer, max_length))
+  bool ReadFromSymbolizer() override {
+    if (!SymbolizerProcess::ReadFromSymbolizer())
       return false;
-    // The returned buffer is empty when output is valid, but exceeds
-    // max_length.
-    if (*buffer == '\0')
-      return true;
+    auto &buff = GetBuff();
     // We should cut out output_terminator_ at the end of given buffer,
     // appended by addr2line to mark the end of its meaningful output.
     // We cannot scan buffer from it's beginning, because it is legal for it
     // to start with output_terminator_ in case given offset is invalid. So,
     // scanning from second character.
-    char *garbage = internal_strstr(buffer + 1, output_terminator_);
+    char *garbage = internal_strstr(buff.data() + 1, output_terminator_);
     // This should never be NULL since buffer must end up with
     // output_terminator_.
     CHECK(garbage);
+
     // Trim the buffer.
-    garbage[0] = '\0';
+    uintptr_t new_size = garbage - buff.data();
+    GetBuff().resize(new_size);
+    GetBuff().push_back('\0');
     return true;
   }
 
@@ -312,37 +316,42 @@ class Addr2LinePool final : public SymbolizerTool {
       FIRST_32_SECOND_64(UINT32_MAX, UINT64_MAX);
 };
 
-#if SANITIZER_SUPPORTS_WEAK_HOOKS
+#  if SANITIZER_SUPPORTS_WEAK_HOOKS
 extern "C" {
 SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE bool
 __sanitizer_symbolize_code(const char *ModuleName, u64 ModuleOffset,
-                           char *Buffer, int MaxLength,
-                           bool SymbolizeInlineFrames);
-SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE
-bool __sanitizer_symbolize_data(const char *ModuleName, u64 ModuleOffset,
-                                char *Buffer, int MaxLength);
-SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE
-void __sanitizer_symbolize_flush();
-SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE
-int __sanitizer_symbolize_demangle(const char *Name, char *Buffer,
-                                   int MaxLength);
+                           char *Buffer, int MaxLength);
+SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE bool
+__sanitizer_symbolize_data(const char *ModuleName, u64 ModuleOffset,
+                           char *Buffer, int MaxLength);
+SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE void
+__sanitizer_symbolize_flush();
+SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE int
+__sanitizer_symbolize_demangle(const char *Name, char *Buffer, int MaxLength);
+SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE bool
+__sanitizer_symbolize_set_demangle(bool Demangle);
+SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE bool
+__sanitizer_symbolize_set_inline_frames(bool InlineFrames);
 }  // extern "C"
 
 class InternalSymbolizer final : public SymbolizerTool {
  public:
   static InternalSymbolizer *get(LowLevelAllocator *alloc) {
-    if (__sanitizer_symbolize_code != 0 &&
-        __sanitizer_symbolize_data != 0) {
-      return new(*alloc) InternalSymbolizer();
-    }
+    if (__sanitizer_symbolize_set_demangle)
+      CHECK(__sanitizer_symbolize_set_demangle(common_flags()->demangle));
+    if (__sanitizer_symbolize_set_inline_frames)
+      CHECK(__sanitizer_symbolize_set_inline_frames(
+          common_flags()->symbolize_inline_frames));
+    if (__sanitizer_symbolize_code && __sanitizer_symbolize_data)
+      return new (*alloc) InternalSymbolizer();
     return 0;
   }
 
   bool SymbolizePC(uptr addr, SymbolizedStack *stack) override {
     bool result = __sanitizer_symbolize_code(
-        stack->info.module, stack->info.module_offset, buffer_, kBufferSize,
-        common_flags()->symbolize_inline_frames);
-    if (result) ParseSymbolizePCOutput(buffer_, stack);
+        stack->info.module, stack->info.module_offset, buffer_, kBufferSize);
+    if (result)
+      ParseSymbolizePCOutput(buffer_, stack);
     return result;
   }
 
@@ -365,7 +374,7 @@ class InternalSymbolizer final : public SymbolizerTool {
     if (__sanitizer_symbolize_demangle) {
       for (uptr res_length = 1024;
            res_length <= InternalSizeClassMap::kMaxSize;) {
-        char *res_buff = static_cast<char*>(InternalAlloc(res_length));
+        char *res_buff = static_cast<char *>(InternalAlloc(res_length));
         uptr req_length =
             __sanitizer_symbolize_demangle(name, res_buff, res_length);
         if (req_length > res_length) {
@@ -380,19 +389,19 @@ class InternalSymbolizer final : public SymbolizerTool {
   }
 
  private:
-  InternalSymbolizer() { }
+  InternalSymbolizer() {}
 
   static const int kBufferSize = 16 * 1024;
   char buffer_[kBufferSize];
 };
-#else  // SANITIZER_SUPPORTS_WEAK_HOOKS
+#  else  // SANITIZER_SUPPORTS_WEAK_HOOKS
 
 class InternalSymbolizer final : public SymbolizerTool {
  public:
   static InternalSymbolizer *get(LowLevelAllocator *alloc) { return 0; }
 };
 
-#endif  // SANITIZER_SUPPORTS_WEAK_HOOKS
+#  endif  // SANITIZER_SUPPORTS_WEAK_HOOKS
 
 const char *Symbolizer::PlatformDemangle(const char *name) {
   return DemangleSwiftAndCXX(name);
@@ -417,13 +426,13 @@ static SymbolizerTool *ChooseExternalSymbolizer(LowLevelAllocator *allocator) {
     VReport(2, "Using llvm-symbolizer at user-specified path: %s\n", path);
     return new(*allocator) LLVMSymbolizer(path, allocator);
   } else if (!internal_strcmp(binary_name, "atos")) {
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
     VReport(2, "Using atos at user-specified path: %s\n", path);
     return new(*allocator) AtosSymbolizer(path, allocator);
-#else  // SANITIZER_MAC
+#else  // SANITIZER_APPLE
     Report("ERROR: Using `atos` is only supported on Darwin.\n");
     Die();
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE
   } else if (!internal_strcmp(binary_name, "addr2line")) {
     VReport(2, "Using addr2line at user-specified path: %s\n", path);
     return new(*allocator) Addr2LinePool(path, allocator);
@@ -436,12 +445,12 @@ static SymbolizerTool *ChooseExternalSymbolizer(LowLevelAllocator *allocator) {
 
   // Otherwise symbolizer program is unknown, let's search $PATH
   CHECK(path == nullptr);
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
   if (const char *found_path = FindPathToBinary("atos")) {
     VReport(2, "Using atos found at: %s\n", found_path);
     return new(*allocator) AtosSymbolizer(found_path, allocator);
   }
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE
   if (const char *found_path = FindPathToBinary("llvm-symbolizer")) {
     VReport(2, "Using llvm-symbolizer found at: %s\n", found_path);
     return new(*allocator) LLVMSymbolizer(found_path, allocator);
@@ -478,10 +487,10 @@ static void ChooseSymbolizerTools(IntrusiveList<SymbolizerTool> *list,
     list->push_back(tool);
   }
 
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
   VReport(2, "Using dladdr symbolizer.\n");
   list->push_back(new(*allocator) DlAddrSymbolizer());
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE
 }
 
 Symbolizer *Symbolizer::PlatformInit() {
@@ -492,7 +501,7 @@ Symbolizer *Symbolizer::PlatformInit() {
 }
 
 void Symbolizer::LateInitialize() {
-  Symbolizer::GetOrInit()->LateInitializeTools();
+  Symbolizer::GetOrInit();
   InitializeSwiftDemangler();
 }
 

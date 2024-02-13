@@ -1,4 +1,4 @@
-pub fn entry() void {
+export fn entry() void {
     comptime @trap();
 }
 

@@ -5,7 +5,6 @@ const math = std.math;
 const testing = std.testing;
 const root = @import("root");
 
-pub const trait = @import("meta/trait.zig");
 pub const TrailerFlags = @import("meta/trailer_flags.zig").TrailerFlags;
 
 const Type = std.builtin.Type;
@@ -30,7 +29,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
         const kvs = comptime build_kvs: {
             const EnumKV = struct { []const u8, T };
             var kvs_array: [@typeInfo(T).Enum.fields.len]EnumKV = undefined;
-            inline for (@typeInfo(T).Enum.fields, 0..) |enumField, i| {
+            for (@typeInfo(T).Enum.fields, 0..) |enumField, i| {
                 kvs_array[i] = .{ enumField.name, @field(T, enumField.name) };
             }
             break :build_kvs kvs_array[0..];
@@ -135,7 +134,8 @@ test "std.meta.Elem" {
 /// Given a type which can have a sentinel e.g. `[:0]u8`, returns the sentinel value,
 /// or `null` if there is not one.
 /// Types which cannot possibly have a sentinel will be a compile error.
-pub fn sentinel(comptime T: type) ?Elem(T) {
+/// Result is always comptime-known.
+pub inline fn sentinel(comptime T: type) ?Elem(T) {
     switch (@typeInfo(T)) {
         .Array => |info| {
             const sentinel_ptr = info.sentinel orelse return null;
@@ -162,7 +162,7 @@ pub fn sentinel(comptime T: type) ?Elem(T) {
     @compileError("type '" ++ @typeName(T) ++ "' cannot possibly have a sentinel");
 }
 
-test "std.meta.sentinel" {
+test sentinel {
     try testSentinel();
     try comptime testSentinel();
 }
@@ -556,7 +556,7 @@ pub fn FieldEnum(comptime T: type) type {
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (field_infos, 0..) |field, i| {
         enumFields[i] = .{
-            .name = field.name,
+            .name = field.name ++ "",
             .value = i,
         };
     }
@@ -628,7 +628,7 @@ pub fn DeclEnum(comptime T: type) type {
     var enumDecls: [fieldInfos.len]std.builtin.Type.EnumField = undefined;
     var decls = [_]std.builtin.Type.Declaration{};
     inline for (fieldInfos, 0..) |field, i| {
-        enumDecls[i] = .{ .name = field.name, .value = i };
+        enumDecls[i] = .{ .name = field.name ++ "", .value = i };
     }
     return @Type(.{
         .Enum = .{
@@ -712,8 +712,6 @@ test "std.meta.activeTag" {
 const TagPayloadType = TagPayload;
 
 pub fn TagPayloadByName(comptime U: type, comptime tag_name: []const u8) type {
-    comptime debug.assert(trait.is(.Union)(U));
-
     const info = @typeInfo(U).Union;
 
     inline for (info.fields) |field_info| {
@@ -738,7 +736,7 @@ test "std.meta.TagPayload" {
         },
     };
     const MovedEvent = TagPayload(Event, Event.Moved);
-    var e: Event = undefined;
+    const e: Event = .{ .Moved = undefined };
     try testing.expect(MovedEvent == @TypeOf(e.Moved));
 }
 
@@ -839,13 +837,12 @@ test "std.meta.eql" {
     try testing.expect(eql(u_1, u_3));
     try testing.expect(!eql(u_1, u_2));
 
-    var a1 = "abcdef".*;
-    var a2 = "abcdef".*;
-    var a3 = "ghijkl".*;
+    const a1 = "abcdef".*;
+    const a2 = "abcdef".*;
+    const a3 = "ghijkl".*;
 
     try testing.expect(eql(a1, a2));
     try testing.expect(!eql(a1, a3));
-    try testing.expect(!eql(a1[0..], a2[0..]));
 
     const EU = struct {
         fn tst(err: bool) !u8 {
@@ -859,9 +856,9 @@ test "std.meta.eql" {
     try testing.expect(!eql(EU.tst(false), EU.tst(true)));
 
     const V = @Vector(4, u32);
-    var v1: V = @splat(1);
-    var v2: V = @splat(1);
-    var v3: V = @splat(2);
+    const v1: V = @splat(1);
+    const v2: V = @splat(1);
+    const v3: V = @splat(2);
 
     try testing.expect(eql(v1, v2));
     try testing.expect(!eql(v1, v3));
@@ -879,6 +876,8 @@ test "intToEnum with error return" {
 
     var zero: u8 = 0;
     var one: u16 = 1;
+    _ = &zero;
+    _ = &one;
     try testing.expect(intToEnum(E1, zero) catch unreachable == E1.A);
     try testing.expect(intToEnum(E2, one) catch unreachable == E2.B);
     try testing.expect(intToEnum(E3, zero) catch unreachable == E3.A);
@@ -901,11 +900,20 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
         return error.InvalidEnumTag;
     }
 
-    inline for (enum_info.fields) |f| {
-        const this_tag_value = @field(EnumTag, f.name);
-        if (tag_int == @intFromEnum(this_tag_value)) {
-            return this_tag_value;
+    // We don't direcly iterate over the fields of EnumTag, as that
+    // would require an inline loop. Instead, we create an array of
+    // values that is comptime-know, but can be iterated at runtime
+    // without requiring an inline loop. This generates better
+    // machine code.
+    const values = comptime blk: {
+        var result: [enum_info.fields.len]enum_info.tag_type = undefined;
+        for (&result, enum_info.fields) |*dst, src| {
+            dst.* = src.value;
         }
+        break :blk result;
+    };
+    for (values) |v| {
+        if (v == tag_int) return @enumFromInt(tag_int);
     }
     return error.InvalidEnumTag;
 }
@@ -1007,7 +1015,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         @setEvalBranchQuota(10_000);
         var num_buf: [128]u8 = undefined;
         tuple_fields[i] = .{
-            .name = std.fmt.bufPrint(&num_buf, "{d}", .{i}) catch unreachable,
+            .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
             .type = T,
             .default_value = null,
             .is_comptime = false,
@@ -1091,13 +1099,6 @@ test "ArgsTuple forwarding" {
     }
 }
 
-/// TODO: https://github.com/ziglang/zig/issues/425
-pub fn globalOption(comptime name: []const u8, comptime T: type) ?T {
-    if (!@hasDecl(root, name))
-        return null;
-    return @as(T, @field(root, name));
-}
-
 /// Returns whether `error_union` contains an error.
 pub fn isError(error_union: anytype) bool {
     return if (error_union) |_| false else |_| true;
@@ -1106,4 +1107,185 @@ pub fn isError(error_union: anytype) bool {
 test "isError" {
     try std.testing.expect(isError(math.divTrunc(u8, 5, 0)));
     try std.testing.expect(!isError(math.divTrunc(u8, 5, 5)));
+}
+
+/// Returns true if a type has a namespace and the namespace contains `name`;
+/// `false` otherwise. Result is always comptime-known.
+pub inline fn hasFn(comptime T: type, comptime name: []const u8) bool {
+    switch (@typeInfo(T)) {
+        .Struct, .Union, .Enum, .Opaque => {},
+        else => return false,
+    }
+    if (!@hasDecl(T, name))
+        return false;
+
+    return @typeInfo(@TypeOf(@field(T, name))) == .Fn;
+}
+
+test "hasFn" {
+    const S1 = struct {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasFn(S1, "foo"));
+    try std.testing.expect(!hasFn(S1, "bar"));
+    try std.testing.expect(!hasFn(*S1, "foo"));
+
+    const S2 = struct {
+        foo: fn () void,
+    };
+
+    try std.testing.expect(!hasFn(S2, "foo"));
+}
+
+/// Returns true if a type has a `name` method; `false` otherwise.
+/// Result is always comptime-known.
+pub inline fn hasMethod(comptime T: type, comptime name: []const u8) bool {
+    return switch (@typeInfo(T)) {
+        .Pointer => |P| switch (P.size) {
+            .One => hasFn(P.child, name),
+            .Many, .Slice, .C => false,
+        },
+        else => hasFn(T, name),
+    };
+}
+
+test "hasMethod" {
+    try std.testing.expect(!hasMethod(u32, "foo"));
+    try std.testing.expect(!hasMethod([]u32, "len"));
+    try std.testing.expect(!hasMethod(struct { u32, u64 }, "len"));
+
+    const S1 = struct {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasMethod(S1, "foo"));
+    try std.testing.expect(hasMethod(*S1, "foo"));
+
+    try std.testing.expect(!hasMethod(S1, "bar"));
+    try std.testing.expect(!hasMethod(*[1]S1, "foo"));
+    try std.testing.expect(!hasMethod(*[10]S1, "foo"));
+    try std.testing.expect(!hasMethod([]S1, "foo"));
+
+    const S2 = struct {
+        foo: fn () void,
+    };
+
+    try std.testing.expect(!hasMethod(S2, "foo"));
+
+    const U = union {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasMethod(U, "foo"));
+    try std.testing.expect(hasMethod(*U, "foo"));
+    try std.testing.expect(!hasMethod(U, "bar"));
+}
+
+/// True if every value of the type `T` has a unique bit pattern representing it.
+/// In other words, `T` has no unused bits and no padding.
+/// Result is always comptime-known.
+pub inline fn hasUniqueRepresentation(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        else => false, // TODO can we know if it's true for some of these types ?
+
+        .AnyFrame,
+        .Enum,
+        .ErrorSet,
+        .Fn,
+        => true,
+
+        .Bool => false,
+
+        .Int => |info| @sizeOf(T) * 8 == info.bits,
+
+        .Pointer => |info| info.size != .Slice,
+
+        .Array => |info| hasUniqueRepresentation(info.child),
+
+        .Struct => |info| {
+            var sum_size = @as(usize, 0);
+
+            inline for (info.fields) |field| {
+                if (!hasUniqueRepresentation(field.type)) return false;
+                sum_size += @sizeOf(field.type);
+            }
+
+            return @sizeOf(T) == sum_size;
+        },
+
+        .Vector => |info| hasUniqueRepresentation(info.child) and
+            @sizeOf(T) == @sizeOf(info.child) * info.len,
+    };
+}
+
+test "hasUniqueRepresentation" {
+    const TestStruct1 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct1));
+
+    const TestStruct2 = struct {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestStruct2));
+
+    const TestStruct3 = struct {
+        a: u32,
+        b: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(TestStruct3));
+
+    const TestStruct4 = struct { a: []const u8 };
+
+    try testing.expect(!hasUniqueRepresentation(TestStruct4));
+
+    const TestStruct5 = struct { a: TestStruct4 };
+
+    try testing.expect(!hasUniqueRepresentation(TestStruct5));
+
+    const TestUnion1 = packed union {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion1));
+
+    const TestUnion2 = extern union {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion2));
+
+    const TestUnion3 = union {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion3));
+
+    const TestUnion4 = union(enum) {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion4));
+
+    inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
+        try testing.expect(hasUniqueRepresentation(T));
+    }
+    inline for ([_]type{ i1, u9, i17, u33, i24 }) |T| {
+        try testing.expect(!hasUniqueRepresentation(T));
+    }
+
+    try testing.expect(!hasUniqueRepresentation([]u8));
+    try testing.expect(!hasUniqueRepresentation([]const u8));
+
+    try testing.expect(hasUniqueRepresentation(@Vector(4, u16)));
 }

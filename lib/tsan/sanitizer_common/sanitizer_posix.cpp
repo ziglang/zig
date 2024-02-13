@@ -41,6 +41,8 @@ uptr GetMmapGranularity() {
   return GetPageSize();
 }
 
+bool ErrorIsOOM(error_t err) { return err == ENOMEM; }
+
 void *MmapOrDie(uptr size, const char *mem_type, bool raw_report) {
   size = RoundUpTo(size, GetPageSizeCached());
   uptr res = MmapNamed(nullptr, size, PROT_READ | PROT_WRITE,
@@ -55,11 +57,9 @@ void *MmapOrDie(uptr size, const char *mem_type, bool raw_report) {
 void UnmapOrDie(void *addr, uptr size) {
   if (!addr || !size) return;
   uptr res = internal_munmap(addr, size);
-  if (UNLIKELY(internal_iserror(res))) {
-    Report("ERROR: %s failed to deallocate 0x%zx (%zd) bytes at address %p\n",
-           SanitizerToolName, size, size, addr);
-    CHECK("unable to unmap" && 0);
-  }
+  int reserrno;
+  if (UNLIKELY(internal_iserror(res, &reserrno)))
+    ReportMunmapFailureAndDie(addr, size, reserrno);
   DecreaseTotalMmap(size);
 }
 
@@ -85,18 +85,26 @@ void *MmapAlignedOrDieOnFatalError(uptr size, uptr alignment,
   CHECK(IsPowerOfTwo(size));
   CHECK(IsPowerOfTwo(alignment));
   uptr map_size = size + alignment;
+  // mmap maps entire pages and rounds up map_size needs to be a an integral 
+  // number of pages. 
+  // We need to be aware of this size for calculating end and for unmapping
+  // fragments before and after the alignment region.
+  map_size = RoundUpTo(map_size, GetPageSizeCached());
   uptr map_res = (uptr)MmapOrDieOnFatalError(map_size, mem_type);
   if (UNLIKELY(!map_res))
     return nullptr;
-  uptr map_end = map_res + map_size;
   uptr res = map_res;
   if (!IsAligned(res, alignment)) {
     res = (map_res + alignment - 1) & ~(alignment - 1);
     UnmapOrDie((void*)map_res, res - map_res);
   }
+  uptr map_end = map_res + map_size;
   uptr end = res + size;
-  if (end != map_end)
+  end = RoundUpTo(end, GetPageSizeCached());
+  if (end != map_end) {
+    CHECK_LT(end, map_end);
     UnmapOrDie((void*)end, map_end - end);
+  }
   return (void*)res;
 }
 
@@ -146,7 +154,11 @@ bool MprotectReadOnly(uptr addr, uptr size) {
   return 0 == internal_mprotect((void *)addr, size, PROT_READ);
 }
 
-#if !SANITIZER_MAC
+bool MprotectReadWrite(uptr addr, uptr size) {
+  return 0 == internal_mprotect((void *)addr, size, PROT_READ | PROT_WRITE);
+}
+
+#if !SANITIZER_APPLE
 void MprotectMallocZones(void *addr, int prot) {}
 #endif
 
@@ -239,7 +251,7 @@ bool MemoryRangeIsAvailable(uptr range_start, uptr range_end) {
   return true;
 }
 
-#if !SANITIZER_MAC
+#if !SANITIZER_APPLE
 void DumpProcessMap() {
   MemoryMappingLayout proc_maps(/*cache_enabled*/true);
   const sptr kBufSize = 4095;

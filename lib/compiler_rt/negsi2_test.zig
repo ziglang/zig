@@ -5,7 +5,7 @@ const testing = std.testing;
 const print = std.debug.print;
 
 fn test__negsi2(a: i32, expected: i32) !void {
-    var result = neg.__negsi2(a);
+    const result = neg.__negsi2(a);
     try testing.expectEqual(expected, result);
 }
 

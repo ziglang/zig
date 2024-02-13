@@ -304,7 +304,7 @@ pub fn decodeZstandardFrame(
 
     var frame_context = context: {
         var fbs = std.io.fixedBufferStream(src[consumed_count..]);
-        var source = fbs.reader();
+        const source = fbs.reader();
         const frame_header = try decodeZstandardHeader(source);
         consumed_count += fbs.pos;
         break :context FrameContext.init(
@@ -447,7 +447,7 @@ pub fn decodeZstandardFrameArrayList(
 
     var frame_context = context: {
         var fbs = std.io.fixedBufferStream(src[consumed_count..]);
-        var source = fbs.reader();
+        const source = fbs.reader();
         const frame_header = try decodeZstandardHeader(source);
         consumed_count += fbs.pos;
         break :context try FrameContext.init(frame_header, window_size_max, verify_checksum);

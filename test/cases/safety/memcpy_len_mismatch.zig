@@ -10,6 +10,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 pub fn main() !void {
     var buffer = [2]u8{ 1, 2 } ** 5;
     var len: usize = 5;
+    _ = &len;
     @memcpy(buffer[0..len], buffer[len .. len + 4]);
 }
 // run

@@ -1,6 +1,7 @@
 export fn _start() noreturn {
     const b = true;
     var f: u32 = 1;
+    _ = &f;
     @compileLog(b, 20, f, x);
     @compileLog(1000);
     unreachable;

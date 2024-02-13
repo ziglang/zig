@@ -4270,6 +4270,69 @@ test "zig fmt: remove newlines surrounding doc comment" {
     );
 }
 
+test "zig fmt: remove newlines surrounding doc comment between members" {
+    try testTransform(
+        \\f1: i32,
+        \\
+        \\
+        \\/// doc comment
+        \\
+        \\f2: i32,
+        \\
+    ,
+        \\f1: i32,
+        \\
+        \\/// doc comment
+        \\f2: i32,
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment between members within container decl (1)" {
+    try testTransform(
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\
+        \\
+        \\    /// doc comment
+        \\
+        \\
+        \\    fn bar() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\
+        \\    /// doc comment
+        \\    fn bar() void {}
+        \\};
+        \\
+    );
+}
+
+test "zig fmt: remove newlines surrounding doc comment between members within container decl (2)" {
+    try testTransform(
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\    /// doc comment 1
+        \\
+        \\    /// doc comment 2
+        \\
+        \\    fn bar() void {}
+        \\};
+        \\
+    ,
+        \\const Foo = struct {
+        \\    fn foo() void {}
+        \\    /// doc comment 1
+        \\    /// doc comment 2
+        \\    fn bar() void {}
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: remove newlines surrounding doc comment within container decl" {
     try testTransform(
         \\const Foo = struct {
@@ -4311,6 +4374,21 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
         .comptime_doc_comment,
         .test_doc_comment,
     });
+}
+
+test "zig fmt: else comptime expr" {
+    try testCanonical(
+        \\comptime {
+        \\    if (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    while (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    for ("") |_| {} else comptime foo();
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: invalid else branch statement" {

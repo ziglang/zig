@@ -1,5 +1,5 @@
 export fn entry() void {
-    var damn = Container{
+    const damn = Container{
         .not_optional = getOptional(),
     };
     _ = damn;

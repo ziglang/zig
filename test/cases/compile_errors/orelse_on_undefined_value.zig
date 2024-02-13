@@ -1,5 +1,5 @@
 comptime {
-    var a: ?bool = undefined;
+    const a: ?bool = undefined;
     _ = a orelse false;
 }
 

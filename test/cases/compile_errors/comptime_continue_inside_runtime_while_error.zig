@@ -1,5 +1,6 @@
 export fn entry() void {
     var p: anyerror!usize = undefined;
+    _ = &p;
     comptime var q = true;
     outer: inline while (q) {
         while (p) |_| {
@@ -13,5 +14,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :6:13: error: comptime control flow inside runtime block
-// :5:16: note: runtime control flow here
+// :7:13: error: comptime control flow inside runtime block
+// :6:16: note: runtime control flow here

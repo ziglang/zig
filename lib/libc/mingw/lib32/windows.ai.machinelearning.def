@@ -1,0 +1,5 @@
+LIBRARY windows.ai.machinelearning
+
+EXPORTS
+
+MLCreateOperatorRegistry@4

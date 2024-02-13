@@ -10,6 +10,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 
 pub fn main() !void {
     var slice: []const u8 = "hello";
+    _ = &slice;
     for (10..20, slice, 20..30) |a, b, c| {
         _ = a;
         _ = b;

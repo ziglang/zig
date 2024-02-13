@@ -11,7 +11,7 @@ fn foo() E {
 }
 export fn doTheTest() u64 {
     var u: U = foo();
-    return u.b;
+    return (&u).b;
 }
 
 // error

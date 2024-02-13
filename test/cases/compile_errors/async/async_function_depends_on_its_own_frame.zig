@@ -3,7 +3,7 @@ export fn entry() void {
 }
 fn amain() callconv(.Async) void {
     var x: [@sizeOf(@Frame(amain))]u8 = undefined;
-    _ = x;
+    _ = &x;
 }
 
 // error

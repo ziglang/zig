@@ -47,11 +47,34 @@ pub fn deinit(self: *SharedObject, allocator: Allocator) void {
 }
 
 pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var stream = std.io.fixedBufferStream(self.data);
     const reader = stream.reader();
 
     self.header = try reader.readStruct(elf.Elf64_Ehdr);
+
+    const target = elf_file.base.comp.root_mod.resolved_target.result;
+    if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+        try elf_file.reportParseError2(
+            self.index,
+            "invalid cpu architecture: {s}",
+            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+        );
+        return error.InvalidCpuArch;
+    }
+
+    if (self.data.len < self.header.?.e_shoff or
+        self.data.len < self.header.?.e_shoff + @as(u64, @intCast(self.header.?.e_shnum)) * @sizeOf(elf.Elf64_Shdr))
+    {
+        try elf_file.reportParseError2(
+            self.index,
+            "corrupted header: section header table extends past the end of file",
+            .{},
+        );
+        return error.MalformedObject;
+    }
+
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
 
     const shdrs = @as(
@@ -61,6 +84,12 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
     try self.shdrs.ensureTotalCapacityPrecise(gpa, shdrs.len);
 
     for (shdrs, 0..) |shdr, i| {
+        if (shdr.sh_type != elf.SHT_NOBITS) {
+            if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
+                try elf_file.reportParseError2(self.index, "corrupted section header", .{});
+                return error.MalformedObject;
+            }
+        }
         self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
         switch (shdr.sh_type) {
             elf.SHT_DYNSYM => self.dynsym_sect_index = @as(u16, @intCast(i)),
@@ -75,7 +104,8 @@ pub fn parse(self: *SharedObject, elf_file: *Elf) !void {
 }
 
 fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const symtab = self.getSymtabRaw();
 
     try self.verstrings.resize(gpa, 2);
@@ -120,7 +150,8 @@ fn parseVersions(self: *SharedObject, elf_file: *Elf) !void {
 }
 
 pub fn init(self: *SharedObject, elf_file: *Elf) !void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     const symtab = self.getSymtabRaw();
     const strtab = self.getStrtabRaw();
 
@@ -191,6 +222,34 @@ pub fn globals(self: SharedObject) []const Symbol.Index {
     return self.symbols.items;
 }
 
+pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) !void {
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const file_ptr = global.file(elf_file) orelse continue;
+        if (file_ptr.index() != self.index) continue;
+        if (global.isLocal(elf_file)) continue;
+        global.flags.output_symtab = true;
+        try global.setOutputSymtabIndex(self.output_symtab_ctx.nglobals, elf_file);
+        self.output_symtab_ctx.nglobals += 1;
+        self.output_symtab_ctx.strsize += @as(u32, @intCast(global.name(elf_file).len)) + 1;
+    }
+}
+
+pub fn writeSymtab(self: SharedObject, elf_file: *Elf) void {
+    for (self.globals()) |global_index| {
+        const global = elf_file.symbol(global_index);
+        const file_ptr = global.file(elf_file) orelse continue;
+        if (file_ptr.index() != self.index) continue;
+        const idx = global.outputSymtabIndex(elf_file) orelse continue;
+        const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
+        elf_file.strtab.appendSliceAssumeCapacity(global.name(elf_file));
+        elf_file.strtab.appendAssumeCapacity(0);
+        const out_sym = &elf_file.symtab.items[idx];
+        out_sym.st_name = st_name;
+        global.setOutputSym(elf_file, out_sym);
+    }
+}
+
 pub fn shdrContents(self: SharedObject, index: u16) []const u8 {
     const shdr = self.shdrs.items[index];
     return self.data[shdr.sh_offset..][0..shdr.sh_size];
@@ -241,7 +300,8 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
         }
     };
 
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var aliases = std.ArrayList(Symbol.Index).init(gpa);
     defer aliases.deinit();
     try aliases.ensureTotalCapacityPrecise(self.globals().len);

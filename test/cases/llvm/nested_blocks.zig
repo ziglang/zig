@@ -10,7 +10,7 @@ fn foo(ok: bool) i32 {
         };
         break :blk val2 + 10;
     };
-    return val;
+    return (&val).*;
 }
 
 pub fn main() void {

@@ -7,7 +7,7 @@ pub fn getGeo3DTex2D() Geo3DTex2D {
     };
 }
 export fn entry() void {
-    var geo_data = getGeo3DTex2D();
+    const geo_data = getGeo3DTex2D();
     _ = geo_data;
 }
 

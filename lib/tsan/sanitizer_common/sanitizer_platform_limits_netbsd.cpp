@@ -554,7 +554,7 @@ unsigned struct_tms_sz = sizeof(struct tms);
 unsigned struct_sigevent_sz = sizeof(struct sigevent);
 unsigned struct_sched_param_sz = sizeof(struct sched_param);
 unsigned struct_sockaddr_sz = sizeof(struct sockaddr);
-unsigned ucontext_t_sz = sizeof(ucontext_t);
+unsigned ucontext_t_sz(void *ctx) { return sizeof(ucontext_t); }
 unsigned struct_rlimit_sz = sizeof(struct rlimit);
 unsigned struct_timespec_sz = sizeof(struct timespec);
 unsigned struct_sembuf_sz = sizeof(struct sembuf);
@@ -666,6 +666,7 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
 
 int glob_nomatch = GLOB_NOMATCH;
 int glob_altdirfunc = GLOB_ALTDIRFUNC;
+const int wordexp_wrde_dooffs = WRDE_DOOFFS;
 
 unsigned path_max = PATH_MAX;
 
@@ -2341,8 +2342,6 @@ unsigned IOCTL_TIOCDRAIN = TIOCDRAIN;
 unsigned IOCTL_TIOCGFLAGS = TIOCGFLAGS;
 unsigned IOCTL_TIOCSFLAGS = TIOCSFLAGS;
 unsigned IOCTL_TIOCDCDTIMESTAMP = TIOCDCDTIMESTAMP;
-unsigned IOCTL_TIOCRCVFRAME = TIOCRCVFRAME;
-unsigned IOCTL_TIOCXMTFRAME = TIOCXMTFRAME;
 unsigned IOCTL_TIOCPTMGET = TIOCPTMGET;
 unsigned IOCTL_TIOCGRANTPT = TIOCGRANTPT;
 unsigned IOCTL_TIOCPTSNAME = TIOCPTSNAME;

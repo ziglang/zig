@@ -283,8 +283,8 @@ pub const Status = enum(u10) {
     }
 
     test {
-        try std.testing.expectEqual(@as(?Status.Class, Status.Class.success), Status.ok.class());
-        try std.testing.expectEqual(@as(?Status.Class, Status.Class.client_error), Status.not_found.class());
+        try std.testing.expectEqual(Status.Class.success, Status.ok.class());
+        try std.testing.expectEqual(Status.Class.client_error, Status.not_found.class());
     }
 };
 

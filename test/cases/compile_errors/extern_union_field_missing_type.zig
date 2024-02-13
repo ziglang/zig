@@ -2,7 +2,7 @@ const Letter = extern union {
     A,
 };
 export fn entry() void {
-    var a = Letter{ .A = {} };
+    const a: Letter = .{ .A = {} };
     _ = a;
 }
 

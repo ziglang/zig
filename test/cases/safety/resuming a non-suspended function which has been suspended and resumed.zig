@@ -10,7 +10,7 @@ fn foo() void {
         global_frame = @frame();
     }
     var f = async bar(@frame());
-    _ = f;
+    _ = &f;
     std.os.exit(1);
 }
 

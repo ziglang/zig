@@ -1,6 +1,6 @@
 export fn entry9() void {
     var z: noreturn = return;
-    _ = z;
+    _ = &z;
 }
 
 // error

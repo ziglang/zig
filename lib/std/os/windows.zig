@@ -21,8 +21,6 @@ test {
 pub const advapi32 = @import("windows/advapi32.zig");
 pub const kernel32 = @import("windows/kernel32.zig");
 pub const ntdll = @import("windows/ntdll.zig");
-pub const ole32 = @import("windows/ole32.zig");
-pub const shell32 = @import("windows/shell32.zig");
 pub const ws2_32 = @import("windows/ws2_32.zig");
 pub const crypt32 = @import("windows/crypt32.zig");
 pub const nls = @import("windows/nls.zig");
@@ -51,7 +49,6 @@ pub const OpenFileOptions = struct {
     sa: ?*SECURITY_ATTRIBUTES = null,
     share_access: ULONG = FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
     creation: ULONG,
-    io_mode: std.io.ModeOverride,
     /// If true, tries to open path as a directory.
     /// Defaults to false.
     filter: Filter = .file_only,
@@ -88,13 +85,16 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     var attr = OBJECT_ATTRIBUTES{
         .Length = @sizeOf(OBJECT_ATTRIBUTES),
         .RootDirectory = if (std.fs.path.isAbsoluteWindowsWTF16(sub_path_w)) null else options.dir,
-        .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+        .Attributes = if (options.sa) |ptr| blk: { // Note we do not use OBJ_CASE_INSENSITIVE here.
+            const inherit: ULONG = if (ptr.bInheritHandle == TRUE) OBJ_INHERIT else 0;
+            break :blk inherit;
+        } else 0,
         .ObjectName = &nt_name,
         .SecurityDescriptor = if (options.sa) |ptr| ptr.lpSecurityDescriptor else null,
         .SecurityQualityOfService = null,
     };
     var io: IO_STATUS_BLOCK = undefined;
-    const blocking_flag: ULONG = if (options.io_mode == .blocking) FILE_SYNCHRONOUS_IO_NONALERT else 0;
+    const blocking_flag: ULONG = FILE_SYNCHRONOUS_IO_NONALERT;
     const file_or_dir_flag: ULONG = switch (options.filter) {
         .file_only => FILE_NON_DIRECTORY_FILE,
         .dir_only => FILE_DIRECTORY_FILE,
@@ -118,12 +118,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             0,
         );
         switch (rc) {
-            .SUCCESS => {
-                if (std.io.is_async and options.io_mode == .evented) {
-                    _ = CreateIoCompletionPort(result, std.event.Loop.instance.?.os_data.io_port, undefined, undefined) catch undefined;
-                }
-                return result;
-            },
+            .SUCCESS => return result,
             .OBJECT_NAME_INVALID => unreachable,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
@@ -431,7 +426,7 @@ pub fn GetQueuedCompletionStatusEx(
             .ABANDONED_WAIT_0 => error.Aborted,
             .OPERATION_ABORTED => error.Cancelled,
             .HANDLE_EOF => error.EOF,
-            .IMEOUT => error.Timeout,
+            .WAIT_TIMEOUT => error.Timeout,
             else => |err| unexpectedError(err),
         };
     }
@@ -456,81 +451,36 @@ pub const ReadFileError = error{
 
 /// If buffer's length exceeds what a Windows DWORD integer can hold, it will be broken into
 /// multiple non-atomic reads.
-pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64, io_mode: std.io.ModeOverride) ReadFileError!usize {
-    if (io_mode != .blocking) {
-        const loop = std.event.Loop.instance.?;
-        // TODO make getting the file position non-blocking
-        const off = if (offset) |o| o else try SetFilePointerEx_CURRENT_get(in_hFile);
-        var resume_node = std.event.Loop.ResumeNode.Basic{
-            .base = .{
-                .id = .Basic,
-                .handle = @frame(),
-                .overlapped = OVERLAPPED{
-                    .Internal = 0,
-                    .InternalHigh = 0,
-                    .DUMMYUNIONNAME = .{
-                        .DUMMYSTRUCTNAME = .{
-                            .Offset = @as(u32, @truncate(off)),
-                            .OffsetHigh = @as(u32, @truncate(off >> 32)),
-                        },
+pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usize {
+    while (true) {
+        const want_read_count: DWORD = @min(@as(DWORD, maxInt(DWORD)), buffer.len);
+        var amt_read: DWORD = undefined;
+        var overlapped_data: OVERLAPPED = undefined;
+        const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
+            overlapped_data = .{
+                .Internal = 0,
+                .InternalHigh = 0,
+                .DUMMYUNIONNAME = .{
+                    .DUMMYSTRUCTNAME = .{
+                        .Offset = @as(u32, @truncate(off)),
+                        .OffsetHigh = @as(u32, @truncate(off >> 32)),
                     },
-                    .hEvent = null,
                 },
-            },
-        };
-        loop.beginOneEvent();
-        suspend {
-            // TODO handle buffer bigger than DWORD can hold
-            _ = kernel32.ReadFile(in_hFile, buffer.ptr, @as(DWORD, @intCast(buffer.len)), null, &resume_node.base.overlapped);
-        }
-        var bytes_transferred: DWORD = undefined;
-        if (kernel32.GetOverlappedResult(in_hFile, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
+                .hEvent = null,
+            };
+            break :blk &overlapped_data;
+        } else null;
+        if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
             switch (kernel32.GetLastError()) {
                 .IO_PENDING => unreachable,
-                .OPERATION_ABORTED => return error.OperationAborted,
-                .BROKEN_PIPE => return error.BrokenPipe,
+                .OPERATION_ABORTED => continue,
+                .BROKEN_PIPE => return 0,
+                .HANDLE_EOF => return 0,
                 .NETNAME_DELETED => return error.NetNameDeleted,
-                .HANDLE_EOF => return @as(usize, bytes_transferred),
                 else => |err| return unexpectedError(err),
             }
         }
-        if (offset == null) {
-            // TODO make setting the file position non-blocking
-            const new_off = off + bytes_transferred;
-            try SetFilePointerEx_CURRENT(in_hFile, @as(i64, @bitCast(new_off)));
-        }
-        return @as(usize, bytes_transferred);
-    } else {
-        while (true) {
-            const want_read_count: DWORD = @min(@as(DWORD, maxInt(DWORD)), buffer.len);
-            var amt_read: DWORD = undefined;
-            var overlapped_data: OVERLAPPED = undefined;
-            const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
-                overlapped_data = .{
-                    .Internal = 0,
-                    .InternalHigh = 0,
-                    .DUMMYUNIONNAME = .{
-                        .DUMMYSTRUCTNAME = .{
-                            .Offset = @as(u32, @truncate(off)),
-                            .OffsetHigh = @as(u32, @truncate(off >> 32)),
-                        },
-                    },
-                    .hEvent = null,
-                };
-                break :blk &overlapped_data;
-            } else null;
-            if (kernel32.ReadFile(in_hFile, buffer.ptr, want_read_count, &amt_read, overlapped) == 0) {
-                switch (kernel32.GetLastError()) {
-                    .IO_PENDING => unreachable,
-                    .OPERATION_ABORTED => continue,
-                    .BROKEN_PIPE => return 0,
-                    .HANDLE_EOF => return 0,
-                    .NETNAME_DELETED => return error.NetNameDeleted,
-                    else => |err| return unexpectedError(err),
-                }
-            }
-            return amt_read;
-        }
+        return amt_read;
     }
 }
 
@@ -549,85 +499,38 @@ pub fn WriteFile(
     handle: HANDLE,
     bytes: []const u8,
     offset: ?u64,
-    io_mode: std.io.ModeOverride,
 ) WriteFileError!usize {
-    if (std.event.Loop.instance != null and io_mode != .blocking) {
-        const loop = std.event.Loop.instance.?;
-        // TODO make getting the file position non-blocking
-        const off = if (offset) |o| o else try SetFilePointerEx_CURRENT_get(handle);
-        var resume_node = std.event.Loop.ResumeNode.Basic{
-            .base = .{
-                .id = .Basic,
-                .handle = @frame(),
-                .overlapped = OVERLAPPED{
-                    .Internal = 0,
-                    .InternalHigh = 0,
-                    .DUMMYUNIONNAME = .{
-                        .DUMMYSTRUCTNAME = .{
-                            .Offset = @as(u32, @truncate(off)),
-                            .OffsetHigh = @as(u32, @truncate(off >> 32)),
-                        },
-                    },
-                    .hEvent = null,
+    var bytes_written: DWORD = undefined;
+    var overlapped_data: OVERLAPPED = undefined;
+    const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
+        overlapped_data = .{
+            .Internal = 0,
+            .InternalHigh = 0,
+            .DUMMYUNIONNAME = .{
+                .DUMMYSTRUCTNAME = .{
+                    .Offset = @as(u32, @truncate(off)),
+                    .OffsetHigh = @as(u32, @truncate(off >> 32)),
                 },
             },
+            .hEvent = null,
         };
-        loop.beginOneEvent();
-        suspend {
-            const adjusted_len = math.cast(DWORD, bytes.len) orelse maxInt(DWORD);
-            _ = kernel32.WriteFile(handle, bytes.ptr, adjusted_len, null, &resume_node.base.overlapped);
+        break :blk &overlapped_data;
+    } else null;
+    const adjusted_len = math.cast(u32, bytes.len) orelse maxInt(u32);
+    if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
+        switch (kernel32.GetLastError()) {
+            .INVALID_USER_BUFFER => return error.SystemResources,
+            .NOT_ENOUGH_MEMORY => return error.SystemResources,
+            .OPERATION_ABORTED => return error.OperationAborted,
+            .NOT_ENOUGH_QUOTA => return error.SystemResources,
+            .IO_PENDING => unreachable,
+            .BROKEN_PIPE => return error.BrokenPipe,
+            .INVALID_HANDLE => return error.NotOpenForWriting,
+            .LOCK_VIOLATION => return error.LockViolation,
+            else => |err| return unexpectedError(err),
         }
-        var bytes_transferred: DWORD = undefined;
-        if (kernel32.GetOverlappedResult(handle, &resume_node.base.overlapped, &bytes_transferred, FALSE) == 0) {
-            switch (kernel32.GetLastError()) {
-                .IO_PENDING => unreachable,
-                .INVALID_USER_BUFFER => return error.SystemResources,
-                .NOT_ENOUGH_MEMORY => return error.SystemResources,
-                .OPERATION_ABORTED => return error.OperationAborted,
-                .NOT_ENOUGH_QUOTA => return error.SystemResources,
-                .BROKEN_PIPE => return error.BrokenPipe,
-                else => |err| return unexpectedError(err),
-            }
-        }
-        if (offset == null) {
-            // TODO make setting the file position non-blocking
-            const new_off = off + bytes_transferred;
-            try SetFilePointerEx_CURRENT(handle, @as(i64, @bitCast(new_off)));
-        }
-        return bytes_transferred;
-    } else {
-        var bytes_written: DWORD = undefined;
-        var overlapped_data: OVERLAPPED = undefined;
-        const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
-            overlapped_data = .{
-                .Internal = 0,
-                .InternalHigh = 0,
-                .DUMMYUNIONNAME = .{
-                    .DUMMYSTRUCTNAME = .{
-                        .Offset = @as(u32, @truncate(off)),
-                        .OffsetHigh = @as(u32, @truncate(off >> 32)),
-                    },
-                },
-                .hEvent = null,
-            };
-            break :blk &overlapped_data;
-        } else null;
-        const adjusted_len = math.cast(u32, bytes.len) orelse maxInt(u32);
-        if (kernel32.WriteFile(handle, bytes.ptr, adjusted_len, &bytes_written, overlapped) == 0) {
-            switch (kernel32.GetLastError()) {
-                .INVALID_USER_BUFFER => return error.SystemResources,
-                .NOT_ENOUGH_MEMORY => return error.SystemResources,
-                .OPERATION_ABORTED => return error.OperationAborted,
-                .NOT_ENOUGH_QUOTA => return error.SystemResources,
-                .IO_PENDING => unreachable,
-                .BROKEN_PIPE => return error.BrokenPipe,
-                .INVALID_HANDLE => return error.NotOpenForWriting,
-                .LOCK_VIOLATION => return error.LockViolation,
-                else => |err| return unexpectedError(err),
-            }
-        }
-        return bytes_written;
     }
+    return bytes_written;
 }
 
 pub const SetCurrentDirectoryError = error{
@@ -731,7 +634,6 @@ pub fn CreateSymbolicLink(
         .access_mask = SYNCHRONIZE | GENERIC_READ | GENERIC_WRITE,
         .dir = dir,
         .creation = FILE_CREATE,
-        .io_mode = .blocking,
         .filter = if (is_directory) .dir_only else .file_only,
     }) catch |err| switch (err) {
         error.IsDir => return error.PathAlreadyExists,
@@ -1166,7 +1068,7 @@ test "QueryObjectName" {
     const handle = tmp.dir.fd;
     var out_buffer: [PATH_MAX_WIDE]u16 = undefined;
 
-    var result_path = try QueryObjectName(handle, &out_buffer);
+    const result_path = try QueryObjectName(handle, &out_buffer);
     const required_len_in_u16 = result_path.len + @divExact(@intFromPtr(result_path.ptr) - @intFromPtr(&out_buffer), 2) + 1;
     //insufficient size
     try std.testing.expectError(error.NameTooLong, QueryObjectName(handle, out_buffer[0 .. required_len_in_u16 - 1]));
@@ -1255,7 +1157,6 @@ pub fn GetFinalPathNameByHandle(
                 .access_mask = SYNCHRONIZE,
                 .share_access = FILE_SHARE_READ | FILE_SHARE_WRITE,
                 .creation = FILE_OPEN,
-                .io_mode = .blocking,
             }) catch |err| switch (err) {
                 error.IsDir => unreachable,
                 error.NotDir => unreachable,
@@ -1729,14 +1630,14 @@ pub const CreateProcessError = error{
 };
 
 pub fn CreateProcessW(
-    lpApplicationName: ?LPWSTR,
-    lpCommandLine: LPWSTR,
+    lpApplicationName: ?LPCWSTR,
+    lpCommandLine: ?LPWSTR,
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
     dwCreationFlags: DWORD,
     lpEnvironment: ?*anyopaque,
-    lpCurrentDirectory: ?LPWSTR,
+    lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,
     lpProcessInformation: *PROCESS_INFORMATION,
 ) CreateProcessError!void {
@@ -1804,6 +1705,34 @@ pub fn LoadLibraryW(lpLibFileName: [*:0]const u16) LoadLibraryError!HMODULE {
     };
 }
 
+pub const LoadLibraryFlags = enum(DWORD) {
+    none = 0,
+    dont_resolve_dll_references = 0x00000001,
+    load_ignore_code_authz_level = 0x00000010,
+    load_library_as_datafile = 0x00000002,
+    load_library_as_datafile_exclusive = 0x00000040,
+    load_library_as_image_resource = 0x00000020,
+    load_library_search_application_dir = 0x00000200,
+    load_library_search_default_dirs = 0x00001000,
+    load_library_search_dll_load_dir = 0x00000100,
+    load_library_search_system32 = 0x00000800,
+    load_library_search_user_dirs = 0x00000400,
+    load_with_altered_search_path = 0x00000008,
+    load_library_require_signed_target = 0x00000080,
+    load_library_safe_current_dirs = 0x00002000,
+};
+
+pub fn LoadLibraryExW(lpLibFileName: [*:0]const u16, dwFlags: LoadLibraryFlags) LoadLibraryError!HMODULE {
+    return kernel32.LoadLibraryExW(lpLibFileName, null, @intFromEnum(dwFlags)) orelse {
+        switch (kernel32.GetLastError()) {
+            .FILE_NOT_FOUND => return error.FileNotFound,
+            .PATH_NOT_FOUND => return error.FileNotFound,
+            .MOD_NOT_FOUND => return error.FileNotFound,
+            else => |err| return unexpectedError(err),
+        }
+    };
+}
+
 pub fn FreeLibrary(hModule: HMODULE) void {
     assert(kernel32.FreeLibrary(hModule) != 0);
 }
@@ -1812,7 +1741,7 @@ pub fn QueryPerformanceFrequency() u64 {
     // "On systems that run Windows XP or later, the function will always succeed"
     // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancefrequency
     var result: LARGE_INTEGER = undefined;
-    assert(kernel32.QueryPerformanceFrequency(&result) != 0);
+    assert(ntdll.RtlQueryPerformanceFrequency(&result) != 0);
     // The kernel treats this integer as unsigned.
     return @as(u64, @bitCast(result));
 }
@@ -1821,7 +1750,7 @@ pub fn QueryPerformanceCounter() u64 {
     // "On systems that run Windows XP or later, the function will always succeed"
     // https://docs.microsoft.com/en-us/windows/desktop/api/profileapi/nf-profileapi-queryperformancecounter
     var result: LARGE_INTEGER = undefined;
-    assert(kernel32.QueryPerformanceCounter(&result) != 0);
+    assert(ntdll.RtlQueryPerformanceCounter(&result) != 0);
     // The kernel treats this integer as unsigned.
     return @as(u64, @bitCast(result));
 }
@@ -1927,7 +1856,7 @@ pub fn teb() *TEB {
             if (builtin.zig_backend == .stage2_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
             } else {
-                break :blk asm volatile (
+                break :blk asm (
                     \\ movl %%fs:0x18, %[ptr]
                     : [ptr] "=r" (-> *TEB),
                 );
@@ -1937,13 +1866,13 @@ pub fn teb() *TEB {
             if (builtin.zig_backend == .stage2_c) {
                 break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
             } else {
-                break :blk asm volatile (
+                break :blk asm (
                     \\ movq %%gs:0x30, %[ptr]
                     : [ptr] "=r" (-> *TEB),
                 );
             }
         },
-        .aarch64 => asm volatile (
+        .aarch64 => asm (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
         ),
@@ -2045,8 +1974,8 @@ pub fn eqlIgnoreCaseUtf8(a: []const u8, b: []const u8) bool {
     };
 
     while (true) {
-        var a_cp = a_utf8_it.nextCodepoint() orelse break;
-        var b_cp = b_utf8_it.nextCodepoint() orelse return false;
+        const a_cp = a_utf8_it.nextCodepoint() orelse break;
+        const b_cp = b_utf8_it.nextCodepoint() orelse return false;
 
         if (a_cp <= std.math.maxInt(u16) and b_cp <= std.math.maxInt(u16)) {
             if (a_cp != b_cp and upcaseImpl(@intCast(a_cp)) != upcaseImpl(@intCast(b_cp))) {
@@ -2974,6 +2903,15 @@ pub const FILE_INFORMATION_CLASS = enum(c_int) {
     FileMaximumInformation,
 };
 
+pub const FILE_ATTRIBUTE_TAG_INFO = extern struct {
+    FileAttributes: DWORD,
+    ReparseTag: DWORD,
+};
+
+/// "If this bit is set, the file or directory represents another named entity in the system."
+/// https://learn.microsoft.com/en-us/windows/win32/fileio/reparse-point-tags
+pub const reparse_tag_name_surrogate_bit = 0x20000000;
+
 pub const FILE_DISPOSITION_INFORMATION = extern struct {
     DeleteFile: BOOLEAN,
 };
@@ -3527,7 +3465,8 @@ pub const SEC_LARGE_PAGES = 0x80000000;
 
 pub const HKEY = *opaque {};
 
-pub const HKEY_LOCAL_MACHINE: HKEY = @as(HKEY, @ptrFromInt(0x80000002));
+pub const HKEY_CLASSES_ROOT: HKEY = @ptrFromInt(0x80000000);
+pub const HKEY_LOCAL_MACHINE: HKEY = @ptrFromInt(0x80000002);
 
 /// Combines the STANDARD_RIGHTS_REQUIRED, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_CREATE_SUB_KEY,
 /// KEY_ENUMERATE_SUB_KEYS, KEY_NOTIFY, and KEY_CREATE_LINK access rights.

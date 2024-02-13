@@ -10,7 +10,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 
 pub fn main() !void {
     var c_ptr: [*c]u8 = 0;
-    var zig_ptr: *u8 = c_ptr;
+    _ = &c_ptr;
+    const zig_ptr: *u8 = c_ptr;
     _ = zig_ptr;
     return error.TestFailed;
 }

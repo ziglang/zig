@@ -56,7 +56,11 @@ extern "C" {
 #define _wP_tmpdir L"\\"
 #endif
 
+#ifdef _UCRT
+#define L_tmpnam 260
+#else
 #define L_tmpnam (sizeof(_P_tmpdir) + 12)
+#endif
 
 #ifdef _POSIX_
 #define L_ctermid 9
@@ -74,7 +78,11 @@ extern "C" {
 #define FILENAME_MAX 260
 #define FOPEN_MAX 20
 #define _SYS_OPEN 20
+#ifdef _UCRT
+#define TMP_MAX 2147483647
+#else
 #define TMP_MAX 32767
+#endif
 
 #ifndef NULL
 #ifdef __cplusplus
@@ -146,7 +154,10 @@ extern FILE (* __MINGW_IMP_SYMBOL(_iob))[];	/* A pointer to an array of FILE */
 #endif
 #endif
 
+/* used with _set_output_format which is not present in ucrt */
+#ifndef _UCRT
 #define _TWO_DIGIT_EXPONENT 0x1
+#endif
 
 #if __MINGW_FORTIFY_LEVEL > 0
 __mingw_bos_declare;
@@ -376,7 +387,9 @@ int printf (const char *__format, ...)
 
 #if __MINGW_FORTIFY_VA_ARG
 
-__mingw_bos_ovr
+int sprintf (char *__stream, const char *__format, ...) __MINGW_ASM_CALL(__mingw_sprintf);
+
+__mingw_bos_extern_ovr
 __attribute__((__format__ (gnu_printf, 2, 3))) __MINGW_ATTRIB_NONNULL(2)
 int sprintf (char *__stream, const char *__format, ...)
 {
@@ -436,7 +449,9 @@ int vsprintf (char *__stream, const char *__format, __builtin_va_list __local_ar
 
 #if __MINGW_FORTIFY_VA_ARG
 
-__mingw_bos_ovr
+int snprintf (char *__stream, size_t __n, const char *__format, ...) __MINGW_ASM_CALL(__mingw_snprintf);
+
+__mingw_bos_extern_ovr
 __attribute__((__format__ (gnu_printf, 3, 4))) __MINGW_ATTRIB_NONNULL(3)
 int snprintf (char *__stream, size_t __n, const char *__format, ...)
 {
@@ -684,7 +699,8 @@ int vsnprintf (char *__stream, size_t __n, const char *__format, __builtin_va_li
   int __cdecl getc(FILE *_File);
   int __cdecl getchar(void);
   _CRTIMP int __cdecl _getmaxstdio(void);
-  char *__cdecl gets(char *_Buffer) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
+  char *__cdecl gets(char *_Buffer)
+    __attribute__((__warning__("Using gets() is always unsafe - use fgets() instead")));
   int __cdecl _getw(FILE *_File);
 #ifndef _CRT_PERROR_DEFINED
 #define _CRT_PERROR_DEFINED
@@ -829,10 +845,67 @@ char * tmpnam(char * __dst)
 
   __attribute__((__format__ (__MINGW_PRINTF_FORMAT, 3, 4))) __MINGW_ATTRIB_NONNULL(3)
   int snprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, ...);
+
+#if __MINGW_FORTIFY_LEVEL > 0
+
+  int __cdecl __mingw_call_vsprintf (char * __restrict__ __stream, const char * __restrict__ __format, va_list __local_argv) __MINGW_ASM_CALL(vsprintf);
+  int __cdecl __mingw_call_vsnprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, va_list __local_argv) __MINGW_ASM_CALL(vsnprintf);
+
+  __mingw_bos_extern_ovr
+  __attribute__((__format__ (__MINGW_PRINTF_FORMAT, 2, 0))) __MINGW_ATTRIB_NONNULL(3)
+  int vsprintf (char * __restrict__ __stream, const char * __restrict__ __format, va_list __local_argv)
+  {
+    if (__mingw_bos_known(__stream)) {
+      int __retval = __mingw_call_vsnprintf (__stream, __mingw_bos(__stream, 1), __format, __local_argv);
+      if (__retval >= 0)
+        __mingw_bos_ptr_chk(__stream, (size_t)__retval + 1, 1);
+      return __retval;
+    }
+    return __mingw_call_vsprintf(__stream, __format, __local_argv);
+  }
+
+  __mingw_bos_extern_ovr
+  __attribute__((__format__ (__MINGW_PRINTF_FORMAT, 3, 0))) __MINGW_ATTRIB_NONNULL(3)
+  int vsnprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, va_list __local_argv)
+  {
+    __mingw_bos_ptr_chk_warn(__stream, __n, 1);
+    return __mingw_call_vsnprintf (__stream, __n, __format, __local_argv);
+  }
+
+#endif /* __MINGW_FORTIFY_LEVEL > 0 */
+
+#if __MINGW_FORTIFY_VA_ARG
+
+  int __cdecl __mingw_call_sprintf (char * __restrict__ __stream, const char * __restrict__ __Format, ...) __MINGW_ASM_CALL(sprintf);
+  int __cdecl __mingw_call_snprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, ...) __MINGW_ASM_CALL(snprintf);
+
+  __mingw_bos_extern_ovr
+  __attribute__((__format__ (__MINGW_PRINTF_FORMAT, 2, 3))) __MINGW_ATTRIB_NONNULL(2)
+  int sprintf (char * __restrict__ __stream, const char * __restrict__ __format, ...)
+  {
+    if (__mingw_bos_known(__stream)) {
+      int __retval = __mingw_call_snprintf (__stream, __mingw_bos(__stream, 1), __format, __builtin_va_arg_pack());
+      if (__retval >= 0)
+        __mingw_bos_ptr_chk(__stream, (size_t)__retval + 1, 1);
+      return __retval;
+    }
+    return __mingw_call_sprintf (__stream, __format, __builtin_va_arg_pack());
+  }
+
+  __mingw_bos_extern_ovr
+  __attribute__((__format__ (__MINGW_PRINTF_FORMAT, 3, 4))) __MINGW_ATTRIB_NONNULL(3)
+  int snprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, ...)
+  {
+    __mingw_bos_ptr_chk_warn(__stream, __n, 1);
+    return __mingw_call_snprintf (__stream, __n, __format, __builtin_va_arg_pack());
+  }
+
+#endif /* __MINGW_FORTIFY_VA_ARG */
+
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
-#else
+#else /* !_UCRT */
 
 /* this is here to deal with software defining
  * vsnprintf as _vsnprintf, eg. libxml2.  */
@@ -864,7 +937,9 @@ char * tmpnam(char * __dst)
 #ifndef __NO_ISOCEXT
 #if __MINGW_FORTIFY_VA_ARG
 
-__mingw_bos_ovr
+int snprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, ...) __MINGW_ASM_CALL(__ms_snprintf);
+
+__mingw_bos_extern_ovr
 __attribute__((__format__ (ms_printf, 3, 4))) __MINGW_ATTRIB_NONNULL(3)
 int snprintf (char * __restrict__ __stream, size_t __n, const char * __restrict__ __format, ...)
 {
@@ -1103,7 +1178,9 @@ int vwprintf (const wchar_t *__format, __builtin_va_list __local_argv)
 
 #if __MINGW_FORTIFY_VA_ARG
 
-__mingw_bos_ovr
+int snwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, ...) __MINGW_ASM_CALL(__mingw_snwprintf);
+
+__mingw_bos_extern_ovr
 /* __attribute__((__format__ (gnu_wprintf, 3, 4))) */ __MINGW_ATTRIB_NONNULL(3)
 int snwprintf (wchar_t *__stream, size_t __n, const wchar_t *__format, ...)
 {

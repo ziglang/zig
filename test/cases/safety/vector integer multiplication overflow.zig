@@ -8,8 +8,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
     std.process.exit(1);
 }
 pub fn main() !void {
-    var a: @Vector(4, u8) = [_]u8{ 1, 2, 200, 4 };
-    var b: @Vector(4, u8) = [_]u8{ 5, 6, 2, 8 };
+    const a: @Vector(4, u8) = [_]u8{ 1, 2, 200, 4 };
+    const b: @Vector(4, u8) = [_]u8{ 5, 6, 2, 8 };
     const x = mul(b, a);
     _ = x;
     return error.TestFailed;

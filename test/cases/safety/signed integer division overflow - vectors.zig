@@ -9,8 +9,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 
 pub fn main() !void {
-    var a: @Vector(4, i16) = [_]i16{ 1, 2, -32768, 4 };
-    var b: @Vector(4, i16) = [_]i16{ 1, 2, -1, 4 };
+    const a: @Vector(4, i16) = [_]i16{ 1, 2, -32768, 4 };
+    const b: @Vector(4, i16) = [_]i16{ 1, 2, -1, 4 };
     const x = div(a, b);
     if (x[2] == 32767) return error.Whatever;
     return error.TestFailed;

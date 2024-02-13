@@ -1,6 +1,6 @@
 export fn entry() void {
     var self: Error = undefined;
-    switch (self) {
+    switch ((&self).*) {
         InvalidToken => |x| return x.token,
         ExpectedVarDeclOrFn => |x| return x.token,
     }

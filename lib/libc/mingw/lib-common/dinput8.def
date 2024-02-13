@@ -11,3 +11,4 @@ DllCanUnloadNow
 DllGetClassObject
 DllRegisterServer
 DllUnregisterServer
+GetdfDIJoystick

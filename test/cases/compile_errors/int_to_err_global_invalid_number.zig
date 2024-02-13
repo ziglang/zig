@@ -5,7 +5,7 @@ const Set1 = error{
 comptime {
     var x: u16 = 3;
     var y = @errorFromInt(x);
-    _ = y;
+    _ = .{ &x, &y };
 }
 
 // error

@@ -450,9 +450,8 @@ private:
 } PathData;
 
 /* Callback function types */
-/* FIXME: need a correct definition for these function pointer types */
 typedef void *DebugEventProc;
-typedef BOOL CALLBACK (*EnumerateMetafileProc)(EmfPlusRecordType,UINT,UINT,const BYTE*,VOID*);
+typedef BOOL (CALLBACK *EnumerateMetafileProc)(EmfPlusRecordType,UINT,UINT,const BYTE*,VOID*);
 typedef void *DrawImageAbort;
 typedef void *GetThumbnailImageAbort;
 

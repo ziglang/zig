@@ -46,7 +46,8 @@ fn testMemsetSlice() !void {
         // memset slice to non-undefined, ABI size == 1
         var array: [20]u8 = undefined;
         var len = array.len;
-        var slice = array[0..len];
+        _ = &len;
+        const slice = array[0..len];
         @memset(slice, 'A');
         try expect(slice[0] == 'A');
         try expect(slice[11] == 'A');
@@ -56,7 +57,8 @@ fn testMemsetSlice() !void {
         // memset slice to non-undefined, ABI size > 1
         var array: [20]u32 = undefined;
         var len = array.len;
-        var slice = array[0..len];
+        _ = &len;
+        const slice = array[0..len];
         @memset(slice, 1234);
         try expect(slice[0] == 1234);
         try expect(slice[11] == 1234);
@@ -111,6 +113,7 @@ test "memset with large array element, runtime known" {
     const A = [128]u64;
     var buf: [5]A = undefined;
     var runtime_known_element = [_]u64{0} ** 128;
+    _ = &runtime_known_element;
     @memset(&buf, runtime_known_element);
     for (buf[0]) |elem| try expect(elem == 0);
     for (buf[1]) |elem| try expect(elem == 0);
@@ -152,4 +155,24 @@ test "@memset provides result type" {
 
     for (buf1) |s| try expect(s.x == 12);
     for (buf2) |s| try expect(s.x == 34);
+}
+
+test "zero keys with @memset" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Keys = struct {
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+        var keys: @This() = undefined;
+    };
+    @memset(@as([*]u8, @ptrCast(&Keys.keys))[0..@sizeOf(@TypeOf(Keys.keys))], 0);
+    try expect(!Keys.keys.up);
+    try expect(!Keys.keys.down);
+    try expect(!Keys.keys.left);
+    try expect(!Keys.keys.right);
 }

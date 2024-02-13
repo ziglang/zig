@@ -105,7 +105,7 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
     // parse initial digits before dot
     var mantissa: MantissaT = 0;
     tryParseDigits(MantissaT, stream, &mantissa, info.base);
-    var int_end = stream.offsetTrue();
+    const int_end = stream.offsetTrue();
     var n_digits = @as(isize, @intCast(stream.offsetTrue()));
     // the base being 16 implies a 0x prefix, which shouldn't be included in the digit count
     if (info.base == 16) n_digits -= 2;
@@ -188,7 +188,7 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
                 // than 19 digits. That means we must have a decimal
                 // point, and at least 1 fractional digit.
                 stream.advance(1);
-                var marker = stream.offsetTrue();
+                const marker = stream.offsetTrue();
                 tryParseNDigits(MantissaT, stream, &mantissa, info.base, info.max_mantissa_digits);
                 break :blk @as(i64, @intCast(marker)) - @as(i64, @intCast(stream.offsetTrue()));
             }

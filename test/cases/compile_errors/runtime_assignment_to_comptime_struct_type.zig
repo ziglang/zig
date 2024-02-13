@@ -5,6 +5,7 @@ const Foo = struct {
 export fn f() void {
     var x: u8 = 0;
     const foo = Foo{ .Bar = x, .Baz = u8 };
+    _ = &x;
     _ = foo;
 }
 

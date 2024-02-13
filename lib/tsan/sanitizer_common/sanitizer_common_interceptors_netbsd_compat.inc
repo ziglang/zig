@@ -33,7 +33,7 @@
 INTERCEPTOR(int, statvfs, char *path, void *buf) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, statvfs, path, buf);
-  if (path) COMMON_INTERCEPTOR_READ_RANGE(ctx, path, REAL(strlen)(path) + 1);
+  if (path) COMMON_INTERCEPTOR_READ_RANGE(ctx, path, internal_strlen(path) + 1);
   // FIXME: under ASan the call below may write to freed memory and corrupt
   // its metadata. See
   // https://github.com/google/sanitizers/issues/321.
@@ -99,7 +99,7 @@ INTERCEPTOR(int, getvfsstat, void *buf, SIZE_T bufsize, int flags) {
 INTERCEPTOR(int, statvfs1, const char *path, void *buf, int flags) {
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, statvfs1, path, buf, flags);
-  if (path) COMMON_INTERCEPTOR_READ_RANGE(ctx, path, REAL(strlen)(path) + 1);
+  if (path) COMMON_INTERCEPTOR_READ_RANGE(ctx, path, internal_strlen(path) + 1);
   int res = REAL(statvfs1)(path, buf, flags);
   if (!res) COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, struct_statvfs90_sz);
   return res;

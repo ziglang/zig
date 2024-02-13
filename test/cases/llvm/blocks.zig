@@ -5,6 +5,7 @@ fn assert(ok: bool) void {
 fn foo(ok: bool) i32 {
     const val: i32 = blk: {
         var x: i32 = 1;
+        _ = &x;
         if (!ok) break :blk x + 9;
         break :blk x + 19;
     };

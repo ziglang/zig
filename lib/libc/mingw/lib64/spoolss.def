@@ -130,7 +130,6 @@ MarshallDownStructuresArray
 MarshallUpStructure
 MarshallUpStructuresArray
 OldGetPrinterDriverW
-OpenPrinterExW
 OpenPrinterPortW
 OpenPrinter2W
 OpenPrinterPort2W

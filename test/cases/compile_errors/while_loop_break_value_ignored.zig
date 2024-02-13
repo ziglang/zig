@@ -7,6 +7,7 @@ export fn f1() void {
     while (a) {
         break returns();
     }
+    _ = &a;
 }
 
 export fn f2() void {
@@ -16,6 +17,7 @@ export fn f2() void {
             break :outer returns();
         }
     }
+    _ = &x;
 }
 
 // error
@@ -24,5 +26,5 @@ export fn f2() void {
 //
 // :7:5: error: incompatible types: 'usize' and 'void'
 // :8:22: note: type 'usize' here
-// :14:12: error: incompatible types: 'usize' and 'void'
-// :16:33: note: type 'usize' here
+// :15:12: error: incompatible types: 'usize' and 'void'
+// :17:33: note: type 'usize' here

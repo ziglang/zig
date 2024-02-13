@@ -1,4 +1,7 @@
+<img src="https://aro.vexu.eu/aro-logo.svg" alt="Aro" width="120px"/>
+
 # Aro
+
 A C compiler with the goal of providing fast compilation and low memory usage with good diagnostics.
 
 Aro is included as an alternative C frontend in the [Zig compiler](https://github.com/ziglang/zig)

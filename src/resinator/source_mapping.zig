@@ -251,7 +251,7 @@ pub fn handleLineCommand(allocator: Allocator, line_command: []const u8, current
 }
 
 pub fn parseAndRemoveLineCommandsAlloc(allocator: Allocator, source: []const u8, options: ParseAndRemoveLineCommandsOptions) !ParseLineCommandsResult {
-    var buf = try allocator.alloc(u8, source.len);
+    const buf = try allocator.alloc(u8, source.len);
     errdefer allocator.free(buf);
     var result = try parseAndRemoveLineCommands(allocator, source, buf, options);
     result.result = try allocator.realloc(buf, result.result.len);
@@ -440,7 +440,7 @@ pub const SourceMappings = struct {
     }
 
     pub fn set(self: *SourceMappings, allocator: Allocator, line_num: usize, span: SourceSpan) !void {
-        var ptr = try self.expandAndGet(allocator, line_num);
+        const ptr = try self.expandAndGet(allocator, line_num);
         ptr.* = span;
     }
 
@@ -476,7 +476,7 @@ pub const SourceMappings = struct {
 
         const after_collapsed_start = line_num + num_following_lines_to_collapse;
         const new_num_lines = self.mapping.items.len - num_following_lines_to_collapse;
-        std.mem.copy(SourceSpan, self.mapping.items[line_num..new_num_lines], self.mapping.items[after_collapsed_start..]);
+        std.mem.copyForwards(SourceSpan, self.mapping.items[line_num..new_num_lines], self.mapping.items[after_collapsed_start..]);
 
         self.mapping.items.len = new_num_lines;
     }

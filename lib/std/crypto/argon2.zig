@@ -565,7 +565,7 @@ const PhcFormatHasher = struct {
         const expected_hash = hash_result.hash.constSlice();
         var hash_buf: [max_hash_len]u8 = undefined;
         if (expected_hash.len > hash_buf.len) return HasherError.InvalidEncoding;
-        var hash = hash_buf[0..expected_hash.len];
+        const hash = hash_buf[0..expected_hash.len];
 
         try kdf(allocator, hash, password, hash_result.salt.constSlice(), params, mode);
         if (!mem.eql(u8, hash, expected_hash)) return HasherError.PasswordVerificationFailed;

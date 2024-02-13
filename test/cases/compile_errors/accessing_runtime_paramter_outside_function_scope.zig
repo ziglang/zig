@@ -2,7 +2,7 @@ export fn entry(y: u8) void {
     const Thing = struct {
         y: u8 = y,
     };
-    _ = @sizeOf(Thing);
+    _ = Thing{ .y = 1 };
 }
 
 // error

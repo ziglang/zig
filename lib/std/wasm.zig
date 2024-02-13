@@ -518,7 +518,7 @@ pub fn simdOpcode(op: SimdOpcode) u32 {
     return @intFromEnum(op);
 }
 
-/// Simd opcodes that require a prefix `0xFE`.
+/// Atomic opcodes that require a prefix `0xFE`.
 /// Each opcode represents a varuint32, meaning
 /// they are encoded as leb128 in binary.
 pub const AtomicsOpcode = enum(u32) {

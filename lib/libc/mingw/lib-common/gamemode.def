@@ -1,0 +1,7 @@
+LIBRARY gamemode.dll
+
+EXPORTS
+
+GetExpandedResourceExclusiveCpuCount
+HasExpandedResources
+ReleaseExclusiveCpuSets

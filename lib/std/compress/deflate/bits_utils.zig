@@ -15,7 +15,7 @@ test "bitReverse" {
         out: u16,
     };
 
-    var reverse_bits_tests = [_]ReverseBitsTest{
+    const reverse_bits_tests = [_]ReverseBitsTest{
         .{ .in = 1, .bit_count = 1, .out = 1 },
         .{ .in = 1, .bit_count = 2, .out = 2 },
         .{ .in = 1, .bit_count = 3, .out = 4 },
@@ -27,7 +27,7 @@ test "bitReverse" {
     };
 
     for (reverse_bits_tests) |h| {
-        var v = bitReverse(u16, h.in, h.bit_count);
+        const v = bitReverse(u16, h.in, h.bit_count);
         try std.testing.expectEqual(h.out, v);
     }
 }

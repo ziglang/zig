@@ -17,7 +17,7 @@ test "empty function with comments" {
 
 test "truncate" {
     try expect(testTruncate(0x10fd) == 0xfd);
-    try comptime expect(testTruncate(0x10fd) == 0xfd);
+    comptime assert(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) u8 {
     return @as(u8, @truncate(x));
@@ -118,6 +118,7 @@ fn thisIsAColdFn() void {
 
 test "unicode escape in character literal" {
     var a: u24 = '\u{01f4a9}';
+    _ = &a;
     try expect(a == 128169);
 }
 
@@ -362,6 +363,7 @@ test "variable is allowed to be a pointer to an opaque type" {
 }
 fn hereIsAnOpaqueType(ptr: *OpaqueA) *OpaqueA {
     var a = ptr;
+    _ = &a;
     return a;
 }
 
@@ -441,6 +443,7 @@ test "double implicit cast in same expression" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x = @as(i32, @as(u16, nine()));
+    _ = &x;
     try expect(x == 9);
 }
 fn nine() u8 {
@@ -565,11 +568,14 @@ fn emptyFn() void {}
 const addr1 = @as(*const u8, @ptrCast(&emptyFn));
 test "comptime cast fn to ptr" {
     const addr2 = @as(*const u8, @ptrCast(&emptyFn));
-    try comptime expect(addr1 == addr2);
+    comptime assert(addr1 == addr2);
 }
 
 test "equality compare fn ptrs" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // Uses function pointers
+
     var a = &emptyFn;
+    _ = &a;
     try expect(a == a);
 }
 
@@ -611,6 +617,7 @@ test "global constant is loaded with a runtime-known index" {
     const S = struct {
         fn doTheTest() !void {
             var index: usize = 1;
+            _ = &index;
             const ptr = &pieces[index].field;
             try expect(ptr.* == 2);
         }
@@ -671,8 +678,8 @@ test "string concatenation" {
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
 
-    try comptime expect(@TypeOf(a) == *const [12:0]u8);
-    try comptime expect(@TypeOf(b) == *const [12:0]u8);
+    comptime assert(@TypeOf(a) == *const [12:0]u8);
+    comptime assert(@TypeOf(b) == *const [12:0]u8);
 
     const len = b.len;
     const len_with_null = len + 1;
@@ -740,7 +747,7 @@ test "auto created variables have correct alignment" {
         }
     };
     try expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
-    try comptime expect(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
+    comptime assert(S.foo("\x7a\x7a\x7a\x7a") == 0x7a7a7a7a);
 }
 
 test "extern variable with non-pointer opaque type" {
@@ -749,8 +756,7 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     @export(var_to_export, .{ .name = "opaque_extern_var" });
     try expect(@as(*align(1) u32, @ptrCast(&opaque_extern_var)).* == 42);
@@ -785,6 +791,7 @@ test "variable name containing underscores does not shadow int primitive" {
 
 test "if expression type coercion" {
     var cond: bool = true;
+    _ = &cond;
     const x: u16 = if (cond) 1 else 0;
     try expect(@as(u16, x) == 1);
 }
@@ -825,6 +832,7 @@ test "discarding the result of various expressions" {
 
 test "labeled block implicitly ends in a break" {
     var a = false;
+    _ = &a;
     blk: {
         if (a) break :blk;
     }
@@ -852,6 +860,7 @@ test "catch in block has correct result location" {
 test "labeled block with runtime branch forwards its result location type to break statements" {
     const E = enum { a, b };
     var a = false;
+    _ = &a;
     const e: E = blk: {
         if (a) {
             break :blk .a;
@@ -872,8 +881,7 @@ test "try in labeled block doesn't cast to wrong type" {
     };
     const s: ?*S = blk: {
         var a = try S.foo();
-
-        _ = a;
+        _ = &a;
         break :blk null;
     };
     _ = s;
@@ -894,6 +902,7 @@ test "weird array and tuple initializations" {
     const E = enum { a, b };
     const S = struct { e: E };
     var a = false;
+    _ = &a;
     const b = S{ .e = .a };
 
     _ = &[_]S{
@@ -1009,6 +1018,7 @@ test "switch inside @as gets correct type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: u32 = 0;
+    _ = &a;
     var b: [2]u32 = undefined;
     b[0] = @as(u32, switch (a) {
         1 => 1,
@@ -1026,33 +1036,6 @@ test "inline call of function with a switch inside the return statement" {
         }
     };
     try expect(S.foo(1) == 1);
-}
-
-test "namespace lookup ignores decl causing the lookup" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_llvm) {
-        // regressed with LLVM 15
-        // https://github.com/ziglang/zig/issues/12681
-        return error.SkipZigTest;
-    }
-
-    const S = struct {
-        fn Mixin(comptime T: type) type {
-            return struct {
-                fn foo() void {
-                    const set = std.EnumSet(T.E).init(undefined);
-                    _ = set;
-                }
-            };
-        }
-
-        const E = enum { a, b };
-        usingnamespace Mixin(@This());
-    };
-    _ = S.foo();
 }
 
 test "ambiguous reference error ignores current declaration" {
@@ -1110,7 +1093,8 @@ test "orelse coercion as function argument" {
         }
     };
     var optional: ?Loc = .{};
-    var foo = Container.init(optional orelse .{});
+    _ = &optional;
+    const foo = Container.init(optional orelse .{});
     try expect(foo.a.?.start == -1);
 }
 
@@ -1153,6 +1137,7 @@ test "arrays and vectors with big integers" {
 test "pointer to struct literal with runtime field is constant" {
     const S = struct { data: usize };
     var runtime_zero: usize = 0;
+    _ = &runtime_zero;
     const ptr = &S{ .data = runtime_zero };
     try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
 }
@@ -1163,6 +1148,7 @@ test "integer compare" {
             var z: T = 0;
             var p: T = 123;
             var n: T = -123;
+            _ = .{ &z, &p, &n };
             try expect(z == z and z != p and z != n);
             try expect(p == p and p != n and n == n);
             try expect(z > n and z < p and z >= n and z <= p);
@@ -1180,6 +1166,7 @@ test "integer compare" {
         fn doTheTestUnsigned(comptime T: type) !void {
             var z: T = 0;
             var p: T = 123;
+            _ = .{ &z, &p };
             try expect(z == z and z != p);
             try expect(p == p);
             try expect(z < p and z <= p);
@@ -1203,4 +1190,198 @@ test "integer compare" {
         try S.doTheTestSigned(T);
         try comptime S.doTheTestSigned(T);
     }
+}
+
+test "reference to inferred local variable works as expected" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const Crasher = struct {
+        lets_crash: u64 = 0,
+    };
+
+    var a: Crasher = undefined;
+    const crasher_ptr = &a;
+    var crasher_local = crasher_ptr.*;
+    const crasher_local_ptr = &crasher_local;
+    crasher_local_ptr.lets_crash = 1;
+
+    try expect(crasher_local.lets_crash != a.lets_crash);
+}
+
+test "@Type returned from block" {
+    const T = comptime b: {
+        break :b @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = 8,
+        } });
+    };
+    try std.testing.expect(T == u8);
+}
+
+test "comptime variable initialized with addresses of literals" {
+    comptime var st = .{
+        .foo = &1,
+        .bar = &2,
+    };
+    _ = &st;
+
+    inline for (@typeInfo(@TypeOf(st)).Struct.fields) |field| {
+        _ = field;
+    }
+}
+
+test "pointer to tuple field can be dereferenced at comptime" {
+    comptime {
+        const tuple_with_ptrs = .{ &0, &0 };
+        const field_ptr = (&tuple_with_ptrs.@"0");
+        _ = field_ptr.*;
+    }
+}
+
+test "proper value is returned from labeled block" {
+    const S = struct {
+        fn hash(v: *u32, key: anytype) void {
+            const Key = @TypeOf(key);
+            if (@typeInfo(Key) == .ErrorSet) {
+                v.* += 1;
+                return;
+            }
+            switch (@typeInfo(Key)) {
+                .ErrorUnion => blk: {
+                    const payload = key catch |err| {
+                        hash(v, err);
+                        break :blk;
+                    };
+
+                    hash(v, payload);
+                },
+
+                else => unreachable,
+            }
+        }
+    };
+    const g: error{Test}!void = error.Test;
+
+    var v: u32 = 0;
+    S.hash(&v, g);
+    try expect(v == 1);
+}
+
+test "const inferred array of slices" {
+    const T = struct { v: bool };
+
+    const decls = [_][]const T{
+        &[_]T{
+            .{ .v = false },
+        },
+    };
+    _ = decls;
+}
+
+test "var inferred array of slices" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const T = struct { v: bool };
+
+    var decls = [_][]const T{
+        &[_]T{
+            .{ .v = false },
+        },
+    };
+    _ = &decls;
+}
+
+test "copy array of self-referential struct" {
+    const ListNode = struct {
+        next: ?*const @This() = null,
+    };
+    comptime var nodes = [_]ListNode{ .{}, .{} };
+    nodes[0].next = &nodes[1];
+    const copied_nodes = nodes;
+    _ = copied_nodes;
+}
+
+test "break out of block based on comptime known values" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const source = "A-";
+
+        fn parseNote() ?i32 {
+            const letter = source[0];
+            const modifier = source[1];
+
+            const semitone = blk: {
+                if (letter == 'C' and modifier == '-') break :blk @as(i32, 0);
+                if (letter == 'C' and modifier == '#') break :blk @as(i32, 1);
+                if (letter == 'D' and modifier == '-') break :blk @as(i32, 2);
+                if (letter == 'D' and modifier == '#') break :blk @as(i32, 3);
+                if (letter == 'E' and modifier == '-') break :blk @as(i32, 4);
+                if (letter == 'F' and modifier == '-') break :blk @as(i32, 5);
+                if (letter == 'F' and modifier == '#') break :blk @as(i32, 6);
+                if (letter == 'G' and modifier == '-') break :blk @as(i32, 7);
+                if (letter == 'G' and modifier == '#') break :blk @as(i32, 8);
+                if (letter == 'A' and modifier == '-') break :blk @as(i32, 9);
+                if (letter == 'A' and modifier == '#') break :blk @as(i32, 10);
+                if (letter == 'B' and modifier == '-') break :blk @as(i32, 11);
+                return null;
+            };
+
+            return semitone;
+        }
+    };
+    const result = S.parseNote();
+    try std.testing.expect(result.? == 9);
+}
+
+test "allocation and looping over 3-byte integer" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
+        return error.SkipZigTest; // TODO
+    }
+
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
+        return error.SkipZigTest; // TODO
+    }
+
+    try expect(@sizeOf(u24) == 4);
+    try expect(@sizeOf([1]u24) == 4);
+    try expect(@alignOf(u24) == 4);
+    try expect(@alignOf([1]u24) == 4);
+
+    var x = try std.testing.allocator.alloc(u24, 2);
+    defer std.testing.allocator.free(x);
+    try expect(x.len == 2);
+    x[0] = 0xFFFFFF;
+    x[1] = 0xFFFFFF;
+
+    const bytes = std.mem.sliceAsBytes(x);
+    try expect(@TypeOf(bytes) == []align(4) u8);
+    try expect(bytes.len == 8);
+
+    for (bytes) |*b| {
+        b.* = 0x00;
+    }
+
+    try expect(x[0] == 0x00);
+    try expect(x[1] == 0x00);
+}
+
+test "loading array from struct is not optimized away" {
+    const S = struct {
+        arr: [1]u32 = .{0},
+        fn doTheTest(self: *@This()) !void {
+            const o = self.arr;
+            self.arr[0] = 1;
+            try expect(o[0] == 0);
+        }
+    };
+    var s = S{};
+    try s.doTheTest();
 }

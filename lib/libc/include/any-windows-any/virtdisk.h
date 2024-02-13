@@ -308,6 +308,7 @@ typedef struct _CREATE_VIRTUAL_DISK_PARAMETERS {
       ULONGLONG              MaximumSize;
       ULONG                  BlockSizeInBytes;
       ULONG                  SectorSizeInBytes;
+      ULONG                  PhysicalSectorSizeInBytes;
       PCWSTR                 ParentPath;
       PCWSTR                 SourcePath;
       OPEN_VIRTUAL_DISK_FLAG OpenFlags;

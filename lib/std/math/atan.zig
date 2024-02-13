@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 
 /// Returns the arc-tangent of x.
@@ -67,7 +68,7 @@ fn atan32(x_: f32) f32 {
         // |x| < 2^(-12)
         if (ix < 0x39800000) {
             if (ix < 0x00800000) {
-                math.doNotOptimizeAway(x * x);
+                mem.doNotOptimizeAway(x * x);
             }
             return x;
         }
@@ -143,8 +144,8 @@ fn atan64(x_: f64) f64 {
     };
 
     var x = x_;
-    var ux = @as(u64, @bitCast(x));
-    var ix = @as(u32, @intCast(ux >> 32));
+    const ux: u64 = @bitCast(x);
+    var ix: u32 = @intCast(ux >> 32);
     const sign = ix >> 31;
     ix &= 0x7FFFFFFF;
 
@@ -165,7 +166,7 @@ fn atan64(x_: f64) f64 {
         // |x| < 2^(-27)
         if (ix < 0x3E400000) {
             if (ix < 0x00100000) {
-                math.doNotOptimizeAway(@as(f32, @floatCast(x)));
+                mem.doNotOptimizeAway(@as(f32, @floatCast(x)));
             }
             return x;
         }

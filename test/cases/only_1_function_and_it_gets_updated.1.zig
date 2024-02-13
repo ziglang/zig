@@ -1,6 +1,6 @@
 pub export fn _start() noreturn {
     var dummy: u32 = 10;
-    _ = dummy;
+    _ = &dummy;
     while (true) {}
 }
 

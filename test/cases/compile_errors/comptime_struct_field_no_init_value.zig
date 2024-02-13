@@ -3,7 +3,7 @@ const Foo = struct {
 };
 export fn entry() void {
     var f: Foo = undefined;
-    _ = f;
+    _ = &f;
 }
 
 // error

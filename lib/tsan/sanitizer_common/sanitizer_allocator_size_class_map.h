@@ -193,13 +193,13 @@ class SizeClassMap {
       uptr cached = MaxCachedHint(s) * s;
       if (i == kBatchClassID)
         d = p = l = 0;
-      Printf("c%02zd => s: %zd diff: +%zd %02zd%% l %zd "
-             "cached: %zd %zd; id %zd\n",
-             i, Size(i), d, p, l, MaxCachedHint(s), cached, ClassID(s));
+      Printf(
+          "c%02zu => s: %zu diff: +%zu %02zu%% l %zu cached: %zu %zu; id %zu\n",
+          i, Size(i), d, p, l, MaxCachedHint(s), cached, ClassID(s));
       total_cached += cached;
       prev_s = s;
     }
-    Printf("Total cached: %zd\n", total_cached);
+    Printf("Total cached: %zu\n", total_cached);
   }
 
   static void Validate() {

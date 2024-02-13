@@ -81,13 +81,13 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     if (expB == 0) expB = normalize(f80, &bRep);
 
     var highA: u64 = 0;
-    var highB: u64 = 0;
+    const highB: u64 = 0;
     var lowA: u64 = @truncate(aRep);
-    var lowB: u64 = @truncate(bRep);
+    const lowB: u64 = @truncate(bRep);
 
     while (expA > expB) : (expA -= 1) {
         var high = highA -% highB;
-        var low = lowA -% lowB;
+        const low = lowA -% lowB;
         if (lowA < lowB) {
             high -%= 1;
         }
@@ -104,7 +104,7 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     }
 
     var high = highA -% highB;
-    var low = lowA -% lowB;
+    const low = lowA -% lowB;
     if (lowA < lowB) {
         high -%= 1;
     }
@@ -194,13 +194,13 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
 
     // OR in extra non-stored mantissa digit
     var highA: u64 = (aPtr_u64[high_index] & (std.math.maxInt(u64) >> 16)) | 1 << 48;
-    var highB: u64 = (bPtr_u64[high_index] & (std.math.maxInt(u64) >> 16)) | 1 << 48;
+    const highB: u64 = (bPtr_u64[high_index] & (std.math.maxInt(u64) >> 16)) | 1 << 48;
     var lowA: u64 = aPtr_u64[low_index];
-    var lowB: u64 = bPtr_u64[low_index];
+    const lowB: u64 = bPtr_u64[low_index];
 
     while (expA > expB) : (expA -= 1) {
         var high = highA -% highB;
-        var low = lowA -% lowB;
+        const low = lowA -% lowB;
         if (lowA < lowB) {
             high -%= 1;
         }
@@ -217,7 +217,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     }
 
     var high = highA -% highB;
-    var low = lowA -% lowB;
+    const low = lowA -% lowB;
     if (lowA < lowB) {
         high -= 1;
     }

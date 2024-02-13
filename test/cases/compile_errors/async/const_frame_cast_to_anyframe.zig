@@ -5,7 +5,7 @@ export fn a() void {
 export fn b() void {
     const f = async func();
     var x: anyframe = &f;
-    _ = x;
+    _ = &x;
 }
 fn func() void {
     suspend {}

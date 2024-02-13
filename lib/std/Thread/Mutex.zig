@@ -26,7 +26,6 @@ const Mutex = @This();
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Atomic = std.atomic.Atomic;
 const Thread = std.Thread;
 const Futex = Thread.Futex;
 
@@ -67,7 +66,7 @@ else
     FutexImpl;
 
 const DebugImpl = struct {
-    locking_thread: Atomic(Thread.Id) = Atomic(Thread.Id).init(0), // 0 means it's not locked.
+    locking_thread: std.atomic.Value(Thread.Id) = std.atomic.Value(Thread.Id).init(0), // 0 means it's not locked.
     impl: ReleaseImpl = .{},
 
     inline fn tryLock(self: *@This()) bool {
@@ -151,37 +150,29 @@ const DarwinImpl = struct {
 };
 
 const FutexImpl = struct {
-    state: Atomic(u32) = Atomic(u32).init(unlocked),
+    state: std.atomic.Value(u32) = std.atomic.Value(u32).init(unlocked),
 
-    const unlocked = 0b00;
-    const locked = 0b01;
-    const contended = 0b11; // must contain the `locked` bit for x86 optimization below
-
-    fn tryLock(self: *@This()) bool {
-        // Lock with compareAndSwap instead of tryCompareAndSwap to avoid reporting spurious CAS failure.
-        return self.lockFast("compareAndSwap");
-    }
+    const unlocked: u32 = 0b00;
+    const locked: u32 = 0b01;
+    const contended: u32 = 0b11; // must contain the `locked` bit for x86 optimization below
 
     fn lock(self: *@This()) void {
-        // Lock with tryCompareAndSwap instead of compareAndSwap due to being more inline-able on LL/SC archs like ARM.
-        if (!self.lockFast("tryCompareAndSwap")) {
+        if (!self.tryLock())
             self.lockSlow();
-        }
     }
 
-    inline fn lockFast(self: *@This(), comptime cas_fn_name: []const u8) bool {
+    fn tryLock(self: *@This()) bool {
         // On x86, use `lock bts` instead of `lock cmpxchg` as:
         // - they both seem to mark the cache-line as modified regardless: https://stackoverflow.com/a/63350048
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
         if (comptime builtin.target.cpu.arch.isX86()) {
-            const locked_bit = @ctz(@as(u32, locked));
+            const locked_bit = @ctz(locked);
             return self.state.bitSet(locked_bit, .Acquire) == 0;
         }
 
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        const casFn = @field(@TypeOf(self.state), cas_fn_name);
-        return casFn(&self.state, unlocked, locked, .Acquire, .Monotonic) == null;
+        return self.state.cmpxchgWeak(unlocked, locked, .Acquire, .Monotonic) == null;
     }
 
     fn lockSlow(self: *@This()) void {

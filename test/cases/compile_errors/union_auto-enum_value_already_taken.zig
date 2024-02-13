@@ -6,7 +6,7 @@ const MultipleChoice = union(enum(u32)) {
     E = 60,
 };
 export fn entry() void {
-    var x = MultipleChoice{ .C = {} };
+    const x: MultipleChoice = .{ .C = {} };
     _ = x;
 }
 

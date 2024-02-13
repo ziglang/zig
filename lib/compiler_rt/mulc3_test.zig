@@ -19,20 +19,20 @@ test {
 
 fn testMul(comptime T: type, comptime f: fn (T, T, T, T) callconv(.C) Complex(T)) !void {
     {
-        var a: T = 1.0;
-        var b: T = 0.0;
-        var c: T = -1.0;
-        var d: T = 0.0;
+        const a: T = 1.0;
+        const b: T = 0.0;
+        const c: T = -1.0;
+        const d: T = 0.0;
 
         const result = f(a, b, c, d);
         try expect(result.real == -1.0);
         try expect(result.imag == 0.0);
     }
     {
-        var a: T = 1.0;
-        var b: T = 0.0;
-        var c: T = -4.0;
-        var d: T = 0.0;
+        const a: T = 1.0;
+        const b: T = 0.0;
+        const c: T = -4.0;
+        const d: T = 0.0;
 
         const result = f(a, b, c, d);
         try expect(result.real == -4.0);
@@ -41,10 +41,10 @@ fn testMul(comptime T: type, comptime f: fn (T, T, T, T) callconv(.C) Complex(T)
     {
         // if one operand is an infinity and the other operand is a nonzero finite number or an infinity,
         // then the result of the * operator is an infinity;
-        var a: T = math.inf(T);
-        var b: T = -math.inf(T);
-        var c: T = 1.0;
-        var d: T = 0.0;
+        const a: T = math.inf(T);
+        const b: T = -math.inf(T);
+        const c: T = 1.0;
+        const d: T = 0.0;
 
         const result = f(a, b, c, d);
         try expect(result.real == math.inf(T));
@@ -53,10 +53,10 @@ fn testMul(comptime T: type, comptime f: fn (T, T, T, T) callconv(.C) Complex(T)
     {
         // if one operand is an infinity and the other operand is a nonzero finite number or an infinity,
         // then the result of the * operator is an infinity;
-        var a: T = math.inf(T);
-        var b: T = -1.0;
-        var c: T = 1.0;
-        var d: T = math.inf(T);
+        const a: T = math.inf(T);
+        const b: T = -1.0;
+        const c: T = 1.0;
+        const d: T = math.inf(T);
 
         const result = f(a, b, c, d);
         try expect(result.real == math.inf(T));

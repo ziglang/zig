@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
@@ -11,7 +12,7 @@ test "passing an optional integer as a parameter" {
 
     const S = struct {
         fn entry() bool {
-            var x: i32 = 1234;
+            const x: i32 = 1234;
             return foo(x);
         }
 
@@ -20,20 +21,23 @@ test "passing an optional integer as a parameter" {
         }
     };
     try expect(S.entry());
-    try comptime expect(S.entry());
+    comptime assert(S.entry());
 }
 
 pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var e = EmptyStruct{};
-    var o: ?*EmptyStruct = &e;
+    const o: ?*EmptyStruct = &e;
     try expect(o != null);
 }
 
 test "equality compare optional pointers" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try testNullPtrsEql();
     try comptime testNullPtrsEql();
 }
@@ -63,6 +67,7 @@ test "optional with void type" {
         x: ?void,
     };
     var x = Foo{ .x = null };
+    _ = &x;
     try expect(x.x == null);
 }
 
@@ -70,7 +75,6 @@ test "address of unwrap optional" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const Foo = struct {
@@ -102,6 +106,7 @@ test "nested optional field in struct" {
     var s = S1{
         .x = S2{ .y = 127 },
     };
+    _ = &s;
     try expect(s.x.?.y == 127);
 }
 
@@ -119,6 +124,8 @@ fn test_cmp_optional_non_optional() !void {
     var opt_ten: ?i32 = 10;
     var five: i32 = 5;
     var int_n: ?i32 = null;
+
+    _ = .{ &ten, &opt_ten, &five, &int_n };
 
     try expect(int_n != ten);
     try expect(opt_ten == ten);
@@ -208,7 +215,7 @@ test "self-referential struct through a slice of optional" {
         };
     };
 
-    var n = S.Node.new();
+    const n = S.Node.new();
     try expect(n.data == null);
 }
 
@@ -252,7 +259,7 @@ test "0-bit child type coerced to optional return ptr result location" {
     const S = struct {
         fn doTheTest() !void {
             var y = Foo{};
-            var z = y.thing();
+            const z = y.thing();
             try expect(z != null);
         }
 
@@ -336,7 +343,6 @@ test "optional pointer to zero bit optional payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const B = struct {
         fn foo(_: *@This()) void {}
@@ -425,6 +431,7 @@ test "alignment of wrapping an optional payload" {
 
         fn foo() ?I {
             var i: I = .{ .x = 1234 };
+            _ = &i;
             return i;
         }
     };
@@ -443,6 +450,24 @@ test "Optional slice size is optimized" {
     try expectEqualStrings(a.?, "hello");
 }
 
+test "Optional slice passed to function" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo(a: ?[]const u8) !void {
+            try std.testing.expectEqualStrings(a.?, "foo");
+        }
+        fn bar(a: ?[]allowzero const u8) !void {
+            try std.testing.expectEqualStrings(@ptrCast(a.?), "bar");
+        }
+    };
+    try S.foo("foo");
+    try S.bar("bar");
+}
+
 test "peer type resolution in nested if expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
@@ -450,15 +475,16 @@ test "peer type resolution in nested if expressions" {
     const Thing = struct { n: i32 };
     var a = false;
     var b = false;
+    _ = .{ &a, &b };
 
-    var result1 = if (a)
+    const result1 = if (a)
         Thing{ .n = 1 }
     else
         null;
     try expect(result1 == null);
     try expect(@TypeOf(result1) == ?Thing);
 
-    var result2 = if (a)
+    const result2 = if (a)
         Thing{ .n = 0 }
     else if (b)
         Thing{ .n = 1 }
@@ -486,5 +512,19 @@ test "cast slice to const slice nested in error union and optional" {
 
 test "variable of optional of noreturn" {
     var null_opv: ?noreturn = null;
+    _ = &null_opv;
     try std.testing.expectEqual(@as(?noreturn, null), null_opv);
+}
+
+test "copied optional doesn't alias source" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var opt_x: ?[3]f32 = [_]f32{0.0} ** 3;
+
+    const x = opt_x.?;
+    opt_x.?[0] = 15.0;
+
+    try expect(x[0] == 0.0);
 }

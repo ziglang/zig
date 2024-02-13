@@ -1,5 +1,6 @@
 pub fn main() void {
     var x: usize = 5;
+    _ = &x;
     const y = mul(2, 3, x);
     if (y - 30 != 0) unreachable;
 }

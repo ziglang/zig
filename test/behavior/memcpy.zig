@@ -57,7 +57,29 @@ fn testMemcpyDestManyPtr() !void {
     var str = "hello".*;
     var buf: [5]u8 = undefined;
     var len: usize = 5;
+    _ = &len;
     @memcpy(@as([*]u8, @ptrCast(&buf)), @as([*]const u8, @ptrCast(&str))[0..len]);
+    try expect(buf[0] == 'h');
+    try expect(buf[1] == 'e');
+    try expect(buf[2] == 'l');
+    try expect(buf[3] == 'l');
+    try expect(buf[4] == 'o');
+}
+
+test "@memcpy slice" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+
+    try testMemcpySlice();
+    try comptime testMemcpySlice();
+}
+
+fn testMemcpySlice() !void {
+    var buf: [5]u8 = undefined;
+    const dst: []u8 = &buf;
+    const src: []const u8 = "hello";
+    @memcpy(dst, src);
     try expect(buf[0] == 'h');
     try expect(buf[1] == 'e');
     try expect(buf[2] == 'l');

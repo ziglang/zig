@@ -4,7 +4,7 @@ export fn _start() noreturn {
     @compileLog(b, 20, f, x);
     @compileLog(1000);
     var bruh: usize = true;
-    _ = bruh;
+    _ = .{ &f, &bruh };
     unreachable;
 }
 export fn other() void {

@@ -5,7 +5,7 @@ const Small = enum(f32) {
 };
 
 export fn entry() void {
-    var x = Small.One;
+    const x = Small.One;
     _ = x;
 }
 

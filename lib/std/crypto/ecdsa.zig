@@ -201,7 +201,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 const scalar_encoded_length = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, scalar_encoded_length);
                 var h: [h_len]u8 = [_]u8{0} ** h_len;
-                var h_slice = h[h_len - Hash.digest_length .. h_len];
+                const h_slice = h[h_len - Hash.digest_length .. h_len];
                 self.h.final(h_slice);
 
                 std.debug.assert(h.len >= scalar_encoded_length);
@@ -389,7 +389,6 @@ test "ECDSA - Basic operations over EcdsaP384Sha384" {
 
 test "ECDSA - Basic operations over Secp256k1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Scheme = EcdsaSecp256k1Sha256oSha256;
     const kp = try Scheme.KeyPair.create(null);

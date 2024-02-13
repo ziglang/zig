@@ -8,3 +8,4 @@ export fn entry() usize {
 // target=native
 //
 // :1:29: error: root struct of file 'builtin' has no member named 'bogus'
+// note: struct declared here

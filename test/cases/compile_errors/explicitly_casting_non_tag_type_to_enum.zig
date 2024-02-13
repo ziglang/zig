@@ -7,7 +7,7 @@ const Small = enum(u2) {
 
 export fn entry() void {
     var y = @as(f32, 3);
-    var x: Small = @enumFromInt(y);
+    const x: Small = @enumFromInt((&y).*);
     _ = x;
 }
 
@@ -15,4 +15,4 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :10:33: error: expected integer type, found 'f32'
+// :10:39: error: expected integer type, found 'f32'

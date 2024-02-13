@@ -2,6 +2,7 @@ const std = @import("std");
 
 noinline fn outer() u32 {
     var a: u32 = 42;
+    _ = &a;
     return inner(.{
         .unused = a,
         .value = [1]u32{0},

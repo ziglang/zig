@@ -224,7 +224,7 @@ test "test vectors" {
 
 test "test vectors at comptime" {
     comptime {
-        inline for (vectors) |e| {
+        for (vectors) |e| {
             try expectEqual(e.expected, Wyhash.hash(e.seed, e.input));
         }
     }

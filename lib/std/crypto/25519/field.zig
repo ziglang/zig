@@ -416,7 +416,7 @@ pub const Fe = struct {
 
     /// Compute the square root of `x2`, returning `error.NotSquare` if `x2` was not a square
     pub fn sqrt(x2: Fe) NotSquareError!Fe {
-        var x2_copy = x2;
+        const x2_copy = x2;
         const x = x2.uncheckedSqrt();
         const check = x.sq().sub(x2_copy);
         if (check.isZero()) {

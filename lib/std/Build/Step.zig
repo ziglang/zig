@@ -31,6 +31,7 @@ max_rss: usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
+result_stderr: []const u8,
 result_cached: bool,
 result_duration_ns: ?u64,
 /// 0 means unavailable or not reported.
@@ -164,6 +165,7 @@ pub fn init(options: StepOptions) Step {
         },
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
+        .result_stderr = "",
         .result_cached = false,
         .result_duration_ns = null,
         .result_peak_rss = 0,
@@ -312,7 +314,7 @@ pub fn evalZigProcess(
     try handleVerbose(s.owner, null, argv);
 
     var child = std.ChildProcess.init(argv, arena);
-    child.env_map = b.env_map;
+    child.env_map = &b.graph.env_map;
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -371,8 +373,7 @@ pub fn evalZigProcess(
                 // TODO: use @ptrCast when the compiler supports it
                 const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
                 const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                // TODO: use @memcpy when it supports slices
-                for (extra_array, unaligned_extra) |*dst, src| dst.* = src;
+                @memcpy(extra_array, unaligned_extra);
                 s.result_error_bundle = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .extra = extra_array,
@@ -415,7 +416,7 @@ pub fn evalZigProcess(
         .Exited => {
             // Note that the exit code may be 0 in this case due to the
             // compiler server protocol.
-            if (compile.expect_errors != null and s.result_error_bundle.errorMessageCount() > 0) {
+            if (compile.expect_errors != null) {
                 return error.NeedCompileErrorCheck;
             }
         },

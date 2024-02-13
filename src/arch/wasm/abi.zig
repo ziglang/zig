@@ -37,7 +37,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
                 // The struct type is non-scalar.
                 return memory;
             }
-            const field_ty = struct_type.field_types.get(ip)[0].toType();
+            const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[0]);
             const explicit_align = struct_type.fieldAlign(ip, 0);
             if (explicit_align != .none) {
                 if (explicit_align.compareStrict(.gt, field_ty.abiAlignment(mod)))
@@ -76,7 +76,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             const layout = ty.unionGetLayout(mod);
             assert(layout.tag_size == 0);
             if (union_obj.field_names.len > 1) return memory;
-            const first_field_ty = union_obj.field_types.get(ip)[0].toType();
+            const first_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[0]);
             return classifyType(first_field_ty, mod);
         },
         .ErrorUnion,
@@ -104,7 +104,7 @@ pub fn scalarType(ty: Type, mod: *Module) Type {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             if (mod.typeToPackedStruct(ty)) |packed_struct| {
-                return scalarType(packed_struct.backingIntType(ip).toType(), mod);
+                return scalarType(Type.fromInterned(packed_struct.backingIntType(ip).*), mod);
             } else {
                 assert(ty.structFieldCount(mod) == 1);
                 return scalarType(ty.structFieldType(0, mod), mod);
@@ -119,7 +119,7 @@ pub fn scalarType(ty: Type, mod: *Module) Type {
                 }
                 assert(union_obj.field_types.len == 1);
             }
-            const first_field_ty = union_obj.field_types.get(ip)[0].toType();
+            const first_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[0]);
             return scalarType(first_field_ty, mod);
         },
         else => return ty,

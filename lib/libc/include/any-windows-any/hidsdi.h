@@ -24,6 +24,10 @@
 #ifndef _HIDSDI_H
 #define _HIDSDI_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
 
 #include <pshpack4.h>
@@ -68,5 +72,9 @@ BOOLEAN NTAPI HidD_SetOutputReport (HANDLE HidDeviceObject, PVOID ReportBuffer, 
 
 #include <poppack.h>
 
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 #endif

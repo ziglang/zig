@@ -1,0 +1,4 @@
+LIBRARY "fontsub.dll"
+EXPORTS
+CreateFontPackage
+MergeFontPackage

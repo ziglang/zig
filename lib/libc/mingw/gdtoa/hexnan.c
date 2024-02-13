@@ -44,14 +44,13 @@ static void L_shift (ULong *x, ULong *x1, int i)
 	} while(++x < x1);
 }
 
-int hexnan (const char **sp, FPI *fpi, ULong *x0)
+int hexnan (const char **sp, const FPI *fpi, ULong *x0)
 {
 	ULong c, h, *x, *x1, *xe;
 	const char *s;
 	int havedig, hd0, i, nbits;
 
-	if (!hexdig['0'])
-		hexdig_init_D2A();
+	/**** if (!hexdig['0']) hexdig_init_D2A(); ****/
 	nbits = fpi->nbits;
 	x = x0 + (nbits >> kshift);
 	if (nbits & kmask)
@@ -61,8 +60,11 @@ int hexnan (const char **sp, FPI *fpi, ULong *x0)
 	havedig = hd0 = i = 0;
 	s = *sp;
 	/* allow optional initial 0x or 0X */
-	while((c = *(const unsigned char*)(s+1)) && c <= ' ')
+	while((c = *(const unsigned char*)(s+1)) && c <= ' ') {
+		if (!c)
+			goto retnan;
 		++s;
+	}
 	if (s[1] == '0' && (s[2] == 'x' || s[2] == 'X')
 	 && *(const unsigned char*)(s+3) > ' ')
 		s += 2;
@@ -81,8 +83,11 @@ int hexnan (const char **sp, FPI *fpi, ULong *x0)
 					x1 = x;
 					i = 0;
 				}
-				while(*(const unsigned char*)(s+1) <= ' ')
+				while((c = *(const unsigned char*)(s+1)) <= ' ') {
+					if (!c)
+						goto retnan;
 					++s;
+				}
 				if (s[1] == '0' && (s[2] == 'x' || s[2] == 'X')
 				 && *(const unsigned char*)(s+3) > ' ')
 					s += 2;
@@ -96,10 +101,11 @@ int hexnan (const char **sp, FPI *fpi, ULong *x0)
 			do {
 				if (/*(*/ c == ')') {
 					*sp = s + 1;
-					break;
+					goto break2;
 				}
 			} while((c = *++s));
 #endif
+ retnan:
 			return STRTOG_NaN;
 		}
 		havedig++;
@@ -111,6 +117,9 @@ int hexnan (const char **sp, FPI *fpi, ULong *x0)
 		}
 		*x = (*x << 4) | (h & 0xf);
 	}
+#ifndef GDTOA_NON_PEDANTIC_NANCHECK
+ break2:
+#endif
 	if (!havedig)
 		return STRTOG_NaN;
 	if (x < x1 && i < 8)

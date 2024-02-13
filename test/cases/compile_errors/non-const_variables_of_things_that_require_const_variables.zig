@@ -1,30 +1,30 @@
 export fn entry1() void {
     var m2 = &2;
-    _ = m2;
+    _ = &m2;
 }
 export fn entry2() void {
     var a = undefined;
-    _ = a;
+    _ = &a;
 }
 export fn entry3() void {
     var b = 1;
-    _ = b;
+    _ = &b;
 }
 export fn entry4() void {
     var c = 1.0;
-    _ = c;
+    _ = &c;
 }
 export fn entry5() void {
     var d = null;
-    _ = d;
+    _ = &d;
 }
 export fn entry6(opaque_: *Opaque) void {
     var e = opaque_.*;
-    _ = e;
+    _ = &e;
 }
 export fn entry7() void {
     var f = i32;
-    _ = f;
+    _ = &f;
 }
 const Opaque = opaque {};
 export fn entry8() void {
@@ -44,6 +44,8 @@ export fn entry8() void {
 // :14:9: note: to modify this variable at runtime, it must be given an explicit fixed-size number type
 // :18:9: error: variable of type '@TypeOf(null)' must be const or comptime
 // :22:20: error: cannot load opaque type 'tmp.Opaque'
+// :29:16: note: opaque declared here
 // :26:9: error: variable of type 'type' must be const or comptime
 // :26:9: note: types are not available at runtime
 // :31:12: error: non-extern variable with opaque type 'tmp.Opaque'
+// :29:16: note: opaque declared here

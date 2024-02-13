@@ -1,6 +1,7 @@
 comptime {
     var a: i64 = undefined;
     _ = a / a;
+    _ = &a;
 }
 
 // error

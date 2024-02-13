@@ -131,8 +131,9 @@ test "io.BufferedReader Block" {
 
     // len out == block
     {
-        var block_reader = BlockReader.init(block, 2);
-        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var test_buf_reader: BufferedReader(4, BlockReader) = .{
+            .unbuffered_reader = BlockReader.init(block, 2),
+        };
         var out_buf: [4]u8 = undefined;
         _ = try test_buf_reader.read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
@@ -143,8 +144,9 @@ test "io.BufferedReader Block" {
 
     // len out < block
     {
-        var block_reader = BlockReader.init(block, 2);
-        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var test_buf_reader: BufferedReader(4, BlockReader) = .{
+            .unbuffered_reader = BlockReader.init(block, 2),
+        };
         var out_buf: [3]u8 = undefined;
         _ = try test_buf_reader.read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "012");
@@ -157,8 +159,9 @@ test "io.BufferedReader Block" {
 
     // len out > block
     {
-        var block_reader = BlockReader.init(block, 2);
-        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var test_buf_reader: BufferedReader(4, BlockReader) = .{
+            .unbuffered_reader = BlockReader.init(block, 2),
+        };
         var out_buf: [5]u8 = undefined;
         _ = try test_buf_reader.read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "01230");
@@ -169,8 +172,9 @@ test "io.BufferedReader Block" {
 
     // len out == 0
     {
-        var block_reader = BlockReader.init(block, 2);
-        var test_buf_reader = BufferedReader(4, BlockReader){ .unbuffered_reader = block_reader };
+        var test_buf_reader: BufferedReader(4, BlockReader) = .{
+            .unbuffered_reader = BlockReader.init(block, 2),
+        };
         var out_buf: [0]u8 = undefined;
         _ = try test_buf_reader.read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "");
@@ -178,8 +182,9 @@ test "io.BufferedReader Block" {
 
     // len bufreader buf > block
     {
-        var block_reader = BlockReader.init(block, 2);
-        var test_buf_reader = BufferedReader(5, BlockReader){ .unbuffered_reader = block_reader };
+        var test_buf_reader: BufferedReader(5, BlockReader) = .{
+            .unbuffered_reader = BlockReader.init(block, 2),
+        };
         var out_buf: [4]u8 = undefined;
         _ = try test_buf_reader.read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);

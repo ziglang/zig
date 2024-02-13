@@ -69,7 +69,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const dest_prefix = dest_builder.getInstallPath(self.options.install_dir, self.options.install_subdir);
     const src_builder = self.step.owner;
     const src_dir_path = self.options.source_dir.getPath2(src_builder, step);
-    var src_dir = src_builder.build_root.handle.openIterableDir(src_dir_path, .{}) catch |err| {
+    var src_dir = src_builder.build_root.handle.openDir(src_dir_path, .{ .iterate = true }) catch |err| {
         return step.fail("unable to open source directory '{}{s}': {s}", .{
             src_builder.build_root, src_dir_path, @errorName(err),
         });

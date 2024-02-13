@@ -8,6 +8,7 @@ inline fn foo(x: i32) i32 {
 
 pub export fn entry() void {
     var x: i32 = 4;
+    _ = &x;
     _ = foo(x) == 20;
 }
 
@@ -32,4 +33,4 @@ pub export fn entry2() void {
 // target=native
 //
 // :5:27: error: inline call is recursive
-// :23:10: error: inline call is recursive
+// :24:10: error: inline call is recursive

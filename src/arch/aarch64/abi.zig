@@ -83,7 +83,7 @@ fn countFloats(ty: Type, mod: *Module, maybe_float_bits: *?u16) u8 {
             const union_obj = mod.typeToUnion(ty).?;
             var max_count: u8 = 0;
             for (union_obj.field_types.get(ip)) |field_ty| {
-                const field_count = countFloats(field_ty.toType(), mod, maybe_float_bits);
+                const field_count = countFloats(Type.fromInterned(field_ty), mod, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 if (field_count > max_count) max_count = field_count;
                 if (max_count > sret_float_count) return invalid;
@@ -122,7 +122,7 @@ pub fn getFloatArrayType(ty: Type, mod: *Module) ?Type {
         .Union => {
             const union_obj = mod.typeToUnion(ty).?;
             for (union_obj.field_types.get(ip)) |field_ty| {
-                if (getFloatArrayType(field_ty.toType(), mod)) |some| return some;
+                if (getFloatArrayType(Type.fromInterned(field_ty), mod)) |some| return some;
             }
             return null;
         },

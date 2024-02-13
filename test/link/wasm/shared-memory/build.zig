@@ -21,16 +21,16 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
             .os_tag = .freestanding,
         },
         .optimize = optimize_mode,
+        .strip = false,
+        .single_threaded = false,
     });
     lib.entry = .disabled;
     lib.use_lld = false;
-    lib.strip = false;
     lib.import_memory = true;
     lib.export_memory = true;
     lib.shared_memory = true;
     lib.max_memory = 67108864;
-    lib.single_threaded = false;
-    lib.export_symbol_names = &.{"foo"};
+    lib.root_module.export_symbol_names = &.{"foo"};
 
     const check_lib = lib.checkObject();
 

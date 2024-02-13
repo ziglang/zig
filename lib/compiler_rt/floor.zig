@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const arch = builtin.cpu.arch;
 const common = @import("common.zig");
@@ -44,13 +45,13 @@ pub fn __floorh(x: f16) callconv(.C) f16 {
         if (u & m == 0) {
             return x;
         }
-        math.doNotOptimizeAway(x + 0x1.0p120);
+        mem.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 15 != 0) {
             u += m;
         }
         return @bitCast(u & ~m);
     } else {
-        math.doNotOptimizeAway(x + 0x1.0p120);
+        mem.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 15 == 0) {
             return 0.0;
         } else {
@@ -78,13 +79,13 @@ pub fn floorf(x: f32) callconv(.C) f32 {
         if (u & m == 0) {
             return x;
         }
-        math.doNotOptimizeAway(x + 0x1.0p120);
+        mem.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 != 0) {
             u += m;
         }
         return @bitCast(u & ~m);
     } else {
-        math.doNotOptimizeAway(x + 0x1.0p120);
+        mem.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 == 0) {
             return 0.0;
         } else {
@@ -111,7 +112,7 @@ pub fn floor(x: f64) callconv(.C) f64 {
     }
 
     if (e <= 0x3FF - 1) {
-        math.doNotOptimizeAway(y);
+        mem.doNotOptimizeAway(y);
         if (u >> 63 != 0) {
             return -1.0;
         } else {
@@ -145,7 +146,7 @@ pub fn floorq(x: f128) callconv(.C) f128 {
     }
 
     if (e <= 0x3FFF - 1) {
-        math.doNotOptimizeAway(y);
+        mem.doNotOptimizeAway(y);
         if (u >> 127 != 0) {
             return -1.0;
         } else {

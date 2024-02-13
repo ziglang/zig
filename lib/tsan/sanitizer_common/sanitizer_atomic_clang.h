@@ -74,13 +74,12 @@ template <typename T>
 inline bool atomic_compare_exchange_strong(volatile T *a, typename T::Type *cmp,
                                            typename T::Type xchg,
                                            memory_order mo) {
-  typedef typename T::Type Type;
-  Type cmpv = *cmp;
-  Type prev;
-  prev = __sync_val_compare_and_swap(&a->val_dont_use, cmpv, xchg);
-  if (prev == cmpv) return true;
-  *cmp = prev;
-  return false;
+  // Transitioned from __sync_val_compare_and_swap to support targets like
+  // SPARC V8 that cannot inline atomic cmpxchg.  __atomic_compare_exchange
+  // can then be resolved from libatomic.  __ATOMIC_SEQ_CST is used to best
+  // match the __sync builtin memory order.
+  return __atomic_compare_exchange(&a->val_dont_use, cmp, &xchg, false,
+                                   __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
 
 template<typename T>
@@ -96,8 +95,8 @@ inline bool atomic_compare_exchange_weak(volatile T *a,
 // This include provides explicit template instantiations for atomic_uint64_t
 // on MIPS32, which does not directly support 8 byte atomics. It has to
 // proceed the template definitions above.
-#if defined(_MIPS_SIM) && defined(_ABIO32)
-  #include "sanitizer_atomic_clang_mips.h"
+#if defined(_MIPS_SIM) && defined(_ABIO32) && _MIPS_SIM == _ABIO32
+#  include "sanitizer_atomic_clang_mips.h"
 #endif
 
 #undef ATOMIC_ORDER

@@ -178,8 +178,24 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 }
 
 fn isOddInteger(x: f64) bool {
+    if (@abs(x) >= 1 << 53) {
+        // From https://golang.org/src/math/pow.go
+        // 1 << 53 is the largest exact integer in the float64 format.
+        // Any number outside this range will be truncated before the decimal point and therefore will always be
+        // an even integer.
+        // Without this check and if x overflows i64 the @intFromFloat(r.ipart) conversion below will panic
+        return false;
+    }
     const r = math.modf(x);
     return r.fpart == 0.0 and @as(i64, @intFromFloat(r.ipart)) & 1 == 1;
+}
+
+test "math.pow.isOddInteger" {
+    try expect(isOddInteger(math.maxInt(i64) * 2) == false);
+    try expect(isOddInteger(math.maxInt(i64) * 2 + 1) == false);
+    try expect(isOddInteger(1 << 53) == false);
+    try expect(isOddInteger(12.0) == false);
+    try expect(isOddInteger(15.0) == true);
 }
 
 test "math.pow" {

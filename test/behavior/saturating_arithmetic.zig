@@ -246,9 +246,11 @@ test "saturating shl uses the LHS type" {
 
     const lhs_const: u8 = 1;
     var lhs_var: u8 = 1;
+    _ = &lhs_var;
 
     const rhs_const: usize = 8;
     var rhs_var: usize = 8;
+    _ = &rhs_var;
 
     try expect((lhs_const <<| 8) == 255);
     try expect((lhs_const <<| rhs_const) == 255);

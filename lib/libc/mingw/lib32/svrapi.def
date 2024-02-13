@@ -1,0 +1,22 @@
+LIBRARY SVRAPI.DLL
+EXPORTS
+NetAccessAdd@16
+NetAccessCheck@20
+NetAccessDel@8
+NetAccessEnum@32
+NetAccessGetInfo@24
+NetAccessGetUserPerms@16
+NetAccessSetInfo@24
+NetConnectionEnum@28
+NetFileClose2@8
+NetFileEnum@28
+NetSecurityGetInfo@20
+NetServerGetInfo@20
+NetSessionDel@12
+NetSessionEnum@24
+NetSessionGetInfo@24
+NetShareAdd@16
+NetShareDel@12
+NetShareEnum@24
+NetShareGetInfo@24
+NetShareSetInfo@24

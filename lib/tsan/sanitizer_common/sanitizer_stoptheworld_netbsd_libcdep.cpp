@@ -68,7 +68,7 @@ class SuspendedThreadsListNetBSD final : public SuspendedThreadsList {
 struct TracerThreadArgument {
   StopTheWorldCallback callback;
   void *callback_argument;
-  BlockingMutex mutex;
+  Mutex mutex;
   atomic_uintptr_t done;
   uptr parent_pid;
 };

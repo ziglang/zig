@@ -33,7 +33,7 @@ THIS SOFTWARE.
 
 float __strtof (const char *s, char **sp)
 {
-	static FPI fpi0 = { 24, 1-127-24+1,  254-127-24+1, 1, SI, Int_max };
+	static FPI fpi0 = { 24, 1-127-24+1,  254-127-24+1, 1, SI, Int_max /*unused*/ };
 	ULong bits[1];
 	Long expo;
 	int k;
@@ -46,6 +46,7 @@ float __strtof (const char *s, char **sp)
 
 	k = __strtodg(s, sp, fpi, &expo, bits);
 	switch(k & STRTOG_Retmask) {
+	  default: /* unused */
 	  case STRTOG_NoNumber:
 	  case STRTOG_Zero:
 		u.L[0] = 0;

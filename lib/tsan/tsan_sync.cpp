@@ -18,42 +18,31 @@ namespace __tsan {
 
 void DDMutexInit(ThreadState *thr, uptr pc, SyncVar *s);
 
-SyncVar::SyncVar() : mtx(MutexTypeSyncVar) { Reset(0); }
+SyncVar::SyncVar() : mtx(MutexTypeSyncVar) { Reset(); }
 
-void SyncVar::Init(ThreadState *thr, uptr pc, uptr addr, u64 uid) {
+void SyncVar::Init(ThreadState *thr, uptr pc, uptr addr, bool save_stack) {
+  Reset();
   this->addr = addr;
-  this->uid = uid;
-  this->next = 0;
-
-  creation_stack_id = 0;
-  if (!SANITIZER_GO)  // Go does not use them
+  next = 0;
+  if (save_stack && !SANITIZER_GO)  // Go does not use them
     creation_stack_id = CurrentStackId(thr, pc);
   if (common_flags()->detect_deadlocks)
     DDMutexInit(thr, pc, this);
 }
 
-void SyncVar::Reset(Processor *proc) {
-  uid = 0;
-  creation_stack_id = 0;
+void SyncVar::Reset() {
+  CHECK(!ctx->resetting);
+  creation_stack_id = kInvalidStackID;
   owner_tid = kInvalidTid;
-  last_lock = 0;
+  last_lock.Reset();
   recursion = 0;
   atomic_store_relaxed(&flags, 0);
-
-  if (proc == 0) {
-    CHECK_EQ(clock.size(), 0);
-    CHECK_EQ(read_clock.size(), 0);
-  } else {
-    clock.Reset(&proc->clock_cache);
-    read_clock.Reset(&proc->clock_cache);
-  }
+  Free(clock);
+  Free(read_clock);
 }
 
 MetaMap::MetaMap()
-    : block_alloc_(LINKER_INITIALIZED, "heap block allocator"),
-      sync_alloc_(LINKER_INITIALIZED, "sync allocator") {
-  atomic_store(&uid_gen_, 0, memory_order_relaxed);
-}
+    : block_alloc_("heap block allocator"), sync_alloc_("sync allocator") {}
 
 void MetaMap::AllocBlock(ThreadState *thr, uptr pc, uptr p, uptr sz) {
   u32 idx = block_alloc_.Alloc(&thr->proc()->block_cache);
@@ -67,16 +56,16 @@ void MetaMap::AllocBlock(ThreadState *thr, uptr pc, uptr p, uptr sz) {
   *meta = idx | kFlagBlock;
 }
 
-uptr MetaMap::FreeBlock(Processor *proc, uptr p) {
+uptr MetaMap::FreeBlock(Processor *proc, uptr p, bool reset) {
   MBlock* b = GetBlock(p);
   if (b == 0)
     return 0;
   uptr sz = RoundUpTo(b->siz, kMetaShadowCell);
-  FreeRange(proc, p, sz);
+  FreeRange(proc, p, sz, reset);
   return sz;
 }
 
-bool MetaMap::FreeRange(Processor *proc, uptr p, uptr sz) {
+bool MetaMap::FreeRange(Processor *proc, uptr p, uptr sz, bool reset) {
   bool has_something = false;
   u32 *meta = MemToMeta(p);
   u32 *end = MemToMeta(p + sz);
@@ -98,7 +87,8 @@ bool MetaMap::FreeRange(Processor *proc, uptr p, uptr sz) {
         DCHECK(idx & kFlagSync);
         SyncVar *s = sync_alloc_.Map(idx & ~kFlagMask);
         u32 next = s->next;
-        s->Reset(proc);
+        if (reset)
+          s->Reset();
         sync_alloc_.Free(&proc->sync_cache, idx & ~kFlagMask);
         idx = next;
       } else {
@@ -115,30 +105,30 @@ bool MetaMap::FreeRange(Processor *proc, uptr p, uptr sz) {
 // which can be huge. The function probes pages one-by-one until it finds a page
 // without meta objects, at this point it stops freeing meta objects. Because
 // thread stacks grow top-down, we do the same starting from end as well.
-void MetaMap::ResetRange(Processor *proc, uptr p, uptr sz) {
+void MetaMap::ResetRange(Processor *proc, uptr p, uptr sz, bool reset) {
   if (SANITIZER_GO) {
     // UnmapOrDie/MmapFixedNoReserve does not work on Windows,
     // so we do the optimization only for C/C++.
-    FreeRange(proc, p, sz);
+    FreeRange(proc, p, sz, reset);
     return;
   }
   const uptr kMetaRatio = kMetaShadowCell / kMetaShadowSize;
   const uptr kPageSize = GetPageSizeCached() * kMetaRatio;
   if (sz <= 4 * kPageSize) {
     // If the range is small, just do the normal free procedure.
-    FreeRange(proc, p, sz);
+    FreeRange(proc, p, sz, reset);
     return;
   }
   // First, round both ends of the range to page size.
   uptr diff = RoundUp(p, kPageSize) - p;
   if (diff != 0) {
-    FreeRange(proc, p, diff);
+    FreeRange(proc, p, diff, reset);
     p += diff;
     sz -= diff;
   }
   diff = p + sz - RoundDown(p + sz, kPageSize);
   if (diff != 0) {
-    FreeRange(proc, p + sz - diff, diff);
+    FreeRange(proc, p + sz - diff, diff, reset);
     sz -= diff;
   }
   // Now we must have a non-empty page-aligned range.
@@ -149,7 +139,7 @@ void MetaMap::ResetRange(Processor *proc, uptr p, uptr sz) {
   const uptr sz0 = sz;
   // Probe start of the range.
   for (uptr checked = 0; sz > 0; checked += kPageSize) {
-    bool has_something = FreeRange(proc, p, kPageSize);
+    bool has_something = FreeRange(proc, p, kPageSize, reset);
     p += kPageSize;
     sz -= kPageSize;
     if (!has_something && checked > (128 << 10))
@@ -157,7 +147,7 @@ void MetaMap::ResetRange(Processor *proc, uptr p, uptr sz) {
   }
   // Probe end of the range.
   for (uptr checked = 0; sz > 0; checked += kPageSize) {
-    bool has_something = FreeRange(proc, p + sz - kPageSize, kPageSize);
+    bool has_something = FreeRange(proc, p + sz - kPageSize, kPageSize, reset);
     sz -= kPageSize;
     // Stacks grow down, so sync object are most likely at the end of the region
     // (if it is a stack). The very end of the stack is TLS and tsan increases
@@ -176,6 +166,27 @@ void MetaMap::ResetRange(Processor *proc, uptr p, uptr sz) {
     Die();
 }
 
+void MetaMap::ResetClocks() {
+  // This can be called from the background thread
+  // which does not have proc/cache.
+  // The cache is too large for stack.
+  static InternalAllocatorCache cache;
+  internal_memset(&cache, 0, sizeof(cache));
+  internal_allocator()->InitCache(&cache);
+  sync_alloc_.ForEach([&](SyncVar *s) {
+    if (s->clock) {
+      InternalFree(s->clock, &cache);
+      s->clock = nullptr;
+    }
+    if (s->read_clock) {
+      InternalFree(s->read_clock, &cache);
+      s->read_clock = nullptr;
+    }
+    s->last_lock.Reset();
+  });
+  internal_allocator()->DestroyCache(&cache);
+}
+
 MBlock* MetaMap::GetBlock(uptr p) {
   u32 *meta = MemToMeta(p);
   u32 idx = *meta;
@@ -190,63 +201,41 @@ MBlock* MetaMap::GetBlock(uptr p) {
   }
 }
 
-SyncVar* MetaMap::GetOrCreateAndLock(ThreadState *thr, uptr pc,
-                              uptr addr, bool write_lock) {
-  return GetAndLock(thr, pc, addr, write_lock, true);
-}
-
-SyncVar* MetaMap::GetIfExistsAndLock(uptr addr, bool write_lock) {
-  return GetAndLock(0, 0, addr, write_lock, false);
-}
-
-SyncVar *MetaMap::GetAndLock(ThreadState *thr, uptr pc, uptr addr, bool write_lock,
-                             bool create) NO_THREAD_SAFETY_ANALYSIS {
+SyncVar *MetaMap::GetSync(ThreadState *thr, uptr pc, uptr addr, bool create,
+                          bool save_stack) {
+  DCHECK(!create || thr->slot_locked);
   u32 *meta = MemToMeta(addr);
   u32 idx0 = *meta;
   u32 myidx = 0;
-  SyncVar *mys = 0;
+  SyncVar *mys = nullptr;
   for (;;) {
-    u32 idx = idx0;
-    for (;;) {
-      if (idx == 0)
-        break;
-      if (idx & kFlagBlock)
-        break;
+    for (u32 idx = idx0; idx && !(idx & kFlagBlock);) {
       DCHECK(idx & kFlagSync);
       SyncVar * s = sync_alloc_.Map(idx & ~kFlagMask);
-      if (s->addr == addr) {
-        if (myidx != 0) {
-          mys->Reset(thr->proc());
+      if (LIKELY(s->addr == addr)) {
+        if (UNLIKELY(myidx != 0)) {
+          mys->Reset();
           sync_alloc_.Free(&thr->proc()->sync_cache, myidx);
         }
-        if (write_lock)
-          s->mtx.Lock();
-        else
-          s->mtx.ReadLock();
         return s;
       }
       idx = s->next;
     }
     if (!create)
-      return 0;
-    if (*meta != idx0) {
+      return nullptr;
+    if (UNLIKELY(*meta != idx0)) {
       idx0 = *meta;
       continue;
     }
 
-    if (myidx == 0) {
-      const u64 uid = atomic_fetch_add(&uid_gen_, 1, memory_order_relaxed);
+    if (LIKELY(myidx == 0)) {
       myidx = sync_alloc_.Alloc(&thr->proc()->sync_cache);
       mys = sync_alloc_.Map(myidx);
-      mys->Init(thr, pc, addr, uid);
+      mys->Init(thr, pc, addr, save_stack);
     }
     mys->next = idx0;
     if (atomic_compare_exchange_strong((atomic_uint32_t*)meta, &idx0,
         myidx | kFlagSync, memory_order_release)) {
-      if (write_lock)
-        mys->mtx.Lock();
-      else
-        mys->mtx.ReadLock();
       return mys;
     }
   }
@@ -288,6 +277,13 @@ void MetaMap::MoveMemory(uptr src, uptr dst, uptr sz) {
 void MetaMap::OnProcIdle(Processor *proc) {
   block_alloc_.FlushCache(&proc->block_cache);
   sync_alloc_.FlushCache(&proc->sync_cache);
+}
+
+MetaMap::MemoryStats MetaMap::GetMemoryStats() const {
+  MemoryStats stats;
+  stats.mem_block = block_alloc_.AllocatedMemory();
+  stats.sync_obj = sync_alloc_.AllocatedMemory();
+  return stats;
 }
 
 }  // namespace __tsan

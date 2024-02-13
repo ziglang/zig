@@ -17,8 +17,9 @@ pub export fn entry2() void {
     var list = .{ 1, 2, 3 };
     var list2 = @TypeOf(list){ .@"0" = 1, .@"1" = 2, .@"2" = 3 };
     var list3 = @TypeOf(list){ 1, 2, 4 };
-    _ = list2;
-    _ = list3;
+    _ = &list;
+    _ = &list2;
+    _ = &list3;
 }
 pub export fn entry3() void {
     const U = struct {
@@ -46,6 +47,7 @@ pub export fn entry5() void {
 }
 pub export fn entry6() void {
     var x: u32 = 15;
+    _ = &x;
     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
     const S = struct {
         fn foo(_: T) void {}
@@ -74,12 +76,12 @@ pub export fn entry8() void {
 // :6:9: error: value stored in comptime field does not match the default value of the field
 // :14:9: error: value stored in comptime field does not match the default value of the field
 // :19:38: error: value stored in comptime field does not match the default value of the field
-// :31:19: error: value stored in comptime field does not match the default value of the field
-// :25:29: note: default value set here
-// :41:19: error: value stored in comptime field does not match the default value of the field
-// :35:29: note: default value set here
-// :45:12: error: value stored in comptime field does not match the default value of the field
-// :53:25: error: value stored in comptime field does not match the default value of the field
-// :66:36: error: value stored in comptime field does not match the default value of the field
-// :59:30: error: value stored in comptime field does not match the default value of the field
-// :57:29: note: default value set here
+// :32:19: error: value stored in comptime field does not match the default value of the field
+// :26:29: note: default value set here
+// :42:19: error: value stored in comptime field does not match the default value of the field
+// :36:29: note: default value set here
+// :46:12: error: value stored in comptime field does not match the default value of the field
+// :55:25: error: value stored in comptime field does not match the default value of the field
+// :68:36: error: value stored in comptime field does not match the default value of the field
+// :61:30: error: value stored in comptime field does not match the default value of the field
+// :59:29: note: default value set here

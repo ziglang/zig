@@ -441,12 +441,15 @@ LsaAddAccountRights
 LsaAddPrivilegesToAccount
 LsaClearAuditLog
 LsaClose
+LsaConfigureAutoLogonCredentials
 LsaCreateAccount
 LsaCreateSecret
 LsaCreateTrustedDomain
 LsaCreateTrustedDomainEx
 LsaDelete
 LsaDeleteTrustedDomain
+LsaDisableUserArso
+LsaEnableUserArso
 LsaEnumerateAccountRights
 LsaEnumerateAccounts
 LsaEnumerateAccountsWithUserRight
@@ -456,6 +459,7 @@ LsaEnumerateTrustedDomains
 LsaEnumerateTrustedDomainsEx
 LsaFreeMemory
 LsaGetAppliedCAPIDs
+LsaGetDeviceRegistrationInfo
 LsaGetQuotasForAccount
 LsaGetRemoteUserName
 LsaGetSystemAccessAccount
@@ -464,6 +468,9 @@ LsaICLookupNames
 LsaICLookupNamesWithCreds
 LsaICLookupSids
 LsaICLookupSidsWithCreds
+LsaInvokeTrustScanner
+LsaIsUserArsoAllowed
+LsaIsUserArsoEnabled
 LsaLookupNames
 LsaLookupNames2
 LsaLookupPrivilegeDisplayName
@@ -479,9 +486,11 @@ LsaOpenPolicySce
 LsaOpenSecret
 LsaOpenTrustedDomain
 LsaOpenTrustedDomainByName
+LsaProfileDeleted
 LsaQueryCAPs
 LsaQueryDomainInformationPolicy
 LsaQueryForestTrustInformation
+LsaQueryForestTrustInformation2
 LsaQueryInfoTrustedDomain
 LsaQueryInformationPolicy
 LsaQuerySecret
@@ -494,6 +503,7 @@ LsaRetrievePrivateData
 LsaSetCAPs
 LsaSetDomainInformationPolicy
 LsaSetForestTrustInformation
+LsaSetForestTrustInformation2
 LsaSetInformationPolicy
 LsaSetInformationTrustedDomain
 LsaSetQuotasForAccount
@@ -503,6 +513,7 @@ LsaSetSystemAccessAccount
 LsaSetTrustedDomainInfoByName
 LsaSetTrustedDomainInformation
 LsaStorePrivateData
+LsaValidateProcUniqueLuid
 MD4Final
 MD4Init
 MD4Update

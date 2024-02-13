@@ -35,6 +35,30 @@ THIS SOFTWARE.
 #include "locale.h"
 #endif
 
+#ifndef ldus_QNAN0
+#define ldus_QNAN0 0x7fff
+#endif
+#ifndef ldus_QNAN1
+#define ldus_QNAN1 0xc000
+#endif
+#ifndef ldus_QNAN2
+#define ldus_QNAN2 0
+#endif
+#ifndef ldus_QNAN3
+#define ldus_QNAN3 0
+#endif
+#ifndef ldus_QNAN4
+#define ldus_QNAN4 0
+#endif
+
+ const char *InfName[6] = { "Infinity", "infinity", "INFINITY", "Inf", "inf", "INF" };
+ const char *NanName[3] = { "NaN", "nan", "NAN" };
+ ULong NanDflt_Q_D2A[4] = { 0xffffffff, 0xffffffff, 0xffffffff, 0x7fffffff };
+ ULong NanDflt_d_D2A[2] = { d_QNAN1, d_QNAN0 };
+ ULong NanDflt_f_D2A[1] = { f_QNAN };
+ ULong NanDflt_xL_D2A[3] = { 1, 0x80000000, 0x7fff0000 };
+ UShort NanDflt_ldus_D2A[5] = { ldus_QNAN4, ldus_QNAN3, ldus_QNAN2, ldus_QNAN1, ldus_QNAN0 };
+
 char *__g__fmt (char *b, char *s, char *se, int decpt, ULong sign, size_t blen)
 {
 	int i, j, k;
@@ -140,3 +164,35 @@ char *__g__fmt (char *b, char *s, char *se, int decpt, ULong sign, size_t blen)
 	__freedtoa(s0);
 	return b;
 }
+
+ char *
+__add_nanbits_D2A(char *b, size_t blen, ULong *bits, int nb)
+{
+	ULong t;
+	char *rv;
+	int i, j;
+	size_t L;
+	static char Hexdig[16] = "0123456789abcdef";
+
+	while(!bits[--nb])
+		if (!nb)
+			return b;
+	L = 8*nb + 3;
+	t = bits[nb];
+	do ++L; while((t >>= 4));
+	if (L > blen)
+		return b;
+	b += L;
+	*--b = 0;
+	rv = b;
+	*--b = /*(*/ ')';
+	for(i = 0; i < nb; ++i) {
+		t = bits[i];
+		for(j = 0; j < 8; ++j, t >>= 4)
+			*--b = Hexdig[t & 0xf];
+		}
+	t = bits[nb];
+	do *--b = Hexdig[t & 0xf]; while(t >>= 4);
+	*--b = '('; /*)*/
+	return rv;
+	}

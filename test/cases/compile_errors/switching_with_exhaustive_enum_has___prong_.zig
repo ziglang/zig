@@ -3,7 +3,7 @@ const E = enum {
     b,
 };
 pub export fn entry() void {
-    var e: E = .b;
+    const e: E = .b;
     switch (e) {
         .a => {},
         .b => {},

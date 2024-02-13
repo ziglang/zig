@@ -11,8 +11,8 @@ const cmath = math.complex;
 const Complex = cmath.Complex;
 
 /// Returns the arc-tangent of z.
-pub fn atan(z: anytype) @TypeOf(z) {
-    const T = @TypeOf(z.re);
+pub fn atan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     return switch (T) {
         f32 => atan32(z),
         f64 => atan64(z),
@@ -54,8 +54,8 @@ fn atan32(z: Complex(f32)) Complex(f32) {
         return Complex(f32).init(maxnum, maxnum);
     }
 
-    var t = 0.5 * math.atan2(f32, 2.0 * x, a);
-    var w = redupif32(t);
+    var t = 0.5 * math.atan2(2.0 * x, a);
+    const w = redupif32(t);
 
     t = y - 1.0;
     a = x2 + t * t;
@@ -103,8 +103,8 @@ fn atan64(z: Complex(f64)) Complex(f64) {
         return Complex(f64).init(maxnum, maxnum);
     }
 
-    var t = 0.5 * math.atan2(f64, 2.0 * x, a);
-    var w = redupif64(t);
+    var t = 0.5 * math.atan2(2.0 * x, a);
+    const w = redupif64(t);
 
     t = y - 1.0;
     a = x2 + t * t;

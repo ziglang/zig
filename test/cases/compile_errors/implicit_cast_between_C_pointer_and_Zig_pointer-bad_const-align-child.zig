@@ -1,32 +1,32 @@
 export fn a() void {
     var x: [*c]u8 = undefined;
     var y: *align(4) u8 = x;
-    _ = y;
+    _ = .{ &x, &y };
 }
 export fn b() void {
     var x: [*c]const u8 = undefined;
     var y: *u8 = x;
-    _ = y;
+    _ = .{ &x, &y };
 }
 export fn c() void {
     var x: [*c]u8 = undefined;
     var y: *u32 = x;
-    _ = y;
+    _ = .{ &x, &y };
 }
 export fn d() void {
     var y: *align(1) u32 = undefined;
     var x: [*c]u32 = y;
-    _ = x;
+    _ = .{ &x, &y };
 }
 export fn e() void {
     var y: *const u8 = undefined;
     var x: [*c]u8 = y;
-    _ = x;
+    _ = .{ &x, &y };
 }
 export fn f() void {
     var y: *u8 = undefined;
     var x: [*c]u32 = y;
-    _ = x;
+    _ = .{ &x, &y };
 }
 
 // error

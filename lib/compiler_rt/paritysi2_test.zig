@@ -13,8 +13,8 @@ fn paritysi2Naive(a: i32) i32 {
 }
 
 fn test__paritysi2(a: i32) !void {
-    var x = parity.__paritysi2(a);
-    var expected: i32 = paritysi2Naive(a);
+    const x = parity.__paritysi2(a);
+    const expected: i32 = paritysi2Naive(a);
     try testing.expectEqual(expected, x);
 }
 
@@ -26,11 +26,11 @@ test "paritysi2" {
     try test__paritysi2(@bitCast(@as(u32, 0xfffffffe)));
     try test__paritysi2(@bitCast(@as(u32, 0xffffffff)));
 
-    const RndGen = std.rand.DefaultPrng;
+    const RndGen = std.Random.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: u32 = 0;
     while (i < 10_000) : (i += 1) {
-        var rand_num = rnd.random().int(i32);
+        const rand_num = rnd.random().int(i32);
         try test__paritysi2(rand_num);
     }
 }

@@ -1,9 +1,0 @@
-LIBRARY api-ms-win-core-featurestaging-l1-1-0
-
-EXPORTS
-
-GetFeatureEnabledState
-RecordFeatureError
-RecordFeatureUsage
-SubscribeFeatureStateChangeNotification
-UnsubscribeFeatureStateChangeNotification

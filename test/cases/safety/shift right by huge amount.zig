@@ -11,7 +11,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 pub fn main() !void {
     var x: u24 = 42;
     var y: u5 = 24;
-    var z = x << y;
+    _ = .{ &x, &y };
+    const z = x << y;
     _ = z;
     return error.TestFailed;
 }

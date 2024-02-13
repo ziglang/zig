@@ -6,6 +6,10 @@
 #include <winapifamily.h>
 #include <basetyps.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_DESKTOP)
 #define GUID_CLASS_INPUT GUID_DEVINTERFACE_HID
 
@@ -114,5 +118,9 @@ typedef struct _HID_DRIVER_CONFIG {
   ULONG Size;
   ULONG RingBufferSize;
 } HID_DRIVER_CONFIG,*PHID_DRIVER_CONFIG;
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 #endif

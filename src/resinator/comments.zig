@@ -206,9 +206,9 @@ inline fn handleMultilineCarriageReturn(
 }
 
 pub fn removeCommentsAlloc(allocator: Allocator, source: []const u8, source_mappings: ?*SourceMappings) ![]u8 {
-    var buf = try allocator.alloc(u8, source.len);
+    const buf = try allocator.alloc(u8, source.len);
     errdefer allocator.free(buf);
-    var result = removeComments(source, buf, source_mappings);
+    const result = removeComments(source, buf, source_mappings);
     return allocator.realloc(buf, result.len);
 }
 
@@ -326,7 +326,7 @@ test "remove comments with mappings" {
     try mappings.set(allocator, 3, .{ .start_line = 3, .end_line = 3, .filename_offset = 0 });
     defer mappings.deinit(allocator);
 
-    var result = removeComments(&mut_source, &mut_source, &mappings);
+    const result = removeComments(&mut_source, &mut_source, &mappings);
 
     try std.testing.expectEqualStrings("blahblah", result);
     try std.testing.expectEqual(@as(usize, 1), mappings.mapping.items.len);
@@ -335,6 +335,6 @@ test "remove comments with mappings" {
 
 test "in place" {
     var mut_source = "blah /* comment */ blah".*;
-    var result = removeComments(&mut_source, &mut_source, null);
+    const result = removeComments(&mut_source, &mut_source, null);
     try std.testing.expectEqualStrings("blah  blah", result);
 }

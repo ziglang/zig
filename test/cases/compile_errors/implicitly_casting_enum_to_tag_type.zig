@@ -7,7 +7,7 @@ const Small = enum(u2) {
 
 export fn entry() void {
     var x: u2 = Small.Two;
-    _ = x;
+    _ = &x;
 }
 
 // error

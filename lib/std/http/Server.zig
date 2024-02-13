@@ -1,3 +1,44 @@
+//! HTTP Server implementation.
+//!
+//! This server assumes *all* clients are well behaved and standard compliant; it can and will deadlock if a client holds a connection open without sending a request.
+//!
+//! Example usage:
+//!
+//! ```zig
+//! var server = Server.init(.{ .reuse_address = true });
+//! defer server.deinit();
+//!
+//! try server.listen(bind_addr);
+//!
+//! while (true) {
+//!     var res = try server.accept(.{ .allocator = gpa });
+//!     defer res.deinit();
+//!
+//!     while (res.reset() != .closing) {
+//!         res.wait() catch |err| switch (err) {
+//!             error.HttpHeadersInvalid => break,
+//!             error.HttpHeadersExceededSizeLimit => {
+//!                 res.status = .request_header_fields_too_large;
+//!                 res.send() catch break;
+//!                 break;
+//!             },
+//!             else => {
+//!                 res.status = .bad_request;
+//!                 res.send() catch break;
+//!                 break;
+//!             },
+//!         }
+//!
+//!         res.status = .ok;
+//!         res.transfer_encoding = .chunked;
+//!
+//!         try res.send();
+//!         try res.writeAll("Hello, World!\n");
+//!         try res.finish();
+//!     }
+//! }
+//! ```
+
 const std = @import("../std.zig");
 const testing = std.testing;
 const http = std.http;
@@ -10,8 +51,7 @@ const assert = std.debug.assert;
 const Server = @This();
 const proto = @import("protocol.zig");
 
-allocator: Allocator,
-
+/// The underlying server socket.
 socket: net.StreamServer,
 
 /// An interface to a plain connection.
@@ -269,8 +309,13 @@ pub const Request = struct {
         return @as(u64, @bitCast(array.*));
     }
 
+    /// The HTTP request method.
     method: http.Method,
+
+    /// The HTTP request target.
     target: []const u8,
+
+    /// The HTTP version of this request.
     version: http.Version,
 
     /// The length of the request body, if known.
@@ -282,16 +327,21 @@ pub const Request = struct {
     /// The compression of the request body, or .identity (no compression) if not present.
     transfer_compression: http.ContentEncoding = .identity,
 
+    /// The list of HTTP request headers
     headers: http.Headers,
+
     parser: proto.HeadersParser,
     compression: Compression = .none,
 };
 
 /// A HTTP response waiting to be sent.
 ///
-///                                  [/ <----------------------------------- \]
-/// Order of operations: accept -> wait -> send  [ -> write -> finish][ -> reset /]
-///                                   \ -> read /
+/// Order of operations:
+/// ```
+///             [/ <--------------------------------------- \]
+/// accept -> wait -> send  [ -> write -> finish][ -> reset /]
+///              \ -> read /
+/// ```
 pub const Response = struct {
     version: http.Version = .@"HTTP/1.1",
     status: http.Status = .ok,
@@ -299,11 +349,21 @@ pub const Response = struct {
 
     transfer_encoding: ResponseTransfer = .none,
 
+    /// The allocator responsible for allocating memory for this response.
     allocator: Allocator,
+
+    /// The peer's address
     address: net.Address,
+
+    /// The underlying connection for this response.
     connection: Connection,
 
+    /// The HTTP response headers
     headers: http.Headers,
+
+    /// The HTTP request that this response is responding to.
+    ///
+    /// This field is only valid after calling `wait`.
     request: Request,
 
     state: State = .first,
@@ -495,6 +555,17 @@ pub const Response = struct {
     pub const WaitError = Connection.ReadError || proto.HeadersParser.CheckCompleteHeadError || Request.ParseError || error{ CompressionInitializationFailed, CompressionNotSupported };
 
     /// Wait for the client to send a complete request head.
+    ///
+    /// For correct behavior, the following rules must be followed:
+    ///
+    /// * If this returns any error in `Connection.ReadError`, you MUST immediately close the connection by calling `deinit`.
+    /// * If this returns `error.HttpHeadersInvalid`, you MAY immediately close the connection by calling `deinit`.
+    /// * If this returns `error.HttpHeadersExceededSizeLimit`, you MUST respond with a 431 status code and then call `deinit`.
+    /// * If this returns any error in `Request.ParseError`, you MUST respond with a 400 status code and then call `deinit`.
+    /// * If this returns any other error, you MUST respond with a 400 status code and then call `deinit`.
+    /// * If the request has an Expect header containing 100-continue, you MUST either:
+    ///   * Respond with a 100 status code, then call `wait` again.
+    ///   * Respond with a 417 status code.
     pub fn wait(res: *Response) WaitError!void {
         switch (res.state) {
             .first, .start => res.state = .waited,
@@ -664,9 +735,8 @@ pub const Response = struct {
 };
 
 /// Create a new HTTP server.
-pub fn init(allocator: Allocator, options: net.StreamServer.Options) Server {
+pub fn init(options: net.StreamServer.Options) Server {
     return .{
-        .allocator = allocator,
         .socket = net.StreamServer.init(options),
     };
 }
@@ -748,7 +818,7 @@ test "HTTP server handles a chunked transfer coding request" {
     const expect = std.testing.expect;
 
     const max_header_size = 8192;
-    var server = std.http.Server.init(allocator, .{ .reuse_address = true });
+    var server = std.http.Server.init(.{ .reuse_address = true });
     defer server.deinit();
 
     const address = try std.net.Address.parseIp("127.0.0.1", 0);

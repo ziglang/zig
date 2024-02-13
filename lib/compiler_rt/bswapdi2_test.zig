@@ -2,7 +2,7 @@ const bswap = @import("bswap.zig");
 const testing = @import("std").testing;
 
 fn test__bswapdi2(a: u64, expected: u64) !void {
-    var result = bswap.__bswapdi2(a);
+    const result = bswap.__bswapdi2(a);
     try testing.expectEqual(expected, result);
 }
 

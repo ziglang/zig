@@ -25,6 +25,7 @@ namespace __sanitizer {
 #define errno_EBUSY 16
 #define errno_EINVAL 22
 #define errno_ENAMETOOLONG 36
+#define errno_ENOSYS 38
 
 // Those might not present or their value differ on different platforms.
 extern const int errno_EOWNERDEAD;

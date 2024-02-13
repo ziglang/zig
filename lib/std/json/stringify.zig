@@ -148,7 +148,7 @@ pub fn writeStreamArbitraryDepth(
 /// Writes JSON ([RFC8259](https://tools.ietf.org/html/rfc8259)) formatted data
 /// to a stream.
 ///
-/// The seqeunce of method calls to write JSON content must follow this grammar:
+/// The sequence of method calls to write JSON content must follow this grammar:
 /// ```
 ///  <once> = <value>
 ///  <value> =
@@ -451,14 +451,14 @@ pub fn WriteStream(
                     }
                 },
                 .Enum, .EnumLiteral => {
-                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                    if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
                     return self.stringValue(@tagName(value));
                 },
                 .Union => {
-                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                    if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
@@ -487,7 +487,7 @@ pub fn WriteStream(
                     }
                 },
                 .Struct => |S| {
-                    if (comptime std.meta.trait.hasFn("jsonStringify")(T)) {
+                    if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 

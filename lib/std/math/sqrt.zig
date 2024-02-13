@@ -50,7 +50,7 @@ fn sqrt_int(comptime T: type, value: T) Sqrt(T) {
         }
 
         while (one != 0) {
-            var c = op >= res + one;
+            const c = op >= res + one;
             if (c) op -= res + one;
             res >>= 1;
             if (c) res += one;

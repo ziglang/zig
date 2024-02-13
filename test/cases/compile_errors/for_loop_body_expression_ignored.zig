@@ -7,7 +7,7 @@ export fn f1() void {
 export fn f2() void {
     var x: anyerror!i32 = error.Bad;
     for ("hello") |_| returns() else unreachable;
-    _ = x;
+    _ = &x;
 }
 export fn f3() void {
     for ("hello") |_| {} else true;

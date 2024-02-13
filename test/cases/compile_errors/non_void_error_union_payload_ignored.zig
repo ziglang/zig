@@ -5,6 +5,7 @@ pub export fn entry1() void {
     } else |_| {
         // bar
     }
+    _ = &x;
 }
 pub export fn entry2() void {
     var x: anyerror!usize = 5;
@@ -13,6 +14,7 @@ pub export fn entry2() void {
     } else |_| {
         // bar
     }
+    _ = &x;
 }
 
 // error
@@ -21,5 +23,5 @@ pub export fn entry2() void {
 //
 // :3:5: error: error union payload is ignored
 // :3:5: note: payload value can be explicitly ignored with '|_|'
-// :11:5: error: error union payload is ignored
-// :11:5: note: payload value can be explicitly ignored with '|_|'
+// :12:5: error: error union payload is ignored
+// :12:5: note: payload value can be explicitly ignored with '|_|'

@@ -16,7 +16,7 @@ fn RtlDosPathNameToNtPathName_U(path: [:0]const u16) !windows.PathSpace {
 
     var path_space: windows.PathSpace = undefined;
     const out_path = out.Buffer[0 .. out.Length / 2];
-    std.mem.copy(u16, path_space.data[0..], out_path);
+    @memcpy(path_space.data[0..out_path.len], out_path);
     path_space.len = out.Length / 2;
     path_space.data[path_space.len] = 0;
 

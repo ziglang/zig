@@ -1,7 +1,7 @@
 export fn entry() void {
     _ = @Type(@typeInfo(enum {
         foo,
-        const bar = 1;
+        pub const bar = 1;
     }));
 }
 

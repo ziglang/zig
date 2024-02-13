@@ -6,7 +6,7 @@ const Number = enum {
 // zig fmt: on
 
 export fn entry1() void {
-    var x: Number = undefined;
+    const x: Number = undefined;
     _ = x;
 }
 

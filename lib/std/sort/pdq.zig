@@ -276,10 +276,10 @@ fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
     // max_swaps is the maximum number of swaps allowed in this function
     const max_swaps = 4 * 3;
 
-    var len = b - a;
-    var i = a + len / 4 * 1;
-    var j = a + len / 4 * 2;
-    var k = a + len / 4 * 3;
+    const len = b - a;
+    const i = a + len / 4 * 1;
+    const j = a + len / 4 * 2;
+    const k = a + len / 4 * 3;
     var swaps: usize = 0;
 
     if (len >= 8) {

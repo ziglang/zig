@@ -17,6 +17,9 @@
 
 namespace __sanitizer {
 
+// Strip interceptor prefixes from function name.
+const char *StripFunctionName(const char *function);
+
 // Render the contents of "info" structure, which represents the contents of
 // stack frame "frame_no" and appends it to the "buffer". "format" is a
 // string with placeholders, which is copied to the output with
@@ -26,8 +29,7 @@ namespace __sanitizer {
 // will be turned into
 //   "  frame 10: function foo::bar() at my/file.cc:10"
 // You may additionally pass "strip_path_prefix" to strip prefixes of paths to
-// source files and modules, and "strip_func_prefix" to strip prefixes of
-// function names.
+// source files and modules.
 // Here's the full list of available placeholders:
 //   %% - represents a '%' character;
 //   %n - frame number (copy of frame_no);
@@ -48,8 +50,7 @@ namespace __sanitizer {
 //   %M - prints module basename and offset, if it is known, or PC.
 void RenderFrame(InternalScopedString *buffer, const char *format, int frame_no,
                  uptr address, const AddressInfo *info, bool vs_style,
-                 const char *strip_path_prefix = "",
-                 const char *strip_func_prefix = "");
+                 const char *strip_path_prefix = "");
 
 bool RenderNeedsSymbolization(const char *format);
 

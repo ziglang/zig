@@ -3,7 +3,7 @@ const Foo = enum(u32) {
     B = 11,
 };
 export fn entry() void {
-    var x: Foo = @enumFromInt(0);
+    const x: Foo = @enumFromInt(0);
     _ = x;
 }
 
@@ -11,5 +11,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :6:18: error: enum 'tmp.Foo' has no tag with value '0'
+// :6:20: error: enum 'tmp.Foo' has no tag with value '0'
 // :1:13: note: enum declared here

@@ -17,8 +17,8 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Wr
 
     const global_cache_dir = try introspect.resolveGlobalCacheDir(arena);
 
-    const info = try std.zig.system.NativeTargetInfo.detect(.{});
-    const triple = try info.target.zigTriple(arena);
+    const host = try std.zig.system.resolveTargetQuery(.{});
+    const triple = try host.zigTriple(arena);
 
     var bw = std.io.bufferedWriter(stdout);
     const w = bw.writer();

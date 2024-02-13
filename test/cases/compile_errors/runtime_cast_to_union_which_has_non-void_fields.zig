@@ -8,7 +8,7 @@ export fn entry() void {
     foo(Letter.A);
 }
 fn foo(l: Letter) void {
-    var x: Value = l;
+    const x: Value = l;
     _ = x;
 }
 
@@ -16,6 +16,6 @@ fn foo(l: Letter) void {
 // backend=stage2
 // target=native
 //
-// :11:20: error: runtime coercion from enum 'tmp.Letter' to union 'tmp.Value' which has non-void fields
+// :11:22: error: runtime coercion from enum 'tmp.Letter' to union 'tmp.Value' which has non-void fields
 // :3:5: note: field 'A' has type 'i32'
 // :2:15: note: union declared here

@@ -591,9 +591,13 @@ fn parseValueEnum(self: *Assembler, kind: spec.OperandKind) !void {
     try self.expectToken(.value);
 
     const text = self.tokenText(tok);
+    const int_value = std.fmt.parseInt(u32, text, 0) catch null;
     const enumerant = for (kind.enumerants()) |enumerant| {
-        if (std.mem.eql(u8, enumerant.name, text))
-            break enumerant;
+        if (int_value) |v| {
+            if (v == enumerant.value) break enumerant;
+        } else {
+            if (std.mem.eql(u8, enumerant.name, text)) break enumerant;
+        }
     } else {
         return self.fail(tok.start, "'{s}' is not a valid value for enumeration {s}", .{ text, @tagName(kind) });
     };

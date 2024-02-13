@@ -82,8 +82,8 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         };
 
         fn getStartForSiftUp(self: Self, child: T, index: usize) StartIndexAndLayer {
-            var child_index = index;
-            var parent_index = parentIndex(child_index);
+            const child_index = index;
+            const parent_index = parentIndex(child_index);
             const parent = self.items[parent_index];
 
             const min_layer = self.nextIsMinLayer();
@@ -115,7 +115,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         fn doSiftUp(self: *Self, start_index: usize, target_order: Order) void {
             var child_index = start_index;
             while (child_index > 2) {
-                var grandparent_index = grandparentIndex(child_index);
+                const grandparent_index = grandparentIndex(child_index);
                 const child = self.items[child_index];
                 const grandparent = self.items[grandparent_index];
 
@@ -286,8 +286,8 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         }
 
         fn bestItemAtIndices(self: Self, index1: usize, index2: usize, target_order: Order) ItemAndIndex {
-            var item1 = self.getItem(index1);
-            var item2 = self.getItem(index2);
+            const item1 = self.getItem(index1);
+            const item2 = self.getItem(index2);
             return self.bestItem(item1, item2, target_order);
         }
 
@@ -866,7 +866,7 @@ test "std.PriorityDequeue: shrinkAndFree" {
 }
 
 test "std.PriorityDequeue: fuzz testing min" {
-    var prng = std.rand.DefaultPrng.init(0x12345678);
+    var prng = std.Random.DefaultPrng.init(0x12345678);
     const random = prng.random();
 
     const test_case_count = 100;
@@ -878,7 +878,7 @@ test "std.PriorityDequeue: fuzz testing min" {
     }
 }
 
-fn fuzzTestMin(rng: std.rand.Random, comptime queue_size: usize) !void {
+fn fuzzTestMin(rng: std.Random, comptime queue_size: usize) !void {
     const allocator = testing.allocator;
     const items = try generateRandomSlice(allocator, rng, queue_size);
 
@@ -895,7 +895,7 @@ fn fuzzTestMin(rng: std.rand.Random, comptime queue_size: usize) !void {
 }
 
 test "std.PriorityDequeue: fuzz testing max" {
-    var prng = std.rand.DefaultPrng.init(0x87654321);
+    var prng = std.Random.DefaultPrng.init(0x87654321);
     const random = prng.random();
 
     const test_case_count = 100;
@@ -907,7 +907,7 @@ test "std.PriorityDequeue: fuzz testing max" {
     }
 }
 
-fn fuzzTestMax(rng: std.rand.Random, queue_size: usize) !void {
+fn fuzzTestMax(rng: std.Random, queue_size: usize) !void {
     const allocator = testing.allocator;
     const items = try generateRandomSlice(allocator, rng, queue_size);
 
@@ -924,7 +924,7 @@ fn fuzzTestMax(rng: std.rand.Random, queue_size: usize) !void {
 }
 
 test "std.PriorityDequeue: fuzz testing min and max" {
-    var prng = std.rand.DefaultPrng.init(0x87654321);
+    var prng = std.Random.DefaultPrng.init(0x87654321);
     const random = prng.random();
 
     const test_case_count = 100;
@@ -936,7 +936,7 @@ test "std.PriorityDequeue: fuzz testing min and max" {
     }
 }
 
-fn fuzzTestMinMax(rng: std.rand.Random, queue_size: usize) !void {
+fn fuzzTestMinMax(rng: std.Random, queue_size: usize) !void {
     const allocator = testing.allocator;
     const items = try generateRandomSlice(allocator, rng, queue_size);
 
@@ -963,7 +963,7 @@ fn fuzzTestMinMax(rng: std.rand.Random, queue_size: usize) !void {
     }
 }
 
-fn generateRandomSlice(allocator: std.mem.Allocator, rng: std.rand.Random, size: usize) ![]u32 {
+fn generateRandomSlice(allocator: std.mem.Allocator, rng: std.Random, size: usize) ![]u32 {
     var array = std.ArrayList(u32).init(allocator);
     try array.ensureTotalCapacity(size);
 

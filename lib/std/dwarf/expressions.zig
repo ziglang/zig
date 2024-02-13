@@ -443,7 +443,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.xderef_type,
                 => {
                     if (self.stack.items.len == 0) return error.InvalidExpression;
-                    var addr = try self.stack.items[self.stack.items.len - 1].asIntegral();
+                    const addr = try self.stack.items[self.stack.items.len - 1].asIntegral();
                     const addr_space_identifier: ?usize = switch (opcode) {
                         OP.xderef,
                         OP.xderef_size,
@@ -1350,7 +1350,7 @@ test "DWARF expressions" {
 
     // Arithmetic and Logical Operations
     {
-        var context = ExpressionContext{};
+        const context = ExpressionContext{};
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1474,7 +1474,7 @@ test "DWARF expressions" {
 
     // Control Flow Operations
     {
-        var context = ExpressionContext{};
+        const context = ExpressionContext{};
         const expected = .{
             .{ OP.le, 1, 1, 0 },
             .{ OP.ge, 1, 0, 1 },
@@ -1531,7 +1531,7 @@ test "DWARF expressions" {
 
     // Type conversions
     {
-        var context = ExpressionContext{};
+        const context = ExpressionContext{};
         stack_machine.reset();
         program.clearRetainingCapacity();
 

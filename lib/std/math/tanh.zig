@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const expo2 = @import("expo2.zig").expo2;
 const maxInt = std.math.maxInt;
@@ -58,7 +59,7 @@ fn tanh32(x: f32) f32 {
     }
     // |x| is subnormal
     else {
-        math.doNotOptimizeAway(ax * ax);
+        mem.doNotOptimizeAway(ax * ax);
         t = ax;
     }
 
@@ -96,7 +97,7 @@ fn tanh64(x: f64) f64 {
     }
     // |x| is subnormal
     else {
-        math.doNotOptimizeAway(@as(f32, @floatCast(ax)));
+        mem.doNotOptimizeAway(@as(f32, @floatCast(ax)));
         t = ax;
     }
 

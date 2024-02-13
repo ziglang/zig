@@ -169,30 +169,7 @@ pub const COPYFILE_DATA = 1 << 3;
 pub const copyfile_state_t = *opaque {};
 pub extern "c" fn fcopyfile(from: fd_t, to: fd_t, state: ?copyfile_state_t, flags: u32) c_int;
 
-pub extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
-pub const realpath = @"realpath$DARWIN_EXTSN";
-
 pub extern "c" fn __getdirentries64(fd: c_int, buf_ptr: [*]u8, buf_len: usize, basep: *i64) isize;
-
-const private = struct {
-    extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
-    /// On x86_64 Darwin, fstat has to be manually linked with $INODE64 suffix to
-    /// force 64bit version.
-    /// Note that this is fixed on aarch64 and no longer necessary.
-    extern "c" fn @"fstat$INODE64"(fd: fd_t, buf: *Stat) c_int;
-
-    extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, stat_buf: *Stat, flags: u32) c_int;
-    /// On x86_64 Darwin, fstatat has to be manually linked with $INODE64 suffix to
-    /// force 64bit version.
-    /// Note that this is fixed on aarch64 and no longer necessary.
-    extern "c" fn @"fstatat$INODE64"(dirfd: fd_t, path_name: [*:0]const u8, buf: *Stat, flags: u32) c_int;
-
-    extern "c" fn readdir(dir: *std.c.DIR) ?*dirent;
-    extern "c" fn @"readdir$INODE64"(dir: *std.c.DIR) ?*dirent;
-};
-pub const fstat = if (native_arch == .aarch64) private.fstat else private.@"fstat$INODE64";
-pub const fstatat = if (native_arch == .aarch64) private.fstatat else private.@"fstatat$INODE64";
-pub const readdir = if (native_arch == .aarch64) private.readdir else private.@"readdir$INODE64";
 
 pub extern "c" fn mach_absolute_time() u64;
 pub extern "c" fn mach_continuous_time() u64;
@@ -866,21 +843,7 @@ pub const qos_class_t = enum(c_uint) {
     QOS_CLASS_UNSPECIFIED = 0x00,
 };
 
-pub const pthread_mutex_t = extern struct {
-    __sig: c_long = 0x32AAABA7,
-    __opaque: [__PTHREAD_MUTEX_SIZE__]u8 = [_]u8{0} ** __PTHREAD_MUTEX_SIZE__,
-};
-pub const pthread_cond_t = extern struct {
-    __sig: c_long = 0x3CB0B1BB,
-    __opaque: [__PTHREAD_COND_SIZE__]u8 = [_]u8{0} ** __PTHREAD_COND_SIZE__,
-};
-pub const pthread_rwlock_t = extern struct {
-    __sig: c_long = 0x2DA8B3B4,
-    __opaque: [192]u8 = [_]u8{0} ** 192,
-};
 pub const sem_t = c_int;
-const __PTHREAD_MUTEX_SIZE__ = if (@sizeOf(usize) == 8) 56 else 40;
-const __PTHREAD_COND_SIZE__ = if (@sizeOf(usize) == 8) 40 else 24;
 
 pub const pthread_attr_t = extern struct {
     __sig: c_long,
@@ -1202,16 +1165,12 @@ pub const Sigaction = extern struct {
 };
 
 pub const dirent = extern struct {
-    d_ino: u64,
-    d_seekoff: u64,
-    d_reclen: u16,
-    d_namlen: u16,
-    d_type: u8,
-    d_name: [1024]u8,
-
-    pub fn reclen(self: dirent) u16 {
-        return self.d_reclen;
-    }
+    ino: u64,
+    seekoff: u64,
+    reclen: u16,
+    namlen: u16,
+    type: u8,
+    name: [1024]u8,
 };
 
 /// Renamed from `kevent` to `Kevent` to avoid conflict with function name.
@@ -1310,26 +1269,6 @@ pub const PROT = struct {
     pub const COPY: vm_prot_t = 0x10;
 };
 
-pub const MAP = struct {
-    /// allocated from memory, swap space
-    pub const ANONYMOUS = 0x1000;
-    /// map from file (default)
-    pub const FILE = 0x0000;
-    /// interpret addr exactly
-    pub const FIXED = 0x0010;
-    /// region may contain semaphores
-    pub const HASSEMAPHORE = 0x0200;
-    /// changes are private
-    pub const PRIVATE = 0x0002;
-    /// share changes
-    pub const SHARED = 0x0001;
-    /// don't cache pages for this mapping
-    pub const NOCACHE = 0x0400;
-    /// don't reserve needed swap area
-    pub const NORESERVE = 0x0040;
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-};
-
 pub const MSF = struct {
     pub const ASYNC = 0x1;
     pub const INVALIDATE = 0x2;
@@ -1365,49 +1304,6 @@ pub const F_OK = 0;
 pub const X_OK = 1;
 pub const W_OK = 2;
 pub const R_OK = 4;
-
-pub const O = struct {
-    pub const PATH = 0x0000;
-    /// open for reading only
-    pub const RDONLY = 0x0000;
-    /// open for writing only
-    pub const WRONLY = 0x0001;
-    /// open for reading and writing
-    pub const RDWR = 0x0002;
-    /// do not block on open or for data to become available
-    pub const NONBLOCK = 0x0004;
-    /// append on each write
-    pub const APPEND = 0x0008;
-    /// create file if it does not exist
-    pub const CREAT = 0x0200;
-    /// truncate size to 0
-    pub const TRUNC = 0x0400;
-    /// error if CREAT and the file exists
-    pub const EXCL = 0x0800;
-    /// atomically obtain a shared lock
-    pub const SHLOCK = 0x0010;
-    /// atomically obtain an exclusive lock
-    pub const EXLOCK = 0x0020;
-    /// do not follow symlinks
-    pub const NOFOLLOW = 0x0100;
-    /// allow open of symlinks
-    pub const SYMLINK = 0x200000;
-    /// descriptor requested for event notifications only
-    pub const EVTONLY = 0x8000;
-    /// mark as close-on-exec
-    pub const CLOEXEC = 0x1000000;
-    pub const ACCMODE = 3;
-    pub const ALERT = 536870912;
-    pub const ASYNC = 64;
-    pub const DIRECTORY = 1048576;
-    pub const DP_GETRAWENCRYPTED = 1;
-    pub const DP_GETRAWUNENCRYPTED = 2;
-    pub const DSYNC = 4194304;
-    pub const FSYNC = SYNC;
-    pub const NOCTTY = 131072;
-    pub const POPUP = 2147483648;
-    pub const SYNC = 128;
-};
 
 pub const SEEK = struct {
     pub const SET = 0x0;
@@ -2549,18 +2445,6 @@ pub const S = struct {
 
 pub const HOST_NAME_MAX = 72;
 
-pub const AT = struct {
-    pub const FDCWD = -2;
-    /// Use effective ids in access check
-    pub const EACCESS = 0x0010;
-    /// Act on the symlink itself not the target
-    pub const SYMLINK_NOFOLLOW = 0x0020;
-    /// Act on target of symlink
-    pub const SYMLINK_FOLLOW = 0x0040;
-    /// Path refers to directory
-    pub const REMOVEDIR = 0x0080;
-};
-
 pub const addrinfo = extern struct {
     flags: i32,
     family: i32,
@@ -2808,176 +2692,11 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-// Term
-pub const V = struct {
-    pub const EOF = 0;
-    pub const EOL = 1;
-    pub const EOL2 = 2;
-    pub const ERASE = 3;
-    pub const WERASE = 4;
-    pub const KILL = 5;
-    pub const REPRINT = 6;
-    pub const INTR = 8;
-    pub const QUIT = 9;
-    pub const SUSP = 10;
-    pub const DSUSP = 11;
-    pub const START = 12;
-    pub const STOP = 13;
-    pub const LNEXT = 14;
-    pub const DISCARD = 15;
-    pub const MIN = 16;
-    pub const TIME = 17;
-    pub const STATUS = 18;
-};
-
-pub const NCCS = 20; // 2 spares (7, 19)
-
-pub const cc_t = u8;
-pub const speed_t = u64;
-pub const tcflag_t = u64;
-
-pub const IGNBRK: tcflag_t = 0x00000001; // ignore BREAK condition
-pub const BRKINT: tcflag_t = 0x00000002; // map BREAK to SIGINTR
-pub const IGNPAR: tcflag_t = 0x00000004; // ignore (discard) parity errors
-pub const PARMRK: tcflag_t = 0x00000008; // mark parity and framing errors
-pub const INPCK: tcflag_t = 0x00000010; // enable checking of parity errors
-pub const ISTRIP: tcflag_t = 0x00000020; // strip 8th bit off chars
-pub const INLCR: tcflag_t = 0x00000040; // map NL into CR
-pub const IGNCR: tcflag_t = 0x00000080; // ignore CR
-pub const ICRNL: tcflag_t = 0x00000100; // map CR to NL (ala CRMOD)
-pub const IXON: tcflag_t = 0x00000200; // enable output flow control
-pub const IXOFF: tcflag_t = 0x00000400; // enable input flow control
-pub const IXANY: tcflag_t = 0x00000800; // any char will restart after stop
-pub const IMAXBEL: tcflag_t = 0x00002000; // ring bell on input queue full
-pub const IUTF8: tcflag_t = 0x00004000; // maintain state for UTF-8 VERASE
-
-pub const OPOST: tcflag_t = 0x00000001; //enable following output processing
-pub const ONLCR: tcflag_t = 0x00000002; // map NL to CR-NL (ala CRMOD)
-pub const OXTABS: tcflag_t = 0x00000004; // expand tabs to spaces
-pub const ONOEOT: tcflag_t = 0x00000008; // discard EOT's (^D) on output)
-
-pub const OCRNL: tcflag_t = 0x00000010; // map CR to NL on output
-pub const ONOCR: tcflag_t = 0x00000020; // no CR output at column 0
-pub const ONLRET: tcflag_t = 0x00000040; // NL performs CR function
-pub const OFILL: tcflag_t = 0x00000080; // use fill characters for delay
-pub const NLDLY: tcflag_t = 0x00000300; // \n delay
-pub const TABDLY: tcflag_t = 0x00000c04; // horizontal tab delay
-pub const CRDLY: tcflag_t = 0x00003000; // \r delay
-pub const FFDLY: tcflag_t = 0x00004000; // form feed delay
-pub const BSDLY: tcflag_t = 0x00008000; // \b delay
-pub const VTDLY: tcflag_t = 0x00010000; // vertical tab delay
-pub const OFDEL: tcflag_t = 0x00020000; // fill is DEL, else NUL
-
-pub const NL0: tcflag_t = 0x00000000;
-pub const NL1: tcflag_t = 0x00000100;
-pub const NL2: tcflag_t = 0x00000200;
-pub const NL3: tcflag_t = 0x00000300;
-pub const TAB0: tcflag_t = 0x00000000;
-pub const TAB1: tcflag_t = 0x00000400;
-pub const TAB2: tcflag_t = 0x00000800;
-pub const TAB3: tcflag_t = 0x00000004;
-pub const CR0: tcflag_t = 0x00000000;
-pub const CR1: tcflag_t = 0x00001000;
-pub const CR2: tcflag_t = 0x00002000;
-pub const CR3: tcflag_t = 0x00003000;
-pub const FF0: tcflag_t = 0x00000000;
-pub const FF1: tcflag_t = 0x00004000;
-pub const BS0: tcflag_t = 0x00000000;
-pub const BS1: tcflag_t = 0x00008000;
-pub const VT0: tcflag_t = 0x00000000;
-pub const VT1: tcflag_t = 0x00010000;
-
-pub const CIGNORE: tcflag_t = 0x00000001; // ignore control flags
-pub const CSIZE: tcflag_t = 0x00000300; // character size mask
-pub const CS5: tcflag_t = 0x00000000; //    5 bits (pseudo)
-pub const CS6: tcflag_t = 0x00000100; //    6 bits
-pub const CS7: tcflag_t = 0x00000200; //    7 bits
-pub const CS8: tcflag_t = 0x00000300; //    8 bits
-pub const CSTOPB: tcflag_t = 0x0000040; // send 2 stop bits
-pub const CREAD: tcflag_t = 0x00000800; // enable receiver
-pub const PARENB: tcflag_t = 0x00001000; // parity enable
-pub const PARODD: tcflag_t = 0x00002000; // odd parity, else even
-pub const HUPCL: tcflag_t = 0x00004000; // hang up on last close
-pub const CLOCAL: tcflag_t = 0x00008000; // ignore modem status lines
-pub const CCTS_OFLOW: tcflag_t = 0x00010000; // CTS flow control of output
-pub const CRTSCTS: tcflag_t = (CCTS_OFLOW | CRTS_IFLOW);
-pub const CRTS_IFLOW: tcflag_t = 0x00020000; // RTS flow control of input
-pub const CDTR_IFLOW: tcflag_t = 0x00040000; // DTR flow control of input
-pub const CDSR_OFLOW: tcflag_t = 0x00080000; // DSR flow control of output
-pub const CCAR_OFLOW: tcflag_t = 0x00100000; // DCD flow control of output
-pub const MDMBUF: tcflag_t = 0x00100000; // old name for CCAR_OFLOW
-
-pub const ECHOKE: tcflag_t = 0x00000001; // visual erase for line kill
-pub const ECHOE: tcflag_t = 0x00000002; // visually erase chars
-pub const ECHOK: tcflag_t = 0x00000004; // echo NL after line kill
-pub const ECHO: tcflag_t = 0x00000008; // enable echoing
-pub const ECHONL: tcflag_t = 0x00000010; // echo NL even if ECHO is off
-pub const ECHOPRT: tcflag_t = 0x00000020; // visual erase mode for hardcopy
-pub const ECHOCTL: tcflag_t = 0x00000040; // echo control chars as ^(Char)
-pub const ISIG: tcflag_t = 0x00000080; // enable signals INTR, QUIT, [D]SUSP
-pub const ICANON: tcflag_t = 0x00000100; // canonicalize input lines
-pub const ALTWERASE: tcflag_t = 0x00000200; // use alternate WERASE algorithm
-pub const IEXTEN: tcflag_t = 0x00000400; // enable DISCARD and LNEXT
-pub const EXTPROC: tcflag_t = 0x00000800; // external processing
-pub const TOSTOP: tcflag_t = 0x00400000; // stop background jobs from output
-pub const FLUSHO: tcflag_t = 0x00800000; // output being flushed (state)
-pub const NOKERNINFO: tcflag_t = 0x02000000; // no kernel output from VSTATUS
-pub const PENDIN: tcflag_t = 0x20000000; // XXX retype pending input (state)
-pub const NOFLSH: tcflag_t = 0x80000000; // don't flush after interrupt
-
-pub const TCSANOW: tcflag_t = 0; // make change immediate
-pub const TCSADRAIN: tcflag_t = 1; // drain output, then change
-pub const TCSAFLUSH: tcflag_t = 2; // drain output, flush input
-pub const TCSASOFT: tcflag_t = 0x10; // flag - don't alter h.w. state
 pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
     FLUSH,
     _,
-};
-
-pub const B0: tcflag_t = 0;
-pub const B50: tcflag_t = 50;
-pub const B75: tcflag_t = 75;
-pub const B110: tcflag_t = 110;
-pub const B134: tcflag_t = 134;
-pub const B150: tcflag_t = 150;
-pub const B200: tcflag_t = 200;
-pub const B300: tcflag_t = 300;
-pub const B600: tcflag_t = 600;
-pub const B1200: tcflag_t = 1200;
-pub const B1800: tcflag_t = 1800;
-pub const B2400: tcflag_t = 2400;
-pub const B4800: tcflag_t = 4800;
-pub const B9600: tcflag_t = 9600;
-pub const B19200: tcflag_t = 19200;
-pub const B38400: tcflag_t = 38400;
-pub const B7200: tcflag_t = 7200;
-pub const B14400: tcflag_t = 14400;
-pub const B28800: tcflag_t = 28800;
-pub const B57600: tcflag_t = 57600;
-pub const B76800: tcflag_t = 76800;
-pub const B115200: tcflag_t = 115200;
-pub const B230400: tcflag_t = 230400;
-pub const EXTA: tcflag_t = 19200;
-pub const EXTB: tcflag_t = 38400;
-
-pub const TCIFLUSH: tcflag_t = 1;
-pub const TCOFLUSH: tcflag_t = 2;
-pub const TCIOFLUSH: tcflag_t = 3;
-pub const TCOOFF: tcflag_t = 1;
-pub const TCOON: tcflag_t = 2;
-pub const TCIOFF: tcflag_t = 3;
-pub const TCION: tcflag_t = 4;
-
-pub const termios = extern struct {
-    iflag: tcflag_t, // input flags
-    oflag: tcflag_t, // output flags
-    cflag: tcflag_t, // control flags
-    lflag: tcflag_t, // local flags
-    cc: [NCCS]cc_t, // control chars
-    ispeed: speed_t align(8), // input speed
-    ospeed: speed_t, // output speed
 };
 
 pub const winsize = extern struct {

@@ -23,6 +23,7 @@ extern "C" {
 HRESULT WINAPI HcsEnumerateComputeSystems (PCWSTR query, HCS_OPERATION operation);
 HRESULT WINAPI HcsEnumerateComputeSystemsInNamespace (PCWSTR idNamespace, PCWSTR query, HCS_OPERATION operation);
 HCS_OPERATION WINAPI HcsCreateOperation (const void *context, HCS_OPERATION_COMPLETION callback);
+HCS_OPERATION WINAPI HcsCreateOperationWithNotifications (HCS_OPERATION_OPTIONS eventTypes, const void *context, HCS_EVENT_CALLBACK callback);
 void WINAPI HcsCloseOperation (HCS_OPERATION operation);
 void* WINAPI HcsGetOperationContext (HCS_OPERATION operation);
 HRESULT WINAPI HcsSetOperationContext (HCS_OPERATION operation, const void *context);
@@ -32,6 +33,7 @@ HCS_OPERATION_TYPE WINAPI HcsGetOperationType (HCS_OPERATION operation);
 UINT64 WINAPI HcsGetOperationId (HCS_OPERATION operation);
 HRESULT WINAPI HcsGetOperationResult (HCS_OPERATION operation, PWSTR *resultDocument);
 HRESULT WINAPI HcsGetOperationResultAndProcessInfo (HCS_OPERATION operation, HCS_PROCESS_INFORMATION *processInformation, PWSTR *resultDocument);
+HRESULT WINAPI HcsAddResourceToOperation (HCS_OPERATION operation, HCS_RESOURCE_TYPE type, PCWSTR uri, HANDLE handle);
 HRESULT WINAPI HcsGetProcessorCompatibilityFromSavedState (PCWSTR RuntimeFileName, PCWSTR *ProcessorFeaturesString);
 HRESULT WINAPI HcsWaitForOperationResult (HCS_OPERATION operation, DWORD timeoutMs, PWSTR *resultDocument);
 HRESULT WINAPI HcsWaitForOperationResultAndProcessInfo (HCS_OPERATION operation, DWORD timeoutMs, HCS_PROCESS_INFORMATION *processInformation, PWSTR *resultDocument);

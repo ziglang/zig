@@ -10,8 +10,8 @@ const S = struct {
 export fn entry() void {
     var u = U{ .Ye = maybe(false) };
     var s = S{ .num = maybe(false) };
-    _ = u;
-    _ = s;
+    _ = &u;
+    _ = &s;
 }
 
 // error
