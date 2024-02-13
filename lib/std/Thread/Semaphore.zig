@@ -1,6 +1,23 @@
 //! A semaphore is an unsigned integer that blocks the kernel thread if
 //! the number would become negative.
 //! This API supports static initialization and does not require deinitialization.
+//!
+//! Example:
+//! ```
+//! var s = Semaphore{};
+//!
+//! fn consumer() void {
+//!     s.wait();
+//! }
+//!
+//! fn producer() void {
+//!     s.post();
+//! }
+//!
+//! const thread = try std.Thread.spawn(.{}, producer, .{});
+//! consumer();
+//! thread.join();
+//! ```
 
 mutex: Mutex = .{},
 cond: Condition = .{},
@@ -20,6 +37,26 @@ pub fn wait(sem: *Semaphore) void {
 
     while (sem.permits == 0)
         sem.cond.wait(&sem.mutex);
+
+    sem.permits -= 1;
+    if (sem.permits > 0)
+        sem.cond.signal();
+}
+
+pub fn timedWait(sem: *Semaphore, timeout_ns: u64) error{Timeout}!void {
+    var timeout_timer = std.time.Timer.start() catch unreachable;
+
+    sem.mutex.lock();
+    defer sem.mutex.unlock();
+
+    while (sem.permits == 0) {
+        const elapsed = timeout_timer.read();
+        if (elapsed > timeout_ns)
+            return error.Timeout;
+
+        const local_timeout_ns = timeout_ns - elapsed;
+        try sem.cond.timedWait(&sem.mutex, local_timeout_ns);
+    }
 
     sem.permits -= 1;
     if (sem.permits > 0)
@@ -58,4 +95,17 @@ test "Thread.Semaphore" {
     for (threads) |t| t.join();
     sem.wait();
     try testing.expect(n == num_threads);
+}
+
+test "Thread.Semaphore - timedWait" {
+    var sem = Semaphore{};
+    try testing.expectEqual(0, sem.permits);
+
+    try testing.expectError(error.Timeout, sem.timedWait(1));
+
+    sem.post();
+    try testing.expectEqual(1, sem.permits);
+
+    try sem.timedWait(1);
+    try testing.expectEqual(0, sem.permits);
 }
