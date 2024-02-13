@@ -199,10 +199,6 @@ const Writer = struct {
         const tag = tags[@intFromEnum(inst)];
         try stream.print("= {s}(", .{@tagName(tags[@intFromEnum(inst)])});
         switch (tag) {
-            .store,
-            .store_to_inferred_ptr,
-            => try self.writeBin(stream, inst),
-
             .alloc,
             .alloc_mut,
             .alloc_comptime_mut,
@@ -280,6 +276,8 @@ const Writer = struct {
             .validate_deref,
             .check_comptime_control_flow,
             .opt_eu_base_ptr_init,
+            .restore_err_ret_index_unconditional,
+            .restore_err_ret_index_fn_entry,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -303,7 +301,6 @@ const Writer = struct {
             .int_type => try self.writeIntType(stream, inst),
 
             .save_err_ret_index => try self.writeSaveErrRetIndex(stream, inst),
-            .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, inst),
 
             .@"break",
             .break_inline,
@@ -392,6 +389,7 @@ const Writer = struct {
             .shr_exact,
             .xor,
             .store_node,
+            .store_to_inferred_ptr,
             .error_union_type,
             .merge_error_sets,
             .bit_and,
@@ -615,6 +613,8 @@ const Writer = struct {
             .cmpxchg => try self.writeCmpxchg(stream, extended),
             .ptr_cast_full => try self.writePtrCastFull(stream, extended),
             .ptr_cast_no_dest => try self.writePtrCastNoDest(stream, extended),
+
+            .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
         }
     }
 
@@ -622,14 +622,6 @@ const Writer = struct {
         const src = LazySrcLoc.nodeOffset(@as(i32, @bitCast(extended.operand)));
         try stream.writeAll(")) ");
         try self.writeSrc(stream, src);
-    }
-
-    fn writeBin(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].bin;
-        try self.writeInstRef(stream, inst_data.lhs);
-        try stream.writeAll(", ");
-        try self.writeInstRef(stream, inst_data.rhs);
-        try stream.writeByte(')');
     }
 
     fn writeArrayInitElemType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -2505,12 +2497,14 @@ const Writer = struct {
     }
 
     fn writeBoolBr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].bool_br;
-        const extra = self.code.extraData(Zir.Inst.Block, inst_data.payload_index);
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.BoolBr, inst_data.payload_index);
         const body = self.code.bodySlice(extra.end, extra.data.body_len);
-        try self.writeInstRef(stream, inst_data.lhs);
+        try self.writeInstRef(stream, extra.data.lhs);
         try stream.writeAll(", ");
         try self.writeBracedBody(stream, body);
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, inst_data.src());
     }
 
     fn writeIntType(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
@@ -2531,13 +2525,14 @@ const Writer = struct {
         try stream.writeAll(")");
     }
 
-    fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].restore_err_ret_index;
+    fn writeRestoreErrRetIndex(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.RestoreErrRetIndex, extended.operand).data;
 
-        try self.writeInstRef(stream, inst_data.block);
-        try self.writeInstRef(stream, inst_data.operand);
+        try self.writeInstRef(stream, extra.block);
+        try self.writeInstRef(stream, extra.operand);
 
-        try stream.writeAll(")");
+        try stream.writeAll(") ");
+        try self.writeSrc(stream, extra.src());
     }
 
     fn writeBreak(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {

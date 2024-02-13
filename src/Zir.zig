@@ -303,11 +303,11 @@ pub const Inst = struct {
         bool_not,
         /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `true`.
-        /// Uses the `bool_br` union field.
+        /// Uses the `pl_node` union field. Payload is `BoolBr`.
         bool_br_and,
         /// Short-circuiting boolean `or`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `false`.
-        /// Uses the `bool_br` union field.
+        /// Uses the `pl_node` union field. Payload is `BoolBr`.
         bool_br_or,
         /// Return a value from a block.
         /// Uses the `break` union field.
@@ -592,16 +592,12 @@ pub const Inst = struct {
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceLength`.
         slice_length,
-        /// Write a value to a pointer. For loading, see `load`.
-        /// Source location is assumed to be same as previous instruction.
-        /// Uses the `bin` union field.
-        store,
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// Same as `store` but the type of the value being stored will be used to infer
-        /// the pointer type.
-        /// Uses the `bin` union field.
+        /// Same as `store_node` but the type of the value being stored will be
+        /// used to infer the pointer type of an `alloc_inferred`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         /// Uses the `str` union field.
@@ -1036,10 +1032,18 @@ pub const Inst = struct {
         /// block, if the operand is .none or of an error/error-union type.
         /// Uses the `save_err_ret_index` field.
         save_err_ret_index,
-        /// Sets error return trace to zero if no operand is given,
-        /// otherwise sets the value to the given amount.
-        /// Uses the `restore_err_ret_index` union field.
-        restore_err_ret_index,
+        /// Specialized form of `Extended.restore_err_ret_index`.
+        /// Unconditionally restores the error return index to its last saved state
+        /// in the block referred to by `operand`. If `operand` is `none`, restores
+        /// to the point of function entry.
+        /// Uses the `un_node` field.
+        restore_err_ret_index_unconditional,
+        /// Specialized form of `Extended.restore_err_ret_index`.
+        /// Restores the error return index to its state at the entry of
+        /// the current function conditional on `operand` being a non-error.
+        /// If `operand` is `none`, restores unconditionally.
+        /// Uses the `un_node` field.
+        restore_err_ret_index_fn_entry,
 
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
@@ -1145,7 +1149,6 @@ pub const Inst = struct {
                 .shl,
                 .shl_sat,
                 .shr,
-                .store,
                 .store_node,
                 .store_to_inferred_ptr,
                 .str,
@@ -1265,7 +1268,6 @@ pub const Inst = struct {
                 .@"defer",
                 .defer_err_code,
                 .save_err_ret_index,
-                .restore_err_ret_index,
                 .for_len,
                 .opt_eu_base_ptr_init,
                 .coerce_ptr_elem_ty,
@@ -1290,6 +1292,8 @@ pub const Inst = struct {
                 .array_init_elem_type,
                 .array_init_elem_ptr,
                 .validate_ref_ty,
+                .restore_err_ret_index_unconditional,
+                .restore_err_ret_index_fn_entry,
                 => false,
 
                 .@"break",
@@ -1338,7 +1342,6 @@ pub const Inst = struct {
                 .ensure_err_union_payload_void,
                 .set_eval_branch_quota,
                 .atomic_store,
-                .store,
                 .store_node,
                 .store_to_inferred_ptr,
                 .resolve_inferred_alloc,
@@ -1352,8 +1355,9 @@ pub const Inst = struct {
                 .check_comptime_control_flow,
                 .@"defer",
                 .defer_err_code,
-                .restore_err_ret_index,
                 .save_err_ret_index,
+                .restore_err_ret_index_unconditional,
+                .restore_err_ret_index_fn_entry,
                 .validate_struct_init_ty,
                 .validate_struct_init_result_ty,
                 .validate_ptr_struct_init,
@@ -1635,8 +1639,8 @@ pub const Inst = struct {
                 .declaration = .pl_node,
                 .suspend_block = .pl_node,
                 .bool_not = .un_node,
-                .bool_br_and = .bool_br,
-                .bool_br_or = .bool_br,
+                .bool_br_and = .pl_node,
+                .bool_br_or = .pl_node,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
                 .check_comptime_control_flow = .un_node,
@@ -1713,9 +1717,8 @@ pub const Inst = struct {
                 .slice_end = .pl_node,
                 .slice_sentinel = .pl_node,
                 .slice_length = .pl_node,
-                .store = .bin,
                 .store_node = .pl_node,
-                .store_to_inferred_ptr = .bin,
+                .store_to_inferred_ptr = .pl_node,
                 .str = .str,
                 .negate = .un_node,
                 .negate_wrap = .un_node,
@@ -1845,7 +1848,8 @@ pub const Inst = struct {
                 .defer_err_code = .defer_err_code,
 
                 .save_err_ret_index = .save_err_ret_index,
-                .restore_err_ret_index = .restore_err_ret_index,
+                .restore_err_ret_index_unconditional = .un_node,
+                .restore_err_ret_index_fn_entry = .un_node,
 
                 .struct_init_empty = .un_node,
                 .struct_init_empty_result = .un_node,
@@ -2075,6 +2079,13 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
+        /// Restores the error return index to its last saved state in a given
+        /// block. If the block is `.none`, restores to the state from the point
+        /// of function entry. If the operand is not `.none`, the restore is
+        /// conditional on the operand value not being an error.
+        /// `operand` is payload index to `RestoreErrRetIndex`.
+        /// `small` is undefined.
+        restore_err_ret_index,
         /// Used as a placeholder instruction which is just a dummy index for Sema to replace
         /// with a specific value. For instance, this is used for the capture of an `errdefer`.
         /// This should never appear in a body.
@@ -2345,11 +2356,6 @@ pub const Inst = struct {
                 return LazySrcLoc.nodeOffset(self.src_node);
             }
         },
-        bool_br: struct {
-            lhs: Ref,
-            /// Points to a `Block`.
-            payload_index: u32,
-        },
         @"unreachable": struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
@@ -2396,10 +2402,6 @@ pub const Inst = struct {
         save_err_ret_index: struct {
             operand: Ref, // If error type (or .none), save new trace index
         },
-        restore_err_ret_index: struct {
-            block: Ref, // If restored, the index is from this block's entrypoint
-            operand: Ref, // If non-error (or .none), then restore the index
-        },
         elem_val_imm: struct {
             /// The indexable value being accessed.
             operand: Ref,
@@ -2435,7 +2437,6 @@ pub const Inst = struct {
             float,
             ptr_type,
             int_type,
-            bool_br,
             @"unreachable",
             @"break",
             dbg_stmt,
@@ -2444,7 +2445,6 @@ pub const Inst = struct {
             @"defer",
             defer_err_code,
             save_err_ret_index,
-            restore_err_ret_index,
             elem_val_imm,
         };
     };
@@ -2627,6 +2627,13 @@ pub const Inst = struct {
     /// This data is stored inside extra, with trailing operands according to `body_len`.
     /// Each operand is an `Index`.
     pub const Block = struct {
+        body_len: u32,
+    };
+
+    /// Trailing:
+    /// * inst: Index // for each `body_len`
+    pub const BoolBr = struct {
+        lhs: Ref,
         body_len: u32,
     };
 
@@ -3438,6 +3445,18 @@ pub const Inst = struct {
         lhs: Ref,
         /// The RHS of the array multiplication.
         rhs: Ref,
+    };
+
+    pub const RestoreErrRetIndex = struct {
+        src_node: i32,
+        /// If `.none`, restore the trace to its state upon function entry.
+        block: Ref,
+        /// If `.none`, restore unconditionally.
+        operand: Ref,
+
+        pub fn src(self: RestoreErrRetIndex) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
     };
 };
 

@@ -2122,7 +2122,7 @@ fn restoreErrRetIndex(
             else => .none, // always restore/pop
         },
     };
-    _ = try gz.addRestoreErrRetIndex(bt, .{ .if_non_error = op });
+    _ = try gz.addRestoreErrRetIndex(bt, .{ .if_non_error = op }, node);
 }
 
 fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
@@ -2179,7 +2179,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
 
                     // As our last action before the break, "pop" the error trace if needed
                     if (!block_gz.is_comptime)
-                        _ = try parent_gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always);
+                        _ = try parent_gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always, node);
 
                     _ = try parent_gz.addBreak(break_tag, block_inst, .void_value);
                     return Zir.Inst.Ref.unreachable_value;
@@ -2271,7 +2271,7 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
 
                 // As our last action before the continue, "pop" the error trace if needed
                 if (!gen_zir.is_comptime)
-                    _ = try parent_gz.addRestoreErrRetIndex(.{ .block = continue_block }, .always);
+                    _ = try parent_gz.addRestoreErrRetIndex(.{ .block = continue_block }, .always, node);
 
                 _ = try parent_gz.addBreak(break_tag, continue_block, .void_value);
                 return Zir.Inst.Ref.unreachable_value;
@@ -2331,7 +2331,7 @@ fn blockExpr(
 
         if (!block_scope.endsWithNoReturn()) {
             // As our last action before the break, "pop" the error trace if needed
-            _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always);
+            _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always, block_node);
             _ = try block_scope.addBreak(.@"break", block_inst, .void_value);
         }
 
@@ -2426,7 +2426,7 @@ fn labeledBlockExpr(
     try blockExprStmts(&block_scope, &block_scope.base, statements);
     if (!block_scope.endsWithNoReturn()) {
         // As our last action before the return, "pop" the error trace if needed
-        _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always);
+        _ = try gz.addRestoreErrRetIndex(.{ .block = block_inst }, .always, block_node);
         _ = try block_scope.addBreak(.@"break", block_inst, .void_value);
     }
 
@@ -2818,7 +2818,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .export_value,
             .set_eval_branch_quota,
             .atomic_store,
-            .store,
             .store_node,
             .store_to_inferred_ptr,
             .resolve_inferred_alloc,
@@ -2829,7 +2828,8 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_deref,
             .validate_destructure,
             .save_err_ret_index,
-            .restore_err_ret_index,
+            .restore_err_ret_index_unconditional,
+            .restore_err_ret_index_fn_entry,
             .validate_struct_init_ty,
             .validate_struct_init_result_ty,
             .validate_ptr_struct_init,
@@ -3692,7 +3692,10 @@ fn assignOp(
         .lhs = lhs,
         .rhs = rhs,
     });
-    _ = try gz.addBin(.store, lhs_ptr, result);
+    _ = try gz.addPlNode(.store_node, infix_node, Zir.Inst.Bin{
+        .lhs = lhs_ptr,
+        .rhs = result,
+    });
 }
 
 fn assignShift(
@@ -3715,7 +3718,10 @@ fn assignShift(
         .lhs = lhs,
         .rhs = rhs,
     });
-    _ = try gz.addBin(.store, lhs_ptr, result);
+    _ = try gz.addPlNode(.store_node, infix_node, Zir.Inst.Bin{
+        .lhs = lhs_ptr,
+        .rhs = result,
+    });
 }
 
 fn assignShiftSat(gz: *GenZir, scope: *Scope, infix_node: Ast.Node.Index) InnerError!void {
@@ -3733,7 +3739,10 @@ fn assignShiftSat(gz: *GenZir, scope: *Scope, infix_node: Ast.Node.Index) InnerE
         .lhs = lhs,
         .rhs = rhs,
     });
-    _ = try gz.addBin(.store, lhs_ptr, result);
+    _ = try gz.addPlNode(.store_node, infix_node, Zir.Inst.Bin{
+        .lhs = lhs_ptr,
+        .rhs = result,
+    });
 }
 
 fn ptrType(
@@ -4294,7 +4303,7 @@ fn fnDecl(
 
         if (!fn_gz.endsWithNoReturn()) {
             // As our last action before the return, "pop" the error trace if needed
-            _ = try gz.addRestoreErrRetIndex(.ret, .always);
+            _ = try gz.addRestoreErrRetIndex(.ret, .always, decl_node);
 
             // Add implicit return at end of function.
             _ = try fn_gz.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
@@ -4742,7 +4751,7 @@ fn testDecl(
     if (fn_block.isEmpty() or !fn_block.refIsNoReturn(block_result)) {
 
         // As our last action before the return, "pop" the error trace if needed
-        _ = try gz.addRestoreErrRetIndex(.ret, .always);
+        _ = try gz.addRestoreErrRetIndex(.ret, .always, node);
 
         // Add implicit return at end of function.
         _ = try fn_block.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
@@ -6149,7 +6158,7 @@ fn boolBinOp(
     const node_datas = tree.nodes.items(.data);
 
     const lhs = try expr(gz, scope, bool_ri, node_datas[node].lhs);
-    const bool_br = try gz.addBoolBr(zir_tag, lhs);
+    const bool_br = (try gz.addPlNodePayloadIndex(zir_tag, node, undefined)).toIndex().?;
 
     var rhs_scope = gz.makeSubBlock(scope);
     defer rhs_scope.unstack();
@@ -6157,7 +6166,7 @@ fn boolBinOp(
     if (!gz.refIsNoReturn(rhs)) {
         _ = try rhs_scope.addBreakWithSrcNode(.break_inline, bool_br, rhs, node_datas[node].rhs);
     }
-    try rhs_scope.setBoolBrBody(bool_br);
+    try rhs_scope.setBoolBrBody(bool_br, lhs);
 
     const block_ref = bool_br.toRef();
     return rvalue(gz, ri, block_ref, node);
@@ -6725,7 +6734,10 @@ fn forExpr(
         const alloc_tag: Zir.Inst.Tag = if (is_inline) .alloc_comptime_mut else .alloc;
         const index_ptr = try parent_gz.addUnNode(alloc_tag, .usize_type, node);
         // initialize to zero
-        _ = try parent_gz.addBin(.store, index_ptr, .zero_usize);
+        _ = try parent_gz.addPlNode(.store_node, node, Zir.Inst.Bin{
+            .lhs = index_ptr,
+            .rhs = .zero_usize,
+        });
         break :blk index_ptr;
     };
 
@@ -6955,7 +6967,10 @@ fn forExpr(
             .lhs = index,
             .rhs = .one_usize,
         });
-        _ = try loop_scope.addBin(.store, index_ptr, index_plus_one);
+        _ = try loop_scope.addPlNode(.store_node, node, Zir.Inst.Bin{
+            .lhs = index_ptr,
+            .rhs = index_plus_one,
+        });
         const repeat_tag: Zir.Inst.Tag = if (is_inline) .repeat_inline else .repeat;
         _ = try loop_scope.addNode(repeat_tag, node);
 
@@ -8008,7 +8023,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
         try genDefers(gz, defer_outer, scope, .normal_only);
 
         // As our last action before the return, "pop" the error trace if needed
-        _ = try gz.addRestoreErrRetIndex(.ret, .always);
+        _ = try gz.addRestoreErrRetIndex(.ret, .always, node);
 
         _ = try gz.addUnNode(.ret_node, .void_value, node);
         return Zir.Inst.Ref.unreachable_value;
@@ -8051,7 +8066,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             try genDefers(gz, defer_outer, scope, .normal_only);
 
             // As our last action before the return, "pop" the error trace if needed
-            _ = try gz.addRestoreErrRetIndex(.ret, .always);
+            _ = try gz.addRestoreErrRetIndex(.ret, .always, node);
 
             try emitDbgStmt(gz, ret_lc);
             try gz.addRet(ri, operand, node);
@@ -8074,7 +8089,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
 
                 // As our last action before the return, "pop" the error trace if needed
                 const result = if (ri.rl == .ptr) try gz.addUnNode(.load, ri.rl.ptr.inst, node) else operand;
-                _ = try gz.addRestoreErrRetIndex(.ret, .{ .if_non_error = result });
+                _ = try gz.addRestoreErrRetIndex(.ret, .{ .if_non_error = result }, node);
 
                 try gz.addRet(ri, operand, node);
                 return Zir.Inst.Ref.unreachable_value;
@@ -8091,7 +8106,7 @@ fn ret(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Inst.Ref
             try genDefers(&then_scope, defer_outer, scope, .normal_only);
 
             // As our last action before the return, "pop" the error trace if needed
-            _ = try then_scope.addRestoreErrRetIndex(.ret, .always);
+            _ = try then_scope.addRestoreErrRetIndex(.ret, .always, node);
 
             try emitDbgStmt(&then_scope, ret_lc);
             try then_scope.addRet(ri, operand, node);
@@ -10979,7 +10994,10 @@ fn rvalueInner(
             return .void_value;
         },
         .inferred_ptr => |alloc| {
-            _ = try gz.addBin(.store_to_inferred_ptr, alloc, result);
+            _ = try gz.addPlNode(.store_to_inferred_ptr, src_node, Zir.Inst.Bin{
+                .lhs = alloc,
+                .rhs = result,
+            });
             return .void_value;
         },
         .destructure => |destructure| {
@@ -11006,7 +11024,10 @@ fn rvalueInner(
                         });
                     },
                     .inferred_ptr => |ptr_inst| {
-                        _ = try gz.addBin(.store_to_inferred_ptr, ptr_inst, elem_val);
+                        _ = try gz.addPlNode(.store_to_inferred_ptr, src_node, Zir.Inst.Bin{
+                            .lhs = ptr_inst,
+                            .rhs = elem_val,
+                        });
                     },
                     .discard => unreachable,
                 }
@@ -11828,19 +11849,20 @@ const GenZir = struct {
     }
 
     /// Assumes nothing stacked on `gz`. Unstacks `gz`.
-    fn setBoolBrBody(gz: *GenZir, inst: Zir.Inst.Index) !void {
+    fn setBoolBrBody(gz: *GenZir, bool_br: Zir.Inst.Index, bool_br_lhs: Zir.Inst.Ref) !void {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
         const body = gz.instructionsSlice();
         const body_len = astgen.countBodyLenAfterFixups(body);
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.Block).Struct.fields.len + body_len,
+            @typeInfo(Zir.Inst.BoolBr).Struct.fields.len + body_len,
         );
         const zir_datas = astgen.instructions.items(.data);
-        zir_datas[@intFromEnum(inst)].bool_br.payload_index = astgen.addExtraAssumeCapacity(
-            Zir.Inst.Block{ .body_len = body_len },
-        );
+        zir_datas[@intFromEnum(bool_br)].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.BoolBr{
+            .lhs = bool_br_lhs,
+            .body_len = body_len,
+        });
         astgen.appendBodyWithFixups(body);
         gz.unstack();
     }
@@ -12225,30 +12247,6 @@ const GenZir = struct {
         return new_index.toRef();
     }
 
-    /// Note that this returns a `Zir.Inst.Index` not a ref.
-    /// Leaves the `payload_index` field undefined.
-    fn addBoolBr(
-        gz: *GenZir,
-        tag: Zir.Inst.Tag,
-        lhs: Zir.Inst.Ref,
-    ) !Zir.Inst.Index {
-        assert(lhs != .none);
-        const gpa = gz.astgen.gpa;
-        try gz.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-
-        const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
-        gz.astgen.instructions.appendAssumeCapacity(.{
-            .tag = tag,
-            .data = .{ .bool_br = .{
-                .lhs = lhs,
-                .payload_index = undefined,
-            } },
-        });
-        gz.instructions.appendAssumeCapacity(new_index);
-        return new_index;
-    }
-
     fn addInt(gz: *GenZir, integer: u64) !Zir.Inst.Ref {
         return gz.add(.{
             .tag = .int,
@@ -12569,17 +12567,37 @@ const GenZir = struct {
             always: void,
             if_non_error: Zir.Inst.Ref,
         },
+        src_node: Ast.Node.Index,
     ) !Zir.Inst.Index {
-        return gz.addAsIndex(.{
-            .tag = .restore_err_ret_index,
-            .data = .{ .restore_err_ret_index = .{
-                .block = switch (bt) {
-                    .ret => .none,
-                    .block => |b| b.toRef(),
-                },
-                .operand = if (cond == .if_non_error) cond.if_non_error else .none,
-            } },
-        });
+        switch (cond) {
+            .always => return gz.addAsIndex(.{
+                .tag = .restore_err_ret_index_unconditional,
+                .data = .{ .un_node = .{
+                    .operand = switch (bt) {
+                        .ret => .none,
+                        .block => |b| b.toRef(),
+                    },
+                    .src_node = gz.nodeIndexToRelative(src_node),
+                } },
+            }),
+            .if_non_error => |operand| switch (bt) {
+                .ret => return gz.addAsIndex(.{
+                    .tag = .restore_err_ret_index_fn_entry,
+                    .data = .{ .un_node = .{
+                        .operand = operand,
+                        .src_node = gz.nodeIndexToRelative(src_node),
+                    } },
+                }),
+                .block => |block| return (try gz.addExtendedPayload(
+                    .restore_err_ret_index,
+                    Zir.Inst.RestoreErrRetIndex{
+                        .src_node = gz.nodeIndexToRelative(src_node),
+                        .block = block.toRef(),
+                        .operand = operand,
+                    },
+                )).toIndex().?,
+            },
+        }
     }
 
     fn addBreak(

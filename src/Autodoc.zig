@@ -1799,7 +1799,8 @@ fn walkInstruction(
             };
         },
         .bool_br_and, .bool_br_or => {
-            const bool_br = data[@intFromEnum(inst)].bool_br;
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.BoolBr, pl_node.payload_index);
 
             const bin_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
@@ -1808,14 +1809,13 @@ fn walkInstruction(
                 file,
                 parent_scope,
                 parent_src,
-                bool_br.lhs,
+                extra.data.lhs,
                 false,
                 call_ctx,
             );
             const lhs_index = self.exprs.items.len;
             try self.exprs.append(self.arena, lhs.expr);
 
-            const extra = file.zir.extraData(Zir.Inst.Block, bool_br.payload_index);
             const rhs = try self.walkInstruction(
                 file,
                 parent_scope,
