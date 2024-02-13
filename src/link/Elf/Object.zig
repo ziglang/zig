@@ -718,21 +718,11 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
         if (!gop.found_existing) gop.value_ptr.* = .{};
         try gop.value_ptr.append(gpa, atom_index);
     }
-}
-
-pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
-        const shdr = elf_file.shdrs.items[atom.output_section_index];
-        atom.value += shdr.sh_addr;
-    }
 
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
         const atom = local.atom(elf_file) orelse continue;
         if (!atom.flags.alive) continue;
-        local.value += atom.value;
         local.output_section_index = atom.output_section_index;
     }
 
@@ -741,7 +731,6 @@ pub fn allocateAtoms(self: Object, elf_file: *Elf) void {
         const atom = global.atom(elf_file) orelse continue;
         if (!atom.flags.alive) continue;
         if (global.file(elf_file).?.index() != self.index) continue;
-        global.value += atom.value;
         global.output_section_index = atom.output_section_index;
     }
 }

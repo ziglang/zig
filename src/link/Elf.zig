@@ -1332,7 +1332,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     try self.sortPhdrs();
     try self.allocateNonAllocSections();
     self.allocateSpecialPhdrs();
-    self.allocateAtoms();
     self.allocateLinkerDefinedSymbols();
 
     // Dump the state for easy debugging.
@@ -1352,7 +1351,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             const code = try zig_object.codeAlloc(self, atom_index);
             defer gpa.free(code);
-            const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+            const file_offset = shdr.sh_offset + atom_ptr.value;
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
                 // TODO
                 error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
@@ -2907,7 +2906,7 @@ pub fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u32, hdr_buf[index..][0..4], 1, endian);
     index += 4;
 
-    const e_entry = if (self.entry_index) |entry_index| self.symbol(entry_index).value else 0;
+    const e_entry = if (self.entry_index) |entry_index| self.symbol(entry_index).address(.{}, self) else 0;
     const phdr_table_offset = if (self.phdr_table_index) |phndx| self.phdrs.items[phndx].p_offset else 0;
     switch (self.ptr_width) {
         .p32 => {
@@ -4402,15 +4401,6 @@ fn allocateSpecialPhdrs(self: *Elf) void {
     }
 }
 
-pub fn allocateAtoms(self: *Elf) void {
-    if (self.zigObjectPtr()) |zig_object| {
-        zig_object.allocateTlvAtoms(self);
-    }
-    for (self.objects.items) |index| {
-        self.file(index).?.object.allocateAtoms(self);
-    }
-}
-
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
@@ -4464,7 +4454,7 @@ fn writeAtoms(self: *Elf) !void {
             const atom_ptr = self.atom(atom_index).?;
             assert(atom_ptr.flags.alive);
 
-            const offset = math.cast(usize, atom_ptr.value - shdr.sh_addr - base_offset) orelse
+            const offset = math.cast(usize, atom_ptr.value - base_offset) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 

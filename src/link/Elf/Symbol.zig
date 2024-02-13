@@ -104,6 +104,9 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
         // Lazy-bound function it is!
         return symbol.pltAddress(elf_file);
     }
+    if (symbol.atom(elf_file)) |atom_ptr| {
+        return atom_ptr.address(elf_file) + symbol.value;
+    }
     return symbol.value;
 }
 
@@ -247,11 +250,11 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.value;
+        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
         const shdr = &elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
-            break :blk symbol.value - elf_file.tlsAddress();
-        break :blk symbol.value;
+            break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
+        break :blk symbol.address(.{ .plt = false }, elf_file);
     };
     out.st_info = (st_bind << 4) | st_type;
     out.st_other = esym.st_other;
@@ -323,7 +326,11 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
-    try writer.print("%{d} : {s} : @{x}", .{ symbol.esym_index, symbol.fmtName(ctx.elf_file), symbol.value });
+    try writer.print("%{d} : {s} : @{x}", .{
+        symbol.esym_index,
+        symbol.fmtName(ctx.elf_file),
+        symbol.address(.{}, ctx.elf_file),
+    });
     if (symbol.file(ctx.elf_file)) |file_ptr| {
         if (symbol.isAbs(ctx.elf_file)) {
             if (symbol.elfSym(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {

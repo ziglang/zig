@@ -54,6 +54,12 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
     };
 }
 
+pub fn address(self: Atom, elf_file: *Elf) u64 {
+    const shndx = self.outputShndx() orelse return self.value;
+    const shdr = elf_file.shdrs.items[shndx];
+    return shdr.sh_addr + self.value;
+}
+
 pub fn file(self: Atom, elf_file: *Elf) ?File {
     return elf_file.file(self.file_index);
 }
@@ -85,14 +91,17 @@ pub fn priority(self: Atom, elf_file: *Elf) u64 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, elf_file: *Elf) u64 {
-    const next_value = if (elf_file.atom(self.next_index)) |next| next.value else std.math.maxInt(u32);
-    return next_value - self.value;
+    const next_addr = if (elf_file.atom(self.next_index)) |next|
+        next.address(elf_file)
+    else
+        std.math.maxInt(u32);
+    return next_addr - self.address(elf_file);
 }
 
 pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
     // No need to keep a free list node for the last block.
     const next = elf_file.atom(self.next_index) orelse return false;
-    const cap = next.value - self.value;
+    const cap = next.address(elf_file) - self.address(elf_file);
     const ideal_cap = Elf.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
@@ -160,15 +169,15 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
             atom_placement = last.atom_index;
             break :blk new_start_vaddr;
         } else {
-            break :blk shdr.sh_addr;
+            break :blk 0;
         }
     };
 
     log.debug("allocated atom({d}) : '{s}' at 0x{x} to 0x{x}", .{
         self.atom_index,
         self.name(elf_file),
-        self.value,
-        self.value + self.size,
+        self.address(elf_file),
+        self.address(elf_file) + self.size,
     });
 
     const expand_section = if (atom_placement) |placement_index|
@@ -176,7 +185,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     else
         true;
     if (expand_section) {
-        const needed_size = (self.value + self.size) - shdr.sh_addr;
+        const needed_size = self.value + self.size;
         try elf_file.growAllocSection(self.outputShndx().?, needed_size);
         last_atom_index.* = self.atom_index;
 
@@ -301,7 +310,7 @@ pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
 }
 
 pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
-    relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
+    relocs_log.debug("0x{x}: {s}", .{ self.address(elf_file), self.name(elf_file) });
 
     const file_ptr = self.file(elf_file).?;
     for (self.relocs(elf_file)) |rel| {
@@ -322,7 +331,7 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
         var r_sym: u32 = 0;
         switch (target.type(elf_file)) {
             elf.STT_SECTION => {
-                r_addend += @intCast(target.value);
+                r_addend += @intCast(target.address(.{}, elf_file));
                 r_sym = elf_file.sectionSymbolOutputSymtabIndex(target.outputShndx().?);
             },
             else => {
@@ -778,7 +787,7 @@ fn reportUndefined(
 }
 
 pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
-    relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
+    relocs_log.debug("0x{x}: {s}", .{ self.address(elf_file), self.name(elf_file) });
 
     const file_ptr = self.file(elf_file).?;
     var stream = std.io.fixedBufferStream(code);
@@ -802,7 +811,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
         // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
         //
         // Address of the source atom.
-        const P = @as(i64, @intCast(self.value + rel.r_offset));
+        const P = @as(i64, @intCast(self.address(elf_file) + rel.r_offset));
         // Addend from the relocation.
         const A = rel.r_addend;
         // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
@@ -969,7 +978,7 @@ fn resolveDynAbsReloc(
 ) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    const P = self.value + rel.r_offset;
+    const P = self.address(elf_file) + rel.r_offset;
     const A = rel.r_addend;
     const S = @as(i64, @intCast(target.address(.{}, elf_file)));
     const is_writeable = self.inputShdr(elf_file).sh_flags & elf.SHF_WRITE != 0;
@@ -1058,7 +1067,7 @@ fn applyDynamicReloc(value: i64, elf_file: *Elf, writer: anytype) !void {
 }
 
 pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: anytype) !void {
-    relocs_log.debug("0x{x}: {s}", .{ self.value, self.name(elf_file) });
+    relocs_log.debug("0x{x}: {s}", .{ self.address(elf_file), self.name(elf_file) });
 
     const file_ptr = self.file(elf_file).?;
     var stream = std.io.fixedBufferStream(code);
@@ -1097,7 +1106,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
         // We will use equation format to resolve relocations:
         // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
         //
-        const P = @as(i64, @intCast(self.value + rel.r_offset));
+        const P = @as(i64, @intCast(self.address(elf_file) + rel.r_offset));
         // Addend from the relocation.
         const A = rel.r_addend;
         // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
@@ -1248,7 +1257,7 @@ fn format2(
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
     try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x})", .{
-        atom.atom_index,           atom.name(elf_file), atom.value,
+        atom.atom_index,           atom.name(elf_file), atom.address(elf_file),
         atom.output_section_index, atom.alignment,      atom.size,
     });
     if (atom.fde_start != atom.fde_end) {

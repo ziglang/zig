@@ -401,19 +401,6 @@ pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
     }
 }
 
-pub fn allocateTlvAtoms(self: ZigObject, elf_file: *Elf) void {
-    for (self.tls_variables.keys(), self.tls_variables.values()) |atom_index, tlv| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
-        const local = elf_file.symbol(tlv.symbol_index);
-        const shdr = elf_file.shdrs.items[atom.output_section_index];
-        atom.value += shdr.sh_addr;
-        local.value = atom.value;
-
-        // TODO exported TLS vars
-    }
-}
-
 pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
     const gpa = elf_file.base.comp.gpa;
     for (self.atoms.items) |atom_index| {
@@ -644,7 +631,7 @@ pub fn codeAlloc(self: ZigObject, elf_file: *Elf, atom_index: Atom.Index) ![]u8 
         return code;
     }
 
-    const file_offset = shdr.sh_offset + atom.value - shdr.sh_addr;
+    const file_offset = shdr.sh_offset + atom.value;
     const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
     const code = try gpa.alloc(u8, size);
     errdefer gpa.free(code);
@@ -664,7 +651,7 @@ pub fn getDeclVAddr(
 ) !u64 {
     const this_sym_index = try self.getOrCreateMetadataForDecl(elf_file, decl_index);
     const this_sym = elf_file.symbol(this_sym_index);
-    const vaddr = this_sym.value;
+    const vaddr = this_sym.address(.{}, elf_file);
     const parent_atom = elf_file.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     try parent_atom.addReloc(elf_file, .{
         .r_offset = reloc_info.offset,
@@ -682,7 +669,7 @@ pub fn getAnonDeclVAddr(
 ) !u64 {
     const sym_index = self.anon_decls.get(decl_val).?.symbol_index;
     const sym = elf_file.symbol(sym_index);
-    const vaddr = sym.value;
+    const vaddr = sym.address(.{}, elf_file);
     const parent_atom = elf_file.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     try parent_atom.addReloc(elf_file, .{
         .r_offset = reloc_info.offset,
@@ -941,13 +928,13 @@ fn updateDeclCode(
 
     if (old_size > 0 and elf_file.base.child_pid == null) {
         const capacity = atom_ptr.capacity(elf_file);
-        const need_realloc = code.len > capacity or !required_alignment.check(sym.value);
+        const need_realloc = code.len > capacity or !required_alignment.check(atom_ptr.value);
         if (need_realloc) {
             try atom_ptr.grow(elf_file);
             log.debug("growing {s} from 0x{x} to 0x{x}", .{ decl_name, old_vaddr, atom_ptr.value });
             if (old_vaddr != atom_ptr.value) {
-                sym.value = atom_ptr.value;
-                esym.st_value = atom_ptr.value;
+                sym.value = 0;
+                esym.st_value = 0;
 
                 if (!elf_file.base.isRelocatable()) {
                     log.debug("  (writing new offset table entry)", .{});
@@ -963,9 +950,9 @@ fn updateDeclCode(
         try atom_ptr.allocate(elf_file);
         errdefer self.freeDeclMetadata(elf_file, sym_index);
 
-        sym.value = atom_ptr.value;
+        sym.value = 0;
         sym.flags.needs_zig_got = true;
-        esym.st_value = atom_ptr.value;
+        esym.st_value = 0;
 
         if (!elf_file.base.isRelocatable()) {
             const gop = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
@@ -981,7 +968,7 @@ fn updateDeclCode(
                     .iov_len = code.len,
                 }};
                 var remote_vec: [1]std.os.iovec_const = .{.{
-                    .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.value)))),
+                    .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{}, elf_file))))),
                     .iov_len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
@@ -996,7 +983,7 @@ fn updateDeclCode(
 
     const shdr = elf_file.shdrs.items[shdr_index];
     if (shdr.sh_type != elf.SHT_NOBITS) {
-        const file_offset = shdr.sh_offset + sym.value - shdr.sh_addr;
+        const file_offset = shdr.sh_offset + atom_ptr.value;
         try elf_file.base.file.?.pwriteAll(code, file_offset);
     }
 }
@@ -1022,12 +1009,14 @@ fn updateTlv(
     const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(elf_file).?;
 
+    sym.value = 0;
     sym.output_section_index = shndx;
     atom_ptr.output_section_index = shndx;
 
     sym.name_offset = try self.strtab.insert(gpa, decl_name);
     atom_ptr.flags.alive = true;
     atom_ptr.name_offset = sym.name_offset;
+    esym.st_value = 0;
     esym.st_name = sym.name_offset;
     esym.st_info = elf.STT_TLS;
     esym.st_size = code.len;
@@ -1117,7 +1106,7 @@ pub fn updateFunc(
         try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
-            sym.value,
+            sym.address(.{}, elf_file),
             sym.atom(elf_file).?.size,
             ds,
         );
@@ -1202,7 +1191,7 @@ pub fn updateDecl(
         try self.dwarf.?.commitDeclState(
             mod,
             decl_index,
-            sym.value,
+            sym.address(.{}, elf_file),
             sym.atom(elf_file).?.size,
             ds,
         );
@@ -1281,9 +1270,9 @@ fn updateLazySymbol(
     try atom_ptr.allocate(elf_file);
     errdefer self.freeDeclMetadata(elf_file, symbol_index);
 
-    local_sym.value = atom_ptr.value;
+    local_sym.value = 0;
     local_sym.flags.needs_zig_got = true;
-    local_esym.st_value = atom_ptr.value;
+    local_esym.st_value = 0;
 
     if (!elf_file.base.isRelocatable()) {
         const gop = try local_sym.getOrCreateZigGotEntry(symbol_index, elf_file);
@@ -1291,7 +1280,7 @@ fn updateLazySymbol(
     }
 
     const shdr = elf_file.shdrs.items[output_section_index];
-    const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+    const file_offset = shdr.sh_offset + atom_ptr.value;
     try elf_file.base.file.?.pwriteAll(code, file_offset);
 }
 
@@ -1384,11 +1373,11 @@ fn lowerConst(
     // TODO rename and re-audit this method
     errdefer self.freeDeclMetadata(elf_file, sym_index);
 
-    local_sym.value = atom_ptr.value;
-    local_esym.st_value = atom_ptr.value;
+    local_sym.value = 0;
+    local_esym.st_value = 0;
 
     const shdr = elf_file.shdrs.items[output_section_index];
-    const file_offset = shdr.sh_offset + atom_ptr.value - shdr.sh_addr;
+    const file_offset = shdr.sh_offset + atom_ptr.value;
     try elf_file.base.file.?.pwriteAll(code, file_offset);
 
     return .{ .ok = sym_index };

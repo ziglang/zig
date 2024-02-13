@@ -297,7 +297,7 @@ pub const ZigGotSection = struct {
         const off = zig_got.entryOffset(index, elf_file);
         const vaddr = zig_got.entryAddress(index, elf_file);
         const entry = zig_got.entries.items[index];
-        const value = elf_file.symbol(entry).value;
+        const value = elf_file.symbol(entry).address(.{}, elf_file);
         switch (entry_size) {
             2 => {
                 var buf: [2]u8 = undefined;
@@ -1004,7 +1004,7 @@ pub const GotPltSection = struct {
         {
             // [0]: _DYNAMIC
             const symbol = elf_file.symbol(elf_file.dynamic_index.?);
-            try writer.writeInt(u64, symbol.value, .little);
+            try writer.writeInt(u64, symbol.address(.{}, elf_file), .little);
         }
         // [1]: 0x0
         // [2]: 0x0

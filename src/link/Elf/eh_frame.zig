@@ -409,7 +409,7 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Re
     var r_sym: u32 = 0;
     switch (sym.type(elf_file)) {
         elf.STT_SECTION => {
-            r_addend += @intCast(sym.value);
+            r_addend += @intCast(sym.address(.{}, elf_file));
             r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
         },
         else => {
