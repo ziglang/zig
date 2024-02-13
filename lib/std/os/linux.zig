@@ -5083,6 +5083,43 @@ pub const tc_iflag_t = switch (native_arch) {
     },
 };
 
+pub const tc_oflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        OPOST: bool = false,
+        ONLCR: bool = false,
+        OLCUC: bool = false,
+        OCRNL: bool = false,
+        ONOCR: bool = false,
+        ONLRET: bool = false,
+        OFILL: bool = false,
+        OFDEL: bool = false,
+        NLDLY: u2 = 0,
+        TABDLY: u2 = 0,
+        CRDLY: u2 = 0,
+        FFDLY: u1 = 0,
+        BSDLY: u1 = 0,
+        VTDLY: u1 = 0,
+        _: u15 = 0,
+    },
+    else => packed struct(u32) {
+        OPOST: bool = false,
+        OLCUC: bool = false,
+        ONLCR: bool = false,
+        OCRNL: bool = false,
+        ONOCR: bool = false,
+        ONLRET: bool = false,
+        OFILL: bool = false,
+        OFDEL: bool = false,
+        NLDLY: u1 = 0,
+        CRDLY: u2 = 0,
+        TABDLY: u2 = 0,
+        BSDLY: u1 = 0,
+        VTDLY: u1 = 0,
+        FFDLY: u1 = 0,
+        _: u16 = 0,
+    },
+};
+
 pub const cc_t = switch (native_arch) {
     .mips, .mipsel, .mips64, .mips64el => enum(u8) {
         VINTR = 0,
@@ -5145,19 +5182,6 @@ pub const cc_t = switch (native_arch) {
 
 pub const tcflag_t = u32;
 
-pub const OPOST: tcflag_t = 1;
-pub const OLCUC: tcflag_t = 2;
-pub const ONLCR: tcflag_t = 4;
-pub const OCRNL: tcflag_t = 8;
-pub const ONOCR: tcflag_t = 16;
-pub const ONLRET: tcflag_t = 32;
-pub const OFILL: tcflag_t = 64;
-pub const OFDEL: tcflag_t = 128;
-
-pub const VTDLY: tcflag_t = 16384;
-pub const VT0: tcflag_t = 0;
-pub const VT1: tcflag_t = 16384;
-
 pub const CSIZE: tcflag_t = 48;
 pub const CS5: tcflag_t = 0;
 pub const CS6: tcflag_t = 16;
@@ -5190,7 +5214,7 @@ pub const TCSA = enum(c_uint) {
 pub const termios = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
         iflag: tc_iflag_t,
-        oflag: tcflag_t,
+        oflag: tc_oflag_t,
         cflag: tcflag_t,
         lflag: tcflag_t,
         cc: [NCCS]cc_t,
@@ -5200,7 +5224,7 @@ pub const termios = switch (native_arch) {
     },
     else => extern struct {
         iflag: tc_iflag_t,
-        oflag: tcflag_t,
+        oflag: tc_oflag_t,
         cflag: tcflag_t,
         lflag: tcflag_t,
         line: cc_t,

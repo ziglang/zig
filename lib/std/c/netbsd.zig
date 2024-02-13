@@ -807,15 +807,6 @@ pub const T = struct {
 };
 
 
-// Output flags - software output processing
-pub const OPOST: tcflag_t = 0x00000001; // enable following output processing
-pub const ONLCR: tcflag_t = 0x00000002; // map NL to CR-NL (ala CRMOD)
-pub const OXTABS: tcflag_t = 0x00000004; // expand tabs to spaces
-pub const ONOEOT: tcflag_t = 0x00000008; // discard EOT's (^D) on output
-pub const OCRNL: tcflag_t = 0x00000010; // map CR to NL
-pub const ONOCR: tcflag_t = 0x00000040; // discard CR's when on column 0
-pub const ONLRET: tcflag_t = 0x00000080; // move to column 0 on CR
-
 // Control flags - hardware control of terminal
 pub const CIGNORE: tcflag_t = 0x00000001; // ignore control flags
 pub const CSIZE: tcflag_t = 0x00000300; // character size mask

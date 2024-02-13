@@ -2692,42 +2692,6 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const OPOST: tcflag_t = 0x00000001; //enable following output processing
-pub const ONLCR: tcflag_t = 0x00000002; // map NL to CR-NL (ala CRMOD)
-pub const OXTABS: tcflag_t = 0x00000004; // expand tabs to spaces
-pub const ONOEOT: tcflag_t = 0x00000008; // discard EOT's (^D) on output)
-
-pub const OCRNL: tcflag_t = 0x00000010; // map CR to NL on output
-pub const ONOCR: tcflag_t = 0x00000020; // no CR output at column 0
-pub const ONLRET: tcflag_t = 0x00000040; // NL performs CR function
-pub const OFILL: tcflag_t = 0x00000080; // use fill characters for delay
-pub const NLDLY: tcflag_t = 0x00000300; // \n delay
-pub const TABDLY: tcflag_t = 0x00000c04; // horizontal tab delay
-pub const CRDLY: tcflag_t = 0x00003000; // \r delay
-pub const FFDLY: tcflag_t = 0x00004000; // form feed delay
-pub const BSDLY: tcflag_t = 0x00008000; // \b delay
-pub const VTDLY: tcflag_t = 0x00010000; // vertical tab delay
-pub const OFDEL: tcflag_t = 0x00020000; // fill is DEL, else NUL
-
-pub const NL0: tcflag_t = 0x00000000;
-pub const NL1: tcflag_t = 0x00000100;
-pub const NL2: tcflag_t = 0x00000200;
-pub const NL3: tcflag_t = 0x00000300;
-pub const TAB0: tcflag_t = 0x00000000;
-pub const TAB1: tcflag_t = 0x00000400;
-pub const TAB2: tcflag_t = 0x00000800;
-pub const TAB3: tcflag_t = 0x00000004;
-pub const CR0: tcflag_t = 0x00000000;
-pub const CR1: tcflag_t = 0x00001000;
-pub const CR2: tcflag_t = 0x00002000;
-pub const CR3: tcflag_t = 0x00003000;
-pub const FF0: tcflag_t = 0x00000000;
-pub const FF1: tcflag_t = 0x00004000;
-pub const BS0: tcflag_t = 0x00000000;
-pub const BS1: tcflag_t = 0x00008000;
-pub const VT0: tcflag_t = 0x00000000;
-pub const VT1: tcflag_t = 0x00010000;
-
 pub const CIGNORE: tcflag_t = 0x00000001; // ignore control flags
 pub const CSIZE: tcflag_t = 0x00000300; // character size mask
 pub const CS5: tcflag_t = 0x00000000; //    5 bits (pseudo)

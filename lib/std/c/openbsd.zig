@@ -769,15 +769,6 @@ pub const AUTH = struct {
 };
 
 
-// Output flags - software output processing
-pub const OPOST: tcflag_t = 0x00000001; // enable following output processing
-pub const ONLCR: tcflag_t = 0x00000002; // map NL to CR-NL (ala CRMOD)
-pub const OXTABS: tcflag_t = 0x00000004; // expand tabs to spaces
-pub const ONOEOT: tcflag_t = 0x00000008; // discard EOT's (^D) on output
-pub const OCRNL: tcflag_t = 0x00000010; // map CR to NL
-pub const OLCUC: tcflag_t = 0x00000020; // translate lower case to upper case
-pub const ONOCR: tcflag_t = 0x00000040; // No CR output at column 0
-pub const ONLRET: tcflag_t = 0x00000080; // NL performs the CR function
 
 // Control flags - hardware control of terminal
 pub const CIGNORE: tcflag_t = 0x00000001; // ignore control flags
