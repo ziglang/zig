@@ -1284,11 +1284,16 @@ pub fn standardTargetOptions(b: *Build, args: StandardTargetOptionsArgs) Resolve
     return b.resolveTargetQuery(query);
 }
 
+/// Obtain a target query from a string, reporting diagnostics to stderr if the
+/// parsing failed.
+/// Asserts that the `diagnostics` field of `options` is `null`. This use case
+/// is handled instead by calling `std.Target.Query.parse` directly.
 pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFailed}!std.Target.Query {
+    assert(options.diagnostics == null);
     var diags: Target.Query.ParseOptions.Diagnostics = .{};
     var opts_copy = options;
     opts_copy.diagnostics = &diags;
-    return std.Target.Query.parse(options) catch |err| switch (err) {
+    return std.Target.Query.parse(opts_copy) catch |err| switch (err) {
         error.UnknownCpuModel => {
             std.debug.print("unknown CPU: '{s}'\navailable CPUs for architecture '{s}':\n", .{
                 diags.cpu_name.?, @tagName(diags.arch.?),
