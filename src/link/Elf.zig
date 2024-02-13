@@ -5903,8 +5903,8 @@ fn fmtDumpState(
 }
 
 /// Caller owns the memory.
-pub fn preadAllAlloc(allocator: Allocator, handle: std.fs.File, offset: usize, size: usize) ![]u8 {
-    const buffer = try allocator.alloc(u8, size);
+pub fn preadAllAlloc(allocator: Allocator, handle: std.fs.File, offset: u64, size: u64) ![]u8 {
+    const buffer = try allocator.alloc(u8, math.cast(usize, size) orelse return error.Overflow);
     errdefer allocator.free(buffer);
     const amt = try handle.preadAll(buffer, offset);
     if (amt != size) return error.InputOutput;

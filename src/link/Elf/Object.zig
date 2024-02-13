@@ -945,7 +945,9 @@ fn preadShdrContentsAlloc(self: Object, allocator: Allocator, handle: std.fs.Fil
     assert(index < self.shdrs.items.len);
     const offset = if (self.archive) |ar| ar.offset else 0;
     const shdr = self.shdrs.items[index];
-    return Elf.preadAllAlloc(allocator, handle, offset + shdr.sh_offset, shdr.sh_size);
+    const sh_offset = math.cast(u64, shdr.sh_offset) orelse return error.Overflow;
+    const sh_size = math.cast(u64, shdr.sh_size) orelse return error.Overflow;
+    return Elf.preadAllAlloc(allocator, handle, offset + sh_offset, sh_size);
 }
 
 /// Caller owns the memory.
