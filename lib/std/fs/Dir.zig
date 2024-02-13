@@ -1740,6 +1740,18 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
     return std.os.windows.ReadLink(self.fd, sub_path_w, buffer);
 }
 
+/// Read at most `buffer.len` bytes from the file at `file_path` into `buffer`.
+/// The returned slice has the same pointer as `buffer`. If the entirety of the file does not fit
+/// into `buffer`, `buffer ` contains the first `buffer.len` bytes of the file.
+pub fn readFileTruncate(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+    var file = try self.openFile(file_path, .{});
+    defer file.close();
+
+    const nb_read = try file.readAll(buffer);
+
+    return buffer[0..nb_read];
+}
+
 /// Read the entirety of the file at `file_path` into `buffer`.
 /// The returned slice has the same pointer as `buffer`. If the entirety of the file does not fit
 /// into `buffer`, `error.Truncated` is returned, and `buffer` contains the first `buffer.len` bytes
@@ -1748,16 +1760,16 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
-    const end_index = try file.readAll(buffer);
+    const nb_read = try file.readAll(buffer);
 
-    if (end_index == buffer.len) {
+    if (nb_read == buffer.len) {
         var unused: [1]u8 = undefined;
         if (try file.read(&unused) > 0) {
             return error.Truncated;
         }
     }
 
-    return buffer[0..end_index];
+    return buffer[0..nb_read];
 }
 
 /// On success, caller owns returned buffer.
