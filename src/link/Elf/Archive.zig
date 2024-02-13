@@ -42,9 +42,7 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: Fil
         }
 
         const obj_size = try hdr.size();
-        defer {
-            pos += obj_size;
-        }
+        defer pos += obj_size;
 
         if (hdr.isSymtab() or hdr.isSymtab64()) continue;
         if (hdr.isStrtab()) {
