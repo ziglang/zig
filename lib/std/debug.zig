@@ -1212,8 +1212,7 @@ pub fn readElfDebugInfo(
                 const chdr = section_reader.readStruct(elf.Chdr) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
-                defer zlib_stream.deinit();
+                var zlib_stream = std.compress.zlib.decompressor(section_stream.reader());
 
                 const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);

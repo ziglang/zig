@@ -6,7 +6,7 @@ const io = std.io;
 const fs = std.fs;
 const testing = std.testing;
 const mem = std.mem;
-const deflate = std.compress.deflate;
+const deflate = @import("deflate.zig");
 
 // Zlib header format as specified in RFC1950
 const ZLibHeader = packed struct {

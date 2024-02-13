@@ -327,7 +327,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
                     }
                 }
             }
-            const n = std.compress.deflate.copy(self.window[self.window_end..], b);
+            const n = std.compress.v1.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
             return @as(u32, @intCast(n));
         }
@@ -705,7 +705,7 @@ pub fn Compressor(comptime WriterType: anytype) type {
         }
 
         fn fillStore(self: *Self, b: []const u8) u32 {
-            const n = std.compress.deflate.copy(self.window[self.window_end..], b);
+            const n = std.compress.v1.deflate.copy(self.window[self.window_end..], b);
             self.window_end += n;
             return @as(u32, @intCast(n));
         }

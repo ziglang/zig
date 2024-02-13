@@ -1099,7 +1099,12 @@ fn unpackResource(
 
     switch (file_type) {
         .tar => try unpackTarball(f, tmp_directory.handle, resource.reader()),
-        .@"tar.gz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.gzip),
+        .@"tar.gz" => {
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.gzip.decompressor(br.reader());
+            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
         .@"tar.xz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.xz),
         .@"tar.zst" => try unpackTarballCompressed(f, tmp_directory.handle, resource, ZstdWrapper),
         .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {

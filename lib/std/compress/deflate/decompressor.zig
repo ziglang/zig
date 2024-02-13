@@ -450,7 +450,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
         pub fn read(self: *Self, output: []u8) Error!usize {
             while (true) {
                 if (self.to_read.len > 0) {
-                    const n = std.compress.deflate.copy(output, self.to_read);
+                    const n = std.compress.v1.deflate.copy(output, self.to_read);
                     self.to_read = self.to_read[n..];
                     if (self.to_read.len == 0 and
                         self.err != null)

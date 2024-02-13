@@ -1,0 +1,14 @@
+// zig v0.10.0
+// create a file filled with 0x00
+const std = @import("std");
+
+pub fn main() !void {
+    var b = [1]u8{0} ** 65535;
+    const f = try std.fs.cwd().createFile(
+        "huffman-null-max.in",
+        .{ .read = true },
+    );
+    defer f.close();
+
+    _ = try f.writeAll(b[0..]);
+}
