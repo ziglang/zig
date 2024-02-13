@@ -173,7 +173,6 @@ pub const sigset_t = system.sigset_t;
 pub const sockaddr = system.sockaddr;
 pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
-pub const termios = system.termios;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
 pub const timestamp_t = system.timestamp_t;
@@ -184,6 +183,7 @@ pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
 
+pub const termios = system.termios;
 pub const CSIZE = system.CSIZE;
 pub const NCCS = system.NCCS;
 pub const speed_t = system.speed_t;
