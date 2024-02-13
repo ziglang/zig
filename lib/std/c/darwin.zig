@@ -2692,26 +2692,6 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const CIGNORE: tcflag_t = 0x00000001; // ignore control flags
-pub const CSIZE: tcflag_t = 0x00000300; // character size mask
-pub const CS5: tcflag_t = 0x00000000; //    5 bits (pseudo)
-pub const CS6: tcflag_t = 0x00000100; //    6 bits
-pub const CS7: tcflag_t = 0x00000200; //    7 bits
-pub const CS8: tcflag_t = 0x00000300; //    8 bits
-pub const CSTOPB: tcflag_t = 0x0000040; // send 2 stop bits
-pub const CREAD: tcflag_t = 0x00000800; // enable receiver
-pub const PARENB: tcflag_t = 0x00001000; // parity enable
-pub const PARODD: tcflag_t = 0x00002000; // odd parity, else even
-pub const HUPCL: tcflag_t = 0x00004000; // hang up on last close
-pub const CLOCAL: tcflag_t = 0x00008000; // ignore modem status lines
-pub const CCTS_OFLOW: tcflag_t = 0x00010000; // CTS flow control of output
-pub const CRTSCTS: tcflag_t = (CCTS_OFLOW | CRTS_IFLOW);
-pub const CRTS_IFLOW: tcflag_t = 0x00020000; // RTS flow control of input
-pub const CDTR_IFLOW: tcflag_t = 0x00040000; // DTR flow control of input
-pub const CDSR_OFLOW: tcflag_t = 0x00080000; // DSR flow control of output
-pub const CCAR_OFLOW: tcflag_t = 0x00100000; // DCD flow control of output
-pub const MDMBUF: tcflag_t = 0x00100000; // old name for CCAR_OFLOW
-
 pub const ECHOKE: tcflag_t = 0x00000001; // visual erase for line kill
 pub const ECHOE: tcflag_t = 0x00000002; // visually erase chars
 pub const ECHOK: tcflag_t = 0x00000004; // echo NL after line kill

@@ -768,27 +768,6 @@ pub const AUTH = struct {
     pub const ALLOW: c_int = (OKAY | ROOTOKAY | SECURE);
 };
 
-
-
-// Control flags - hardware control of terminal
-pub const CIGNORE: tcflag_t = 0x00000001; // ignore control flags
-pub const CSIZE: tcflag_t = 0x00000300; // character size mask
-pub const CS5: tcflag_t = 0x00000000; // 5 bits (pseudo)
-pub const CS6: tcflag_t = 0x00000100; // 6 bits
-pub const CS7: tcflag_t = 0x00000200; // 7 bits
-pub const CS8: tcflag_t = 0x00000300; // 8 bits
-pub const CSTOPB: tcflag_t = 0x00000400; // send 2 stop bits
-pub const CREAD: tcflag_t = 0x00000800; // enable receiver
-pub const PARENB: tcflag_t = 0x00001000; // parity enable
-pub const PARODD: tcflag_t = 0x00002000; // odd parity, else even
-pub const HUPCL: tcflag_t = 0x00004000; // hang up on last close
-pub const CLOCAL: tcflag_t = 0x00008000; // ignore modem status lines
-pub const CRTSCTS: tcflag_t = 0x00010000; // RTS/CTS full-duplex flow control
-pub const CRTS_IFLOW: tcflag_t = CRTSCTS; // XXX compat
-pub const CCTS_OFLOW: tcflag_t = CRTSCTS; // XXX compat
-pub const MDMBUF: tcflag_t = 0x00100000; // DTR/DCD hardware flow control
-pub const CHWFLOW: tcflag_t = (MDMBUF | CRTSCTS); // all types of hw flow control
-
 // Commands passed to tcsetattr() for setting the termios structure.
 pub const TCSA = struct {
     pub const NOW = 0; // make change immediate

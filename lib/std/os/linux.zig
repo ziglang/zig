@@ -5120,6 +5120,33 @@ pub const tc_oflag_t = switch (native_arch) {
     },
 };
 
+pub const CSIZE = enum(u2) { CS5, CS6, CS7, CS8 };
+
+pub const tc_cflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        _0: u8 = 0,
+        CSIZE: CSIZE = .CS5,
+        CSTOPB: bool = false,
+        CREAD: bool = false,
+        PARENB: bool = false,
+        PARODD: bool = false,
+        HUPCL: bool = false,
+        CLOCAL: bool = false,
+        _: u16 = 0,
+    },
+    else => packed struct(u32) {
+        _0: u4 = 0,
+        CSIZE: CSIZE = .CS5,
+        CSTOPB: bool = false,
+        CREAD: bool = false,
+        PARENB: bool = false,
+        PARODD: bool = false,
+        HUPCL: bool = false,
+        CLOCAL: bool = false,
+        _: u20 = 0,
+    },
+};
+
 pub const cc_t = switch (native_arch) {
     .mips, .mipsel, .mips64, .mips64el => enum(u8) {
         VINTR = 0,
@@ -5182,18 +5209,6 @@ pub const cc_t = switch (native_arch) {
 
 pub const tcflag_t = u32;
 
-pub const CSIZE: tcflag_t = 48;
-pub const CS5: tcflag_t = 0;
-pub const CS6: tcflag_t = 16;
-pub const CS7: tcflag_t = 32;
-pub const CS8: tcflag_t = 48;
-pub const CSTOPB: tcflag_t = 64;
-pub const CREAD: tcflag_t = 128;
-pub const PARENB: tcflag_t = 256;
-pub const PARODD: tcflag_t = 512;
-pub const HUPCL: tcflag_t = 1024;
-pub const CLOCAL: tcflag_t = 2048;
-
 pub const ISIG: tcflag_t = 1;
 pub const ICANON: tcflag_t = 2;
 pub const ECHO: tcflag_t = 8;
@@ -5215,7 +5230,7 @@ pub const termios = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
-        cflag: tcflag_t,
+        cflag: tc_cflag_t,
         lflag: tcflag_t,
         cc: [NCCS]cc_t,
         line: cc_t,
@@ -5225,7 +5240,7 @@ pub const termios = switch (native_arch) {
     else => extern struct {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
-        cflag: tcflag_t,
+        cflag: tc_cflag_t,
         lflag: tcflag_t,
         line: cc_t,
         cc: [NCCS]cc_t,
