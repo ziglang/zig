@@ -776,33 +776,6 @@ pub const TCSA = struct {
     pub const SOFT = 0x10; // flag - don't alter h.w. state
 };
 
-// Standard speeds
-pub const B0 = 0;
-pub const B50 = 50;
-pub const B75 = 75;
-pub const B110 = 110;
-pub const B134 = 134;
-pub const B150 = 150;
-pub const B200 = 200;
-pub const B300 = 300;
-pub const B600 = 600;
-pub const B1200 = 1200;
-pub const B1800 = 1800;
-pub const B2400 = 2400;
-pub const B4800 = 4800;
-pub const B9600 = 9600;
-pub const B19200 = 19200;
-pub const B38400 = 38400;
-pub const B7200 = 7200;
-pub const B14400 = 14400;
-pub const B28800 = 28800;
-pub const B57600 = 57600;
-pub const B76800 = 76800;
-pub const B115200 = 115200;
-pub const B230400 = 230400;
-pub const EXTA = 19200;
-pub const EXTB = 38400;
-
 pub const TCIFLUSH = 1;
 pub const TCOFLUSH = 2;
 pub const TCIOFLUSH = 3;

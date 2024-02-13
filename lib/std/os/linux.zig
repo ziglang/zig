@@ -5004,45 +5004,81 @@ pub const rusage = extern struct {
     pub const THREAD = 1;
 };
 
-pub const speed_t = u32;
-
 pub const NCCS = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
     else => 32,
 };
 
-pub const B0 = 0o0000000;
-pub const B50 = 0o0000001;
-pub const B75 = 0o0000002;
-pub const B110 = 0o0000003;
-pub const B134 = 0o0000004;
-pub const B150 = 0o0000005;
-pub const B200 = 0o0000006;
-pub const B300 = 0o0000007;
-pub const B600 = 0o0000010;
-pub const B1200 = 0o0000011;
-pub const B1800 = 0o0000012;
-pub const B2400 = 0o0000013;
-pub const B4800 = 0o0000014;
-pub const B9600 = 0o0000015;
-pub const B19200 = 0o0000016;
-pub const B38400 = 0o0000017;
-pub const BOTHER = 0o0010000;
-pub const B57600 = 0o0010001;
-pub const B115200 = 0o0010002;
-pub const B230400 = 0o0010003;
-pub const B460800 = 0o0010004;
-pub const B500000 = 0o0010005;
-pub const B576000 = 0o0010006;
-pub const B921600 = 0o0010007;
-pub const B1000000 = 0o0010010;
-pub const B1152000 = 0o0010011;
-pub const B1500000 = 0o0010012;
-pub const B2000000 = 0o0010013;
-pub const B2500000 = 0o0010014;
-pub const B3000000 = 0o0010015;
-pub const B3500000 = 0o0010016;
-pub const B4000000 = 0o0010017;
+pub const speed_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum(u32) {
+        B0 = 0o0000000,
+        B50 = 0o0000001,
+        B75 = 0o0000002,
+        B110 = 0o0000003,
+        B134 = 0o0000004,
+        B150 = 0o0000005,
+        B200 = 0o0000006,
+        B300 = 0o0000007,
+        B600 = 0o0000010,
+        B1200 = 0o0000011,
+        B1800 = 0o0000012,
+        B2400 = 0o0000013,
+        B4800 = 0o0000014,
+        B9600 = 0o0000015,
+        B19200 = 0o0000016,
+        B38400 = 0o0000017,
+
+        B57600 = 0o00020,
+        B115200 = 0o00021,
+        B230400 = 0o00022,
+        B460800 = 0o00023,
+        B500000 = 0o00024,
+        B576000 = 0o00025,
+        B921600 = 0o00026,
+        B1000000 = 0o00027,
+        B1152000 = 0o00030,
+        B1500000 = 0o00031,
+        B2000000 = 0o00032,
+        B2500000 = 0o00033,
+        B3000000 = 0o00034,
+        B3500000 = 0o00035,
+        B4000000 = 0o00036,
+    },
+    else => enum(u32) {
+        B0 = 0o0000000,
+        B50 = 0o0000001,
+        B75 = 0o0000002,
+        B110 = 0o0000003,
+        B134 = 0o0000004,
+        B150 = 0o0000005,
+        B200 = 0o0000006,
+        B300 = 0o0000007,
+        B600 = 0o0000010,
+        B1200 = 0o0000011,
+        B1800 = 0o0000012,
+        B2400 = 0o0000013,
+        B4800 = 0o0000014,
+        B9600 = 0o0000015,
+        B19200 = 0o0000016,
+        B38400 = 0o0000017,
+
+        B57600 = 0o0010001,
+        B115200 = 0o0010002,
+        B230400 = 0o0010003,
+        B460800 = 0o0010004,
+        B500000 = 0o0010005,
+        B576000 = 0o0010006,
+        B921600 = 0o0010007,
+        B1000000 = 0o0010010,
+        B1152000 = 0o0010011,
+        B1500000 = 0o0010012,
+        B2000000 = 0o0010013,
+        B2500000 = 0o0010014,
+        B3000000 = 0o0010015,
+        B3500000 = 0o0010016,
+        B4000000 = 0o0010017,
+    },
+};
 
 pub const tc_iflag_t = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {

@@ -814,43 +814,6 @@ pub const TCSA = struct {
     pub const SOFT = 0x10; // flag - don't alter h.w. state
 };
 
-// Standard speeds
-pub const B0: c_uint = 0;
-pub const B50: c_uint = 50;
-pub const B75: c_uint = 75;
-pub const B110: c_uint = 110;
-pub const B134: c_uint = 134;
-pub const B150: c_uint = 150;
-pub const B200: c_uint = 200;
-pub const B300: c_uint = 300;
-pub const B600: c_uint = 600;
-pub const B1200: c_uint = 1200;
-pub const B1800: c_uint = 1800;
-pub const B2400: c_uint = 2400;
-pub const B4800: c_uint = 4800;
-pub const B9600: c_uint = 9600;
-pub const B19200: c_uint = 19200;
-pub const B38400: c_uint = 38400;
-pub const B7200: c_uint = 7200;
-pub const B14400: c_uint = 14400;
-pub const B28800: c_uint = 28800;
-pub const B57600: c_uint = 57600;
-pub const B76800: c_uint = 76800;
-pub const B115200: c_uint = 115200;
-pub const B230400: c_uint = 230400;
-pub const B460800: c_uint = 460800;
-pub const B500000: c_uint = 500000;
-pub const B921600: c_uint = 921600;
-pub const B1000000: c_uint = 1000000;
-pub const B1500000: c_uint = 1500000;
-pub const B2000000: c_uint = 2000000;
-pub const B2500000: c_uint = 2500000;
-pub const B3000000: c_uint = 3000000;
-pub const B3500000: c_uint = 3500000;
-pub const B4000000: c_uint = 4000000;
-pub const EXTA: c_uint = 19200;
-pub const EXTB: c_uint = 38400;
-
 pub const TCIFLUSH = 1;
 pub const TCOFLUSH = 2;
 pub const TCIOFLUSH = 3;
