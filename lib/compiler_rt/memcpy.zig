@@ -55,13 +55,15 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
         return dest;
     }
 
-    while (n >= small_limit / 2) {
-        memcpy_remainder(small_limit, d, s, small_limit / 2);
-        n -= small_limit / 2;
-        d += small_limit / 2;
-        s += small_limit / 2;
+    var vd: [*]align(1) CopyType = @ptrCast(d);
+    var vs: [*]const CopyType = @alignCast(@ptrCast(s));
+    while (n >= @sizeOf(CopyType)) {
+        vd[0] = vs[0];
+        vd += 1;
+        vs += 1;
+        n -= @sizeOf(CopyType);
     }
-    memcpy_remainder(small_limit / 2, d, s, n);
+    memcpy_remainder(@sizeOf(CopyType), @ptrCast(vd), @ptrCast(vs), n);
 
     return dest;
 }
