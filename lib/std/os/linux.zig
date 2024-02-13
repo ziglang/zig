@@ -5147,6 +5147,53 @@ pub const tc_cflag_t = switch (native_arch) {
     },
 };
 
+pub const tc_lflag_t = switch (native_arch) {
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
+        _0: u1 = 0,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHO: bool = false,
+        ECHONL: bool = false,
+        _5: u2 = 0,
+        ISIG: bool = false,
+        ICANON: bool = false,
+        _9: u1 = 0,
+        IEXTEN: bool = false,
+        _11: u11 = 0,
+        TOSTOP: bool = false,
+        _23: u8 = 0,
+        NOFLSH: bool = false,
+    },
+    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
+        ISIG: bool = false,
+        ICANON: bool = false,
+        _2: u1 = 0,
+        ECHO: bool = false,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHONL: bool = false,
+        NOFLSH: bool = false,
+        IEXTEN: bool = false,
+        _9: u6 = 0,
+        TOSTOP: bool = false,
+        _: u16 = 0,
+    },
+    else => packed struct(u32) {
+        ISIG: bool = false,
+        ICANON: bool = false,
+        _2: u1 = 0,
+        ECHO: bool = false,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHONL: bool = false,
+        NOFLSH: bool = false,
+        TOSTOP: bool = false,
+        _9: u6 = 0,
+        IEXTEN: bool = false,
+        _: u16 = 0,
+    },
+};
+
 pub const cc_t = switch (native_arch) {
     .mips, .mipsel, .mips64, .mips64el => enum(u8) {
         VINTR = 0,
@@ -5207,18 +5254,6 @@ pub const cc_t = switch (native_arch) {
     },
 };
 
-pub const tcflag_t = u32;
-
-pub const ISIG: tcflag_t = 1;
-pub const ICANON: tcflag_t = 2;
-pub const ECHO: tcflag_t = 8;
-pub const ECHOE: tcflag_t = 16;
-pub const ECHOK: tcflag_t = 32;
-pub const ECHONL: tcflag_t = 64;
-pub const NOFLSH: tcflag_t = 128;
-pub const TOSTOP: tcflag_t = 256;
-pub const IEXTEN: tcflag_t = 32768;
-
 pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
@@ -5231,7 +5266,7 @@ pub const termios = switch (native_arch) {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
         cflag: tc_cflag_t,
-        lflag: tcflag_t,
+        lflag: tc_lflag_t,
         cc: [NCCS]cc_t,
         line: cc_t,
         ispeed: speed_t,
@@ -5241,7 +5276,7 @@ pub const termios = switch (native_arch) {
         iflag: tc_iflag_t,
         oflag: tc_oflag_t,
         cflag: tc_cflag_t,
-        lflag: tcflag_t,
+        lflag: tc_lflag_t,
         line: cc_t,
         cc: [NCCS]cc_t,
         ispeed: speed_t,

@@ -187,10 +187,10 @@ pub const utsname = system.utsname;
 pub const CSIZE = system.CSIZE;
 pub const NCCS = system.NCCS;
 pub const speed_t = system.speed_t;
-pub const tcflag_t = system.tcflag_t;
 pub const tc_iflag_t = system.tc_iflag_t;
 pub const tc_oflag_t = system.tc_oflag_t;
 pub const tc_cflag_t = system.tc_cflag_t;
+pub const tc_lflag_t = system.tc_lflag_t;
 
 pub const F_OK = system.F_OK;
 pub const R_OK = system.R_OK;

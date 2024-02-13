@@ -2692,68 +2692,12 @@ pub const SHUT = struct {
     pub const RDWR = 2;
 };
 
-pub const ECHOKE: tcflag_t = 0x00000001; // visual erase for line kill
-pub const ECHOE: tcflag_t = 0x00000002; // visually erase chars
-pub const ECHOK: tcflag_t = 0x00000004; // echo NL after line kill
-pub const ECHO: tcflag_t = 0x00000008; // enable echoing
-pub const ECHONL: tcflag_t = 0x00000010; // echo NL even if ECHO is off
-pub const ECHOPRT: tcflag_t = 0x00000020; // visual erase mode for hardcopy
-pub const ECHOCTL: tcflag_t = 0x00000040; // echo control chars as ^(Char)
-pub const ISIG: tcflag_t = 0x00000080; // enable signals INTR, QUIT, [D]SUSP
-pub const ICANON: tcflag_t = 0x00000100; // canonicalize input lines
-pub const ALTWERASE: tcflag_t = 0x00000200; // use alternate WERASE algorithm
-pub const IEXTEN: tcflag_t = 0x00000400; // enable DISCARD and LNEXT
-pub const EXTPROC: tcflag_t = 0x00000800; // external processing
-pub const TOSTOP: tcflag_t = 0x00400000; // stop background jobs from output
-pub const FLUSHO: tcflag_t = 0x00800000; // output being flushed (state)
-pub const NOKERNINFO: tcflag_t = 0x02000000; // no kernel output from VSTATUS
-pub const PENDIN: tcflag_t = 0x20000000; // XXX retype pending input (state)
-pub const NOFLSH: tcflag_t = 0x80000000; // don't flush after interrupt
-
-pub const TCSANOW: tcflag_t = 0; // make change immediate
-pub const TCSADRAIN: tcflag_t = 1; // drain output, then change
-pub const TCSAFLUSH: tcflag_t = 2; // drain output, flush input
-pub const TCSASOFT: tcflag_t = 0x10; // flag - don't alter h.w. state
 pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
     FLUSH,
     _,
 };
-
-pub const B0: tcflag_t = 0;
-pub const B50: tcflag_t = 50;
-pub const B75: tcflag_t = 75;
-pub const B110: tcflag_t = 110;
-pub const B134: tcflag_t = 134;
-pub const B150: tcflag_t = 150;
-pub const B200: tcflag_t = 200;
-pub const B300: tcflag_t = 300;
-pub const B600: tcflag_t = 600;
-pub const B1200: tcflag_t = 1200;
-pub const B1800: tcflag_t = 1800;
-pub const B2400: tcflag_t = 2400;
-pub const B4800: tcflag_t = 4800;
-pub const B9600: tcflag_t = 9600;
-pub const B19200: tcflag_t = 19200;
-pub const B38400: tcflag_t = 38400;
-pub const B7200: tcflag_t = 7200;
-pub const B14400: tcflag_t = 14400;
-pub const B28800: tcflag_t = 28800;
-pub const B57600: tcflag_t = 57600;
-pub const B76800: tcflag_t = 76800;
-pub const B115200: tcflag_t = 115200;
-pub const B230400: tcflag_t = 230400;
-pub const EXTA: tcflag_t = 19200;
-pub const EXTB: tcflag_t = 38400;
-
-pub const TCIFLUSH: tcflag_t = 1;
-pub const TCOFLUSH: tcflag_t = 2;
-pub const TCIOFLUSH: tcflag_t = 3;
-pub const TCOOFF: tcflag_t = 1;
-pub const TCOON: tcflag_t = 2;
-pub const TCIOFF: tcflag_t = 3;
-pub const TCION: tcflag_t = 4;
 
 pub const winsize = extern struct {
     ws_row: u16,
