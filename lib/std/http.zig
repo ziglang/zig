@@ -3,10 +3,6 @@ const std = @import("std.zig");
 pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
 pub const protocol = @import("http/protocol.zig");
-const headers = @import("http/Headers.zig");
-
-pub const Headers = headers.Headers;
-pub const Field = headers.Field;
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -18,7 +14,7 @@ pub const Version = enum {
 /// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definition
 ///
 /// https://datatracker.ietf.org/doc/html/rfc5789#section-2 PATCH
-pub const Method = enum(u64) { // TODO: should be u192 or u256, but neither is supported by the C backend, and therefore cannot pass CI
+pub const Method = enum(u64) {
     GET = parse("GET"),
     HEAD = parse("HEAD"),
     POST = parse("POST"),
@@ -307,6 +303,11 @@ pub const ContentEncoding = enum {
 pub const Connection = enum {
     keep_alive,
     close,
+};
+
+pub const Header = struct {
+    name: []const u8,
+    value: []const u8,
 };
 
 test {

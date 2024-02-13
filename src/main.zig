@@ -5486,7 +5486,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     job_queue.read_only = true;
                     cleanup_build_dir = job_queue.global_cache.handle;
                 } else {
-                    try http_client.loadDefaultProxies();
+                    try http_client.initDefaultProxies(arena);
                 }
 
                 try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
@@ -7442,7 +7442,7 @@ fn cmdFetch(
     var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
 
-    try http_client.loadDefaultProxies();
+    try http_client.initDefaultProxies(arena);
 
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const root_prog_node = progress.start("Fetch", 0);
