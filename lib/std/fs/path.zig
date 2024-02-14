@@ -1,3 +1,17 @@
+//! POSIX paths are arbitrary sequences of `u8` with no particular encoding.
+//!
+//! Windows paths are arbitrary sequences of `u16` (WTF-16).
+//! For cross-platform APIs that deal with sequences of `u8`, Windows
+//! paths are encoded by Zig as [WTF-8](https://simonsapin.github.io/wtf-8/).
+//! WTF-8 is a superset of UTF-8 that allows encoding surrogate codepoints,
+//! which enables lossless roundtripping when converting to/from WTF-16
+//! (as long as the WTF-8 encoded surrogate codepoints do not form a pair).
+//!
+//! WASI paths are sequences of valid Unicode scalar values,
+//! which means that WASI is unable to handle paths that cannot be
+//! encoded as well-formed UTF-8/UTF-16.
+//! https://github.com/WebAssembly/wasi-filesystem/issues/17#issuecomment-1430639353
+
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const debug = std.debug;
@@ -438,7 +452,7 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) bool {
     var it1 = mem.tokenizeScalar(u8, ns1, sep1);
     var it2 = mem.tokenizeScalar(u8, ns2, sep2);
 
-    return windows.eqlIgnoreCaseUtf8(it1.next().?, it2.next().?);
+    return windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?);
 }
 
 fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8) bool {
@@ -458,7 +472,7 @@ fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8
             var it1 = mem.tokenizeScalar(u8, p1, sep1);
             var it2 = mem.tokenizeScalar(u8, p2, sep2);
 
-            return windows.eqlIgnoreCaseUtf8(it1.next().?, it2.next().?) and windows.eqlIgnoreCaseUtf8(it1.next().?, it2.next().?);
+            return windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?) and windows.eqlIgnoreCaseWtf8(it1.next().?, it2.next().?);
         },
     }
 }
@@ -1099,7 +1113,7 @@ pub fn relativeWindows(allocator: Allocator, from: []const u8, to: []const u8) !
         const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
         const to_rest = to_it.rest();
         if (to_it.next()) |to_component| {
-            if (windows.eqlIgnoreCaseUtf8(from_component, to_component))
+            if (windows.eqlIgnoreCaseWtf8(from_component, to_component))
                 continue;
         }
         var up_index_end = "..".len;
@@ -1564,14 +1578,14 @@ pub fn ComponentIterator(comptime path_type: PathType, comptime T: type) type {
     };
 }
 
-pub const NativeUtf8ComponentIterator = ComponentIterator(switch (native_os) {
+pub const NativeComponentIterator = ComponentIterator(switch (native_os) {
     .windows => .windows,
     .uefi => .uefi,
     else => .posix,
 }, u8);
 
-pub fn componentIterator(path: []const u8) !NativeUtf8ComponentIterator {
-    return NativeUtf8ComponentIterator.init(path);
+pub fn componentIterator(path: []const u8) !NativeComponentIterator {
+    return NativeComponentIterator.init(path);
 }
 
 test "ComponentIterator posix" {
@@ -1826,7 +1840,7 @@ test "ComponentIterator windows" {
     }
 }
 
-test "ComponentIterator windows UTF-16" {
+test "ComponentIterator windows WTF-16" {
     // TODO: Fix on big endian architectures
     if (builtin.cpu.arch.endian() != .little) {
         return error.SkipZigTest;
