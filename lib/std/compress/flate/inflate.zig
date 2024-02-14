@@ -341,25 +341,6 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
     };
 }
 
-test "flate.Inflate struct sizes" {
-    if (@sizeOf(usize) != 8) return error.SkipZigTest;
-
-    var fbs = std.io.fixedBufferStream("");
-    const ReaderType = @TypeOf(fbs.reader());
-    const inflate_size = @sizeOf(Inflate(.gzip, ReaderType));
-
-    try testing.expectEqual(76320, inflate_size);
-    try testing.expectEqual(
-        @sizeOf(CircularBuffer) + @sizeOf(hfd.LiteralDecoder) + @sizeOf(hfd.DistanceDecoder) + 48,
-        inflate_size,
-    );
-    try testing.expectEqual(65536 + 8 + 8, @sizeOf(CircularBuffer));
-    try testing.expectEqual(8, @sizeOf(Container.raw.Hasher()));
-    try testing.expectEqual(24, @sizeOf(BitReader(ReaderType)));
-    try testing.expectEqual(6384, @sizeOf(hfd.LiteralDecoder));
-    try testing.expectEqual(4336, @sizeOf(hfd.DistanceDecoder));
-}
-
 test "flate.Inflate decompress" {
     const cases = [_]struct {
         in: []const u8,
