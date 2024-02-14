@@ -143,9 +143,10 @@ pub const Container = enum {
     }
 
     fn parseZlibHeader(reader: anytype) !void {
-        const cinfo_cm = try reader.read(u8);
+        const cm = try reader.read(u4);
+        const cinfo = try reader.read(u4);
         _ = try reader.read(u8);
-        if (cinfo_cm != 0x78) {
+        if (cm != 8 or cinfo > 7) {
             return error.BadZlibHeader;
         }
     }

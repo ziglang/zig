@@ -234,3 +234,114 @@ test "flate compress/decompress" {
         }
     }
 }
+
+fn testDecompress(comptime container: Container, compressed: []const u8, expected_plain: []const u8) !void {
+    var in_stream = std.io.fixedBufferStream(compressed);
+    var al = std.ArrayList(u8).init(testing.allocator);
+    defer al.deinit();
+
+    try inflate.decompress(container, in_stream.reader(), al.writer());
+
+    try testing.expectEqualSlices(u8, expected_plain, al.items);
+}
+
+test "flate don't read past deflate stream's end" {
+    try testDecompress(.zlib, &[_]u8{
+        0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
+        0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
+        0x83, 0x95, 0x0b, 0xf5,
+    }, &[_]u8{
+        0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff,
+        0x00, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xff, 0xff,
+    });
+}
+
+test "flate zlib header" {
+    // Truncated header
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.zlib, &[_]u8{0x78}, ""),
+    );
+    // Wrong CM
+    try testing.expectError(
+        error.BadZlibHeader,
+        testDecompress(.zlib, &[_]u8{ 0x79, 0x94 }, ""),
+    );
+    // Wrong CINFO
+    try testing.expectError(
+        error.BadZlibHeader,
+        testDecompress(.zlib, &[_]u8{ 0x88, 0x98 }, ""),
+    );
+    // Wrong checksum
+    try testing.expectError(
+        error.WrongZlibChecksum,
+        testDecompress(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 }, ""),
+    );
+    // Truncated checksum
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, ""),
+    );
+}
+
+test "flate gzip header" {
+    // Truncated header
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.gzip, &[_]u8{ 0x1f, 0x8B }, undefined),
+    );
+    // Wrong CM
+    try testing.expectError(
+        error.BadGzipHeader,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03,
+        }, undefined),
+    );
+
+    // Wrong checksum
+    try testing.expectError(
+        error.WrongGzipChecksum,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x00,
+        }, undefined),
+    );
+    // Truncated checksum
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
+        }, undefined),
+    );
+    // Wrong initial size
+    try testing.expectError(
+        error.WrongGzipSize,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x01,
+        }, undefined),
+    );
+    // Truncated initial size field
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00,
+        }, undefined),
+    );
+
+    try testDecompress(.gzip, &[_]u8{
+        // GZIP header
+        0x1f, 0x8b, 0x08, 0x12, 0x00, 0x09, 0x6e, 0x88, 0x00, 0xff, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00,
+        // header.FHCRC (should cover entire header)
+        0x99, 0xd6,
+        // GZIP data
+        0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    }, "");
+}
