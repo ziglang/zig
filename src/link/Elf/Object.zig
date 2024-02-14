@@ -1,10 +1,10 @@
-archive: ?[]const u8 = null,
+archive: ?InArchive = null,
 path: []const u8,
-data: []const u8,
+file_handle: File.HandleIndex,
 index: File.Index,
 
 header: ?elf.Elf64_Ehdr = null,
-shdrs: std.ArrayListUnmanaged(ElfShdr) = .{},
+shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
 
 symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
@@ -12,9 +12,12 @@ first_global: ?Symbol.Index = null,
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup.Index) = .{},
+comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
+relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 
 fdes: std.ArrayListUnmanaged(Fde) = .{},
 cies: std.ArrayListUnmanaged(Cie) = .{},
+eh_frame_data: std.ArrayListUnmanaged(u8) = .{},
 
 alive: bool = true,
 num_dynrelocs: u32 = 0,
@@ -35,24 +38,44 @@ pub fn isObject(path: []const u8) !bool {
 }
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
-    if (self.archive) |path| allocator.free(path);
+    if (self.archive) |*ar| allocator.free(ar.path);
     allocator.free(self.path);
-    allocator.free(self.data);
     self.shdrs.deinit(allocator);
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
     self.atoms.deinit(allocator);
     self.comdat_groups.deinit(allocator);
+    self.comdat_group_data.deinit(allocator);
+    self.relocs.deinit(allocator);
     self.fdes.deinit(allocator);
     self.cies.deinit(allocator);
+    self.eh_frame_data.deinit(allocator);
 }
 
 pub fn parse(self: *Object, elf_file: *Elf) !void {
-    var stream = std.io.fixedBufferStream(self.data);
-    const reader = stream.reader();
+    const gpa = elf_file.base.comp.gpa;
+    const handle = elf_file.fileHandle(self.file_handle);
 
-    self.header = try reader.readStruct(elf.Elf64_Ehdr);
+    try self.parseCommon(gpa, handle, elf_file);
+    try self.initAtoms(gpa, handle, elf_file);
+    try self.initSymtab(gpa, elf_file);
+
+    for (self.shdrs.items, 0..) |shdr, i| {
+        const atom = elf_file.atom(self.atoms.items[i]) orelse continue;
+        if (!atom.flags.alive) continue;
+        if (shdr.sh_type == elf.SHT_X86_64_UNWIND or mem.eql(u8, atom.name(elf_file), ".eh_frame"))
+            try self.parseEhFrame(gpa, handle, @as(u32, @intCast(i)), elf_file);
+    }
+}
+
+fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file: *Elf) !void {
+    const offset = if (self.archive) |ar| ar.offset else 0;
+    const file_size = (try handle.stat()).size;
+
+    const header_buffer = try Elf.preadAllAlloc(allocator, handle, offset, @sizeOf(elf.Elf64_Ehdr));
+    defer allocator.free(header_buffer);
+    self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
 
     const target = elf_file.base.comp.root_mod.resolved_target.result;
     if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
@@ -66,12 +89,10 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     if (self.header.?.e_shnum == 0) return;
 
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-
-    if (self.data.len < self.header.?.e_shoff or
-        self.data.len < self.header.?.e_shoff + @as(u64, @intCast(self.header.?.e_shnum)) * @sizeOf(elf.Elf64_Shdr))
-    {
+    const shoff = math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
+    const shnum = math.cast(usize, self.header.?.e_shnum) orelse return error.Overflow;
+    const shsize = shnum * @sizeOf(elf.Elf64_Shdr);
+    if (file_size < offset + shoff or file_size < offset + shoff + shsize) {
         try elf_file.reportParseError2(
             self.index,
             "corrupt header: section header table extends past the end of file",
@@ -80,31 +101,29 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
         return error.MalformedObject;
     }
 
-    const shoff = math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
-    const shdrs = @as(
-        [*]align(1) const elf.Elf64_Shdr,
-        @ptrCast(self.data.ptr + shoff),
-    )[0..self.header.?.e_shnum];
-    try self.shdrs.ensureTotalCapacityPrecise(gpa, shdrs.len);
+    const shdrs_buffer = try Elf.preadAllAlloc(allocator, handle, offset + shoff, shsize);
+    defer allocator.free(shdrs_buffer);
+    const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(shdrs_buffer.ptr))[0..shnum];
+    try self.shdrs.appendUnalignedSlice(allocator, shdrs);
 
-    for (shdrs) |shdr| {
+    for (self.shdrs.items) |shdr| {
         if (shdr.sh_type != elf.SHT_NOBITS) {
-            if (self.data.len < shdr.sh_offset or self.data.len < shdr.sh_offset + shdr.sh_size) {
+            if (file_size < offset + shdr.sh_offset or file_size < offset + shdr.sh_offset + shdr.sh_size) {
                 try elf_file.reportParseError2(self.index, "corrupt section: extends past the end of file", .{});
                 return error.MalformedObject;
             }
         }
-        self.shdrs.appendAssumeCapacity(try ElfShdr.fromElf64Shdr(shdr));
     }
 
-    const shstrtab = self.shdrContents(self.header.?.e_shstrndx);
-    for (shdrs) |shdr| {
+    const shstrtab = try self.preadShdrContentsAlloc(allocator, handle, self.header.?.e_shstrndx);
+    defer allocator.free(shstrtab);
+    for (self.shdrs.items) |shdr| {
         if (shdr.sh_name >= shstrtab.len) {
             try elf_file.reportParseError2(self.index, "corrupt section name offset", .{});
             return error.MalformedObject;
         }
     }
-    try self.strtab.appendSlice(gpa, shstrtab);
+    try self.strtab.appendSlice(allocator, shstrtab);
 
     const symtab_index = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_SYMTAB => break @as(u16, @intCast(i)),
@@ -112,10 +131,11 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
     } else null;
 
     if (symtab_index) |index| {
-        const shdr = shdrs[index];
+        const shdr = self.shdrs.items[index];
         self.first_global = shdr.sh_info;
 
-        const raw_symtab = self.shdrContents(index);
+        const raw_symtab = try self.preadShdrContentsAlloc(allocator, handle, index);
+        defer allocator.free(raw_symtab);
         const nsyms = math.divExact(usize, raw_symtab.len, @sizeOf(elf.Elf64_Sym)) catch {
             try elf_file.reportParseError2(self.index, "symbol table not evenly divisible", .{});
             return error.MalformedObject;
@@ -123,9 +143,11 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
         const symtab = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw_symtab.ptr))[0..nsyms];
 
         const strtab_bias = @as(u32, @intCast(self.strtab.items.len));
-        try self.strtab.appendSlice(gpa, self.shdrContents(@as(u16, @intCast(shdr.sh_link))));
+        const strtab = try self.preadShdrContentsAlloc(allocator, handle, shdr.sh_link);
+        defer allocator.free(strtab);
+        try self.strtab.appendSlice(allocator, strtab);
 
-        try self.symtab.ensureUnusedCapacity(gpa, symtab.len);
+        try self.symtab.ensureUnusedCapacity(allocator, symtab.len);
         for (symtab) |sym| {
             const out_sym = self.symtab.addOneAssumeCapacity();
             out_sym.* = sym;
@@ -137,23 +159,9 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn init(self: *Object, elf_file: *Elf) !void {
-    try self.initAtoms(elf_file);
-    try self.initSymtab(elf_file);
-
-    for (self.shdrs.items, 0..) |shdr, i| {
-        const atom = elf_file.atom(self.atoms.items[i]) orelse continue;
-        if (!atom.flags.alive) continue;
-        if (shdr.sh_type == elf.SHT_X86_64_UNWIND or mem.eql(u8, atom.name(elf_file), ".eh_frame"))
-            try self.parseEhFrame(@as(u16, @intCast(i)), elf_file);
-    }
-}
-
-fn initAtoms(self: *Object, elf_file: *Elf) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
+fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file: *Elf) !void {
     const shdrs = self.shdrs.items;
-    try self.atoms.resize(gpa, shdrs.len);
+    try self.atoms.resize(allocator, shdrs.len);
     @memset(self.atoms.items, 0);
 
     for (shdrs, 0..) |shdr, i| {
@@ -177,8 +185,9 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                     break :blk self.getString(group_info_sym.st_name);
                 };
 
-                const shndx = @as(u16, @intCast(i));
-                const group_raw_data = self.shdrContents(shndx);
+                const shndx = @as(u32, @intCast(i));
+                const group_raw_data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
+                defer allocator.free(group_raw_data);
                 const group_nmembers = @divExact(group_raw_data.len, @sizeOf(u32));
                 const group_members = @as([*]align(1) const u32, @ptrCast(group_raw_data.ptr))[0..group_nmembers];
 
@@ -188,14 +197,20 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
                     continue;
                 }
 
+                const group_start = @as(u32, @intCast(self.comdat_group_data.items.len));
+                try self.comdat_group_data.appendUnalignedSlice(allocator, group_members[1..]);
+
                 const gop = try elf_file.getOrCreateComdatGroupOwner(group_signature);
                 const comdat_group_index = try elf_file.addComdatGroup();
                 const comdat_group = elf_file.comdatGroup(comdat_group_index);
                 comdat_group.* = .{
                     .owner = gop.index,
+                    .file = self.index,
                     .shndx = shndx,
+                    .members_start = group_start,
+                    .members_len = @intCast(group_nmembers - 1),
                 };
-                try self.comdat_groups.append(gpa, comdat_group_index);
+                try self.comdat_groups.append(allocator, comdat_group_index);
             },
 
             elf.SHT_SYMTAB_SHNDX => @panic("TODO SHT_SYMTAB_SHNDX"),
@@ -210,7 +225,7 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
             else => {
                 const shndx = @as(u16, @intCast(i));
                 if (self.skipShdr(shndx, elf_file)) continue;
-                try self.addAtom(shdr, shndx, elf_file);
+                try self.addAtom(allocator, handle, shdr, shndx, elf_file);
             },
         }
     }
@@ -220,14 +235,19 @@ fn initAtoms(self: *Object, elf_file: *Elf) !void {
         elf.SHT_REL, elf.SHT_RELA => {
             const atom_index = self.atoms.items[shdr.sh_info];
             if (elf_file.atom(atom_index)) |atom| {
-                atom.relocs_section_index = @as(u16, @intCast(i));
+                const relocs = try self.preadRelocsAlloc(allocator, handle, @intCast(i));
+                defer allocator.free(relocs);
+                atom.relocs_section_index = @intCast(i);
+                atom.rel_index = @intCast(self.relocs.items.len);
+                atom.rel_num = @intCast(relocs.len);
+                try self.relocs.appendUnalignedSlice(allocator, relocs);
             }
         },
         else => {},
     };
 }
 
-fn addAtom(self: *Object, shdr: ElfShdr, shndx: u16, elf_file: *Elf) error{OutOfMemory}!void {
+fn addAtom(self: *Object, allocator: Allocator, handle: std.fs.File, shdr: elf.Elf64_Shdr, shndx: u32, elf_file: *Elf) !void {
     const atom_index = try elf_file.addAtom();
     const atom = elf_file.atom(atom_index).?;
     atom.atom_index = atom_index;
@@ -237,7 +257,8 @@ fn addAtom(self: *Object, shdr: ElfShdr, shndx: u16, elf_file: *Elf) error{OutOf
     self.atoms.items[shndx] = atom_index;
 
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
-        const data = self.shdrContents(shndx);
+        const data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
+        defer allocator.free(data);
         const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
         atom.size = chdr.ch_size;
         atom.alignment = Alignment.fromNonzeroByteUnits(chdr.ch_addralign);
@@ -247,7 +268,7 @@ fn addAtom(self: *Object, shdr: ElfShdr, shndx: u16, elf_file: *Elf) error{OutOf
     }
 }
 
-fn initOutputSection(self: Object, elf_file: *Elf, shdr: ElfShdr) error{OutOfMemory}!u16 {
+fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u16 {
     const name = blk: {
         const name = self.getString(shdr.sh_name);
         if (elf_file.base.isRelocatable()) break :blk name;
@@ -310,12 +331,10 @@ fn skipShdr(self: *Object, index: u16, elf_file: *Elf) bool {
     return ignore;
 }
 
-fn initSymtab(self: *Object, elf_file: *Elf) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
+fn initSymtab(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
     const first_global = self.first_global orelse self.symtab.items.len;
 
-    try self.symbols.ensureTotalCapacityPrecise(gpa, self.symtab.items.len);
+    try self.symbols.ensureTotalCapacityPrecise(allocator, self.symtab.items.len);
 
     for (self.symtab.items[0..first_global], 0..) |sym, i| {
         const index = try elf_file.addSymbol();
@@ -335,19 +354,24 @@ fn initSymtab(self: *Object, elf_file: *Elf) !void {
     }
 }
 
-fn parseEhFrame(self: *Object, shndx: u16, elf_file: *Elf) !void {
+fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx: u32, elf_file: *Elf) !void {
     const relocs_shndx = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
-        elf.SHT_RELA => if (shdr.sh_info == shndx) break @as(u16, @intCast(i)),
+        elf.SHT_RELA => if (shdr.sh_info == shndx) break @as(u32, @intCast(i)),
         else => {},
     } else {
+        // TODO: convert into an error
         log.debug("{s}: missing reloc section for unwind info section", .{self.fmtPath()});
         return;
     };
 
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-    const raw = self.shdrContents(shndx);
-    const relocs = self.getRelocs(relocs_shndx);
+    const raw = try self.preadShdrContentsAlloc(allocator, handle, shndx);
+    defer allocator.free(raw);
+    const data_start = @as(u32, @intCast(self.eh_frame_data.items.len));
+    try self.eh_frame_data.appendSlice(allocator, raw);
+    const relocs = try self.preadRelocsAlloc(allocator, handle, relocs_shndx);
+    defer allocator.free(relocs);
+    const rel_start = @as(u32, @intCast(self.relocs.items.len));
+    try self.relocs.appendUnalignedSlice(allocator, relocs);
     const fdes_start = self.fdes.items.len;
     const cies_start = self.cies.items.len;
 
@@ -355,22 +379,20 @@ fn parseEhFrame(self: *Object, shndx: u16, elf_file: *Elf) !void {
     while (try it.next()) |rec| {
         const rel_range = filterRelocs(relocs, rec.offset, rec.size + 4);
         switch (rec.tag) {
-            .cie => try self.cies.append(gpa, .{
-                .offset = rec.offset,
+            .cie => try self.cies.append(allocator, .{
+                .offset = data_start + rec.offset,
                 .size = rec.size,
-                .rel_index = @as(u32, @intCast(rel_range.start)),
+                .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
                 .rel_num = @as(u32, @intCast(rel_range.len)),
-                .rel_section_index = relocs_shndx,
                 .input_section_index = shndx,
                 .file_index = self.index,
             }),
-            .fde => try self.fdes.append(gpa, .{
-                .offset = rec.offset,
+            .fde => try self.fdes.append(allocator, .{
+                .offset = data_start + rec.offset,
                 .size = rec.size,
                 .cie_index = undefined,
-                .rel_index = @as(u32, @intCast(rel_range.start)),
+                .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
                 .rel_num = @as(u32, @intCast(rel_range.len)),
-                .rel_section_index = relocs_shndx,
                 .input_section_index = shndx,
                 .file_index = self.index,
             }),
@@ -759,6 +781,12 @@ pub fn addAtomsToRelaSections(self: Object, elf_file: *Elf) !void {
     }
 }
 
+pub fn parseAr(self: *Object, elf_file: *Elf) !void {
+    const gpa = elf_file.base.comp.gpa;
+    const handle = elf_file.fileHandle(self.file_handle);
+    try self.parseCommon(gpa, handle, elf_file);
+}
+
 pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
@@ -773,21 +801,30 @@ pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, elf_file: *Elf
     }
 }
 
-pub fn updateArSize(self: *Object) void {
-    self.output_ar_state.size = self.data.len;
+pub fn updateArSize(self: *Object, elf_file: *Elf) !void {
+    const handle = elf_file.fileHandle(self.file_handle);
+    const size = (try handle.stat()).size;
+    self.output_ar_state.size = size;
 }
 
-pub fn writeAr(self: Object, writer: anytype) !void {
+pub fn writeAr(self: Object, elf_file: *Elf, writer: anytype) !void {
+    const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
     const name = self.path;
     const hdr = Archive.setArHdr(.{
         .name = if (name.len <= Archive.max_member_name_len)
             .{ .name = name }
         else
             .{ .name_off = self.output_ar_state.name_off },
-        .size = @intCast(self.data.len),
+        .size = size,
     });
     try writer.writeAll(mem.asBytes(&hdr));
-    try writer.writeAll(self.data);
+    const handle = elf_file.fileHandle(self.file_handle);
+    const gpa = elf_file.base.comp.gpa;
+    const data = try gpa.alloc(u8, size);
+    defer gpa.free(data);
+    const amt = try handle.preadAll(data, 0);
+    if (amt != size) return error.InputOutput;
+    try writer.writeAll(data);
 }
 
 pub fn updateSymtabSize(self: *Object, elf_file: *Elf) !void {
@@ -859,12 +896,6 @@ pub fn globals(self: Object) []const Symbol.Index {
     return self.symbols.items[start..];
 }
 
-pub fn shdrContents(self: Object, index: u32) []const u8 {
-    assert(index < self.shdrs.items.len);
-    const shdr = self.shdrs.items[index];
-    return self.data[shdr.sh_offset..][0..shdr.sh_size];
-}
-
 /// Returns atom's code and optionally uncompresses data if required (for compressed sections).
 /// Caller owns the memory.
 pub fn codeDecompressAlloc(self: Object, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
@@ -872,8 +903,11 @@ pub fn codeDecompressAlloc(self: Object, elf_file: *Elf, atom_index: Atom.Index)
     const gpa = comp.gpa;
     const atom_ptr = elf_file.atom(atom_index).?;
     assert(atom_ptr.file_index == self.index);
-    const data = self.shdrContents(atom_ptr.input_section_index);
     const shdr = atom_ptr.inputShdr(elf_file);
+    const handle = elf_file.fileHandle(self.file_handle);
+    const data = try self.preadShdrContentsAlloc(gpa, handle, atom_ptr.input_section_index);
+    defer if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) gpa.free(data);
+
     if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
         const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
         switch (chdr.ch_type) {
@@ -892,29 +926,35 @@ pub fn codeDecompressAlloc(self: Object, elf_file: *Elf, atom_index: Atom.Index)
             },
             else => @panic("TODO unhandled compression scheme"),
         }
-    } else return gpa.dupe(u8, data);
-}
+    }
 
-pub fn comdatGroupMembers(self: *Object, index: u16) []align(1) const u32 {
-    const raw = self.shdrContents(index);
-    const nmembers = @divExact(raw.len, @sizeOf(u32));
-    const members = @as([*]align(1) const u32, @ptrCast(raw.ptr))[1..nmembers];
-    return members;
+    return data;
 }
 
 pub fn asFile(self: *Object) File {
     return .{ .object = self };
 }
 
-pub fn getRelocs(self: *Object, shndx: u32) []align(1) const elf.Elf64_Rela {
-    const raw = self.shdrContents(shndx);
-    const num = @divExact(raw.len, @sizeOf(elf.Elf64_Rela));
-    return @as([*]align(1) const elf.Elf64_Rela, @ptrCast(raw.ptr))[0..num];
-}
-
 pub fn getString(self: Object, off: u32) [:0]const u8 {
     assert(off < self.strtab.items.len);
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
+}
+
+/// Caller owns the memory.
+fn preadShdrContentsAlloc(self: Object, allocator: Allocator, handle: std.fs.File, index: u32) ![]u8 {
+    assert(index < self.shdrs.items.len);
+    const offset = if (self.archive) |ar| ar.offset else 0;
+    const shdr = self.shdrs.items[index];
+    const sh_offset = math.cast(u64, shdr.sh_offset) orelse return error.Overflow;
+    const sh_size = math.cast(u64, shdr.sh_size) orelse return error.Overflow;
+    return Elf.preadAllAlloc(allocator, handle, offset + sh_offset, sh_size);
+}
+
+/// Caller owns the memory.
+fn preadRelocsAlloc(self: Object, allocator: Allocator, handle: std.fs.File, shndx: u32) ![]align(1) const elf.Elf64_Rela {
+    const raw = try self.preadShdrContentsAlloc(allocator, handle, shndx);
+    const num = @divExact(raw.len, @sizeOf(elf.Elf64_Rela));
+    return @as([*]align(1) const elf.Elf64_Rela, @ptrCast(raw.ptr))[0..num];
 }
 
 pub fn format(
@@ -1053,7 +1093,7 @@ fn formatComdatGroups(
         const cg_owner = elf_file.comdatGroupOwner(cg.owner);
         if (cg_owner.file != object.index) continue;
         try writer.print("    COMDAT({d})\n", .{cg_index});
-        const cg_members = object.comdatGroupMembers(cg.shndx);
+        const cg_members = cg.comdatGroupMembers(elf_file);
         for (cg_members) |shndx| {
             const atom_index = object.atoms.items[shndx];
             const atom = elf_file.atom(atom_index) orelse continue;
@@ -1074,40 +1114,17 @@ fn formatPath(
 ) !void {
     _ = unused_fmt_string;
     _ = options;
-    if (object.archive) |path| {
-        try writer.writeAll(path);
+    if (object.archive) |ar| {
+        try writer.writeAll(ar.path);
         try writer.writeByte('(');
         try writer.writeAll(object.path);
         try writer.writeByte(')');
     } else try writer.writeAll(object.path);
 }
 
-pub const ElfShdr = struct {
-    sh_name: u32,
-    sh_type: u32,
-    sh_flags: u64,
-    sh_addr: u64,
-    sh_offset: usize,
-    sh_size: usize,
-    sh_link: u32,
-    sh_info: u32,
-    sh_addralign: u64,
-    sh_entsize: u64,
-
-    pub fn fromElf64Shdr(shdr: elf.Elf64_Shdr) error{Overflow}!ElfShdr {
-        return .{
-            .sh_name = shdr.sh_name,
-            .sh_type = shdr.sh_type,
-            .sh_flags = shdr.sh_flags,
-            .sh_addr = shdr.sh_addr,
-            .sh_offset = math.cast(usize, shdr.sh_offset) orelse return error.Overflow,
-            .sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow,
-            .sh_link = shdr.sh_link,
-            .sh_info = shdr.sh_info,
-            .sh_addralign = shdr.sh_addralign,
-            .sh_entsize = shdr.sh_entsize,
-        };
-    }
+const InArchive = struct {
+    path: []const u8,
+    offset: u64,
 };
 
 const Object = @This();

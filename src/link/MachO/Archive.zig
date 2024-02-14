@@ -24,20 +24,18 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
     const handle = macho_file.getFileHandle(handle_index);
     const offset = if (fat_arch) |ar| ar.offset else 0;
     const size = if (fat_arch) |ar| ar.size else (try handle.stat()).size;
-    try handle.seekTo(offset);
 
-    const reader = handle.reader();
-    _ = try reader.readBytesNoEof(SARMAG);
-
-    var pos: usize = SARMAG;
+    var pos: usize = offset + SARMAG;
     while (true) {
         if (pos >= size) break;
-        if (!mem.isAligned(pos, 2)) {
-            try handle.seekBy(1);
-            pos += 1;
-        }
+        if (!mem.isAligned(pos, 2)) pos += 1;
 
-        const hdr = try reader.readStruct(ar_hdr);
+        var hdr_buffer: [@sizeOf(ar_hdr)]u8 = undefined;
+        {
+            const amt = try handle.preadAll(&hdr_buffer, pos);
+            if (amt != @sizeOf(ar_hdr)) return error.InputOutput;
+        }
+        const hdr = @as(*align(1) const ar_hdr, @ptrCast(&hdr_buffer)).*;
         pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
@@ -53,17 +51,15 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
             if (try hdr.nameLength()) |len| {
                 hdr_size -= len;
                 const buf = try arena.allocator().alloc(u8, len);
-                try reader.readNoEof(buf);
+                const amt = try handle.preadAll(buf, pos);
+                if (amt != len) return error.InputOutput;
                 pos += len;
                 const actual_len = mem.indexOfScalar(u8, buf, @as(u8, 0)) orelse len;
                 break :name buf[0..actual_len];
             }
             unreachable;
         };
-        defer {
-            _ = handle.seekBy(hdr_size) catch {};
-            pos += hdr_size;
-        }
+        defer pos += hdr_size;
 
         if (mem.eql(u8, name, SYMDEF) or
             mem.eql(u8, name, SYMDEF64) or
@@ -73,7 +69,7 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
         const object = Object{
             .archive = .{
                 .path = try gpa.dupe(u8, path),
-                .offset = offset + pos,
+                .offset = pos,
             },
             .path = try gpa.dupe(u8, name),
             .file_handle = handle_index,
