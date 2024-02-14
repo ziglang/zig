@@ -1153,14 +1153,15 @@ fn walkInstruction(
         },
         .closure_get => {
             const inst_node = data[@intFromEnum(inst)].inst_node;
-            return try self.walkInstruction(
-                file,
-                parent_scope,
-                parent_src,
-                inst_node.inst,
-                need_type,
-                call_ctx,
-            );
+
+            const code = try self.getBlockSource(file, parent_src, inst_node.src_node);
+            const idx = self.comptime_exprs.items.len;
+            try self.exprs.append(self.arena, .{ .comptimeExpr = idx });
+            try self.comptime_exprs.append(self.arena, .{ .code = code });
+
+            return DocData.WalkResult{
+                .expr = .{ .comptimeExpr = idx },
+            };
         },
         .closure_capture => {
             const un_tok = data[@intFromEnum(inst)].un_tok;
