@@ -21,6 +21,10 @@ const size = @sizeOf(CopyType);
 
 const small_limit = 256;
 
+comptime {
+    std.debug.assert(small_limit >= alignment);
+}
+
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
@@ -43,27 +47,27 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
     var s = src.?;
     var n = len;
 
-    // copy bytes until source is aligned
-    const alignment_offset = (alignment - @intFromPtr(s) % alignment) % alignment;
-    memcpy_remainder(alignment, d, s, alignment_offset);
+    // align source, this assumes small_limit >= alignment
+    d[0..size].* = s[0..size].*;
+    const alignment_offset = alignment - @intFromPtr(s) % alignment;
     n -= alignment_offset;
     d += alignment_offset;
     s += alignment_offset;
 
     if (@intFromPtr(d) % alignment == 0) {
         memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n);
-        return dest;
+    } else {
+        var vd: [*]align(1) CopyType = @ptrCast(d);
+        var vs: [*]const CopyType = @alignCast(@ptrCast(s));
+        while (n >= @sizeOf(CopyType)) {
+            vd[0] = vs[0];
+            vd += 1;
+            vs += 1;
+            n -= @sizeOf(CopyType);
+        }
     }
 
-    var vd: [*]align(1) CopyType = @ptrCast(d);
-    var vs: [*]const CopyType = @alignCast(@ptrCast(s));
-    while (n >= @sizeOf(CopyType)) {
-        vd[0] = vs[0];
-        vd += 1;
-        vs += 1;
-        n -= @sizeOf(CopyType);
-    }
-    memcpy_remainder(@sizeOf(CopyType), @ptrCast(vd), @ptrCast(vs), n);
+    dest.?[len - size ..][0..size].* = src.?[len - size ..][0..size].*;
 
     return dest;
 }
@@ -86,8 +90,6 @@ inline fn memcpy_aligned(
         d += 1;
         s += 1;
     }
-
-    memcpy_remainder(size, @ptrCast(d), @ptrCast(s), n);
 }
 
 inline fn memcpy_remainder(
