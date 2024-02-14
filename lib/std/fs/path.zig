@@ -1939,3 +1939,18 @@ test "ComponentIterator roots" {
         try std.testing.expectEqualStrings("//a/b//", it.root().?);
     }
 }
+
+/// Format a path encoded as bytes for display as UTF-8.
+/// Returns a Formatter for the given path. The path will be converted to valid UTF-8
+/// during formatting. This is a lossy conversion if the path contains any ill-formed UTF-8.
+/// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
+/// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
+/// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
+pub const fmtAsUtf8Lossy = std.unicode.fmtUtf8;
+
+/// Format a path encoded as WTF-16 LE for display as UTF-8.
+/// Return a Formatter for a (potentially ill-formed) UTF-16 LE path.
+/// The path will be converted to valid UTF-8 during formatting. This is
+/// a lossy conversion if the path contains any unpaired surrogates.
+/// Unpaired surrogates are replaced by the replacement character (U+FFFD).
+pub const fmtWtf16LeAsUtf8Lossy = std.unicode.fmtUtf16Le;
