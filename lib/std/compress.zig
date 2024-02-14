@@ -9,13 +9,6 @@ pub const flate = @import("compress/flate/root.zig").flate;
 pub const gzip = @import("compress/flate/root.zig").gzip;
 pub const zlib = @import("compress/flate/root.zig").zlib;
 
-// Version 1 interface
-pub const v1 = struct {
-    pub const deflate = @import("compress/deflate.zig");
-    pub const gzip = @import("compress/gzip.zig");
-    pub const zlib = @import("compress/zlib.zig");
-};
-
 pub fn HashedReader(
     comptime ReaderType: anytype,
     comptime HasherType: anytype,
@@ -77,12 +70,9 @@ pub fn hashedWriter(
 }
 
 test {
-    _ = v1.deflate;
-    _ = v1.gzip;
     _ = lzma;
     _ = lzma2;
     _ = xz;
-    _ = v1.zlib;
     _ = zstd;
     _ = flate;
     _ = gzip;
