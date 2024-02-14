@@ -195,7 +195,6 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
 
     try allocateAllocSections(elf_file);
     try elf_file.allocateNonAllocSections();
-    elf_file.allocateAtoms();
 
     if (build_options.enable_logging) {
         state_log.debug("{}", .{elf_file.dumpState()});

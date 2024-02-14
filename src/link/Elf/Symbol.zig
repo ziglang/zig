@@ -15,7 +15,7 @@ file_index: File.Index = 0,
 atom_index: Atom.Index = 0,
 
 /// Assigned output section index for this atom.
-output_section_index: u16 = 0,
+output_section_index: u32 = 0,
 
 /// Index of the source symbol this symbol references.
 /// Use `elfSym` to pull the source symbol from the relevant file.
@@ -37,7 +37,7 @@ pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
         file_ptr != .linker_defined;
 }
 
-pub fn outputShndx(symbol: Symbol) ?u16 {
+pub fn outputShndx(symbol: Symbol) ?u32 {
     if (symbol.output_section_index == 0) return null;
     return symbol.output_section_index;
 }
@@ -103,6 +103,9 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
         }
         // Lazy-bound function it is!
         return symbol.pltAddress(elf_file);
+    }
+    if (symbol.atom(elf_file)) |atom_ptr| {
+        return atom_ptr.address(elf_file) + symbol.value;
     }
     return symbol.value;
 }
@@ -234,12 +237,12 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         if (file_ptr == .shared_object) break :blk elf.STB_GLOBAL;
         break :blk esym.st_bind();
     };
-    const st_shndx = blk: {
-        if (symbol.flags.has_copy_rel) break :blk elf_file.copy_rel_section_index.?;
+    const st_shndx: u16 = blk: {
+        if (symbol.flags.has_copy_rel) break :blk @intCast(elf_file.copy_rel_section_index.?);
         if (file_ptr == .shared_object or esym.st_shndx == elf.SHN_UNDEF) break :blk elf.SHN_UNDEF;
         if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
-        break :blk symbol.outputShndx() orelse elf.SHN_UNDEF;
+        break :blk @intCast(symbol.outputShndx() orelse elf.SHN_UNDEF);
     };
     const st_value = blk: {
         if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);
@@ -247,11 +250,11 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.value;
+        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
         const shdr = &elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
-            break :blk symbol.value - elf_file.tlsAddress();
-        break :blk symbol.value;
+            break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
+        break :blk symbol.address(.{ .plt = false }, elf_file);
     };
     out.st_info = (st_bind << 4) | st_type;
     out.st_other = esym.st_other;
@@ -323,7 +326,11 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
-    try writer.print("%{d} : {s} : @{x}", .{ symbol.esym_index, symbol.fmtName(ctx.elf_file), symbol.value });
+    try writer.print("%{d} : {s} : @{x}", .{
+        symbol.esym_index,
+        symbol.fmtName(ctx.elf_file),
+        symbol.address(.{}, ctx.elf_file),
+    });
     if (symbol.file(ctx.elf_file)) |file_ptr| {
         if (symbol.isAbs(ctx.elf_file)) {
             if (symbol.elfSym(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {

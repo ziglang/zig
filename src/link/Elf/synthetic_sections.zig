@@ -297,7 +297,7 @@ pub const ZigGotSection = struct {
         const off = zig_got.entryOffset(index, elf_file);
         const vaddr = zig_got.entryAddress(index, elf_file);
         const entry = zig_got.entries.items[index];
-        const value = elf_file.symbol(entry).value;
+        const value = elf_file.symbol(entry).address(.{}, elf_file);
         switch (entry_size) {
             2 => {
                 var buf: [2]u8 = undefined;
@@ -388,7 +388,7 @@ pub const ZigGotSection = struct {
                 .st_name = st_name,
                 .st_info = elf.STT_OBJECT,
                 .st_other = 0,
-                .st_shndx = elf_file.zig_got_section_index.?,
+                .st_shndx = @intCast(elf_file.zig_got_section_index.?),
                 .st_value = st_value,
                 .st_size = st_size,
             };
@@ -813,7 +813,7 @@ pub const GotSection = struct {
                 .st_name = st_name,
                 .st_info = elf.STT_OBJECT,
                 .st_other = 0,
-                .st_shndx = elf_file.got_section_index.?,
+                .st_shndx = @intCast(elf_file.got_section_index.?),
                 .st_value = st_value,
                 .st_size = st_size,
             };
@@ -953,7 +953,7 @@ pub const PltSection = struct {
                 .st_name = st_name,
                 .st_info = elf.STT_FUNC,
                 .st_other = 0,
-                .st_shndx = elf_file.plt_section_index.?,
+                .st_shndx = @intCast(elf_file.plt_section_index.?),
                 .st_value = sym.pltAddress(elf_file),
                 .st_size = 16,
             };
@@ -1004,7 +1004,7 @@ pub const GotPltSection = struct {
         {
             // [0]: _DYNAMIC
             const symbol = elf_file.symbol(elf_file.dynamic_index.?);
-            try writer.writeInt(u64, symbol.value, .little);
+            try writer.writeInt(u64, symbol.address(.{}, elf_file), .little);
         }
         // [1]: 0x0
         // [2]: 0x0
@@ -1082,7 +1082,7 @@ pub const PltGotSection = struct {
                 .st_name = st_name,
                 .st_info = elf.STT_FUNC,
                 .st_other = 0,
-                .st_shndx = elf_file.plt_got_section_index.?,
+                .st_shndx = @intCast(elf_file.plt_got_section_index.?),
                 .st_value = sym.pltGotAddress(elf_file),
                 .st_size = 16,
             };
@@ -1132,7 +1132,7 @@ pub const CopyRelSection = struct {
         }
     }
 
-    pub fn updateSectionSize(copy_rel: CopyRelSection, shndx: u16, elf_file: *Elf) !void {
+    pub fn updateSectionSize(copy_rel: CopyRelSection, shndx: u32, elf_file: *Elf) !void {
         const shdr = &elf_file.shdrs.items[shndx];
         for (copy_rel.symbols.items) |sym_index| {
             const symbol = elf_file.symbol(sym_index);
