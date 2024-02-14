@@ -7276,7 +7276,20 @@ fn packedLoad(self: *Self, dst_mcv: MCValue, ptr_ty: Type, ptr_mcv: MCValue) Inn
         else => |vector_index| @intFromEnum(vector_index) * val_bit_size,
     };
     if (ptr_bit_off % 8 == 0) {
-        try self.load(dst_mcv, ptr_ty, ptr_mcv.offset(@intCast(@divExact(ptr_bit_off, 8))));
+        {
+            const mat_ptr_mcv: MCValue = switch (ptr_mcv) {
+                .immediate, .register, .register_offset, .lea_frame => ptr_mcv,
+                else => .{ .register = try self.copyToTmpRegister(ptr_ty, ptr_mcv) },
+            };
+            const mat_ptr_lock = switch (mat_ptr_mcv) {
+                .register => |mat_ptr_reg| self.register_manager.lockReg(mat_ptr_reg),
+                else => null,
+            };
+            defer if (mat_ptr_lock) |lock| self.register_manager.unlockReg(lock);
+
+            try self.load(dst_mcv, ptr_ty, mat_ptr_mcv.offset(@intCast(@divExact(ptr_bit_off, 8))));
+        }
+
         if (val_abi_size * 8 > val_bit_size) {
             if (dst_mcv.isRegister()) {
                 try self.truncateRegister(val_ty, dst_mcv.getReg().?);
