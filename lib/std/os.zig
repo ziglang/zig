@@ -132,6 +132,7 @@ pub const STDOUT_FILENO = system.STDOUT_FILENO;
 pub const SYS = system.SYS;
 pub const Sigaction = system.Sigaction;
 pub const Stat = system.Stat;
+pub const T = system.T;
 pub const TCSA = system.TCSA;
 pub const TCP = system.TCP;
 pub const VDSO = system.VDSO;
@@ -181,6 +182,7 @@ pub const ucontext_t = system.ucontext_t;
 pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
+pub const winsize = system.winsize;
 
 pub const termios = system.termios;
 pub const CSIZE = system.CSIZE;

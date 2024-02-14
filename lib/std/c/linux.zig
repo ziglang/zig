@@ -48,6 +48,7 @@ pub const STDIN_FILENO = linux.STDIN_FILENO;
 pub const STDOUT_FILENO = linux.STDOUT_FILENO;
 pub const SYS = linux.SYS;
 pub const Sigaction = linux.Sigaction;
+pub const T = linux.T;
 pub const TCP = linux.TCP;
 pub const TCSA = linux.TCSA;
 pub const VDSO = linux.VDSO;
@@ -93,6 +94,7 @@ pub const ucontext_t = linux.ucontext_t;
 pub const uid_t = linux.uid_t;
 pub const user_desc = linux.user_desc;
 pub const utsname = linux.utsname;
+pub const winsize = linux.winsize;
 pub const PR = linux.PR;
 
 pub const _errno = switch (native_abi) {
