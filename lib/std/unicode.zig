@@ -239,18 +239,19 @@ pub fn utf8ValidateSlice(input: []const u8) bool {
 fn utf8ValidateSliceImpl(input: []const u8, comptime surrogates: Surrogates) bool {
     var remaining = input;
 
-    const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
-    const Chunk = @Vector(chunk_len, u8);
+    if (std.simd.suggestVectorLength(u8)) |chunk_len| {
+        const Chunk = @Vector(chunk_len, u8);
 
-    // Fast path. Check for and skip ASCII characters at the start of the input.
-    while (remaining.len >= chunk_len) {
-        const chunk: Chunk = remaining[0..chunk_len].*;
-        const mask: Chunk = @splat(0x80);
-        if (@reduce(.Or, chunk & mask == mask)) {
-            // found a non ASCII byte
-            break;
+        // Fast path. Check for and skip ASCII characters at the start of the input.
+        while (remaining.len >= chunk_len) {
+            const chunk: Chunk = remaining[0..chunk_len].*;
+            const mask: Chunk = @splat(0x80);
+            if (@reduce(.Or, chunk & mask == mask)) {
+                // found a non ASCII byte
+                break;
+            }
+            remaining = remaining[chunk_len..];
         }
-        remaining = remaining[chunk_len..];
     }
 
     // default lowest and highest continuation byte
@@ -937,8 +938,11 @@ fn utf16LeToUtf8ArrayListImpl(
     try array_list.ensureTotalCapacityPrecise(utf16le.len);
 
     var remaining = utf16le;
-    if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
+    if (builtin.zig_backend != .stage2_x86_64 or
+        comptime (std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3) and
+        !std.Target.x86.featureSetHasAny(builtin.cpu.features, .{ .prefer_256_bit, .avx })))
+    vectorized: {
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse break :vectorized;
         const Chunk = @Vector(chunk_len, u16);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -1029,8 +1033,11 @@ fn utf16LeToUtf8Impl(utf8: []u8, utf16le: []const u16, comptime surrogates: Surr
     var end_index: usize = 0;
 
     var remaining = utf16le;
-    if (builtin.zig_backend != .stage2_x86_64) {
-        const chunk_len = std.simd.suggestVectorLength(u16) orelse 1;
+    if (builtin.zig_backend != .stage2_x86_64 or
+        comptime (std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3) and
+        !std.Target.x86.featureSetHasAny(builtin.cpu.features, .{ .prefer_256_bit, .avx })))
+    vectorized: {
+        const chunk_len = std.simd.suggestVectorLength(u16) orelse break :vectorized;
         const Chunk = @Vector(chunk_len, u16);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -1155,8 +1162,12 @@ fn utf8ToUtf16LeArrayListImpl(array_list: *std.ArrayList(u16), utf8: []const u8,
 
     var remaining = utf8;
     // Need support for std.simd.interlace
-    if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
-        const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
+    if ((builtin.zig_backend != .stage2_x86_64 or
+        comptime (std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3) and
+        !std.Target.x86.featureSetHasAny(builtin.cpu.features, .{ .prefer_256_bit, .avx }))) and
+        comptime !builtin.cpu.arch.isMIPS())
+    vectorized: {
+        const chunk_len = @divExact(std.simd.suggestVectorLength(u8) orelse break :vectorized, 2);
         const Chunk = @Vector(chunk_len, u8);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.
@@ -1232,8 +1243,12 @@ pub fn utf8ToUtf16LeImpl(utf16le: []u16, utf8: []const u8, comptime surrogates: 
 
     var remaining = utf8;
     // Need support for std.simd.interlace
-    if (builtin.zig_backend != .stage2_x86_64 and comptime !builtin.cpu.arch.isMIPS()) {
-        const chunk_len = std.simd.suggestVectorLength(u8) orelse 1;
+    if ((builtin.zig_backend != .stage2_x86_64 or
+        comptime (std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3) and
+        !std.Target.x86.featureSetHasAny(builtin.cpu.features, .{ .prefer_256_bit, .avx }))) and
+        comptime !builtin.cpu.arch.isMIPS())
+    vectorized: {
+        const chunk_len = @divExact(std.simd.suggestVectorLength(u8) orelse break :vectorized, 2);
         const Chunk = @Vector(chunk_len, u8);
 
         // Fast path. Check for and encode ASCII characters at the start of the input.

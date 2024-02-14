@@ -1286,5 +1286,6 @@ test "hasUniqueRepresentation" {
     try testing.expect(!hasUniqueRepresentation([]u8));
     try testing.expect(!hasUniqueRepresentation([]const u8));
 
-    try testing.expect(hasUniqueRepresentation(@Vector(4, u16)));
+    try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
+    try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
 }

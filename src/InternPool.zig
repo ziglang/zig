@@ -3587,6 +3587,7 @@ pub const Alignment = enum(u6) {
     @"8" = 3,
     @"16" = 4,
     @"32" = 5,
+    @"64" = 6,
     none = std.math.maxInt(u6),
     _,
 

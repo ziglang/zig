@@ -324,7 +324,7 @@ pub const Mnemonic = enum {
     // SSE3
     movddup, movshdup, movsldup,
     // SSSE3
-    pabsb, pabsd, pabsw, palignr,
+    pabsb, pabsd, pabsw, palignr, pshufb,
     // SSE4.1
     blendpd, blendps, blendvpd, blendvps,
     extractps,
@@ -389,7 +389,7 @@ pub const Mnemonic = enum {
     vpmovmskb,
     vpmulhw, vpmulld, vpmullw,
     vpor,
-    vpshufd, vpshufhw, vpshuflw,
+    vpshufb, vpshufd, vpshufhw, vpshuflw,
     vpslld, vpslldq, vpsllq, vpsllw,
     vpsrad, vpsraq, vpsraw,
     vpsrld, vpsrldq, vpsrlq, vpsrlw,

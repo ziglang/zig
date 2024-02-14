@@ -2610,7 +2610,8 @@ fn restoreState(self: *Self, state: State, deaths: []const Air.Inst.Index, compt
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).Array.len]RegisterLock;
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
-        if (opts.update_tracking) ({}) else std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+        if (opts.update_tracking)
+    {} else std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
 
     var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
         stack.get(),
@@ -14116,30 +14117,8 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                     else => {},
                 },
                 .Int => switch (ty.childType(mod).intInfo(mod).bits) {
-                    8 => switch (ty.vectorLen(mod)) {
-                        1 => if (self.hasFeature(.avx)) return .{ .vex_insert_extract = .{
-                            .insert = .{ .vp_b, .insr },
-                            .extract = .{ .vp_b, .extr },
-                        } } else if (self.hasFeature(.sse4_2)) return .{ .insert_extract = .{
-                            .insert = .{ .p_b, .insr },
-                            .extract = .{ .p_b, .extr },
-                        } },
-                        2 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
-                            .insert = .{ .vp_w, .insr },
-                            .extract = .{ .vp_w, .extr },
-                        } } else .{ .insert_extract = .{
-                            .insert = .{ .p_w, .insr },
-                            .extract = .{ .p_w, .extr },
-                        } },
-                        3...4 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_d, .mov }
-                        else
-                            .{ ._d, .mov } },
-                        5...8 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_q, .mov }
-                        else
-                            .{ ._q, .mov } },
-                        9...16 => return .{ .move = if (self.hasFeature(.avx))
+                    1...8 => switch (ty.vectorLen(mod)) {
+                        1...16 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
                         else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                         17...32 => if (self.hasFeature(.avx))
@@ -14149,23 +14128,8 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                                 .{ .v_, .movdqu } },
                         else => {},
                     },
-                    16 => switch (ty.vectorLen(mod)) {
-                        1 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
-                            .insert = .{ .vp_w, .insr },
-                            .extract = .{ .vp_w, .extr },
-                        } } else .{ .insert_extract = .{
-                            .insert = .{ .p_w, .insr },
-                            .extract = .{ .p_w, .extr },
-                        } },
-                        2 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_d, .mov }
-                        else
-                            .{ ._d, .mov } },
-                        3...4 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_q, .mov }
-                        else
-                            .{ ._q, .mov } },
-                        5...8 => return .{ .move = if (self.hasFeature(.avx))
+                    9...16 => switch (ty.vectorLen(mod)) {
+                        1...8 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
                         else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                         9...16 => if (self.hasFeature(.avx))
@@ -14175,16 +14139,8 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                                 .{ .v_, .movdqu } },
                         else => {},
                     },
-                    32 => switch (ty.vectorLen(mod)) {
-                        1 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_d, .mov }
-                        else
-                            .{ ._d, .mov } },
-                        2 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_q, .mov }
-                        else
-                            .{ ._q, .mov } },
-                        3...4 => return .{ .move = if (self.hasFeature(.avx))
+                    17...32 => switch (ty.vectorLen(mod)) {
+                        1...4 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
                         else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                         5...8 => if (self.hasFeature(.avx))
@@ -14194,12 +14150,8 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                                 .{ .v_, .movdqu } },
                         else => {},
                     },
-                    64 => switch (ty.vectorLen(mod)) {
-                        1 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_q, .mov }
-                        else
-                            .{ ._q, .mov } },
-                        2 => return .{ .move = if (self.hasFeature(.avx))
+                    33...64 => switch (ty.vectorLen(mod)) {
+                        1...2 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
                         else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                         3...4 => if (self.hasFeature(.avx))
@@ -14209,7 +14161,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                                 .{ .v_, .movdqu } },
                         else => {},
                     },
-                    128 => switch (ty.vectorLen(mod)) {
+                    65...128 => switch (ty.vectorLen(mod)) {
                         1 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
                         else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
@@ -14220,7 +14172,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                                 .{ .v_, .movdqu } },
                         else => {},
                     },
-                    256 => switch (ty.vectorLen(mod)) {
+                    129...256 => switch (ty.vectorLen(mod)) {
                         1 => if (self.hasFeature(.avx))
                             return .{ .move = if (aligned)
                                 .{ .v_, .movdqa }
@@ -14232,11 +14184,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                 },
                 .Pointer, .Optional => if (ty.childType(mod).isPtrAtRuntime(mod))
                     switch (ty.vectorLen(mod)) {
-                        1 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_q, .mov }
-                        else
-                            .{ ._q, .mov } },
-                        2 => return .{ .move = if (self.hasFeature(.avx))
+                        1...2 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
                         else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                         3...4 => if (self.hasFeature(.avx))
@@ -14250,22 +14198,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                     unreachable,
                 .Float => switch (ty.childType(mod).floatBits(self.target.*)) {
                     16 => switch (ty.vectorLen(mod)) {
-                        1 => return if (self.hasFeature(.avx)) .{ .vex_insert_extract = .{
-                            .insert = .{ .vp_w, .insr },
-                            .extract = .{ .vp_w, .extr },
-                        } } else .{ .insert_extract = .{
-                            .insert = .{ .p_w, .insr },
-                            .extract = .{ .p_w, .extr },
-                        } },
-                        2 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_d, .mov }
-                        else
-                            .{ ._d, .mov } },
-                        3...4 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_q, .mov }
-                        else
-                            .{ ._q, .mov } },
-                        5...8 => return .{ .move = if (self.hasFeature(.avx))
+                        1...8 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_, .movdqa } else .{ .v_, .movdqu }
                         else if (aligned) .{ ._, .movdqa } else .{ ._, .movdqu } },
                         9...16 => if (self.hasFeature(.avx))
@@ -14276,15 +14209,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                         else => {},
                     },
                     32 => switch (ty.vectorLen(mod)) {
-                        1 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_ss, .mov }
-                        else
-                            .{ ._ss, .mov } },
-                        2 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_sd, .mov }
-                        else
-                            .{ ._sd, .mov } },
-                        3...4 => return .{ .move = if (self.hasFeature(.avx))
+                        1...4 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_ps, .mova } else .{ .v_ps, .movu }
                         else if (aligned) .{ ._ps, .mova } else .{ ._ps, .movu } },
                         5...8 => if (self.hasFeature(.avx))
@@ -14295,11 +14220,7 @@ fn moveStrategy(self: *Self, ty: Type, class: Register.Class, aligned: bool) !Mo
                         else => {},
                     },
                     64 => switch (ty.vectorLen(mod)) {
-                        1 => return .{ .move = if (self.hasFeature(.avx))
-                            .{ .v_sd, .mov }
-                        else
-                            .{ ._sd, .mov } },
-                        2 => return .{ .move = if (self.hasFeature(.avx))
+                        1...2 => return .{ .move = if (self.hasFeature(.avx))
                             if (aligned) .{ .v_pd, .mova } else .{ .v_pd, .movu }
                         else if (aligned) .{ ._pd, .mova } else .{ ._pd, .movu } },
                         3...4 => if (self.hasFeature(.avx))
@@ -16551,7 +16472,7 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
     const vec_len = ty.vectorLen(mod);
     const elem_ty = ty.childType(mod);
     const elem_abi_size: u32 = @intCast(elem_ty.abiSize(mod));
-    const abi_size = elem_abi_size * vec_len;
+    const abi_size: u32 = @intCast(ty.abiSize(mod));
     const pred_ty = self.typeOf(pl_op.operand);
 
     const result = result: {
@@ -16882,10 +16803,283 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.comp.module.?;
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    _ = ty_pl;
-    return self.fail("TODO implement airShuffle for x86_64", .{});
-    //return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+    const extra = self.air.extraData(Air.Shuffle, ty_pl.payload).data;
+
+    const dst_ty = self.typeOfIndex(inst);
+    const elem_ty = dst_ty.childType(mod);
+    const elem_abi_size: u32 = @intCast(elem_ty.abiSize(mod));
+    const dst_abi_size: u32 = @intCast(dst_ty.abiSize(mod));
+    const lhs_ty = self.typeOf(extra.a);
+    const lhs_abi_size: u32 = @intCast(lhs_ty.abiSize(mod));
+    const rhs_ty = self.typeOf(extra.b);
+    const rhs_abi_size: u32 = @intCast(rhs_ty.abiSize(mod));
+    const max_abi_size = @max(dst_abi_size, lhs_abi_size, rhs_abi_size);
+
+    const ExpectedContents = [32]?i32;
+    var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
+        std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+    const allocator = stack.get();
+
+    const mask_elems = try allocator.alloc(?i32, extra.mask_len);
+    defer allocator.free(mask_elems);
+    for (mask_elems, 0..) |*mask_elem, elem_index| {
+        const mask_elem_val = Value
+            .fromInterned(extra.mask).elemValue(mod, elem_index) catch unreachable;
+        mask_elem.* = if (mask_elem_val.isUndef(mod))
+            null
+        else
+            @intCast(mask_elem_val.toSignedInt(mod));
+    }
+
+    const result = @as(?MCValue, result: {
+        for (mask_elems) |mask_elem| {
+            if (mask_elem) |_| break;
+        } else break :result try self.allocRegOrMem(inst, true);
+
+        for (mask_elems, 0..) |mask_elem, elem_index| {
+            if (mask_elem orelse continue != @as(i32, @intCast(elem_index))) break;
+        } else {
+            const lhs_mcv = try self.resolveInst(extra.a);
+            if (self.reuseOperand(inst, extra.a, 0, lhs_mcv)) break :result lhs_mcv;
+            const dst_mcv = try self.allocRegOrMem(inst, true);
+            try self.genCopy(dst_ty, dst_mcv, lhs_mcv, .{});
+            break :result dst_mcv;
+        }
+
+        for (mask_elems, 0..) |mask_elem, elem_index| {
+            if (mask_elem orelse continue != ~@as(i32, @intCast(elem_index))) break;
+        } else {
+            const rhs_mcv = try self.resolveInst(extra.b);
+            if (self.reuseOperand(inst, extra.b, 1, rhs_mcv)) break :result rhs_mcv;
+            const dst_mcv = try self.allocRegOrMem(inst, true);
+            try self.genCopy(dst_ty, dst_mcv, rhs_mcv, .{});
+            break :result dst_mcv;
+        }
+
+        const has_avx = self.hasFeature(.avx);
+        shufpd: {
+            if (elem_abi_size != 8) break :shufpd;
+            if (max_abi_size > @as(u32, if (has_avx) 32 else 16)) break :shufpd;
+
+            var control: u4 = 0b0_0_0_0;
+            var sources = [1]?u1{null} ** 2;
+            for (mask_elems, 0..) |maybe_mask_elem, elem_index| {
+                const mask_elem = maybe_mask_elem orelse continue;
+                const mask_elem_index: u2 = @intCast(if (mask_elem < 0) ~mask_elem else mask_elem);
+                if (mask_elem_index & 0b10 != elem_index & 0b10) break :shufpd;
+
+                const source = @intFromBool(mask_elem < 0);
+                if (sources[elem_index & 0b01]) |prev_source| {
+                    if (source != prev_source) break :shufpd;
+                } else sources[elem_index & 0b01] = source;
+
+                control |= @as(u4, @intCast(mask_elem_index & 0b01)) << @intCast(elem_index);
+            }
+            if (sources[0] orelse break :shufpd == sources[1] orelse break :shufpd) break :shufpd;
+
+            const operands = [2]Air.Inst.Ref{ extra.a, extra.b };
+            const operand_tys = [2]Type{ lhs_ty, rhs_ty };
+            const lhs_mcv = try self.resolveInst(operands[sources[0].?]);
+            const rhs_mcv = try self.resolveInst(operands[sources[1].?]);
+
+            const dst_mcv: MCValue = if (lhs_mcv.isRegister() and
+                self.reuseOperand(inst, operands[sources[0].?], sources[0].?, lhs_mcv))
+                lhs_mcv
+            else if (has_avx and lhs_mcv.isRegister())
+                .{ .register = try self.register_manager.allocReg(inst, abi.RegisterClass.sse) }
+            else
+                try self.copyToRegisterWithInstTracking(inst, operand_tys[sources[0].?], lhs_mcv);
+            const dst_reg = dst_mcv.getReg().?;
+            const dst_alias = registerAlias(dst_reg, max_abi_size);
+
+            if (has_avx) if (rhs_mcv.isMemory()) try self.asmRegisterRegisterMemoryImmediate(
+                .{ .v_pd, .shuf },
+                dst_alias,
+                registerAlias(lhs_mcv.getReg() orelse dst_reg, max_abi_size),
+                try rhs_mcv.mem(self, Memory.Size.fromSize(max_abi_size)),
+                Immediate.u(control),
+            ) else try self.asmRegisterRegisterRegisterImmediate(
+                .{ .v_pd, .shuf },
+                dst_alias,
+                registerAlias(lhs_mcv.getReg() orelse dst_reg, max_abi_size),
+                registerAlias(if (rhs_mcv.isRegister())
+                    rhs_mcv.getReg().?
+                else
+                    try self.copyToTmpRegister(operand_tys[sources[1].?], rhs_mcv), max_abi_size),
+                Immediate.u(control),
+            ) else if (rhs_mcv.isMemory()) try self.asmRegisterMemoryImmediate(
+                .{ ._pd, .shuf },
+                dst_alias,
+                try rhs_mcv.mem(self, Memory.Size.fromSize(max_abi_size)),
+                Immediate.u(control),
+            ) else try self.asmRegisterRegisterImmediate(
+                .{ ._pd, .shuf },
+                dst_alias,
+                registerAlias(if (rhs_mcv.isRegister())
+                    rhs_mcv.getReg().?
+                else
+                    try self.copyToTmpRegister(operand_tys[sources[1].?], rhs_mcv), max_abi_size),
+                Immediate.u(control),
+            );
+            break :result dst_mcv;
+        }
+
+        pshufb: {
+            if (max_abi_size > 16) break :pshufb;
+            if (!self.hasFeature(.ssse3)) break :pshufb;
+
+            const temp_regs =
+                try self.register_manager.allocRegs(2, .{ inst, null }, abi.RegisterClass.sse);
+            const temp_locks = self.register_manager.lockRegsAssumeUnused(2, temp_regs);
+            defer for (temp_locks) |lock| self.register_manager.unlockReg(lock);
+
+            const lhs_temp_alias = registerAlias(temp_regs[0], max_abi_size);
+            try self.genSetReg(temp_regs[0], lhs_ty, .{ .air_ref = extra.a }, .{});
+
+            const rhs_temp_alias = registerAlias(temp_regs[1], max_abi_size);
+            try self.genSetReg(temp_regs[1], rhs_ty, .{ .air_ref = extra.b }, .{});
+
+            var lhs_mask_elems: [16]InternPool.Index = undefined;
+            for (lhs_mask_elems[0..max_abi_size], 0..) |*lhs_mask_elem, byte_index| {
+                const elem_index = byte_index / elem_abi_size;
+                lhs_mask_elem.* = try mod.intern(.{ .int = .{
+                    .ty = .u8_type,
+                    .storage = .{ .u64 = if (elem_index >= mask_elems.len) 0b1_00_00000 else elem: {
+                        const mask_elem = mask_elems[elem_index] orelse break :elem 0b1_00_00000;
+                        if (mask_elem < 0) break :elem 0b1_00_00000;
+                        const mask_elem_index: u31 = @intCast(mask_elem);
+                        const byte_off: u32 = @intCast(byte_index % elem_abi_size);
+                        break :elem @intCast(mask_elem_index * elem_abi_size + byte_off);
+                    } },
+                } });
+            }
+            const lhs_mask_ty = try mod.vectorType(.{ .len = max_abi_size, .child = .u8_type });
+            const lhs_mask_mcv = try self.genTypedValue(.{
+                .ty = lhs_mask_ty,
+                .val = Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                    .ty = lhs_mask_ty.toIntern(),
+                    .storage = .{ .elems = lhs_mask_elems[0..max_abi_size] },
+                } })),
+            });
+            const lhs_mask_mem: Memory = .{
+                .base = .{ .reg = try self.copyToTmpRegister(Type.usize, lhs_mask_mcv.address()) },
+                .mod = .{ .rm = .{ .size = Memory.Size.fromSize(@max(max_abi_size, 16)) } },
+            };
+            if (has_avx) try self.asmRegisterRegisterMemory(
+                .{ .vp_b, .shuf },
+                lhs_temp_alias,
+                lhs_temp_alias,
+                lhs_mask_mem,
+            ) else try self.asmRegisterMemory(
+                .{ .p_b, .shuf },
+                lhs_temp_alias,
+                lhs_mask_mem,
+            );
+
+            var rhs_mask_elems: [16]InternPool.Index = undefined;
+            for (rhs_mask_elems[0..max_abi_size], 0..) |*rhs_mask_elem, byte_index| {
+                const elem_index = byte_index / elem_abi_size;
+                rhs_mask_elem.* = try mod.intern(.{ .int = .{
+                    .ty = .u8_type,
+                    .storage = .{ .u64 = if (elem_index >= mask_elems.len) 0b1_00_00000 else elem: {
+                        const mask_elem = mask_elems[elem_index] orelse break :elem 0b1_00_00000;
+                        if (mask_elem >= 0) break :elem 0b1_00_00000;
+                        const mask_elem_index: u31 = @intCast(~mask_elem);
+                        const byte_off: u32 = @intCast(byte_index % elem_abi_size);
+                        break :elem @intCast(mask_elem_index * elem_abi_size + byte_off);
+                    } },
+                } });
+            }
+            const rhs_mask_ty = try mod.vectorType(.{ .len = max_abi_size, .child = .u8_type });
+            const rhs_mask_mcv = try self.genTypedValue(.{
+                .ty = rhs_mask_ty,
+                .val = Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                    .ty = rhs_mask_ty.toIntern(),
+                    .storage = .{ .elems = rhs_mask_elems[0..max_abi_size] },
+                } })),
+            });
+            const rhs_mask_mem: Memory = .{
+                .base = .{ .reg = try self.copyToTmpRegister(Type.usize, rhs_mask_mcv.address()) },
+                .mod = .{ .rm = .{ .size = Memory.Size.fromSize(@max(max_abi_size, 16)) } },
+            };
+            if (has_avx) try self.asmRegisterRegisterMemory(
+                .{ .vp_b, .shuf },
+                rhs_temp_alias,
+                rhs_temp_alias,
+                rhs_mask_mem,
+            ) else try self.asmRegisterMemory(
+                .{ .p_b, .shuf },
+                rhs_temp_alias,
+                rhs_mask_mem,
+            );
+
+            if (has_avx) try self.asmRegisterRegisterRegister(
+                .{ switch (elem_ty.zigTypeTag(mod)) {
+                    else => break :result null,
+                    .Int => .vp_,
+                    .Float => switch (elem_ty.floatBits(self.target.*)) {
+                        32 => .v_ps,
+                        64 => .v_pd,
+                        16, 80, 128 => break :result null,
+                        else => unreachable,
+                    },
+                }, .@"or" },
+                lhs_temp_alias,
+                lhs_temp_alias,
+                rhs_temp_alias,
+            ) else try self.asmRegisterRegister(
+                .{ switch (elem_ty.zigTypeTag(mod)) {
+                    else => break :result null,
+                    .Int => .p_,
+                    .Float => switch (elem_ty.floatBits(self.target.*)) {
+                        32 => ._ps,
+                        64 => ._pd,
+                        16, 80, 128 => break :result null,
+                        else => unreachable,
+                    },
+                }, .@"or" },
+                lhs_temp_alias,
+                rhs_temp_alias,
+            );
+            break :result .{ .register = temp_regs[0] };
+        }
+
+        if (max_abi_size <= 16) {
+            const lhs_mcv = try self.resolveInst(extra.a);
+            const lhs_reg = if (lhs_mcv.isRegister())
+                lhs_mcv.getReg().?
+            else
+                try self.copyToTmpRegister(lhs_ty, lhs_mcv);
+            const lhs_lock = self.register_manager.lockRegAssumeUnused(lhs_reg);
+            defer self.register_manager.unlockReg(lhs_lock);
+
+            const rhs_mcv = try self.resolveInst(extra.b);
+            const rhs_reg = if (rhs_mcv.isRegister())
+                rhs_mcv.getReg().?
+            else
+                try self.copyToTmpRegister(rhs_ty, rhs_mcv);
+            const rhs_lock = self.register_manager.lockReg(rhs_reg);
+            defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+            //const dst_mcv = try self.register_manager.allocReg(inst, abi.RegisterClass.sse);
+            switch (elem_ty.zigTypeTag(mod)) {
+                .Float => switch (elem_ty.floatBits(self.target.*)) {
+                    16, 32 => {},
+                    64 => unreachable, // fully handled by shufpd
+                    80, 128 => unreachable, // all possible masks already handled
+                    else => unreachable,
+                },
+                else => {},
+            }
+        }
+
+        break :result null;
+    }) orelse return self.fail("TODO implement airShuffle from {} and {} to {}", .{
+        lhs_ty.fmt(mod), rhs_ty.fmt(mod), dst_ty.fmt(mod),
+    });
+    return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }
 
 fn airReduce(self: *Self, inst: Air.Inst.Index) !void {
@@ -17062,7 +17256,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
             },
             .Array, .Vector => {
                 const elem_ty = result_ty.childType(mod);
-                if (result_ty.isVector(mod) and elem_ty.bitSize(mod) == 1) {
+                if (result_ty.isVector(mod) and elem_ty.toIntern() == .bool_type) {
                     const result_size: u32 = @intCast(result_ty.abiSize(mod));
                     const dst_reg = try self.register_manager.allocReg(inst, abi.RegisterClass.gp);
                     try self.asmRegisterRegister(
@@ -18112,7 +18306,7 @@ fn splitType(self: *Self, ty: Type) ![2]Type {
                 else => unreachable,
             },
             .float => Type.f32,
-            .float_combine => try mod.vectorType(.{ .len = 2, .child = .f32_type }),
+            .float_combine => try mod.arrayType(.{ .len = 2, .child = .f32_type }),
             .sse => Type.f64,
             else => break,
         };
