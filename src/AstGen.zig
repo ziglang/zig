@@ -12918,20 +12918,20 @@ const GenZir = struct {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
+        // Node 0 is valid for the root `struct_decl` of a file!
+        assert(args.src_node != 0 or gz.parent.tag == .top);
+
         const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
 
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.StructDecl).Struct.fields.len + 6);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.StructDecl).Struct.fields.len + 4);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.StructDecl{
             .fields_hash_0 = fields_hash_arr[0],
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
+            .src_node = gz.nodeIndexToRelative(args.src_node),
         });
 
-        if (args.src_node != 0) {
-            const node_offset = gz.nodeIndexToRelative(args.src_node);
-            astgen.extra.appendAssumeCapacity(@bitCast(node_offset));
-        }
         if (args.fields_len != 0) {
             astgen.extra.appendAssumeCapacity(args.fields_len);
         }
@@ -12949,7 +12949,6 @@ const GenZir = struct {
             .data = .{ .extended = .{
                 .opcode = .struct_decl,
                 .small = @bitCast(Zir.Inst.StructDecl.Small{
-                    .has_src_node = args.src_node != 0,
                     .has_fields_len = args.fields_len != 0,
                     .has_decls_len = args.decls_len != 0,
                     .has_backing_int = args.backing_int_ref != .none,
@@ -12981,20 +12980,19 @@ const GenZir = struct {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
+        assert(args.src_node != 0);
+
         const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
 
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len + 5);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len + 4);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.UnionDecl{
             .fields_hash_0 = fields_hash_arr[0],
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
+            .src_node = gz.nodeIndexToRelative(args.src_node),
         });
 
-        if (args.src_node != 0) {
-            const node_offset = gz.nodeIndexToRelative(args.src_node);
-            astgen.extra.appendAssumeCapacity(@bitCast(node_offset));
-        }
         if (args.tag_type != .none) {
             astgen.extra.appendAssumeCapacity(@intFromEnum(args.tag_type));
         }
@@ -13012,7 +13010,6 @@ const GenZir = struct {
             .data = .{ .extended = .{
                 .opcode = .union_decl,
                 .small = @bitCast(Zir.Inst.UnionDecl.Small{
-                    .has_src_node = args.src_node != 0,
                     .has_tag_type = args.tag_type != .none,
                     .has_body_len = args.body_len != 0,
                     .has_fields_len = args.fields_len != 0,
@@ -13039,20 +13036,19 @@ const GenZir = struct {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
+        assert(args.src_node != 0);
+
         const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
 
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len + 5);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len + 4);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.EnumDecl{
             .fields_hash_0 = fields_hash_arr[0],
             .fields_hash_1 = fields_hash_arr[1],
             .fields_hash_2 = fields_hash_arr[2],
             .fields_hash_3 = fields_hash_arr[3],
+            .src_node = gz.nodeIndexToRelative(args.src_node),
         });
 
-        if (args.src_node != 0) {
-            const node_offset = gz.nodeIndexToRelative(args.src_node);
-            astgen.extra.appendAssumeCapacity(@bitCast(node_offset));
-        }
         if (args.tag_type != .none) {
             astgen.extra.appendAssumeCapacity(@intFromEnum(args.tag_type));
         }
@@ -13070,7 +13066,6 @@ const GenZir = struct {
             .data = .{ .extended = .{
                 .opcode = .enum_decl,
                 .small = @bitCast(Zir.Inst.EnumDecl.Small{
-                    .has_src_node = args.src_node != 0,
                     .has_tag_type = args.tag_type != .none,
                     .has_body_len = args.body_len != 0,
                     .has_fields_len = args.fields_len != 0,
@@ -13090,13 +13085,13 @@ const GenZir = struct {
         const astgen = gz.astgen;
         const gpa = astgen.gpa;
 
-        try astgen.extra.ensureUnusedCapacity(gpa, 2);
-        const payload_index: u32 = @intCast(astgen.extra.items.len);
+        assert(args.src_node != 0);
 
-        if (args.src_node != 0) {
-            const node_offset = gz.nodeIndexToRelative(args.src_node);
-            astgen.extra.appendAssumeCapacity(@bitCast(node_offset));
-        }
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len + 1);
+        const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
+            .src_node = gz.nodeIndexToRelative(args.src_node),
+        });
+
         if (args.decls_len != 0) {
             astgen.extra.appendAssumeCapacity(args.decls_len);
         }
@@ -13105,7 +13100,6 @@ const GenZir = struct {
             .data = .{ .extended = .{
                 .opcode = .opaque_decl,
                 .small = @bitCast(Zir.Inst.OpaqueDecl.Small{
-                    .has_src_node = args.src_node != 0,
                     .has_decls_len = args.decls_len != 0,
                     .name_strategy = gz.anon_name_strategy,
                 }),

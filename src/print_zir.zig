@@ -1405,12 +1405,6 @@ const Writer = struct {
 
         var extra_index: usize = extra.end;
 
-        const src_node: ?i32 = if (small.has_src_node) blk: {
-            const src_node = @as(i32, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            break :blk src_node;
-        } else null;
-
         const fields_len = if (small.has_fields_len) blk: {
             const fields_len = self.code.extra[extra_index];
             extra_index += 1;
@@ -1453,7 +1447,7 @@ const Writer = struct {
             try stream.writeAll("{}, ");
         } else {
             const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            self.parent_decl_node = self.relativeToNodeIndex(extra.data.src_node);
             defer self.parent_decl_node = prev_parent_decl_node;
 
             try stream.writeAll("{\n");
@@ -1534,7 +1528,7 @@ const Writer = struct {
             }
 
             const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            self.parent_decl_node = self.relativeToNodeIndex(extra.data.src_node);
             try stream.writeAll("{\n");
             self.indent += 2;
 
@@ -1587,7 +1581,7 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("})");
         }
-        try self.writeSrcNode(stream, src_node);
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeUnionDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -1604,12 +1598,6 @@ const Writer = struct {
         try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
 
         var extra_index: usize = extra.end;
-
-        const src_node: ?i32 = if (small.has_src_node) blk: {
-            const src_node = @as(i32, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            break :blk src_node;
-        } else null;
 
         const tag_type_ref = if (small.has_tag_type) blk: {
             const tag_type_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -1644,7 +1632,7 @@ const Writer = struct {
             try stream.writeAll("{}");
         } else {
             const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            self.parent_decl_node = self.relativeToNodeIndex(extra.data.src_node);
             defer self.parent_decl_node = prev_parent_decl_node;
 
             try stream.writeAll("{\n");
@@ -1663,7 +1651,7 @@ const Writer = struct {
 
         if (fields_len == 0) {
             try stream.writeAll("})");
-            try self.writeSrcNode(stream, src_node);
+            try self.writeSrcNode(stream, extra.data.src_node);
             return;
         }
         try stream.writeAll(", ");
@@ -1672,7 +1660,7 @@ const Writer = struct {
         extra_index += body.len;
 
         const prev_parent_decl_node = self.parent_decl_node;
-        if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+        self.parent_decl_node = self.relativeToNodeIndex(extra.data.src_node);
         try self.writeBracedDecl(stream, body);
         try stream.writeAll(", {\n");
 
@@ -1740,7 +1728,7 @@ const Writer = struct {
         self.indent -= 2;
         try stream.writeByteNTimes(' ', self.indent);
         try stream.writeAll("})");
-        try self.writeSrcNode(stream, src_node);
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeEnumDecl(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -1757,12 +1745,6 @@ const Writer = struct {
         try stream.print("hash({}) ", .{std.fmt.fmtSliceHexLower(&fields_hash)});
 
         var extra_index: usize = extra.end;
-
-        const src_node: ?i32 = if (small.has_src_node) blk: {
-            const src_node = @as(i32, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            break :blk src_node;
-        } else null;
 
         const tag_type_ref = if (small.has_tag_type) blk: {
             const tag_type_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -1795,7 +1777,7 @@ const Writer = struct {
             try stream.writeAll("{}, ");
         } else {
             const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            self.parent_decl_node = self.relativeToNodeIndex(extra.data.src_node);
             defer self.parent_decl_node = prev_parent_decl_node;
 
             try stream.writeAll("{\n");
@@ -1816,7 +1798,7 @@ const Writer = struct {
         extra_index += body.len;
 
         const prev_parent_decl_node = self.parent_decl_node;
-        if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+        self.parent_decl_node = self.relativeToNodeIndex(extra.data.src_node);
         try self.writeBracedDecl(stream, body);
         if (fields_len == 0) {
             try stream.writeAll(", {})");
@@ -1864,7 +1846,7 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("})");
         }
-        try self.writeSrcNode(stream, src_node);
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeOpaqueDecl(
@@ -1873,13 +1855,8 @@ const Writer = struct {
         extended: Zir.Inst.Extended.InstData,
     ) !void {
         const small = @as(Zir.Inst.OpaqueDecl.Small, @bitCast(extended.small));
-        var extra_index: usize = extended.operand;
-
-        const src_node: ?i32 = if (small.has_src_node) blk: {
-            const src_node = @as(i32, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            break :blk src_node;
-        } else null;
+        const extra = self.code.extraData(Zir.Inst.OpaqueDecl, extended.operand);
+        var extra_index: usize = extra.end;
 
         const decls_len = if (small.has_decls_len) blk: {
             const decls_len = self.code.extra[extra_index];
@@ -1893,7 +1870,7 @@ const Writer = struct {
             try stream.writeAll("{})");
         } else {
             const prev_parent_decl_node = self.parent_decl_node;
-            if (src_node) |off| self.parent_decl_node = self.relativeToNodeIndex(off);
+            self.parent_decl_node = self.relativeToNodeIndex(extra.data.src_node);
             defer self.parent_decl_node = prev_parent_decl_node;
 
             try stream.writeAll("{\n");
@@ -1903,7 +1880,7 @@ const Writer = struct {
             try stream.writeByteNTimes(' ', self.indent);
             try stream.writeAll("})");
         }
-        try self.writeSrcNode(stream, src_node);
+        try self.writeSrcNode(stream, extra.data.src_node);
     }
 
     fn writeErrorSetDecl(

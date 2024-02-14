@@ -3022,20 +3022,19 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. fields_len: u32, // if has_fields_len
-    /// 2. decls_len: u32, // if has_decls_len
-    /// 3. backing_int_body_len: u32, // if has_backing_int
-    /// 4. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
-    /// 5. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
-    /// 6. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 7. flags: u32 // for every 8 fields
+    /// 0. fields_len: u32, // if has_fields_len
+    /// 1. decls_len: u32, // if has_decls_len
+    /// 2. backing_int_body_len: u32, // if has_backing_int
+    /// 3. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
+    /// 4. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
+    /// 5. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 6. flags: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has an align expression
     ///      0b00X0: whether corresponding field has a default expression
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: whether corresponding field has a type expression
-    /// 8. fields: { // for every fields_len
+    /// 7. fields: { // for every fields_len
     ///        field_name: u32, // if !is_tuple
     ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
@@ -3043,7 +3042,7 @@ pub const Inst = struct {
     ///        align_body_len: u32, // if corresponding bit is set
     ///        init_body_len: u32, // if corresponding bit is set
     ///    }
-    /// 10. bodies: { // for every fields_len
+    /// 8. bodies: { // for every fields_len
     ///        field_type_body_inst: Inst, // for each field_type_body_len
     ///        align_body_inst: Inst, // for each align_body_len
     ///        init_body_inst: Inst, // for each init_body_len
@@ -3055,8 +3054,13 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
+        src_node: i32,
+
+        pub fn src(self: StructDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_fields_len: bool,
             has_decls_len: bool,
             has_backing_int: bool,
@@ -3068,7 +3072,7 @@ pub const Inst = struct {
             any_default_inits: bool,
             any_comptime_fields: bool,
             any_aligned_fields: bool,
-            _: u2 = undefined,
+            _: u3 = undefined,
         };
     };
 
@@ -3102,16 +3106,15 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. tag_type: Ref, // if has_tag_type
-    /// 2. body_len: u32, // if has_body_len
-    /// 3. fields_len: u32, // if has_fields_len
-    /// 4. decls_len: u32, // if has_decls_len
-    /// 5. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 6. inst: Index // for every body_len
-    /// 7. has_bits: u32 // for every 32 fields
+    /// 0. tag_type: Ref, // if has_tag_type
+    /// 1. body_len: u32, // if has_body_len
+    /// 2. fields_len: u32, // if has_fields_len
+    /// 3. decls_len: u32, // if has_decls_len
+    /// 4. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 5. inst: Index // for every body_len
+    /// 6. has_bits: u32 // for every 32 fields
     ///    - the bit is whether corresponding field has an value expression
-    /// 8. fields: { // for every fields_len
+    /// 7. fields: { // for every fields_len
     ///        field_name: u32,
     ///        doc_comment: u32, // .empty if no doc_comment
     ///        value: Ref, // if corresponding bit is set
@@ -3123,33 +3126,37 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
+        src_node: i32,
+
+        pub fn src(self: EnumDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_tag_type: bool,
             has_body_len: bool,
             has_fields_len: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
             nonexhaustive: bool,
-            _: u8 = undefined,
+            _: u9 = undefined,
         };
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. tag_type: Ref, // if has_tag_type
-    /// 2. body_len: u32, // if has_body_len
-    /// 3. fields_len: u32, // if has_fields_len
-    /// 4. decls_len: u32, // if has_decls_len
-    /// 5. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 6. inst: Index // for every body_len
-    /// 7. has_bits: u32 // for every 8 fields
+    /// 0. tag_type: Ref, // if has_tag_type
+    /// 1. body_len: u32, // if has_body_len
+    /// 2. fields_len: u32, // if has_fields_len
+    /// 3. decls_len: u32, // if has_decls_len
+    /// 4. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 5. inst: Index // for every body_len
+    /// 6. has_bits: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has a type expression
     ///      0b00X0: whether corresponding field has a align expression
     ///      0b0X00: whether corresponding field has a tag value expression
     ///      0bX000: unused
-    /// 8. fields: { // for every fields_len
+    /// 7. fields: { // for every fields_len
     ///        field_name: NullTerminatedString, // null terminated string index
     ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is set
@@ -3164,8 +3171,13 @@ pub const Inst = struct {
         fields_hash_1: u32,
         fields_hash_2: u32,
         fields_hash_3: u32,
+        src_node: i32,
+
+        pub fn src(self: UnionDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_tag_type: bool,
             has_body_len: bool,
             has_fields_len: bool,
@@ -3180,20 +3192,24 @@ pub const Inst = struct {
             ///    true      | false         |  union(T) { }
             auto_enum_tag: bool,
             any_aligned_fields: bool,
-            _: u5 = undefined,
+            _: u6 = undefined,
         };
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. decls_len: u32, // if has_decls_len
-    /// 2. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 0. decls_len: u32, // if has_decls_len
+    /// 1. decl: Index, // for every decls_len; points to a `declaration` instruction
     pub const OpaqueDecl = struct {
+        src_node: i32,
+
+        pub fn src(self: OpaqueDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
-            _: u12 = undefined,
+            _: u13 = undefined,
         };
     };
 
@@ -3495,7 +3511,6 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 .struct_decl => {
                     const small: Inst.StructDecl.Small = @bitCast(extended.small);
                     var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).Struct.fields.len);
-                    extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_fields_len);
                     const decls_len = if (small.has_decls_len) decls_len: {
                         const decls_len = zir.extra[extra_index];
@@ -3522,7 +3537,6 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 .enum_decl => {
                     const small: Inst.EnumDecl.Small = @bitCast(extended.small);
                     var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).Struct.fields.len);
-                    extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
                     extra_index += @intFromBool(small.has_body_len);
                     extra_index += @intFromBool(small.has_fields_len);
@@ -3541,7 +3555,6 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 .union_decl => {
                     const small: Inst.UnionDecl.Small = @bitCast(extended.small);
                     var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).Struct.fields.len);
-                    extra_index += @intFromBool(small.has_src_node);
                     extra_index += @intFromBool(small.has_tag_type);
                     extra_index += @intFromBool(small.has_body_len);
                     extra_index += @intFromBool(small.has_fields_len);
@@ -3559,8 +3572,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 },
                 .opaque_decl => {
                     const small: Inst.OpaqueDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = extended.operand;
-                    extra_index += @intFromBool(small.has_src_node);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.OpaqueDecl).Struct.fields.len);
                     const decls_len = if (small.has_decls_len) decls_len: {
                         const decls_len = zir.extra[extra_index];
                         extra_index += 1;
