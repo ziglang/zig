@@ -55,7 +55,7 @@ pub fn BitReader(comptime ReaderType: type) type {
                 (self.nbits >> 3); // 0 for 0-7, 1 for 8-16, ... same as / 8
 
             var buf: [8]u8 = [_]u8{0} ** 8;
-            const bytes_read = self.forward_reader.read(buf[0..empty_bytes]) catch 0;
+            const bytes_read = self.forward_reader.readAll(buf[0..empty_bytes]) catch 0;
             if (bytes_read > 0) {
                 const u: u64 = std.mem.readInt(u64, buf[0..8], .little);
                 self.bits |= u << @as(u6, @intCast(self.nbits));
