@@ -342,6 +342,8 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
 }
 
 test "flate.Inflate struct sizes" {
+    if (@sizeOf(usize) != 8) return error.SkipZigTest;
+
     var fbs = std.io.fixedBufferStream("");
     const ReaderType = @TypeOf(fbs.reader());
     const inflate_size = @sizeOf(Inflate(.gzip, ReaderType));

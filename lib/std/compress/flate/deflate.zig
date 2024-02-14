@@ -603,6 +603,8 @@ const TestTokenWriter = struct {
 };
 
 test "flate.Deflate struct sizes" {
+    if (@sizeOf(usize) != 8) return error.SkipZigTest;
+
     try expect(@sizeOf(Token) == 4);
 
     // list: (1 << 15) * 4 = 128k + pos: 8
