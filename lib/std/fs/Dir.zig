@@ -1756,17 +1756,20 @@ pub fn readFileTruncate(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
 /// The returned slice has the same pointer as `buffer`. If the entirety of the file does not fit
 /// into `buffer`, `error.Truncated` is returned, and `buffer` contains the first `buffer.len` bytes
 /// of the file.
-pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
+pub fn readFile(self: std.fs.Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
-    const nb_read = try file.readAll(buffer);
+    var unused: [1]u8 = undefined;
+    var iovecs = [_]std.os.iovec{
+        .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
+        .{ .iov_base = &unused, .iov_len = unused.len },
+    };
 
-    if (nb_read == buffer.len) {
-        var unused: [1]u8 = undefined;
-        if (try file.read(&unused) > 0) {
-            return error.Truncated;
-        }
+    const nb_read = try file.readvAll(&iovecs);
+
+    if (nb_read > buffer.len) {
+        return error.Truncated;
     }
 
     return buffer[0..nb_read];
