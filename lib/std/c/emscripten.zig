@@ -147,7 +147,7 @@ pub const pwritev64 = std.c.pwritev;
 pub const setrlimit64 = std.c.setrlimit;
 
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn getentropy(buffer: [*]u8, size: usize) c_int;
 
 pub const pthread_attr_t = extern struct {

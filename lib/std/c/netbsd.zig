@@ -15,7 +15,7 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*an
 
 pub extern "c" fn _lwp_self() lwpid_t;
 
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
 pub extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;
@@ -59,7 +59,7 @@ pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: u
 pub extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
 pub const msync = __msync13;
 
-const pthread_spin_t = switch (builtin.cpu.arch) {
+pub const pthread_spin_t = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
     .mips, .mipsel, .mips64, .mips64el => u32,
     .powerpc, .powerpc64, .powerpc64le => i32,
@@ -70,7 +70,7 @@ const pthread_spin_t = switch (builtin.cpu.arch) {
     else => @compileError("undefined pthread_spin_t for this arch"),
 };
 
-const padded_pthread_spin_t = switch (builtin.cpu.arch) {
+pub const padded_pthread_spin_t = switch (builtin.cpu.arch) {
     .x86, .x86_64 => u32,
     .sparc, .sparcel, .sparc64 => u32,
     else => pthread_spin_t,

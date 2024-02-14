@@ -174,7 +174,7 @@ pub const Iterator = switch (builtin.os.tag) {
                     self.end_index = @as(usize, @intCast(rc));
                 }
                 const bsd_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + bsd_entry.reclen;
+                const next_index = self.index + if (@hasDecl(posix.system.dirent, "reclen")) bsd_entry.reclen() else bsd_entry.reclen;
                 self.index = next_index;
 
                 const name = @as([*]u8, @ptrCast(&bsd_entry.name))[0..bsd_entry.namlen];
