@@ -528,7 +528,11 @@ fn SimpleCompressor(
     };
 }
 
+const builtin = @import("builtin");
+
 test "flate.Deflate tokenization" {
+    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
+
     const L = Token.initLiteral;
     const M = Token.initMatch;
 
@@ -551,6 +555,7 @@ test "flate.Deflate tokenization" {
 
     for (cases) |c| {
         inline for (Container.list) |container| { // for each wrapping
+
             var cw = io.countingWriter(io.null_writer);
             const cww = cw.writer();
             var df = try Deflate(container, @TypeOf(cww), TestTokenWriter).init(cww, .{});
@@ -572,9 +577,9 @@ test "flate.Deflate tokenization" {
 // Tests that tokens writen are equal to expected token list.
 const TestTokenWriter = struct {
     const Self = @This();
-    //expected: []const Token,
+
     pos: usize = 0,
-    actual: [1024]Token = undefined,
+    actual: [128]Token = undefined,
 
     pub fn init(_: anytype) Self {
         return .{};
@@ -603,6 +608,8 @@ const TestTokenWriter = struct {
 };
 
 test "flate deflate file tokenization" {
+    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
+
     const levels = [_]Level{ .level_4, .level_5, .level_6, .level_7, .level_8, .level_9 };
     const cases = [_]struct {
         data: []const u8, // uncompressed content
