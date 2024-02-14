@@ -890,6 +890,34 @@ test "big simd vector" {
     try expect(x[7] == 16);
 }
 
+const Vector2Float = @Vector(2, f32);
+const Vector4Float = @Vector(4, f32);
+
+extern fn c_vector_2_float(Vector2Float) void;
+extern fn c_vector_4_float(Vector4Float) void;
+
+extern fn c_ret_vector_2_float() Vector2Float;
+extern fn c_ret_vector_4_float() Vector4Float;
+
+test "float simd vectors" {
+    if (builtin.cpu.arch == .powerpc or builtin.cpu.arch == .powerpc64le) return error.SkipZigTest;
+
+    {
+        c_vector_2_float(.{ 1.0, 2.0 });
+        const vec = c_ret_vector_2_float();
+        try expect(vec[0] == 1.0);
+        try expect(vec[1] == 2.0);
+    }
+    {
+        c_vector_4_float(.{ 1.0, 2.0, 3.0, 4.0 });
+        const vec = c_ret_vector_4_float();
+        try expect(vec[0] == 1.0);
+        try expect(vec[1] == 2.0);
+        try expect(vec[2] == 3.0);
+        try expect(vec[3] == 4.0);
+    }
+}
+
 const Vector2Bool = @Vector(2, bool);
 const Vector4Bool = @Vector(4, bool);
 const Vector8Bool = @Vector(8, bool);
