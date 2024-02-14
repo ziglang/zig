@@ -23,18 +23,24 @@ const small_limit = 256;
 
 comptime {
     std.debug.assert(small_limit >= alignment);
+    std.debug.assert(std.math.isPowerOfTwo(size));
+    std.debug.assert(std.math.isPowerOfTwo(small_limit));
 }
 
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
-    if (len < 9) {
-        memcpy_remainder(16, dest.?, src.?, len);
+    if (len < 16) {
+        if (len < 4) {
+            memcpy_remainder(4, dest.?, src.?, len);
+            return dest;
+        }
+        memcpy_range4(4, dest.?, src.?, len);
         return dest;
     }
 
-    if (len < 17) {
-        memcpy_remainder(32, dest.?, src.?, len);
+    if (len < 32) {
+        memcpy_range2(16, dest.?, src.?, len);
         return dest;
     }
 
@@ -114,6 +120,41 @@ inline fn memcpy_remainder(
         }
         rem /= 2;
     }
+}
+
+/// behavior is undefined if `len` does not satisfy `min <= len < 4 * min`
+inline fn memcpy_range4(
+    comptime min: comptime_int,
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    len: usize,
+) void {
+    @setRuntimeSafety(false);
+    comptime std.debug.assert(std.math.isPowerOfTwo(min));
+
+    const copy_len = min;
+    const last = len - copy_len;
+    const offset = (len & (2 * min)) / 2;
+    dest[0..copy_len].* = src[0..copy_len].*;
+    dest[offset..][0..copy_len].* = src[offset..][0..copy_len].*;
+    dest[last - offset ..][0..copy_len].* = src[last - offset ..][0..copy_len].*;
+    dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
+}
+
+/// behavior is undefined if `len` does not satisfy `min <= len < 2 * min`
+inline fn memcpy_range2(
+    comptime min: comptime_int,
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    len: usize,
+) void {
+    @setRuntimeSafety(false);
+    comptime std.debug.assert(std.math.isPowerOfTwo(min));
+
+    const copy_len = min;
+    const last = len - copy_len;
+    dest[0..copy_len].* = src[0..copy_len].*;
+    dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
 }
 
 test "aligned" {
