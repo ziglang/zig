@@ -1,10 +1,10 @@
 /// Deflate is a lossless data compression file format that uses a combination
 /// of LZ77 and Huffman coding.
-pub const deflate = @import("deflate.zig");
+pub const deflate = @import("flate/deflate.zig");
 
 /// Inflate is the decoding process that takes a Deflate bitstream for
 /// decompression and correctly produces the original full-size data or file.
-pub const inflate = @import("inflate.zig");
+pub const inflate = @import("flate/inflate.zig");
 
 /// Decompress compressed data from reader and write plain data to the writer.
 pub fn decompress(reader: anytype, writer: anytype) !void {
@@ -72,11 +72,16 @@ pub const store = struct {
 
 /// Container defines header/footer arround deflate bit stream. Gzip and zlib
 /// compression algorithms are containers arround deflate bit stream body.
-const Container = @import("container.zig").Container;
+const Container = @import("flate/container.zig").Container;
 const std = @import("std");
 const testing = std.testing;
 const fixedBufferStream = std.io.fixedBufferStream;
 const print = std.debug.print;
+
+test "flate" {
+    _ = @import("flate/deflate.zig");
+    _ = @import("flate/inflate.zig");
+}
 
 test "flate compress/decompress" {
     var cmp_buf: [64 * 1024]u8 = undefined; // compressed data buffer
@@ -91,25 +96,25 @@ test "flate compress/decompress" {
         store_size: usize = 0,
     }{
         .{
-            .data = @embedFile("testdata/rfc1951.txt"),
+            .data = @embedFile("flate/testdata/rfc1951.txt"),
             .gzip_sizes = [_]usize{ 11513, 11217, 11139, 11126, 11122, 11119 },
             .huffman_only_size = 20287,
             .store_size = 36967,
         },
         .{
-            .data = @embedFile("testdata/fuzz/roundtrip1.input"),
+            .data = @embedFile("flate/testdata/fuzz/roundtrip1.input"),
             .gzip_sizes = [_]usize{ 373, 370, 370, 370, 370, 370 },
             .huffman_only_size = 393,
             .store_size = 393,
         },
         .{
-            .data = @embedFile("testdata/fuzz/roundtrip2.input"),
+            .data = @embedFile("flate/testdata/fuzz/roundtrip2.input"),
             .gzip_sizes = [_]usize{ 373, 373, 373, 373, 373, 373 },
             .huffman_only_size = 394,
             .store_size = 394,
         },
         .{
-            .data = @embedFile("testdata/fuzz/deflate-stream.expect"),
+            .data = @embedFile("flate/testdata/fuzz/deflate-stream.expect"),
             .gzip_sizes = [_]usize{ 351, 347, 347, 347, 347, 347 },
             .huffman_only_size = 498,
             .store_size = 747,
@@ -236,13 +241,12 @@ test "flate compress/decompress" {
 }
 
 fn testDecompress(comptime container: Container, compressed: []const u8, expected_plain: []const u8) !void {
-    var in_stream = std.io.fixedBufferStream(compressed);
-    var al = std.ArrayList(u8).init(testing.allocator);
-    defer al.deinit();
+    var in = fixedBufferStream(compressed);
+    var out = std.ArrayList(u8).init(testing.allocator);
+    defer out.deinit();
 
-    try inflate.decompress(container, in_stream.reader(), al.writer());
-
-    try testing.expectEqualSlices(u8, expected_plain, al.items);
+    try inflate.decompress(container, in.reader(), out.writer());
+    try testing.expectEqualSlices(u8, expected_plain, out.items);
 }
 
 test "flate don't read past deflate stream's end" {
@@ -344,4 +348,129 @@ test "flate gzip header" {
         // GZIP data
         0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     }, "");
+}
+
+test "flate public interface" {
+    const plain_data = [_]u8{ 'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a };
+
+    // deflate final stored block, header + plain (stored) data
+    const deflate_block = [_]u8{
+        0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
+    } ++ plain_data;
+
+    // gzip header/footer + deflate block
+    const gzip_data =
+        [_]u8{ 0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 } ++ // gzip header (10 bytes)
+        deflate_block ++
+        [_]u8{ 0xd5, 0xe0, 0x39, 0xb7, 0x0c, 0x00, 0x00, 0x00 }; // gzip footer checksum (4 byte), size (4 bytes)
+
+    // zlib header/footer + deflate block
+    const zlib_data = [_]u8{ 0x78, 0b10_0_11100 } ++ // zlib header (2 bytes)}
+        deflate_block ++
+        [_]u8{ 0x1c, 0xf2, 0x04, 0x47 }; // zlib footer: checksum
+
+    const gzip = @import("gzip.zig");
+    const zlib = @import("zlib.zig");
+    const flate = @This();
+
+    try testInterface(gzip, &gzip_data, &plain_data);
+    try testInterface(zlib, &zlib_data, &plain_data);
+    try testInterface(flate, &deflate_block, &plain_data);
+}
+
+fn testInterface(comptime pkg: type, gzip_data: []const u8, plain_data: []const u8) !void {
+    var buffer1: [64]u8 = undefined;
+    var buffer2: [64]u8 = undefined;
+
+    var compressed = fixedBufferStream(&buffer1);
+    var plain = fixedBufferStream(&buffer2);
+
+    // decompress
+    {
+        var in = fixedBufferStream(gzip_data);
+        try pkg.decompress(in.reader(), plain.writer());
+        try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
+    }
+    plain.reset();
+    compressed.reset();
+
+    // compress/decompress
+    {
+        var in = fixedBufferStream(plain_data);
+        try pkg.compress(in.reader(), compressed.writer(), .{});
+        compressed.reset();
+        try pkg.decompress(compressed.reader(), plain.writer());
+        try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
+    }
+    plain.reset();
+    compressed.reset();
+
+    // compressor/decompressor
+    {
+        var in = fixedBufferStream(plain_data);
+        var cmp = try pkg.compressor(compressed.writer(), .{});
+        try cmp.compress(in.reader());
+        try cmp.finish();
+
+        compressed.reset();
+        var dcp = pkg.decompressor(compressed.reader());
+        try dcp.decompress(plain.writer());
+        try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
+    }
+    plain.reset();
+    compressed.reset();
+
+    // huffman
+    {
+        // huffman compress/decompress
+        {
+            var in = fixedBufferStream(plain_data);
+            try pkg.huffman.compress(in.reader(), compressed.writer());
+            compressed.reset();
+            try pkg.decompress(compressed.reader(), plain.writer());
+            try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
+        }
+        plain.reset();
+        compressed.reset();
+
+        // huffman compressor/decompressor
+        {
+            var in = fixedBufferStream(plain_data);
+            var cmp = try pkg.huffman.compressor(compressed.writer());
+            try cmp.compress(in.reader());
+            try cmp.finish();
+
+            compressed.reset();
+            try pkg.decompress(compressed.reader(), plain.writer());
+            try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
+        }
+    }
+    plain.reset();
+    compressed.reset();
+
+    // store
+    {
+        // store compress/decompress
+        {
+            var in = fixedBufferStream(plain_data);
+            try pkg.store.compress(in.reader(), compressed.writer());
+            compressed.reset();
+            try pkg.decompress(compressed.reader(), plain.writer());
+            try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
+        }
+        plain.reset();
+        compressed.reset();
+
+        // store compressor/decompressor
+        {
+            var in = fixedBufferStream(plain_data);
+            var cmp = try pkg.store.compressor(compressed.writer());
+            try cmp.compress(in.reader());
+            try cmp.finish();
+
+            compressed.reset();
+            try pkg.decompress(compressed.reader(), plain.writer());
+            try testing.expectEqualSlices(u8, plain_data, plain.getWritten());
+        }
+    }
 }

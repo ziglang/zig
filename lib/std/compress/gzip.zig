@@ -1,5 +1,5 @@
-const deflate = @import("deflate.zig");
-const inflate = @import("inflate.zig");
+const deflate = @import("flate/deflate.zig");
+const inflate = @import("flate/inflate.zig");
 
 /// Decompress compressed data from reader and write plain data to the writer.
 pub fn decompress(reader: anytype, writer: anytype) !void {
