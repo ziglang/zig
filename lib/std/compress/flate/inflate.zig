@@ -306,10 +306,10 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
         }
 
         /// Returns decompressed data from internal sliding window buffer.
-        /// Returned buffer can be any length between 0 and `limit` bytes.
-        /// 0 returned bytes means end of stream reached.
-        /// With limit=0 returns as much data can. It newer will be more
-        /// than 65536 bytes, which is limit of internal buffer.
+        /// Returned buffer can be any length between 0 and `limit` bytes. 0
+        /// returned bytes means end of stream reached. With limit=0 returns as
+        /// much data it can. It newer will be more than 65536 bytes, which is
+        /// size of internal buffer.
         pub fn get(self: *Self, limit: usize) Error![]const u8 {
             while (true) {
                 const out = self.hist.readAtMost(limit);
