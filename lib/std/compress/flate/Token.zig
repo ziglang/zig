@@ -1,7 +1,7 @@
-/// Token cat be literal: single byte of data or match; reference to the slice of
-/// data in the same stream represented with <length, distance>. Where length
-/// can be 3 - 258 bytes, and distance 1 - 32768 bytes.
-///
+//! Token cat be literal: single byte of data or match; reference to the slice of
+//! data in the same stream represented with <length, distance>. Where length
+//! can be 3 - 258 bytes, and distance 1 - 32768 bytes.
+//!
 const std = @import("std");
 const assert = std.debug.assert;
 const print = std.debug.print;

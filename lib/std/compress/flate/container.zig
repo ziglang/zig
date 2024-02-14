@@ -1,19 +1,20 @@
+//! Container of the deflate bit stream body. Container adds header before
+//! deflate bit stream and footer after. It can bi gzip, zlib or raw (no header,
+//! no footer, raw bit stream).
+//!
+//! Zlib format is defined in rfc 1950. Header has 2 bytes and footer 4 bytes
+//! addler 32 checksum.
+//!
+//! Gzip format is defined in rfc 1952. Header has 10+ bytes and footer 4 bytes
+//! crc32 checksum and 4 bytes of uncompressed data length.
+//!
+//!
+//! rfc 1950: https://datatracker.ietf.org/doc/html/rfc1950#page-4
+//! rfc 1952: https://datatracker.ietf.org/doc/html/rfc1952#page-5
+//!
+
 const std = @import("std");
 
-/// Container of the deflate bit stream body. Container adds header before
-/// deflate bit stream and footer after. It can bi gzip, zlib or raw (no header,
-/// no footer, raw bit stream).
-///
-/// Zlib format is defined in rfc 1950. Header has 2 bytes and footer 4 bytes
-/// addler 32 checksum.
-///
-/// Gzip format is defined in rfc 1952. Header has 10+ bytes and footer 4 bytes
-/// crc32 checksum and 4 bytes of uncompressed data length.
-///
-///
-/// rfc 1950: https://datatracker.ietf.org/doc/html/rfc1950#page-4
-/// rfc 1952: https://datatracker.ietf.org/doc/html/rfc1952#page-5
-///
 pub const Container = enum {
     raw, // no header or footer
     gzip, // gzip header and footer

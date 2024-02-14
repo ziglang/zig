@@ -1,18 +1,18 @@
-/// 64K buffer of uncompressed data created in inflate (decompression). Has enough
-/// history to support writing match<length, distance>; copying length of bytes
-/// from the position distance backward from current.
-///
-/// Reads can return less than available bytes if they are spread across
-/// different circles. So reads should repeat until get required number of bytes
-/// or until returned slice is zero length.
-///
-/// Note on deflate limits:
-///  * non-compressible block is limited to 65,535 bytes.
-///  * backward pointer is limited in distance to 32K bytes and in length to 258 bytes.
-///
-/// Whole non-compressed block can be written without overlap. We always have
-/// history of up to 64K, more then 32K needed.
-///
+//! 64K buffer of uncompressed data created in inflate (decompression). Has enough
+//! history to support writing match<length, distance>; copying length of bytes
+//! from the position distance backward from current.
+//!
+//! Reads can return less than available bytes if they are spread across
+//! different circles. So reads should repeat until get required number of bytes
+//! or until returned slice is zero length.
+//!
+//! Note on deflate limits:
+//!  * non-compressible block is limited to 65,535 bytes.
+//!  * backward pointer is limited in distance to 32K bytes and in length to 258 bytes.
+//!
+//! Whole non-compressed block can be written without overlap. We always have
+//! history of up to 64K, more then 32K needed.
+//!
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -32,15 +32,15 @@ fn writeAll(self: *Self, buf: []const u8) void {
     for (buf) |c| self.write(c);
 }
 
-// Write literal.
+/// Write literal.
 pub fn write(self: *Self, b: u8) void {
     assert(self.wp - self.rp < mask);
     self.buffer[self.wp & mask] = b;
     self.wp += 1;
 }
 
-// Write match (back-reference to the same data slice) starting at `distance`
-// back from current write position, and `length` of bytes.
+/// Write match (back-reference to the same data slice) starting at `distance`
+/// back from current write position, and `length` of bytes.
 pub fn writeMatch(self: *Self, length: u16, distance: u16) !void {
     if (self.wp < distance or
         length < consts.base_length or length > consts.max_length or
@@ -74,8 +74,8 @@ pub fn writeMatch(self: *Self, length: u16, distance: u16) !void {
     }
 }
 
-// Returns writable part of the internal buffer of size `n` at most. Advances
-// write pointer, assumes that returned buffer will be filled with data.
+/// Returns writable part of the internal buffer of size `n` at most. Advances
+/// write pointer, assumes that returned buffer will be filled with data.
 pub fn getWritable(self: *Self, n: usize) []u8 {
     const wp = self.wp & mask;
     const len = @min(n, buffer_len - wp);
@@ -83,14 +83,14 @@ pub fn getWritable(self: *Self, n: usize) []u8 {
     return self.buffer[wp .. wp + len];
 }
 
-// Read available data. Can return part of the available data if it is
-// spread across two circles. So read until this returns zero length.
+/// Read available data. Can return part of the available data if it is
+/// spread across two circles. So read until this returns zero length.
 pub fn read(self: *Self) []const u8 {
     return self.readAtMost(buffer_len);
 }
 
-// Read part of available data. Can return less than max even if there are
-// more than max decoded data.
+/// Read part of available data. Can return less than max even if there are
+/// more than max decoded data.
 pub fn readAtMost(self: *Self, limit: usize) []const u8 {
     const rb = self.readBlock(if (limit == 0) buffer_len else limit);
     defer self.rp += rb.len;
@@ -103,7 +103,7 @@ const ReadBlock = struct {
     len: usize,
 };
 
-// Returns position of continous read block data.
+/// Returns position of continous read block data.
 fn readBlock(self: *Self, max: usize) ReadBlock {
     const r = self.rp & mask;
     const w = self.wp & mask;
@@ -118,13 +118,13 @@ fn readBlock(self: *Self, max: usize) ReadBlock {
     };
 }
 
-// Number of free bytes for write.
+/// Number of free bytes for write.
 pub fn free(self: *Self) usize {
     return buffer_len - (self.wp - self.rp);
 }
 
-// Full if largest match can't fit. 258 is largest match length. That much bytes
-// can be produced in single decode step.
+/// Full if largest match can't fit. 258 is largest match length. That much
+/// bytes can be produced in single decode step.
 pub fn full(self: *Self) bool {
     return self.free() < 258 + 1;
 }

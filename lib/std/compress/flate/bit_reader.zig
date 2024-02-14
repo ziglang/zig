@@ -34,15 +34,15 @@ pub fn BitReader(comptime ReaderType: type) type {
             return self;
         }
 
-        // Try to have `nice` bits are available in buffer. Reads from
-        // forward reader if there is no `nice` bits in buffer. Returns error
-        // if end of forward stream is reached and internal buffer is empty.
-        // It will not error if less than `nice` bits are in buffer, only when
-        // all bits are exhausted. During inflate we usually know what is the
-        // maximum bits for the next step but usually that step will need less
-        // bits to decode. So `nice` is not hard limit, it will just try to have
-        // that number of bits available. If end of forward stream is reached
-        // it may be some extra zero bits in buffer.
+        /// Try to have `nice` bits are available in buffer. Reads from
+        /// forward reader if there is no `nice` bits in buffer. Returns error
+        /// if end of forward stream is reached and internal buffer is empty.
+        /// It will not error if less than `nice` bits are in buffer, only when
+        /// all bits are exhausted. During inflate we usually know what is the
+        /// maximum bits for the next step but usually that step will need less
+        /// bits to decode. So `nice` is not hard limit, it will just try to have
+        /// that number of bits available. If end of forward stream is reached
+        /// it may be some extra zero bits in buffer.
         pub inline fn fill(self: *Self, nice: u6) !void {
             if (self.nbits >= nice) {
                 return; // We have enought bits
@@ -67,7 +67,7 @@ pub fn BitReader(comptime ReaderType: type) type {
                 return error.EndOfStream;
         }
 
-        // Read exactly buf.len bytes into buf.
+        /// Read exactly buf.len bytes into buf.
         pub fn readAll(self: *Self, buf: []u8) !void {
             assert(self.alignBits() == 0); // internal bits must be at byte boundary
 
@@ -87,17 +87,17 @@ pub fn BitReader(comptime ReaderType: type) type {
             pub const reverse: u3 = 0b100; // bit reverse readed bits
         };
 
-        // Alias for readF(U, 0).
+        /// Alias for readF(U, 0).
         pub fn read(self: *Self, comptime U: type) !U {
             return self.readF(U, 0);
         }
 
-        // Alias for readF with flag.peak set.
+        /// Alias for readF with flag.peak set.
         pub inline fn peekF(self: *Self, comptime U: type, comptime how: u3) !U {
             return self.readF(U, how | flag.peek);
         }
 
-        // Read with flags provided.
+        /// Read with flags provided.
         pub fn readF(self: *Self, comptime U: type, comptime how: u3) !U {
             const n: u6 = @bitSizeOf(U);
             switch (how) {
@@ -140,8 +140,8 @@ pub fn BitReader(comptime ReaderType: type) type {
             }
         }
 
-        // Read n number of bits.
-        // Only buffered flag can be used in how.
+        /// Read n number of bits.
+        /// Only buffered flag can be used in how.
         pub fn readN(self: *Self, n: u4, comptime how: u3) !u16 {
             switch (how) {
                 0 => {
@@ -156,14 +156,14 @@ pub fn BitReader(comptime ReaderType: type) type {
             return u;
         }
 
-        // Advance buffer for n bits.
+        /// Advance buffer for n bits.
         pub fn shift(self: *Self, n: u6) !void {
             if (n > self.nbits) return error.EndOfStream;
             self.bits >>= n;
             self.nbits -= n;
         }
 
-        // Skip n bytes.
+        /// Skip n bytes.
         pub fn skipBytes(self: *Self, n: u16) !void {
             for (0..n) |_| {
                 try self.fill(8);
@@ -176,32 +176,32 @@ pub fn BitReader(comptime ReaderType: type) type {
             return @intCast(self.nbits & 0x7);
         }
 
-        // Align stream to the byte boundary.
+        /// Align stream to the byte boundary.
         pub fn alignToByte(self: *Self) void {
             const ab = self.alignBits();
             if (ab > 0) self.shift(ab) catch unreachable;
         }
 
-        // Skip zero terminated string.
+        /// Skip zero terminated string.
         pub fn skipStringZ(self: *Self) !void {
             while (true) {
                 if (try self.readF(u8, 0) == 0) break;
             }
         }
 
-        // Read deflate fixed fixed code.
-        // Reads first 7 bits, and then mybe 1 or 2 more to get full 7,8 or 9 bit code.
-        // ref: https://datatracker.ietf.org/doc/html/rfc1951#page-12
-        //         Lit Value    Bits        Codes
-        //          ---------    ----        -----
-        //            0 - 143     8          00110000 through
-        //                                   10111111
-        //          144 - 255     9          110010000 through
-        //                                   111111111
-        //          256 - 279     7          0000000 through
-        //                                   0010111
-        //          280 - 287     8          11000000 through
-        //                                   11000111
+        /// Read deflate fixed fixed code.
+        /// Reads first 7 bits, and then mybe 1 or 2 more to get full 7,8 or 9 bit code.
+        /// ref: https://datatracker.ietf.org/doc/html/rfc1951#page-12
+        ///         Lit Value    Bits        Codes
+        ///          ---------    ----        -----
+        ///            0 - 143     8          00110000 through
+        ///                                   10111111
+        ///          144 - 255     9          110010000 through
+        ///                                   111111111
+        ///          256 - 279     7          0000000 through
+        ///                                   0010111
+        ///          280 - 287     8          11000000 through
+        ///                                   11000111
         pub fn readFixedCode(self: *Self) !u16 {
             try self.fill(7 + 2);
             const code7 = try self.readF(u7, flag.buffered | flag.reverse);
