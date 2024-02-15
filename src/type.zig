@@ -2134,7 +2134,8 @@ pub const Type = struct {
 
     /// Returns true if and only if the type is a fixed-width integer.
     pub fn isInt(self: Type, mod: *const Module) bool {
-        return self.isSignedInt(mod) or self.isUnsignedInt(mod);
+        return self.toIntern() != .comptime_int_type and
+            mod.intern_pool.isIntegerType(self.toIntern());
     }
 
     /// Returns true if and only if the type is a fixed-width, signed integer.

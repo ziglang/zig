@@ -335,6 +335,8 @@ pub const Mnemonic = enum {
     pextrb, pextrd, pextrq,
     pinsrb, pinsrd, pinsrq,
     pmaxsb, pmaxsd, pmaxud, pmaxuw, pminsb, pminsd, pminud, pminuw,
+    pmovsxbd, pmovsxbq, pmovsxbw, pmovsxdq, pmovsxwd, pmovsxwq,
+    pmovzxbd, pmovzxbq, pmovzxbw, pmovzxdq, pmovzxwd, pmovzxwq,
     pmulld,
     roundpd, roundps, roundsd, roundss,
     // SSE4.2
@@ -387,6 +389,8 @@ pub const Mnemonic = enum {
     vpmaxsb, vpmaxsd, vpmaxsw, vpmaxub, vpmaxud, vpmaxuw,
     vpminsb, vpminsd, vpminsw, vpminub, vpminud, vpminuw,
     vpmovmskb,
+    vpmovsxbd, vpmovsxbq, vpmovsxbw, vpmovsxdq, vpmovsxwd, vpmovsxwq,
+    vpmovzxbd, vpmovzxbq, vpmovzxbw, vpmovzxdq, vpmovzxwd, vpmovzxwq,
     vpmulhw, vpmulld, vpmullw,
     vpor,
     vpshufb, vpshufd, vpshufhw, vpshuflw,

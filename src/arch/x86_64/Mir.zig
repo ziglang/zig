@@ -658,6 +658,14 @@ pub const Inst = struct {
         /// Insert scalar single-precision floating-point value
         /// Insert packed floating-point values
         insert,
+        /// Packed move with sign extend
+        movsxb,
+        movsxd,
+        movsxw,
+        /// Packed move with zero extend
+        movzxb,
+        movzxd,
+        movzxw,
         /// Round packed single-precision floating-point values
         /// Round scalar single-precision floating-point value
         /// Round packed double-precision floating-point values
