@@ -111,10 +111,10 @@ pub const ElfDynLib = struct {
         ElfStringSectionNotFound,
         ElfSymSectionNotFound,
         ElfHashTableNotFound,
-    };
+    } || os.OpenError || os.MMapError;
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
-    pub fn open(path: []const u8) !ElfDynLib {
+    pub fn open(path: []const u8) Error!ElfDynLib {
         const fd = try os.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
         defer os.close(fd);
 
@@ -250,7 +250,7 @@ pub const ElfDynLib = struct {
     }
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
-    pub fn openZ(path_c: [*:0]const u8) !ElfDynLib {
+    pub fn openZ(path_c: [*:0]const u8) Error!ElfDynLib {
         return open(mem.sliceTo(path_c, 0));
     }
 
@@ -314,34 +314,48 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
     return mem.eql(u8, vername, mem.sliceTo(strings + aux.vda_name, 0));
 }
 
+test "ElfDynLib" {
+    if (builtin.os.tag != .linux) {
+        return error.SkipZigTest;
+    }
+
+    _ = ElfDynLib.open("invalid_so.so") catch |err| {
+        try testing.expect(err == error.FileNotFound);
+        return;
+    };
+}
+
 pub const WindowsDynLib = struct {
-    pub const Error = error{FileNotFound};
+    pub const Error = error{
+        FileNotFound,
+        InvalidPath,
+    } || windows.LoadLibraryError;
 
     dll: windows.HMODULE,
 
-    pub fn open(path: []const u8) !WindowsDynLib {
+    pub fn open(path: []const u8) Error!WindowsDynLib {
         return openEx(path, .none);
     }
 
-    pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
-        const path_w = try windows.sliceToPrefixedFileW(null, path);
+    pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
+        const path_w = windows.sliceToPrefixedFileW(null, path) catch return error.InvalidPath;
         return openExW(path_w.span().ptr, flags);
     }
 
-    pub fn openZ(path_c: [*:0]const u8) !WindowsDynLib {
+    pub fn openZ(path_c: [*:0]const u8) Error!WindowsDynLib {
         return openExZ(path_c, .none);
     }
 
-    pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
+    pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
         const path_w = try windows.cStrToPrefixedFileW(null, path_c);
         return openExW(path_w.span().ptr, flags);
     }
 
-    pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
+    pub fn openW(path_w: [*:0]const u16) Error!WindowsDynLib {
         return openExW(path_w, .none);
     }
 
-    pub fn openExW(path_w: [*:0]const u16, flags: windows.LoadLibraryFlags) !WindowsDynLib {
+    pub fn openExW(path_w: [*:0]const u16, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
         var offset: usize = 0;
         if (path_w[0] == '\\' and path_w[1] == '?' and path_w[2] == '?' and path_w[3] == '\\') {
             // + 4 to skip over the \??\
@@ -372,12 +386,12 @@ pub const DlDynLib = struct {
 
     handle: *anyopaque,
 
-    pub fn open(path: []const u8) !DlDynLib {
+    pub fn open(path: []const u8) Error!DlDynLib {
         const path_c = try os.toPosixPath(path);
         return openZ(&path_c);
     }
 
-    pub fn openZ(path_c: [*:0]const u8) !DlDynLib {
+    pub fn openZ(path_c: [*:0]const u8) Error!DlDynLib {
         return DlDynLib{
             .handle = system.dlopen(path_c, system.RTLD.LAZY) orelse {
                 return error.FileNotFound;
