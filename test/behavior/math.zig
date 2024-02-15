@@ -1062,6 +1062,7 @@ test "@mulWithOverflow bitsize > 32" {
 test "@mulWithOverflow u256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         const const_lhs: u256 = 8035709466408580321693645878924206181189;
