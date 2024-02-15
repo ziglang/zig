@@ -1,3 +1,5 @@
+pub const block_size_max = 1 << 17;
+
 pub const frame = struct {
     pub const Kind = enum { zstandard, skippable };
 

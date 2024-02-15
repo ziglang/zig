@@ -1126,11 +1126,14 @@ fn unpackResource(
 // wrapped for generic use in unpackTarballCompressed: see github.com/ziglang/zig/issues/14739
 const ZstdWrapper = struct {
     fn DecompressType(comptime T: type) type {
-        return error{}!std.compress.zstd.DecompressStream(T, .{});
+        return Allocator.Error!std.compress.zstd.DecompressStream(T, .{});
     }
 
     fn decompress(allocator: Allocator, reader: anytype) DecompressType(@TypeOf(reader)) {
-        return std.compress.zstd.decompressStream(allocator, reader);
+        const window_size = std.compress.zstd.DecompressStreamOptions.default_window_size_max;
+        const window_buffer = try allocator.create([window_size]u8);
+        defer allocator.destroy(window_buffer);
+        return std.compress.zstd.decompressStream(reader, window_buffer);
     }
 };
 
@@ -1138,7 +1141,7 @@ fn unpackTarballCompressed(
     f: *Fetch,
     out_dir: fs.Dir,
     resource: *Resource,
-    comptime Compression: type,
+    Compression: anytype,
 ) RunError!void {
     const gpa = f.arena.child_allocator;
     const eb = &f.error_bundle;
@@ -1151,7 +1154,7 @@ fn unpackTarballCompressed(
             .{@errorName(err)},
         ));
     };
-    defer decompress.deinit();
+    defer if (@hasDecl(Compression, "deinit")) decompress.deinit();
 
     return unpackTarball(f, out_dir, decompress.reader());
 }
