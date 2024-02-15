@@ -1647,14 +1647,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
-        error.NeedCompileErrorCheck => {
-            assert(self.expect_errors != null);
-            try checkCompileErrors(self);
-            return;
-        },
-        else => |e| return e,
-    };
+    const maybe_output_bin_path = try step.evalZigProcess(zig_args.items, prog_node);
 
     // Update generated files
     if (maybe_output_bin_path) |output_bin_path| {
@@ -1793,7 +1786,7 @@ fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) 
     }
 }
 
-fn checkCompileErrors(self: *Compile) !void {
+pub fn checkCompileErrors(self: *Compile) !void {
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = self.step.result_error_bundle;
     self.step.result_error_bundle = std.zig.ErrorBundle.empty;
