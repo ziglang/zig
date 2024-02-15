@@ -543,6 +543,7 @@ pub const File = struct {
         UnexpectedTable,
         UnexpectedValue,
         UnknownFeature,
+        UnrecognizedVolume,
         Unseekable,
         UnsupportedCpuArchitecture,
         UnsupportedVersion,
