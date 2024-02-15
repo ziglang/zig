@@ -842,7 +842,7 @@ pub const termios = switch (native_os) {
 
 pub const tc_iflag_t = switch (native_os) {
     .linux => std.os.linux.tc_iflag_t,
-    .macos, .ios, .tvos, .watchos => packed struct(u32) {
+    .macos, .ios, .tvos, .watchos => packed struct(u64) {
         IGNBRK: bool = false,
         BRKINT: bool = false,
         IGNPAR: bool = false,
@@ -858,7 +858,7 @@ pub const tc_iflag_t = switch (native_os) {
         _12: u1 = 0,
         IMAXBEL: bool = false,
         IUTF8: bool = false,
-        _: u17 = 0,
+        _: u49 = 0,
     },
     .netbsd, .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
         IGNBRK: bool = false,
@@ -952,7 +952,7 @@ pub const tc_iflag_t = switch (native_os) {
 
 pub const tc_oflag_t = switch (native_os) {
     .linux => std.os.linux.tc_oflag_t,
-    .macos, .ios, .tvos, .watchos => packed struct(u32) {
+    .macos, .ios, .tvos, .watchos => packed struct(u64) {
         OPOST: bool = false,
         ONLCR: bool = false,
         OXTABS: bool = false,
@@ -968,7 +968,7 @@ pub const tc_oflag_t = switch (native_os) {
         BSDLY: u1 = 0,
         VTDLY: u1 = 0,
         OFDEL: bool = false,
-        _: u14 = 0,
+        _: u46 = 0,
     },
     .netbsd => packed struct(u32) {
         OPOST: bool = false,
@@ -1049,7 +1049,7 @@ pub const CSIZE = switch (native_os) {
 
 pub const tc_cflag_t = switch (native_os) {
     .linux => std.os.linux.tc_cflag_t,
-    .macos, .ios, .tvos, .watchos => packed struct(u32) {
+    .macos, .ios, .tvos, .watchos => packed struct(u64) {
         CIGNORE: bool = false,
         _1: u5 = 0,
         CSTOPB: bool = false,
@@ -1066,7 +1066,7 @@ pub const tc_cflag_t = switch (native_os) {
         CDTR_IFLOW: bool = false,
         CDSR_OFLOW: bool = false,
         CCAR_OFLOW: bool = false,
-        _: u11 = 0,
+        _: u43 = 0,
     },
     .freebsd, .kfreebsd => packed struct(u32) {
         CIGNORE: bool = false,
@@ -1185,7 +1185,31 @@ pub const tc_cflag_t = switch (native_os) {
 
 pub const tc_lflag_t = switch (native_os) {
     .linux => std.os.linux.tc_lflag_t,
-    .macos, .ios, .tvos, .watchos, .netbsd, .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
+    .macos, .ios, .tvos, .watchos => packed struct(u64) {
+        ECHOKE: bool = false,
+        ECHOE: bool = false,
+        ECHOK: bool = false,
+        ECHO: bool = false,
+        ECHONL: bool = false,
+        ECHOPRT: bool = false,
+        ECHOCTL: bool = false,
+        ISIG: bool = false,
+        ICANON: bool = false,
+        ALTWERASE: bool = false,
+        IEXTEN: bool = false,
+        EXTPROC: bool = false,
+        _12: u10 = 0,
+        TOSTOP: bool = false,
+        FLUSHO: bool = false,
+        _24: u1 = 0,
+        NOKERNINFO: bool = false,
+        _26: u3 = 0,
+        PENDIN: bool = false,
+        _30: u1 = 0,
+        NOFLSH: bool = false,
+        _: u32 = 0,
+    },
+    .netbsd, .freebsd, .kfreebsd, .dragonfly => packed struct(u32) {
         ECHOKE: bool = false,
         ECHOE: bool = false,
         ECHOK: bool = false,
