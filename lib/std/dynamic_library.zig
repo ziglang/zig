@@ -319,10 +319,7 @@ test "ElfDynLib" {
         return error.SkipZigTest;
     }
 
-    _ = ElfDynLib.open("invalid_so.so") catch |err| {
-        try testing.expect(err == error.FileNotFound);
-        return;
-    };
+    try testing.expectError(error.FileNotFound, ElfDynLib.open("invalid_so.so"));
 }
 
 pub const WindowsDynLib = struct {
@@ -423,8 +420,5 @@ test "dynamic_library" {
         else => return error.SkipZigTest,
     };
 
-    _ = DynLib.open(libname) catch |err| {
-        try testing.expect(err == error.FileNotFound);
-        return;
-    };
+    try testing.expectError(error.FileNotFound, DynLib.open(libname));
 }
