@@ -19,12 +19,9 @@ else
 const alignment = @alignOf(CopyType);
 const size = @sizeOf(CopyType);
 
-const small_limit = 256;
-
 comptime {
-    std.debug.assert(small_limit >= alignment);
+    std.debug.assert(size >= alignment);
     std.debug.assert(std.math.isPowerOfTwo(size));
-    std.debug.assert(std.math.isPowerOfTwo(small_limit));
 }
 
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
@@ -39,21 +36,20 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
         return dest;
     }
 
-    if (len <= 32) {
-        memcpy_range2(16, dest.?, src.?, len);
-        return dest;
-    }
-
-    if (len < small_limit) {
-        memcpy_remainder(small_limit, dest.?, src.?, len);
-        return dest;
+    inline for (5..std.math.log2(2 * size) + 1) |p| {
+        const limit = 1 << p;
+        if (len <= limit) {
+            memcpy_range2(limit / 2, dest.?, src.?, len);
+            return dest;
+        }
     }
 
     var d = dest.?;
     var s = src.?;
     var n = len;
 
-    // align source, this assumes small_limit >= alignment
+    // we know that `len > 2 * size` and `size >= alignment`
+    // so we can safely align `s` to `alignment`
     d[0..size].* = s[0..size].*;
     const alignment_offset = alignment - @intFromPtr(s) % alignment;
     n -= alignment_offset;
