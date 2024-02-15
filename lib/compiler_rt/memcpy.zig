@@ -153,8 +153,23 @@ inline fn memcpy_range2(
 
     const copy_len = min;
     const last = len - copy_len;
-    dest[0..copy_len].* = src[0..copy_len].*;
-    dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
+    if (copy_len > size) { // comptime-known
+        // we do these copies 1 CopyType at a time to prevent llvm turning this into a call to memcpy
+        const d: [*]align(1) CopyType = @ptrCast(dest);
+        const s: [*]align(1) const CopyType = @ptrCast(src);
+        const count = @divExact(copy_len, size);
+        inline for (d[0..count], s[0..count]) |*r, v| {
+            r.* = v;
+        }
+        const dl: [*]align(1) CopyType = @ptrCast(dest + last);
+        const sl: [*]align(1) const CopyType = @ptrCast(src + last);
+        inline for (dl[0..count], sl[0..count]) |*r, v| {
+            r.* = v;
+        }
+    } else {
+        dest[0..copy_len].* = src[0..copy_len].*;
+        dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
+    }
 }
 
 test "aligned" {
