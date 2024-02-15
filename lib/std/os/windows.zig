@@ -178,7 +178,13 @@ pub fn CreateEventExW(attributes: ?*SECURITY_ATTRIBUTES, nameW: [*:0]const u16, 
     }
 }
 
-pub const DeviceIoControlError = error{ AccessDenied, Unexpected };
+pub const DeviceIoControlError = error{
+    AccessDenied,
+    /// The volume does not contain a recognized file system. File system
+    /// drivers might not be loaded, or the volume may be corrupt.
+    UnrecognizedVolume,
+    Unexpected,
+};
 
 /// A Zig wrapper around `NtDeviceIoControlFile` and `NtFsControlFile` syscalls.
 /// It implements similar behavior to `DeviceIoControl` and is meant to serve
@@ -234,6 +240,7 @@ pub fn DeviceIoControl(
         .ACCESS_DENIED => return error.AccessDenied,
         .INVALID_DEVICE_REQUEST => return error.AccessDenied, // Not supported by the underlying filesystem
         .INVALID_PARAMETER => unreachable,
+        .UNRECOGNIZED_VOLUME => return error.UnrecognizedVolume,
         else => return unexpectedStatus(rc),
     }
 }
@@ -606,6 +613,9 @@ pub const CreateSymbolicLinkError = error{
     NoDevice,
     NetworkNotFound,
     BadPathName,
+    /// The volume does not contain a recognized file system. File system
+    /// drivers might not be loaded, or the volume may be corrupt.
+    UnrecognizedVolume,
     Unexpected,
 };
 
@@ -688,12 +698,12 @@ pub fn CreateSymbolicLink(
     const target_is_absolute = std.fs.path.isAbsoluteWindowsWTF16(final_target_path);
     const symlink_data = SYMLINK_DATA{
         .ReparseTag = IO_REPARSE_TAG_SYMLINK,
-        .ReparseDataLength = @as(u16, @intCast(buf_len - header_len)),
+        .ReparseDataLength = @intCast(buf_len - header_len),
         .Reserved = 0,
-        .SubstituteNameOffset = @as(u16, @intCast(final_target_path.len * 2)),
-        .SubstituteNameLength = @as(u16, @intCast(final_target_path.len * 2)),
+        .SubstituteNameOffset = @intCast(final_target_path.len * 2),
+        .SubstituteNameLength = @intCast(final_target_path.len * 2),
         .PrintNameOffset = 0,
-        .PrintNameLength = @as(u16, @intCast(final_target_path.len * 2)),
+        .PrintNameLength = @intCast(final_target_path.len * 2),
         .Flags = if (!target_is_absolute) SYMLINK_FLAG_RELATIVE else 0,
     };
 
@@ -769,7 +779,8 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
 
     var reparse_buf: [MAXIMUM_REPARSE_DATA_BUFFER_SIZE]u8 align(@alignOf(REPARSE_DATA_BUFFER)) = undefined;
     _ = DeviceIoControl(result_handle, FSCTL_GET_REPARSE_POINT, null, reparse_buf[0..]) catch |err| switch (err) {
-        error.AccessDenied => unreachable,
+        error.AccessDenied => return error.Unexpected,
+        error.UnrecognizedVolume => return error.Unexpected,
         else => |e| return e,
     };
 
@@ -1084,6 +1095,9 @@ pub const GetFinalPathNameByHandleError = error{
     BadPathName,
     FileNotFound,
     NameTooLong,
+    /// The volume does not contain a recognized file system. File system
+    /// drivers might not be loaded, or the volume may be corrupt.
+    UnrecognizedVolume,
     Unexpected,
 };
 
@@ -1174,16 +1188,16 @@ pub fn GetFinalPathNameByHandle(
             };
             defer CloseHandle(mgmt_handle);
 
-            var input_struct = @as(*MOUNTMGR_MOUNT_POINT, @ptrCast(&input_buf[0]));
+            var input_struct: *MOUNTMGR_MOUNT_POINT = @ptrCast(&input_buf[0]);
             input_struct.DeviceNameOffset = @sizeOf(MOUNTMGR_MOUNT_POINT);
-            input_struct.DeviceNameLength = @as(USHORT, @intCast(volume_name_u16.len * 2));
+            input_struct.DeviceNameLength = @intCast(volume_name_u16.len * 2);
             @memcpy(input_buf[@sizeOf(MOUNTMGR_MOUNT_POINT)..][0 .. volume_name_u16.len * 2], @as([*]const u8, @ptrCast(volume_name_u16.ptr)));
 
             DeviceIoControl(mgmt_handle, IOCTL_MOUNTMGR_QUERY_POINTS, &input_buf, &output_buf) catch |err| switch (err) {
-                error.AccessDenied => unreachable,
+                error.AccessDenied => return error.Unexpected,
                 else => |e| return e,
             };
-            const mount_points_struct = @as(*const MOUNTMGR_MOUNT_POINTS, @ptrCast(&output_buf[0]));
+            const mount_points_struct: *const MOUNTMGR_MOUNT_POINTS = @ptrCast(&output_buf[0]);
 
             const mount_points = @as(
                 [*]const MOUNTMGR_MOUNT_POINT,
@@ -2203,7 +2217,7 @@ pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) !PathSpace {
                 .unc_absolute => nt_prefix.len + 2,
                 else => nt_prefix.len,
             };
-            const buf_len = @as(u32, @intCast(path_space.data.len - path_buf_offset));
+            const buf_len: u32 = @intCast(path_space.data.len - path_buf_offset);
             const path_to_get: [:0]const u16 = path_to_get: {
                 // If dir is null, then we don't need to bother with GetFinalPathNameByHandle because
                 // RtlGetFullPathName_U will resolve relative paths against the CWD for us.
@@ -2221,7 +2235,24 @@ pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) !PathSpace {
                 // canonicalize it. We do this by getting the path of the `dir`
                 // and appending the relative path to it.
                 var dir_path_buf: [PATH_MAX_WIDE:0]u16 = undefined;
-                const dir_path = try GetFinalPathNameByHandle(dir.?, .{}, &dir_path_buf);
+                const dir_path = GetFinalPathNameByHandle(dir.?, .{}, &dir_path_buf) catch |err| switch (err) {
+                    // This mapping is not correct; it is actually expected
+                    // that calling GetFinalPathNameByHandle might return
+                    // error.UnrecognizedVolume, and in fact has been observed
+                    // in the wild. The problem is that wToPrefixedFileW was
+                    // never intended to make *any* OS syscall APIs. It's only
+                    // supposed to convert a string to one that is eligible to
+                    // be used in the ntdll syscalls.
+                    //
+                    // To solve this, this function needs to no longer call
+                    // GetFinalPathNameByHandle under any conditions, or the
+                    // calling function needs to get reworked to not need to
+                    // call this function.
+                    //
+                    // This may involve making breaking API changes.
+                    error.UnrecognizedVolume => return error.Unexpected,
+                    else => |e| return e,
+                };
                 if (dir_path.len + 1 + path.len > PATH_MAX_WIDE) {
                     return error.NameTooLong;
                 }
