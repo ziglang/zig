@@ -557,6 +557,13 @@ pub const NOTE_FFCTRLMASK = 3221225472;
 pub const NOTE_FFCOPY = 3221225472;
 pub const NOTE_PCTRLMASK = 4026531840;
 
+pub const TCSA = enum(c_uint) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
+};
+
 pub const stack_t = extern struct {
     sp: [*]u8,
     size: isize,
