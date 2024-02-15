@@ -16,3 +16,12 @@ zig-out/
 /build/
 /build-*/
 /docgen_tmp/
+
+# bootstrap stuff
+zig1
+zig1.c
+zig2
+zig2.c
+zig-wasm2c
+compiler_rt.c
+config.zig
