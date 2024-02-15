@@ -39,7 +39,7 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
         return dest;
     }
 
-    if (len < 32) {
+    if (len <= 32) {
         memcpy_range2(16, dest.?, src.?, len);
         return dest;
     }
@@ -141,17 +141,17 @@ inline fn memcpy_range4(
     dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
 }
 
-/// behavior is undefined if `len` does not satisfy `min <= len < 2 * min`
+/// copy blocks of length `copy_len` from `src[0..len] to `dest[0..len]` at the
+/// start and end of those respective slices
 inline fn memcpy_range2(
-    comptime min: comptime_int,
+    comptime copy_len: comptime_int,
     noalias dest: [*]u8,
     noalias src: [*]const u8,
     len: usize,
 ) void {
     @setRuntimeSafety(false);
-    comptime std.debug.assert(std.math.isPowerOfTwo(min));
+    comptime std.debug.assert(std.math.isPowerOfTwo(copy_len));
 
-    const copy_len = min;
     const last = len - copy_len;
     if (copy_len > size) { // comptime-known
         // we do these copies 1 CopyType at a time to prevent llvm turning this into a call to memcpy
