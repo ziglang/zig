@@ -768,12 +768,11 @@ pub const AUTH = struct {
     pub const ALLOW: c_int = (OKAY | ROOTOKAY | SECURE);
 };
 
-// Commands passed to tcsetattr() for setting the termios structure.
-pub const TCSA = struct {
-    pub const NOW = 0; // make change immediate
-    pub const DRAIN = 1; // drain output, then change
-    pub const FLUSH = 2; // drain output, flush input
-    pub const SOFT = 0x10; // flag - don't alter h.w. state
+pub const TCSA = enum(c_uint) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
 };
 
 pub const TCIFLUSH = 1;

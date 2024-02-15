@@ -1153,6 +1153,13 @@ pub const T = struct {
     pub const IOCSIG = 0x2004745f;
 };
 
+pub const TCSA = enum(c_uint) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
+};
+
 pub const winsize = extern struct {
     ws_row: u16,
     ws_col: u16,
