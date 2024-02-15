@@ -277,6 +277,7 @@ pub const ChildProcess = struct {
             .capacity = fifo.buf.len,
             .allocator = fifo.allocator,
         };
+        fifo.deinit();
         fifo.* = std.io.PollFifo.init(fifo.allocator);
         return result;
     }
