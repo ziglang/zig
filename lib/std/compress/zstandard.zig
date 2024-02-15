@@ -101,10 +101,10 @@ pub fn DecompressStream(
                     );
                     const buffer = try RingBuffer.init(self.allocator, frame_context.window_size);
 
-                    const literals_data = try self.allocator.alloc(u8, options.window_size_max);
+                    const literals_data = try self.allocator.alloc(u8, frame_context.block_size_max);
                     errdefer self.allocator.free(literals_data);
 
-                    const sequence_data = try self.allocator.alloc(u8, options.window_size_max);
+                    const sequence_data = try self.allocator.alloc(u8, frame_context.block_size_max);
                     errdefer self.allocator.free(sequence_data);
 
                     self.literal_fse_buffer = literal_fse_buffer;
