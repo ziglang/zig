@@ -8,6 +8,7 @@
 const Module = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
@@ -471,19 +472,26 @@ pub fn flush(self: *Module, file: std.fs.File, target: std.Target) !void {
         self.sections.functions.toWords(),
     };
 
-    var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
-    var file_size: u64 = 0;
-    for (&iovc_buffers, 0..) |*iovc, i| {
-        // Note, since spir-v supports both little and big endian we can ignore byte order here and
-        // just treat the words as a sequence of bytes.
-        const bytes = std.mem.sliceAsBytes(buffers[i]);
-        iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
-        file_size += bytes.len;
-    }
+    if (builtin.zig_backend == .stage2_x86_64) {
+        for (buffers) |buf| {
+            try file.writeAll(std.mem.sliceAsBytes(buf));
+        }
+    } else {
+        // miscompiles with x86_64 backend
+        var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
+        var file_size: u64 = 0;
+        for (&iovc_buffers, 0..) |*iovc, i| {
+            // Note, since spir-v supports both little and big endian we can ignore byte order here and
+            // just treat the words as a sequence of bytes.
+            const bytes = std.mem.sliceAsBytes(buffers[i]);
+            iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
+            file_size += bytes.len;
+        }
 
-    try file.seekTo(0);
-    try file.setEndPos(file_size);
-    try file.pwritevAll(&iovc_buffers, 0);
+        try file.seekTo(0);
+        try file.setEndPos(file_size);
+        try file.pwritevAll(&iovc_buffers, 0);
+    }
 }
 
 /// Merge the sections making up a function declaration into this module.
