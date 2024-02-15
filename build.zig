@@ -150,7 +150,7 @@ pub fn build(b: *std.Build) !void {
                 "rfc1951.txt",
                 "rfc1952.txt",
                 "rfc8478.txt",
-                // exclude files from lib/std/compress/deflate/testdata
+                // exclude files from lib/std/compress/flate/testdata
                 ".expect",
                 ".expect-noinput",
                 ".golden",

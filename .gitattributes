@@ -4,6 +4,7 @@
 langref.html.in text eol=lf
 lib/std/compress/testdata/** binary
 lib/std/compress/deflate/testdata/** binary
+lib/std/compress/flate/testdata/** binary
 
 lib/include/** linguist-vendored
 lib/libc/** linguist-vendored

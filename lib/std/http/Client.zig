@@ -404,8 +404,8 @@ pub const RequestTransfer = union(enum) {
 
 /// The decompressor for response messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.DecompressStream(Request.TransferReader);
-    pub const GzipDecompressor = std.compress.gzip.Decompress(Request.TransferReader);
+    pub const DeflateDecompressor = std.compress.zlib.Decompressor(Request.TransferReader);
+    pub const GzipDecompressor = std.compress.gzip.Decompressor(Request.TransferReader);
     pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
 
     deflate: DeflateDecompressor,
@@ -601,8 +601,8 @@ pub const Request = struct {
     pub fn deinit(req: *Request) void {
         switch (req.response.compression) {
             .none => {},
-            .deflate => |*deflate| deflate.deinit(),
-            .gzip => |*gzip| gzip.deinit(),
+            .deflate => {},
+            .gzip => {},
             .zstd => |*zstd| zstd.deinit(),
         }
 
@@ -632,8 +632,8 @@ pub const Request = struct {
 
         switch (req.response.compression) {
             .none => {},
-            .deflate => |*deflate| deflate.deinit(),
-            .gzip => |*gzip| gzip.deinit(),
+            .deflate => {},
+            .gzip => {},
             .zstd => |*zstd| zstd.deinit(),
         }
 
@@ -941,10 +941,10 @@ pub const Request = struct {
                         .identity => req.response.compression = .none,
                         .compress, .@"x-compress" => return error.CompressionNotSupported,
                         .deflate => req.response.compression = .{
-                            .deflate = std.compress.zlib.decompressStream(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
+                            .deflate = std.compress.zlib.decompressor(req.transferReader()),
                         },
                         .gzip, .@"x-gzip" => req.response.compression = .{
-                            .gzip = std.compress.gzip.decompress(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
+                            .gzip = std.compress.gzip.decompressor(req.transferReader()),
                         },
                         .zstd => req.response.compression = .{
                             .zstd = std.compress.zstd.decompressStream(req.client.allocator, req.transferReader()),

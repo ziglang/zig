@@ -902,9 +902,7 @@ pub fn codeDecompressAlloc(self: Object, elf_file: *Elf, atom_index: Atom.Index)
         switch (chdr.ch_type) {
             .ZLIB => {
                 var stream = std.io.fixedBufferStream(data[@sizeOf(elf.Elf64_Chdr)..]);
-                var zlib_stream = std.compress.zlib.decompressStream(gpa, stream.reader()) catch
-                    return error.InputOutput;
-                defer zlib_stream.deinit();
+                var zlib_stream = std.compress.zlib.decompressor(stream.reader());
                 const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
                 const decomp = try gpa.alloc(u8, size);
                 const nread = zlib_stream.reader().readAll(decomp) catch return error.InputOutput;
