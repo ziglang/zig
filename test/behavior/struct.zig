@@ -2114,3 +2114,15 @@ test "initiate global variable with runtime value" {
     };
     try expect(S.some_struct.field == 1);
 }
+
+test "struct containing optional pointer to array of @This()" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
+    const S = struct {
+        x: ?*const [1]@This(),
+    };
+
+    var s: S = .{ .x = &.{.{ .x = null }} };
+    _ = &s;
+    try expect(s.x.?[0].x == null);
+}
