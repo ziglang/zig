@@ -1867,6 +1867,16 @@ pub const SrcLoc = struct {
                     else => return nodeToSpan(tree, node),
                 }
             },
+            .node_offset_return_operand => |node_off| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(node_off);
+                const node_tags = tree.nodes.items(.tag);
+                const node_datas = tree.nodes.items(.data);
+                if (node_tags[node] == .@"return" and node_datas[node].lhs != 0) {
+                    return nodeToSpan(tree, node_datas[node].lhs);
+                }
+                return nodeToSpan(tree, node);
+            },
         }
     }
 
@@ -2221,6 +2231,10 @@ pub const LazySrcLoc = union(enum) {
     /// The source location points to the RHS of an assignment.
     /// The Decl is determined contextually.
     node_offset_store_operand: i32,
+    /// The source location points to the operand of a `return` statement, or
+    /// the `return` itself if there is no explicit operand.
+    /// The Decl is determined contextually.
+    node_offset_return_operand: i32,
     /// The source location points to a for loop input.
     /// The Decl is determined contextually.
     for_input: struct {
@@ -2347,6 +2361,7 @@ pub const LazySrcLoc = union(enum) {
             .node_offset_init_ty,
             .node_offset_store_ptr,
             .node_offset_store_operand,
+            .node_offset_return_operand,
             .for_input,
             .for_capture_from_input,
             .array_cat_lhs,
