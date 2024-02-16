@@ -27,9 +27,23 @@ comptime {
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
-    if (len == 0) return dest;
+    if (len <= 16) {
+        if (len <= 4) {
+            if (len <= 2) {
+                if (len == 0) return dest;
+                memcpy_range2(1, dest.?, src.?, len);
+            } else {
+                memcpy_range2(2, dest.?, src.?, len);
+            }
+        } else if (len <= 8) {
+            memcpy_range2(4, dest.?, src.?, len);
+        } else {
+            memcpy_range2(8, dest.?, src.?, len);
+        }
+        return dest;
+    }
 
-    inline for (1..std.math.log2(2 * size) + 1) |p| {
+    inline for (5..std.math.log2(2 * size) + 1) |p| {
         const limit = 1 << p;
         if (len <= limit) {
             memcpy_range2(limit / 2, dest.?, src.?, len);
