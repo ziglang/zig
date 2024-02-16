@@ -407,11 +407,13 @@ pub const RequestTransfer = union(enum) {
 pub const Compression = union(enum) {
     pub const DeflateDecompressor = std.compress.zlib.Decompressor(Request.TransferReader);
     pub const GzipDecompressor = std.compress.gzip.Decompressor(Request.TransferReader);
-    pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
+    // https://github.com/ziglang/zig/issues/18937
+    //pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
 
     deflate: DeflateDecompressor,
     gzip: GzipDecompressor,
-    zstd: ZstdDecompressor,
+    // https://github.com/ziglang/zig/issues/18937
+    //zstd: ZstdDecompressor,
     none: void,
 };
 
@@ -641,13 +643,6 @@ pub const Request = struct {
 
     /// Frees all resources associated with the request.
     pub fn deinit(req: *Request) void {
-        switch (req.response.compression) {
-            .none => {},
-            .deflate => {},
-            .gzip => {},
-            .zstd => |*zstd| zstd.deinit(),
-        }
-
         if (req.connection) |connection| {
             if (req.response.parser.state != .complete) {
                 // If the response wasn't fully read, then we need to close the connection.
@@ -665,13 +660,6 @@ pub const Request = struct {
     // This needs to be kept in sync with deinit and request.
     fn redirect(req: *Request, uri: Uri) !void {
         assert(req.response.parser.state == .complete);
-
-        switch (req.response.compression) {
-            .none => {},
-            .deflate => {},
-            .gzip => {},
-            .zstd => |*zstd| zstd.deinit(),
-        }
 
         req.client.connection_pool.release(req.client.allocator, req.connection.?);
         req.connection = null;
@@ -764,7 +752,9 @@ pub const Request = struct {
         }
 
         if (try emitOverridableHeader("accept-encoding: ", req.headers.accept_encoding, w)) {
-            try w.writeAll("accept-encoding: gzip, deflate, zstd\r\n");
+            // https://github.com/ziglang/zig/issues/18937
+            //try w.writeAll("accept-encoding: gzip, deflate, zstd\r\n");
+            try w.writeAll("accept-encoding: gzip, deflate\r\n");
         }
 
         switch (req.transfer_encoding) {
@@ -988,9 +978,11 @@ pub const Request = struct {
                         .gzip, .@"x-gzip" => req.response.compression = .{
                             .gzip = std.compress.gzip.decompressor(req.transferReader()),
                         },
-                        .zstd => req.response.compression = .{
-                            .zstd = std.compress.zstd.decompressStream(req.client.allocator, req.transferReader()),
-                        },
+                        // https://github.com/ziglang/zig/issues/18937
+                        //.zstd => req.response.compression = .{
+                        //    .zstd = std.compress.zstd.decompressStream(req.client.allocator, req.transferReader()),
+                        //},
+                        .zstd => return error.CompressionUnsupported,
                     }
                 }
 
@@ -1013,7 +1005,8 @@ pub const Request = struct {
         const out_index = switch (req.response.compression) {
             .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
             .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
-            .zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
+            // https://github.com/ziglang/zig/issues/18937
+            //.zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
             else => try req.transferRead(buffer),
         };
 
