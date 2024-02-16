@@ -639,6 +639,11 @@ pub const Request = struct {
                 _ => rb.* = @enumFromInt(@intFromEnum(rb.*) - 1),
             }
         }
+
+        pub fn remaining(rb: RedirectBehavior) u16 {
+            assert(rb != .unhandled);
+            return @intFromEnum(rb);
+        }
     };
 
     /// Frees all resources associated with the request.

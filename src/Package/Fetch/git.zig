@@ -530,8 +530,9 @@ pub const Session = struct {
         info_refs_uri.query = "service=git-upload-pack";
         info_refs_uri.fragment = null;
 
+        const max_redirects = 3;
         var request = try session.transport.open(.GET, info_refs_uri, .{
-            .redirect_behavior = @enumFromInt(3),
+            .redirect_behavior = @enumFromInt(max_redirects),
             .server_header_buffer = http_headers_buffer,
             .extra_headers = &.{
                 .{ .name = "Git-Protocol", .value = "version=2" },
@@ -543,12 +544,8 @@ pub const Session = struct {
 
         try request.wait();
         if (request.response.status != .ok) return error.ProtocolError;
-        // Pretty sure this is dead code - in order for a redirect to occur, the status
-        // code would need to be in the 300s and then it would not be "OK" which is checked
-        // on the line above.
-        var runtime_false = false;
-        _ = &runtime_false;
-        if (runtime_false) {
+        const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
+        if (any_redirects_occurred) {
             if (!mem.endsWith(u8, request.uri.path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
             new_uri.path = new_uri.path[0 .. new_uri.path.len - "/info/refs".len];
