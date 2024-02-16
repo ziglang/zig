@@ -419,7 +419,7 @@ pub const Compression = union(enum) {
 
 /// A HTTP response originating from a server.
 pub const Response = struct {
-    pub const ParseError = Allocator.Error || error{
+    pub const ParseError = error{
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
         HttpTransferEncodingUnsupported,
