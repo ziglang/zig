@@ -2595,6 +2595,7 @@ pub fn genGlobalAsm(mod: *Module, writer: anytype) !void {
 
 pub fn genErrDecls(o: *Object) !void {
     const mod = o.dg.module;
+    const ip = &mod.intern_pool;
     const writer = o.writer();
 
     var max_name_len: usize = 0;
@@ -2603,7 +2604,7 @@ pub fn genErrDecls(o: *Object) !void {
         try writer.writeAll("enum {\n");
         o.indent_writer.pushIndent();
         for (mod.global_error_set.keys()[1..], 1..) |name_nts, value| {
-            const name = mod.intern_pool.stringToSlice(name_nts);
+            const name = ip.stringToSlice(name_nts);
             max_name_len = @max(name.len, max_name_len);
             const err_val = try mod.intern(.{ .err = .{
                 .ty = .anyerror_type,
@@ -2621,8 +2622,8 @@ pub fn genErrDecls(o: *Object) !void {
     defer o.dg.gpa.free(name_buf);
 
     @memcpy(name_buf[0..name_prefix.len], name_prefix);
-    for (mod.global_error_set.keys()) |name_nts| {
-        const name = mod.intern_pool.stringToSlice(name_nts);
+    for (mod.global_error_set.keys()) |name_ip| {
+        const name = ip.stringToSlice(name_ip);
         @memcpy(name_buf[name_prefix.len..][0..name.len], name);
         const identifier = name_buf[0 .. name_prefix.len + name.len];
 
@@ -2652,7 +2653,7 @@ pub fn genErrDecls(o: *Object) !void {
     try o.dg.renderTypeAndName(writer, name_array_ty, .{ .identifier = array_identifier }, Const, .none, .complete);
     try writer.writeAll(" = {");
     for (mod.global_error_set.keys(), 0..) |name_nts, value| {
-        const name = mod.intern_pool.stringToSlice(name_nts);
+        const name = ip.stringToSlice(name_nts);
         if (value != 0) try writer.writeByte(',');
 
         const len_val = try mod.intValue(Type.usize, name.len);
@@ -2730,6 +2731,7 @@ fn genExports(o: *Object) !void {
 
 pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
     const mod = o.dg.module;
+    const ip = &mod.intern_pool;
     const w = o.writer();
     const key = lazy_fn.key_ptr.*;
     const val = lazy_fn.value_ptr;
@@ -2747,23 +2749,23 @@ pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
             try w.writeByte('(');
             try o.dg.renderTypeAndName(w, enum_ty, .{ .identifier = "tag" }, Const, .none, .complete);
             try w.writeAll(") {\n switch (tag) {\n");
-            for (enum_ty.enumFields(mod), 0..) |name_ip, index_usize| {
-                const index = @as(u32, @intCast(index_usize));
-                const name = mod.intern_pool.stringToSlice(name_ip);
-                const tag_val = try mod.enumValueFieldIndex(enum_ty, index);
+            const tag_names = enum_ty.enumFields(mod);
+            for (0..tag_names.len) |tag_index| {
+                const tag_name = ip.stringToSlice(tag_names.get(ip)[tag_index]);
+                const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
 
                 const int_val = try tag_val.intFromEnum(enum_ty, mod);
 
                 const name_ty = try mod.arrayType(.{
-                    .len = name.len,
+                    .len = tag_name.len,
                     .child = .u8_type,
                     .sentinel = .zero_u8,
                 });
                 const name_val = try mod.intern(.{ .aggregate = .{
                     .ty = name_ty.toIntern(),
-                    .storage = .{ .bytes = name },
+                    .storage = .{ .bytes = tag_name },
                 } });
-                const len_val = try mod.intValue(Type.usize, name.len);
+                const len_val = try mod.intValue(Type.usize, tag_name.len);
 
                 try w.print("  case {}: {{\n   static ", .{
                     try o.dg.fmtIntLiteral(enum_ty, int_val, .Other),

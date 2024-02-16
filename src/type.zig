@@ -2908,22 +2908,21 @@ pub const Type = struct {
 
     // Asserts that `ty` is an error set and not `anyerror`.
     // Asserts that `ty` is resolved if it is an inferred error set.
-    pub fn errorSetNames(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
+    pub fn errorSetNames(ty: Type, mod: *Module) InternPool.NullTerminatedString.Slice {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .error_set_type => |x| x.names.get(ip),
+            .error_set_type => |x| x.names,
             .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
                 .none => unreachable, // unresolved inferred error set
                 .anyerror_type => unreachable,
-                else => |t| ip.indexToKey(t).error_set_type.names.get(ip),
+                else => |t| ip.indexToKey(t).error_set_type.names,
             },
             else => unreachable,
         };
     }
 
-    pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        const ip = &mod.intern_pool;
-        return ip.indexToKey(ty.toIntern()).enum_type.names.get(ip);
+    pub fn enumFields(ty: Type, mod: *Module) InternPool.NullTerminatedString.Slice {
+        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names;
     }
 
     pub fn enumFieldCount(ty: Type, mod: *Module) usize {

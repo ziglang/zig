@@ -9574,6 +9574,7 @@ pub const FuncGen = struct {
     fn airErrorSetHasValue(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
+        const ip = &mod.intern_pool;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const error_set_ty = ty_op.ty.toType();
@@ -9585,8 +9586,8 @@ pub const FuncGen = struct {
         var wip_switch = try self.wip.@"switch"(operand, invalid_block, @intCast(names.len));
         defer wip_switch.finish(&self.wip);
 
-        for (names) |name| {
-            const err_int = mod.global_error_set.getIndex(name).?;
+        for (0..names.len) |name_index| {
+            const err_int = mod.global_error_set.getIndex(names.get(ip)[name_index]).?;
             const this_tag_int_value = try o.builder.intConst(try o.errorIntType(), err_int);
             try wip_switch.addCase(this_tag_int_value, valid_block, &self.wip);
         }

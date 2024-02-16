@@ -12619,8 +12619,9 @@ fn analyzeSwitchRuntimeBlock(
                         operand_ty.fmt(mod),
                     });
                 }
-                for (0..operand_ty.errorSetNames(mod).len) |i| {
-                    const error_name = operand_ty.errorSetNames(mod)[i];
+                const error_names = operand_ty.errorSetNames(mod);
+                for (0..error_names.len) |name_index| {
+                    const error_name = error_names.get(ip)[name_index];
                     if (seen_errors.contains(error_name)) continue;
                     cases_len += 1;
 
@@ -22362,8 +22363,9 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
         if (!operand_ty.isAnyError(mod) and operand_ty.errorSetIsEmpty(mod)) break :disjoint true;
         if (dest_ty.isAnyError(mod)) break :disjoint false;
         if (operand_ty.isAnyError(mod)) break :disjoint false;
-        for (dest_ty.errorSetNames(mod)) |dest_err_name| {
-            if (Type.errorSetHasFieldIp(ip, operand_ty.toIntern(), dest_err_name))
+        const dest_err_names = dest_ty.errorSetNames(mod);
+        for (0..dest_err_names.len) |dest_err_index| {
+            if (Type.errorSetHasFieldIp(ip, operand_ty.toIntern(), dest_err_names.get(ip)[dest_err_index]))
                 break :disjoint false;
         }
 
@@ -22375,8 +22377,8 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
 
         _ = try sema.resolveInferredErrorSetTy(block, src, dest_ty.toIntern());
         _ = try sema.resolveInferredErrorSetTy(block, operand_src, operand_ty.toIntern());
-        for (dest_ty.errorSetNames(mod)) |dest_err_name| {
-            if (Type.errorSetHasFieldIp(ip, operand_ty.toIntern(), dest_err_name))
+        for (0..dest_err_names.len) |dest_err_index| {
+            if (Type.errorSetHasFieldIp(ip, operand_ty.toIntern(), dest_err_names.get(ip)[dest_err_index]))
                 break :disjoint false;
         }
 
@@ -38780,17 +38782,18 @@ fn elemPtrType(sema: *Sema, ptr_ty: Type, offset: ?usize) !Type {
 /// Asserts that lhs and rhs are both error sets and are resolved.
 fn errorSetMerge(sema: *Sema, lhs: Type, rhs: Type) !Type {
     const mod = sema.mod;
+    const ip = &mod.intern_pool;
     const arena = sema.arena;
     const lhs_names = lhs.errorSetNames(mod);
     const rhs_names = rhs.errorSetNames(mod);
     var names: InferredErrorSet.NameMap = .{};
     try names.ensureUnusedCapacity(arena, lhs_names.len);
 
-    for (lhs_names) |name| {
-        names.putAssumeCapacityNoClobber(name, {});
+    for (0..lhs_names.len) |lhs_index| {
+        names.putAssumeCapacityNoClobber(lhs_names.get(ip)[lhs_index], {});
     }
-    for (rhs_names) |name| {
-        try names.put(arena, name, {});
+    for (0..rhs_names.len) |rhs_index| {
+        try names.put(arena, rhs_names.get(ip)[rhs_index], {});
     }
 
     return mod.errorSetFromUnsortedNames(names.keys());
