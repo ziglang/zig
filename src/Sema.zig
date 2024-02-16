@@ -5671,10 +5671,14 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.I
     const src = inst_data.src();
     const msg_inst = try sema.resolveInst(inst_data.operand);
 
+    // `panicWithMsg` would perform this coercion for us, but we can get a better
+    // source location if we do it here.
+    const coerced_msg = try sema.coerce(block, Type.slice_const_u8, msg_inst, .{ .node_offset_builtin_call_arg0 = inst_data.src_node });
+
     if (block.is_comptime) {
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
-    try sema.panicWithMsg(block, src, msg_inst, .@"@panic");
+    try sema.panicWithMsg(block, src, coerced_msg, .@"@panic");
     return always_noreturn;
 }
 
