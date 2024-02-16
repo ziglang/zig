@@ -3274,8 +3274,8 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
             try self.genCopy(dst_ty, dst_mcv, src_mcv, .{});
             break :dst dst_mcv;
         } else dst: {
-            const dst_mcv = try self.allocRegOrMem(inst, true);
-            try self.genCopy(dst_ty, dst_mcv, src_mcv, .{});
+            const dst_mcv = try self.allocRegOrMemAdvanced(src_ty, inst, true);
+            try self.genCopy(src_ty, dst_mcv, src_mcv, .{});
             break :dst dst_mcv;
         };
 
@@ -3333,22 +3333,40 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
                 else => .{ .register = try self.copyToTmpRegister(Type.usize, splat_mcv.address()) },
             };
 
-            const dst_reg = registerAlias(dst_mcv.getReg().?, src_abi_size);
+            const dst_reg = dst_mcv.getReg().?;
+            const dst_alias = registerAlias(dst_reg, src_abi_size);
             if (self.hasFeature(.avx)) {
                 try self.asmRegisterRegisterMemory(
                     .{ .vp_, .@"and" },
-                    dst_reg,
-                    dst_reg,
+                    dst_alias,
+                    dst_alias,
                     try splat_addr_mcv.deref().mem(self, Memory.Size.fromSize(splat_abi_size)),
                 );
-                try self.asmRegisterRegisterRegister(mir_tag, dst_reg, dst_reg, dst_reg);
+                if (src_abi_size > 16) {
+                    const temp_reg = try self.register_manager.allocReg(null, abi.RegisterClass.sse);
+                    const temp_lock = self.register_manager.lockRegAssumeUnused(temp_reg);
+                    defer self.register_manager.unlockReg(temp_lock);
+
+                    try self.asmRegisterRegisterImmediate(
+                        .{ if (self.hasFeature(.avx2)) .v_i128 else .v_f128, .extract },
+                        registerAlias(temp_reg, dst_abi_size),
+                        dst_alias,
+                        Immediate.u(1),
+                    );
+                    try self.asmRegisterRegisterRegister(
+                        mir_tag,
+                        registerAlias(dst_reg, dst_abi_size),
+                        registerAlias(dst_reg, dst_abi_size),
+                        registerAlias(temp_reg, dst_abi_size),
+                    );
+                } else try self.asmRegisterRegisterRegister(mir_tag, dst_alias, dst_alias, dst_alias);
             } else {
                 try self.asmRegisterMemory(
                     .{ .p_, .@"and" },
-                    dst_reg,
+                    dst_alias,
                     try splat_addr_mcv.deref().mem(self, Memory.Size.fromSize(splat_abi_size)),
                 );
-                try self.asmRegisterRegister(mir_tag, dst_reg, dst_reg);
+                try self.asmRegisterRegister(mir_tag, dst_alias, dst_alias);
             }
             break :result dst_mcv;
         }
@@ -16404,7 +16422,7 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
                     },
                     65...128 => switch (vector_len) {
                         else => null,
-                        1...2 => .{ .vp_i128, .broadcast },
+                        1...2 => .{ .v_i128, .broadcast },
                     },
                 }) orelse break :avx2;
 
@@ -16418,7 +16436,7 @@ fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
                     registerAlias(dst_reg, @intCast(vector_ty.abiSize(mod))),
                     try src_mcv.mem(self, self.memSize(scalar_ty)),
                 ) else {
-                    if (mir_tag[0] == .vp_i128) break :avx2;
+                    if (mir_tag[0] == .v_i128) break :avx2;
                     try self.genSetReg(dst_reg, scalar_ty, src_mcv, .{});
                     try self.asmRegisterRegister(
                         mir_tag,

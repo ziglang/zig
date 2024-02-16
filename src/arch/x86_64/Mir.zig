@@ -230,6 +230,8 @@ pub const Inst = struct {
         v_d,
         /// VEX-Encoded ___ QuadWord
         v_q,
+        /// VEX-Encoded ___ Integer Data
+        v_i128,
         /// VEX-Encoded Packed ___
         vp_,
         /// VEX-Encoded Packed ___ Byte
@@ -242,8 +244,6 @@ pub const Inst = struct {
         vp_q,
         /// VEX-Encoded Packed ___ Double Quadword
         vp_dq,
-        /// VEX-Encoded Packed ___ Integer Data
-        vp_i128,
         /// VEX-Encoded ___ Scalar Single-Precision Values
         v_ss,
         /// VEX-Encoded ___ Packed Single-Precision Values
@@ -654,6 +654,7 @@ pub const Inst = struct {
         /// Variable blend scalar double-precision floating-point values
         blendv,
         /// Extract packed floating-point values
+        /// Extract packed integer values
         extract,
         /// Insert scalar single-precision floating-point value
         /// Insert packed floating-point values
@@ -696,6 +697,7 @@ pub const Inst = struct {
         sha256rnds2,
 
         /// Load with broadcast floating-point data
+        /// Load integer and broadcast
         broadcast,
 
         /// Convert 16-bit floating-point values to single-precision floating-point values
