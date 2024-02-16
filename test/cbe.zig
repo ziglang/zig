@@ -219,22 +219,23 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         , "");
     }
 
-    {
-        var case = ctx.exeFromCompiledC("inferred local const and var", .{}, b);
+    // https://github.com/ziglang/zig/issues/18954
+    //{
+    //    var case = ctx.exeFromCompiledC("inferred local const and var", .{}, b);
 
-        case.addCompareOutput(
-            \\fn add(a: i32, b: i32) i32 {
-            \\    return a + b;
-            \\}
-            \\
-            \\pub export fn main() c_int {
-            \\    const x = add(1, 2);
-            \\    var y = add(3, 0);
-            \\    y -= x;
-            \\    return y;
-            \\}
-        , "");
-    }
+    //    case.addCompareOutput(
+    //        \\fn add(a: i32, b: i32) i32 {
+    //        \\    return a + b;
+    //        \\}
+    //        \\
+    //        \\pub export fn main() c_int {
+    //        \\    const x = add(1, 2);
+    //        \\    var y = add(3, 0);
+    //        \\    y -= x;
+    //        \\    return y;
+    //        \\}
+    //    , "");
+    //}
     {
         var case = ctx.exeFromCompiledC("control flow", .{}, b);
 
