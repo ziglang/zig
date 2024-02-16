@@ -915,15 +915,19 @@ pub const Type = struct {
                             return .{ .scalar = Alignment.fromByteUnits(alignment) };
                         },
                         .stage2_x86_64 => {
-                            if (vector_type.child == .bool_type) return .{ .scalar = intAbiAlignment(@intCast(vector_type.len), target) };
+                            if (vector_type.child == .bool_type) {
+                                if (vector_type.len > 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
+                                if (vector_type.len > 128 and std.Target.x86.featureSetHas(target.cpu.features, .avx2)) return .{ .scalar = .@"32" };
+                                if (vector_type.len > 64) return .{ .scalar = .@"16" };
+                                const bytes = std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
+                                const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
+                                return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                            }
                             const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeAdvanced(mod, strat)).scalar);
                             if (elem_bytes == 0) return .{ .scalar = .@"1" };
                             const bytes = elem_bytes * vector_type.len;
                             if (bytes > 32 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                            if (bytes > 16 and std.Target.x86.featureSetHas(
-                                target.cpu.features,
-                                if (Type.fromInterned(vector_type.child).isRuntimeFloat()) .avx else .avx2,
-                            )) return .{ .scalar = .@"32" };
+                            if (bytes > 16 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
                             return .{ .scalar = .@"16" };
                         },
                     }
