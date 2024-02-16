@@ -238,7 +238,7 @@ pub fn decompressStreamOptions(
     allocator: Allocator,
     reader: anytype,
     comptime options: DecompressStreamOptions,
-) DecompressStream(@TypeOf(reader, options)) {
+) DecompressStream(@TypeOf(reader), options) {
     return DecompressStream(@TypeOf(reader), options).init(allocator, reader);
 }
 
