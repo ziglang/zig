@@ -811,10 +811,14 @@ fn addCxxKnownPath(
     if (!std.process.can_spawn)
         return error.RequiredLibraryNotFound;
 
-    const path_padded = if (ctx.cxx_compiler_arg1.len > 0)
-        b.run(&.{ ctx.cxx_compiler, ctx.cxx_compiler_arg1, b.fmt("-print-file-name={s}", .{objname}) })
-    else
-        b.run(&.{ ctx.cxx_compiler, b.fmt("-print-file-name={s}", .{objname}) });
+    const path_padded = run: {
+        var args = std.ArrayList([]const u8).init(b.allocator);
+        try args.append(ctx.cxx_compiler);
+        var it = std.mem.tokenizeAny(u8, ctx.cxx_compiler_arg1, &std.ascii.whitespace);
+        while (it.next()) |arg| try args.append(arg);
+        try args.append(b.fmt("-print-file-name={s}", .{objname}));
+        break :run b.run(args.items);
+    };
     var tokenizer = mem.tokenizeAny(u8, path_padded, "\r\n");
     const path_unpadded = tokenizer.next().?;
     if (mem.eql(u8, path_unpadded, objname)) {
