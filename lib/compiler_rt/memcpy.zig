@@ -27,16 +27,9 @@ comptime {
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
-    if (len < 16) {
-        if (len < 4) {
-            memcpy_remainder(4, dest.?, src.?, len);
-            return dest;
-        }
-        memcpy_range4(4, dest.?, src.?, len);
-        return dest;
-    }
+    if (len == 0) return dest;
 
-    inline for (5..std.math.log2(2 * size) + 1) |p| {
+    inline for (1..std.math.log2(2 * size) + 1) |p| {
         const limit = 1 << p;
         if (len <= limit) {
             memcpy_range2(limit / 2, dest.?, src.?, len);
@@ -87,49 +80,6 @@ inline fn memcpy_aligned(
         d += 1;
         s += 1;
     }
-}
-
-inline fn memcpy_remainder(
-    comptime max_end: comptime_int,
-    noalias dest: [*]u8,
-    noalias src: [*]const u8,
-    len: usize,
-) void {
-    @setRuntimeSafety(false);
-    comptime std.debug.assert(std.math.isPowerOfTwo(max_end));
-
-    var d = dest;
-    var s = src;
-    comptime var rem = max_end / 2;
-    inline while (rem > 0) {
-        if (len & rem != 0) {
-            for (d[0..rem], s[0..rem]) |*b, v| {
-                b.* = v;
-            }
-            d += rem;
-            s += rem;
-        }
-        rem /= 2;
-    }
-}
-
-/// behavior is undefined if `len` does not satisfy `min <= len < 4 * min`
-inline fn memcpy_range4(
-    comptime min: comptime_int,
-    noalias dest: [*]u8,
-    noalias src: [*]const u8,
-    len: usize,
-) void {
-    @setRuntimeSafety(false);
-    comptime std.debug.assert(std.math.isPowerOfTwo(min));
-
-    const copy_len = min;
-    const last = len - copy_len;
-    const offset = (len & (2 * min)) / 2;
-    dest[0..copy_len].* = src[0..copy_len].*;
-    dest[offset..][0..copy_len].* = src[offset..][0..copy_len].*;
-    dest[last - offset ..][0..copy_len].* = src[last - offset ..][0..copy_len].*;
-    dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
 }
 
 /// copy blocks of length `copy_len` from `src[0..len] to `dest[0..len]` at the
