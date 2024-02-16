@@ -2187,6 +2187,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
 fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
     const mod = self.bin_file.comp.module.?;
+    const ip = &mod.intern_pool;
     switch (lazy_sym.ty.zigTypeTag(mod)) {
         .Enum => {
             const enum_ty = lazy_sym.ty;
@@ -2209,10 +2210,10 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             try self.genLazySymbolRef(.lea, data_reg, .{ .kind = .const_data, .ty = enum_ty });
 
             var data_off: i32 = 0;
-            for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, index_usize| {
-                const index: u32 = @intCast(index_usize);
-                const tag_name = mod.intern_pool.stringToSlice(enum_ty.enumFields(mod)[index_usize]);
-                const tag_val = try mod.enumValueFieldIndex(enum_ty, index);
+            const tag_names = enum_ty.enumFields(mod);
+            for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, tag_index| {
+                const tag_name_len = ip.stringToSlice(tag_names.get(ip)[tag_index]).len;
+                const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
                 const tag_mcv = try self.genTypedValue(.{ .ty = enum_ty, .val = tag_val });
                 try self.genBinOpMir(.{ ._, .cmp }, enum_ty, enum_mcv, tag_mcv);
                 const skip_reloc = try self.asmJccReloc(.ne, undefined);
@@ -2228,14 +2229,14 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
                     .{ .reg = ret_reg },
                     8,
                     Type.usize,
-                    .{ .immediate = tag_name.len },
+                    .{ .immediate = tag_name_len },
                     .{},
                 );
 
                 exitlude_jump_reloc.* = try self.asmJmpReloc(undefined);
                 self.performReloc(skip_reloc);
 
-                data_off += @intCast(tag_name.len + 1);
+                data_off += @intCast(tag_name_len + 1);
             }
 
             try self.airTrap();

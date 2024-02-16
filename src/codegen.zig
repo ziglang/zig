@@ -119,6 +119,7 @@ pub fn generateLazySymbol(
 
     const comp = bin_file.comp;
     const zcu = comp.module.?;
+    const ip = &zcu.intern_pool;
     const target = comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
     const gpa = comp.gpa;
@@ -151,8 +152,9 @@ pub fn generateLazySymbol(
         return Result.ok;
     } else if (lazy_sym.ty.zigTypeTag(zcu) == .Enum) {
         alignment.* = .@"1";
-        for (lazy_sym.ty.enumFields(zcu)) |tag_name_ip| {
-            const tag_name = zcu.intern_pool.stringToSlice(tag_name_ip);
+        const tag_names = lazy_sym.ty.enumFields(zcu);
+        for (0..tag_names.len) |tag_index| {
+            const tag_name = zcu.intern_pool.stringToSlice(tag_names.get(ip)[tag_index]);
             try code.ensureUnusedCapacity(tag_name.len + 1);
             code.appendSliceAssumeCapacity(tag_name);
             code.appendAssumeCapacity(0);

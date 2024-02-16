@@ -2828,7 +2828,7 @@ fn addDbgInfoErrorSet(
     target: std.Target,
     dbg_info_buffer: *std.ArrayList(u8),
 ) !void {
-    return addDbgInfoErrorSetNames(mod, ty, ty.errorSetNames(mod), target, dbg_info_buffer);
+    return addDbgInfoErrorSetNames(mod, ty, ty.errorSetNames(mod).get(&mod.intern_pool), target, dbg_info_buffer);
 }
 
 fn addDbgInfoErrorSetNames(
