@@ -841,6 +841,47 @@ pub const termios = switch (native_os) {
     else => @compileError("target libc does not have termios"),
 };
 
+const termios_test = struct {
+    fn supported() bool {
+        // isBSD covers all Darwin and BSD variants.
+        if (native_os.isBSD()) return true;
+
+        // Solaris and Illumos.
+        if (native_os.isSolarish()) return true;
+
+        return switch (native_os) {
+            .linux, .haiku, .wasi, .emscripten => true,
+            else => false,
+        };
+    }
+
+    // Regression test for https://github.com/ziglang/zig/issues/18942
+    test "termios.tc_lflag_t" {
+        if (!builtin.link_libc) return error.SkipZigTest;
+        if (!comptime supported()) return error.SkipZigTest;
+
+        try lflag_test(c_termios.ECHO, "ECHO");
+        try lflag_test(c_termios.ISIG, "ISIG");
+        try lflag_test(c_termios.ICANON, "ICANON");
+        try lflag_test(c_termios.IEXTEN, "IEXTEN");
+    }
+
+    const c_termios = @cImport({
+        @cInclude("termios.h");
+    });
+
+    fn lflag_test(c_flag: c_termios.tcflag_t, comptime field_name: []const u8) !void {
+        errdefer std.debug.print("could not convert {s}\n", .{field_name});
+
+        const got: std.posix.tc_lflag_t = @bitCast(c_flag);
+        try std.testing.expect(@field(got, field_name));
+    }
+};
+
+test {
+    _ = termios_test;
+}
+
 pub const tc_iflag_t = switch (native_os) {
     .linux => linux.tc_iflag_t,
     .macos, .ios, .tvos, .watchos, .visionos => packed struct(u64) {
