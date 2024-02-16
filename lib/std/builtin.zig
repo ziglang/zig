@@ -818,10 +818,12 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             const exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
 
             if (exit_data) |data| {
-                if (uefi.system_table.std_err) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(data);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
+                    if (o) |out| {
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
+                        _ = out.outputString(data);
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                    }
                 }
             }
 
