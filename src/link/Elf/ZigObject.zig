@@ -653,9 +653,10 @@ pub fn getDeclVAddr(
     const this_sym = elf_file.symbol(this_sym_index);
     const vaddr = this_sym.address(.{}, elf_file);
     const parent_atom = elf_file.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
+    const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
     try parent_atom.addReloc(elf_file, .{
         .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(this_sym.esym_index)) << 32) | elf.R_X86_64_64,
+        .r_info = (@as(u64, @intCast(this_sym.esym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
     });
     return vaddr;
@@ -671,9 +672,10 @@ pub fn getAnonDeclVAddr(
     const sym = elf_file.symbol(sym_index);
     const vaddr = sym.address(.{}, elf_file);
     const parent_atom = elf_file.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
+    const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
     try parent_atom.addReloc(elf_file, .{
         .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(sym.esym_index)) << 32) | elf.R_X86_64_64,
+        .r_info = (@as(u64, @intCast(sym.esym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
     });
     return vaddr;
@@ -1636,6 +1638,7 @@ const elf = std.elf;
 const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const mem = std.mem;
+const relocation = @import("relocation.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 

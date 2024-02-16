@@ -91,6 +91,13 @@ pub const File = union(enum) {
         }
     }
 
+    pub fn scanRelocs(file: File, elf_file: *Elf, undefs: anytype) !void {
+        switch (file) {
+            .linker_defined, .shared_object => unreachable,
+            inline else => |x| try x.scanRelocs(elf_file, undefs),
+        }
+    }
+
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
             .linker_defined, .shared_object => &[0]Atom.Index{},

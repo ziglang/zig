@@ -302,26 +302,23 @@ pub fn calcEhFrameRelocs(elf_file: *Elf) usize {
 }
 
 fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file: *Elf, contents: []u8) !void {
+    const cpu_arch = elf_file.getTarget().cpu.arch;
     const offset = std.math.cast(usize, rel.r_offset - rec.offset) orelse return error.Overflow;
-    const P = @as(i64, @intCast(rec.address(elf_file) + offset));
-    const S = @as(i64, @intCast(sym.address(.{}, elf_file)));
+    const P = math.cast(i64, rec.address(elf_file) + offset) orelse return error.Overflow;
+    const S = math.cast(i64, sym.address(.{}, elf_file)) orelse return error.Overflow;
     const A = rel.r_addend;
 
     relocs_log.debug("  {s}: {x}: [{x} => {x}] ({s})", .{
-        Atom.fmtRelocType(rel.r_type()),
+        relocation.fmtRelocType(rel.r_type(), cpu_arch),
         offset,
         P,
         S + A,
         sym.name(elf_file),
     });
 
-    var where = contents[offset..];
-    switch (rel.r_type()) {
-        elf.R_X86_64_32 => std.mem.writeInt(i32, where[0..4], @as(i32, @truncate(S + A)), .little),
-        elf.R_X86_64_64 => std.mem.writeInt(i64, where[0..8], S + A, .little),
-        elf.R_X86_64_PC32 => std.mem.writeInt(i32, where[0..4], @as(i32, @intCast(S - P + A)), .little),
-        elf.R_X86_64_PC64 => std.mem.writeInt(i64, where[0..8], S - P + A, .little),
-        else => unreachable,
+    switch (cpu_arch) {
+        .x86_64 => x86_64.resolveReloc(rel, P, S + A, contents[offset..]),
+        else => return error.UnsupportedCpuArch,
     }
 }
 
@@ -403,6 +400,7 @@ pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
 }
 
 fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {
+    const cpu_arch = elf_file.getTarget().cpu.arch;
     const r_offset = rec.address(elf_file) + rel.r_offset - rec.offset;
     const r_type = rel.r_type();
     var r_addend = rel.r_addend;
@@ -418,7 +416,7 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Re
     }
 
     relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
-        Atom.fmtRelocType(r_type),
+        relocation.fmtRelocType(r_type, cpu_arch),
         r_offset,
         r_sym,
         sym.name(elf_file),
@@ -541,10 +539,24 @@ const EH_PE = struct {
     pub const omit = 0xFF;
 };
 
+const x86_64 = struct {
+    fn resolveReloc(rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) void {
+        switch (rel.r_type()) {
+            elf.R_X86_64_32 => std.mem.writeInt(i32, data[0..4], @as(i32, @truncate(target)), .little),
+            elf.R_X86_64_64 => std.mem.writeInt(i64, data[0..8], target, .little),
+            elf.R_X86_64_PC32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
+            elf.R_X86_64_PC64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
+            else => unreachable,
+        }
+    }
+};
+
 const std = @import("std");
 const assert = std.debug.assert;
 const elf = std.elf;
+const math = std.math;
 const relocs_log = std.log.scoped(.link_relocs);
+const relocation = @import("relocation.zig");
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
