@@ -240,6 +240,7 @@ pub const Kind = enum {
     exe,
     lib,
     obj,
+    pch,
     @"test",
 };
 
@@ -265,6 +266,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .exe => "zig build-exe",
             .lib => "zig build-lib",
             .obj => "zig build-obj",
+            .pch => "zig build-pch",
             .@"test" => "zig test",
         },
         name_adjusted,
@@ -272,20 +274,24 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
     });
 
-    const out_filename = std.zig.binNameAlloc(owner.allocator, .{
-        .root_name = name,
-        .target = target,
-        .output_mode = switch (options.kind) {
-            .lib => .Lib,
-            .obj => .Obj,
-            .exe, .@"test" => .Exe,
-        },
-        .link_mode = if (options.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
-            .dynamic => .Dynamic,
-            .static => .Static,
-        }) else null,
-        .version = options.version,
-    }) catch @panic("OOM");
+    const out_filename = if (options.kind == .pch)
+        std.fmt.allocPrint(owner.allocator, "{s}.pch", .{name}) catch @panic("OOM")
+    else
+        std.zig.binNameAlloc(owner.allocator, .{
+            .root_name = name,
+            .target = target,
+            .output_mode = switch (options.kind) {
+                .lib => .Lib,
+                .obj => .Obj,
+                .exe, .@"test" => .Exe,
+                .pch => unreachable,
+            },
+            .link_mode = if (options.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
+                .dynamic => .Dynamic,
+                .static => .Static,
+            }) else null,
+            .version = options.version,
+        }) catch @panic("OOM");
 
     const self = owner.allocator.create(Compile) catch @panic("OOM");
     self.* = .{
@@ -703,10 +709,12 @@ pub fn linkFrameworkWeak(c: *Compile, name: []const u8) void {
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
 pub fn addCSourceFiles(self: *Compile, options: Module.AddCSourceFilesOptions) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
     self.root_module.addCSourceFiles(options);
 }
 
 pub fn addCSourceFile(self: *Compile, source: Module.CSourceFile) void {
+    assert(self.kind != .pch or self.root_module.link_objects.items.len == 0); // pch can only be generated from a single C header file
     self.root_module.addCSourceFile(source);
 }
 
@@ -714,6 +722,7 @@ pub fn addCSourceFile(self: *Compile, source: Module.CSourceFile) void {
 /// Can be called regardless of target. The .rc file will be ignored
 /// if the target object format does not support embedded resources.
 pub fn addWin32ResourceFile(self: *Compile, source: Module.RcSourceFile) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
     self.root_module.addWin32ResourceFile(source);
 }
 
@@ -796,14 +805,17 @@ pub fn getEmittedLlvmBc(self: *Compile) LazyPath {
 }
 
 pub fn addAssemblyFile(self: *Compile, source: LazyPath) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
     self.root_module.addAssemblyFile(source);
 }
 
 pub fn addObjectFile(self: *Compile, source: LazyPath) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
     self.root_module.addObjectFile(source);
 }
 
 pub fn addObject(self: *Compile, object: *Compile) void {
+    assert(self.kind != .pch); // pch can only be generated from a single C header file
     self.root_module.addObject(object);
 }
 
@@ -928,6 +940,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .lib => "build-lib",
         .exe => "build-exe",
         .obj => "build-obj",
+        .pch => "build-pch",
         .@"test" => "test",
     };
     try zig_args.append(cmd);
@@ -998,6 +1011,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 if (key.module.link_libc == true) self.is_linking_libc = true;
                 if (key.module.link_libcpp == true) self.is_linking_libcpp = true;
             }
+        }
+
+        if (self.kind == .pch) {
+            // precompiled headers must have a single input header file.
+            var it = self.root_module.iterateDependencies(self, false);
+            const link_objects = it.next().?.module.link_objects;
+            assert(link_objects.items.len == 1 and link_objects.items[0] == .c_source_file);
+            assert(it.next() == null);
         }
 
         var cli_named_modules = try CliNamedModules.init(arena, &self.root_module);
@@ -1108,6 +1129,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         switch (other.kind) {
                             .exe => return step.fail("cannot link with an executable build artifact", .{}),
                             .@"test" => return step.fail("cannot link with a test", .{}),
+                            .pch => @panic("Cannot link with a precompiled header file"),
                             .obj => {
                                 const included_in_lib_or_obj = !my_responsibility and (compile.kind == .lib or compile.kind == .obj);
                                 if (!already_linked and !included_in_lib_or_obj) {
@@ -1161,7 +1183,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     .c_source_file => |c_source_file| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_file.flags.len == 0) {
+                        if (c_source_file.flags.len == 0 and c_source_file.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1172,9 +1194,20 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             for (c_source_file.flags) |arg| {
                                 try zig_args.append(arg);
                             }
+                            if (c_source_file.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
+                            }
                             try zig_args.append("--");
                             prev_has_cflags = true;
                         }
+
+                        if (c_source_file.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
+                        }
+
                         try zig_args.append(c_source_file.file.getPath2(module.owner, step));
                         total_linker_objects += 1;
                     },
@@ -1182,7 +1215,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     .c_source_files => |c_source_files| l: {
                         if (!my_responsibility) break :l;
 
-                        if (c_source_files.flags.len == 0) {
+                        if (c_source_files.flags.len == 0 and c_source_files.precompiled_header == null) {
                             if (prev_has_cflags) {
                                 try zig_args.append("-cflags");
                                 try zig_args.append("--");
@@ -1193,8 +1226,20 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             for (c_source_files.flags) |flag| {
                                 try zig_args.append(flag);
                             }
+
+                            if (c_source_files.precompiled_header) |pch| {
+                                try zig_args.append("-include-pch");
+                                try zig_args.append(pch.getPath(b));
+                                try zig_args.append("-fpch-validate-input-files-content");
+                            }
+
                             try zig_args.append("--");
                             prev_has_cflags = true;
+                        }
+
+                        if (c_source_files.lang) |lang| {
+                            try zig_args.append("-x");
+                            try zig_args.append(lang.getLangName());
                         }
 
                         if (c_source_files.dependency) |dep| {

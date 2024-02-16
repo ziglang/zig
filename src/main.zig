@@ -90,6 +90,7 @@ const normal_usage =
     \\  build-exe        Create executable from source or object files
     \\  build-lib        Create library from source or object files
     \\  build-obj        Create object from source or object files
+    \\  build-pch        Create a precompiled header from a c or c++ header
     \\  test             Perform unit testing
     \\  run              Create executable and run immediately
     \\
@@ -279,6 +280,8 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return buildOutputType(gpa, arena, args, .{ .build = .Lib });
     } else if (mem.eql(u8, cmd, "build-obj")) {
         return buildOutputType(gpa, arena, args, .{ .build = .Obj });
+    } else if (mem.eql(u8, cmd, "build-pch")) {
+        return buildOutputType(gpa, arena, args, .pch);
     } else if (mem.eql(u8, cmd, "test")) {
         return buildOutputType(gpa, arena, args, .zig_test);
     } else if (mem.eql(u8, cmd, "run")) {
@@ -355,6 +358,7 @@ const usage_build_generic =
     \\Usage: zig build-exe   [options] [files]
     \\       zig build-lib   [options] [files]
     \\       zig build-obj   [options] [files]
+    \\       zig build-pch   [options] [files]
     \\       zig test        [options] [files]
     \\       zig run         [options] [files] [-- [args]]
     \\       zig translate-c [options] [file]
@@ -698,6 +702,7 @@ const ArgMode = union(enum) {
     build: std.builtin.OutputMode,
     cc,
     cpp,
+    pch,
     translate_c,
     zig_test,
     run,
@@ -981,10 +986,14 @@ fn buildOutputType(
     var color: Color = if (builtin.os.tag == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
 
     switch (arg_mode) {
-        .build, .translate_c, .zig_test, .run => {
+        .build, .translate_c, .zig_test, .run, .pch => {
             switch (arg_mode) {
                 .build => |m| {
                     create_module.opts.output_mode = m;
+                },
+                .pch => {
+                    create_module.opts.output_mode = .Obj;
+                    clang_preprocessor_mode = .pch;
                 },
                 .translate_c => {
                     emit_bin = .no;
