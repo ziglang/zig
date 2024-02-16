@@ -1357,6 +1357,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
                 error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
                     log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
                 },
+                error.UnsupportedCpuArch => {
+                    try self.reportUnsupportedCpuArch();
+                    return error.FlushFailure;
+                },
                 else => |e| return e,
             };
             try self.base.file.?.pwriteAll(code, file_offset);
@@ -1366,7 +1370,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     try self.writePhdrTable();
     try self.writeShdrTable();
     try self.writeAtoms();
-    try self.writeSyntheticSections();
+
+    self.writeSyntheticSections() catch |err| switch (err) {
+        error.UnsupportedCpuArch => {
+            try self.reportUnsupportedCpuArch();
+            return error.FlushFailure;
+        },
+        else => |e| return e,
+    };
 
     if (self.entry_index == null and self.base.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
@@ -2032,12 +2043,19 @@ fn scanRelocs(self: *Elf) !void {
         undefs.deinit();
     }
 
-    if (self.zigObjectPtr()) |zig_object| {
-        try zig_object.scanRelocs(self, &undefs);
-    }
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        try object.scanRelocs(self, &undefs);
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
+    defer objects.deinit();
+    if (self.zigObjectPtr()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(self.objects.items);
+
+    for (objects.items) |index| {
+        self.file(index).?.scanRelocs(self, &undefs) catch |err| switch (err) {
+            error.UnsupportedCpuArch => {
+                try self.reportUnsupportedCpuArch();
+                return error.FlushFailure;
+            },
+            else => |e| return e,
+        };
     }
 
     try self.reportUndefinedSymbols(&undefs);
@@ -4470,17 +4488,21 @@ fn writeAtoms(self: *Elf) !void {
             defer gpa.free(in_code);
             @memcpy(out_code, in_code);
 
-            if (shdr.sh_flags & elf.SHF_ALLOC == 0) {
-                try atom_ptr.resolveRelocsNonAlloc(self, out_code, &undefs);
-            } else {
-                atom_ptr.resolveRelocsAlloc(self, out_code) catch |err| switch (err) {
-                    // TODO
-                    error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
-                        log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
-                    },
-                    else => |e| return e,
-                };
-            }
+            const res = if (shdr.sh_flags & elf.SHF_ALLOC == 0)
+                atom_ptr.resolveRelocsNonAlloc(self, out_code, &undefs)
+            else
+                atom_ptr.resolveRelocsAlloc(self, out_code);
+            _ = res catch |err| switch (err) {
+                // TODO
+                error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
+                    log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
+                },
+                error.UnsupportedCpuArch => {
+                    try self.reportUnsupportedCpuArch();
+                    return error.FlushFailure;
+                },
+                else => |e| return e,
+            };
         }
 
         try self.base.file.?.pwriteAll(buffer, sh_offset);
@@ -5271,24 +5293,26 @@ pub fn addRelaDynAssumeCapacity(self: *Elf, opts: RelaDyn) void {
 
 fn sortRelaDyn(self: *Elf) void {
     const Sort = struct {
-        fn rank(rel: elf.Elf64_Rela) u2 {
-            return switch (rel.r_type()) {
-                elf.R_X86_64_RELATIVE => 0,
-                elf.R_X86_64_IRELATIVE => 2,
+        fn rank(rel: elf.Elf64_Rela, ctx: *Elf) u2 {
+            const cpu_arch = ctx.getTarget().cpu.arch;
+            const r_type = rel.r_type();
+            const r_kind = relocation.decode(r_type, cpu_arch).?;
+            return switch (r_kind) {
+                .rel => 0,
+                .irel => 2,
                 else => 1,
             };
         }
 
-        pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
-            _ = ctx;
-            if (rank(lhs) == rank(rhs)) {
+        pub fn lessThan(ctx: *Elf, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+            if (rank(lhs, ctx) == rank(rhs, ctx)) {
                 if (lhs.r_sym() == rhs.r_sym()) return lhs.r_offset < rhs.r_offset;
                 return lhs.r_sym() < rhs.r_sym();
             }
-            return rank(lhs) < rank(rhs);
+            return rank(lhs, ctx) < rank(rhs, ctx);
         }
     };
-    mem.sort(elf.Elf64_Rela, self.rela_dyn.items, {}, Sort.lessThan);
+    mem.sort(elf.Elf64_Rela, self.rela_dyn.items, self, Sort.lessThan);
 }
 
 fn calcNumIRelativeRelocs(self: *Elf) usize {
@@ -5667,6 +5691,13 @@ fn reportMissingLibraryError(
     }
 }
 
+pub fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
+    var err = try self.addErrorWithNotes(0);
+    try err.addMsg(self, "fatal linker error: unsupported CPU architecture {s}", .{
+        @tagName(self.getTarget().cpu.arch),
+    });
+}
+
 pub fn reportParseError(
     self: *Elf,
     path: []const u8,
@@ -5932,6 +5963,10 @@ pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
     return i;
 }
 
+pub fn getTarget(self: Elf) std.Target {
+    return self.base.comp.root_mod.resolved_target.result;
+}
+
 /// The following three values are only observed at compile-time and used to emit a compile error
 /// to remind the programmer to update expected maximum numbers of different program header types
 /// so that we reserve enough space for the program header table up-front.
@@ -6059,6 +6094,7 @@ const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
 const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
+const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
 const trace = @import("../tracy.zig").trace;
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
