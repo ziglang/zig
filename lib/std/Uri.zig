@@ -4,6 +4,7 @@
 const Uri = @This();
 const std = @import("std.zig");
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
 scheme: []const u8,
 user: ?[]const u8 = null,
@@ -15,15 +16,15 @@ query: ?[]const u8 = null,
 fragment: ?[]const u8 = null,
 
 /// Applies URI encoding and replaces all reserved characters with their respective %XX code.
-pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn escapeString(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isUnreserved);
 }
 
-pub fn escapePath(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn escapePath(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isPathChar);
 }
 
-pub fn escapeQuery(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn escapeQuery(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isQueryChar);
 }
 
@@ -39,7 +40,7 @@ pub fn writeEscapedQuery(writer: anytype, input: []const u8) !void {
     return writeEscapedStringWithFn(writer, input, isQueryChar);
 }
 
-pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]u8 {
+pub fn escapeStringWithFn(allocator: Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) Allocator.Error![]u8 {
     var outsize: usize = 0;
     for (input) |c| {
         outsize += if (keepUnescaped(c)) @as(usize, 1) else 3;
@@ -76,7 +77,7 @@ pub fn writeEscapedStringWithFn(writer: anytype, input: []const u8, comptime kee
 
 /// Parses a URI string and unescapes all %XX where XX is a valid hex number. Otherwise, verbatim copies
 /// them to the output.
-pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn unescapeString(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     var outsize: usize = 0;
     var inptr: usize = 0;
     while (inptr < input.len) {
@@ -361,7 +362,7 @@ pub fn parse(text: []const u8) ParseError!Uri {
 /// Implementation of RFC 3986, Section 5.2.4. Removes dot segments from a URI path.
 ///
 /// `std.fs.path.resolvePosix` is not sufficient here because it may return relative paths and does not preserve trailing slashes.
-fn removeDotSegments(allocator: std.mem.Allocator, paths: []const []const u8) std.mem.Allocator.Error![]const u8 {
+fn removeDotSegments(allocator: Allocator, paths: []const []const u8) Allocator.Error![]const u8 {
     var result = std.ArrayList(u8).init(allocator);
     defer result.deinit();
 
@@ -399,7 +400,7 @@ fn removeDotSegments(allocator: std.mem.Allocator, paths: []const []const u8) st
 /// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
 ///
 /// Assumes `arena` owns all memory in `base` and `ref`. `arena` will own all memory in the returned URI.
-pub fn resolve(base: Uri, ref: Uri, strict: bool, arena: std.mem.Allocator) std.mem.Allocator.Error!Uri {
+pub fn resolve(base: Uri, ref: Uri, strict: bool, arena: Allocator) Allocator.Error!Uri {
     var target: Uri = Uri{
         .scheme = "",
         .user = null,
