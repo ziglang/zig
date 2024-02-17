@@ -246,7 +246,7 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     const gpa = spv.gpa;
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .GenericPointer },
+        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
         .glsl450 => &.{.Shader},
         .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
         else => unreachable, // TODO
@@ -279,8 +279,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
         else => unreachable,
     };
 
-    // TODO: Put this in a proper section.
-    try spv.sections.extensions.emit(gpa, .OpMemoryModel, .{
+    try spv.sections.memory_model.emit(gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });

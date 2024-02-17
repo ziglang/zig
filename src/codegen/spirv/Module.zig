@@ -8,6 +8,7 @@
 const Module = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
@@ -114,8 +115,10 @@ sections: struct {
     capabilities: Section = .{},
     /// OpExtension instructions
     extensions: Section = .{},
-    // OpExtInstImport instructions - skip for now.
-    // memory model defined by target, not required here.
+    /// OpExtInstImport
+    extended_instruction_set: Section = .{},
+    /// memory model defined by target
+    memory_model: Section = .{},
     /// OpEntryPoint instructions - Handled by `self.entry_points`.
     /// OpExecutionMode and OpExecutionModeId instructions.
     execution_modes: Section = .{},
@@ -172,6 +175,9 @@ globals: struct {
     section: Section = .{},
 } = .{},
 
+/// The list of extended instruction sets that should be imported.
+extended_instruction_set: std.AutoHashMapUnmanaged(ExtendedInstructionSet, IdRef) = .{},
+
 pub fn init(gpa: Allocator) Module {
     return .{
         .gpa = gpa,
@@ -182,6 +188,8 @@ pub fn init(gpa: Allocator) Module {
 pub fn deinit(self: *Module) void {
     self.sections.capabilities.deinit(self.gpa);
     self.sections.extensions.deinit(self.gpa);
+    self.sections.extended_instruction_set.deinit(self.gpa);
+    self.sections.memory_model.deinit(self.gpa);
     self.sections.execution_modes.deinit(self.gpa);
     self.sections.debug_strings.deinit(self.gpa);
     self.sections.debug_names.deinit(self.gpa);
@@ -199,6 +207,8 @@ pub fn deinit(self: *Module) void {
 
     self.globals.globals.deinit(self.gpa);
     self.globals.section.deinit(self.gpa);
+
+    self.extended_instruction_set.deinit(self.gpa);
 
     self.* = undefined;
 }
@@ -448,6 +458,8 @@ pub fn flush(self: *Module, file: std.fs.File, target: std.Target) !void {
         &header,
         self.sections.capabilities.toWords(),
         self.sections.extensions.toWords(),
+        self.sections.extended_instruction_set.toWords(),
+        self.sections.memory_model.toWords(),
         entry_points.toWords(),
         self.sections.execution_modes.toWords(),
         source.toWords(),
@@ -460,19 +472,26 @@ pub fn flush(self: *Module, file: std.fs.File, target: std.Target) !void {
         self.sections.functions.toWords(),
     };
 
-    var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
-    var file_size: u64 = 0;
-    for (&iovc_buffers, 0..) |*iovc, i| {
-        // Note, since spir-v supports both little and big endian we can ignore byte order here and
-        // just treat the words as a sequence of bytes.
-        const bytes = std.mem.sliceAsBytes(buffers[i]);
-        iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
-        file_size += bytes.len;
-    }
+    if (builtin.zig_backend == .stage2_x86_64) {
+        for (buffers) |buf| {
+            try file.writeAll(std.mem.sliceAsBytes(buf));
+        }
+    } else {
+        // miscompiles with x86_64 backend
+        var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
+        var file_size: u64 = 0;
+        for (&iovc_buffers, 0..) |*iovc, i| {
+            // Note, since spir-v supports both little and big endian we can ignore byte order here and
+            // just treat the words as a sequence of bytes.
+            const bytes = std.mem.sliceAsBytes(buffers[i]);
+            iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
+            file_size += bytes.len;
+        }
 
-    try file.seekTo(0);
-    try file.setEndPos(file_size);
-    try file.pwritevAll(&iovc_buffers, 0);
+        try file.seekTo(0);
+        try file.setEndPos(file_size);
+        try file.pwritevAll(&iovc_buffers, 0);
+    }
 }
 
 /// Merge the sections making up a function declaration into this module.
@@ -480,6 +499,29 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
     try self.sections.functions.append(self.gpa, func.prologue);
     try self.sections.functions.append(self.gpa, func.body);
     try self.declareDeclDeps(decl_index, func.decl_deps.keys());
+}
+
+pub const ExtendedInstructionSet = enum {
+    glsl,
+    opencl,
+};
+
+/// Imports or returns the existing id of an extended instruction set
+pub fn importInstructionSet(self: *Module, set: ExtendedInstructionSet) !IdRef {
+    const gop = try self.extended_instruction_set.getOrPut(self.gpa, set);
+    if (gop.found_existing) return gop.value_ptr.*;
+
+    const result_id = self.allocId();
+    try self.sections.extended_instruction_set.emit(self.gpa, .OpExtInstImport, .{
+        .id_result = result_id,
+        .name = switch (set) {
+            .glsl => "GLSL.std.450",
+            .opencl => "OpenCL.std",
+        },
+    });
+    gop.value_ptr.* = result_id;
+
+    return result_id;
 }
 
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
