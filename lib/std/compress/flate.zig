@@ -79,9 +79,9 @@ const fixedBufferStream = std.io.fixedBufferStream;
 const print = std.debug.print;
 const builtin = @import("builtin");
 
-test "flate" {
-    _ = @import("flate/deflate.zig");
-    _ = @import("flate/inflate.zig");
+test {
+    _ = deflate;
+    _ = inflate;
 }
 
 test "flate compress/decompress" {
