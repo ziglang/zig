@@ -1,7 +1,8 @@
 const std = @import("std");
+const testing = std.testing;
 
 test "trailers" {
-    const gpa = std.testing.allocator;
+    const gpa = testing.allocator;
 
     var http_server = std.http.Server.init(.{
         .reuse_address = true,
@@ -21,28 +22,49 @@ test "trailers" {
     defer gpa.free(location);
     const uri = try std.Uri.parse(location);
 
-    var server_header_buffer: [1024]u8 = undefined;
-    var req = try client.open(.GET, uri, .{
-        .server_header_buffer = &server_header_buffer,
-    });
-    defer req.deinit();
+    {
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, .{
+            .server_header_buffer = &server_header_buffer,
+        });
+        defer req.deinit();
 
-    try req.send(.{});
-    try req.wait();
+        try req.send(.{});
+        try req.wait();
 
-    const body = try req.reader().readAllAlloc(gpa, 8192);
-    defer gpa.free(body);
+        const body = try req.reader().readAllAlloc(gpa, 8192);
+        defer gpa.free(body);
 
-    try std.testing.expectEqualStrings("Hello, World!\n", body);
-    if (true) @panic("TODO implement inspecting custom headers in responses");
-    //try testing.expectEqualStrings("aaaa", req.response.headers.getFirstValue("x-checksum").?);
+        try testing.expectEqualStrings("Hello, World!\n", body);
+
+        var it = req.response.iterateHeaders();
+        {
+            const header = it.next().?;
+            try testing.expect(!it.is_trailer);
+            try testing.expectEqualStrings("connection", header.name);
+            try testing.expectEqualStrings("keep-alive", header.value);
+        }
+        {
+            const header = it.next().?;
+            try testing.expect(!it.is_trailer);
+            try testing.expectEqualStrings("transfer-encoding", header.name);
+            try testing.expectEqualStrings("chunked", header.value);
+        }
+        {
+            const header = it.next().?;
+            try testing.expect(it.is_trailer);
+            try testing.expectEqualStrings("X-Checksum", header.name);
+            try testing.expectEqualStrings("aaaa", header.value);
+        }
+        try testing.expectEqual(null, it.next());
+    }
 
     // connection has been kept alive
-    try std.testing.expect(client.connection_pool.free_len == 1);
+    try testing.expect(client.connection_pool.free_len == 1);
 }
 
 fn serverThread(http_server: *std.http.Server) anyerror!void {
-    const gpa = std.testing.allocator;
+    const gpa = testing.allocator;
 
     var header_buffer: [1024]u8 = undefined;
     var remaining: usize = 1;
@@ -60,17 +82,16 @@ fn serverThread(http_server: *std.http.Server) anyerror!void {
         };
         try serve(&res);
 
-        try std.testing.expectEqual(.reset, res.reset());
+        try testing.expectEqual(.reset, res.reset());
     }
 }
 
 fn serve(res: *std.http.Server.Response) !void {
-    try std.testing.expectEqualStrings(res.request.target, "/trailer");
+    try testing.expectEqualStrings(res.request.target, "/trailer");
     res.transfer_encoding = .chunked;
 
     try res.send();
     try res.writeAll("Hello, ");
     try res.writeAll("World!\n");
-    // try res.finish();
     try res.connection.writeAll("0\r\nX-Checksum: aaaa\r\n\r\n");
 }
