@@ -6065,8 +6065,9 @@ const RelaSection = struct {
 };
 const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 
-pub const R_X86_64_ZIG_GOT32 = elf.R_X86_64_NUM + 1;
-pub const R_X86_64_ZIG_GOTPCREL = elf.R_X86_64_NUM + 2;
+// TODO: add comptime check we don't clobber any reloc for any ISA
+pub const R_ZIG_GOT32: u32 = 0xff00;
+pub const R_ZIG_GOTPCREL: u32 = 0xff01;
 
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     return switch (cpu_arch) {
