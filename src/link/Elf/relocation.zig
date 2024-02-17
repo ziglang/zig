@@ -11,7 +11,25 @@ pub const Kind = enum {
     tlsdesc,
 };
 
-const x86_64_relocs = [_]struct { Kind, elf.R_X86_64 }{
+fn Table(comptime len: comptime_int, comptime RelType: type, comptime mapping: [len]struct { Kind, RelType }) type {
+    return struct {
+        fn decode(r_type: u32) ?Kind {
+            inline for (mapping) |entry| {
+                if (@intFromEnum(entry[1]) == r_type) return entry[0];
+            }
+            return null;
+        }
+
+        fn encode(comptime kind: Kind) u32 {
+            inline for (mapping) |entry| {
+                if (entry[0] == kind) return @intFromEnum(entry[1]);
+            }
+            unreachable;
+        }
+    };
+}
+
+const x86_64_relocs = Table(10, elf.R_X86_64, .{
     .{ .abs, .R_X86_64_64 },
     .{ .copy, .R_X86_64_COPY },
     .{ .rel, .R_X86_64_RELATIVE },
@@ -22,9 +40,9 @@ const x86_64_relocs = [_]struct { Kind, elf.R_X86_64 }{
     .{ .dtpoff, .R_X86_64_DTPOFF64 },
     .{ .tpoff, .R_X86_64_TPOFF64 },
     .{ .tlsdesc, .R_X86_64_TLSDESC },
-};
+});
 
-const aarch64_relocs = [_]struct { Kind, elf.R_AARCH64 }{
+const aarch64_relocs = Table(10, elf.R_AARCH64, .{
     .{ .abs, .R_AARCH64_ABS64 },
     .{ .copy, .R_AARCH64_COPY },
     .{ .rel, .R_AARCH64_RELATIVE },
@@ -35,9 +53,9 @@ const aarch64_relocs = [_]struct { Kind, elf.R_AARCH64 }{
     .{ .dtpoff, .R_AARCH64_TLS_DTPREL },
     .{ .tpoff, .R_AARCH64_TLS_TPREL },
     .{ .tlsdesc, .R_AARCH64_TLSDESC },
-};
+});
 
-const riscv64_relocs = [_]struct { Kind, elf.R_RISCV }{
+const riscv64_relocs = Table(8, elf.R_RISCV, .{
     .{ .abs, .R_RISCV_64 },
     .{ .copy, .R_RISCV_COPY },
     .{ .rel, .R_RISCV_RELATIVE },
@@ -46,31 +64,24 @@ const riscv64_relocs = [_]struct { Kind, elf.R_RISCV }{
     .{ .dtpmod, .R_RISCV_TLS_DTPMOD64 },
     .{ .dtpoff, .R_RISCV_TLS_DTPREL64 },
     .{ .tpoff, .R_RISCV_TLS_TPREL64 },
-    .{ .tpoff, .R_RISCV_TLS_TPREL64 },
-};
+});
 
 pub fn decode(r_type: u32, cpu_arch: std.Target.Cpu.Arch) ?Kind {
-    const relocs = switch (cpu_arch) {
-        .x86_64 => &x86_64_relocs,
-        .aarch64 => &aarch64_relocs,
+    return switch (cpu_arch) {
+        .x86_64 => x86_64_relocs.decode(r_type),
+        .aarch64 => aarch64_relocs.decode(r_type),
+        .riscv64 => riscv64_relocs.decode(r_type),
         else => @panic("TODO unhandled cpu arch"),
     };
-    inline for (relocs) |entry| {
-        if (entry[1] == r_type) return entry[0];
-    }
-    return null;
 }
 
 pub fn encode(comptime kind: Kind, cpu_arch: std.Target.Cpu.Arch) u32 {
-    const relocs = switch (cpu_arch) {
-        .x86_64 => &x86_64_relocs,
-        .aarch64 => &aarch64_relocs,
+    return switch (cpu_arch) {
+        .x86_64 => x86_64_relocs.encode(kind),
+        .aarch64 => aarch64_relocs.encode(kind),
+        .riscv64 => riscv64_relocs.encode(kind),
         else => @panic("TODO unhandled cpu arch"),
     };
-    inline for (relocs) |entry| {
-        if (entry[0] == kind) return entry[1];
-    }
-    unreachable;
 }
 
 const FormatRelocTypeCtx = struct {

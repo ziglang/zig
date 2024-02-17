@@ -1891,6 +1891,7 @@ pub const R_X86_64 = enum(u32) {
     R_X86_64_GOTPCRELX = 41,
     /// Load from 32 bit signed PC relative offset to GOT entry with REX prefix, relaxable
     R_X86_64_REX_GOTPCRELX = 42,
+    _,
 };
 
 /// AArch64 relocs.
@@ -2163,6 +2164,7 @@ pub const R_AARCH64 = enum(u32) {
     R_AARCH64_TLSDESC = 1031,
     /// STT_GNU_IFUNC relocation.
     R_AARCH64_IRELATIVE = 1032,
+    _,
 };
 
 /// RISC-V relocations.
@@ -2225,6 +2227,7 @@ pub const R_RISCV = enum(u32) {
     R_RISCV_PLT32 = 59,
     R_RISCV_SET_ULEB128 = 60,
     R_RISCV_SUB_ULEB128 = 61,
+    _,
 };
 
 pub const STV = enum(u2) {
