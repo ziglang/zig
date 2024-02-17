@@ -541,11 +541,12 @@ const EH_PE = struct {
 
 const x86_64 = struct {
     fn resolveReloc(rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) void {
-        switch (rel.r_type()) {
-            elf.R_X86_64_32 => std.mem.writeInt(i32, data[0..4], @as(i32, @truncate(target)), .little),
-            elf.R_X86_64_64 => std.mem.writeInt(i64, data[0..8], target, .little),
-            elf.R_X86_64_PC32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
-            elf.R_X86_64_PC64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
+        const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
+        switch (r_type) {
+            .@"32" => std.mem.writeInt(i32, data[0..4], @as(i32, @truncate(target)), .little),
+            .@"64" => std.mem.writeInt(i64, data[0..8], target, .little),
+            .PC32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
+            .PC64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
             else => unreachable,
         }
     }

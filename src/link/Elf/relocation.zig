@@ -11,54 +11,78 @@ pub const Kind = enum {
     tlsdesc,
 };
 
-const x86_64_relocs = [_]struct { Kind, u32 }{
-    .{ .abs, elf.R_X86_64_64 },
-    .{ .copy, elf.R_X86_64_COPY },
-    .{ .rel, elf.R_X86_64_RELATIVE },
-    .{ .irel, elf.R_X86_64_IRELATIVE },
-    .{ .glob_dat, elf.R_X86_64_GLOB_DAT },
-    .{ .jump_slot, elf.R_X86_64_JUMP_SLOT },
-    .{ .dtpmod, elf.R_X86_64_DTPMOD64 },
-    .{ .dtpoff, elf.R_X86_64_DTPOFF64 },
-    .{ .tpoff, elf.R_X86_64_TPOFF64 },
-    .{ .tlsdesc, elf.R_X86_64_TLSDESC },
-};
+fn Table(comptime len: comptime_int, comptime RelType: type, comptime mapping: [len]struct { Kind, RelType }) type {
+    return struct {
+        fn decode(r_type: u32) ?Kind {
+            inline for (mapping) |entry| {
+                if (@intFromEnum(entry[1]) == r_type) return entry[0];
+            }
+            return null;
+        }
 
-const aarch64_relocs = [_]struct { Kind, u32 }{
-    .{ .abs, elf.R_AARCH64_ABS64 },
-    .{ .copy, elf.R_AARCH64_COPY },
-    .{ .rel, elf.R_AARCH64_RELATIVE },
-    .{ .irel, elf.R_AARCH64_IRELATIVE },
-    .{ .glob_dat, elf.R_AARCH64_GLOB_DAT },
-    .{ .jump_slot, elf.R_AARCH64_JUMP_SLOT },
-    .{ .dtpmod, elf.R_AARCH64_TLS_DTPMOD },
-    .{ .dtpoff, elf.R_AARCH64_TLS_DTPREL },
-    .{ .tpoff, elf.R_AARCH64_TLS_TPREL },
-    .{ .tlsdesc, elf.R_AARCH64_TLSDESC },
-};
+        fn encode(comptime kind: Kind) u32 {
+            inline for (mapping) |entry| {
+                if (entry[0] == kind) return @intFromEnum(entry[1]);
+            }
+            unreachable;
+        }
+    };
+}
+
+const x86_64_relocs = Table(10, elf.R_X86_64, .{
+    .{ .abs, .@"64" },
+    .{ .copy, .COPY },
+    .{ .rel, .RELATIVE },
+    .{ .irel, .IRELATIVE },
+    .{ .glob_dat, .GLOB_DAT },
+    .{ .jump_slot, .JUMP_SLOT },
+    .{ .dtpmod, .DTPMOD64 },
+    .{ .dtpoff, .DTPOFF64 },
+    .{ .tpoff, .TPOFF64 },
+    .{ .tlsdesc, .TLSDESC },
+});
+
+const aarch64_relocs = Table(10, elf.R_AARCH64, .{
+    .{ .abs, .ABS64 },
+    .{ .copy, .COPY },
+    .{ .rel, .RELATIVE },
+    .{ .irel, .IRELATIVE },
+    .{ .glob_dat, .GLOB_DAT },
+    .{ .jump_slot, .JUMP_SLOT },
+    .{ .dtpmod, .TLS_DTPMOD },
+    .{ .dtpoff, .TLS_DTPREL },
+    .{ .tpoff, .TLS_TPREL },
+    .{ .tlsdesc, .TLSDESC },
+});
+
+const riscv64_relocs = Table(9, elf.R_RISCV, .{
+    .{ .abs, .@"64" },
+    .{ .copy, .COPY },
+    .{ .rel, .RELATIVE },
+    .{ .irel, .IRELATIVE },
+    .{ .jump_slot, .JUMP_SLOT },
+    .{ .dtpmod, .TLS_DTPMOD64 },
+    .{ .dtpoff, .TLS_DTPREL64 },
+    .{ .tpoff, .TLS_TPREL64 },
+    .{ .tlsdesc, .TLSDESC },
+});
 
 pub fn decode(r_type: u32, cpu_arch: std.Target.Cpu.Arch) ?Kind {
-    const relocs = switch (cpu_arch) {
-        .x86_64 => &x86_64_relocs,
-        .aarch64 => &aarch64_relocs,
+    return switch (cpu_arch) {
+        .x86_64 => x86_64_relocs.decode(r_type),
+        .aarch64 => aarch64_relocs.decode(r_type),
+        .riscv64 => riscv64_relocs.decode(r_type),
         else => @panic("TODO unhandled cpu arch"),
     };
-    inline for (relocs) |entry| {
-        if (entry[1] == r_type) return entry[0];
-    }
-    return null;
 }
 
 pub fn encode(comptime kind: Kind, cpu_arch: std.Target.Cpu.Arch) u32 {
-    const relocs = switch (cpu_arch) {
-        .x86_64 => &x86_64_relocs,
-        .aarch64 => &aarch64_relocs,
+    return switch (cpu_arch) {
+        .x86_64 => x86_64_relocs.encode(kind),
+        .aarch64 => aarch64_relocs.encode(kind),
+        .riscv64 => riscv64_relocs.encode(kind),
         else => @panic("TODO unhandled cpu arch"),
     };
-    inline for (relocs) |entry| {
-        if (entry[0] == kind) return entry[1];
-    }
-    unreachable;
 }
 
 const FormatRelocTypeCtx = struct {
@@ -82,183 +106,20 @@ fn formatRelocType(
     _ = unused_fmt_string;
     _ = options;
     const r_type = ctx.r_type;
-    const str = switch (ctx.cpu_arch) {
-        .x86_64 => switch (r_type) {
-            elf.R_X86_64_NONE => "R_X86_64_NONE",
-            elf.R_X86_64_64 => "R_X86_64_64",
-            elf.R_X86_64_PC32 => "R_X86_64_PC32",
-            elf.R_X86_64_GOT32 => "R_X86_64_GOT32",
-            elf.R_X86_64_PLT32 => "R_X86_64_PLT32",
-            elf.R_X86_64_COPY => "R_X86_64_COPY",
-            elf.R_X86_64_GLOB_DAT => "R_X86_64_GLOB_DAT",
-            elf.R_X86_64_JUMP_SLOT => "R_X86_64_JUMP_SLOT",
-            elf.R_X86_64_RELATIVE => "R_X86_64_RELATIVE",
-            elf.R_X86_64_GOTPCREL => "R_X86_64_GOTPCREL",
-            elf.R_X86_64_32 => "R_X86_64_32",
-            elf.R_X86_64_32S => "R_X86_64_32S",
-            elf.R_X86_64_16 => "R_X86_64_16",
-            elf.R_X86_64_PC16 => "R_X86_64_PC16",
-            elf.R_X86_64_8 => "R_X86_64_8",
-            elf.R_X86_64_PC8 => "R_X86_64_PC8",
-            elf.R_X86_64_DTPMOD64 => "R_X86_64_DTPMOD64",
-            elf.R_X86_64_DTPOFF64 => "R_X86_64_DTPOFF64",
-            elf.R_X86_64_TPOFF64 => "R_X86_64_TPOFF64",
-            elf.R_X86_64_TLSGD => "R_X86_64_TLSGD",
-            elf.R_X86_64_TLSLD => "R_X86_64_TLSLD",
-            elf.R_X86_64_DTPOFF32 => "R_X86_64_DTPOFF32",
-            elf.R_X86_64_GOTTPOFF => "R_X86_64_GOTTPOFF",
-            elf.R_X86_64_TPOFF32 => "R_X86_64_TPOFF32",
-            elf.R_X86_64_PC64 => "R_X86_64_PC64",
-            elf.R_X86_64_GOTOFF64 => "R_X86_64_GOTOFF64",
-            elf.R_X86_64_GOTPC32 => "R_X86_64_GOTPC32",
-            elf.R_X86_64_GOT64 => "R_X86_64_GOT64",
-            elf.R_X86_64_GOTPCREL64 => "R_X86_64_GOTPCREL64",
-            elf.R_X86_64_GOTPC64 => "R_X86_64_GOTPC64",
-            elf.R_X86_64_GOTPLT64 => "R_X86_64_GOTPLT64",
-            elf.R_X86_64_PLTOFF64 => "R_X86_64_PLTOFF64",
-            elf.R_X86_64_SIZE32 => "R_X86_64_SIZE32",
-            elf.R_X86_64_SIZE64 => "R_X86_64_SIZE64",
-            elf.R_X86_64_GOTPC32_TLSDESC => "R_X86_64_GOTPC32_TLSDESC",
-            elf.R_X86_64_TLSDESC_CALL => "R_X86_64_TLSDESC_CALL",
-            elf.R_X86_64_TLSDESC => "R_X86_64_TLSDESC",
-            elf.R_X86_64_IRELATIVE => "R_X86_64_IRELATIVE",
-            elf.R_X86_64_RELATIVE64 => "R_X86_64_RELATIVE64",
-            elf.R_X86_64_GOTPCRELX => "R_X86_64_GOTPCRELX",
-            elf.R_X86_64_REX_GOTPCRELX => "R_X86_64_REX_GOTPCRELX",
-            elf.R_X86_64_NUM => "R_X86_64_NUM",
-            else => "R_X86_64_UNKNOWN",
+    switch (r_type) {
+        Elf.R_ZIG_GOT32 => try writer.writeAll("R_ZIG_GOT32"),
+        Elf.R_ZIG_GOTPCREL => try writer.writeAll("R_ZIG_GOTPCREL"),
+        else => switch (ctx.cpu_arch) {
+            .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
+            .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
+            .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
+            else => unreachable,
         },
-        .aarch64 => switch (r_type) {
-            elf.R_AARCH64_NONE => "R_AARCH64_NONE",
-            elf.R_AARCH64_ABS64 => "R_AARCH64_ABS64",
-            elf.R_AARCH64_ABS32 => "R_AARCH64_ABS32",
-            elf.R_AARCH64_ABS16 => "R_AARCH64_ABS16",
-            elf.R_AARCH64_PREL64 => "R_AARCH64_PREL64",
-            elf.R_AARCH64_PREL32 => "R_AARCH64_PREL32",
-            elf.R_AARCH64_PREL16 => "R_AARCH64_PREL16",
-            elf.R_AARCH64_MOVW_UABS_G0 => "R_AARCH64_MOVW_UABS_G0",
-            elf.R_AARCH64_MOVW_UABS_G0_NC => "R_AARCH64_MOVW_UABS_G0_NC",
-            elf.R_AARCH64_MOVW_UABS_G1 => "R_AARCH64_MOVW_UABS_G1",
-            elf.R_AARCH64_MOVW_UABS_G1_NC => "R_AARCH64_MOVW_UABS_G1_NC",
-            elf.R_AARCH64_MOVW_UABS_G2 => "R_AARCH64_MOVW_UABS_G2",
-            elf.R_AARCH64_MOVW_UABS_G2_NC => "R_AARCH64_MOVW_UABS_G2_NC",
-            elf.R_AARCH64_MOVW_UABS_G3 => "R_AARCH64_MOVW_UABS_G3",
-            elf.R_AARCH64_MOVW_SABS_G0 => "R_AARCH64_MOVW_SABS_G0",
-            elf.R_AARCH64_MOVW_SABS_G1 => "R_AARCH64_MOVW_SABS_G1",
-            elf.R_AARCH64_MOVW_SABS_G2 => "R_AARCH64_MOVW_SABS_G2",
-            elf.R_AARCH64_LD_PREL_LO19 => "R_AARCH64_LD_PREL_LO19",
-            elf.R_AARCH64_ADR_PREL_LO21 => "R_AARCH64_ADR_PREL_LO21",
-            elf.R_AARCH64_ADR_PREL_PG_HI21 => "R_AARCH64_ADR_PREL_PG_HI21",
-            elf.R_AARCH64_ADR_PREL_PG_HI21_NC => "R_AARCH64_ADR_PREL_PG_HI21_NC",
-            elf.R_AARCH64_ADD_ABS_LO12_NC => "R_AARCH64_ADD_ABS_LO12_NC",
-            elf.R_AARCH64_LDST8_ABS_LO12_NC => "R_AARCH64_LDST8_ABS_LO12_NC",
-            elf.R_AARCH64_TSTBR14 => "R_AARCH64_TSTBR14",
-            elf.R_AARCH64_CONDBR19 => "R_AARCH64_CONDBR19",
-            elf.R_AARCH64_JUMP26 => "R_AARCH64_JUMP26",
-            elf.R_AARCH64_CALL26 => "R_AARCH64_CALL26",
-            elf.R_AARCH64_LDST16_ABS_LO12_NC => "R_AARCH64_LDST16_ABS_LO12_NC",
-            elf.R_AARCH64_LDST32_ABS_LO12_NC => "R_AARCH64_LDST32_ABS_LO12_NC",
-            elf.R_AARCH64_LDST64_ABS_LO12_NC => "R_AARCH64_LDST64_ABS_LO12_NC",
-            elf.R_AARCH64_MOVW_PREL_G0 => "R_AARCH64_MOVW_PREL_G0",
-            elf.R_AARCH64_MOVW_PREL_G0_NC => "R_AARCH64_MOVW_PREL_G0_NC",
-            elf.R_AARCH64_MOVW_PREL_G1 => "R_AARCH64_MOVW_PREL_G1",
-            elf.R_AARCH64_MOVW_PREL_G1_NC => "R_AARCH64_MOVW_PREL_G1_NC",
-            elf.R_AARCH64_MOVW_PREL_G2 => "R_AARCH64_MOVW_PREL_G2",
-            elf.R_AARCH64_MOVW_PREL_G2_NC => "R_AARCH64_MOVW_PREL_G2_NC",
-            elf.R_AARCH64_MOVW_PREL_G3 => "R_AARCH64_MOVW_PREL_G3",
-            elf.R_AARCH64_LDST128_ABS_LO12_NC => "R_AARCH64_LDST128_ABS_LO12_NC",
-            elf.R_AARCH64_MOVW_GOTOFF_G0 => "R_AARCH64_MOVW_GOTOFF_G0",
-            elf.R_AARCH64_MOVW_GOTOFF_G0_NC => "R_AARCH64_MOVW_GOTOFF_G0_NC",
-            elf.R_AARCH64_MOVW_GOTOFF_G1 => "R_AARCH64_MOVW_GOTOFF_G1",
-            elf.R_AARCH64_MOVW_GOTOFF_G1_NC => "R_AARCH64_MOVW_GOTOFF_G1_NC",
-            elf.R_AARCH64_MOVW_GOTOFF_G2 => "R_AARCH64_MOVW_GOTOFF_G2",
-            elf.R_AARCH64_MOVW_GOTOFF_G2_NC => "R_AARCH64_MOVW_GOTOFF_G2_NC",
-            elf.R_AARCH64_MOVW_GOTOFF_G3 => "R_AARCH64_MOVW_GOTOFF_G3",
-            elf.R_AARCH64_GOTREL64 => "R_AARCH64_GOTREL64",
-            elf.R_AARCH64_GOTREL32 => "R_AARCH64_GOTREL32",
-            elf.R_AARCH64_GOT_LD_PREL19 => "R_AARCH64_GOT_LD_PREL19",
-            elf.R_AARCH64_LD64_GOTOFF_LO15 => "R_AARCH64_LD64_GOTOFF_LO15",
-            elf.R_AARCH64_ADR_GOT_PAGE => "R_AARCH64_ADR_GOT_PAGE",
-            elf.R_AARCH64_LD64_GOT_LO12_NC => "R_AARCH64_LD64_GOT_LO12_NC",
-            elf.R_AARCH64_LD64_GOTPAGE_LO15 => "R_AARCH64_LD64_GOTPAGE_LO15",
-            elf.R_AARCH64_TLSGD_ADR_PREL21 => "R_AARCH64_TLSGD_ADR_PREL21",
-            elf.R_AARCH64_TLSGD_ADR_PAGE21 => "R_AARCH64_TLSGD_ADR_PAGE21",
-            elf.R_AARCH64_TLSGD_ADD_LO12_NC => "R_AARCH64_TLSGD_ADD_LO12_NC",
-            elf.R_AARCH64_TLSGD_MOVW_G1 => "R_AARCH64_TLSGD_MOVW_G1",
-            elf.R_AARCH64_TLSGD_MOVW_G0_NC => "R_AARCH64_TLSGD_MOVW_G0_NC",
-            elf.R_AARCH64_TLSLD_ADR_PREL21 => "R_AARCH64_TLSLD_ADR_PREL21",
-            elf.R_AARCH64_TLSLD_ADR_PAGE21 => "R_AARCH64_TLSLD_ADR_PAGE21",
-            elf.R_AARCH64_TLSLD_ADD_LO12_NC => "R_AARCH64_TLSLD_ADD_LO12_NC",
-            elf.R_AARCH64_TLSLD_MOVW_G1 => "R_AARCH64_TLSLD_MOVW_G1",
-            elf.R_AARCH64_TLSLD_MOVW_G0_NC => "R_AARCH64_TLSLD_MOVW_G0_NC",
-            elf.R_AARCH64_TLSLD_LD_PREL19 => "R_AARCH64_TLSLD_LD_PREL19",
-            elf.R_AARCH64_TLSLD_MOVW_DTPREL_G2 => "R_AARCH64_TLSLD_MOVW_DTPREL_G2",
-            elf.R_AARCH64_TLSLD_MOVW_DTPREL_G1 => "R_AARCH64_TLSLD_MOVW_DTPREL_G1",
-            elf.R_AARCH64_TLSLD_MOVW_DTPREL_G1_NC => "R_AARCH64_TLSLD_MOVW_DTPREL_G1_NC",
-            elf.R_AARCH64_TLSLD_MOVW_DTPREL_G0 => "R_AARCH64_TLSLD_MOVW_DTPREL_G0",
-            elf.R_AARCH64_TLSLD_MOVW_DTPREL_G0_NC => "R_AARCH64_TLSLD_MOVW_DTPREL_G0_NC",
-            elf.R_AARCH64_TLSLD_ADD_DTPREL_HI12 => "R_AARCH64_TLSLD_ADD_DTPREL_HI12",
-            elf.R_AARCH64_TLSLD_ADD_DTPREL_LO12 => "R_AARCH64_TLSLD_ADD_DTPREL_LO12",
-            elf.R_AARCH64_TLSLD_ADD_DTPREL_LO12_NC => "R_AARCH64_TLSLD_ADD_DTPREL_LO12_NC",
-            elf.R_AARCH64_TLSLD_LDST8_DTPREL_LO12 => "R_AARCH64_TLSLD_LDST8_DTPREL_LO12",
-            elf.R_AARCH64_TLSLD_LDST8_DTPREL_LO12_NC => "R_AARCH64_TLSLD_LDST8_DTPREL_LO12_NC",
-            elf.R_AARCH64_TLSLD_LDST16_DTPREL_LO12 => "R_AARCH64_TLSLD_LDST16_DTPREL_LO12",
-            elf.R_AARCH64_TLSLD_LDST16_DTPREL_LO12_NC => "R_AARCH64_TLSLD_LDST16_DTPREL_LO12_NC",
-            elf.R_AARCH64_TLSLD_LDST32_DTPREL_LO12 => "R_AARCH64_TLSLD_LDST32_DTPREL_LO12",
-            elf.R_AARCH64_TLSLD_LDST32_DTPREL_LO12_NC => "R_AARCH64_TLSLD_LDST32_DTPREL_LO12_NC",
-            elf.R_AARCH64_TLSLD_LDST64_DTPREL_LO12 => "R_AARCH64_TLSLD_LDST64_DTPREL_LO12",
-            elf.R_AARCH64_TLSLD_LDST64_DTPREL_LO12_NC => "R_AARCH64_TLSLD_LDST64_DTPREL_LO12_NC",
-            elf.R_AARCH64_TLSIE_MOVW_GOTTPREL_G1 => "R_AARCH64_TLSIE_MOVW_GOTTPREL_G1",
-            elf.R_AARCH64_TLSIE_MOVW_GOTTPREL_G0_NC => "R_AARCH64_TLSIE_MOVW_GOTTPREL_G0_NC",
-            elf.R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21 => "R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21",
-            elf.R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC => "R_AARCH64_TLSIE_LD64_GOTTPREL_LO12_NC",
-            elf.R_AARCH64_TLSIE_LD_GOTTPREL_PREL19 => "R_AARCH64_TLSIE_LD_GOTTPREL_PREL19",
-            elf.R_AARCH64_TLSLE_MOVW_TPREL_G2 => "R_AARCH64_TLSLE_MOVW_TPREL_G2",
-            elf.R_AARCH64_TLSLE_MOVW_TPREL_G1 => "R_AARCH64_TLSLE_MOVW_TPREL_G1",
-            elf.R_AARCH64_TLSLE_MOVW_TPREL_G1_NC => "R_AARCH64_TLSLE_MOVW_TPREL_G1_NC",
-            elf.R_AARCH64_TLSLE_MOVW_TPREL_G0 => "R_AARCH64_TLSLE_MOVW_TPREL_G0",
-            elf.R_AARCH64_TLSLE_MOVW_TPREL_G0_NC => "R_AARCH64_TLSLE_MOVW_TPREL_G0_NC",
-            elf.R_AARCH64_TLSLE_ADD_TPREL_HI12 => "R_AARCH64_TLSLE_ADD_TPREL_HI12",
-            elf.R_AARCH64_TLSLE_ADD_TPREL_LO12 => "R_AARCH64_TLSLE_ADD_TPREL_LO12",
-            elf.R_AARCH64_TLSLE_ADD_TPREL_LO12_NC => "R_AARCH64_TLSLE_ADD_TPREL_LO12_NC",
-            elf.R_AARCH64_TLSLE_LDST8_TPREL_LO12 => "R_AARCH64_TLSLE_LDST8_TPREL_LO12",
-            elf.R_AARCH64_TLSLE_LDST8_TPREL_LO12_NC => "R_AARCH64_TLSLE_LDST8_TPREL_LO12_NC",
-            elf.R_AARCH64_TLSLE_LDST16_TPREL_LO12 => "R_AARCH64_TLSLE_LDST16_TPREL_LO12",
-            elf.R_AARCH64_TLSLE_LDST16_TPREL_LO12_NC => "R_AARCH64_TLSLE_LDST16_TPREL_LO12_NC",
-            elf.R_AARCH64_TLSLE_LDST32_TPREL_LO12 => "R_AARCH64_TLSLE_LDST32_TPREL_LO12",
-            elf.R_AARCH64_TLSLE_LDST32_TPREL_LO12_NC => "R_AARCH64_TLSLE_LDST32_TPREL_LO12_NC",
-            elf.R_AARCH64_TLSLE_LDST64_TPREL_LO12 => "R_AARCH64_TLSLE_LDST64_TPREL_LO12",
-            elf.R_AARCH64_TLSLE_LDST64_TPREL_LO12_NC => "R_AARCH64_TLSLE_LDST64_TPREL_LO12_NC",
-            elf.R_AARCH64_TLSDESC_LD_PREL19 => "R_AARCH64_TLSDESC_LD_PREL19",
-            elf.R_AARCH64_TLSDESC_ADR_PREL21 => "R_AARCH64_TLSDESC_ADR_PREL21",
-            elf.R_AARCH64_TLSDESC_ADR_PAGE21 => "R_AARCH64_TLSDESC_ADR_PAGE21",
-            elf.R_AARCH64_TLSDESC_LD64_LO12 => "R_AARCH64_TLSDESC_LD64_LO12",
-            elf.R_AARCH64_TLSDESC_ADD_LO12 => "R_AARCH64_TLSDESC_ADD_LO12",
-            elf.R_AARCH64_TLSDESC_OFF_G1 => "R_AARCH64_TLSDESC_OFF_G1",
-            elf.R_AARCH64_TLSDESC_OFF_G0_NC => "R_AARCH64_TLSDESC_OFF_G0_NC",
-            elf.R_AARCH64_TLSDESC_LDR => "R_AARCH64_TLSDESC_LDR",
-            elf.R_AARCH64_TLSDESC_ADD => "R_AARCH64_TLSDESC_ADD",
-            elf.R_AARCH64_TLSDESC_CALL => "R_AARCH64_TLSDESC_CALL",
-            elf.R_AARCH64_TLSLE_LDST128_TPREL_LO12 => "R_AARCH64_TLSLE_LDST128_TPREL_LO12",
-            elf.R_AARCH64_TLSLE_LDST128_TPREL_LO12_NC => "R_AARCH64_TLSLE_LDST128_TPREL_LO12_NC",
-            elf.R_AARCH64_TLSLD_LDST128_DTPREL_LO12 => "R_AARCH64_TLSLD_LDST128_DTPREL_LO12",
-            elf.R_AARCH64_TLSLD_LDST128_DTPREL_LO12_NC => "R_AARCH64_TLSLD_LDST128_DTPREL_LO12_NC",
-            elf.R_AARCH64_COPY => "R_AARCH64_COPY",
-            elf.R_AARCH64_GLOB_DAT => "R_AARCH64_GLOB_DAT",
-            elf.R_AARCH64_JUMP_SLOT => "R_AARCH64_JUMP_SLOT",
-            elf.R_AARCH64_RELATIVE => "R_AARCH64_RELATIVE",
-            elf.R_AARCH64_TLS_DTPMOD => "R_AARCH64_TLS_DTPMOD",
-            elf.R_AARCH64_TLS_DTPREL => "R_AARCH64_TLS_DTPREL",
-            elf.R_AARCH64_TLS_TPREL => "R_AARCH64_TLS_TPREL",
-            elf.R_AARCH64_TLSDESC => "R_AARCH64_TLSDESC",
-            elf.R_AARCH64_IRELATIVE => "R_AARCH64_IRELATIVE",
-            else => "R_AARCH64_UNKNOWN",
-        },
-        else => unreachable,
-    };
-    try writer.print("{s}", .{str});
+    }
 }
 
 const assert = std.debug.assert;
 const elf = std.elf;
 const std = @import("std");
+
+const Elf = @import("../Elf.zig");

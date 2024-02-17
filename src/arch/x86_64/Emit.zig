@@ -43,9 +43,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .linker_extern_fn => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     // Add relocation to the decl.
                     const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+                    const r_type = @intFromEnum(std.elf.R_X86_64.PLT32);
                     try atom_ptr.addReloc(elf_file, .{
                         .r_offset = end_offset - 4,
-                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | std.elf.R_X86_64_PLT32,
+                        .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
                         .r_addend = -4,
                     });
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
@@ -88,18 +89,20 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .linker_tlsld => |data| {
                     const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    const r_type = @intFromEnum(std.elf.R_X86_64.TLSLD);
                     try atom.addReloc(elf_file, .{
                         .r_offset = end_offset - 4,
-                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_TLSLD,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
                         .r_addend = -4,
                     });
                 },
                 .linker_dtpoff => |data| {
                     const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    const r_type = @intFromEnum(std.elf.R_X86_64.DTPOFF32);
                     try atom.addReloc(elf_file, .{
                         .r_offset = end_offset - 4,
-                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_DTPOFF32,
+                        .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
                         .r_addend = 0,
                     });
                 },
@@ -117,11 +120,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                     }
                     if (emit.lower.pic) {
                         const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
-                            link.File.Elf.R_X86_64_ZIG_GOTPCREL
+                            link.File.Elf.R_ZIG_GOTPCREL
                         else if (sym.flags.needs_got)
-                            std.elf.R_X86_64_GOTPCREL
+                            @intFromEnum(std.elf.R_X86_64.GOTPCREL)
                         else
-                            std.elf.R_X86_64_PC32;
+                            @intFromEnum(std.elf.R_X86_64.PC32);
                         try atom.addReloc(elf_file, .{
                             .r_offset = end_offset - 4,
                             .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
@@ -129,20 +132,21 @@ pub fn emitMir(emit: *Emit) Error!void {
                         });
                     } else {
                         if (lowered_inst.encoding.mnemonic == .call and sym.flags.needs_zig_got and is_obj_or_static_lib) {
+                            const r_type = @intFromEnum(std.elf.R_X86_64.PC32);
                             try atom.addReloc(elf_file, .{
                                 .r_offset = end_offset - 4,
-                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | std.elf.R_X86_64_PC32,
+                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
                                 .r_addend = -4,
                             });
                         } else {
                             const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
-                                link.File.Elf.R_X86_64_ZIG_GOT32
+                                link.File.Elf.R_ZIG_GOT32
                             else if (sym.flags.needs_got)
-                                std.elf.R_X86_64_GOT32
+                                @intFromEnum(std.elf.R_X86_64.GOT32)
                             else if (sym.flags.is_tls)
-                                std.elf.R_X86_64_TPOFF32
+                                @intFromEnum(std.elf.R_X86_64.TPOFF32)
                             else
-                                std.elf.R_X86_64_32;
+                                @intFromEnum(std.elf.R_X86_64.@"32");
                             try atom.addReloc(elf_file, .{
                                 .r_offset = end_offset - 4,
                                 .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
