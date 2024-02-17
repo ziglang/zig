@@ -131,7 +131,7 @@ fn LivenessPassData(comptime pass: LivenessPass) type {
     };
 }
 
-pub fn analyze(gpa: Allocator, air: Air, intern_pool: *const InternPool) Allocator.Error!Liveness {
+pub fn analyze(gpa: Allocator, air: Air, intern_pool: *InternPool) Allocator.Error!Liveness {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -836,7 +836,7 @@ pub const BigTomb = struct {
 const Analysis = struct {
     gpa: Allocator,
     air: Air,
-    intern_pool: *const InternPool,
+    intern_pool: *InternPool,
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),

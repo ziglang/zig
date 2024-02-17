@@ -424,22 +424,28 @@ pub fn toType(self: Value) Type {
 
 pub fn intFromEnum(val: Value, ty: Type, mod: *Module) Allocator.Error!Value {
     const ip = &mod.intern_pool;
-    return switch (ip.indexToKey(ip.typeOf(val.toIntern()))) {
+    const enum_ty = ip.typeOf(val.toIntern());
+    return switch (ip.indexToKey(enum_ty)) {
         // Assume it is already an integer and return it directly.
         .simple_type, .int_type => val,
         .enum_literal => |enum_literal| {
             const field_index = ty.enumFieldIndex(enum_literal, mod).?;
-            return switch (ip.indexToKey(ty.toIntern())) {
+            switch (ip.indexToKey(ty.toIntern())) {
                 // Assume it is already an integer and return it directly.
-                .simple_type, .int_type => val,
-                .enum_type => |enum_type| if (enum_type.values.len != 0)
-                    Value.fromInterned(enum_type.values.get(ip)[field_index])
-                else // Field index and integer values are the same.
-                    mod.intValue(Type.fromInterned(enum_type.tag_ty), field_index),
+                .simple_type, .int_type => return val,
+                .enum_type => {
+                    const enum_type = ip.loadEnumType(ty.toIntern());
+                    if (enum_type.values.len != 0) {
+                        return Value.fromInterned(enum_type.values.get(ip)[field_index]);
+                    } else {
+                        // Field index and integer values are the same.
+                        return mod.intValue(Type.fromInterned(enum_type.tag_ty), field_index);
+                    }
+                },
                 else => unreachable,
-            };
+            }
         },
-        .enum_type => |enum_type| try mod.getCoerced(val, Type.fromInterned(enum_type.tag_ty)),
+        .enum_type => try mod.getCoerced(val, Type.fromInterned(ip.loadEnumType(enum_ty).tag_ty)),
         else => unreachable,
     };
 }
@@ -832,7 +838,7 @@ pub fn writeToPackedMemory(
             }
         },
         .Struct => {
-            const struct_type = ip.indexToKey(ty.toIntern()).struct_type;
+            const struct_type = ip.loadStructType(ty.toIntern());
             // Sema is supposed to have emitted a compile error already in the case of Auto,
             // and Extern is handled in non-packed writeToMemory.
             assert(struct_type.layout == .Packed);

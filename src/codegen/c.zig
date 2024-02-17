@@ -1475,13 +1475,10 @@ pub const DeclGen = struct {
                             var empty = true;
                             for (0..struct_type.field_types.len) |field_index| {
                                 const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                                if (struct_type.fieldIsComptime(ip, field_index)) continue;
                                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
-                                if (!empty) try writer.writeAll(" | ");
-                                try writer.writeByte('(');
-                                try dg.renderType(writer, ty);
-                                try writer.writeByte(')');
-
+                                if (!empty) try writer.writeByte(',');
                                 const field_val = switch (ip.indexToKey(val.ip_index).aggregate.storage) {
                                     .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                                         .ty = field_ty.toIntern(),
@@ -1490,6 +1487,7 @@ pub const DeclGen = struct {
                                     .elems => |elems| elems[field_index],
                                     .repeated_elem => |elem| elem,
                                 };
+                                try dg.renderValue(writer, field_ty, Value.fromInterned(field_val), initializer_type);
 
                                 if (bit_offset != 0) {
                                     try dg.renderValue(writer, field_ty, Value.fromInterned(field_val), .Other);
@@ -1503,7 +1501,7 @@ pub const DeclGen = struct {
                                 bit_offset += field_ty.bitSize(mod);
                                 empty = false;
                             }
-                            try writer.writeByte(')');
+                            try writer.writeByte('}');
                         }
                     },
                 },
@@ -1547,7 +1545,7 @@ pub const DeclGen = struct {
 
                     const field_index = mod.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
-                    const field_name = union_obj.field_names.get(ip)[field_index];
+                    const field_name = union_obj.loadTagType(ip).names.get(ip)[field_index];
                     if (union_obj.getLayout(ip) == .Packed) {
                         if (field_ty.hasRuntimeBits(mod)) {
                             if (field_ty.isPtrAtRuntime(mod)) {
@@ -5502,7 +5500,7 @@ fn fieldLocation(
                             .{ .field = .{ .identifier = "payload" } }
                         else
                             .begin;
-                    const field_name = union_obj.field_names.get(ip)[field_index];
+                    const field_name = union_obj.loadTagType(ip).names.get(ip)[field_index];
                     return .{ .field = if (container_ty.unionTagTypeSafety(mod)) |_|
                         .{ .payload_identifier = ip.stringToSlice(field_name) }
                     else
@@ -5735,8 +5733,8 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
         else
             .{ .identifier = ip.stringToSlice(struct_ty.legacyStructFieldName(extra.field_index, mod)) },
 
-        .union_type => |union_type| field_name: {
-            const union_obj = ip.loadUnionType(union_type);
+        .union_type => field_name: {
+            const union_obj = ip.loadUnionType(struct_ty.toIntern());
             if (union_obj.flagsPtr(ip).layout == .Packed) {
                 const operand_lval = if (struct_byval == .constant) blk: {
                     const operand_local = try f.allocLocal(inst, struct_ty);
@@ -5762,8 +5760,8 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
                 return local;
             } else {
-                const name = union_obj.field_names.get(ip)[extra.field_index];
-                break :field_name if (union_type.hasTag(ip)) .{
+                const name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
+                break :field_name if (union_obj.hasTag(ip)) .{
                     .payload_identifier = ip.stringToSlice(name),
                 } else .{
                     .identifier = ip.stringToSlice(name),
@@ -7171,7 +7169,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const union_ty = f.typeOfIndex(inst);
     const union_obj = mod.typeToUnion(union_ty).?;
-    const field_name = union_obj.field_names.get(ip)[extra.field_index];
+    const field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
     const payload_ty = f.typeOf(extra.init);
     const payload = try f.resolveInst(extra.init);
     try reap(f, inst, &.{extra.init});

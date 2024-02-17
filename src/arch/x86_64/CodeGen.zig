@@ -18183,7 +18183,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const dst_mcv = try self.allocRegOrMem(inst, false);
 
         const union_obj = mod.typeToUnion(union_ty).?;
-        const field_name = union_obj.field_names.get(ip)[extra.field_index];
+        const field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
         const tag_ty = Type.fromInterned(union_obj.enum_tag_ty);
         const field_index = tag_ty.enumFieldIndex(field_name, mod).?;
         const tag_val = try mod.enumValueFieldIndex(tag_ty, field_index);
