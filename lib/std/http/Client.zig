@@ -545,6 +545,7 @@ pub const Response = struct {
                 }
             }
         }
+        return error.HttpHeadersInvalid; // missing empty line
     }
 
     inline fn int64(array: *const [8]u8) u64 {
