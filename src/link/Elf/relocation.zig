@@ -30,41 +30,41 @@ fn Table(comptime len: comptime_int, comptime RelType: type, comptime mapping: [
 }
 
 const x86_64_relocs = Table(10, elf.R_X86_64, .{
-    .{ .abs, .R_X86_64_64 },
-    .{ .copy, .R_X86_64_COPY },
-    .{ .rel, .R_X86_64_RELATIVE },
-    .{ .irel, .R_X86_64_IRELATIVE },
-    .{ .glob_dat, .R_X86_64_GLOB_DAT },
-    .{ .jump_slot, .R_X86_64_JUMP_SLOT },
-    .{ .dtpmod, .R_X86_64_DTPMOD64 },
-    .{ .dtpoff, .R_X86_64_DTPOFF64 },
-    .{ .tpoff, .R_X86_64_TPOFF64 },
-    .{ .tlsdesc, .R_X86_64_TLSDESC },
+    .{ .abs, .@"64" },
+    .{ .copy, .COPY },
+    .{ .rel, .RELATIVE },
+    .{ .irel, .IRELATIVE },
+    .{ .glob_dat, .GLOB_DAT },
+    .{ .jump_slot, .JUMP_SLOT },
+    .{ .dtpmod, .DTPMOD64 },
+    .{ .dtpoff, .DTPOFF64 },
+    .{ .tpoff, .TPOFF64 },
+    .{ .tlsdesc, .TLSDESC },
 });
 
 const aarch64_relocs = Table(10, elf.R_AARCH64, .{
-    .{ .abs, .R_AARCH64_ABS64 },
-    .{ .copy, .R_AARCH64_COPY },
-    .{ .rel, .R_AARCH64_RELATIVE },
-    .{ .irel, .R_AARCH64_IRELATIVE },
-    .{ .glob_dat, .R_AARCH64_GLOB_DAT },
-    .{ .jump_slot, .R_AARCH64_JUMP_SLOT },
-    .{ .dtpmod, .R_AARCH64_TLS_DTPMOD },
-    .{ .dtpoff, .R_AARCH64_TLS_DTPREL },
-    .{ .tpoff, .R_AARCH64_TLS_TPREL },
-    .{ .tlsdesc, .R_AARCH64_TLSDESC },
+    .{ .abs, .ABS64 },
+    .{ .copy, .COPY },
+    .{ .rel, .RELATIVE },
+    .{ .irel, .IRELATIVE },
+    .{ .glob_dat, .GLOB_DAT },
+    .{ .jump_slot, .JUMP_SLOT },
+    .{ .dtpmod, .TLS_DTPMOD },
+    .{ .dtpoff, .TLS_DTPREL },
+    .{ .tpoff, .TLS_TPREL },
+    .{ .tlsdesc, .TLSDESC },
 });
 
 const riscv64_relocs = Table(9, elf.R_RISCV, .{
-    .{ .abs, .R_RISCV_64 },
-    .{ .copy, .R_RISCV_COPY },
-    .{ .rel, .R_RISCV_RELATIVE },
-    .{ .irel, .R_RISCV_IRELATIVE },
-    .{ .jump_slot, .R_RISCV_JUMP_SLOT },
-    .{ .dtpmod, .R_RISCV_TLS_DTPMOD64 },
-    .{ .dtpoff, .R_RISCV_TLS_DTPREL64 },
-    .{ .tpoff, .R_RISCV_TLS_TPREL64 },
-    .{ .tlsdesc, .R_RISCV_TLSDESC },
+    .{ .abs, .@"64" },
+    .{ .copy, .COPY },
+    .{ .rel, .RELATIVE },
+    .{ .irel, .IRELATIVE },
+    .{ .jump_slot, .JUMP_SLOT },
+    .{ .dtpmod, .TLS_DTPMOD64 },
+    .{ .dtpoff, .TLS_DTPREL64 },
+    .{ .tpoff, .TLS_TPREL64 },
+    .{ .tlsdesc, .TLSDESC },
 });
 
 pub fn decode(r_type: u32, cpu_arch: std.Target.Cpu.Arch) ?Kind {
@@ -106,17 +106,16 @@ fn formatRelocType(
     _ = unused_fmt_string;
     _ = options;
     const r_type = ctx.r_type;
-    const str = switch (r_type) {
-        Elf.R_ZIG_GOT32 => "R_ZIG_GOT32",
-        Elf.R_ZIG_GOTPCREL => "R_ZIG_GOTPCREL",
+    switch (r_type) {
+        Elf.R_ZIG_GOT32 => try writer.writeAll("R_ZIG_GOT32"),
+        Elf.R_ZIG_GOTPCREL => try writer.writeAll("R_ZIG_GOTPCREL"),
         else => switch (ctx.cpu_arch) {
-            .x86_64 => @tagName(@as(elf.R_X86_64, @enumFromInt(r_type))),
-            .aarch64 => @tagName(@as(elf.R_AARCH64, @enumFromInt(r_type))),
-            .riscv64 => @tagName(@as(elf.R_RISCV, @enumFromInt(r_type))),
+            .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
+            .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
+            .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
             else => unreachable,
         },
-    };
-    try writer.print("{s}", .{str});
+    }
 }
 
 const assert = std.debug.assert;

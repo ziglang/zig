@@ -386,7 +386,7 @@ pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {
         switch (cpu_arch) {
             .x86_64 => {
                 const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
-                if (r_type == .R_X86_64_GOTTPOFF) return true;
+                if (r_type == .GOTTPOFF) return true;
             },
             else => {},
         }
@@ -841,7 +841,7 @@ const x86_64 = struct {
             const rel = rels[i];
             const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
 
-            if (r_type == .R_X86_64_NONE) continue;
+            if (r_type == .NONE) continue;
 
             const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
@@ -874,40 +874,40 @@ const x86_64 = struct {
             // While traversing relocations, mark symbols that require special handling such as
             // pointer indirection via GOT, or a stub trampoline via PLT.
             switch (r_type) {
-                .R_X86_64_64 => {
+                .@"64" => {
                     try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
                 },
 
-                .R_X86_64_32,
-                .R_X86_64_32S,
+                .@"32",
+                .@"32S",
                 => {
                     try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
                 },
 
-                .R_X86_64_GOT32,
-                .R_X86_64_GOTPC32,
-                .R_X86_64_GOTPC64,
-                .R_X86_64_GOTPCREL,
-                .R_X86_64_GOTPCREL64,
-                .R_X86_64_GOTPCRELX,
-                .R_X86_64_REX_GOTPCRELX,
+                .GOT32,
+                .GOTPC32,
+                .GOTPC64,
+                .GOTPCREL,
+                .GOTPCREL64,
+                .GOTPCRELX,
+                .REX_GOTPCRELX,
                 => {
                     symbol.flags.needs_got = true;
                 },
 
-                .R_X86_64_PLT32,
-                .R_X86_64_PLTOFF64,
+                .PLT32,
+                .PLTOFF64,
                 => {
                     if (symbol.flags.import) {
                         symbol.flags.needs_plt = true;
                     }
                 },
 
-                .R_X86_64_PC32 => {
+                .PC32 => {
                     try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file);
                 },
 
-                .R_X86_64_TLSGD => {
+                .TLSGD => {
                     // TODO verify followed by appropriate relocation such as PLT32 __tls_get_addr
 
                     if (is_static or (!symbol.flags.import and !is_dyn_lib)) {
@@ -922,7 +922,7 @@ const x86_64 = struct {
                     }
                 },
 
-                .R_X86_64_TLSLD => {
+                .TLSLD => {
                     // TODO verify followed by appropriate relocation such as PLT32 __tls_get_addr
 
                     if (is_static or !is_dyn_lib) {
@@ -934,7 +934,7 @@ const x86_64 = struct {
                     }
                 },
 
-                .R_X86_64_GOTTPOFF => {
+                .GOTTPOFF => {
                     const should_relax = blk: {
                         if (is_dyn_lib or symbol.flags.import) break :blk false;
                         if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..])) break :blk false;
@@ -945,25 +945,25 @@ const x86_64 = struct {
                     }
                 },
 
-                .R_X86_64_GOTPC32_TLSDESC => {
+                .GOTPC32_TLSDESC => {
                     const should_relax = is_static or (!is_dyn_lib and !symbol.flags.import);
                     if (!should_relax) {
                         symbol.flags.needs_tlsdesc = true;
                     }
                 },
 
-                .R_X86_64_TPOFF32,
-                .R_X86_64_TPOFF64,
+                .TPOFF32,
+                .TPOFF64,
                 => {
                     if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
                 },
 
-                .R_X86_64_GOTOFF64,
-                .R_X86_64_DTPOFF32,
-                .R_X86_64_DTPOFF64,
-                .R_X86_64_SIZE32,
-                .R_X86_64_SIZE64,
-                .R_X86_64_TLSDESC_CALL,
+                .GOTOFF64,
+                .DTPOFF32,
+                .DTPOFF64,
+                .SIZE32,
+                .SIZE64,
+                .TLSDESC_CALL,
                 => {},
 
                 else => |x| switch (@intFromEnum(x)) {
@@ -990,7 +990,7 @@ const x86_64 = struct {
         while (i < rels.len) : (i += 1) {
             const rel = rels[i];
             const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
-            if (r_type == .R_X86_64_NONE) continue;
+            if (r_type == .NONE) continue;
 
             const target = switch (file_ptr) {
                 .zig_object => |x| elf_file.symbol(x.symbol(rel.r_sym())),
@@ -1040,9 +1040,9 @@ const x86_64 = struct {
             try stream.seekTo(r_offset);
 
             switch (r_type) {
-                .R_X86_64_NONE => unreachable,
+                .NONE => unreachable,
 
-                .R_X86_64_64 => {
+                .@"64" => {
                     try atom.resolveDynAbsReloc(
                         target,
                         rel,
@@ -1052,15 +1052,15 @@ const x86_64 = struct {
                     );
                 },
 
-                .R_X86_64_PLT32,
-                .R_X86_64_PC32,
+                .PLT32,
+                .PC32,
                 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
 
-                .R_X86_64_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little),
-                .R_X86_64_GOTPC32 => try cwriter.writeInt(i32, @as(i32, @intCast(GOT + A - P)), .little),
-                .R_X86_64_GOTPC64 => try cwriter.writeInt(i64, GOT + A - P, .little),
+                .GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little),
+                .GOTPC32 => try cwriter.writeInt(i32, @as(i32, @intCast(GOT + A - P)), .little),
+                .GOTPC64 => try cwriter.writeInt(i64, GOT + A - P, .little),
 
-                .R_X86_64_GOTPCRELX => {
+                .GOTPCRELX => {
                     if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
                         x86_64.relaxGotpcrelx(code[r_offset - 2 ..]) catch break :blk;
                         try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
@@ -1069,7 +1069,7 @@ const x86_64 = struct {
                     try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little);
                 },
 
-                .R_X86_64_REX_GOTPCRELX => {
+                .REX_GOTPCRELX => {
                     if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
                         x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..]) catch break :blk;
                         try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
@@ -1078,16 +1078,16 @@ const x86_64 = struct {
                     try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little);
                 },
 
-                .R_X86_64_32 => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
-                .R_X86_64_32S => try cwriter.writeInt(i32, @as(i32, @truncate(S + A)), .little),
+                .@"32" => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
+                .@"32S" => try cwriter.writeInt(i32, @as(i32, @truncate(S + A)), .little),
 
-                .R_X86_64_TPOFF32 => try cwriter.writeInt(i32, @as(i32, @truncate(S + A - TP)), .little),
-                .R_X86_64_TPOFF64 => try cwriter.writeInt(i64, S + A - TP, .little),
+                .TPOFF32 => try cwriter.writeInt(i32, @as(i32, @truncate(S + A - TP)), .little),
+                .TPOFF64 => try cwriter.writeInt(i64, S + A - TP, .little),
 
-                .R_X86_64_DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @truncate(S + A - DTP)), .little),
-                .R_X86_64_DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
+                .DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @truncate(S + A - DTP)), .little),
+                .DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
 
-                .R_X86_64_TLSGD => {
+                .TLSGD => {
                     if (target.flags.has_tlsgd) {
                         const S_ = @as(i64, @intCast(target.tlsGdAddress(elf_file)));
                         try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
@@ -1107,7 +1107,7 @@ const x86_64 = struct {
                     }
                 },
 
-                .R_X86_64_TLSLD => {
+                .TLSLD => {
                     if (elf_file.got.tlsld_index) |entry_index| {
                         const tlsld_entry = elf_file.got.entries.items[entry_index];
                         const S_ = @as(i64, @intCast(tlsld_entry.address(elf_file)));
@@ -1124,7 +1124,7 @@ const x86_64 = struct {
                     }
                 },
 
-                .R_X86_64_GOTPC32_TLSDESC => {
+                .GOTPC32_TLSDESC => {
                     if (target.flags.has_tlsdesc) {
                         const S_ = @as(i64, @intCast(target.tlsDescAddress(elf_file)));
                         try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
@@ -1134,12 +1134,12 @@ const x86_64 = struct {
                     }
                 },
 
-                .R_X86_64_TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
+                .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
                     // call -> nop
                     try cwriter.writeAll(&.{ 0x66, 0x90 });
                 },
 
-                .R_X86_64_GOTTPOFF => {
+                .GOTTPOFF => {
                     if (target.flags.has_gottp) {
                         const S_ = @as(i64, @intCast(target.gotTpAddress(elf_file)));
                         try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
@@ -1149,7 +1149,7 @@ const x86_64 = struct {
                     }
                 },
 
-                .R_X86_64_GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A)), .little),
+                .GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A)), .little),
 
                 else => |x| switch (@intFromEnum(x)) {
                     // Zig custom relocations
@@ -1172,7 +1172,7 @@ const x86_64 = struct {
         while (i < rels.len) : (i += 1) {
             const rel = rels[i];
             const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
-            if (r_type == .R_X86_64_NONE) continue;
+            if (r_type == .NONE) continue;
 
             const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
@@ -1229,21 +1229,21 @@ const x86_64 = struct {
             try stream.seekTo(r_offset);
 
             switch (r_type) {
-                .R_X86_64_NONE => unreachable,
-                .R_X86_64_8 => try cwriter.writeInt(u8, @as(u8, @bitCast(@as(i8, @intCast(S + A)))), .little),
-                .R_X86_64_16 => try cwriter.writeInt(u16, @as(u16, @bitCast(@as(i16, @intCast(S + A)))), .little),
-                .R_X86_64_32 => try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(S + A)))), .little),
-                .R_X86_64_32S => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
-                .R_X86_64_64 => try cwriter.writeInt(i64, S + A, .little),
-                .R_X86_64_DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - DTP)), .little),
-                .R_X86_64_DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
-                .R_X86_64_GOTOFF64 => try cwriter.writeInt(i64, S + A - GOT, .little),
-                .R_X86_64_GOTPC64 => try cwriter.writeInt(i64, GOT + A, .little),
-                .R_X86_64_SIZE32 => {
+                .NONE => unreachable,
+                .@"8" => try cwriter.writeInt(u8, @as(u8, @bitCast(@as(i8, @intCast(S + A)))), .little),
+                .@"16" => try cwriter.writeInt(u16, @as(u16, @bitCast(@as(i16, @intCast(S + A)))), .little),
+                .@"32" => try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(S + A)))), .little),
+                .@"32S" => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
+                .@"64" => try cwriter.writeInt(i64, S + A, .little),
+                .DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - DTP)), .little),
+                .DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
+                .GOTOFF64 => try cwriter.writeInt(i64, S + A - GOT, .little),
+                .GOTPC64 => try cwriter.writeInt(i64, GOT + A, .little),
+                .SIZE32 => {
                     const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
                     try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(size + A)))), .little);
                 },
-                .R_X86_64_SIZE64 => {
+                .SIZE64 => {
                     const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
                     try cwriter.writeInt(i64, @as(i64, @intCast(size + A)), .little);
                 },
@@ -1293,8 +1293,8 @@ const x86_64 = struct {
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
-            .R_X86_64_PC32,
-            .R_X86_64_PLT32,
+            .PC32,
+            .PLT32,
             => {
                 var insts = [_]u8{
                     0x64, 0x48, 0x8b, 0x04, 0x25, 0, 0, 0, 0, // movq %fs:0,%rax
@@ -1331,8 +1331,8 @@ const x86_64 = struct {
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
-            .R_X86_64_PC32,
-            .R_X86_64_PLT32,
+            .PC32,
+            .PLT32,
             => {
                 var insts = [_]u8{
                     0x31, 0xc0, // xor %eax, %eax
@@ -1344,8 +1344,8 @@ const x86_64 = struct {
                 try writer.writeAll(&insts);
             },
 
-            .R_X86_64_GOTPCREL,
-            .R_X86_64_GOTPCRELX,
+            .GOTPCREL,
+            .GOTPCRELX,
             => {
                 var insts = [_]u8{
                     0x31, 0xc0, // xor %eax, %eax
@@ -1431,10 +1431,10 @@ const x86_64 = struct {
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
         switch (rel) {
-            .R_X86_64_PC32,
-            .R_X86_64_PLT32,
-            .R_X86_64_GOTPCREL,
-            .R_X86_64_GOTPCRELX,
+            .PC32,
+            .PLT32,
+            .GOTPCREL,
+            .GOTPCRELX,
             => {
                 var insts = [_]u8{
                     0x64, 0x48, 0x8b, 0x04, 0x25, 0, 0, 0, 0, // movq %fs:0,%rax
