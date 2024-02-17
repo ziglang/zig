@@ -673,7 +673,7 @@ pub fn main() !void {
             var req = try client.open(.GET, uri, .{
                 .server_header_buffer = headers_buf,
             });
-            req.response.parser.state = .complete;
+            req.response.parser.done = true;
             req.connection.?.closing = false;
             requests[i] = req;
         }
