@@ -968,8 +968,8 @@ const x86_64 = struct {
 
                 else => |x| switch (@intFromEnum(x)) {
                     // Zig custom relocations
-                    Elf.R_X86_64_ZIG_GOT32,
-                    Elf.R_X86_64_ZIG_GOTPCREL,
+                    Elf.R_ZIG_GOT32,
+                    Elf.R_ZIG_GOTPCREL,
                     => {
                         assert(symbol.flags.has_zig_got);
                     },
@@ -1153,8 +1153,8 @@ const x86_64 = struct {
 
                 else => |x| switch (@intFromEnum(x)) {
                     // Zig custom relocations
-                    Elf.R_X86_64_ZIG_GOT32 => try cwriter.writeInt(u32, @as(u32, @intCast(ZIG_GOT + A)), .little),
-                    Elf.R_X86_64_ZIG_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(ZIG_GOT + A - P)), .little),
+                    Elf.R_ZIG_GOT32 => try cwriter.writeInt(u32, @as(u32, @intCast(ZIG_GOT + A)), .little),
+                    Elf.R_ZIG_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(ZIG_GOT + A - P)), .little),
 
                     else => {},
                 },

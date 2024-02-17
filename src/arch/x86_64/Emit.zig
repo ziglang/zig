@@ -120,7 +120,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     }
                     if (emit.lower.pic) {
                         const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
-                            link.File.Elf.R_X86_64_ZIG_GOTPCREL
+                            link.File.Elf.R_ZIG_GOTPCREL
                         else if (sym.flags.needs_got)
                             @intFromEnum(std.elf.R_X86_64.R_X86_64_GOTPCREL)
                         else
@@ -140,7 +140,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                         } else {
                             const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
-                                link.File.Elf.R_X86_64_ZIG_GOT32
+                                link.File.Elf.R_ZIG_GOT32
                             else if (sym.flags.needs_got)
                                 @intFromEnum(std.elf.R_X86_64.R_X86_64_GOT32)
                             else if (sym.flags.is_tls)
