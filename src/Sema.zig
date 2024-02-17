@@ -2670,28 +2670,27 @@ fn analyzeAsInt(
 }
 
 /// Given a ZIR extra index which points to a list of `Zir.Inst.Capture`,
-/// resolves this into a list of `Namespace.CaptureValue` allocated by `gpa`.
-/// Caller owns returned memory.
-fn getCaptures(sema: *Sema, parent_namespace: ?InternPool.NamespaceIndex, extra_index: usize, captures_len: u32) ![]Namespace.CaptureValue {
-    const gpa = sema.gpa;
-    const parent_captures: []const Namespace.CaptureValue = if (parent_namespace) |p| parent: {
-        break :parent sema.mod.namespacePtr(p).captures;
-    } else &.{};
+/// resolves this into a list of `InternPool.CaptureValue` allocated by `arena`.
+fn getCaptures(sema: *Sema, parent_namespace: ?InternPool.NamespaceIndex, extra_index: usize, captures_len: u32) ![]InternPool.CaptureValue {
+    const zcu = sema.mod;
+    const ip = &zcu.intern_pool;
+    const parent_captures: InternPool.CaptureValue.Slice = if (parent_namespace) |p| parent: {
+        break :parent zcu.namespacePtr(p).ty.getCaptures(zcu);
+    } else undefined; // never used so `undefined` is safe
 
-    const captures = try gpa.alloc(Namespace.CaptureValue, captures_len);
-    errdefer gpa.free(captures);
+    const captures = try sema.arena.alloc(InternPool.CaptureValue, captures_len);
 
     for (sema.code.extra[extra_index..][0..captures_len], captures) |raw, *capture| {
         const zir_capture: Zir.Inst.Capture = @enumFromInt(raw);
         capture.* = switch (zir_capture.unwrap()) {
-            .inst => |inst| Namespace.CaptureValue.wrap(capture: {
+            .inst => |inst| InternPool.CaptureValue.wrap(capture: {
                 const air_ref = try sema.resolveInst(inst.toRef());
                 if (try sema.resolveValue(air_ref)) |val| {
                     break :capture .{ .@"comptime" = val.toIntern() };
                 }
                 break :capture .{ .runtime = sema.typeOf(air_ref).toIntern() };
             }),
-            .nested => |parent_idx| parent_captures[parent_idx],
+            .nested => |parent_idx| parent_captures.get(ip)[parent_idx],
         };
     }
 
@@ -2731,7 +2730,7 @@ pub fn getStructType(
         break :blk decls_len;
     } else 0;
 
-    mod.namespacePtr(namespace).captures = try sema.getCaptures(parent_namespace, extra_index, captures_len);
+    const captures = try sema.getCaptures(parent_namespace, extra_index, captures_len);
     extra_index += captures_len;
 
     if (small.has_backing_int) {
@@ -2761,6 +2760,7 @@ pub fn getStructType(
         .any_comptime_fields = small.any_comptime_fields,
         .inits_resolved = false,
         .any_aligned_fields = small.any_aligned_fields,
+        .captures = captures,
     });
 
     return ty;
@@ -2801,7 +2801,6 @@ fn zirStructDecl(
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
-        .captures = &.{}, // Will be set by `getStructType`
     });
     errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -2997,7 +2996,6 @@ fn zirEnumDecl(
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
-        .captures = captures,
     });
     errdefer if (!done) mod.destroyNamespace(new_namespace_index);
 
@@ -3029,6 +3027,7 @@ fn zirEnumDecl(
             else
                 .explicit,
             .zir_index = (try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst)).toOptional(),
+            .captures = captures,
         });
         if (sema.builtin_type_target_index != .none) {
             mod.intern_pool.resolveBuiltinType(sema.builtin_type_target_index, incomplete_enum.index);
@@ -3261,7 +3260,6 @@ fn zirUnionDecl(
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
-        .captures = captures,
     });
     errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -3291,6 +3289,7 @@ fn zirUnionDecl(
             .enum_tag_ty = .none,
             .field_types = &.{},
             .field_aligns = &.{},
+            .captures = captures,
         });
         if (sema.builtin_type_target_index != .none) {
             mod.intern_pool.resolveBuiltinType(sema.builtin_type_target_index, ty);
@@ -3367,7 +3366,6 @@ fn zirOpaqueDecl(
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
-        .captures = captures,
     });
     errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -3375,6 +3373,7 @@ fn zirOpaqueDecl(
         .decl = new_decl_index,
         .namespace = new_namespace_index,
         .zir_index = (try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst)).toOptional(),
+        .captures = captures,
     });
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer mod.intern_pool.remove(opaque_ty);
@@ -17287,12 +17286,13 @@ fn zirThis(
 
 fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const captures = mod.namespacePtr(block.namespace).captures;
+    const ip = &mod.intern_pool;
+    const captures = mod.namespacePtr(block.namespace).ty.getCaptures(mod);
 
     const src_node: i32 = @bitCast(extended.operand);
     const src = LazySrcLoc.nodeOffset(src_node);
 
-    const capture_ty = switch (captures[extended.small].unwrap()) {
+    const capture_ty = switch (captures.get(ip)[extended.small].unwrap()) {
         .@"comptime" => |index| return Air.internedToRef(index),
         .runtime => |index| index,
     };
@@ -21360,6 +21360,7 @@ fn zirReify(
                     .explicit,
                 .tag_ty = int_tag_ty.toIntern(),
                 .zir_index = .none,
+                .captures = &.{},
             });
             // TODO: figure out InternPool removals for incremental compilation
             //errdefer ip.remove(incomplete_enum.index);
@@ -21450,7 +21451,6 @@ fn zirReify(
                 .parent = block.namespace.toOptional(),
                 .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
-                .captures = &.{},
             });
             errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -21458,6 +21458,7 @@ fn zirReify(
                 .decl = new_decl_index,
                 .namespace = new_namespace_index,
                 .zir_index = .none,
+                .captures = &.{},
             });
             // TODO: figure out InternPool removals for incremental compilation
             //errdefer ip.remove(opaque_ty);
@@ -21659,7 +21660,6 @@ fn zirReify(
                 .parent = block.namespace.toOptional(),
                 .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
-                .captures = &.{},
             });
             errdefer mod.destroyNamespace(new_namespace_index);
 
@@ -21688,6 +21688,7 @@ fn zirReify(
                 },
                 .field_types = union_fields.items(.type),
                 .field_aligns = if (any_aligned_fields) union_fields.items(.alignment) else &.{},
+                .captures = &.{},
             });
 
             new_decl.ty = Type.type;
@@ -21849,6 +21850,7 @@ fn reifyStruct(
         .any_default_inits = true,
         .inits_resolved = true,
         .any_aligned_fields = true,
+        .captures = &.{},
     });
     // TODO: figure out InternPool removals for incremental compilation
     //errdefer ip.remove(ty);
@@ -37404,6 +37406,7 @@ fn generateUnionTagTypeNumbered(
         .values = enum_field_vals,
         .tag_mode = .explicit,
         .zir_index = .none,
+        .captures = &.{},
     });
 
     new_decl.ty = Type.type;
@@ -37455,6 +37458,7 @@ fn generateUnionTagTypeSimple(
         .values = &.{},
         .tag_mode = .auto,
         .zir_index = .none,
+        .captures = &.{},
     });
 
     const new_decl = mod.declPtr(new_decl_index);

@@ -761,37 +761,6 @@ pub const Namespace = struct {
     /// the Decl Value has to be resolved as a Type which has a Namespace.
     /// Value is whether the usingnamespace decl is marked `pub`.
     usingnamespace_set: std.AutoHashMapUnmanaged(Decl.Index, bool) = .{},
-    /// Allocated into `gpa`.
-    /// The ordered set of values captured in this type's closure.
-    /// `closure_get` instructions look up values in this list.
-    captures: []CaptureValue,
-
-    /// A single value captured in a container's closure. This is not an
-    /// `InternPool.Index` so we can differentiate between runtime-known values
-    /// (where only the type is comptime-known) and comptime-known values.
-    pub const CaptureValue = enum(u32) {
-        _,
-        pub const Unwrapped = union(enum) {
-            /// Index refers to the value.
-            @"comptime": InternPool.Index,
-            /// Index refers to the type.
-            runtime: InternPool.Index,
-        };
-        pub fn wrap(val: Unwrapped) CaptureValue {
-            return switch (val) {
-                .@"comptime" => |i| @enumFromInt(@intFromEnum(i)),
-                .runtime => |i| @enumFromInt((1 << 31) | @intFromEnum(i)),
-            };
-        }
-        pub fn unwrap(val: CaptureValue) Unwrapped {
-            const tag: u1 = @intCast(@intFromEnum(val) >> 31);
-            const raw = @intFromEnum(val);
-            return switch (tag) {
-                0 => .{ .@"comptime" = @enumFromInt(raw) },
-                1 => .{ .runtime = @enumFromInt(@as(u31, @truncate(raw))) },
-            };
-        }
-    };
 
     const Index = InternPool.NamespaceIndex;
     const OptionalIndex = InternPool.OptionalNamespaceIndex;
@@ -2130,7 +2099,6 @@ pub fn deinit(zcu: *Zcu) void {
         while (it.next()) |namespace| {
             namespace.decls.deinit(gpa);
             namespace.usingnamespace_set.deinit(gpa);
-            gpa.free(namespace.captures);
         }
     }
 
@@ -3354,7 +3322,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .parent = .none,
         .decl_index = undefined,
         .file_scope = file,
-        .captures = &.{},
     });
     const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);

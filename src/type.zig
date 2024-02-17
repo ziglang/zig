@@ -3294,6 +3294,18 @@ pub const Type = struct {
         };
     }
 
+    /// Given a namespace type, returns its list of caotured values.
+    pub fn getCaptures(ty: Type, zcu: *const Zcu) InternPool.CaptureValue.Slice {
+        const ip = &zcu.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .struct_type => ip.loadStructType(ty.toIntern()).captures,
+            .union_type => ip.loadUnionType(ty.toIntern()).captures,
+            .enum_type => ip.loadEnumType(ty.toIntern()).captures,
+            .opaque_type => ip.loadOpaqueType(ty.toIntern()).captures,
+            else => unreachable,
+        };
+    }
+
     pub const @"u1": Type = .{ .ip_index = .u1_type };
     pub const @"u8": Type = .{ .ip_index = .u8_type };
     pub const @"u16": Type = .{ .ip_index = .u16_type };
