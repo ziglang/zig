@@ -42,10 +42,6 @@ pub const Method = enum(u64) {
         try w.writeAll(str);
     }
 
-    pub fn format(value: Method, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
-        return try value.write(writer);
-    }
-
     /// Returns true if a request of this method is allowed to have a body
     /// Actual behavior from servers may vary and should still be checked
     pub fn requestHasBody(self: Method) bool {
