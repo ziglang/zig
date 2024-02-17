@@ -1,7 +1,11 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
 
 test "trailers" {
+    if (builtin.single_threaded) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
     const gpa = testing.allocator;
 
     var http_server = std.http.Server.init(.{
