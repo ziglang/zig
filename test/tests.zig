@@ -11,7 +11,6 @@ const stack_traces = @import("stack_traces.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
-const link = @import("link.zig");
 
 // Implementations
 pub const TranslateCContext = @import("src/TranslateC.zig");
@@ -662,6 +661,12 @@ pub fn addStackTraceTests(
     return cases.step;
 }
 
+fn compilerHasPackageManager(b: *std.Build) bool {
+    // We can only use dependencies if the compiler was built with support for package management.
+    // (zig2 doesn't support it, but we still need to construct a build graph to build stage3.)
+    return b.available_deps.len != 0;
+}
+
 pub fn addStandaloneTests(
     b: *std.Build,
     optimize_modes: []const OptimizeMode,
@@ -670,12 +675,7 @@ pub fn addStandaloneTests(
     enable_symlinks_windows: bool,
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
-
-    // We can only use dependencies if the compiler was built with support for package management.
-    // (zig2 doesn't support it, but we still need to construct a build graph to build stage3.)
-    const package_management_available = b.available_deps.len != 0;
-
-    if (package_management_available) {
+    if (compilerHasPackageManager(b)) {
         const test_cases_dep_name = "standalone_test_cases";
         const test_cases_dep = b.dependency(test_cases_dep_name, .{
             .enable_ios_sdk = enable_ios_sdk,
@@ -690,7 +690,6 @@ pub fn addStandaloneTests(
         test_cases_dep_step.name = b.dupe(test_cases_dep_name);
         step.dependOn(test_cases_dep.builder.default_step);
     }
-
     return step;
 }
 
@@ -698,49 +697,20 @@ pub fn addLinkTests(
     b: *std.Build,
     enable_macos_sdk: bool,
     enable_ios_sdk: bool,
-    omit_stage2: bool,
     enable_symlinks_windows: bool,
 ) *Step {
     const step = b.step("test-link", "Run the linker tests");
-    const omit_symlinks = builtin.os.tag == .windows and !enable_symlinks_windows;
-
-    inline for (link.cases) |case| {
-        if (mem.eql(u8, @typeName(case.import), "test.link.link")) {
-            const dep = b.anonymousDependency(case.build_root, case.import, .{
-                .has_macos_sdk = enable_macos_sdk,
-                .has_ios_sdk = enable_ios_sdk,
-                .has_symlinks_windows = !omit_symlinks,
-            });
-            const dep_step = dep.builder.default_step;
-            assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
-            const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
-            dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
-            step.dependOn(dep_step);
-        } else {
-            const requires_stage2 = @hasDecl(case.import, "requires_stage2") and
-                case.import.requires_stage2;
-            const requires_symlinks = @hasDecl(case.import, "requires_symlinks") and
-                case.import.requires_symlinks;
-            const requires_macos_sdk = @hasDecl(case.import, "requires_macos_sdk") and
-                case.import.requires_macos_sdk;
-            const requires_ios_sdk = @hasDecl(case.import, "requires_ios_sdk") and
-                case.import.requires_ios_sdk;
-            const bad =
-                (requires_stage2 and omit_stage2) or
-                (requires_symlinks and omit_symlinks) or
-                (requires_macos_sdk and !enable_macos_sdk) or
-                (requires_ios_sdk and !enable_ios_sdk);
-            if (!bad) {
-                const dep = b.anonymousDependency(case.build_root, case.import, .{});
-                const dep_step = dep.builder.default_step;
-                assert(mem.startsWith(u8, dep.builder.dep_prefix, "test."));
-                const dep_prefix_adjusted = dep.builder.dep_prefix["test.".len..];
-                dep_step.name = b.fmt("{s}{s}", .{ dep_prefix_adjusted, dep_step.name });
-                step.dependOn(dep_step);
-            }
-        }
+    if (compilerHasPackageManager(b)) {
+        const test_cases_dep_name = "link_test_cases";
+        const test_cases_dep = b.dependency(test_cases_dep_name, .{
+            .enable_ios_sdk = enable_ios_sdk,
+            .enable_macos_sdk = enable_macos_sdk,
+            .enable_symlinks_windows = enable_symlinks_windows,
+        });
+        const test_cases_dep_step = test_cases_dep.builder.default_step;
+        test_cases_dep_step.name = b.dupe(test_cases_dep_name);
+        step.dependOn(test_cases_dep.builder.default_step);
     }
-
     return step;
 }
 

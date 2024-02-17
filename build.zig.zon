@@ -7,6 +7,9 @@
         .standalone_test_cases = .{
             .path = "test/standalone",
         },
+        .link_test_cases = .{
+            .path = "test/link",
+        },
     },
     .paths = .{""},
 }
