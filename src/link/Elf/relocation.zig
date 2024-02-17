@@ -106,11 +106,15 @@ fn formatRelocType(
     _ = unused_fmt_string;
     _ = options;
     const r_type = ctx.r_type;
-    const str = switch (ctx.cpu_arch) {
-        .x86_64 => @tagName(@as(elf.R_X86_64, @enumFromInt(r_type))),
-        .aarch64 => @tagName(@as(elf.R_AARCH64, @enumFromInt(r_type))),
-        .riscv64 => @tagName(@as(elf.R_RISCV, @enumFromInt(r_type))),
-        else => unreachable,
+    const str = switch (r_type) {
+        Elf.R_ZIG_GOT32 => "R_ZIG_GOT32",
+        Elf.R_ZIG_GOTPCREL => "R_ZIG_GOTPCREL",
+        else => switch (ctx.cpu_arch) {
+            .x86_64 => @tagName(@as(elf.R_X86_64, @enumFromInt(r_type))),
+            .aarch64 => @tagName(@as(elf.R_AARCH64, @enumFromInt(r_type))),
+            .riscv64 => @tagName(@as(elf.R_RISCV, @enumFromInt(r_type))),
+            else => unreachable,
+        },
     };
     try writer.print("{s}", .{str});
 }
@@ -118,3 +122,5 @@ fn formatRelocType(
 const assert = std.debug.assert;
 const elf = std.elf;
 const std = @import("std");
+
+const Elf = @import("../Elf.zig");

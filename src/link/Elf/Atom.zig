@@ -336,7 +336,7 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
         }
 
         relocs_log.debug("  {s}: [{x} => {d}({s})] + {x}", .{
-            relocation.fmtRelocType(r_type, cpu_arch),
+            relocation.fmtRelocType(rel.r_type(), cpu_arch),
             r_offset,
             r_sym,
             target.name(elf_file),
@@ -1028,7 +1028,7 @@ const x86_64 = struct {
             const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
 
             relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ({s})", .{
-                @tagName(r_type),
+                relocation.fmtRelocType(rel.r_type(), .x86_64),
                 r_offset,
                 P,
                 S + A,
@@ -1218,8 +1218,8 @@ const x86_64 = struct {
             // Address of the dynamic thread pointer.
             const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
 
-            relocs_log.debug("  {s}: {x}: [{x} => {x}] ({s})", .{
-                @tagName(r_type),
+            relocs_log.debug("  {}: {x}: [{x} => {x}] ({s})", .{
+                relocation.fmtRelocType(rel.r_type(), .x86_64),
                 rel.r_offset,
                 P,
                 S + A,
@@ -1291,9 +1291,8 @@ const x86_64 = struct {
     ) !void {
         assert(rels.len == 2);
         const writer = stream.writer();
-        const rel_0: elf.R_X86_64 = @enumFromInt(rels[0].r_type());
-        const rel_1: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
-        switch (rel_1) {
+        const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
+        switch (rel) {
             .R_X86_64_PC32,
             .R_X86_64_PLT32,
             => {
@@ -1308,9 +1307,9 @@ const x86_64 = struct {
 
             else => {
                 var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "fatal linker error: rewrite {s} when followed by {s}", .{
-                    @tagName(rel_0),
-                    @tagName(rel_1),
+                try err.addMsg(elf_file, "fatal linker error: rewrite {} when followed by {}", .{
+                    relocation.fmtRelocType(rels[0].r_type(), .x86_64),
+                    relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
                 try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
@@ -1330,9 +1329,8 @@ const x86_64 = struct {
     ) !void {
         assert(rels.len == 2);
         const writer = stream.writer();
-        const rel_0: elf.R_X86_64 = @enumFromInt(rels[0].r_type());
-        const rel_1: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
-        switch (rel_1) {
+        const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
+        switch (rel) {
             .R_X86_64_PC32,
             .R_X86_64_PLT32,
             => {
@@ -1362,9 +1360,9 @@ const x86_64 = struct {
 
             else => {
                 var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "fatal linker error: rewrite {s} when followed by {s}", .{
-                    @tagName(rel_0),
-                    @tagName(rel_1),
+                try err.addMsg(elf_file, "fatal linker error: rewrite {} when followed by {}", .{
+                    relocation.fmtRelocType(rels[0].r_type(), .x86_64),
+                    relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
                 try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
@@ -1431,9 +1429,8 @@ const x86_64 = struct {
     ) !void {
         assert(rels.len == 2);
         const writer = stream.writer();
-        const rel_0: elf.R_X86_64 = @enumFromInt(rels[0].r_type());
-        const rel_1: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
-        switch (rel_1) {
+        const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
+        switch (rel) {
             .R_X86_64_PC32,
             .R_X86_64_PLT32,
             .R_X86_64_GOTPCREL,
@@ -1446,14 +1443,17 @@ const x86_64 = struct {
                 std.mem.writeInt(i32, insts[12..][0..4], value, .little);
                 try stream.seekBy(-4);
                 try writer.writeAll(&insts);
-                relocs_log.debug("    relaxing {s} and {s}", .{ @tagName(rel_0), @tagName(rel_1) });
+                relocs_log.debug("    relaxing {} and {}", .{
+                    relocation.fmtRelocType(rels[0].r_type(), .x86_64),
+                    relocation.fmtRelocType(rels[1].r_type(), .x86_64),
+                });
             },
 
             else => {
                 var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "fatal linker error: rewrite {s} when followed by {s}", .{
-                    @tagName(rel_0),
-                    @tagName(rel_1),
+                try err.addMsg(elf_file, "fatal linker error: rewrite {} when followed by {}", .{
+                    relocation.fmtRelocType(rels[0].r_type(), .x86_64),
+                    relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
                 try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
