@@ -295,6 +295,19 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
             }
         }
 
+        /// Resets internal state to prepare decompressor for parsing new
+        /// compressed data stream from the same reader. Appropriate if reader
+        /// contains multiple compressed data streams.
+        pub fn reset(self: *Self) !void {
+            if (self.state != .end) {
+                return error.InvalidState;
+            }
+            self.state = .protocol_header;
+            self.hasher = .{};
+            self.bfinal = 0;
+            self.block_type = 0b11;
+        }
+
         // Iterator interface
 
         /// Can be used in iterator like loop without memcpy to another buffer:
@@ -526,4 +539,25 @@ test "flate.Inflate fuzzing tests" {
             try testing.expectEqualStrings(c.out, out.items);
         }
     }
+}
+
+test "flate bug 18967" {
+    // input contains two connected valid zlib data streams
+    const input = @embedFile("testdata/fuzz/first.input") ++
+        @embedFile("testdata/fuzz/second.input");
+    const expect = @embedFile("testdata/fuzz/first.expect") ++
+        @embedFile("testdata/fuzz/second.expect");
+
+    var in = std.io.fixedBufferStream(input);
+    var out = std.ArrayList(u8).init(testing.allocator);
+    defer out.deinit();
+
+    var dcp = decompressor(.zlib, in.reader());
+    try dcp.decompress(out.writer());
+
+    // reset decompressor to decode second zlib stream
+    try dcp.reset();
+    try dcp.decompress(out.writer());
+
+    try testing.expectEqualSlices(u8, expect, out.items);
 }
