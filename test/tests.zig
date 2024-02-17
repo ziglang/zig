@@ -7,7 +7,6 @@ const Step = std.Build.Step;
 
 // Cases
 const compare_output = @import("compare_output.zig");
-const standalone = @import("standalone.zig");
 const stack_traces = @import("stack_traces.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const translate_c = @import("translate_c.zig");
@@ -672,44 +671,6 @@ pub fn addStandaloneTests(
 ) *Step {
     const step = b.step("test-standalone", "Run the standalone tests");
 
-    for (standalone.simple_cases) |case| {
-        for (optimize_modes) |optimize| {
-            if (!case.all_modes and optimize != .Debug) continue;
-            if (case.os_filter) |os_tag| {
-                if (os_tag != builtin.os.tag) continue;
-            }
-
-            const resolved_target = b.resolveTargetQuery(case.target);
-
-            if (case.is_exe) {
-                const exe = b.addExecutable(.{
-                    .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
-                    .optimize = optimize,
-                    .target = resolved_target,
-                });
-                if (case.link_libc) exe.linkLibC();
-
-                _ = exe.getEmittedBin();
-
-                step.dependOn(&exe.step);
-            }
-
-            if (case.is_test) {
-                const exe = b.addTest(.{
-                    .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = .{ .path = case.src_path },
-                    .optimize = optimize,
-                    .target = resolved_target,
-                });
-                if (case.link_libc) exe.linkLibC();
-
-                const run = b.addRunArtifact(exe);
-                step.dependOn(&run.step);
-            }
-        }
-    }
-
     // We can only use dependencies if the compiler was built with support for package management.
     // (zig2 doesn't support it, but we still need to construct a build graph to build stage3.)
     const package_management_available = b.available_deps.len != 0;
@@ -717,9 +678,13 @@ pub fn addStandaloneTests(
     if (package_management_available) {
         const test_cases_dep_name = "standalone_test_cases";
         const test_cases_dep = b.dependency(test_cases_dep_name, .{
-            .@"enable-ios-sdk" = enable_ios_sdk,
-            .@"enable-macos-sdk" = enable_macos_sdk,
-            .@"enable-symlinks-windows" = enable_symlinks_windows,
+            .enable_ios_sdk = enable_ios_sdk,
+            .enable_macos_sdk = enable_macos_sdk,
+            .enable_symlinks_windows = enable_symlinks_windows,
+            .simple_skip_debug = mem.indexOfScalar(OptimizeMode, optimize_modes, .Debug) == null,
+            .simple_skip_release_safe = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSafe) == null,
+            .simple_skip_release_fast = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseFast) == null,
+            .simple_skip_release_small = mem.indexOfScalar(OptimizeMode, optimize_modes, .ReleaseSmall) == null,
         });
         const test_cases_dep_step = test_cases_dep.builder.default_step;
         test_cases_dep_step.name = b.dupe(test_cases_dep_name);
