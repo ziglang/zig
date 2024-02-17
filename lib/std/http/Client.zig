@@ -700,7 +700,7 @@ pub const Request = struct {
     pub const SendError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
 
     pub const SendOptions = struct {
-        /// Specifies that the uri should be used as is. You guarantee that the uri is already escaped.
+        /// Specifies that the uri is already escaped.
         raw_uri: bool = false,
     };
 
@@ -1562,12 +1562,16 @@ pub fn open(
 
 pub const FetchOptions = struct {
     server_header_buffer: ?[]u8 = null,
-    response_strategy: ResponseStrategy = .{ .storage = .{ .dynamic = 16 * 1024 * 1024 } },
     redirect_behavior: ?Request.RedirectBehavior = null,
 
+    /// If the server sends a body, it will be appended to this ArrayList.
+    /// `max_append_size` provides an upper limit for how much they can grow.
+    response_storage: ResponseStorage = .ignore,
+    max_append_size: ?usize = null,
+
     location: Location,
-    method: http.Method = .GET,
-    payload: Payload = .none,
+    method: ?http.Method = null,
+    payload: ?[]const u8 = null,
     raw_uri: bool = false,
 
     /// Standard headers that have default, but overridable, behavior.
@@ -1586,111 +1590,76 @@ pub const FetchOptions = struct {
         uri: Uri,
     };
 
-    pub const Payload = union(enum) {
-        string: []const u8,
-        file: std.fs.File,
-        none,
-    };
-
-    pub const ResponseStrategy = union(enum) {
-        storage: StorageStrategy,
-        file: std.fs.File,
-        none,
-    };
-
-    pub const StorageStrategy = union(enum) {
-        /// In this case, the client's Allocator will be used to store the
-        /// entire HTTP header. This value is the maximum total size of
-        /// HTTP headers allowed, otherwise
-        /// error.HttpHeadersExceededSizeLimit is returned from read().
-        dynamic: usize,
-        /// This is used to store the entire HTTP header. If the HTTP
-        /// header is too big to fit, `error.HttpHeadersExceededSizeLimit`
-        /// is returned from read(). When this is used, `error.OutOfMemory`
-        /// cannot be returned from `read()`.
-        static: []u8,
+    pub const ResponseStorage = union(enum) {
+        ignore,
+        /// Only the existing capacity will be used.
+        static: *std.ArrayListUnmanaged(u8),
+        dynamic: *std.ArrayList(u8),
     };
 };
 
 pub const FetchResult = struct {
     status: http.Status,
-    body: ?[]const u8 = null,
-
-    allocator: Allocator,
-    options: FetchOptions,
-
-    pub fn deinit(res: *FetchResult) void {
-        if (res.options.response_strategy == .storage and
-            res.options.response_strategy.storage == .dynamic)
-        {
-            if (res.body) |body| res.allocator.free(body);
-        }
-    }
 };
 
 /// Perform a one-shot HTTP request with the provided options.
 ///
 /// This function is threadsafe.
-pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !FetchResult {
+pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
     const uri = switch (options.location) {
         .url => |u| try Uri.parse(u),
         .uri => |u| u,
     };
     var server_header_buffer: [16 * 1024]u8 = undefined;
 
-    var req = try open(client, options.method, uri, .{
+    const method: http.Method = options.method orelse
+        if (options.payload != null) .POST else .GET;
+
+    var req = try open(client, method, uri, .{
         .server_header_buffer = options.server_header_buffer orelse &server_header_buffer,
         .redirect_behavior = options.redirect_behavior orelse
-            if (options.payload == .none) @enumFromInt(3) else .unhandled,
+            if (options.payload == null) @enumFromInt(3) else .unhandled,
         .headers = options.headers,
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
     });
     defer req.deinit();
 
-    switch (options.payload) {
-        .string => |str| req.transfer_encoding = .{ .content_length = str.len },
-        .file => |file| req.transfer_encoding = .{ .content_length = (try file.stat()).size },
-        .none => {},
-    }
+    if (options.payload) |payload| req.transfer_encoding = .{ .content_length = payload.len };
 
     try req.send(.{ .raw_uri = options.raw_uri });
 
-    switch (options.payload) {
-        .string => |str| try req.writeAll(str),
-        .file => |file| {
-            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 8192 }).init();
-            try fifo.pump(file.reader(), req.writer());
-        },
-        .none => {},
-    }
+    if (options.payload) |payload| try req.writeAll(payload);
 
     try req.finish();
     try req.wait();
 
-    var res: FetchResult = .{
-        .status = req.response.status,
-        .allocator = allocator,
-        .options = options,
-    };
-
-    switch (options.response_strategy) {
-        .storage => |storage| switch (storage) {
-            .dynamic => |max| res.body = try req.reader().readAllAlloc(allocator, max),
-            .static => |buf| res.body = buf[0..try req.reader().readAll(buf)],
-        },
-        .file => |file| {
-            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 8192 }).init();
-            try fifo.pump(req.reader(), file.writer());
-        },
-        .none => { // Take advantage of request internals to discard the response body and make the connection available for another request.
+    switch (options.response_storage) {
+        .ignore => {
+            // Take advantage of request internals to discard the response body
+            // and make the connection available for another request.
             req.response.skip = true;
-
-            assert(try req.transferRead(&.{}) == 0); // we're skipping, no buffer is necessary
+            assert(try req.transferRead(&.{}) == 0); // No buffer is necessary when skipping.
+        },
+        .dynamic => |list| {
+            const max_append_size = options.max_append_size orelse 2 * 1024 * 1024;
+            try req.reader().readAllArrayList(list, max_append_size);
+        },
+        .static => |list| {
+            const buf = b: {
+                const buf = list.unusedCapacitySlice();
+                if (options.max_append_size) |len| {
+                    if (len < buf.len) break :b buf[0..len];
+                }
+                break :b buf;
+            };
+            list.items.len += try req.reader().readAll(buf);
         },
     }
 
-    return res;
+    return .{
+        .status = req.response.status,
+    };
 }
 
 test {

@@ -586,17 +586,20 @@ pub fn main() !void {
         defer calloc.free(location);
 
         log.info("{s}", .{location});
-        var res = try client.fetch(calloc, .{
+        var body = std.ArrayList(u8).init(calloc);
+        defer body.deinit();
+
+        const res = try client.fetch(.{
             .location = .{ .url = location },
             .method = .POST,
-            .payload = .{ .string = "Hello, World!\n" },
+            .payload = "Hello, World!\n",
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/plain" },
             },
+            .response_storage = .{ .dynamic = &body },
         });
-        defer res.deinit();
-
-        try testing.expectEqualStrings("Hello, World!\n", res.body.?);
+        try testing.expectEqual(.ok, res.status);
+        try testing.expectEqualStrings("Hello, World!\n", body.items);
     }
 
     { // expect: 100-continue
