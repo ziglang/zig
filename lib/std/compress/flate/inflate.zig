@@ -157,30 +157,23 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
             var cl_dec: hfd.CodegenDecoder = .{};
             try cl_dec.generate(&cl_lens);
 
-            // literal code lengths
-            var lit_lens = [_]u4{0} ** (286);
+            // decoded code lengths
+            var dec_lens = [_]u4{0} ** (286 + 30);
             var pos: usize = 0;
-            while (pos < hlit) {
+            while (pos < hlit + hdist) {
                 const sym = try cl_dec.find(try self.bits.peekF(u7, F.reverse));
                 try self.bits.shift(sym.code_bits);
-                pos += try self.dynamicCodeLength(sym.symbol, &lit_lens, pos);
+                pos += try self.dynamicCodeLength(sym.symbol, &dec_lens, pos);
             }
-            if (pos > hlit)
+            if (pos > hlit + hdist) {
                 return error.InvalidDynamicBlockHeader;
-
-            // distance code lenths
-            var dst_lens = [_]u4{0} ** (30);
-            pos = 0;
-            while (pos < hdist) {
-                const sym = try cl_dec.find(try self.bits.peekF(u7, F.reverse));
-                try self.bits.shift(sym.code_bits);
-                pos += try self.dynamicCodeLength(sym.symbol, &dst_lens, pos);
             }
-            if (pos > hdist)
-                return error.InvalidDynamicBlockHeader;
 
-            try self.lit_dec.generate(&lit_lens);
-            try self.dst_dec.generate(&dst_lens);
+            // literal code lengts to literal decoder
+            try self.lit_dec.generate(dec_lens[0..hlit]);
+
+            // distance code lengths to distance decoder
+            try self.dst_dec.generate(dec_lens[hlit .. hlit + hdist]);
         }
 
         // Decode code length symbol to code length. Writes decoded length into
@@ -496,7 +489,7 @@ test "flate.Inflate fuzzing tests" {
         .{ .input = "puff14", .err = error.EndOfStream },
         .{ .input = "puff15", .err = error.IncompleteHuffmanTree },
         .{ .input = "puff16", .err = error.InvalidDynamicBlockHeader },
-        .{ .input = "puff17", .err = error.InvalidDynamicBlockHeader }, // 25
+        .{ .input = "puff17", .err = error.MissingEndOfBlockCode }, // 25
         .{ .input = "fuzz1", .err = error.InvalidDynamicBlockHeader },
         .{ .input = "fuzz2", .err = error.InvalidDynamicBlockHeader },
         .{ .input = "fuzz3", .err = error.InvalidMatch },
@@ -506,8 +499,8 @@ test "flate.Inflate fuzzing tests" {
         .{ .input = "puff20", .err = error.OversubscribedHuffmanTree },
         .{ .input = "puff21", .err = error.OversubscribedHuffmanTree },
         .{ .input = "puff22", .err = error.OversubscribedHuffmanTree },
-        .{ .input = "puff23", .err = error.InvalidDynamicBlockHeader }, // 35
-        .{ .input = "puff24", .err = error.InvalidDynamicBlockHeader },
+        .{ .input = "puff23", .err = error.OversubscribedHuffmanTree }, // 35
+        .{ .input = "puff24", .err = error.IncompleteHuffmanTree },
         .{ .input = "puff25", .err = error.OversubscribedHuffmanTree },
         .{ .input = "puff26", .err = error.InvalidDynamicBlockHeader },
         .{ .input = "puff27", .err = error.InvalidDynamicBlockHeader },
@@ -526,4 +519,16 @@ test "flate.Inflate fuzzing tests" {
             try testing.expectEqualStrings(c.out, out.items);
         }
     }
+}
+
+test "flate bug 18966" {
+    const input = @embedFile("testdata/fuzz/bug_18966.input");
+    const expect = @embedFile("testdata/fuzz/bug_18966.expect");
+
+    var in = std.io.fixedBufferStream(input);
+    var out = std.ArrayList(u8).init(testing.allocator);
+    defer out.deinit();
+
+    try decompress(.gzip, in.reader(), out.writer());
+    try testing.expectEqualStrings(expect, out.items);
 }
