@@ -44,28 +44,24 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
         }
     }
 
-    var d = dest.?;
-    var s = src.?;
-    var n = len;
-
     // we know that `len > 2 * size` and `size >= alignment`
     // so we can safely align `s` to `alignment`
-    d[0..size].* = s[0..size].*;
-    const alignment_offset = alignment - @intFromPtr(s) % alignment;
-    n -= alignment_offset;
-    d += alignment_offset;
-    s += alignment_offset;
+    dest.?[0..size].* = src.?[0..size].*;
+    const alignment_offset = alignment - @intFromPtr(src.?) % alignment;
+    const n = len - alignment_offset;
+    const d = dest.? + alignment_offset;
+    const s = src.? + alignment_offset;
 
     if (@intFromPtr(d) % alignment == 0) {
         memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n);
     } else {
         var vd: [*]align(1) CopyType = @ptrCast(d);
         var vs: [*]const CopyType = @alignCast(@ptrCast(s));
-        while (n >= @sizeOf(CopyType)) {
+        var loop_count = n / size;
+        while (loop_count > 0) : (loop_count -= 1) {
             vd[0] = vs[0];
             vd += 1;
             vs += 1;
-            n -= @sizeOf(CopyType);
         }
     }
 
@@ -84,11 +80,10 @@ inline fn memcpy_aligned(
 
     var d = dest;
     var s = src;
-    var n = len;
+    var loop_count = len / size;
 
-    while (n >= size) {
+    while (loop_count > 0) : (loop_count -= 1) {
         d[0] = s[0];
-        n -= size;
         d += 1;
         s += 1;
     }
