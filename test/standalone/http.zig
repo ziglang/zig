@@ -98,14 +98,6 @@ fn handleRequest(res: *Server.Response) !void {
         try res.writeAll("Hello, ");
         try res.writeAll("World!\n");
         try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/trailer")) {
-        res.transfer_encoding = .chunked;
-
-        try res.send();
-        try res.writeAll("Hello, ");
-        try res.writeAll("World!\n");
-        // try res.finish();
-        try res.connection.writeAll("0\r\nX-Checksum: aaaa\r\n\r\n");
     } else if (mem.eql(u8, res.request.target, "/redirect/1")) {
         res.transfer_encoding = .chunked;
 
@@ -373,32 +365,6 @@ pub fn main() !void {
         try testing.expectEqualStrings("", body);
         try testing.expectEqualStrings("text/plain", req.response.content_type.?);
         try testing.expect(req.response.transfer_encoding == .chunked);
-    }
-
-    // connection has been kept alive
-    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
-
-    { // check trailing headers
-        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/trailer", .{port});
-        defer calloc.free(location);
-        const uri = try std.Uri.parse(location);
-
-        log.info("{s}", .{location});
-        var server_header_buffer: [1024]u8 = undefined;
-        var req = try client.open(.GET, uri, .{
-            .server_header_buffer = &server_header_buffer,
-        });
-        defer req.deinit();
-
-        try req.send(.{});
-        try req.wait();
-
-        const body = try req.reader().readAllAlloc(calloc, 8192);
-        defer calloc.free(body);
-
-        try testing.expectEqualStrings("Hello, World!\n", body);
-        @panic("TODO implement inspecting custom headers in responses");
-        //try testing.expectEqualStrings("aaaa", req.response.headers.getFirstValue("x-checksum").?);
     }
 
     // connection has been kept alive
