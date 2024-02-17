@@ -55,11 +55,12 @@ const aarch64_relocs = Table(10, elf.R_AARCH64, .{
     .{ .tlsdesc, .TLSDESC },
 });
 
-const riscv64_relocs = Table(9, elf.R_RISCV, .{
+const riscv64_relocs = Table(10, elf.R_RISCV, .{
     .{ .abs, .@"64" },
     .{ .copy, .COPY },
     .{ .rel, .RELATIVE },
     .{ .irel, .IRELATIVE },
+    .{ .glob_dat, .@"64" },
     .{ .jump_slot, .JUMP_SLOT },
     .{ .dtpmod, .TLS_DTPMOD64 },
     .{ .dtpoff, .TLS_DTPREL64 },
