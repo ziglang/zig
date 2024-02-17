@@ -597,9 +597,6 @@ pub const Request = struct {
     /// This field is undefined until `wait` is called.
     response: Response,
 
-    /// Used as a allocator for resolving redirects locations.
-    arena: std.heap.ArenaAllocator,
-
     /// Standard headers that have default, but overridable, behavior.
     headers: Headers,
 
@@ -661,8 +658,6 @@ pub const Request = struct {
             }
             req.client.connection_pool.release(req.client.allocator, connection);
         }
-
-        req.arena.deinit();
         req.* = undefined;
     }
 
@@ -842,11 +837,12 @@ pub const Request = struct {
     }
 
     pub const WaitError = RequestError || SendError || TransferReadError ||
-        proto.HeadersParser.CheckCompleteHeadError || Response.ParseError || Uri.ParseError ||
+        proto.HeadersParser.CheckCompleteHeadError || Response.ParseError ||
         error{ // TODO: file zig fmt issue for this bad indentation
         TooManyHttpRedirects,
         RedirectRequiresResend,
-        HttpRedirectMissingLocation,
+        HttpRedirectLocationMissing,
+        HttpRedirectLocationInvalid,
         CompressionInitializationFailed,
         CompressionUnsupported,
     };
@@ -927,31 +923,40 @@ pub const Request = struct {
             }
 
             if (req.response.status.class() == .redirect and req.redirect_behavior != .unhandled) {
-                req.response.skip = true;
-
                 // skip the body of the redirect response, this will at least
                 // leave the connection in a known good state.
+                req.response.skip = true;
                 assert(try req.transferRead(&.{}) == 0); // we're skipping, no buffer is necessary
 
                 if (req.redirect_behavior == .not_allowed) return error.TooManyHttpRedirects;
 
                 const location = req.response.location orelse
-                    return error.HttpRedirectMissingLocation;
+                    return error.HttpRedirectLocationMissing;
 
-                const arena = req.arena.allocator();
+                // This mutates the beginning of header_buffer and uses that
+                // for the backing memory of the returned new_uri.
+                const header_buffer = req.response.parser.header_bytes_buffer;
+                const new_uri = req.uri.resolve_inplace(location, header_buffer) catch
+                    return error.HttpRedirectLocationInvalid;
 
-                const location_duped = try arena.dupe(u8, location);
-
-                const new_url = Uri.parse(location_duped) catch try Uri.parseWithoutScheme(location_duped);
-                const resolved_url = try req.uri.resolve(new_url, false, arena);
+                // The new URI references the beginning of header_bytes_buffer memory.
+                // That memory will be kept, but everything after it will be
+                // reused by the subsequent request. In other words,
+                // header_bytes_buffer must be large enough to store all
+                // redirect locations as well as the final request header.
+                const path_end = new_uri.path.ptr + new_uri.path.len;
+                // https://github.com/ziglang/zig/issues/1738
+                const path_offset = @intFromPtr(path_end) - @intFromPtr(header_buffer.ptr);
+                const end_offset = @max(path_offset, location.len);
+                req.response.parser.header_bytes_buffer = header_buffer[end_offset..];
 
                 const is_same_domain_or_subdomain =
-                    std.ascii.endsWithIgnoreCase(resolved_url.host.?, req.uri.host.?) and
-                    (resolved_url.host.?.len == req.uri.host.?.len or
-                    resolved_url.host.?[resolved_url.host.?.len - req.uri.host.?.len - 1] == '.');
+                    std.ascii.endsWithIgnoreCase(new_uri.host.?, req.uri.host.?) and
+                    (new_uri.host.?.len == req.uri.host.?.len or
+                    new_uri.host.?[new_uri.host.?.len - req.uri.host.?.len - 1] == '.');
 
-                if (resolved_url.host == null or !is_same_domain_or_subdomain or
-                    !std.ascii.eqlIgnoreCase(resolved_url.scheme, req.uri.scheme))
+                if (new_uri.host == null or !is_same_domain_or_subdomain or
+                    !std.ascii.eqlIgnoreCase(new_uri.scheme, req.uri.scheme))
                 {
                     // When redirecting to a different domain, strip privileged headers.
                     req.privileged_headers = &.{};
@@ -975,7 +980,7 @@ pub const Request = struct {
                     return error.RedirectRequiresResend;
                 }
 
-                try req.redirect(resolved_url);
+                try req.redirect(new_uri);
                 try req.send(.{});
             } else {
                 req.response.skip = false;
@@ -1341,7 +1346,7 @@ pub fn connectTunnel(
             client.connection_pool.release(client.allocator, conn);
         }
 
-        const uri = Uri{
+        const uri: Uri = .{
             .scheme = "http",
             .user = null,
             .password = null,
@@ -1548,14 +1553,11 @@ pub fn open(
             .version = undefined,
             .parser = proto.HeadersParser.init(options.server_header_buffer),
         },
-        .arena = undefined,
         .headers = options.headers,
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
     };
     errdefer req.deinit();
-
-    req.arena = std.heap.ArenaAllocator.init(client.allocator);
 
     return req;
 }
