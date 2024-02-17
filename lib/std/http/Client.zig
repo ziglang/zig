@@ -428,12 +428,14 @@ pub const Response = struct {
         CompressionUnsupported,
     };
 
-    pub fn parse(res: *Response, bytes: []const u8, trailing: bool) ParseError!void {
-        var it = mem.tokenizeAny(u8, bytes, "\r\n");
+    pub fn parse(res: *Response, bytes: []const u8) ParseError!void {
+        var it = mem.splitSequence(u8, bytes, "\r\n");
 
-        const first_line = it.next() orelse return error.HttpHeadersInvalid;
-        if (first_line.len < 12)
+        const first_line = it.next().?;
+        if (first_line.len < 12) {
+            std.debug.print("first line: '{s}'\n", .{first_line});
             return error.HttpHeadersInvalid;
+        }
 
         const version: http.Version = switch (int64(first_line[0..8])) {
             int64("HTTP/1.0") => .@"HTTP/1.0",
@@ -449,17 +451,16 @@ pub const Response = struct {
         res.reason = reason;
 
         while (it.next()) |line| {
-            if (line.len == 0) return error.HttpHeadersInvalid;
+            if (line.len == 0) return;
             switch (line[0]) {
                 ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
                 else => {},
             }
 
-            var line_it = mem.tokenizeAny(u8, line, ": ");
-            const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
+            var line_it = mem.splitSequence(u8, line, ": ");
+            const header_name = line_it.next().?;
             const header_value = line_it.rest();
-
-            if (trailing) continue;
+            if (header_value.len == 0) return error.HttpHeadersInvalid;
 
             if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
                 res.keep_alive = !std.ascii.eqlIgnoreCase(header_value, "close");
@@ -536,6 +537,10 @@ pub const Response = struct {
         try expectEqual(@as(u10, 0), parseInt3("000"));
         try expectEqual(@as(u10, 418), parseInt3("418"));
         try expectEqual(@as(u10, 999), parseInt3("999"));
+    }
+
+    pub fn iterateHeaders(r: Response) proto.HeaderIterator {
+        return proto.HeaderIterator.init(r.parser.get());
     }
 
     version: http.Version,
@@ -868,7 +873,7 @@ pub const Request = struct {
                 if (req.response.parser.state.isContent()) break;
             }
 
-            try req.response.parse(req.response.parser.get(), false);
+            try req.response.parse(req.response.parser.get());
 
             if (req.response.status == .@"continue") {
                 // We're done parsing the continue response; reset to prepare
@@ -903,21 +908,21 @@ pub const Request = struct {
                 return; // The response is empty; no further setup or redirection is necessary.
             }
 
-            if (req.response.transfer_encoding != .none) {
-                switch (req.response.transfer_encoding) {
-                    .none => unreachable,
-                    .chunked => {
-                        req.response.parser.next_chunk_length = 0;
-                        req.response.parser.state = .chunk_head_size;
-                    },
-                }
-            } else if (req.response.content_length) |cl| {
-                req.response.parser.next_chunk_length = cl;
+            switch (req.response.transfer_encoding) {
+                .none => {
+                    if (req.response.content_length) |cl| {
+                        req.response.parser.next_chunk_length = cl;
 
-                if (cl == 0) req.response.parser.done = true;
-            } else {
-                // read until the connection is closed
-                req.response.parser.next_chunk_length = std.math.maxInt(u64);
+                        if (cl == 0) req.response.parser.done = true;
+                    } else {
+                        // read until the connection is closed
+                        req.response.parser.next_chunk_length = std.math.maxInt(u64);
+                    }
+                },
+                .chunked => {
+                    req.response.parser.next_chunk_length = 0;
+                    req.response.parser.state = .chunk_head_size;
+                },
             }
 
             if (req.response.status.class() == .redirect and req.redirect_behavior != .unhandled) {
@@ -1014,27 +1019,16 @@ pub const Request = struct {
             //.zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
             else => try req.transferRead(buffer),
         };
+        if (out_index > 0) return out_index;
 
-        if (out_index == 0) {
-            const has_trail = !req.response.parser.state.isContent();
+        while (!req.response.parser.state.isContent()) { // read trailing headers
+            try req.connection.?.fill();
 
-            while (!req.response.parser.state.isContent()) { // read trailing headers
-                try req.connection.?.fill();
-
-                const nchecked = try req.response.parser.checkCompleteHead(req.connection.?.peek());
-                req.connection.?.drop(@intCast(nchecked));
-            }
-
-            if (has_trail) {
-                // The response headers before the trailers are already
-                // guaranteed to be valid, so they will always be parsed again
-                // and cannot return an error.
-                // This will *only* fail for a malformed trailer.
-                req.response.parse(req.response.parser.get(), true) catch return error.InvalidTrailers;
-            }
+            const nchecked = try req.response.parser.checkCompleteHead(req.connection.?.peek());
+            req.connection.?.drop(@intCast(nchecked));
         }
 
-        return out_index;
+        return 0;
     }
 
     /// Reads data from the response body. Must be called after `wait`.
