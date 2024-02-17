@@ -1659,7 +1659,6 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
     switch (options.payload) {
         .string => |str| try req.writeAll(str),
         .file => |file| {
-            try file.seekTo(0);
             var fifo = std.fifo.LinearFifo(u8, .{ .Static = 8192 }).init();
             try fifo.pump(file.reader(), req.writer());
         },
