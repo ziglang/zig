@@ -21,9 +21,6 @@ socket: net.StreamServer,
 
 /// An interface to a plain connection.
 pub const Connection = struct {
-    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
-    pub const Protocol = enum { plain };
-
     stream: net.Stream,
     protocol: Protocol,
 
@@ -32,6 +29,9 @@ pub const Connection = struct {
     read_buf: [buffer_size]u8 = undefined,
     read_start: u16 = 0,
     read_end: u16 = 0,
+
+    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
+    pub const Protocol = enum { plain };
 
     pub fn rawReadAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
         return switch (conn.protocol) {
@@ -174,6 +174,18 @@ pub const Compression = union(enum) {
 
 /// A HTTP request originating from a client.
 pub const Request = struct {
+    method: http.Method,
+    target: []const u8,
+    version: http.Version,
+    expect: ?[]const u8 = null,
+    content_type: ?[]const u8 = null,
+    content_length: ?u64 = null,
+    transfer_encoding: http.TransferEncoding = .none,
+    transfer_compression: http.ContentEncoding = .identity,
+    keep_alive: bool = false,
+    parser: proto.HeadersParser,
+    compression: Compression = .none,
+
     pub const ParseError = Allocator.Error || error{
         UnknownHttpMethod,
         HttpHeadersInvalid,
@@ -284,18 +296,6 @@ pub const Request = struct {
     inline fn int64(array: *const [8]u8) u64 {
         return @bitCast(array.*);
     }
-
-    method: http.Method,
-    target: []const u8,
-    version: http.Version,
-    expect: ?[]const u8 = null,
-    content_type: ?[]const u8 = null,
-    content_length: ?u64 = null,
-    transfer_encoding: http.TransferEncoding = .none,
-    transfer_compression: http.ContentEncoding = .identity,
-    keep_alive: bool = false,
-    parser: proto.HeadersParser,
-    compression: Compression = .none,
 };
 
 /// A HTTP response waiting to be sent.

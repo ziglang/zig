@@ -44,6 +44,14 @@ https_proxy: ?*Proxy = null,
 
 /// A set of linked lists of connections that can be reused.
 pub const ConnectionPool = struct {
+    mutex: std.Thread.Mutex = .{},
+    /// Open connections that are currently in use.
+    used: Queue = .{},
+    /// Open connections that are not currently in use.
+    free: Queue = .{},
+    free_len: usize = 0,
+    free_size: usize = 32,
+
     /// The criteria for a connection to be considered a match.
     pub const Criteria = struct {
         host: []const u8,
@@ -53,14 +61,6 @@ pub const ConnectionPool = struct {
 
     const Queue = std.DoublyLinkedList(Connection);
     pub const Node = Queue.Node;
-
-    mutex: std.Thread.Mutex = .{},
-    /// Open connections that are currently in use.
-    used: Queue = .{},
-    /// Open connections that are not currently in use.
-    free: Queue = .{},
-    free_len: usize = 0,
-    free_size: usize = 32,
 
     /// Finds and acquires a connection from the connection pool matching the criteria. This function is threadsafe.
     /// If no connection is found, null is returned.
@@ -190,11 +190,6 @@ pub const ConnectionPool = struct {
 
 /// An interface to either a plain or TLS connection.
 pub const Connection = struct {
-    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
-    const BufferSize = std.math.IntFittingRange(0, buffer_size);
-
-    pub const Protocol = enum { plain, tls };
-
     stream: net.Stream,
     /// undefined unless protocol is tls.
     tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
@@ -219,6 +214,11 @@ pub const Connection = struct {
     write_end: BufferSize = 0,
     read_buf: [buffer_size]u8 = undefined,
     write_buf: [buffer_size]u8 = undefined,
+
+    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
+    const BufferSize = std.math.IntFittingRange(0, buffer_size);
+
+    pub const Protocol = enum { plain, tls };
 
     pub fn readvDirectTls(conn: *Connection, buffers: []std.os.iovec) ReadError!usize {
         return conn.tls_client.readv(conn.stream, buffers) catch |err| {
@@ -419,6 +419,35 @@ pub const Compression = union(enum) {
 
 /// A HTTP response originating from a server.
 pub const Response = struct {
+    version: http.Version,
+    status: http.Status,
+    reason: []const u8,
+
+    /// Points into the user-provided `server_header_buffer`.
+    location: ?[]const u8 = null,
+    /// Points into the user-provided `server_header_buffer`.
+    content_type: ?[]const u8 = null,
+    /// Points into the user-provided `server_header_buffer`.
+    content_disposition: ?[]const u8 = null,
+
+    keep_alive: bool = false,
+
+    /// If present, the number of bytes in the response body.
+    content_length: ?u64 = null,
+
+    /// If present, the transfer encoding of the response body, otherwise none.
+    transfer_encoding: http.TransferEncoding = .none,
+
+    /// If present, the compression of the response body, otherwise identity (no compression).
+    transfer_compression: http.ContentEncoding = .identity,
+
+    parser: proto.HeadersParser,
+    compression: Compression = .none,
+
+    /// Whether the response body should be skipped. Any data read from the
+    /// response body will be discarded.
+    skip: bool = false,
+
     pub const ParseError = error{
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
@@ -542,35 +571,6 @@ pub const Response = struct {
     pub fn iterateHeaders(r: Response) proto.HeaderIterator {
         return proto.HeaderIterator.init(r.parser.get());
     }
-
-    version: http.Version,
-    status: http.Status,
-    reason: []const u8,
-
-    /// Points into the user-provided `server_header_buffer`.
-    location: ?[]const u8 = null,
-    /// Points into the user-provided `server_header_buffer`.
-    content_type: ?[]const u8 = null,
-    /// Points into the user-provided `server_header_buffer`.
-    content_disposition: ?[]const u8 = null,
-
-    keep_alive: bool = false,
-
-    /// If present, the number of bytes in the response body.
-    content_length: ?u64 = null,
-
-    /// If present, the transfer encoding of the response body, otherwise none.
-    transfer_encoding: http.TransferEncoding = .none,
-
-    /// If present, the compression of the response body, otherwise identity (no compression).
-    transfer_compression: http.ContentEncoding = .identity,
-
-    parser: proto.HeadersParser,
-    compression: Compression = .none,
-
-    /// Whether the response body should be skipped. Any data read from the
-    /// response body will be discarded.
-    skip: bool = false,
 };
 
 /// A HTTP request that has been sent.
@@ -1558,6 +1558,26 @@ pub fn open(
 }
 
 pub const FetchOptions = struct {
+    server_header_buffer: ?[]u8 = null,
+    response_strategy: ResponseStrategy = .{ .storage = .{ .dynamic = 16 * 1024 * 1024 } },
+    redirect_behavior: ?Request.RedirectBehavior = null,
+
+    location: Location,
+    method: http.Method = .GET,
+    payload: Payload = .none,
+    raw_uri: bool = false,
+
+    /// Standard headers that have default, but overridable, behavior.
+    headers: Request.Headers = .{},
+    /// These headers are kept including when following a redirect to a
+    /// different domain.
+    /// Externally-owned; must outlive the Request.
+    extra_headers: []const http.Header = &.{},
+    /// These headers are stripped when following a redirect to a different
+    /// domain.
+    /// Externally-owned; must outlive the Request.
+    privileged_headers: []const http.Header = &.{},
+
     pub const Location = union(enum) {
         url: []const u8,
         uri: Uri,
@@ -1587,26 +1607,6 @@ pub const FetchOptions = struct {
         /// cannot be returned from `read()`.
         static: []u8,
     };
-
-    server_header_buffer: ?[]u8 = null,
-    response_strategy: ResponseStrategy = .{ .storage = .{ .dynamic = 16 * 1024 * 1024 } },
-    redirect_behavior: ?Request.RedirectBehavior = null,
-
-    location: Location,
-    method: http.Method = .GET,
-    payload: Payload = .none,
-    raw_uri: bool = false,
-
-    /// Standard headers that have default, but overridable, behavior.
-    headers: Request.Headers = .{},
-    /// These headers are kept including when following a redirect to a
-    /// different domain.
-    /// Externally-owned; must outlive the Request.
-    extra_headers: []const http.Header = &.{},
-    /// These headers are stripped when following a redirect to a different
-    /// domain.
-    /// Externally-owned; must outlive the Request.
-    privileged_headers: []const http.Header = &.{},
 };
 
 pub const FetchResult = struct {
