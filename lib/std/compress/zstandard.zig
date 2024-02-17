@@ -247,38 +247,46 @@ test "zstandard decompression" {
     const res19 = try decompress.decode(buffer, compressed19, true);
     try std.testing.expectEqual(uncompressed.len, res19);
     try std.testing.expectEqualSlices(u8, uncompressed, buffer);
+}
+
+test "zstandard streaming decompression" {
+    // default stack size for wasm32 is too low for DecompressStream - slightly
+    // over 9MiB stack space is needed via the --stack CLI flag
+    if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
+
+    const uncompressed = @embedFile("testdata/rfc8478.txt");
+    const compressed3 = @embedFile("testdata/rfc8478.txt.zst.3");
+    const compressed19 = @embedFile("testdata/rfc8478.txt.zst.19");
 
     try testReader(compressed3, uncompressed);
     try testReader(compressed19, uncompressed);
 }
 
 fn expectEqualDecoded(expected: []const u8, input: []const u8) !void {
-    const allocator = std.testing.allocator;
-
     {
-        const result = try decompress.decodeAlloc(allocator, input, false, 1 << 23);
-        defer allocator.free(result);
+        const result = try decompress.decodeAlloc(std.testing.allocator, input, false, 1 << 23);
+        defer std.testing.allocator.free(result);
         try std.testing.expectEqualStrings(expected, result);
     }
 
     {
-        var buffer = try allocator.alloc(u8, 2 * expected.len);
-        defer allocator.free(buffer);
+        var buffer = try std.testing.allocator.alloc(u8, 2 * expected.len);
+        defer std.testing.allocator.free(buffer);
 
         const size = try decompress.decode(buffer, input, false);
         try std.testing.expectEqualStrings(expected, buffer[0..size]);
     }
+}
 
-    {
-        var window_buffer: [DecompressStreamOptions.default_window_size_max]u8 = undefined;
-        var in_stream = std.io.fixedBufferStream(input);
-        var stream = decompressStream(in_stream.reader(), &window_buffer);
+fn expectEqualDecodedStreaming(expected: []const u8, input: []const u8) !void {
+    var window_buffer: [DecompressStreamOptions.default_window_size_max]u8 = undefined;
+    var in_stream = std.io.fixedBufferStream(input);
+    var stream = decompressStream(in_stream.reader(), &window_buffer);
 
-        const result = try stream.reader().readAllAlloc(allocator, std.math.maxInt(usize));
-        defer allocator.free(result);
+    const result = try stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
+    defer std.testing.allocator.free(result);
 
-        try std.testing.expectEqualStrings(expected, result);
-    }
+    try std.testing.expectEqualStrings(expected, result);
 }
 
 test "zero sized block" {
@@ -295,4 +303,24 @@ test "zero sized block" {
 
     try expectEqualDecoded("", input_raw);
     try expectEqualDecoded("", input_rle);
+}
+
+test "zero sized block streaming" {
+    // default stack size for wasm32 is too low for DecompressStream - slightly
+    // over 9MiB stack space is needed via the --stack CLI flag
+    if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
+
+    const input_raw =
+        "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
+        "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
+        "\x01\x00\x00"; // block header with: last_block set, block_type raw, block_size zero
+
+    const input_rle =
+        "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
+        "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
+        "\x03\x00\x00" ++ // block header with: last_block set, block_type rle, block_size zero
+        "\xaa"; // block_content
+
+    try expectEqualDecodedStreaming("", input_raw);
+    try expectEqualDecodedStreaming("", input_rle);
 }
