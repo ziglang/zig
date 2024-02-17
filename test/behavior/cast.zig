@@ -1560,6 +1560,13 @@ test "optional pointer coerced to optional allowzero pointer" {
     try expect(@intFromPtr(q.?) == 4);
 }
 
+test "optional slice coerced to allowzero many pointer" {
+    const a: ?[]const u32 = null;
+    const b: [*]allowzero const u8 = @ptrCast(a);
+    const c = @intFromPtr(b);
+    try std.testing.expect(c == 0);
+}
+
 test "single item pointer to pointer to array to slice" {
     var x: i32 = 1234;
     try expect(@as([]const i32, @as(*[1]i32, &x))[0] == 1234);
