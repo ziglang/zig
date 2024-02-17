@@ -2020,7 +2020,7 @@ fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
     return true;
 }
 
-pub fn dependencyInner(
+fn dependencyInner(
     b: *Build,
     name: []const u8,
     build_root_string: []const u8,
