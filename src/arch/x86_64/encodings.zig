@@ -1801,6 +1801,9 @@ pub const table = [_]Entry{
 
     .{ .vpandn, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0xdf }, 0, .vex_256_wig, .avx2 },
 
+    .{ .vpblendd, .rvmi, &.{ .xmm, .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x02 }, 0, .vex_128_w0, .avx2 },
+    .{ .vpblendd, .rvmi, &.{ .ymm, .ymm, .ymm_m256, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x02 }, 0, .vex_256_w0, .avx2 },
+
     .{ .vpblendvb, .rvmr, &.{ .ymm, .ymm, .ymm_m256, .ymm }, &.{ 0x66, 0x0f, 0x3a, 0x4c }, 0, .vex_256_w0, .avx2 },
 
     .{ .vpblendw, .rvmi, &.{ .ymm, .ymm, .ymm_m256, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x0e }, 0, .vex_256_wig, .avx2 },

@@ -416,7 +416,7 @@ pub const Mnemonic = enum {
     vfmadd132ss, vfmadd213ss, vfmadd231ss,
     // AVX2
     vbroadcasti128, vpbroadcastb, vpbroadcastd, vpbroadcastq, vpbroadcastw,
-    vextracti128, vinserti128,
+    vextracti128, vinserti128, vpblendd,
     // zig fmt: on
 };
 
