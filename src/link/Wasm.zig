@@ -418,7 +418,10 @@ pub fn createEmpty(
             .zcu_object_sub_path = zcu_object_sub_path,
             .gc_sections = options.gc_sections orelse (output_mode != .Obj),
             .print_gc_sections = options.print_gc_sections,
-            .stack_size = options.stack_size orelse std.wasm.page_size * 16, // 1MB
+            .stack_size = options.stack_size orelse switch (target.os.tag) {
+                .freestanding => 1 * 1024 * 1024, // 1 MiB
+                else => 16 * 1024 * 1024, // 16 MiB
+            },
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
             .disable_lld_caching = options.disable_lld_caching,
