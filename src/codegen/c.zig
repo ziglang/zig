@@ -4140,9 +4140,7 @@ fn airCmpOp(
     if (need_cast) try writer.writeAll("(void*)");
     try f.writeCValue(writer, lhs, .Other);
     try v.elem(f, writer);
-    try writer.writeByte(' ');
     try writer.writeAll(compareOperatorC(operator));
-    try writer.writeByte(' ');
     if (need_cast) try writer.writeAll("(void*)");
     try f.writeCValue(writer, rhs, .Other);
     try v.elem(f, writer);
@@ -4181,41 +4179,28 @@ fn airEquality(
     const writer = f.object.writer();
     const inst_ty = f.typeOfIndex(inst);
     const local = try f.allocLocal(inst, inst_ty);
+    const a = try Assignment.start(f, writer, inst_ty);
     try f.writeCValue(writer, local, .Other);
-    try writer.writeAll(" = ");
+    try a.assign(f, writer);
 
     if (operand_ty.zigTypeTag(mod) == .Optional and !operand_ty.optionalReprIsPayload(mod)) {
-        // (A && B)  || (C && (A == B))
-        // A = lhs.is_null  ;  B = rhs.is_null  ;  C = rhs.payload == lhs.payload
-
-        switch (operator) {
-            .eq => {},
-            .neq => try writer.writeByte('!'),
-            else => unreachable,
-        }
-        try writer.writeAll("((");
+        try f.writeCValueMember(writer, lhs, .{ .identifier = "is_null" });
+        try writer.writeAll(" || ");
+        try f.writeCValueMember(writer, rhs, .{ .identifier = "is_null" });
+        try writer.writeAll(" ? ");
+        try f.writeCValueMember(writer, lhs, .{ .identifier = "is_null" });
+        try writer.writeAll(compareOperatorC(operator));
+        try f.writeCValueMember(writer, rhs, .{ .identifier = "is_null" });
+        try writer.writeAll(" : ");
+        try f.writeCValueMember(writer, lhs, .{ .identifier = "payload" });
+        try writer.writeAll(compareOperatorC(operator));
+        try f.writeCValueMember(writer, rhs, .{ .identifier = "payload" });
+    } else {
         try f.writeCValue(writer, lhs, .Other);
-        try writer.writeAll(".is_null && ");
+        try writer.writeAll(compareOperatorC(operator));
         try f.writeCValue(writer, rhs, .Other);
-        try writer.writeAll(".is_null) || (");
-        try f.writeCValue(writer, lhs, .Other);
-        try writer.writeAll(".payload == ");
-        try f.writeCValue(writer, rhs, .Other);
-        try writer.writeAll(".payload && ");
-        try f.writeCValue(writer, lhs, .Other);
-        try writer.writeAll(".is_null == ");
-        try f.writeCValue(writer, rhs, .Other);
-        try writer.writeAll(".is_null));\n");
-
-        return local;
     }
-
-    try f.writeCValue(writer, lhs, .Other);
-    try writer.writeByte(' ');
-    try writer.writeAll(compareOperatorC(operator));
-    try writer.writeByte(' ');
-    try f.writeCValue(writer, rhs, .Other);
-    try writer.writeAll(";\n");
+    try a.end(f, writer);
 
     return local;
 }
@@ -6322,7 +6307,7 @@ fn airCmpBuiltinCall(
     try v.elem(f, writer);
     try f.object.dg.renderBuiltinInfo(writer, scalar_ty, info);
     try writer.writeByte(')');
-    if (!ref_ret) try writer.print(" {s} {}", .{
+    if (!ref_ret) try writer.print("{s}{}", .{
         compareOperatorC(operator),
         try f.fmtIntLiteral(Type.i32, try mod.intValue(Type.i32, 0)),
     });
@@ -7668,12 +7653,12 @@ fn compareOperatorAbbrev(operator: std.math.CompareOperator) []const u8 {
 
 fn compareOperatorC(operator: std.math.CompareOperator) []const u8 {
     return switch (operator) {
-        .lt => "<",
-        .lte => "<=",
-        .eq => "==",
-        .gte => ">=",
-        .gt => ">",
-        .neq => "!=",
+        .lt => " < ",
+        .lte => " <= ",
+        .eq => " == ",
+        .gte => " >= ",
+        .gt => " > ",
+        .neq => " != ",
     };
 }
 

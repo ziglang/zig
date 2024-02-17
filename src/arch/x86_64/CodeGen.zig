@@ -12396,9 +12396,36 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
 fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
     const mod = self.bin_file.comp.module.?;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const ty = self.typeOf(bin_op.lhs);
+    var ty = self.typeOf(bin_op.lhs);
+    var null_compare: ?Mir.Inst.Index = null;
 
     const result: Condition = result: {
+        try self.spillEflagsIfOccupied();
+
+        const lhs_mcv = try self.resolveInst(bin_op.lhs);
+        const lhs_locks: [2]?RegisterLock = switch (lhs_mcv) {
+            .register => |lhs_reg| .{ self.register_manager.lockRegAssumeUnused(lhs_reg), null },
+            .register_pair => |lhs_regs| locks: {
+                const locks = self.register_manager.lockRegsAssumeUnused(2, lhs_regs);
+                break :locks .{ locks[0], locks[1] };
+            },
+            .register_offset => |lhs_ro| .{
+                self.register_manager.lockRegAssumeUnused(lhs_ro.reg),
+                null,
+            },
+            else => .{null} ** 2,
+        };
+        defer for (lhs_locks) |lhs_lock| if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+        const rhs_mcv = try self.resolveInst(bin_op.rhs);
+        const rhs_locks: [2]?RegisterLock = switch (rhs_mcv) {
+            .register => |rhs_reg| .{ self.register_manager.lockReg(rhs_reg), null },
+            .register_pair => |rhs_regs| self.register_manager.lockRegs(2, rhs_regs),
+            .register_offset => |rhs_ro| .{ self.register_manager.lockReg(rhs_ro.reg), null },
+            else => .{null} ** 2,
+        };
+        defer for (rhs_locks) |rhs_lock| if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
         switch (ty.zigTypeTag(mod)) {
             .Float => {
                 const float_bits = ty.floatBits(self.target.*);
@@ -12435,34 +12462,66 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
                     };
                 }
             },
+            .Optional => if (!ty.optionalReprIsPayload(mod)) {
+                const opt_ty = ty;
+                const opt_abi_size: u31 = @intCast(opt_ty.abiSize(mod));
+                ty = opt_ty.optionalChild(mod);
+                const payload_abi_size: u31 = @intCast(ty.abiSize(mod));
+
+                const temp_lhs_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                const temp_lhs_lock = self.register_manager.lockRegAssumeUnused(temp_lhs_reg);
+                defer self.register_manager.unlockReg(temp_lhs_lock);
+
+                if (lhs_mcv.isMemory()) try self.asmRegisterMemory(
+                    .{ ._, .mov },
+                    temp_lhs_reg.to8(),
+                    try lhs_mcv.address().offset(payload_abi_size).deref().mem(self, .byte),
+                ) else {
+                    try self.genSetReg(temp_lhs_reg, opt_ty, lhs_mcv, .{});
+                    try self.asmRegisterImmediate(
+                        .{ ._r, .sh },
+                        registerAlias(temp_lhs_reg, opt_abi_size),
+                        Immediate.u(payload_abi_size * 8),
+                    );
+                }
+
+                const payload_compare = payload_compare: {
+                    if (rhs_mcv.isMemory()) {
+                        const rhs_mem =
+                            try rhs_mcv.address().offset(payload_abi_size).deref().mem(self, .byte);
+                        try self.asmMemoryRegister(.{ ._, .@"test" }, rhs_mem, temp_lhs_reg.to8());
+                        const payload_compare = try self.asmJccReloc(.nz, undefined);
+                        try self.asmRegisterMemory(.{ ._, .cmp }, temp_lhs_reg.to8(), rhs_mem);
+                        break :payload_compare payload_compare;
+                    }
+
+                    const temp_rhs_reg = try self.copyToTmpRegister(opt_ty, rhs_mcv);
+                    const temp_rhs_lock = self.register_manager.lockRegAssumeUnused(temp_rhs_reg);
+                    defer self.register_manager.unlockReg(temp_rhs_lock);
+
+                    try self.asmRegisterImmediate(
+                        .{ ._r, .sh },
+                        registerAlias(temp_rhs_reg, opt_abi_size),
+                        Immediate.u(payload_abi_size * 8),
+                    );
+                    try self.asmRegisterRegister(
+                        .{ ._, .@"test" },
+                        temp_lhs_reg.to8(),
+                        temp_rhs_reg.to8(),
+                    );
+                    const payload_compare = try self.asmJccReloc(.nz, undefined);
+                    try self.asmRegisterRegister(
+                        .{ ._, .cmp },
+                        temp_lhs_reg.to8(),
+                        temp_rhs_reg.to8(),
+                    );
+                    break :payload_compare payload_compare;
+                };
+                null_compare = try self.asmJmpReloc(undefined);
+                self.performReloc(payload_compare);
+            },
             else => {},
         }
-
-        try self.spillEflagsIfOccupied();
-
-        const lhs_mcv = try self.resolveInst(bin_op.lhs);
-        const lhs_locks: [2]?RegisterLock = switch (lhs_mcv) {
-            .register => |lhs_reg| .{ self.register_manager.lockRegAssumeUnused(lhs_reg), null },
-            .register_pair => |lhs_regs| locks: {
-                const locks = self.register_manager.lockRegsAssumeUnused(2, lhs_regs);
-                break :locks .{ locks[0], locks[1] };
-            },
-            .register_offset => |lhs_ro| .{
-                self.register_manager.lockRegAssumeUnused(lhs_ro.reg),
-                null,
-            },
-            else => .{null} ** 2,
-        };
-        defer for (lhs_locks) |lhs_lock| if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
-
-        const rhs_mcv = try self.resolveInst(bin_op.rhs);
-        const rhs_locks: [2]?RegisterLock = switch (rhs_mcv) {
-            .register => |rhs_reg| .{ self.register_manager.lockReg(rhs_reg), null },
-            .register_pair => |rhs_regs| self.register_manager.lockRegs(2, rhs_regs),
-            .register_offset => |rhs_ro| .{ self.register_manager.lockReg(rhs_ro.reg), null },
-            else => .{null} ** 2,
-        };
-        defer for (rhs_locks) |rhs_lock| if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
         switch (ty.zigTypeTag(mod)) {
             else => {
@@ -12775,6 +12834,7 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
         }
     };
 
+    if (null_compare) |reloc| self.performReloc(reloc);
     self.eflags_inst = inst;
     return self.finishAir(inst, .{ .eflags = result }, .{ bin_op.lhs, bin_op.rhs, .none });
 }
