@@ -197,9 +197,9 @@ pub const Request = struct {
     };
 
     pub fn parse(req: *Request, bytes: []const u8) ParseError!void {
-        var it = mem.tokenizeAny(u8, bytes, "\r\n");
+        var it = mem.splitSequence(u8, bytes, "\r\n");
 
-        const first_line = it.next() orelse return error.HttpHeadersInvalid;
+        const first_line = it.next().?;
         if (first_line.len < 10)
             return error.HttpHeadersInvalid;
 
@@ -229,15 +229,16 @@ pub const Request = struct {
         req.version = version;
 
         while (it.next()) |line| {
-            if (line.len == 0) return error.HttpHeadersInvalid;
+            if (line.len == 0) return;
             switch (line[0]) {
                 ' ', '\t' => return error.HttpHeaderContinuationsUnsupported,
                 else => {},
             }
 
-            var line_it = mem.tokenizeAny(u8, line, ": ");
-            const header_name = line_it.next() orelse return error.HttpHeadersInvalid;
+            var line_it = mem.splitSequence(u8, line, ": ");
+            const header_name = line_it.next().?;
             const header_value = line_it.rest();
+            if (header_value.len == 0) return error.HttpHeadersInvalid;
 
             if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
                 req.keep_alive = !std.ascii.eqlIgnoreCase(header_value, "close");
@@ -291,6 +292,7 @@ pub const Request = struct {
                 if (iter.next()) |_| return error.HttpTransferEncodingUnsupported;
             }
         }
+        return error.HttpHeadersInvalid; // missing empty line
     }
 
     inline fn int64(array: *const [8]u8) u64 {
