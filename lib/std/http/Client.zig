@@ -1648,32 +1648,25 @@ pub fn fetch(client: *Client, allocator: Allocator, options: FetchOptions) !Fetc
     });
     defer req.deinit();
 
-    { // Block to maintain lock of file to attempt to prevent a race condition where another process modifies the file while we are reading it.
-        // This relies on other processes actually obeying the advisory lock, which is not guaranteed.
-        if (options.payload == .file) try options.payload.file.lock(.shared);
-        defer if (options.payload == .file) options.payload.file.unlock();
-
-        switch (options.payload) {
-            .string => |str| req.transfer_encoding = .{ .content_length = str.len },
-            .file => |file| req.transfer_encoding = .{ .content_length = (try file.stat()).size },
-            .none => {},
-        }
-
-        try req.send(.{ .raw_uri = options.raw_uri });
-
-        switch (options.payload) {
-            .string => |str| try req.writeAll(str),
-            .file => |file| {
-                try file.seekTo(0);
-                var fifo = std.fifo.LinearFifo(u8, .{ .Static = 8192 }).init();
-                try fifo.pump(file.reader(), req.writer());
-            },
-            .none => {},
-        }
-
-        try req.finish();
+    switch (options.payload) {
+        .string => |str| req.transfer_encoding = .{ .content_length = str.len },
+        .file => |file| req.transfer_encoding = .{ .content_length = (try file.stat()).size },
+        .none => {},
     }
 
+    try req.send(.{ .raw_uri = options.raw_uri });
+
+    switch (options.payload) {
+        .string => |str| try req.writeAll(str),
+        .file => |file| {
+            try file.seekTo(0);
+            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 8192 }).init();
+            try fifo.pump(file.reader(), req.writer());
+        },
+        .none => {},
+    }
+
+    try req.finish();
     try req.wait();
 
     var res: FetchResult = .{
