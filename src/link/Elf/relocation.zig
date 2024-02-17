@@ -64,6 +64,7 @@ const riscv64_relocs = Table(8, elf.R_RISCV, .{
     .{ .dtpmod, .R_RISCV_TLS_DTPMOD64 },
     .{ .dtpoff, .R_RISCV_TLS_DTPREL64 },
     .{ .tpoff, .R_RISCV_TLS_TPREL64 },
+    .{ .tlsdesc, .R_RISCV_TLSDESC },
 });
 
 pub fn decode(r_type: u32, cpu_arch: std.Target.Cpu.Arch) ?Kind {
