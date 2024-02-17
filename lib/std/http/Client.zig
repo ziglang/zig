@@ -1412,7 +1412,9 @@ pub fn connect(
     } orelse return client.connectTcp(host, port, protocol);
 
     // Prevent proxying through itself.
-    if (std.mem.eql(u8, proxy.host, host) and proxy.port == port and proxy.protocol == protocol) {
+    if (std.ascii.eqlIgnoreCase(proxy.host, host) and
+        proxy.port == port and proxy.protocol == protocol)
+    {
         return client.connectTcp(host, port, protocol);
     }
 
