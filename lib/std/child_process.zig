@@ -719,7 +719,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_OUT_Wr = null;
             },
         }
-        errdefer if (self.stdin_behavior == StdIo.Pipe) {
+        errdefer if (self.stdout_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_OUT_Rd, g_hChildStd_OUT_Wr);
         };
 
@@ -739,7 +739,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_ERR_Wr = null;
             },
         }
-        errdefer if (self.stdin_behavior == StdIo.Pipe) {
+        errdefer if (self.stderr_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
         };
 
