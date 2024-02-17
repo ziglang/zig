@@ -881,7 +881,7 @@ const x86_64 = struct {
                 .@"32",
                 .@"32S",
                 => {
-                    try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
+                    try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file);
                 },
 
                 .GOT32,
