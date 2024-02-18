@@ -288,6 +288,14 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
             }
         }
 
+        /// Returns the number of bytes that have been read from the internal
+        /// reader but not yet consumed by the decompressor.
+        pub fn unreadBytes(self: Self) usize {
+            // There can be no error here: the denominator is not zero, and
+            // overflow is not possible since the type is unsigned.
+            return std.math.divCeil(usize, self.bits.nbits, 8) catch unreachable;
+        }
+
         // Iterator interface
 
         /// Can be used in iterator like loop without memcpy to another buffer:
