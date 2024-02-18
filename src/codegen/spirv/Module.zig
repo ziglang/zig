@@ -176,7 +176,7 @@ globals: struct {
 } = .{},
 
 /// The list of extended instruction sets that should be imported.
-extended_instruction_set: std.AutoHashMapUnmanaged(ExtendedInstructionSet, IdRef) = .{},
+extended_instruction_set: std.StringHashMapUnmanaged(IdRef) = .{},
 
 pub fn init(gpa: Allocator) Module {
     return .{
@@ -501,23 +501,15 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
     try self.declareDeclDeps(decl_index, func.decl_deps.keys());
 }
 
-pub const ExtendedInstructionSet = enum {
-    glsl,
-    opencl,
-};
-
 /// Imports or returns the existing id of an extended instruction set
-pub fn importInstructionSet(self: *Module, set: ExtendedInstructionSet) !IdRef {
+pub fn importInstructionSet(self: *Module, set: []const u8) !IdRef {
     const gop = try self.extended_instruction_set.getOrPut(self.gpa, set);
     if (gop.found_existing) return gop.value_ptr.*;
 
     const result_id = self.allocId();
     try self.sections.extended_instruction_set.emit(self.gpa, .OpExtInstImport, .{
         .id_result = result_id,
-        .name = switch (set) {
-            .glsl => "GLSL.std.450",
-            .opencl => "OpenCL.std",
-        },
+        .name = set,
     });
     gop.value_ptr.* = result_id;
 
@@ -642,7 +634,7 @@ pub fn allocDecl(self: *Module, kind: DeclKind) !Decl.Index {
         .begin_dep = undefined,
         .end_dep = undefined,
     });
-    const index = @as(Decl.Index, @enumFromInt(@as(u32, @intCast(self.decls.items.len - 1))));
+    const index: Decl.Index = @enumFromInt(@as(u32, @intCast(self.decls.items.len - 1)));
     switch (kind) {
         .func => {},
         // If the decl represents a global, also allocate a global node.
@@ -667,9 +659,9 @@ pub fn globalPtr(self: *Module, index: Decl.Index) ?*Global {
 
 /// Declare ALL dependencies for a decl.
 pub fn declareDeclDeps(self: *Module, decl_index: Decl.Index, deps: []const Decl.Index) !void {
-    const begin_dep = @as(u32, @intCast(self.decl_deps.items.len));
+    const begin_dep: u32 = @intCast(self.decl_deps.items.len);
     try self.decl_deps.appendSlice(self.gpa, deps);
-    const end_dep = @as(u32, @intCast(self.decl_deps.items.len));
+    const end_dep: u32 = @intCast(self.decl_deps.items.len);
 
     const decl = self.declPtr(decl_index);
     decl.begin_dep = begin_dep;
@@ -677,7 +669,7 @@ pub fn declareDeclDeps(self: *Module, decl_index: Decl.Index, deps: []const Decl
 }
 
 pub fn beginGlobal(self: *Module) u32 {
-    return @as(u32, @intCast(self.globals.section.instructions.items.len));
+    return @intCast(self.globals.section.instructions.items.len);
 }
 
 pub fn endGlobal(
