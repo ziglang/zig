@@ -62,14 +62,7 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
     if (@intFromPtr(d) % alignment == 0) {
         memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n);
     } else {
-        var vd: [*]align(1) CopyType = @ptrCast(d);
-        var vs: [*]const CopyType = @alignCast(@ptrCast(s));
-        var loop_count = n / size;
-        while (loop_count > 0) : (loop_count -= 1) {
-            vd[0] = vs[0];
-            vd += 1;
-            vs += 1;
-        }
+        memcpy_unaligned(@ptrCast(d), @alignCast(@ptrCast(s)), n);
     }
 
     dest.?[len - size ..][0..size].* = src.?[len - size ..][0..size].*;
@@ -81,6 +74,22 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
 inline fn memcpy_aligned(
     noalias dest: [*]CopyType,
     noalias src: [*]const CopyType,
+    len: usize,
+) void {
+    memcpy_blocks(dest, src, len);
+}
+
+inline fn memcpy_unaligned(
+    noalias dest: [*]align(1) CopyType,
+    noalias src: [*]const CopyType,
+    len: usize,
+) void {
+    memcpy_blocks(dest, src, len);
+}
+
+inline fn memcpy_blocks(
+    noalias dest: anytype,
+    noalias src: anytype,
     len: usize,
 ) void {
     @setRuntimeSafety(false);
