@@ -1109,8 +1109,29 @@ fn unpackResource(
             var dcp = std.compress.gzip.decompressor(br.reader());
             try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .@"tar.xz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.xz),
-        .@"tar.zst" => try unpackTarballCompressed(f, tmp_directory.handle, resource, ZstdWrapper),
+        .@"tar.xz" => {
+            const gpa = f.arena.child_allocator;
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.xz.decompress(gpa, br.reader()) catch |err| {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to decompress tarball: {s}",
+                    .{@errorName(err)},
+                ));
+            };
+            defer dcp.deinit();
+            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
+        .@"tar.zst" => {
+            const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
+            const window_buffer = try f.arena.allocator().create([window_size]u8);
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.zstd.decompressor(br.reader(), .{
+                .window_buffer = window_buffer,
+            });
+            return unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
         .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
             error.OutOfMemory => return error.OutOfMemory,
@@ -1120,43 +1141,6 @@ fn unpackResource(
             )),
         },
     }
-}
-
-// due to slight differences in the API of std.compress.(gzip|xz) and std.compress.zstd, zstd is
-// wrapped for generic use in unpackTarballCompressed: see github.com/ziglang/zig/issues/14739
-const ZstdWrapper = struct {
-    fn DecompressType(comptime T: type) type {
-        return Allocator.Error!std.compress.zstd.DecompressStream(T, .{});
-    }
-
-    fn decompress(allocator: Allocator, reader: anytype) DecompressType(@TypeOf(reader)) {
-        const window_size = std.compress.zstd.DecompressStreamOptions.default_window_size_max;
-        const window_buffer = try allocator.create([window_size]u8);
-        defer allocator.destroy(window_buffer);
-        return std.compress.zstd.decompressStream(reader, window_buffer);
-    }
-};
-
-fn unpackTarballCompressed(
-    f: *Fetch,
-    out_dir: fs.Dir,
-    resource: *Resource,
-    Compression: anytype,
-) RunError!void {
-    const gpa = f.arena.child_allocator;
-    const eb = &f.error_bundle;
-    const reader = resource.reader();
-    var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
-
-    var decompress = Compression.decompress(gpa, br.reader()) catch |err| {
-        return f.fail(f.location_tok, try eb.printString(
-            "unable to decompress tarball: {s}",
-            .{@errorName(err)},
-        ));
-    };
-    defer if (@hasDecl(Compression, "deinit")) decompress.deinit();
-
-    return unpackTarball(f, out_dir, decompress.reader());
 }
 
 fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {

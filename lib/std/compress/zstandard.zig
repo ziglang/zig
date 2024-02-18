@@ -7,13 +7,16 @@ pub const compressed_block = types.compressed_block;
 
 pub const decompress = @import("zstandard/decompress.zig");
 
-pub const DecompressStreamOptions = struct {
+pub const DecompressorOptions = struct {
     verify_checksum: bool = true,
+    window_buffer: []u8,
+
+    /// Recommended amount by the standard. Lower than this may result
+    /// in inability to decompress common streams.
+    pub const default_window_buffer_len = 8 * 1024 * 1024;
 };
 
-pub fn DecompressStream(
-    comptime ReaderType: type,
-) type {
+pub fn Decompressor(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
 
@@ -49,13 +52,13 @@ pub fn DecompressStream(
 
         pub const Reader = std.io.Reader(*Self, Error, read);
 
-        pub fn init(source: ReaderType, window_buffer: []u8, options: DecompressStreamOptions) Self {
-            return Self{
+        pub fn init(source: ReaderType, options: DecompressorOptions) Self {
+            return .{
                 .source = std.io.countingReader(source),
                 .state = .NewFrame,
                 .decode_state = undefined,
                 .frame_context = undefined,
-                .buffer = .{ .data = window_buffer },
+                .buffer = .{ .data = options.window_buffer },
                 .literal_fse_buffer = undefined,
                 .match_fse_buffer = undefined,
                 .offset_fse_buffer = undefined,
@@ -199,20 +202,8 @@ pub fn DecompressStream(
     };
 }
 
-pub fn decompressStreamOptions(
-    reader: anytype,
-    comptime options: DecompressStreamOptions,
-    window_buffer: *[options.window_size_max]u8,
-) DecompressStream(@TypeOf(reader), options) {
-    return DecompressStream(@TypeOf(reader), options).init(reader, window_buffer);
-}
-
-pub fn decompressStream(
-    reader: anytype,
-    window_buffer: []u8,
-    options: DecompressStreamOptions,
-) DecompressStream(@TypeOf(reader)) {
-    return DecompressStream(@TypeOf(reader)).init(reader, window_buffer, options);
+pub fn decompressor(reader: anytype, options: DecompressorOptions) Decompressor(@TypeOf(reader)) {
+    return Decompressor(@TypeOf(reader)).init(reader, options);
 }
 
 fn testDecompress(data: []const u8) ![]u8 {
@@ -220,7 +211,7 @@ fn testDecompress(data: []const u8) ![]u8 {
     defer std.testing.allocator.free(window_buffer);
 
     var in_stream = std.io.fixedBufferStream(data);
-    var zstd_stream = decompressStream(in_stream.reader(), window_buffer, .{});
+    var zstd_stream = decompressor(in_stream.reader(), .{ .window_buffer = window_buffer });
     const result = zstd_stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     return result;
 }
@@ -249,7 +240,7 @@ test "zstandard decompression" {
 }
 
 test "zstandard streaming decompression" {
-    // default stack size for wasm32 is too low for DecompressStream - slightly
+    // default stack size for wasm32 is too low for Decompressor - slightly
     // over 1MiB stack space is needed via the --stack CLI flag
     if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
 
@@ -282,7 +273,7 @@ fn expectEqualDecodedStreaming(expected: []const u8, input: []const u8) !void {
     defer std.testing.allocator.free(window_buffer);
 
     var in_stream = std.io.fixedBufferStream(input);
-    var stream = decompressStream(in_stream.reader(), window_buffer, .{});
+    var stream = decompressor(in_stream.reader(), .{ .window_buffer = window_buffer });
 
     const result = try stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     defer std.testing.allocator.free(result);
@@ -307,7 +298,7 @@ test "zero sized block" {
 }
 
 test "zero sized block streaming" {
-    // default stack size for wasm32 is too low for DecompressStream - slightly
+    // default stack size for wasm32 is too low for Decompressor - slightly
     // over 1MiB stack space is needed via the --stack CLI flag
     if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
 
