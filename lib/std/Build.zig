@@ -93,6 +93,8 @@ named_writefiles: std.StringArrayHashMap(*Step.WriteFile),
 /// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
 /// `Build`s.
 initialized_deps: *InitializedDepMap,
+/// The hash of this instance's package. `""` means that this is the root package.
+pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
 available_deps: AvailableDeps,
 
@@ -305,6 +307,7 @@ pub fn create(
         .modules = std.StringArrayHashMap(*Module).init(arena),
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(arena),
         .initialized_deps = initialized_deps,
+        .pkg_hash = "",
         .available_deps = available_deps,
         .release_mode = .off,
     };
@@ -318,10 +321,11 @@ fn createChild(
     parent: *Build,
     dep_name: []const u8,
     build_root: Cache.Directory,
+    pkg_hash: []const u8,
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
 ) !*Build {
-    const child = try createChildOnly(parent, dep_name, build_root, pkg_deps, user_input_options);
+    const child = try createChildOnly(parent, dep_name, build_root, pkg_hash, pkg_deps, user_input_options);
     try determineAndApplyInstallPrefix(child);
     return child;
 }
@@ -330,6 +334,7 @@ fn createChildOnly(
     parent: *Build,
     dep_name: []const u8,
     build_root: Cache.Directory,
+    pkg_hash: []const u8,
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
 ) !*Build {
@@ -397,6 +402,7 @@ fn createChildOnly(
         .modules = std.StringArrayHashMap(*Module).init(allocator),
         .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
         .initialized_deps = parent.initialized_deps,
+        .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
         .release_mode = parent.release_mode,
     };
@@ -1830,6 +1836,26 @@ fn findPkgHashOrFatal(b: *Build, name: []const u8) []const u8 {
     std.debug.panic("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file", .{ name, full_path });
 }
 
+inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, comptime dep_name: []const u8) []const u8 {
+    const build_runner = @import("root");
+    const deps = build_runner.dependencies;
+
+    const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).Struct.decls) |decl| {
+        const pkg_hash = decl.name;
+        const pkg = @field(deps.packages, pkg_hash);
+        if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
+    } else .{ "", deps.root_deps };
+    if (!std.mem.eql(u8, b_pkg_hash, b.pkg_hash)) {
+        std.debug.panic("'{}' is not the struct that corresponds to '{s}'", .{ asking_build_zig, b.pathFromRoot("build.zig") });
+    }
+    comptime for (b_pkg_deps) |dep| {
+        if (std.mem.eql(u8, dep[0], dep_name)) return dep[1];
+    };
+
+    const full_path = b.pathFromRoot("build.zig.zon");
+    std.debug.panic("no dependency named '{s}' in '{s}'. All packages used in build.zig must be declared in this file", .{ dep_name, full_path });
+}
+
 fn markNeededLazyDep(b: *Build, pkg_hash: []const u8) void {
     b.graph.needed_lazy_dependencies.put(b.graph.arena, pkg_hash, {}) catch @panic("OOM");
 }
@@ -1860,7 +1886,7 @@ pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
                 markNeededLazyDep(b, pkg_hash);
                 return null;
             }
-            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
+            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg_hash, pkg.deps, args);
         }
     }
 
@@ -1878,11 +1904,46 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
             if (@hasDecl(pkg, "available")) {
                 std.debug.panic("dependency '{s}{s}' is marked as lazy in build.zig.zon which means it must use the lazyDependency function instead", .{ b.dep_prefix, name });
             }
-            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg.deps, args);
+            return dependencyInner(b, name, pkg.build_root, if (@hasDecl(pkg, "build_zig")) pkg.build_zig else null, pkg_hash, pkg.deps, args);
         }
     }
 
     unreachable; // Bad @dependencies source
+}
+
+/// In a build.zig file, this function is to `@import` what `lazyDependency` is to `dependency`.
+/// If the dependency is lazy and has not yet been fetched, it instructs the parent process to fetch
+/// that dependency after the build script has finished running, then returns `null`.
+/// If the dependency is lazy but has already been fetched, or if it is eager, it returns
+/// the build.zig struct of that dependency, just like a regular `@import`.
+pub inline fn lazyImport(
+    b: *Build,
+    /// The build.zig struct of the package importing the dependency.
+    /// When calling this function from the `build` function of a build.zig file's, you normally
+    /// pass `@This()`.
+    comptime asking_build_zig: type,
+    comptime dep_name: []const u8,
+) ?type {
+    const build_runner = @import("root");
+    const deps = build_runner.dependencies;
+    const pkg_hash = findImportPkgHashOrFatal(b, asking_build_zig, dep_name);
+
+    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+        if (comptime mem.eql(u8, decl.name, pkg_hash)) {
+            const pkg = @field(deps.packages, decl.name);
+            const available = !@hasDecl(pkg, "available") or pkg.available;
+            if (!available) {
+                markNeededLazyDep(b, pkg_hash);
+                return null;
+            }
+            return if (@hasDecl(pkg, "build_zig"))
+                pkg.build_zig
+            else
+                @compileError("dependency '" ++ dep_name ++ "' does not have a build.zig");
+        }
+    }
+
+    comptime unreachable; // Bad @dependencies source
 }
 
 pub fn anonymousDependency(
@@ -1901,7 +1962,7 @@ pub fn anonymousDependency(
         '/', '\\' => byte.* = '.',
         else => continue,
     };
-    return dependencyInner(b, name, build_root, build_zig, &.{}, args);
+    return dependencyInner(b, name, build_root, build_zig, "anonymous", &.{}, args);
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
@@ -1956,6 +2017,7 @@ pub fn dependencyInner(
     name: []const u8,
     build_root_string: []const u8,
     comptime build_zig: ?type,
+    pkg_hash: []const u8,
     pkg_deps: AvailableDeps,
     args: anytype,
 ) *Dependency {
@@ -1976,7 +2038,7 @@ pub fn dependencyInner(
         },
     };
 
-    const sub_builder = b.createChild(name, build_root, pkg_deps, user_input_options) catch @panic("unhandled error");
+    const sub_builder = b.createChild(name, build_root, pkg_hash, pkg_deps, user_input_options) catch @panic("unhandled error");
     if (build_zig) |bz| {
         sub_builder.runBuild(bz) catch @panic("unhandled error");
 
