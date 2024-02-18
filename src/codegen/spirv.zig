@@ -2317,6 +2317,9 @@ const DeclGen = struct {
             .mul, .mul_wrap, .mul_optimized => try self.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
 
             .abs => try self.airAbs(inst),
+            .floor => try self.airFloor(inst),
+
+            .div_floor => try self.airDivFloor(inst),
 
             .div_float,
             .div_float_optimized,
@@ -2328,6 +2331,11 @@ const DeclGen = struct {
             .rem,
             .rem_optimized,
             => try self.airArithOp(inst, .OpFRem, .OpSRem, .OpSRem),
+            // TODO: Check if this is the right operation
+            .mod,
+            .mod_optimized,
+            => try self.airArithOp(inst, .OpFMod, .OpSMod, .OpSMod),
+
 
             .add_with_overflow => try self.airAddSubOverflow(inst, .OpIAdd, .OpULessThan, .OpSLessThan),
             .sub_with_overflow => try self.airAddSubOverflow(inst, .OpISub, .OpUGreaterThan, .OpSGreaterThan),
@@ -2661,6 +2669,95 @@ const DeclGen = struct {
         }
     }
 
+    fn airDivFloor(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const lhs_id = try self.resolve(bin_op.lhs);
+        const rhs_id = try self.resolve(bin_op.rhs);
+        const ty = self.typeOfIndex(inst);
+        const ty_ref = try self.resolveType(ty, .direct);
+        const info = self.arithmeticTypeInfo(ty);
+        switch (info.class) {
+            .composite_integer => unreachable, // TODO
+            .integer, .strange_integer => {
+                const zero_id = try self.constInt(ty_ref, 0);
+                const one_id = try self.constInt(ty_ref, 1);
+
+                // (a ^ b) > 0
+                const bin_bitwise_id = try self.binOpSimple(ty, lhs_id, rhs_id, .OpBitwiseXor);
+                const is_positive_id = try self.cmp(.gt, Type.bool, ty, bin_bitwise_id, zero_id);
+
+                // a / b
+                const positive_div_id = try self.arithOp(ty, lhs_id, rhs_id, .OpFDiv, .OpSDiv, .OpUDiv);
+
+                // - (abs(a) + abs(b) - 1) / abs(b)
+                const lhs_abs = try self.abs(ty, ty, lhs_id);
+                const rhs_abs = try self.abs(ty, ty, rhs_id);
+                const negative_div_lhs = try self.arithOp(
+                    ty,
+                    try self.arithOp(ty, lhs_abs, rhs_abs, .OpFAdd, .OpIAdd, .OpIAdd),
+                    one_id,
+                    .OpFSub,
+                    .OpISub,
+                    .OpISub,
+                );
+                const negative_div_id = try self.arithOp(ty, negative_div_lhs, rhs_abs, .OpFDiv, .OpSDiv, .OpUDiv);
+                const negated_negative_div_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpSNegate, .{
+                    .id_result_type = self.typeId(ty_ref),
+                    .id_result = negated_negative_div_id,
+                    .operand = negative_div_id,
+                });
+
+                const result_id = self.spv.allocId();
+                try self.func.body.emit(self.spv.gpa, .OpSelect, .{
+                    .id_result_type = self.typeId(ty_ref),
+                    .id_result = result_id,
+                    .condition = is_positive_id,
+                    .object_1 = positive_div_id,
+                    .object_2 = negated_negative_div_id,
+                });
+                return result_id;
+            },
+            .float => {
+                const div_id = try self.arithOp(ty, lhs_id, rhs_id, .OpFDiv, .OpSDiv, .OpUDiv);
+                return try self.floor(ty, div_id);
+            },
+            .bool => unreachable,
+        }
+    }
+
+    fn airFloor(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
+        const operand_id = try self.resolve(un_op);
+        const result_ty = self.typeOfIndex(inst);
+        return try self.floor(result_ty, operand_id);
+    }
+
+    fn floor(self: *DeclGen, ty: Type, operand_id: IdRef) !IdRef {
+        const target = self.getTarget();
+        const ty_ref = try self.resolveType(ty, .direct);
+        const ext_inst: Word = switch (target.os.tag) {
+            .opencl => 25,
+            .vulkan => 8,
+            else => unreachable,
+        };
+        const set_id = switch (target.os.tag) {
+            .opencl => try self.spv.importInstructionSet(.opencl),
+            .vulkan => try self.spv.importInstructionSet(.glsl),
+            else => unreachable,
+        };
+
+        const result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpExtInst, .{
+            .id_result_type = self.typeId(ty_ref),
+            .id_result = result_id,
+            .set = set_id,
+            .instruction = .{ .inst = ext_inst },
+            .id_ref_4 = &.{operand_id},
+        });
+        return result_id;
+    }
+
     fn airArithOp(
         self: *DeclGen,
         inst: Air.Inst.Index,
@@ -2668,7 +2765,6 @@ const DeclGen = struct {
         comptime sop: Opcode,
         comptime uop: Opcode,
     ) !?IdRef {
-
         // LHS and RHS are guaranteed to have the same type, and AIR guarantees
         // the result to be the same as the LHS and RHS, which matches SPIR-V.
         const ty = self.typeOfIndex(inst);
@@ -2737,12 +2833,16 @@ const DeclGen = struct {
     }
 
     fn airAbs(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
-        const target = self.getTarget();
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
         // Note: operand_ty may be signed, while ty is always unsigned!
         const operand_ty = self.typeOf(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
+        return try self.abs(result_ty, operand_ty, operand_id);
+    }
+
+    fn abs(self: *DeclGen, result_ty: Type, operand_ty: Type, operand_id: IdRef) !IdRef {
+        const target = self.getTarget();
         const operand_info = self.arithmeticTypeInfo(operand_ty);
 
         var wip = try self.elementWise(result_ty, false);
@@ -3692,19 +3792,22 @@ const DeclGen = struct {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
         const operand_id = try self.resolve(ty_op.operand);
-        const operand_info = self.arithmeticTypeInfo(operand_ty);
-        const dest_ty = self.typeOfIndex(inst);
-        const dest_ty_id = try self.resolveTypeId(dest_ty);
+        const result_ty = self.typeOfIndex(inst);
+        const result_ty_ref = try self.resolveType(result_ty, .direct);
+        return try self.floatFromInt(result_ty_ref, operand_ty, operand_id);
+    }
 
+    fn floatFromInt(self: *DeclGen, result_ty_ref: CacheRef, operand_ty: Type, operand_id: IdRef) !IdRef {
+        const operand_info = self.arithmeticTypeInfo(operand_ty);
         const result_id = self.spv.allocId();
         switch (operand_info.signedness) {
             .signed => try self.func.body.emit(self.spv.gpa, .OpConvertSToF, .{
-                .id_result_type = dest_ty_id,
+                .id_result_type = self.typeId(result_ty_ref),
                 .id_result = result_id,
                 .signed_value = operand_id,
             }),
             .unsigned => try self.func.body.emit(self.spv.gpa, .OpConvertUToF, .{
-                .id_result_type = dest_ty_id,
+                .id_result_type = self.typeId(result_ty_ref),
                 .id_result = result_id,
                 .unsigned_value = operand_id,
             }),
@@ -3715,19 +3818,22 @@ const DeclGen = struct {
     fn airIntFromFloat(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_id = try self.resolve(ty_op.operand);
-        const dest_ty = self.typeOfIndex(inst);
-        const dest_info = self.arithmeticTypeInfo(dest_ty);
-        const dest_ty_id = try self.resolveTypeId(dest_ty);
+        const result_ty = self.typeOfIndex(inst);
+        return try self.intFromFloat(result_ty, operand_id);
+    }
 
+    fn intFromFloat(self: *DeclGen, result_ty: Type, operand_id: IdRef) !IdRef {
+        const result_info = self.arithmeticTypeInfo(result_ty);
+        const result_ty_ref = try self.resolveType(result_ty, .direct);
         const result_id = self.spv.allocId();
-        switch (dest_info.signedness) {
+        switch (result_info.signedness) {
             .signed => try self.func.body.emit(self.spv.gpa, .OpConvertFToS, .{
-                .id_result_type = dest_ty_id,
+                .id_result_type = self.typeId(result_ty_ref),
                 .id_result = result_id,
                 .float_value = operand_id,
             }),
             .unsigned => try self.func.body.emit(self.spv.gpa, .OpConvertFToU, .{
-                .id_result_type = dest_ty_id,
+                .id_result_type = self.typeId(result_ty_ref),
                 .id_result = result_id,
                 .float_value = operand_id,
             }),
@@ -5237,14 +5343,15 @@ const DeclGen = struct {
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
         const mod = self.module;
+        const target = self.getTarget();
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond_ty = self.typeOf(pl_op.operand);
         const cond = try self.resolve(pl_op.operand);
-        const cond_indirect = try self.convertToIndirect(cond_ty, cond);
+        var cond_indirect = try self.convertToIndirect(cond_ty, cond);
         const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
 
         const cond_words: u32 = switch (cond_ty.zigTypeTag(mod)) {
-            .Bool => 1,
+            .Bool, .ErrorSet => 1,
             .Int => blk: {
                 const bits = cond_ty.intInfo(mod).bits;
                 const backing_bits = self.backingIntBits(bits) orelse {
@@ -5260,8 +5367,12 @@ const DeclGen = struct {
                 };
                 break :blk if (backing_bits <= 32) @as(u32, 1) else 2;
             },
-            .ErrorSet => 1,
-            else => return self.todo("implement switch for type {s}", .{@tagName(cond_ty.zigTypeTag(mod))}), // TODO: Figure out which types apply here, and work around them as we can only do integers.
+            .Pointer => blk: {
+                cond_indirect = try self.intFromPtr(cond_indirect);
+                break :blk target.ptrBitWidth() / 32;
+            },
+            // TODO: Figure out which types apply here, and work around them as we can only do integers.
+            else => return self.todo("implement switch for type {s}", .{@tagName(cond_ty.zigTypeTag(mod))}),
         };
 
         const num_cases = switch_br.data.cases_len;
@@ -5316,13 +5427,14 @@ const DeclGen = struct {
 
                 for (items) |item| {
                     const value = (try self.air.value(item, mod)) orelse unreachable;
-                    const int_val = switch (cond_ty.zigTypeTag(mod)) {
+                    const int_val: u64 = switch (cond_ty.zigTypeTag(mod)) {
                         .Bool, .Int => if (cond_ty.isSignedInt(mod)) @as(u64, @bitCast(value.toSignedInt(mod))) else value.toUnsignedInt(mod),
                         .Enum => blk: {
                             // TODO: figure out of cond_ty is correct (something with enum literals)
                             break :blk (try value.intFromEnum(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
                         },
                         .ErrorSet => value.getErrorInt(mod),
+                        .Pointer => value.toUnsignedInt(mod),
                         else => unreachable,
                     };
                     const int_lit: spec.LiteralContextDependentNumber = switch (cond_words) {

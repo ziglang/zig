@@ -429,8 +429,8 @@ pub fn constInt(self: *Module, ty_ref: CacheRef, value: anytype) !IdRef {
     return try self.resolveId(.{ .int = .{
         .ty = ty_ref,
         .value = switch (ty.signedness) {
-            .signed => Value{ .int64 = @as(i64, @intCast(value)) },
-            .unsigned => Value{ .uint64 = @as(u64, @intCast(value)) },
+            .signed => Value{ .int64 = @intCast(value) },
+            .unsigned => Value{ .uint64 = @intCast(value) },
         },
     } });
 }
