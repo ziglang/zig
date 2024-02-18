@@ -256,9 +256,14 @@ fn todo(self: *Assembler, comptime fmt: []const u8, args: anytype) Error {
 /// If this function returns `error.AssembleFail`, an explanatory
 /// error message has already been emitted into `self.errors`.
 fn processInstruction(self: *Assembler) !void {
-    const result = switch (self.inst.opcode) {
+    const result: AsmValue = switch (self.inst.opcode) {
         .OpEntryPoint => {
             return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.Kernel)", .{});
+        },
+        .OpExtInstImport => blk: {
+            const set_name_offset = self.inst.operands.items[1].string;
+            const set_name = std.mem.sliceTo(self.inst.string_bytes.items[set_name_offset..], 0);
+            break :blk .{ .value = try self.spv.importInstructionSet(set_name) };
         },
         else => switch (self.inst.opcode.class()) {
             .TypeDeclaration => try self.processTypeInstruction(),
@@ -309,7 +314,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
                     return self.fail(0, "{} is not a valid bit count for floats (expected 16, 32 or 64)", .{bits});
                 },
             }
-            break :blk try self.spv.resolve(.{ .float_type = .{ .bits = @as(u16, @intCast(bits)) } });
+            break :blk try self.spv.resolve(.{ .float_type = .{ .bits = @intCast(bits) } });
         },
         .OpTypeVector => try self.spv.resolve(.{ .vector_type = .{
             .component_type = try self.resolveTypeRef(operands[1].ref_id),
@@ -364,6 +369,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
             .OpExecutionMode, .OpExecutionModeId => &self.spv.sections.execution_modes,
             .OpVariable => switch (@as(spec.StorageClass, @enumFromInt(operands[2].value))) {
                 .Function => &self.func.prologue,
+                .UniformConstant => &self.spv.sections.types_globals_constants,
                 else => {
                     // This is currently disabled because global variables are required to be
                     // emitted in the proper order, and this should be honored in inline assembly
@@ -473,14 +479,14 @@ fn parseInstruction(self: *Assembler) !void {
     self.inst.string_bytes.shrinkRetainingCapacity(0);
 
     const lhs_result_tok = self.currentToken();
-    const maybe_lhs_result = if (self.eatToken(.result_id_assign)) blk: {
+    const maybe_lhs_result: ?AsmValue.Ref = if (self.eatToken(.result_id_assign)) blk: {
         const name = self.tokenText(lhs_result_tok)[1..];
         const entry = try self.value_map.getOrPut(self.gpa, name);
         try self.expectToken(.equals);
         if (!entry.found_existing) {
             entry.value_ptr.* = .just_declared;
         }
-        break :blk @as(AsmValue.Ref, @intCast(entry.index));
+        break :blk @intCast(entry.index);
     } else null;
 
     const opcode_tok = self.currentToken();
@@ -550,6 +556,7 @@ fn parseOperand(self: *Assembler, kind: spec.OperandKind) Error!void {
             .LiteralInteger => try self.parseLiteralInteger(),
             .LiteralString => try self.parseString(),
             .LiteralContextDependentNumber => try self.parseContextDependentNumber(),
+            .LiteralExtInstInteger => try self.parseLiteralExtInstInteger(),
             .PairIdRefIdRef => try self.parsePhiSource(),
             else => return self.todo("parse operand of type {s}", .{@tagName(kind)}),
         },
@@ -641,7 +648,7 @@ fn parseRefId(self: *Assembler) !void {
         entry.value_ptr.* = .unresolved_forward_reference;
     }
 
-    const index = @as(AsmValue.Ref, @intCast(entry.index));
+    const index: AsmValue.Ref = @intCast(entry.index);
     try self.inst.operands.append(self.gpa, .{ .ref_id = index });
 }
 
@@ -653,6 +660,16 @@ fn parseLiteralInteger(self: *Assembler) !void {
     // only one instruction where multiple words are allowed, the literals that make up the
     // switch cases of OpSwitch. This case is handled separately, and so we just assume
     // everything is a 32-bit integer in this function.
+    const text = self.tokenText(tok);
+    const value = std.fmt.parseInt(u32, text, 0) catch {
+        return self.fail(tok.start, "'{s}' is not a valid 32-bit integer literal", .{text});
+    };
+    try self.inst.operands.append(self.gpa, .{ .literal32 = value });
+}
+
+fn parseLiteralExtInstInteger(self: *Assembler) !void {
+    const tok = self.currentToken();
+    try self.expectToken(.value);
     const text = self.tokenText(tok);
     const value = std.fmt.parseInt(u32, text, 0) catch {
         return self.fail(tok.start, "'{s}' is not a valid 32-bit integer literal", .{text});
@@ -673,7 +690,7 @@ fn parseString(self: *Assembler) !void {
     else
         text[1..];
 
-    const string_offset = @as(u32, @intCast(self.inst.string_bytes.items.len));
+    const string_offset: u32 = @intCast(self.inst.string_bytes.items.len);
     try self.inst.string_bytes.ensureUnusedCapacity(self.gpa, literal.len + 1);
     self.inst.string_bytes.appendSliceAssumeCapacity(literal);
     self.inst.string_bytes.appendAssumeCapacity(0);
@@ -730,9 +747,9 @@ fn parseContextDependentInt(self: *Assembler, signedness: std.builtin.Signedness
 
         // Note, we store the sign-extended version here.
         if (width <= @bitSizeOf(spec.Word)) {
-            try self.inst.operands.append(self.gpa, .{ .literal32 = @as(u32, @truncate(@as(u128, @bitCast(int)))) });
+            try self.inst.operands.append(self.gpa, .{ .literal32 = @truncate(@as(u128, @bitCast(int))) });
         } else {
-            try self.inst.operands.append(self.gpa, .{ .literal64 = @as(u64, @truncate(@as(u128, @bitCast(int)))) });
+            try self.inst.operands.append(self.gpa, .{ .literal64 = @truncate(@as(u128, @bitCast(int))) });
         }
         return;
     }
@@ -753,7 +770,7 @@ fn parseContextDependentFloat(self: *Assembler, comptime width: u16) !void {
         return self.fail(tok.start, "'{s}' is not a valid {}-bit float literal", .{ text, width });
     };
 
-    const float_bits = @as(Int, @bitCast(value));
+    const float_bits: Int = @bitCast(value);
     if (width <= @bitSizeOf(spec.Word)) {
         try self.inst.operands.append(self.gpa, .{ .literal32 = float_bits });
     } else {

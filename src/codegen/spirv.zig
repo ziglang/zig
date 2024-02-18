@@ -1016,7 +1016,7 @@ const DeclGen = struct {
                     const elem_ty = Type.fromInterned(array_type.child);
                     const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
 
-                    const constituents = try self.gpa.alloc(IdRef, @as(u32, @intCast(ty.arrayLenIncludingSentinel(mod))));
+                    const constituents = try self.gpa.alloc(IdRef, @intCast(ty.arrayLenIncludingSentinel(mod)));
                     defer self.gpa.free(constituents);
 
                     switch (aggregate.storage) {
@@ -1736,7 +1736,6 @@ const DeclGen = struct {
             .EnumLiteral,
             .ComptimeFloat,
             .ComptimeInt,
-            .Type,
             => unreachable, // Must be comptime.
 
             else => |tag| return self.todo("Implement zig type '{}'", .{tag}),
@@ -2323,18 +2322,10 @@ const DeclGen = struct {
 
             .div_float,
             .div_float_optimized,
-            // TODO: Check that this is the right operation.
             .div_trunc,
-            .div_trunc_optimized,
-            => try self.airArithOp(inst, .OpFDiv, .OpSDiv, .OpUDiv),
-            // TODO: Check if this is the right operation
-            .rem,
-            .rem_optimized,
-            => try self.airArithOp(inst, .OpFRem, .OpSRem, .OpSRem),
-            // TODO: Check if this is the right operation
-            .mod,
-            .mod_optimized,
-            => try self.airArithOp(inst, .OpFMod, .OpSMod, .OpSMod),
+            .div_trunc_optimized => try self.airArithOp(inst, .OpFDiv, .OpSDiv, .OpUDiv),
+            .rem, .rem_optimized => try self.airArithOp(inst, .OpFRem, .OpSRem, .OpSRem),
+            .mod, .mod_optimized => try self.airArithOp(inst, .OpFMod, .OpSMod, .OpSMod),
 
 
             .add_with_overflow => try self.airAddSubOverflow(inst, .OpIAdd, .OpULessThan, .OpSLessThan),
@@ -2348,7 +2339,7 @@ const DeclGen = struct {
 
             .splat => try self.airSplat(inst),
             .reduce, .reduce_optimized => try self.airReduce(inst),
-            .shuffle => try self.airShuffle(inst),
+            .shuffle                   => try self.airShuffle(inst),
 
             .ptr_add => try self.airPtrAdd(inst),
             .ptr_sub => try self.airPtrSub(inst),
@@ -2742,8 +2733,8 @@ const DeclGen = struct {
             else => unreachable,
         };
         const set_id = switch (target.os.tag) {
-            .opencl => try self.spv.importInstructionSet(.opencl),
-            .vulkan => try self.spv.importInstructionSet(.glsl),
+            .opencl => try self.spv.importInstructionSet("OpenCL.std"),
+            .vulkan => try self.spv.importInstructionSet("GLSL.std.450"),
             else => unreachable,
         };
 
@@ -2796,8 +2787,8 @@ const DeclGen = struct {
                 return self.todo("binary operations for composite integers", .{});
             },
             .integer, .strange_integer => switch (info.signedness) {
-                .signed => @as(usize, 1),
-                .unsigned => @as(usize, 2),
+                .signed => 1,
+                .unsigned => 2,
             },
             .float => 0,
             .bool => unreachable,
@@ -5357,7 +5348,7 @@ const DeclGen = struct {
                 const backing_bits = self.backingIntBits(bits) orelse {
                     return self.todo("implement composite int switch", .{});
                 };
-                break :blk if (backing_bits <= 32) @as(u32, 1) else 2;
+                break :blk if (backing_bits <= 32) 1 else 2;
             },
             .Enum => blk: {
                 const int_ty = cond_ty.intTagType(mod);
@@ -5365,7 +5356,7 @@ const DeclGen = struct {
                 const backing_bits = self.backingIntBits(int_info.bits) orelse {
                     return self.todo("implement composite int switch", .{});
                 };
-                break :blk if (backing_bits <= 32) @as(u32, 1) else 2;
+                break :blk if (backing_bits <= 32) 1 else 2;
             },
             .Pointer => blk: {
                 cond_indirect = try self.intFromPtr(cond_indirect);
@@ -5419,7 +5410,7 @@ const DeclGen = struct {
             for (0..num_cases) |case_i| {
                 // SPIR-V needs a literal here, which' width depends on the case condition.
                 const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
+                const items: []const Air.Inst.Ref = @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
                 const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
 
@@ -5428,7 +5419,7 @@ const DeclGen = struct {
                 for (items) |item| {
                     const value = (try self.air.value(item, mod)) orelse unreachable;
                     const int_val: u64 = switch (cond_ty.zigTypeTag(mod)) {
-                        .Bool, .Int => if (cond_ty.isSignedInt(mod)) @as(u64, @bitCast(value.toSignedInt(mod))) else value.toUnsignedInt(mod),
+                        .Bool, .Int => if (cond_ty.isSignedInt(mod)) @bitCast(value.toSignedInt(mod)) else value.toUnsignedInt(mod),
                         .Enum => blk: {
                             // TODO: figure out of cond_ty is correct (something with enum literals)
                             break :blk (try value.intFromEnum(cond_ty, mod)).toUnsignedInt(mod); // TODO: composite integer constants
@@ -5550,14 +5541,14 @@ const DeclGen = struct {
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
 
         const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
-        const clobbers_len = @as(u31, @truncate(extra.data.flags));
+        const clobbers_len: u31 = @truncate(extra.data.flags);
 
         if (!is_volatile and self.liveness.isUnused(inst)) return null;
 
         var extra_i: usize = extra.end;
-        const outputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]));
+        const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.outputs_len]);
         extra_i += outputs.len;
-        const inputs = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]));
+        const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra_i..][0..extra.data.inputs_len]);
         extra_i += inputs.len;
 
         if (outputs.len > 1) {
@@ -5679,7 +5670,7 @@ const DeclGen = struct {
         const mod = self.module;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
-        const args = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]));
+        const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
         const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(mod)) {
             .Fn => callee_ty,
