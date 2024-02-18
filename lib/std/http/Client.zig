@@ -1661,18 +1661,3 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
         .status = req.response.status,
     };
 }
-
-test {
-    const native_endian = comptime builtin.cpu.arch.endian();
-    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
-        // https://github.com/ziglang/zig/issues/13782
-        return error.SkipZigTest;
-    }
-
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
-
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx)) return error.SkipZigTest;
-
-    std.testing.refAllDecls(@This());
-}

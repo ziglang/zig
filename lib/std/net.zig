@@ -122,7 +122,7 @@ pub const Address = extern union {
         @memset(&sock_addr.path, 0);
         @memcpy(sock_addr.path[0..path.len], path);
 
-        return Address{ .un = sock_addr };
+        return .{ .un = sock_addr };
     }
 
     /// Returns the port in native endian.
