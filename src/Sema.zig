@@ -7951,7 +7951,7 @@ fn instantiateGenericCall(
         .sema = &child_sema,
         .src_decl = generic_owner_func.owner_decl,
         .namespace = namespace_index,
-        .wip_capture_scope = try mod.createCaptureScope(sema.owner_decl.src_scope),
+        .wip_capture_scope = try mod.createCaptureScope(fn_owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
