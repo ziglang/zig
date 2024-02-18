@@ -32490,10 +32490,13 @@ fn analyzeOptionalSlicePtr(
     const mod = sema.mod;
     const result_ty = opt_slice_ty.optionalChild(mod).slicePtrFieldType(mod);
 
-    resolved: {
-        const opt_val = try sema.resolveValue(opt_slice) orelse break :resolved;
-        const val = opt_val.optionalValue(mod) orelse break :resolved;
-        return Air.internedToRef(val.slicePtr(mod).toIntern());
+    if (try sema.resolveValue(opt_slice)) |opt_val| {
+        const slice_ptr: InternPool.Index = if (opt_val.optionalValue(mod)) |val|
+            val.slicePtr(mod).toIntern()
+        else
+            .null_value;
+
+        return Air.internedToRef(slice_ptr);
     }
 
     try sema.requireRuntimeBlock(block, opt_slice_src, null);
