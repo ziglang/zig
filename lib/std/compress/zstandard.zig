@@ -9,19 +9,13 @@ pub const decompress = @import("zstandard/decompress.zig");
 
 pub const DecompressStreamOptions = struct {
     verify_checksum: bool = true,
-    window_size_max: usize = default_window_size_max,
-
-    pub const default_window_size_max = 1 << 23; // 8MiB default maximum window size
 };
 
 pub fn DecompressStream(
     comptime ReaderType: type,
-    comptime options: DecompressStreamOptions,
 ) type {
     return struct {
         const Self = @This();
-
-        pub const window_size_max = options.window_size_max;
 
         const table_size_max = types.compressed_block.table_size_max;
 
@@ -35,11 +29,12 @@ pub fn DecompressStream(
         offset_fse_buffer: [table_size_max.offset]types.compressed_block.Table.Fse,
         literals_buffer: [types.block_size_max]u8,
         sequence_buffer: [types.block_size_max]u8,
-        checksum: if (options.verify_checksum) ?u32 else void,
+        verify_checksum: bool,
+        checksum: ?u32,
         current_frame_decompressed_size: usize,
 
         const WindowBuffer = struct {
-            data: *[options.window_size_max]u8 = undefined,
+            data: []u8 = undefined,
             read_index: usize = 0,
             write_index: usize = 0,
         };
@@ -54,7 +49,7 @@ pub fn DecompressStream(
 
         pub const Reader = std.io.Reader(*Self, Error, read);
 
-        pub fn init(source: ReaderType, window_buffer: *[options.window_size_max]u8) Self {
+        pub fn init(source: ReaderType, window_buffer: []u8, options: DecompressStreamOptions) Self {
             return Self{
                 .source = std.io.countingReader(source),
                 .state = .NewFrame,
@@ -66,6 +61,7 @@ pub fn DecompressStream(
                 .offset_fse_buffer = undefined,
                 .literals_buffer = undefined,
                 .sequence_buffer = undefined,
+                .verify_checksum = options.verify_checksum,
                 .checksum = undefined,
                 .current_frame_decompressed_size = undefined,
             };
@@ -81,8 +77,8 @@ pub fn DecompressStream(
                 .zstandard => |header| {
                     const frame_context = try decompress.FrameContext.init(
                         header,
-                        options.window_size_max,
-                        options.verify_checksum,
+                        self.buffer.data.len,
+                        self.verify_checksum,
                     );
 
                     const decode_state = decompress.block.DecodeState.init(
@@ -94,7 +90,7 @@ pub fn DecompressStream(
                     self.decode_state = decode_state;
                     self.frame_context = frame_context;
 
-                    self.checksum = if (options.verify_checksum) null else {};
+                    self.checksum = null;
                     self.current_frame_decompressed_size = 0;
 
                     self.state = .InFrame;
@@ -176,7 +172,7 @@ pub fn DecompressStream(
                     if (self.frame_context.has_checksum) {
                         const checksum = source_reader.readInt(u32, .little) catch
                             return error.MalformedFrame;
-                        if (comptime options.verify_checksum) {
+                        if (self.verify_checksum) {
                             if (self.frame_context.hasher_opt) |*hasher| {
                                 if (checksum != decompress.computeChecksum(hasher))
                                     return error.ChecksumFailure;
@@ -213,15 +209,18 @@ pub fn decompressStreamOptions(
 
 pub fn decompressStream(
     reader: anytype,
-    window_buffer: *[DecompressStreamOptions.default_window_size_max]u8,
-) DecompressStream(@TypeOf(reader), .{}) {
-    return DecompressStream(@TypeOf(reader), .{}).init(reader, window_buffer);
+    window_buffer: []u8,
+    options: DecompressStreamOptions,
+) DecompressStream(@TypeOf(reader)) {
+    return DecompressStream(@TypeOf(reader)).init(reader, window_buffer, options);
 }
 
 fn testDecompress(data: []const u8) ![]u8 {
-    var window_buffer: [DecompressStreamOptions.default_window_size_max]u8 = undefined;
+    const window_buffer = try std.testing.allocator.alloc(u8, 1 << 23);
+    defer std.testing.allocator.free(window_buffer);
+
     var in_stream = std.io.fixedBufferStream(data);
-    var zstd_stream = decompressStream(in_stream.reader(), &window_buffer);
+    var zstd_stream = decompressStream(in_stream.reader(), window_buffer, .{});
     const result = zstd_stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     return result;
 }
@@ -251,7 +250,7 @@ test "zstandard decompression" {
 
 test "zstandard streaming decompression" {
     // default stack size for wasm32 is too low for DecompressStream - slightly
-    // over 9MiB stack space is needed via the --stack CLI flag
+    // over 1MiB stack space is needed via the --stack CLI flag
     if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
 
     const uncompressed = @embedFile("testdata/rfc8478.txt");
@@ -279,9 +278,11 @@ fn expectEqualDecoded(expected: []const u8, input: []const u8) !void {
 }
 
 fn expectEqualDecodedStreaming(expected: []const u8, input: []const u8) !void {
-    var window_buffer: [DecompressStreamOptions.default_window_size_max]u8 = undefined;
+    const window_buffer = try std.testing.allocator.alloc(u8, 1 << 23);
+    defer std.testing.allocator.free(window_buffer);
+
     var in_stream = std.io.fixedBufferStream(input);
-    var stream = decompressStream(in_stream.reader(), &window_buffer);
+    var stream = decompressStream(in_stream.reader(), window_buffer, .{});
 
     const result = try stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     defer std.testing.allocator.free(result);
@@ -307,7 +308,7 @@ test "zero sized block" {
 
 test "zero sized block streaming" {
     // default stack size for wasm32 is too low for DecompressStream - slightly
-    // over 9MiB stack space is needed via the --stack CLI flag
+    // over 1MiB stack space is needed via the --stack CLI flag
     if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
 
     const input_raw =
