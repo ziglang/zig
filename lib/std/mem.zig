@@ -632,14 +632,87 @@ test "lessThan" {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
+const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
+    // The SPIR-V backend does not support the optimized path yet.
+    .stage2_spirv64 => false,
+    else => true,
+};
+
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    if (@sizeOf(T) == 0) return true;
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and backend_can_use_eql_bytes) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+
     if (a.len != b.len) return false;
-    if (a.ptr == b.ptr) return true;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
     }
     return true;
+}
+
+/// std.mem.eql heavily optimized for slices of bytes.
+fn eqlBytes(a: []const u8, b: []const u8) bool {
+    if (!backend_can_use_eql_bytes) {
+        return eql(u8, a, b);
+    }
+
+    if (a.len != b.len) return false;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+
+    if (a.len <= 16) {
+        if (a.len < 4) {
+            const x = (a[0] ^ b[0]) | (a[a.len - 1] ^ b[a.len - 1]) | (a[a.len / 2] ^ b[a.len / 2]);
+            return x == 0;
+        }
+        var x: u32 = 0;
+        for ([_]usize{ 0, a.len - 4, (a.len / 8) * 4, a.len - 4 - ((a.len / 8) * 4) }) |n| {
+            x |= @as(u32, @bitCast(a[n..][0..4].*)) ^ @as(u32, @bitCast(b[n..][0..4].*));
+        }
+        return x == 0;
+    }
+
+    // Figure out the fastest way to scan through the input in chunks.
+    // Uses vectors when supported and falls back to usize/words when not.
+    const Scan = if (std.simd.suggestVectorLength(u8)) |vec_size|
+        struct {
+            pub const size = vec_size;
+            pub const Chunk = @Vector(size, u8);
+            pub inline fn isNotEqual(chunk_a: Chunk, chunk_b: Chunk) bool {
+                return @reduce(.Or, chunk_a != chunk_b);
+            }
+        }
+    else
+        struct {
+            pub const size = @sizeOf(usize);
+            pub const Chunk = usize;
+            pub inline fn isNotEqual(chunk_a: Chunk, chunk_b: Chunk) bool {
+                return chunk_a != chunk_b;
+            }
+        };
+
+    inline for (1..6) |s| {
+        const n = 16 << s;
+        if (n <= Scan.size and a.len <= n) {
+            const V = @Vector(n / 2, u8);
+            var x = @as(V, a[0 .. n / 2].*) ^ @as(V, b[0 .. n / 2].*);
+            x |= @as(V, a[a.len - n / 2 ..][0 .. n / 2].*) ^ @as(V, b[a.len - n / 2 ..][0 .. n / 2].*);
+            const zero: V = @splat(0);
+            return !@reduce(.Or, x != zero);
+        }
+    }
+    // Compare inputs in chunks at a time (excluding the last chunk).
+    for (0..(a.len - 1) / Scan.size) |i| {
+        const a_chunk: Scan.Chunk = @bitCast(a[i * Scan.size ..][0..Scan.size].*);
+        const b_chunk: Scan.Chunk = @bitCast(b[i * Scan.size ..][0..Scan.size].*);
+        if (Scan.isNotEqual(a_chunk, b_chunk)) return false;
+    }
+
+    // Compare the last chunk using an overlapping read (similar to the previous size strategies).
+    const last_a_chunk: Scan.Chunk = @bitCast(a[a.len - Scan.size ..][0..Scan.size].*);
+    const last_b_chunk: Scan.Chunk = @bitCast(b[a.len - Scan.size ..][0..Scan.size].*);
+    return !Scan.isNotEqual(last_a_chunk, last_b_chunk);
 }
 
 /// Compares two slices and returns the index of the first inequality.
@@ -861,7 +934,10 @@ fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
             },
             .Many => if (ptr_info.sentinel) |sentinel_ptr| {
                 const sentinel = @as(*align(1) const ptr_info.child, @ptrCast(sentinel_ptr)).*;
-                // We may be looking for something other than the sentinel,
+                if (sentinel == end) {
+                    return indexOfSentinel(ptr_info.child, end, ptr);
+                }
+                // We're looking for something other than the sentinel,
                 // but iterating past the sentinel would be a bug so we need
                 // to check for both.
                 var i: usize = 0;
@@ -966,15 +1042,16 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // The below branch assumes that reading past the end of the buffer is valid, as long
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
-            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorSize(T)) |block_len| {
-                comptime std.debug.assert(std.mem.page_size % block_len == 0);
+            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
+
+                comptime std.debug.assert(std.mem.page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page < std.mem.page_size - block_len) {
+                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1019,7 +1096,7 @@ test "indexOfSentinel vector paths" {
     const allocator = std.testing.allocator;
 
     inline for (Types) |T| {
-        const block_len = std.simd.suggestVectorSize(T) orelse continue;
+        const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
         const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
@@ -1110,11 +1187,11 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
-        if (std.simd.suggestVectorSize(T)) |block_len| {
+        if (std.simd.suggestVectorLength(T)) |block_len| {
             // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
             // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
             //
-            // Use `std.simd.suggestVectorSize(T)` to get the same alignment as used in this function
+            // Use `std.simd.suggestVectorLength(T)` to get the same alignment as used in this function
             // however this usually isn't necessary unless your arch has a performance penalty due to this.
             //
             // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
@@ -1898,13 +1975,34 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
-    if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
-    inline for (std.meta.fields(S)) |f| {
-        if (@typeInfo(f.type) == .Struct) {
-            byteSwapAllFields(f.type, &@field(ptr, f.name));
-        } else {
-            @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
-        }
+    switch (@typeInfo(S)) {
+        .Struct => {
+            inline for (std.meta.fields(S)) |f| {
+                switch (@typeInfo(f.type)) {
+                    .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Enum => {
+                        @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
+                    },
+                    else => {
+                        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+                    },
+                }
+            }
+        },
+        .Array => {
+            for (ptr) |*item| {
+                switch (@typeInfo(@TypeOf(item.*))) {
+                    .Struct, .Array => byteSwapAllFields(@TypeOf(item.*), item),
+                    .Enum => {
+                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
+                    },
+                    else => {
+                        item.* = @byteSwap(item.*);
+                    },
+                }
+            }
+        },
+        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
     }
 }
 
@@ -1913,21 +2011,25 @@ test "byteSwapAllFields" {
         f0: u8,
         f1: u16,
         f2: u32,
+        f3: [1]u8,
     };
     const K = extern struct {
         f0: u8,
         f1: T,
         f2: u16,
+        f3: [1]u8,
     };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
+        .f3 = .{0x12},
     };
     var k = K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x1234,
+        .f3 = .{0x12},
     };
     byteSwapAllFields(T, &s);
     byteSwapAllFields(K, &k);
@@ -1935,11 +2037,13 @@ test "byteSwapAllFields" {
         .f0 = 0x12,
         .f1 = 0x3412,
         .f2 = 0x78563412,
+        .f3 = .{0x12},
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x3412,
+        .f3 = .{0x12},
     }, k);
 }
 
@@ -3262,7 +3366,7 @@ test "indexOfMax" {
 /// Finds the indices of the smallest and largest number in a slice. O(n).
 /// Returns an anonymous struct with the fields `index_min` and `index_max`.
 /// `slice` must not be empty.
-pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usize, index_max: usize } {
+pub fn indexOfMinMax(comptime T: type, slice: []const T) IndexOfMinMaxResult {
     assert(slice.len > 0);
     var minVal = slice[0];
     var maxVal = slice[0];
@@ -3281,10 +3385,12 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usi
     return .{ .index_min = minIdx, .index_max = maxIdx };
 }
 
+pub const IndexOfMinMaxResult = struct { index_min: usize, index_max: usize };
+
 test "indexOfMinMax" {
-    try testing.expectEqual(indexOfMinMax(u8, "abcdefg"), .{ .index_min = 0, .index_max = 6 });
-    try testing.expectEqual(indexOfMinMax(u8, "gabcdef"), .{ .index_min = 1, .index_max = 0 });
-    try testing.expectEqual(indexOfMinMax(u8, "a"), .{ .index_min = 0, .index_max = 0 });
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 6 }, indexOfMinMax(u8, "abcdefg"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 1, .index_max = 0 }, indexOfMinMax(u8, "gabcdef"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 0 }, indexOfMinMax(u8, "a"));
 }
 
 pub fn swap(comptime T: type, a: *T, b: *T) void {
@@ -4317,7 +4423,7 @@ test "read/write(Var)PackedInt" {
 
     const foreign_endian: Endian = if (native_endian == .big) .little else .big;
     const expect = std.testing.expect;
-    var prng = std.rand.DefaultPrng.init(1234);
+    var prng = std.Random.DefaultPrng.init(1234);
     const random = prng.random();
 
     @setEvalBranchQuota(10_000);

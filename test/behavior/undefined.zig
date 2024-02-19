@@ -84,3 +84,38 @@ test "type name of undefined" {
     const x = undefined;
     try expect(mem.eql(u8, @typeName(@TypeOf(x)), "@TypeOf(undefined)"));
 }
+
+var buf: []u8 = undefined;
+
+test "reslice of undefined global var slice" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    var stack_buf: [100]u8 = [_]u8{0} ** 100;
+    buf = &stack_buf;
+    const x = buf[0..1];
+    try @import("std").testing.expect(x.len == 1 and x[0] == 0);
+}
+
+test "returned undef is 0xaa bytes when runtime safety is enabled" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Rect = struct {
+        x: f32,
+        fn getUndefStruct() @This() {
+            @setRuntimeSafety(true);
+            return undefined;
+        }
+        fn getUndefInt() u32 {
+            @setRuntimeSafety(true);
+            return undefined;
+        }
+    };
+    try std.testing.expect(@as(u32, @bitCast(Rect.getUndefStruct().x)) == 0xAAAAAAAA);
+    try std.testing.expect(Rect.getUndefInt() == 0xAAAAAAAA);
+}

@@ -40,7 +40,8 @@ const assert = std.debug.assert;
 pub const Client = @import("tls/Client.zig");
 
 pub const record_header_len = 5;
-pub const max_ciphertext_len = (1 << 14) + 256;
+pub const max_cipertext_inner_record_len = 1 << 14;
+pub const max_ciphertext_len = max_cipertext_inner_record_len + 256;
 pub const max_ciphertext_record_len = max_ciphertext_len + record_header_len;
 pub const hello_retry_request_sequence = [32]u8{
     0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,

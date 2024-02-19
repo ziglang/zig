@@ -62,16 +62,16 @@ pub const Iterator = switch (builtin.os.tag) {
                     self.end_index = @as(usize, @intCast(rc));
                 }
                 const darwin_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + darwin_entry.reclen();
+                const next_index = self.index + darwin_entry.reclen;
                 self.index = next_index;
 
-                const name = @as([*]u8, @ptrCast(&darwin_entry.d_name))[0..darwin_entry.d_namlen];
+                const name = @as([*]u8, @ptrCast(&darwin_entry.name))[0..darwin_entry.namlen];
 
-                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (darwin_entry.d_ino == 0)) {
+                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (darwin_entry.ino == 0)) {
                     continue :start_over;
                 }
 
-                const entry_kind: Entry.Kind = switch (darwin_entry.d_type) {
+                const entry_kind: Entry.Kind = switch (darwin_entry.type) {
                     posix.DT.BLK => .block_device,
                     posix.DT.CHR => .character_device,
                     posix.DT.DIR => .directory,
@@ -110,14 +110,14 @@ pub const Iterator = switch (builtin.os.tag) {
                     self.end_index = @as(usize, @intCast(rc));
                 }
                 const entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + entry.reclen();
+                const next_index = self.index + entry.reclen;
                 self.index = next_index;
 
-                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&entry.d_name)), 0);
+                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&entry.name)), 0);
                 if (mem.eql(u8, name, ".") or mem.eql(u8, name, ".."))
                     continue :start_over;
 
-                // Solaris dirent doesn't expose d_type, so we have to call stat to get it.
+                // Solaris dirent doesn't expose type, so we have to call stat to get it.
                 const stat_info = posix.fstatat(
                     self.dir.fd,
                     name,
@@ -174,23 +174,23 @@ pub const Iterator = switch (builtin.os.tag) {
                     self.end_index = @as(usize, @intCast(rc));
                 }
                 const bsd_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + bsd_entry.reclen();
+                const next_index = self.index + if (@hasDecl(posix.system.dirent, "reclen")) bsd_entry.reclen() else bsd_entry.reclen;
                 self.index = next_index;
 
-                const name = @as([*]u8, @ptrCast(&bsd_entry.d_name))[0..bsd_entry.d_namlen];
+                const name = @as([*]u8, @ptrCast(&bsd_entry.name))[0..bsd_entry.namlen];
 
                 const skip_zero_fileno = switch (builtin.os.tag) {
-                    // d_fileno=0 is used to mark invalid entries or deleted files.
+                    // fileno=0 is used to mark invalid entries or deleted files.
                     .openbsd, .netbsd => true,
                     else => false,
                 };
                 if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or
-                    (skip_zero_fileno and bsd_entry.d_fileno == 0))
+                    (skip_zero_fileno and bsd_entry.fileno == 0))
                 {
                     continue :start_over;
                 }
 
-                const entry_kind: Entry.Kind = switch (bsd_entry.d_type) {
+                const entry_kind: Entry.Kind = switch (bsd_entry.type) {
                     posix.DT.BLK => .block_device,
                     posix.DT.CHR => .character_device,
                     posix.DT.DIR => .directory,
@@ -256,18 +256,18 @@ pub const Iterator = switch (builtin.os.tag) {
                     self.end_index = @as(usize, @intCast(rc));
                 }
                 const haiku_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + haiku_entry.reclen();
+                const next_index = self.index + haiku_entry.reclen;
                 self.index = next_index;
-                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&haiku_entry.d_name)), 0);
+                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&haiku_entry.name)), 0);
 
-                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.d_ino == 0)) {
+                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.ino == 0)) {
                     continue :start_over;
                 }
 
                 var stat_info: posix.Stat = undefined;
                 const rc = posix.system._kern_read_stat(
                     self.dir.fd,
-                    &haiku_entry.d_name,
+                    &haiku_entry.name,
                     false,
                     &stat_info,
                     0,
@@ -359,17 +359,17 @@ pub const Iterator = switch (builtin.os.tag) {
                     self.end_index = rc;
                 }
                 const linux_entry = @as(*align(1) linux.dirent64, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + linux_entry.reclen();
+                const next_index = self.index + linux_entry.reclen;
                 self.index = next_index;
 
-                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&linux_entry.d_name)), 0);
+                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&linux_entry.name)), 0);
 
                 // skip . and .. entries
                 if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
                     continue :start_over;
                 }
 
-                const entry_kind: Entry.Kind = switch (linux_entry.d_type) {
+                const entry_kind: Entry.Kind = switch (linux_entry.type) {
                     linux.DT.BLK => .block_device,
                     linux.DT.CHR => .character_device,
                     linux.DT.DIR => .directory,
@@ -525,23 +525,23 @@ pub const Iterator = switch (builtin.os.tag) {
                 const entry = @as(*align(1) w.dirent_t, @ptrCast(&self.buf[self.index]));
                 const entry_size = @sizeOf(w.dirent_t);
                 const name_index = self.index + entry_size;
-                if (name_index + entry.d_namlen > self.end_index) {
+                if (name_index + entry.namlen > self.end_index) {
                     // This case, the name is truncated, so we need to call readdir to store the entire name.
                     self.end_index = self.index; // Force fd_readdir in the next loop.
                     continue :start_over;
                 }
-                const name = self.buf[name_index .. name_index + entry.d_namlen];
+                const name = self.buf[name_index .. name_index + entry.namlen];
 
-                const next_index = name_index + entry.d_namlen;
+                const next_index = name_index + entry.namlen;
                 self.index = next_index;
-                self.cookie = entry.d_next;
+                self.cookie = entry.next;
 
                 // skip . and .. entries
                 if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
                     continue :start_over;
                 }
 
-                const entry_kind: Entry.Kind = switch (entry.d_type) {
+                const entry_kind: Entry.Kind = switch (entry.type) {
                     .BLOCK_DEVICE => .block_device,
                     .CHARACTER_DEVICE => .character_device,
                     .DIRECTORY => .directory,
@@ -751,11 +751,7 @@ pub const OpenError = error{
 } || posix.UnexpectedError;
 
 pub fn close(self: *Dir) void {
-    if (fs.need_async_thread) {
-        std.event.Loop.instance.?.close(self.fd);
-    } else {
-        posix.close(self.fd);
-    }
+    posix.close(self.fd);
     self.* = undefined;
 }
 
@@ -768,84 +764,79 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
         const path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.openFileW(path_w.span(), flags);
     }
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        return self.openFileWasi(sub_path, flags);
+    if (builtin.os.tag == .wasi) {
+        var base: std.os.wasi.rights_t = .{};
+        if (flags.isRead()) {
+            base.FD_READ = true;
+            base.FD_TELL = true;
+            base.FD_SEEK = true;
+            base.FD_FILESTAT_GET = true;
+        }
+        if (flags.isWrite()) {
+            base.FD_WRITE = true;
+            base.FD_TELL = true;
+            base.FD_SEEK = true;
+            base.FD_DATASYNC = true;
+            base.FD_FDSTAT_SET_FLAGS = true;
+            base.FD_SYNC = true;
+            base.FD_ALLOCATE = true;
+            base.FD_ADVISE = true;
+            base.FD_FILESTAT_SET_TIMES = true;
+            base.FD_FILESTAT_SET_SIZE = true;
+        }
+        const fd = try posix.openatWasi(self.fd, sub_path, .{}, .{}, .{}, base, .{});
+        return .{ .handle = fd };
     }
     const path_c = try posix.toPosixPath(sub_path);
     return self.openFileZ(&path_c, flags);
 }
 
-/// Same as `openFile` but WASI only.
-pub fn openFileWasi(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
-    const w = std.os.wasi;
-    var fdflags: w.fdflags_t = 0x0;
-    var base: w.rights_t = 0x0;
-    if (flags.isRead()) {
-        base |= w.RIGHT.FD_READ | w.RIGHT.FD_TELL | w.RIGHT.FD_SEEK | w.RIGHT.FD_FILESTAT_GET;
-    }
-    if (flags.isWrite()) {
-        fdflags |= w.FDFLAG.APPEND;
-        base |= w.RIGHT.FD_WRITE |
-            w.RIGHT.FD_TELL |
-            w.RIGHT.FD_SEEK |
-            w.RIGHT.FD_DATASYNC |
-            w.RIGHT.FD_FDSTAT_SET_FLAGS |
-            w.RIGHT.FD_SYNC |
-            w.RIGHT.FD_ALLOCATE |
-            w.RIGHT.FD_ADVISE |
-            w.RIGHT.FD_FILESTAT_SET_TIMES |
-            w.RIGHT.FD_FILESTAT_SET_SIZE;
-    }
-    const fd = try posix.openatWasi(self.fd, sub_path, 0x0, 0x0, fdflags, base, 0x0);
-    return File{ .handle = fd };
-}
-
 /// Same as `openFile` but the path parameter is null-terminated.
 pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
-    if (builtin.os.tag == .windows) {
-        const path_w = try std.os.windows.cStrToPrefixedFileW(self.fd, sub_path);
-        return self.openFileW(path_w.span(), flags);
+    switch (builtin.os.tag) {
+        .windows => {
+            const path_w = try std.os.windows.cStrToPrefixedFileW(self.fd, sub_path);
+            return self.openFileW(path_w.span(), flags);
+        },
+        .wasi => {
+            return openFile(self, mem.sliceTo(sub_path, 0), flags);
+        },
+        else => {},
     }
 
-    var os_flags: u32 = 0;
-    if (@hasDecl(posix.O, "CLOEXEC")) os_flags = posix.O.CLOEXEC;
+    var os_flags: posix.O = .{
+        .ACCMODE = switch (flags.mode) {
+            .read_only => .RDONLY,
+            .write_only => .WRONLY,
+            .read_write => .RDWR,
+        },
+    };
+    if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
+    if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
+    if (@hasField(posix.O, "NOCTTY")) os_flags.NOCTTY = !flags.allow_ctty;
 
     // Use the O locking flags if the os supports them to acquire the lock
     // atomically.
-    const has_flock_open_flags = @hasDecl(posix.O, "EXLOCK");
+    const has_flock_open_flags = @hasField(posix.O, "EXLOCK");
     if (has_flock_open_flags) {
-        // Note that the O.NONBLOCK flag is removed after the openat() call
+        // Note that the NONBLOCK flag is removed after the openat() call
         // is successful.
-        const nonblocking_lock_flag: u32 = if (flags.lock_nonblocking)
-            posix.O.NONBLOCK
-        else
-            0;
-        os_flags |= switch (flags.lock) {
-            .none => @as(u32, 0),
-            .shared => posix.O.SHLOCK | nonblocking_lock_flag,
-            .exclusive => posix.O.EXLOCK | nonblocking_lock_flag,
-        };
+        switch (flags.lock) {
+            .none => {},
+            .shared => {
+                os_flags.SHLOCK = true;
+                os_flags.NONBLOCK = flags.lock_nonblocking;
+            },
+            .exclusive => {
+                os_flags.EXLOCK = true;
+                os_flags.NONBLOCK = flags.lock_nonblocking;
+            },
+        }
     }
-    if (@hasDecl(posix.O, "LARGEFILE")) {
-        os_flags |= posix.O.LARGEFILE;
-    }
-    if (@hasDecl(posix.O, "NOCTTY") and !flags.allow_ctty) {
-        os_flags |= posix.O.NOCTTY;
-    }
-    os_flags |= switch (flags.mode) {
-        .read_only => @as(u32, posix.O.RDONLY),
-        .write_only => @as(u32, posix.O.WRONLY),
-        .read_write => @as(u32, posix.O.RDWR),
-    };
-    const fd = if (flags.intended_io_mode != .blocking)
-        try std.event.Loop.instance.?.openatZ(self.fd, sub_path, os_flags, 0)
-    else
-        try posix.openatZ(self.fd, sub_path, os_flags, 0);
+    const fd = try posix.openatZ(self.fd, sub_path, os_flags, 0);
     errdefer posix.close(fd);
 
-    // WASI doesn't have posix.flock so we intetinally check OS prior to the inner if block
-    // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
-    if (@hasDecl(posix.system, "LOCK") and builtin.target.os.tag != .wasi) {
+    if (@hasDecl(posix.system, "LOCK")) {
         if (!has_flock_open_flags and flags.lock != .none) {
             // TODO: integrate async I/O
             const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
@@ -866,7 +857,7 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
             error.LockedRegionLimitExceeded => unreachable,
             else => |e| return e,
         };
-        fl_flags &= ~@as(usize, posix.O.NONBLOCK);
+        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
         _ = posix.fcntl(fd, posix.F.SETFL, fl_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
@@ -877,11 +868,7 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
         };
     }
 
-    return File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = flags.intended_io_mode,
-    };
+    return .{ .handle = fd };
 }
 
 /// Same as `openFile` but Windows-only and the path parameter is
@@ -895,10 +882,7 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
                 (if (flags.isRead()) @as(u32, w.GENERIC_READ) else 0) |
                 (if (flags.isWrite()) @as(u32, w.GENERIC_WRITE) else 0),
             .creation = w.FILE_OPEN,
-            .io_mode = flags.intended_io_mode,
         }),
-        .capable_io_mode = std.io.default_mode,
-        .intended_io_mode = flags.intended_io_mode,
     };
     errdefer file.close();
     var io: w.IO_STATUS_BLOCK = undefined;
@@ -932,86 +916,81 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
         const path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.createFileW(path_w.span(), flags);
     }
-    if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        return self.createFileWasi(sub_path, flags);
+    if (builtin.os.tag == .wasi) {
+        return .{
+            .handle = try posix.openatWasi(self.fd, sub_path, .{}, .{
+                .CREAT = true,
+                .TRUNC = flags.truncate,
+                .EXCL = flags.exclusive,
+            }, .{}, .{
+                .FD_READ = flags.read,
+                .FD_WRITE = true,
+                .FD_DATASYNC = true,
+                .FD_SEEK = true,
+                .FD_TELL = true,
+                .FD_FDSTAT_SET_FLAGS = true,
+                .FD_SYNC = true,
+                .FD_ALLOCATE = true,
+                .FD_ADVISE = true,
+                .FD_FILESTAT_SET_TIMES = true,
+                .FD_FILESTAT_SET_SIZE = true,
+                .FD_FILESTAT_GET = true,
+            }, .{}),
+        };
     }
     const path_c = try posix.toPosixPath(sub_path);
     return self.createFileZ(&path_c, flags);
 }
 
-/// Same as `createFile` but WASI only.
-pub fn createFileWasi(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
-    const w = std.os.wasi;
-    var oflags = w.O.CREAT;
-    var base: w.rights_t = w.RIGHT.FD_WRITE |
-        w.RIGHT.FD_DATASYNC |
-        w.RIGHT.FD_SEEK |
-        w.RIGHT.FD_TELL |
-        w.RIGHT.FD_FDSTAT_SET_FLAGS |
-        w.RIGHT.FD_SYNC |
-        w.RIGHT.FD_ALLOCATE |
-        w.RIGHT.FD_ADVISE |
-        w.RIGHT.FD_FILESTAT_SET_TIMES |
-        w.RIGHT.FD_FILESTAT_SET_SIZE |
-        w.RIGHT.FD_FILESTAT_GET;
-    if (flags.read) {
-        base |= w.RIGHT.FD_READ;
-    }
-    if (flags.truncate) {
-        oflags |= w.O.TRUNC;
-    }
-    if (flags.exclusive) {
-        oflags |= w.O.EXCL;
-    }
-    const fd = try posix.openatWasi(self.fd, sub_path, 0x0, oflags, 0x0, base, 0x0);
-    return File{ .handle = fd };
-}
-
 /// Same as `createFile` but the path parameter is null-terminated.
 pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags) File.OpenError!File {
-    if (builtin.os.tag == .windows) {
-        const path_w = try std.os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-        return self.createFileW(path_w.span(), flags);
+    switch (builtin.os.tag) {
+        .windows => {
+            const path_w = try std.os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
+            return self.createFileW(path_w.span(), flags);
+        },
+        .wasi => {
+            return createFile(self, mem.sliceTo(sub_path_c, 0), flags);
+        },
+        else => {},
     }
 
-    // Use the O locking flags if the os supports them to acquire the lock
-    // atomically.
-    const has_flock_open_flags = @hasDecl(posix.O, "EXLOCK");
-    // Note that the O.NONBLOCK flag is removed after the openat() call
-    // is successful.
-    const nonblocking_lock_flag: u32 = if (has_flock_open_flags and flags.lock_nonblocking)
-        posix.O.NONBLOCK
-    else
-        0;
-    const lock_flag: u32 = if (has_flock_open_flags) switch (flags.lock) {
-        .none => @as(u32, 0),
-        .shared => posix.O.SHLOCK | nonblocking_lock_flag,
-        .exclusive => posix.O.EXLOCK | nonblocking_lock_flag,
-    } else 0;
+    var os_flags: std.os.O = .{
+        .ACCMODE = if (flags.read) .RDWR else .WRONLY,
+        .CREAT = true,
+        .TRUNC = flags.truncate,
+        .EXCL = flags.exclusive,
+    };
+    if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
+    if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
 
-    const O_LARGEFILE = if (@hasDecl(posix.O, "LARGEFILE")) posix.O.LARGEFILE else 0;
-    const os_flags = lock_flag | O_LARGEFILE | posix.O.CREAT | posix.O.CLOEXEC |
-        (if (flags.truncate) @as(u32, posix.O.TRUNC) else 0) |
-        (if (flags.read) @as(u32, posix.O.RDWR) else posix.O.WRONLY) |
-        (if (flags.exclusive) @as(u32, posix.O.EXCL) else 0);
-    const fd = if (flags.intended_io_mode != .blocking)
-        try std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, os_flags, flags.mode)
-    else
-        try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
+    // Use the O locking flags if the os supports them to acquire the lock
+    // atomically. Note that the NONBLOCK flag is removed after the openat()
+    // call is successful.
+    const has_flock_open_flags = @hasField(posix.O, "EXLOCK");
+    if (has_flock_open_flags) switch (flags.lock) {
+        .none => {},
+        .shared => {
+            os_flags.SHLOCK = true;
+            os_flags.NONBLOCK = flags.lock_nonblocking;
+        },
+        .exclusive => {
+            os_flags.EXLOCK = true;
+            os_flags.NONBLOCK = flags.lock_nonblocking;
+        },
+    };
+
+    const fd = try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
     errdefer posix.close(fd);
 
-    // WASI doesn't have posix.flock so we intetinally check OS prior to the inner if block
-    // since it is not compiltime-known and we need to avoid undefined symbol in Wasm.
-    if (builtin.target.os.tag != .wasi) {
-        if (!has_flock_open_flags and flags.lock != .none) {
-            // TODO: integrate async I/O
-            const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
-            try posix.flock(fd, switch (flags.lock) {
-                .none => unreachable,
-                .shared => posix.LOCK.SH | lock_nonblocking,
-                .exclusive => posix.LOCK.EX | lock_nonblocking,
-            });
-        }
+    if (!has_flock_open_flags and flags.lock != .none) {
+        // TODO: integrate async I/O
+        const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
+        try posix.flock(fd, switch (flags.lock) {
+            .none => unreachable,
+            .shared => posix.LOCK.SH | lock_nonblocking,
+            .exclusive => posix.LOCK.EX | lock_nonblocking,
+        });
     }
 
     if (has_flock_open_flags and flags.lock_nonblocking) {
@@ -1023,7 +1002,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
             error.LockedRegionLimitExceeded => unreachable,
             else => |e| return e,
         };
-        fl_flags &= ~@as(usize, posix.O.NONBLOCK);
+        fl_flags &= ~@as(usize, 1 << @bitOffsetOf(posix.O, "NONBLOCK"));
         _ = posix.fcntl(fd, posix.F.SETFL, fl_flags) catch |err| switch (err) {
             error.FileBusy => unreachable,
             error.Locked => unreachable,
@@ -1034,11 +1013,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
         };
     }
 
-    return File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = flags.intended_io_mode,
-    };
+    return .{ .handle = fd };
 }
 
 /// Same as `createFile` but Windows-only and the path parameter is
@@ -1056,10 +1031,7 @@ pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) 
                 @as(u32, w.FILE_OVERWRITE_IF)
             else
                 @as(u32, w.FILE_OPEN_IF),
-            .io_mode = flags.intended_io_mode,
         }),
-        .capable_io_mode = std.io.default_mode,
-        .intended_io_mode = flags.intended_io_mode,
     };
     errdefer file.close();
     var io: w.IO_STATUS_BLOCK = undefined;
@@ -1111,15 +1083,31 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
 /// Returns success if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
+///
+/// Paths containing `..` components are handled differently depending on the platform:
+/// - On Windows, `..` are resolved before the path is passed to NtCreateFile, meaning
+///   a `sub_path` like "first/../second" will resolve to "second" and only a
+///   `./second` directory will be created.
+/// - On other platforms, `..` are not resolved before the path is passed to `mkdirat`,
+///   meaning a `sub_path` like "first/../second" will create both a `./first`
+///   and a `./second` directory.
 pub fn makePath(self: Dir, sub_path: []const u8) !void {
     var it = try fs.path.componentIterator(sub_path);
     var component = it.last() orelse return;
     while (true) {
         self.makeDir(component.path) catch |err| switch (err) {
             error.PathAlreadyExists => {
-                // TODO stat the file and return an error if it's not a directory
+                // stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
                 // could cause an infinite loop
+                check_dir: {
+                    // workaround for windows, see https://github.com/ziglang/zig/issues/16738
+                    const fstat = self.statFile(component.path) catch |stat_err| switch (stat_err) {
+                        error.IsDir => break :check_dir,
+                        else => |e| return e,
+                    };
+                    if (fstat.kind != .directory) return error.NotDir;
+                }
             },
             error.FileNotFound => |e| {
                 component = it.previous() orelse return e;
@@ -1191,6 +1179,8 @@ pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOp
     };
 }
 
+pub const RealPathError = posix.RealPathError;
+
 ///  This function returns the canonicalized absolute pathname of
 /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
 /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
@@ -1198,7 +1188,7 @@ pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOp
 /// This function is not universally supported by all platforms.
 /// Currently supported hosts are: Linux, macOS, and Windows.
 /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
-pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
+pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError![]u8 {
     if (builtin.os.tag == .wasi) {
         @compileError("realpath is not available on WASI");
     }
@@ -1212,18 +1202,28 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) ![]u8 {
 
 /// Same as `Dir.realpath` except `pathname` is null-terminated.
 /// See also `Dir.realpath`, `realpathZ`.
-pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
+pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
         const pathname_w = try posix.windows.cStrToPrefixedFileW(self.fd, pathname);
         return self.realpathW(pathname_w.span(), out_buffer);
     }
 
-    const flags = if (builtin.os.tag == .linux)
-        posix.O.PATH | posix.O.NONBLOCK | posix.O.CLOEXEC
-    else
-        posix.O.NONBLOCK | posix.O.CLOEXEC;
+    const flags: posix.O = switch (builtin.os.tag) {
+        .linux => .{
+            .NONBLOCK = true,
+            .CLOEXEC = true,
+            .PATH = true,
+        },
+        else => .{
+            .NONBLOCK = true,
+            .CLOEXEC = true,
+        },
+    };
+
     const fd = posix.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
-        error.FileLocksNotSupported => unreachable,
+        error.FileLocksNotSupported => return error.Unexpected,
+        error.FileBusy => return error.Unexpected,
+        error.WouldBlock => return error.Unexpected,
         else => |e| return e,
     };
     defer posix.close(fd);
@@ -1248,7 +1248,7 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) ![]u8 {
 
 /// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
 /// See also `Dir.realpath`, `realpathW`.
-pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
+pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
     const w = std.os.windows;
 
     const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
@@ -1260,7 +1260,6 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
             .access_mask = access_mask,
             .share_access = share_access,
             .creation = creation,
-            .io_mode = .blocking,
             .filter = .any,
         }) catch |err| switch (err) {
             error.WouldBlock => unreachable,
@@ -1270,27 +1269,31 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) ![]u8 {
     };
     defer w.CloseHandle(h_file);
 
-    // Use of MAX_PATH_BYTES here is valid as the realpath function does not
-    // have a variant that takes an arbitrary-size buffer.
-    // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
-    // NULL out parameter (GNU's canonicalize_file_name) to handle overelong
-    // paths. musl supports passing NULL but restricts the output to PATH_MAX
-    // anyway.
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const out_path = try posix.getFdPath(h_file, &buffer);
-
-    if (out_path.len > out_buffer.len) {
+    var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
+    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
+    var big_out_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const end_index = std.unicode.utf16leToUtf8(&big_out_buf, wide_slice) catch |e| switch (e) {
+        // TODO: Windows file paths can be arbitrary arrays of u16 values and
+        // must not fail with InvalidUtf8.
+        error.DanglingSurrogateHalf,
+        error.ExpectedSecondSurrogateHalf,
+        error.UnexpectedSecondSurrogateHalf,
+        error.CodepointTooLarge,
+        error.Utf8CannotEncodeSurrogateHalf,
+        => return error.InvalidUtf8,
+    };
+    if (end_index > out_buffer.len)
         return error.NameTooLong;
-    }
-
-    const result = out_buffer[0..out_path.len];
-    @memcpy(result, out_path);
+    const result = out_buffer[0..end_index];
+    @memcpy(result, big_out_buf[0..end_index]);
     return result;
 }
 
+pub const RealPathAllocError = RealPathError || Allocator.Error;
+
 /// Same as `Dir.realpath` except caller must free the returned memory.
 /// See also `Dir.realpath`.
-pub fn realpathAlloc(self: Dir, allocator: Allocator, pathname: []const u8) ![]u8 {
+pub fn realpathAlloc(self: Dir, allocator: Allocator, pathname: []const u8) RealPathAllocError![]u8 {
     // Use of MAX_PATH_BYTES here is valid as the realpath function does not
     // have a variant that takes an arbitrary-size buffer.
     // TODO(#4812): Consider reimplementing realpath or using the POSIX.1-2008
@@ -1343,76 +1346,85 @@ pub const OpenDirOptions = struct {
 ///
 /// Asserts that the path parameter has no null bytes.
 pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
-    if (builtin.os.tag == .windows) {
-        const sub_path_w = try posix.windows.sliceToPrefixedFileW(self.fd, sub_path);
-        return self.openDirW(sub_path_w.span().ptr, args);
-    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        return self.openDirWasi(sub_path, args);
-    } else {
-        const sub_path_c = try posix.toPosixPath(sub_path);
-        return self.openDirZ(&sub_path_c, args);
-    }
-}
+    switch (builtin.os.tag) {
+        .windows => {
+            const sub_path_w = try posix.windows.sliceToPrefixedFileW(self.fd, sub_path);
+            return self.openDirW(sub_path_w.span().ptr, args);
+        },
+        .wasi => {
+            var base: std.os.wasi.rights_t = .{
+                .FD_FILESTAT_GET = true,
+                .FD_FDSTAT_SET_FLAGS = true,
+                .FD_FILESTAT_SET_TIMES = true,
+            };
+            if (args.access_sub_paths) {
+                base.FD_READDIR = true;
+                base.PATH_CREATE_DIRECTORY = true;
+                base.PATH_CREATE_FILE = true;
+                base.PATH_LINK_SOURCE = true;
+                base.PATH_LINK_TARGET = true;
+                base.PATH_OPEN = true;
+                base.PATH_READLINK = true;
+                base.PATH_RENAME_SOURCE = true;
+                base.PATH_RENAME_TARGET = true;
+                base.PATH_FILESTAT_GET = true;
+                base.PATH_FILESTAT_SET_SIZE = true;
+                base.PATH_FILESTAT_SET_TIMES = true;
+                base.PATH_SYMLINK = true;
+                base.PATH_REMOVE_DIRECTORY = true;
+                base.PATH_UNLINK_FILE = true;
+            }
 
-/// Same as `openDir` except only WASI.
-pub fn openDirWasi(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
-    const w = std.os.wasi;
-    var base: w.rights_t = w.RIGHT.FD_FILESTAT_GET | w.RIGHT.FD_FDSTAT_SET_FLAGS | w.RIGHT.FD_FILESTAT_SET_TIMES;
-    if (args.access_sub_paths) {
-        base |= w.RIGHT.FD_READDIR |
-            w.RIGHT.PATH_CREATE_DIRECTORY |
-            w.RIGHT.PATH_CREATE_FILE |
-            w.RIGHT.PATH_LINK_SOURCE |
-            w.RIGHT.PATH_LINK_TARGET |
-            w.RIGHT.PATH_OPEN |
-            w.RIGHT.PATH_READLINK |
-            w.RIGHT.PATH_RENAME_SOURCE |
-            w.RIGHT.PATH_RENAME_TARGET |
-            w.RIGHT.PATH_FILESTAT_GET |
-            w.RIGHT.PATH_FILESTAT_SET_SIZE |
-            w.RIGHT.PATH_FILESTAT_SET_TIMES |
-            w.RIGHT.PATH_SYMLINK |
-            w.RIGHT.PATH_REMOVE_DIRECTORY |
-            w.RIGHT.PATH_UNLINK_FILE;
+            const result = posix.openatWasi(
+                self.fd,
+                sub_path,
+                .{ .SYMLINK_FOLLOW = !args.no_follow },
+                .{ .DIRECTORY = true },
+                .{},
+                base,
+                base,
+            );
+            const fd = result catch |err| switch (err) {
+                error.FileTooBig => unreachable, // can't happen for directories
+                error.IsDir => unreachable, // we're setting DIRECTORY
+                error.NoSpaceLeft => unreachable, // not setting CREAT
+                error.PathAlreadyExists => unreachable, // not setting CREAT
+                error.FileLocksNotSupported => unreachable, // locking folders is not supported
+                error.WouldBlock => unreachable, // can't happen for directories
+                error.FileBusy => unreachable, // can't happen for directories
+                else => |e| return e,
+            };
+            return .{ .fd = fd };
+        },
+        else => {
+            const sub_path_c = try posix.toPosixPath(sub_path);
+            return self.openDirZ(&sub_path_c, args);
+        },
     }
-    const symlink_flags: w.lookupflags_t = if (args.no_follow) 0x0 else w.LOOKUP_SYMLINK_FOLLOW;
-    // TODO do we really need all the rights here?
-    const inheriting: w.rights_t = w.RIGHT.ALL ^ w.RIGHT.SOCK_SHUTDOWN;
-
-    const result = posix.openatWasi(
-        self.fd,
-        sub_path,
-        symlink_flags,
-        w.O.DIRECTORY,
-        0x0,
-        base,
-        inheriting,
-    );
-    const fd = result catch |err| switch (err) {
-        error.FileTooBig => unreachable, // can't happen for directories
-        error.IsDir => unreachable, // we're providing O.DIRECTORY
-        error.NoSpaceLeft => unreachable, // not providing O.CREAT
-        error.PathAlreadyExists => unreachable, // not providing O.CREAT
-        error.FileLocksNotSupported => unreachable, // locking folders is not supported
-        error.WouldBlock => unreachable, // can't happen for directories
-        error.FileBusy => unreachable, // can't happen for directories
-        else => |e| return e,
-    };
-    return Dir{ .fd = fd };
 }
 
 /// Same as `openDir` except the parameter is null-terminated.
 pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
-    if (builtin.os.tag == .windows) {
-        const sub_path_w = try std.os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-        return self.openDirW(sub_path_w.span().ptr, args);
-    }
-    const symlink_flags: u32 = if (args.no_follow) posix.O.NOFOLLOW else 0x0;
-    if (!args.iterate) {
-        const O_PATH = if (@hasDecl(posix.O, "PATH")) posix.O.PATH else 0;
-        return self.openDirFlagsZ(sub_path_c, posix.O.DIRECTORY | posix.O.RDONLY | posix.O.CLOEXEC | O_PATH | symlink_flags);
-    } else {
-        return self.openDirFlagsZ(sub_path_c, posix.O.DIRECTORY | posix.O.RDONLY | posix.O.CLOEXEC | symlink_flags);
+    switch (builtin.os.tag) {
+        .windows => {
+            const sub_path_w = try std.os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
+            return self.openDirW(sub_path_w.span().ptr, args);
+        },
+        .wasi => {
+            return openDir(self, mem.sliceTo(sub_path_c, 0), args);
+        },
+        else => {
+            var symlink_flags: posix.O = .{
+                .ACCMODE = .RDONLY,
+                .NOFOLLOW = args.no_follow,
+                .DIRECTORY = true,
+                .CLOEXEC = true,
+            };
+            if (@hasField(posix.O, "PATH") and !args.iterate)
+                symlink_flags.PATH = true;
+
+            return self.openDirFlagsZ(sub_path_c, symlink_flags);
+        },
     }
 }
 
@@ -1431,17 +1443,14 @@ pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) Ope
     return dir;
 }
 
-/// `flags` must contain `posix.O.DIRECTORY`.
-fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: u32) OpenError!Dir {
-    const result = if (fs.need_async_thread)
-        std.event.Loop.instance.?.openatZ(self.fd, sub_path_c, flags, 0)
-    else
-        posix.openatZ(self.fd, sub_path_c, flags, 0);
-    const fd = result catch |err| switch (err) {
+/// Asserts `flags` has `DIRECTORY` set.
+fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError!Dir {
+    assert(flags.DIRECTORY);
+    const fd = posix.openatZ(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
         error.FileTooBig => unreachable, // can't happen for directories
-        error.IsDir => unreachable, // we're providing O.DIRECTORY
-        error.NoSpaceLeft => unreachable, // not providing O.CREAT
-        error.PathAlreadyExists => unreachable, // not providing O.CREAT
+        error.IsDir => unreachable, // we're setting DIRECTORY
+        error.NoSpaceLeft => unreachable, // not setting CREAT
+        error.PathAlreadyExists => unreachable, // not setting CREAT
         error.FileLocksNotSupported => unreachable, // locking folders is not supported
         error.WouldBlock => unreachable, // can't happen for directories
         error.FileBusy => unreachable, // can't happen for directories
@@ -2254,10 +2263,7 @@ pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) Access
         .write_only => @as(u32, posix.W_OK),
         .read_write => @as(u32, posix.R_OK | posix.W_OK),
     };
-    const result = if (fs.need_async_thread and flags.intended_io_mode != .blocking)
-        std.event.Loop.instance.?.faccessatZ(self.fd, sub_path, os_mode, 0)
-    else
-        posix.faccessatZ(self.fd, sub_path, os_mode, 0);
+    const result = posix.faccessatZ(self.fd, sub_path, os_mode, 0);
     return result;
 }
 
@@ -2416,15 +2422,21 @@ fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRa
 
 pub const AtomicFileOptions = struct {
     mode: File.Mode = File.default_mode,
+    make_path: bool = false,
 };
 
-/// Directly access the `.file` field, and then call `AtomicFile.finish`
-/// to atomically replace `dest_path` with contents.
-/// Always call `AtomicFile.deinit` to clean up, regardless of whether `AtomicFile.finish` succeeded.
-/// `dest_path` must remain valid until `AtomicFile.deinit` is called.
+/// Directly access the `.file` field, and then call `AtomicFile.finish` to
+/// atomically replace `dest_path` with contents.
+/// Always call `AtomicFile.deinit` to clean up, regardless of whether
+/// `AtomicFile.finish` succeeded. `dest_path` must remain valid until
+/// `AtomicFile.deinit` is called.
 pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
     if (fs.path.dirname(dest_path)) |dirname| {
-        const dir = try self.openDir(dirname, .{});
+        const dir = if (options.make_path)
+            try self.makeOpenPath(dirname, .{})
+        else
+            try self.openDir(dirname, .{});
+
         return AtomicFile.init(fs.path.basename(dest_path), options.mode, dir, true);
     } else {
         return AtomicFile.init(dest_path, options.mode, self, false);
@@ -2435,10 +2447,7 @@ pub const Stat = File.Stat;
 pub const StatError = File.StatError;
 
 pub fn stat(self: Dir) StatError!Stat {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     return file.stat();
 }
 
@@ -2459,8 +2468,8 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         return file.stat();
     }
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const st = try posix.fstatatWasi(self.fd, sub_path, posix.wasi.LOOKUP_SYMLINK_FOLLOW);
-        return Stat.fromSystem(st);
+        const st = try posix.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
+        return Stat.fromWasi(st);
     }
     const st = try posix.fstatat(self.fd, sub_path, 0);
     return Stat.fromSystem(st);
@@ -2474,10 +2483,7 @@ pub const ChmodError = File.ChmodError;
 /// of the directory. Additionally, the directory must have been opened
 /// with `OpenDirOptions{ .iterate = true }`.
 pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     try file.chmod(new_mode);
 }
 
@@ -2488,10 +2494,7 @@ pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
 /// must have been opened with `OpenDirOptions{ .iterate = true }`. If the
 /// owner or group is specified as `null`, the ID is not changed.
 pub fn chown(self: Dir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     try file.chown(owner, group);
 }
 
@@ -2503,10 +2506,7 @@ pub const SetPermissionsError = File.SetPermissionsError;
 /// Sets permissions according to the provided `Permissions` struct.
 /// This method is *NOT* available on WASI
 pub fn setPermissions(self: Dir, permissions: Permissions) SetPermissionsError!void {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     try file.setPermissions(permissions);
 }
 
@@ -2515,10 +2515,7 @@ pub const MetadataError = File.MetadataError;
 
 /// Returns a `Metadata` struct, representing the permissions on the directory
 pub fn metadata(self: Dir) MetadataError!Metadata {
-    const file: File = .{
-        .handle = self.fd,
-        .capable_io_mode = .blocking,
-    };
+    const file: File = .{ .handle = self.fd };
     return try file.metadata();
 }
 
@@ -2532,3 +2529,4 @@ const posix = std.os;
 const mem = std.mem;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;

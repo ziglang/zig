@@ -247,7 +247,7 @@ test "EnvMap" {
 }
 
 /// Returns a snapshot of the environment variables of the current process.
-/// Any modifications to the resulting EnvMap will not be not reflected in the environment, and
+/// Any modifications to the resulting EnvMap will not be reflected in the environment, and
 /// likewise, any future modifications to the environment will not be reflected in the EnvMap.
 /// Caller owns resulting `EnvMap` and should call its `deinit` fn when done.
 pub fn getEnvMap(allocator: Allocator) !EnvMap {
@@ -1522,8 +1522,11 @@ pub const TotalSystemMemoryError = error{
     UnknownTotalSystemMemory,
 };
 
-/// Returns the total system memory, in bytes.
-pub fn totalSystemMemory() TotalSystemMemoryError!usize {
+/// Returns the total system memory, in bytes as a u64.
+/// We return a u64 instead of usize due to PAE on ARM
+/// and Linux's /proc/meminfo reporting more memory when
+/// using QEMU user mode emulation.
+pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
     switch (builtin.os.tag) {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
@@ -1552,7 +1555,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
                 else => return error.UnknownTotalSystemMemory,
             };
             assert(physmem >= 0);
-            return @as(usize, @bitCast(physmem));
+            return @as(u64, @bitCast(physmem));
         },
         .windows => {
             var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
@@ -1565,13 +1568,13 @@ pub fn totalSystemMemory() TotalSystemMemoryError!usize {
             if (rc != .SUCCESS) {
                 return error.UnknownTotalSystemMemory;
             }
-            return @as(usize, sbi.NumberOfPhysicalPages) * sbi.PageSize;
+            return @as(u64, sbi.NumberOfPhysicalPages) * sbi.PageSize;
         },
         else => return error.UnknownTotalSystemMemory,
     }
 }
 
-fn totalSystemMemoryLinux() !usize {
+fn totalSystemMemoryLinux() !u64 {
     var file = try std.fs.openFileAbsoluteZ("/proc/meminfo", .{});
     defer file.close();
     var buf: [50]u8 = undefined;
@@ -1583,7 +1586,7 @@ fn totalSystemMemoryLinux() !usize {
     const int_text = it.next() orelse return error.Unexpected;
     const units = it.next() orelse return error.Unexpected;
     if (!std.mem.eql(u8, units, "kB")) return error.Unexpected;
-    const kilobytes = try std.fmt.parseInt(usize, int_text, 10);
+    const kilobytes = try std.fmt.parseInt(u64, int_text, 10);
     return kilobytes * 1024;
 }
 

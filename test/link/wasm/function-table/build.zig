@@ -16,7 +16,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const import_table = b.addExecutable(.{
         .name = "import_table",
         .root_source_file = .{ .path = "lib.zig" },
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         .optimize = optimize,
     });
     import_table.entry = .disabled;
@@ -28,7 +28,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const export_table = b.addExecutable(.{
         .name = "export_table",
         .root_source_file = .{ .path = "lib.zig" },
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         .optimize = optimize,
     });
     export_table.entry = .disabled;
@@ -40,7 +40,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const regular_table = b.addExecutable(.{
         .name = "regular_table",
         .root_source_file = .{ .path = "lib.zig" },
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         .optimize = optimize,
     });
     regular_table.entry = .disabled;

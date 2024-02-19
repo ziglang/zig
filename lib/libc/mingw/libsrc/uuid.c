@@ -14,6 +14,7 @@
 #define INITGUID
 #include <basetyps.h>
 
+#include <credentialprovider.h>
 #include <textstor.h>
 #include <shobjidl.h>
 #include <propkey.h>
@@ -24,7 +25,16 @@
 #include <oledb.h>
 #include <uiautomation.h>
 #include <urlmon.h>
+
 #include <d2d1_1.h>
+#include <d2d1_2.h>
+#include <d2d1_3.h>
+#include <d2d1effectauthor.h>
+#include <d2d1effects.h>
+#include <d2d1effects_1.h>
+#include <d2d1effects_2.h>
+#include <d2d1svg.h>
+
 #include <d3d11_1.h>
 #include <directmanipulation.h>
 #include <netlistmgr.h>

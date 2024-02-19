@@ -80,7 +80,9 @@ fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     assert(emit.err_msg == null);
-    emit.err_msg = try ErrorMsg.create(emit.bin_file.allocator, emit.src_loc, format, args);
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
+    emit.err_msg = try ErrorMsg.create(gpa, emit.src_loc, format, args);
     return error.EmitFail;
 }
 

@@ -1,25 +1,149 @@
-file: fs.File,
-fat_offset: u64,
-name: []const u8,
-header: ar_hdr = undefined,
+objects: std.ArrayListUnmanaged(Object) = .{},
 
-/// Parsed table of contents.
-/// Each symbol name points to a list of all definition
-/// sites within the current static archive.
-toc: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(u32)) = .{},
+pub fn isArchive(path: []const u8, fat_arch: ?fat.Arch) !bool {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+    if (fat_arch) |arch| {
+        try file.seekTo(arch.offset);
+    }
+    const magic = file.reader().readBytesNoEof(SARMAG) catch return false;
+    if (!mem.eql(u8, &magic, ARMAG)) return false;
+    return true;
+}
+
+pub fn deinit(self: *Archive, allocator: Allocator) void {
+    self.objects.deinit(allocator);
+}
+
+pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
+    const gpa = macho_file.base.comp.gpa;
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+
+    const handle = macho_file.getFileHandle(handle_index);
+    const offset = if (fat_arch) |ar| ar.offset else 0;
+    const size = if (fat_arch) |ar| ar.size else (try handle.stat()).size;
+
+    var pos: usize = offset + SARMAG;
+    while (true) {
+        if (pos >= size) break;
+        if (!mem.isAligned(pos, 2)) pos += 1;
+
+        var hdr_buffer: [@sizeOf(ar_hdr)]u8 = undefined;
+        {
+            const amt = try handle.preadAll(&hdr_buffer, pos);
+            if (amt != @sizeOf(ar_hdr)) return error.InputOutput;
+        }
+        const hdr = @as(*align(1) const ar_hdr, @ptrCast(&hdr_buffer)).*;
+        pos += @sizeOf(ar_hdr);
+
+        if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
+            try macho_file.reportParseError(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
+                std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            });
+            return error.MalformedArchive;
+        }
+
+        var hdr_size = try hdr.size();
+        const name = name: {
+            if (hdr.name()) |n| break :name n;
+            if (try hdr.nameLength()) |len| {
+                hdr_size -= len;
+                const buf = try arena.allocator().alloc(u8, len);
+                const amt = try handle.preadAll(buf, pos);
+                if (amt != len) return error.InputOutput;
+                pos += len;
+                const actual_len = mem.indexOfScalar(u8, buf, @as(u8, 0)) orelse len;
+                break :name buf[0..actual_len];
+            }
+            unreachable;
+        };
+        defer pos += hdr_size;
+
+        if (mem.eql(u8, name, SYMDEF) or
+            mem.eql(u8, name, SYMDEF64) or
+            mem.eql(u8, name, SYMDEF_SORTED) or
+            mem.eql(u8, name, SYMDEF64_SORTED)) continue;
+
+        const object = Object{
+            .archive = .{
+                .path = try gpa.dupe(u8, path),
+                .offset = pos,
+            },
+            .path = try gpa.dupe(u8, name),
+            .file_handle = handle_index,
+            .index = undefined,
+            .alive = false,
+            .mtime = hdr.date() catch 0,
+        };
+
+        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, path });
+
+        try self.objects.append(gpa, object);
+    }
+}
+
+pub fn writeHeader(
+    object_name: []const u8,
+    object_size: usize,
+    format: Format,
+    writer: anytype,
+) !void {
+    var hdr: ar_hdr = .{
+        .ar_name = undefined,
+        .ar_date = undefined,
+        .ar_uid = undefined,
+        .ar_gid = undefined,
+        .ar_mode = undefined,
+        .ar_size = undefined,
+        .ar_fmag = undefined,
+    };
+    @memset(mem.asBytes(&hdr), 0x20);
+    inline for (@typeInfo(ar_hdr).Struct.fields) |field| {
+        var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
+        stream.writer().print("0", .{}) catch unreachable;
+    }
+    @memcpy(&hdr.ar_fmag, ARFMAG);
+
+    const object_name_len = mem.alignForward(usize, object_name.len + 1, ptrWidth(format));
+    const total_object_size = object_size + object_name_len;
+
+    {
+        var stream = std.io.fixedBufferStream(&hdr.ar_name);
+        stream.writer().print("#1/{d}", .{object_name_len}) catch unreachable;
+    }
+    {
+        var stream = std.io.fixedBufferStream(&hdr.ar_size);
+        stream.writer().print("{d}", .{total_object_size}) catch unreachable;
+    }
+
+    try writer.writeAll(mem.asBytes(&hdr));
+    try writer.print("{s}\x00", .{object_name});
+
+    const padding = object_name_len - object_name.len - 1;
+    if (padding > 0) {
+        try writer.writeByteNTimes(0, padding);
+    }
+}
 
 // Archive files start with the ARMAG identifying string.  Then follows a
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'
 // member indicates, for each member file.
 /// String that begins an archive file.
-const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
+pub const ARMAG: *const [SARMAG:0]u8 = "!<arch>\n";
 /// Size of that string.
-const SARMAG: u4 = 8;
+pub const SARMAG: u4 = 8;
 
 /// String in ar_fmag at the end of each header.
 const ARFMAG: *const [2:0]u8 = "`\n";
 
-const ar_hdr = extern struct {
+pub const SYMDEF = "__.SYMDEF";
+pub const SYMDEF64 = "__.SYMDEF_64";
+pub const SYMDEF_SORTED = "__.SYMDEF SORTED";
+pub const SYMDEF64_SORTED = "__.SYMDEF_64 SORTED";
+
+pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
     ar_name: [16]u8,
 
@@ -41,177 +165,156 @@ const ar_hdr = extern struct {
     /// Always contains ARFMAG.
     ar_fmag: [2]u8,
 
-    const NameOrLength = union(enum) {
-        Name: []const u8,
-        Length: u32,
-    };
-    fn nameOrLength(self: ar_hdr) !NameOrLength {
-        const value = getValue(&self.ar_name);
-        const slash_index = mem.indexOf(u8, value, "/") orelse return error.MalformedArchive;
-        const len = value.len;
-        if (slash_index == len - 1) {
-            // Name stored directly
-            return NameOrLength{ .Name = value };
-        } else {
-            // Name follows the header directly and its length is encoded in
-            // the name field.
-            const length = try std.fmt.parseInt(u32, value[slash_index + 1 ..], 10);
-            return NameOrLength{ .Length = length };
-        }
-    }
-
     fn date(self: ar_hdr) !u64 {
-        const value = getValue(&self.ar_date);
+        const value = mem.trimRight(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u64, value, 10);
     }
 
     fn size(self: ar_hdr) !u32 {
-        const value = getValue(&self.ar_size);
+        const value = mem.trimRight(u8, &self.ar_size, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u32, value, 10);
     }
 
-    fn getValue(raw: []const u8) []const u8 {
-        return mem.trimRight(u8, raw, &[_]u8{@as(u8, 0x20)});
+    fn name(self: *const ar_hdr) ?[]const u8 {
+        const value = &self.ar_name;
+        if (mem.startsWith(u8, value, "#1/")) return null;
+        const sentinel = mem.indexOfScalar(u8, value, '/') orelse value.len;
+        return value[0..sentinel];
+    }
+
+    fn nameLength(self: ar_hdr) !?u32 {
+        const value = &self.ar_name;
+        if (!mem.startsWith(u8, value, "#1/")) return null;
+        const trimmed = mem.trimRight(u8, self.ar_name["#1/".len..], &[_]u8{0x20});
+        return try std.fmt.parseInt(u32, trimmed, 10);
     }
 };
 
-pub fn isArchive(file: fs.File, fat_offset: u64) bool {
-    const reader = file.reader();
-    const magic = reader.readBytesNoEof(SARMAG) catch return false;
-    defer file.seekTo(fat_offset) catch {};
-    return mem.eql(u8, &magic, ARMAG);
-}
+pub const ArSymtab = struct {
+    entries: std.ArrayListUnmanaged(Entry) = .{},
+    strtab: StringTable = .{},
 
-pub fn deinit(self: *Archive, allocator: Allocator) void {
-    self.file.close();
-    for (self.toc.keys()) |*key| {
-        allocator.free(key.*);
+    pub fn deinit(ar: *ArSymtab, allocator: Allocator) void {
+        ar.entries.deinit(allocator);
+        ar.strtab.deinit(allocator);
     }
-    for (self.toc.values()) |*value| {
-        value.deinit(allocator);
+
+    pub fn sort(ar: *ArSymtab) void {
+        mem.sort(Entry, ar.entries.items, {}, Entry.lessThan);
     }
-    self.toc.deinit(allocator);
-    allocator.free(self.name);
-}
 
-pub fn parse(self: *Archive, allocator: Allocator, reader: anytype) !void {
-    _ = try reader.readBytesNoEof(SARMAG);
-    self.header = try reader.readStruct(ar_hdr);
-    const name_or_length = try self.header.nameOrLength();
-    const embedded_name = try parseName(allocator, name_or_length, reader);
-    log.debug("parsing archive '{s}' at '{s}'", .{ embedded_name, self.name });
-    defer allocator.free(embedded_name);
-
-    try self.parseTableOfContents(allocator, reader);
-}
-
-fn parseName(allocator: Allocator, name_or_length: ar_hdr.NameOrLength, reader: anytype) ![]u8 {
-    var name: []u8 = undefined;
-    switch (name_or_length) {
-        .Name => |n| {
-            name = try allocator.dupe(u8, n);
-        },
-        .Length => |len| {
-            var n = try allocator.alloc(u8, len);
-            defer allocator.free(n);
-            try reader.readNoEof(n);
-            const actual_len = mem.indexOfScalar(u8, n, @as(u8, 0)) orelse n.len;
-            name = try allocator.dupe(u8, n[0..actual_len]);
-        },
+    pub fn size(ar: ArSymtab, format: Format) usize {
+        const ptr_width = ptrWidth(format);
+        return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
-    return name;
-}
 
-fn parseTableOfContents(self: *Archive, allocator: Allocator, reader: anytype) !void {
-    const symtab_size = try reader.readInt(u32, .little);
-    const symtab = try allocator.alloc(u8, symtab_size);
-    defer allocator.free(symtab);
-
-    reader.readNoEof(symtab) catch {
-        log.debug("incomplete symbol table: expected symbol table of length 0x{x}", .{symtab_size});
-        return error.MalformedArchive;
-    };
-
-    const strtab_size = try reader.readInt(u32, .little);
-    const strtab = try allocator.alloc(u8, strtab_size);
-    defer allocator.free(strtab);
-
-    reader.readNoEof(strtab) catch {
-        log.debug("incomplete symbol table: expected string table of length 0x{x}", .{strtab_size});
-        return error.MalformedArchive;
-    };
-
-    var symtab_stream = std.io.fixedBufferStream(symtab);
-    var symtab_reader = symtab_stream.reader();
-
-    while (true) {
-        const n_strx = symtab_reader.readInt(u32, .little) catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| return e,
-        };
-        const object_offset = try symtab_reader.readInt(u32, .little);
-
-        const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + n_strx)), 0);
-        const owned_name = try allocator.dupe(u8, sym_name);
-        const res = try self.toc.getOrPut(allocator, owned_name);
-        defer if (res.found_existing) allocator.free(owned_name);
-
-        if (!res.found_existing) {
-            res.value_ptr.* = .{};
+    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: anytype) !void {
+        const ptr_width = ptrWidth(format);
+        // Header
+        try writeHeader(SYMDEF, ar.size(format), format, writer);
+        // Symtab size
+        try writeInt(format, ar.entries.items.len * 2 * ptr_width, writer);
+        // Symtab entries
+        for (ar.entries.items) |entry| {
+            const file_off = switch (macho_file.getFile(entry.file).?) {
+                .zig_object => |x| x.output_ar_state.file_off,
+                .object => |x| x.output_ar_state.file_off,
+                else => unreachable,
+            };
+            // Name offset
+            try writeInt(format, entry.off, writer);
+            // File offset
+            try writeInt(format, file_off, writer);
         }
+        // Strtab size
+        const strtab_size = mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
+        const padding = strtab_size - ar.strtab.buffer.items.len;
+        try writeInt(format, strtab_size, writer);
+        // Strtab
+        try writer.writeAll(ar.strtab.buffer.items);
+        if (padding > 0) {
+            try writer.writeByteNTimes(0, padding);
+        }
+    }
 
-        try res.value_ptr.append(allocator, object_offset);
+    const FormatContext = struct {
+        ar: ArSymtab,
+        macho_file: *MachO,
+    };
+
+    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(format2) {
+        return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
+    }
+
+    fn format2(
+        ctx: FormatContext,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        const ar = ctx.ar;
+        const macho_file = ctx.macho_file;
+        for (ar.entries.items, 0..) |entry, i| {
+            const name = ar.strtab.getAssumeExists(entry.off);
+            const file = macho_file.getFile(entry.file).?;
+            try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file, file.fmtPath() });
+        }
+    }
+
+    const Entry = struct {
+        /// Symbol name offset
+        off: u32,
+        /// Exporting file
+        file: File.Index,
+
+        pub fn lessThan(ctx: void, lhs: Entry, rhs: Entry) bool {
+            _ = ctx;
+            if (lhs.off == rhs.off) return lhs.file < rhs.file;
+            return lhs.off < rhs.off;
+        }
+    };
+};
+
+pub const Format = enum {
+    p32,
+    p64,
+};
+
+pub fn ptrWidth(format: Format) usize {
+    return switch (format) {
+        .p32 => @as(usize, 4),
+        .p64 => 8,
+    };
+}
+
+pub fn writeInt(format: Format, value: u64, writer: anytype) !void {
+    switch (format) {
+        .p32 => try writer.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
+        .p64 => try writer.writeInt(u64, value, .little),
     }
 }
 
-pub fn parseObject(self: Archive, gpa: Allocator, offset: u32) !Object {
-    const reader = self.file.reader();
-    try reader.context.seekTo(self.fat_offset + offset);
+pub const ArState = struct {
+    /// File offset of the ar_hdr describing the contributing
+    /// object in the archive.
+    file_off: u64 = 0,
 
-    const object_header = try reader.readStruct(ar_hdr);
+    /// Total size of the contributing object (excludes ar_hdr and long name with padding).
+    size: u64 = 0,
+};
 
-    const name_or_length = try object_header.nameOrLength();
-    const object_name = try parseName(gpa, name_or_length, reader);
-    defer gpa.free(object_name);
-
-    log.debug("extracting object '{s}' from archive '{s}'", .{ object_name, self.name });
-
-    const name = name: {
-        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const path = try std.os.realpath(self.name, &buffer);
-        break :name try std.fmt.allocPrint(gpa, "{s}({s})", .{ path, object_name });
-    };
-
-    const object_name_len = switch (name_or_length) {
-        .Name => 0,
-        .Length => |len| len,
-    };
-    const object_size = (try object_header.size()) - object_name_len;
-    const contents = try gpa.allocWithOptions(u8, object_size, @alignOf(u64), null);
-    const amt = try reader.readAll(contents);
-    if (amt != object_size) {
-        return error.InputOutput;
-    }
-
-    var object = Object{
-        .name = name,
-        .mtime = object_header.date() catch 0,
-        .contents = contents,
-    };
-
-    try object.parse(gpa);
-
-    return object;
-}
-
-const Archive = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const fs = std.fs;
+const fat = @import("fat.zig");
+const link = @import("../../link.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
+const std = @import("std");
 
 const Allocator = mem.Allocator;
+const Archive = @This();
+const File = @import("file.zig").File;
+const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
+const StringTable = @import("../StringTable.zig");

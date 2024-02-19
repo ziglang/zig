@@ -7,8 +7,8 @@ const Client = http.Client;
 const mem = std.mem;
 const testing = std.testing;
 
-pub const std_options = struct {
-    pub const http_disable_tls = true;
+pub const std_options = .{
+    .http_disable_tls = true,
 };
 
 const max_header_size = 8192;
@@ -220,7 +220,7 @@ pub fn main() !void {
 
     defer _ = gpa_client.deinit();
 
-    server = Server.init(salloc, .{ .reuse_address = true });
+    server = Server.init(.{ .reuse_address = true });
 
     const addr = std.net.Address.parseIp("127.0.0.1", 0) catch unreachable;
     try server.listen(addr);

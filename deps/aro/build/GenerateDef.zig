@@ -21,7 +21,7 @@ pub const Options = struct {
     pub const Kind = enum { dafsa, named };
 };
 
-pub fn create(owner: *std.Build, options: Options) std.Build.ModuleDependency {
+pub fn create(owner: *std.Build, options: Options) std.Build.Module.Import {
     const self = owner.allocator.create(GenerateDef) catch @panic("OOM");
     const path = owner.pathJoin(&.{ options.src_prefix, options.name });
 
@@ -39,7 +39,7 @@ pub fn create(owner: *std.Build, options: Options) std.Build.ModuleDependency {
         .generated_file = .{ .step = &self.step },
     };
     const module = self.step.owner.createModule(.{
-        .source_file = .{ .generated = &self.generated_file },
+        .root_source_file = .{ .generated = &self.generated_file },
     });
     return .{
         .module = module,
@@ -53,7 +53,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(GenerateDef, "step", step);
     const arena = b.allocator;
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     // Random bytes to make GenerateDef unique. Refresh this with new

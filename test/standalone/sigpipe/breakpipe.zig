@@ -1,11 +1,11 @@
 const std = @import("std");
 const build_options = @import("build_options");
 
-pub const std_options = if (build_options.keep_sigpipe) struct {
-    pub const keep_sigpipe = true;
-} else struct {
-    // intentionally not setting keep_sigpipe to ensure the default behavior is equivalent to false
-};
+pub usingnamespace if (build_options.keep_sigpipe) struct {
+    pub const std_options = .{
+        .keep_sigpipe = true,
+    };
+} else struct {};
 
 pub fn main() !void {
     const pipe = try std.os.pipe();

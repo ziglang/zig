@@ -1350,9 +1350,10 @@ pub fn hasInclude(
     }
 
     var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
+    const sf_allocator = stack_fallback.get();
 
-    while (try it.nextWithFile(filename, stack_fallback.get())) |found| {
-        defer stack_fallback.get().free(found.path);
+    while (try it.nextWithFile(filename, sf_allocator)) |found| {
+        defer sf_allocator.free(found.path);
         if (!std.meta.isError(cwd.access(found.path, .{}))) return true;
     }
     return false;
@@ -1411,9 +1412,10 @@ pub fn findEmbed(
     };
     var it = IncludeDirIterator{ .comp = comp, .cwd_source_id = cwd_source_id };
     var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
+    const sf_allocator = stack_fallback.get();
 
-    while (try it.nextWithFile(filename, stack_fallback.get())) |found| {
-        defer stack_fallback.get().free(found.path);
+    while (try it.nextWithFile(filename, sf_allocator)) |found| {
+        defer sf_allocator.free(found.path);
         if (comp.getFileContents(found.path, limit)) |some|
             return some
         else |err| switch (err) {
@@ -1457,8 +1459,10 @@ pub fn findInclude(
     }
 
     var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
-    while (try it.nextWithFile(filename, stack_fallback.get())) |found| {
-        defer stack_fallback.get().free(found.path);
+    const sf_allocator = stack_fallback.get();
+
+    while (try it.nextWithFile(filename, sf_allocator)) |found| {
+        defer sf_allocator.free(found.path);
         if (comp.addSourceFromPathExtra(found.path, found.kind)) |some| {
             if (it.tried_ms_cwd) {
                 try comp.addDiagnostic(.{

@@ -8,6 +8,7 @@
 const Module = @This();
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
@@ -92,7 +93,7 @@ pub const Global = struct {
     /// The past-end offset into `self.flobals.section`.
     end_inst: u32,
     /// The result-id of the function that initializes this value.
-    initializer_id: IdRef,
+    initializer_id: ?IdRef,
 };
 
 /// This models a kernel entry point.
@@ -101,6 +102,8 @@ pub const EntryPoint = struct {
     decl_index: Decl.Index,
     /// The name of the kernel to be exported.
     name: CacheString,
+    /// Calling Convention
+    execution_model: spec.ExecutionModel,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
@@ -112,8 +115,10 @@ sections: struct {
     capabilities: Section = .{},
     /// OpExtension instructions
     extensions: Section = .{},
-    // OpExtInstImport instructions - skip for now.
-    // memory model defined by target, not required here.
+    /// OpExtInstImport
+    extended_instruction_set: Section = .{},
+    /// memory model defined by target
+    memory_model: Section = .{},
     /// OpEntryPoint instructions - Handled by `self.entry_points`.
     /// OpExecutionMode and OpExecutionModeId instructions.
     execution_modes: Section = .{},
@@ -170,6 +175,9 @@ globals: struct {
     section: Section = .{},
 } = .{},
 
+/// The list of extended instruction sets that should be imported.
+extended_instruction_set: std.AutoHashMapUnmanaged(ExtendedInstructionSet, IdRef) = .{},
+
 pub fn init(gpa: Allocator) Module {
     return .{
         .gpa = gpa,
@@ -180,6 +188,8 @@ pub fn init(gpa: Allocator) Module {
 pub fn deinit(self: *Module) void {
     self.sections.capabilities.deinit(self.gpa);
     self.sections.extensions.deinit(self.gpa);
+    self.sections.extended_instruction_set.deinit(self.gpa);
+    self.sections.memory_model.deinit(self.gpa);
     self.sections.execution_modes.deinit(self.gpa);
     self.sections.debug_strings.deinit(self.gpa);
     self.sections.debug_names.deinit(self.gpa);
@@ -197,6 +207,8 @@ pub fn deinit(self: *Module) void {
 
     self.globals.globals.deinit(self.gpa);
     self.globals.section.deinit(self.gpa);
+
+    self.extended_instruction_set.deinit(self.gpa);
 
     self.* = undefined;
 }
@@ -313,7 +325,7 @@ fn entryPoints(self: *Module) !Section {
 
         const entry_point_id = self.declPtr(entry_point.decl_index).result_id;
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
-            .execution_model = .Kernel,
+            .execution_model = entry_point.execution_model,
             .entry_point = entry_point_id,
             .name = self.cache.getString(entry_point.name).?,
             .interface = interface.items,
@@ -362,11 +374,13 @@ fn initializer(self: *Module, entry_points: *Section) !Section {
 
     for (self.globals.globals.keys(), self.globals.globals.values()) |decl_index, global| {
         try self.addEntryPointDeps(decl_index, &seen, &interface);
-        try section.emit(self.gpa, .OpFunctionCall, .{
-            .id_result_type = void_ty_id,
-            .id_result = self.allocId(),
-            .function = global.initializer_id,
-        });
+        if (global.initializer_id) |initializer_id| {
+            try section.emit(self.gpa, .OpFunctionCall, .{
+                .id_result_type = void_ty_id,
+                .id_result = self.allocId(),
+                .function = initializer_id,
+            });
+        }
     }
 
     try section.emit(self.gpa, .OpReturn, {});
@@ -390,7 +404,7 @@ fn initializer(self: *Module, entry_points: *Section) !Section {
 }
 
 /// Emit this module as a spir-v binary.
-pub fn flush(self: *Module, file: std.fs.File) !void {
+pub fn flush(self: *Module, file: std.fs.File, target: std.Target) !void {
     // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
 
     // TODO: Perform topological sort on the globals.
@@ -403,14 +417,25 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
     var types_constants = try self.cache.materialize(self);
     defer types_constants.deinit(self.gpa);
 
-    var init_func = try self.initializer(&entry_points);
-    defer init_func.deinit(self.gpa);
+    // // TODO: Pass global variables as function parameters
+    // var init_func = if (target.os.tag != .vulkan)
+    //     try self.initializer(&entry_points)
+    // else
+    //     Section{};
+    // defer init_func.deinit(self.gpa);
 
     const header = [_]Word{
         spec.magic_number,
         // TODO: From cpu features
-        //   Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
-        (1 << 16) | (4 << 8),
+        spec.Version.toWord(.{
+            .major = 1,
+            .minor = switch (target.os.tag) {
+                // Emit SPIR-V 1.3 for now. This is the highest version that Vulkan 1.1 supports.
+                .vulkan => 3,
+                // Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
+                else => 4,
+            },
+        }),
         0, // TODO: Register Zig compiler magic number.
         self.idBound(),
         0, // Schema (currently reserved for future use)
@@ -433,6 +458,8 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         &header,
         self.sections.capabilities.toWords(),
         self.sections.extensions.toWords(),
+        self.sections.extended_instruction_set.toWords(),
+        self.sections.memory_model.toWords(),
         entry_points.toWords(),
         self.sections.execution_modes.toWords(),
         source.toWords(),
@@ -443,22 +470,28 @@ pub fn flush(self: *Module, file: std.fs.File) !void {
         self.sections.types_globals_constants.toWords(),
         globals.toWords(),
         self.sections.functions.toWords(),
-        init_func.toWords(),
     };
 
-    var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
-    var file_size: u64 = 0;
-    for (&iovc_buffers, 0..) |*iovc, i| {
-        // Note, since spir-v supports both little and big endian we can ignore byte order here and
-        // just treat the words as a sequence of bytes.
-        const bytes = std.mem.sliceAsBytes(buffers[i]);
-        iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
-        file_size += bytes.len;
-    }
+    if (builtin.zig_backend == .stage2_x86_64) {
+        for (buffers) |buf| {
+            try file.writeAll(std.mem.sliceAsBytes(buf));
+        }
+    } else {
+        // miscompiles with x86_64 backend
+        var iovc_buffers: [buffers.len]std.os.iovec_const = undefined;
+        var file_size: u64 = 0;
+        for (&iovc_buffers, 0..) |*iovc, i| {
+            // Note, since spir-v supports both little and big endian we can ignore byte order here and
+            // just treat the words as a sequence of bytes.
+            const bytes = std.mem.sliceAsBytes(buffers[i]);
+            iovc.* = .{ .iov_base = bytes.ptr, .iov_len = bytes.len };
+            file_size += bytes.len;
+        }
 
-    try file.seekTo(0);
-    try file.setEndPos(file_size);
-    try file.pwritevAll(&iovc_buffers, 0);
+        try file.seekTo(0);
+        try file.setEndPos(file_size);
+        try file.pwritevAll(&iovc_buffers, 0);
+    }
 }
 
 /// Merge the sections making up a function declaration into this module.
@@ -466,6 +499,29 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
     try self.sections.functions.append(self.gpa, func.prologue);
     try self.sections.functions.append(self.gpa, func.body);
     try self.declareDeclDeps(decl_index, func.decl_deps.keys());
+}
+
+pub const ExtendedInstructionSet = enum {
+    glsl,
+    opencl,
+};
+
+/// Imports or returns the existing id of an extended instruction set
+pub fn importInstructionSet(self: *Module, set: ExtendedInstructionSet) !IdRef {
+    const gop = try self.extended_instruction_set.getOrPut(self.gpa, set);
+    if (gop.found_existing) return gop.value_ptr.*;
+
+    const result_id = self.allocId();
+    try self.sections.extended_instruction_set.emit(self.gpa, .OpExtInstImport, .{
+        .id_result = result_id,
+        .name = switch (set) {
+            .glsl => "GLSL.std.450",
+            .opencl => "OpenCL.std",
+        },
+    });
+    gop.value_ptr.* = result_id;
+
+    return result_id;
 }
 
 /// Fetch the result-id of an OpString instruction that encodes the path of the source
@@ -490,6 +546,13 @@ pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !Ca
     return try self.resolve(.{ .int_type = .{
         .signedness = signedness,
         .bits = bits,
+    } });
+}
+
+pub fn vectorType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
+    return try self.resolve(.{ .vector_type = .{
+        .component_type = elem_ty_ref,
+        .component_count = len,
     } });
 }
 
@@ -617,7 +680,13 @@ pub fn beginGlobal(self: *Module) u32 {
     return @as(u32, @intCast(self.globals.section.instructions.items.len));
 }
 
-pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32, result_id: IdRef, initializer_id: IdRef) void {
+pub fn endGlobal(
+    self: *Module,
+    global_index: Decl.Index,
+    begin_inst: u32,
+    result_id: IdRef,
+    initializer_id: ?IdRef,
+) void {
     const global = self.globalPtr(global_index).?;
     global.* = .{
         .result_id = result_id,
@@ -627,10 +696,16 @@ pub fn endGlobal(self: *Module, global_index: Decl.Index, begin_inst: u32, resul
     };
 }
 
-pub fn declareEntryPoint(self: *Module, decl_index: Decl.Index, name: []const u8) !void {
+pub fn declareEntryPoint(
+    self: *Module,
+    decl_index: Decl.Index,
+    name: []const u8,
+    execution_model: spec.ExecutionModel,
+) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
         .name = try self.resolveString(name),
+        .execution_model = execution_model,
     });
 }
 

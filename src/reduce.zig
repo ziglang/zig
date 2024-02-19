@@ -136,7 +136,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var more_fixups: Ast.Fixups = .{};
     defer more_fixups.deinit(gpa);
 
-    var rng = std.rand.DefaultPrng.init(seed);
+    var rng = std.Random.DefaultPrng.init(seed);
 
     // 1. Walk the AST of the source file looking for independent
     //    reductions and collecting them all into an array list.
@@ -274,7 +274,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     return std.process.cleanExit();
 }
 
-fn sortTransformations(transformations: []Walk.Transformation, rng: std.rand.Random) void {
+fn sortTransformations(transformations: []Walk.Transformation, rng: std.Random) void {
     rng.shuffle(Walk.Transformation, transformations);
     // Stable sort based on priority to keep randomness as the secondary sort.
     // TODO: introduce transformation priorities

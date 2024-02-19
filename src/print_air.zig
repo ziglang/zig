@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const Module = @import("Module.zig");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
@@ -175,6 +175,7 @@ const Writer = struct {
             .int_from_ptr,
             .int_from_bool,
             .ret,
+            .ret_safe,
             .ret_load,
             .is_named_enum_value,
             .tag_name,

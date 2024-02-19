@@ -456,6 +456,7 @@ test "inline for on tuple pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct { u32, u32, u32 };
     var s: S = .{ 100, 200, 300 };
@@ -503,4 +504,25 @@ test "inferred alloc ptr of for loop" {
         } else null;
         try expectEqual(@as(?bool, true), opt);
     }
+}
+
+test "for loop results in a bool" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try std.testing.expect(for ([1]u8{0}) |x| {
+        if (x == 0) break true;
+    } else false);
+}
+
+test "return from inline for" {
+    const S = struct {
+        fn do() bool {
+            inline for (.{"a"}) |_| {
+                if (true) return false;
+            }
+            return true;
+        }
+    };
+    try std.testing.expect(!S.do());
 }

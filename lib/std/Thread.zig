@@ -333,7 +333,7 @@ pub const SpawnError = error{
 };
 
 /// Spawns a new thread which executes `function` using `args` and returns a handle to the spawned thread.
-/// `config` can be used as hints to the platform for now to spawn and execute the `function`.
+/// `config` can be used as hints to the platform for how to spawn and execute the `function`.
 /// The caller must eventually either call `join()` to wait for the thread to finish and free its resources
 /// or call `detach()` to excuse the caller from calling `join()` and have the thread clean up its resources on completion.
 pub fn spawn(config: SpawnConfig, comptime function: anytype, args: anytype) SpawnError!Thread {
@@ -674,11 +674,6 @@ const PosixThreadImpl = struct {
 
         const Instance = struct {
             fn entryFn(raw_arg: ?*anyopaque) callconv(.C) ?*anyopaque {
-                // @alignCast() below doesn't support zero-sized-types (ZST)
-                if (@sizeOf(Args) < 1) {
-                    return callFn(f, @as(Args, undefined));
-                }
-
                 const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
@@ -703,7 +698,7 @@ const PosixThreadImpl = struct {
             &handle,
             &attr,
             Instance.entryFn,
-            if (@sizeOf(Args) > 1) @as(*anyopaque, @ptrCast(args_ptr)) else undefined,
+            @ptrCast(args_ptr),
         )) {
             .SUCCESS => return Impl{ .handle = handle },
             .AGAIN => return error.SystemResources,
@@ -1242,7 +1237,7 @@ const LinuxThreadImpl = struct {
             null,
             map_bytes,
             os.PROT.NONE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         ) catch |err| switch (err) {

@@ -62,11 +62,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             if (bytes.len == 0) return 0;
             if (self.pos >= self.buffer.len) return error.NoSpaceLeft;
 
-            const n = if (self.pos + bytes.len <= self.buffer.len)
-                bytes.len
-            else
-                self.buffer.len - self.pos;
-
+            const n = @min(self.buffer.len - self.pos, bytes.len);
             @memcpy(self.buffer[self.pos..][0..n], bytes[0..n]);
             self.pos += n;
 
@@ -76,7 +72,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
-            self.pos = if (std.math.cast(usize, pos)) |x| @min(self.buffer.len, x) else self.buffer.len;
+            self.pos = @min(std.math.lossyCast(usize, pos), self.buffer.len);
         }
 
         pub fn seekBy(self: *Self, amt: i64) SeekError!void {

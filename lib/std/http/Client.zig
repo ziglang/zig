@@ -1,4 +1,8 @@
-//! Connecting and opening requests are threadsafe. Individual requests are not.
+//! HTTP(S) Client implementation.
+//!
+//! Connections are opened in a thread-safe manner, but individual Requests are not.
+//!
+//! TLS support may be disabled via `std.options.http_disable_tls`.
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
@@ -157,6 +161,9 @@ pub const ConnectionPool = struct {
         pool.free_size = new_size;
     }
 
+    /// Frees the connection pool and closes all connections within. This function is threadsafe.
+    ///
+    /// All future operations on the connection pool will deadlock.
     pub fn deinit(pool: *ConnectionPool, allocator: Allocator) void {
         pool.mutex.lock();
 
@@ -191,11 +198,19 @@ pub const Connection = struct {
     /// undefined unless protocol is tls.
     tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
 
+    /// The protocol that this connection is using.
     protocol: Protocol,
+
+    /// The host that this connection is connected to.
     host: []u8,
+
+    /// The port that this connection is connected to.
     port: u16,
 
+    /// Whether this connection is proxied and is not directly connected.
     proxied: bool = false,
+
+    /// Whether this connection is closing when we're done with it.
     closing: bool = false,
 
     read_start: BufferSize = 0,
@@ -232,6 +247,7 @@ pub const Connection = struct {
         };
     }
 
+    /// Refills the read buffer with data from the connection.
     pub fn fill(conn: *Connection) ReadError!void {
         if (conn.read_end != conn.read_start) return;
 
@@ -244,14 +260,17 @@ pub const Connection = struct {
         conn.read_end = @intCast(nread);
     }
 
+    /// Returns the current slice of buffered data.
     pub fn peek(conn: *Connection) []const u8 {
         return conn.read_buf[conn.read_start..conn.read_end];
     }
 
+    /// Discards the given number of bytes from the read buffer.
     pub fn drop(conn: *Connection, num: BufferSize) void {
         conn.read_start += num;
     }
 
+    /// Reads data from the connection into the given buffer.
     pub fn read(conn: *Connection, buffer: []u8) ReadError!usize {
         const available_read = conn.read_end - conn.read_start;
         const available_buffer = buffer.len;
@@ -318,8 +337,9 @@ pub const Connection = struct {
         };
     }
 
+    /// Writes the given buffer to the connection.
     pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
-        if (conn.write_end + buffer.len > conn.write_buf.len) {
+        if (conn.write_buf.len - conn.write_end < buffer.len) {
             try conn.flush();
 
             if (buffer.len > conn.write_buf.len) {
@@ -334,6 +354,14 @@ pub const Connection = struct {
         return buffer.len;
     }
 
+    /// Returns a buffer to be filled with exactly len bytes to write to the connection.
+    pub fn allocWriteBuffer(conn: *Connection, len: BufferSize) WriteError![]u8 {
+        if (conn.write_buf.len - conn.write_end < len) try conn.flush();
+        defer conn.write_end += len;
+        return conn.write_buf[conn.write_end..][0..len];
+    }
+
+    /// Flushes the write buffer to the connection.
     pub fn flush(conn: *Connection) WriteError!void {
         if (conn.write_end == 0) return;
 
@@ -352,6 +380,7 @@ pub const Connection = struct {
         return Writer{ .context = conn };
     }
 
+    /// Closes the connection.
     pub fn close(conn: *Connection, allocator: Allocator) void {
         if (conn.protocol == .tls) {
             if (disable_tls) unreachable;
@@ -375,8 +404,8 @@ pub const RequestTransfer = union(enum) {
 
 /// The decompressor for response messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.DecompressStream(Request.TransferReader);
-    pub const GzipDecompressor = std.compress.gzip.Decompress(Request.TransferReader);
+    pub const DeflateDecompressor = std.compress.zlib.Decompressor(Request.TransferReader);
+    pub const GzipDecompressor = std.compress.gzip.Decompressor(Request.TransferReader);
     pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
 
     deflate: DeflateDecompressor,
@@ -502,8 +531,13 @@ pub const Response = struct {
         try expectEqual(@as(u10, 999), parseInt3("999"));
     }
 
+    /// The HTTP version this response is using.
     version: http.Version,
+
+    /// The status code of the response.
     status: http.Status,
+
+    /// The reason phrase of the response.
     reason: []const u8,
 
     /// If present, the number of bytes in the response body.
@@ -528,22 +562,36 @@ pub const Response = struct {
 ///
 /// Order of operations: open -> send[ -> write -> finish] -> wait -> read
 pub const Request = struct {
+    /// The uri that this request is being sent to.
     uri: Uri,
+
+    /// The client that this request was created from.
     client: *Client,
-    /// is null when this connection is released
+
+    /// Underlying connection to the server. This is null when the connection is released.
     connection: ?*Connection,
 
     method: http.Method,
     version: http.Version = .@"HTTP/1.1",
+
+    /// The list of HTTP request headers.
     headers: http.Headers,
 
     /// The transfer encoding of the request body.
     transfer_encoding: RequestTransfer = .none,
 
+    /// The redirect quota left for this request.
     redirects_left: u32,
+
+    /// Whether the request should follow redirects.
     handle_redirects: bool,
+
+    /// Whether the request should handle a 100-continue response before sending the request body.
     handle_continue: bool,
 
+    /// The response associated with this request.
+    ///
+    /// This field is undefined until `wait` is called.
     response: Response,
 
     /// Used as a allocator for resolving redirects locations.
@@ -553,8 +601,8 @@ pub const Request = struct {
     pub fn deinit(req: *Request) void {
         switch (req.response.compression) {
             .none => {},
-            .deflate => |*deflate| deflate.deinit(),
-            .gzip => |*gzip| gzip.deinit(),
+            .deflate => {},
+            .gzip => {},
             .zstd => |*zstd| zstd.deinit(),
         }
 
@@ -584,8 +632,8 @@ pub const Request = struct {
 
         switch (req.response.compression) {
             .none => {},
-            .deflate => |*deflate| deflate.deinit(),
-            .gzip => |*gzip| gzip.deinit(),
+            .deflate => {},
+            .gzip => {},
             .zstd => |*zstd| zstd.deinit(),
         }
 
@@ -651,6 +699,17 @@ pub const Request = struct {
         if (!req.headers.contains("host")) {
             try w.writeAll("Host: ");
             try req.uri.writeToStream(.{ .authority = true }, w);
+            try w.writeAll("\r\n");
+        }
+
+        if ((req.uri.user != null or req.uri.password != null) and
+            !req.headers.contains("authorization"))
+        {
+            try w.writeAll("Authorization: ");
+            const authorization = try req.connection.?.allocWriteBuffer(
+                @intCast(basic_authorization.valueLengthFromUri(req.uri)),
+            );
+            std.debug.assert(basic_authorization.value(req.uri, authorization).len == authorization.len);
             try w.writeAll("\r\n");
         }
 
@@ -780,13 +839,15 @@ pub const Request = struct {
                 if (req.handle_continue)
                     continue;
 
-                break;
+                return; // we're not handling the 100-continue, return to the caller
             }
 
             // we're switching protocols, so this connection is no longer doing http
-            if (req.response.status == .switching_protocols or (req.method == .CONNECT and req.response.status == .ok)) {
+            if (req.method == .CONNECT and req.response.status.class() == .success) {
                 req.connection.?.closing = false;
                 req.response.parser.done = true;
+
+                return; // the connection is not HTTP past this point, return to the caller
             }
 
             // we default to using keep-alive if not provided in the client if the server asks for it
@@ -799,6 +860,15 @@ pub const Request = struct {
                 req.connection.?.closing = false;
             } else {
                 req.connection.?.closing = true;
+            }
+
+            // Any response to a HEAD request and any response with a 1xx (Informational), 204 (No Content), or 304 (Not Modified)
+            // status code is always terminated by the first empty line after the header fields, regardless of the header fields
+            // present in the message
+            if (req.method == .HEAD or req.response.status.class() == .informational or req.response.status == .no_content or req.response.status == .not_modified) {
+                req.response.parser.done = true;
+
+                return; // the response is empty, no further setup or redirection is necessary
             }
 
             if (req.response.transfer_encoding != .none) {
@@ -814,12 +884,8 @@ pub const Request = struct {
 
                 if (cl == 0) req.response.parser.done = true;
             } else {
-                req.response.parser.done = true;
-            }
-
-            // HEAD requests have no body
-            if (req.method == .HEAD) {
-                req.response.parser.done = true;
+                // read until the connection is closed
+                req.response.parser.next_chunk_length = std.math.maxInt(u64);
             }
 
             if (req.response.status.class() == .redirect and req.handle_redirects) {
@@ -875,10 +941,10 @@ pub const Request = struct {
                         .identity => req.response.compression = .none,
                         .compress, .@"x-compress" => return error.CompressionNotSupported,
                         .deflate => req.response.compression = .{
-                            .deflate = std.compress.zlib.decompressStream(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
+                            .deflate = std.compress.zlib.decompressor(req.transferReader()),
                         },
                         .gzip, .@"x-gzip" => req.response.compression = .{
-                            .gzip = std.compress.gzip.decompress(req.client.allocator, req.transferReader()) catch return error.CompressionInitializationFailed,
+                            .gzip = std.compress.gzip.decompressor(req.transferReader()),
                         },
                         .zstd => req.response.compression = .{
                             .zstd = std.compress.zstd.decompressStream(req.client.allocator, req.transferReader()),
@@ -952,9 +1018,11 @@ pub const Request = struct {
     pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
         switch (req.transfer_encoding) {
             .chunked => {
-                try req.connection.?.writer().print("{x}\r\n", .{bytes.len});
-                try req.connection.?.writer().writeAll(bytes);
-                try req.connection.?.writer().writeAll("\r\n");
+                if (bytes.len > 0) {
+                    try req.connection.?.writer().print("{x}\r\n", .{bytes.len});
+                    try req.connection.?.writer().writeAll(bytes);
+                    try req.connection.?.writer().writeAll("\r\n");
+                }
 
                 return bytes.len;
             },
@@ -993,6 +1061,7 @@ pub const Request = struct {
     }
 };
 
+/// A HTTP proxy server.
 pub const Proxy = struct {
     allocator: Allocator,
     headers: http.Headers,
@@ -1073,19 +1142,11 @@ pub fn loadDefaultProxies(client: *Client) !void {
             },
         };
 
-        if (uri.user != null and uri.password != null) {
-            const prefix = "Basic ";
-
-            const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
-            defer client.allocator.free(unencoded);
-
-            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix.len);
-            defer client.allocator.free(buffer);
-
-            const result = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
-            @memcpy(buffer[0..prefix.len], prefix);
-
-            try client.http_proxy.?.headers.append("proxy-authorization", result);
+        if (uri.user != null or uri.password != null) {
+            const authorization = try client.allocator.alloc(u8, basic_authorization.valueLengthFromUri(uri));
+            errdefer client.allocator.free(authorization);
+            std.debug.assert(basic_authorization.value(uri, authorization).len == authorization.len);
+            try client.http_proxy.?.headers.appendOwned(.{ .unowned = "proxy-authorization" }, .{ .owned = authorization });
         }
     }
 
@@ -1124,26 +1185,53 @@ pub fn loadDefaultProxies(client: *Client) !void {
             },
         };
 
-        if (uri.user != null and uri.password != null) {
-            const prefix = "Basic ";
-
-            const unencoded = try std.fmt.allocPrint(client.allocator, "{s}:{s}", .{ uri.user.?, uri.password.? });
-            defer client.allocator.free(unencoded);
-
-            const buffer = try client.allocator.alloc(u8, std.base64.standard.Encoder.calcSize(unencoded.len) + prefix.len);
-            defer client.allocator.free(buffer);
-
-            const result = std.base64.standard.Encoder.encode(buffer[prefix.len..], unencoded);
-            @memcpy(buffer[0..prefix.len], prefix);
-
-            try client.https_proxy.?.headers.append("proxy-authorization", result);
+        if (uri.user != null or uri.password != null) {
+            const authorization = try client.allocator.alloc(u8, basic_authorization.valueLengthFromUri(uri));
+            errdefer client.allocator.free(authorization);
+            std.debug.assert(basic_authorization.value(uri, authorization).len == authorization.len);
+            try client.https_proxy.?.headers.appendOwned(.{ .unowned = "proxy-authorization" }, .{ .owned = authorization });
         }
     }
 }
 
+pub const basic_authorization = struct {
+    pub const max_user_len = 255;
+    pub const max_password_len = 255;
+    pub const max_value_len = valueLength(max_user_len, max_password_len);
+
+    const prefix = "Basic ";
+
+    pub fn valueLength(user_len: usize, password_len: usize) usize {
+        return prefix.len + std.base64.standard.Encoder.calcSize(user_len + 1 + password_len);
+    }
+
+    pub fn valueLengthFromUri(uri: Uri) usize {
+        return valueLength(
+            if (uri.user) |user| user.len else 0,
+            if (uri.password) |password| password.len else 0,
+        );
+    }
+
+    pub fn value(uri: Uri, out: []u8) []u8 {
+        std.debug.assert(uri.user == null or uri.user.?.len <= max_user_len);
+        std.debug.assert(uri.password == null or uri.password.?.len <= max_password_len);
+
+        @memcpy(out[0..prefix.len], prefix);
+
+        var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
+        const unencoded = std.fmt.bufPrint(&buf, "{s}:{s}", .{
+            uri.user orelse "", uri.password orelse "",
+        }) catch unreachable;
+        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], unencoded);
+
+        return out[0 .. prefix.len + base64.len];
+    }
+};
+
 pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
 
 /// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
+///
 /// This function is threadsafe.
 pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectTcpError!*Connection {
     if (client.connection_pool.findConnection(.{
@@ -1203,6 +1291,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
 pub const ConnectUnixError = Allocator.Error || std.os.SocketError || error{ NameTooLong, Unsupported } || std.os.ConnectError;
 
 /// Connect to `path` as a unix domain socket. This will reuse a connection if one is already open.
+///
 /// This function is threadsafe.
 pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connection {
     if (!net.has_unix_sockets) return error.Unsupported;
@@ -1237,6 +1326,7 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
 }
 
 /// Connect to `tunnel_host:tunnel_port` using the specified proxy with HTTP CONNECT. This will reuse a connection if one is already open.
+///
 /// This function is threadsafe.
 pub fn connectTunnel(
     client: *Client,
@@ -1318,7 +1408,6 @@ const ConnectErrorPartial = ConnectTcpError || error{ UnsupportedUrlScheme, Conn
 pub const ConnectError = ConnectErrorPartial || RequestError;
 
 /// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
-///
 /// If a proxy is configured for the client, then the proxy will be used to connect to the host.
 ///
 /// This function is threadsafe.
@@ -1375,7 +1464,10 @@ pub const RequestOptions = struct {
     /// request, then the request *will* deadlock.
     handle_continue: bool = true,
 
+    /// Automatically follow redirects. This will only follow redirects for repeatable requests (ie. with no payload or the server has acknowledged the payload)
     handle_redirects: bool = true,
+
+    /// How many redirects to follow before returning an error.
     max_redirects: u32 = 3,
     header_strategy: StorageStrategy = .{ .dynamic = 16 * 1024 },
 

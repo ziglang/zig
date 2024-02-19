@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectError = testing.expectError;
 
@@ -42,7 +43,7 @@ test "pointer arithmetic" {
 }
 
 test "double pointer parsing" {
-    try comptime expect(PtrOf(PtrOf(i32)) == **i32);
+    comptime assert(PtrOf(PtrOf(i32)) == **i32);
 }
 
 fn PtrOf(comptime T: type) type {
@@ -62,7 +63,7 @@ test "implicit cast single item pointer to C pointer and back" {
 test "initialize const optional C pointer to null" {
     const a: ?[*c]i32 = null;
     try expect(a == null);
-    try comptime expect(a == null);
+    comptime assert(a == null);
 }
 
 test "assigning integer to C pointer" {
@@ -204,17 +205,18 @@ test "allowzero pointer and slice" {
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
     var slice = ptr[runtime_zero..10];
-    try comptime expect(@TypeOf(slice) == []allowzero i32);
+    comptime assert(@TypeOf(slice) == []allowzero i32);
     try expect(@intFromPtr(&slice[5]) == 20);
 
-    try comptime expect(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
-    try comptime expect(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
+    comptime assert(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
+    comptime assert(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
 }
 
 test "assign null directly to C pointer and test null equality" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var x: [*c]i32 = null;
     _ = &x;
@@ -230,17 +232,17 @@ test "assign null directly to C pointer and test null equality" {
     try expect((x orelse &otherx) == &otherx);
 
     const y: [*c]i32 = null;
-    try comptime expect(y == null);
-    try comptime expect(null == y);
-    try comptime expect(!(y != null));
-    try comptime expect(!(null != y));
+    comptime assert(y == null);
+    comptime assert(null == y);
+    comptime assert(!(y != null));
+    comptime assert(!(null != y));
     if (y) |same_y| {
         _ = same_y;
         @panic("fail");
     }
     const othery: i32 = undefined;
     const ptr_othery = &othery;
-    try comptime expect((y orelse ptr_othery) == ptr_othery);
+    comptime assert((y orelse ptr_othery) == ptr_othery);
 
     var n: i32 = 1234;
     const x1: [*c]i32 = &n;
@@ -258,17 +260,17 @@ test "assign null directly to C pointer and test null equality" {
 
     const nc: i32 = 1234;
     const y1: [*c]const i32 = &nc;
-    try comptime expect(!(y1 == null));
-    try comptime expect(!(null == y1));
-    try comptime expect(y1 != null);
-    try comptime expect(null != y1);
-    try comptime expect(y1.?.* == 1234);
+    comptime assert(!(y1 == null));
+    comptime assert(!(null == y1));
+    comptime assert(y1 != null);
+    comptime assert(null != y1);
+    comptime assert(y1.?.* == 1234);
     if (y1) |same_y1| {
         try expect(same_y1.* == 1234);
     } else {
         @compileError("fail");
     }
-    try comptime expect((y1 orelse &othery) == y1);
+    comptime assert((y1 orelse &othery) == y1);
 }
 
 test "array initialization types" {
@@ -325,7 +327,7 @@ test "pointer sentinel with enums" {
         fn doTheTest() !void {
             var ptr: [*:.sentinel]const Number = &[_:.sentinel]Number{ .one, .two, .two, .one };
             _ = &ptr;
-            try expect(ptr[4] == .sentinel); // TODO this should be try comptime expect, see #3731
+            try expect(ptr[4] == .sentinel); // TODO this should be comptime assert, see #3731
         }
     };
     try S.doTheTest();
@@ -341,7 +343,7 @@ test "pointer sentinel with optional element" {
         fn doTheTest() !void {
             var ptr: [*:null]const ?i32 = &[_:null]?i32{ 1, 2, 3, 4 };
             _ = &ptr;
-            try expect(ptr[4] == null); // TODO this should be try comptime expect, see #3731
+            try expect(ptr[4] == null); // TODO this should be comptime assert, see #3731
         }
     };
     try S.doTheTest();
@@ -358,7 +360,7 @@ test "pointer sentinel with +inf" {
             const inf_f32 = comptime std.math.inf(f32);
             var ptr: [*:inf_f32]const f32 = &[_:inf_f32]f32{ 1.1, 2.2, 3.3, 4.4 };
             _ = &ptr;
-            try expect(ptr[4] == inf_f32); // TODO this should be try comptime expect, see #3731
+            try expect(ptr[4] == inf_f32); // TODO this should be comptime assert, see #3731
         }
     };
     try S.doTheTest();
@@ -409,11 +411,11 @@ test "@intFromPtr on null optional at comptime" {
         const pointer = @as(?*u8, @ptrFromInt(0x000));
         const x = @intFromPtr(pointer);
         _ = x;
-        try comptime expect(0 == @intFromPtr(pointer));
+        comptime assert(0 == @intFromPtr(pointer));
     }
     {
         const pointer = @as(?*u8, @ptrFromInt(0xf00));
-        try comptime expect(0xf00 == @intFromPtr(pointer));
+        comptime assert(0xf00 == @intFromPtr(pointer));
     }
 }
 
@@ -554,4 +556,69 @@ test "result type found through optional pointer" {
     try expect(ptr2.?.len == 2);
     try expect(ptr2.?[0] == 123);
     try expect(ptr2.?[1] == 0xCD);
+}
+
+const Box0 = struct {
+    items: [4]Item,
+
+    const Item = struct {
+        num: u32,
+    };
+};
+const Box1 = struct {
+    items: [4]Item,
+
+    const Item = struct {};
+};
+const Box2 = struct {
+    items: [4]Item,
+
+    const Item = struct {
+        nothing: void,
+    };
+};
+
+fn mutable() !void {
+    var box0: Box0 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == false);
+
+    var box1: Box1 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == false);
+
+    var box2: Box2 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == false);
+}
+
+fn constant() !void {
+    const box0: Box0 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == true);
+
+    const box1: Box1 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == true);
+
+    const box2: Box2 = .{ .items = undefined };
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == true);
+}
+
+test "pointer-to-array constness for zero-size elements, var" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try mutable();
+    try comptime mutable();
+}
+
+test "pointer-to-array constness for zero-size elements, const" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    try constant();
+    try comptime constant();
+}
+
+test "cast pointers with zero sized elements" {
+    const a: *void = undefined;
+    const b: *[1]void = a;
+    _ = b;
+    const c: *[0]u8 = undefined;
+    const d: []u8 = c;
+    _ = d;
 }

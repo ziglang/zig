@@ -1,12 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 test "truncate u0 to larger integer allowed and has comptime-known result" {
     var x: u0 = 0;
     _ = &x;
     const y = @as(u8, @truncate(x));
-    try comptime expect(y == 0);
+    comptime assert(y == 0);
 }
 
 test "truncate.u0.literal" {
@@ -31,7 +32,7 @@ test "truncate i0 to larger integer allowed and has comptime-known result" {
     var x: i0 = 0;
     _ = &x;
     const y: i8 = @truncate(x);
-    try comptime expect(y == 0);
+    comptime assert(y == 0);
 }
 
 test "truncate.i0.literal" {
@@ -68,7 +69,6 @@ test "truncate on vectors" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

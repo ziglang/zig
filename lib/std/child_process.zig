@@ -298,7 +298,9 @@ pub const ChildProcess = struct {
         // we could make this work with multiple allocators but YAGNI
         if (stdout.allocator.ptr != stderr.allocator.ptr or
             stdout.allocator.vtable != stderr.allocator.vtable)
-            @panic("ChildProcess.collectOutput only supports 1 allocator");
+        {
+            unreachable; // ChildProcess.collectOutput only supports 1 allocator
+        }
 
         var poller = std.io.poll(stdout.allocator, enum { stdout, stderr }, .{
             .stdout = child.stdout.?,
@@ -493,7 +495,7 @@ pub const ChildProcess = struct {
     }
 
     fn spawnPosix(self: *ChildProcess) SpawnError!void {
-        const pipe_flags = if (io.is_async) os.O.NONBLOCK else 0;
+        const pipe_flags: os.O = .{};
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try os.pipe2(pipe_flags) else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) {
             destroyPipe(stdin_pipe);
@@ -511,7 +513,7 @@ pub const ChildProcess = struct {
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
-            os.openZ("/dev/null", os.O.RDWR, 0) catch |err| switch (err) {
+            os.openZ("/dev/null", .{ .ACCMODE = .RDWR }, 0) catch |err| switch (err) {
                 error.PathAlreadyExists => unreachable,
                 error.NoSpaceLeft => unreachable,
                 error.FileTooBig => unreachable,
@@ -570,7 +572,7 @@ pub const ChildProcess = struct {
                 // end with eventfd
                 break :blk [2]os.fd_t{ fd, fd };
             } else {
-                break :blk try os.pipe2(os.O.CLOEXEC);
+                break :blk try os.pipe2(.{ .CLOEXEC = true });
             }
         };
         errdefer destroyPipe(err_pipe);
@@ -650,7 +652,7 @@ pub const ChildProcess = struct {
     }
 
     fn spawnWindows(self: *ChildProcess) SpawnError!void {
-        const saAttr = windows.SECURITY_ATTRIBUTES{
+        var saAttr = windows.SECURITY_ATTRIBUTES{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
             .lpSecurityDescriptor = null,
@@ -661,27 +663,25 @@ pub const ChildProcess = struct {
         const nul_handle = if (any_ignore)
             // "\Device\Null" or "\??\NUL"
             windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
-                .access_mask = windows.GENERIC_READ | windows.SYNCHRONIZE,
-                .share_access = windows.FILE_SHARE_READ,
+                .access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.SYNCHRONIZE,
+                .share_access = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+                .sa = &saAttr,
                 .creation = windows.OPEN_EXISTING,
-                .io_mode = .blocking,
             }) catch |err| switch (err) {
-                error.PathAlreadyExists => unreachable, // not possible for "NUL"
-                error.PipeBusy => unreachable, // not possible for "NUL"
-                error.FileNotFound => unreachable, // not possible for "NUL"
-                error.AccessDenied => unreachable, // not possible for "NUL"
-                error.NameTooLong => unreachable, // not possible for "NUL"
-                error.WouldBlock => unreachable, // not possible for "NUL"
-                error.NetworkNotFound => unreachable, // not possible for "NUL"
+                error.PathAlreadyExists => return error.Unexpected, // not possible for "NUL"
+                error.PipeBusy => return error.Unexpected, // not possible for "NUL"
+                error.FileNotFound => return error.Unexpected, // not possible for "NUL"
+                error.AccessDenied => return error.Unexpected, // not possible for "NUL"
+                error.NameTooLong => return error.Unexpected, // not possible for "NUL"
+                error.WouldBlock => return error.Unexpected, // not possible for "NUL"
+                error.NetworkNotFound => return error.Unexpected, // not possible for "NUL"
+                error.AntivirusInterference => return error.Unexpected, // not possible for "NUL"
                 else => |e| return e,
             }
         else
             undefined;
         defer {
             if (any_ignore) os.close(nul_handle);
-        }
-        if (any_ignore) {
-            try windows.SetHandleInformation(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
         }
 
         var g_hChildStd_IN_Rd: ?windows.HANDLE = null;
@@ -720,7 +720,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_OUT_Wr = null;
             },
         }
-        errdefer if (self.stdin_behavior == StdIo.Pipe) {
+        errdefer if (self.stdout_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_OUT_Rd, g_hChildStd_OUT_Wr);
         };
 
@@ -740,7 +740,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_ERR_Wr = null;
             },
         }
-        errdefer if (self.stdin_behavior == StdIo.Pipe) {
+        errdefer if (self.stderr_behavior == StdIo.Pipe) {
             windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
         };
 
@@ -1493,20 +1493,12 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const file = File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = .blocking,
-    };
+    const file = File{ .handle = fd };
     file.writer().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const file = File{
-        .handle = fd,
-        .capable_io_mode = .blocking,
-        .intended_io_mode = .blocking,
-    };
+    const file = File{ .handle = fd };
     return @as(ErrInt, @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources));
 }
 

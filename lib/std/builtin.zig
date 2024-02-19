@@ -102,14 +102,34 @@ pub const ReduceOp = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AtomicRmwOp = enum {
+    /// Exchange - store the operand unmodified.
+    /// Supports enums, integers, and floats.
     Xchg,
+    /// Add operand to existing value.
+    /// Supports integers and floats.
+    /// For integers, two's complement wraparound applies.
     Add,
+    /// Subtract operand from existing value.
+    /// Supports integers and floats.
+    /// For integers, two's complement wraparound applies.
     Sub,
+    /// Perform bitwise AND on existing value with operand.
+    /// Supports integers.
     And,
+    /// Perform bitwise NAND on existing value with operand.
+    /// Supports integers.
     Nand,
+    /// Perform bitwise OR on existing value with operand.
+    /// Supports integers.
     Or,
+    /// Perform bitwise XOR on existing value with operand.
+    /// Supports integers.
     Xor,
+    /// Store operand if it is larger than the existing value.
+    /// Supports integers and floats.
     Max,
+    /// Store operand if it is smaller than the existing value.
+    /// Supports integers and floats.
     Min,
 };
 
@@ -185,6 +205,9 @@ pub const CallingConvention = enum(u8) {
     Win64,
     /// AMD GPU, NVPTX, or SPIR-V kernel
     Kernel,
+    // Vulkan-only
+    Fragment,
+    Vertex,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -202,6 +225,9 @@ pub const AddressSpace = enum(u5) {
     param,
     shared,
     local,
+    input,
+    output,
+    uniform,
 
     // AVR address spaces.
     flash,
@@ -314,7 +340,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const StructField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         type: type,
         default_value: ?*const anyopaque,
         is_comptime: bool,
@@ -348,7 +374,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Error = struct {
-        name: []const u8,
+        name: [:0]const u8,
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -358,7 +384,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const EnumField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         value: comptime_int,
     };
 
@@ -374,7 +400,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const UnionField = struct {
-        name: []const u8,
+        name: [:0]const u8,
         type: type,
         alignment: comptime_int,
     };
@@ -436,7 +462,7 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const Declaration = struct {
-        name: []const u8,
+        name: [:0]const u8,
     };
 };
 
@@ -712,7 +738,6 @@ pub const CompilerBackend = enum(u64) {
 pub const TestFn = struct {
     name: []const u8,
     func: *const fn () anyerror!void,
-    async_frame_size: ?usize,
 };
 
 /// This function type is used by the Zig language code generation and
@@ -739,7 +764,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) or
+        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
         builtin.zig_backend == .stage2_riscv64 or
         builtin.zig_backend == .stage2_sparc64 or
         builtin.zig_backend == .stage2_spirv64)

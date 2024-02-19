@@ -18,7 +18,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
 
         /// A customized pseudo random number generator for the treap.
         /// This just helps reducing the memory size of the treap itself
-        /// as std.rand.DefaultPrng requires larger state (while producing better entropy for randomness to be fair).
+        /// as std.Random.DefaultPrng requires larger state (while producing better entropy for randomness to be fair).
         const Prng = struct {
             xorshift: usize = 0,
 
@@ -305,7 +305,7 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
 // https://lemire.me/blog/2017/09/18/visiting-all-values-in-an-array-exactly-once-in-random-order/
 fn SliceIterRandomOrder(comptime T: type) type {
     return struct {
-        rng: std.rand.Random,
+        rng: std.Random,
         slice: []T,
         index: usize = undefined,
         offset: usize = undefined,
@@ -313,7 +313,7 @@ fn SliceIterRandomOrder(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn init(slice: []T, rng: std.rand.Random) Self {
+        pub fn init(slice: []T, rng: std.Random) Self {
             return Self{
                 .rng = rng,
                 .slice = slice,
@@ -353,7 +353,7 @@ test "std.Treap: insert, find, replace, remove" {
     var treap = TestTreap{};
     var nodes: [10]TestNode = undefined;
 
-    var prng = std.rand.DefaultPrng.init(0xdeadbeef);
+    var prng = std.Random.DefaultPrng.init(0xdeadbeef);
     var iter = SliceIterRandomOrder(TestNode).init(&nodes, prng.random());
 
     // insert check

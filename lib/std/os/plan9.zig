@@ -242,17 +242,23 @@ pub fn close(fd: i32) usize {
     return syscall_bits.syscall1(.CLOSE, @bitCast(@as(isize, fd)));
 }
 pub const mode_t = i32;
-pub const O = struct {
-    pub const READ = 0; // open for read
-    pub const RDONLY = 0;
-    pub const WRITE = 1; // write
-    pub const WRONLY = 1;
-    pub const RDWR = 2; // read and write
-    pub const EXEC = 3; // execute, == read but check execute permission
-    pub const TRUNC = 16; // or'ed in (except for exec), truncate file first
-    pub const CEXEC = 32; // or'ed in (per file descriptor), close on exec
-    pub const RCLOSE = 64; // or'ed in, remove on close
-    pub const EXCL = 0x1000; // or'ed in, exclusive create
+
+pub const AccessMode = enum(u2) {
+    RDONLY,
+    WRONLY,
+    RDWR,
+    EXEC,
+};
+
+pub const O = packed struct(u32) {
+    access: AccessMode,
+    _2: u2 = 0,
+    TRUNC: bool = false,
+    CEXEC: bool = false,
+    RCLOSE: bool = false,
+    _7: u5 = 0,
+    EXCL: bool = false,
+    _: u19 = 0,
 };
 
 pub const ExecData = struct {

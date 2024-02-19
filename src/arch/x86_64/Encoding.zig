@@ -224,7 +224,7 @@ pub const Mnemonic = enum {
     // General-purpose
     adc, add, @"and",
     bsf, bsr, bswap, bt, btc, btr, bts,
-    call, cbw, cdq, cdqe,
+    call, cbw, cdq, cdqe, clflush,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
@@ -232,8 +232,7 @@ pub const Mnemonic = enum {
     cmps, cmpsb, cmpsd, cmpsq, cmpsw,
     cmpxchg, cmpxchg8b, cmpxchg16b,
     cpuid, cqo, cwd, cwde,
-    div,
-    idiv, imul, int3,
+    dec, div, idiv, imul, inc, int3,
     ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, js, jz,
     jmp, 

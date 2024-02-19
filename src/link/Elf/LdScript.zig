@@ -14,7 +14,8 @@ pub const Error = error{
 };
 
 pub fn parse(scr: *LdScript, data: []const u8, elf_file: *Elf) Error!void {
-    const gpa = elf_file.base.allocator;
+    const comp = elf_file.base.comp;
+    const gpa = comp.gpa;
     var tokenizer = Tokenizer{ .source = data };
     var tokens = std.ArrayList(Token).init(gpa);
     defer tokens.deinit();

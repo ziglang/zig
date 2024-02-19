@@ -13,8 +13,8 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns e raised to the power of z (e^z).
-pub fn exp(z: anytype) @TypeOf(z) {
-    const T = @TypeOf(z.re);
+pub fn exp(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
 
     return switch (T) {
         f32 => exp32(z),

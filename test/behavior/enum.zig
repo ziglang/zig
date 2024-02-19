@@ -773,12 +773,12 @@ test "set enum tag type" {
     {
         var x = Small.One;
         x = Small.Two;
-        try comptime expect(Tag(Small) == u2);
+        comptime assert(Tag(Small) == u2);
     }
     {
         var x = Small2.One;
         x = Small2.Two;
-        try comptime expect(Tag(Small2) == u2);
+        comptime assert(Tag(Small2) == u2);
     }
 }
 
@@ -795,7 +795,7 @@ test "enum with 1 field but explicit tag type should still have the tag type" {
     const Enum = enum(u8) {
         B = 2,
     };
-    try comptime expect(@sizeOf(Enum) == @sizeOf(u8));
+    comptime assert(@sizeOf(Enum) == @sizeOf(u8));
 }
 
 test "signed integer as enum tag" {
@@ -834,12 +834,12 @@ test "enum with comptime_int tag type" {
         Two = 2,
         Three = 1,
     };
-    try comptime expect(Tag(Enum) == comptime_int);
+    comptime assert(Tag(Enum) == comptime_int);
 }
 
 test "enum with one member default to u0 tag type" {
     const E0 = enum { X };
-    try comptime expect(Tag(E0) == u0);
+    comptime assert(Tag(E0) == u0);
 }
 
 const EnumWithOneMember = enum { Eof };
@@ -989,7 +989,7 @@ test "@tagName" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
-    try comptime expect(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
+    comptime assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
 fn testEnumTagNameBare(n: anytype) []const u8 {
@@ -1005,7 +1005,7 @@ test "@tagName non-exhaustive enum" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
-    try comptime expect(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
+    comptime assert(mem.eql(u8, testEnumTagNameBare(NonExhaustive.B), "B"));
 }
 const NonExhaustive = enum(u8) { A, B, _ };
 
@@ -1044,7 +1044,7 @@ test "@tagName on enum literals" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
-    try comptime expect(mem.eql(u8, @tagName(.FooBar), "FooBar"));
+    comptime assert(mem.eql(u8, @tagName(.FooBar), "FooBar"));
 }
 
 test "tag name with signed enum values" {
@@ -1101,7 +1101,7 @@ test "bit field access with enum fields" {
     try expect(getA(&data) == A.Two);
     try expect(getB(&data) == B.Three3);
     try expect(getC(&data) == C.Four4);
-    try comptime expect(@sizeOf(BitFieldOfEnums) == 1);
+    comptime assert(@sizeOf(BitFieldOfEnums) == 1);
 
     data.b = B.Four3;
     try expect(data.b == B.Four3);
@@ -1234,4 +1234,11 @@ fn getLazyInitialized(param: enum(u8) {
     a = @bitCast(packed struct(u8) { a: u8 }{ .a = @alignOf(struct {}) }),
 }) u8 {
     return @intFromEnum(param);
+}
+
+test "Non-exhaustive enum backed by comptime_int" {
+    const E = enum(comptime_int) { a, b, c, _ };
+    comptime var e: E = .a;
+    e = @as(E, @enumFromInt(378089457309184723749));
+    try expect(@intFromEnum(e) == 378089457309184723749);
 }

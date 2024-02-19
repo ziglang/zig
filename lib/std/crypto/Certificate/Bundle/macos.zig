@@ -20,12 +20,12 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     var stream = std.io.fixedBufferStream(bytes);
     const reader = stream.reader();
 
-    const db_header = try reader.readStructBig(ApplDbHeader);
-    assert(mem.eql(u8, "kych", &@as([4]u8, @bitCast(db_header.signature))));
+    const db_header = try reader.readStructEndian(ApplDbHeader, .big);
+    assert(mem.eql(u8, &db_header.signature, "kych"));
 
     try stream.seekTo(db_header.schema_offset);
 
-    const db_schema = try reader.readStructBig(ApplDbSchema);
+    const db_schema = try reader.readStructEndian(ApplDbSchema, .big);
 
     var table_list = try gpa.alloc(u32, db_schema.table_count);
     defer gpa.free(table_list);
@@ -40,7 +40,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
     for (table_list) |table_offset| {
         try stream.seekTo(db_header.schema_offset + table_offset);
 
-        const table_header = try reader.readStructBig(TableHeader);
+        const table_header = try reader.readStructEndian(TableHeader, .big);
 
         if (@as(std.os.darwin.cssm.DB_RECORDTYPE, @enumFromInt(table_header.table_id)) != .X509_CERTIFICATE) {
             continue;
@@ -57,7 +57,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
         for (record_list) |record_offset| {
             try stream.seekTo(db_header.schema_offset + table_offset + record_offset);
 
-            const cert_header = try reader.readStructBig(X509CertHeader);
+            const cert_header = try reader.readStructEndian(X509CertHeader, .big);
 
             try cb.bytes.ensureUnusedCapacity(gpa, cert_header.cert_size);
 
@@ -73,7 +73,7 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
 }
 
 const ApplDbHeader = extern struct {
-    signature: @Vector(4, u8),
+    signature: [4]u8,
     version: u32,
     header_size: u32,
     schema_offset: u32,

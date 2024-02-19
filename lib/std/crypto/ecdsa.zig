@@ -389,7 +389,6 @@ test "ECDSA - Basic operations over EcdsaP384Sha384" {
 
 test "ECDSA - Basic operations over Secp256k1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Scheme = EcdsaSecp256k1Sha256oSha256;
     const kp = try Scheme.KeyPair.create(null);

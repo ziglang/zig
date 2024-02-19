@@ -366,12 +366,15 @@ pub fn parseArgs(
             } else if (mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--assemble")) {
                 d.only_preprocess_and_compile = true;
             } else if (option(arg, "--target=")) |triple| {
-                const cross = std.zig.CrossTarget.parse(.{ .arch_os_abi = triple }) catch {
+                const query = std.Target.Query.parse(.{ .arch_os_abi = triple }) catch {
                     try d.comp.addDiagnostic(.{ .tag = .cli_invalid_target, .extra = .{ .str = arg } }, &.{});
                     continue;
                 };
-                d.comp.target = cross.toTarget(); // TODO deprecated
-                d.comp.langopts.setEmulatedCompiler(target_util.systemCompiler(d.comp.target));
+                const target = std.zig.system.resolveTargetQuery(query) catch |e| {
+                    return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
+                };
+                d.comp.target = target;
+                d.comp.langopts.setEmulatedCompiler(target_util.systemCompiler(target));
                 d.raw_target_triple = triple;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
                 d.verbose_ast = true;

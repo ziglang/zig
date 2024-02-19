@@ -44,11 +44,11 @@ pub fn create(
 
 const SearchPhrase = struct {
     string: []const u8,
-    file_source: ?std.Build.LazyPath = null,
+    lazy_path: ?std.Build.LazyPath = null,
 
     fn resolve(phrase: SearchPhrase, b: *std.Build, step: *Step) []const u8 {
-        const file_source = phrase.file_source orelse return phrase.string;
-        return b.fmt("{s} {s}", .{ phrase.string, file_source.getPath2(b, step) });
+        const lazy_path = phrase.lazy_path orelse return phrase.string;
+        return b.fmt("{s} {s}", .{ phrase.string, lazy_path.getPath2(b, step) });
     }
 };
 
@@ -321,14 +321,14 @@ pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
 
 /// Like `checkExact()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExactPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
-    self.checkExactInner(phrase, file_source);
+pub fn checkExactPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    self.checkExactInner(phrase, lazy_path);
 }
 
-fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.LazyPath) void {
+fn checkExactInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.exact(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.exact(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds a fuzzy match phrase to the latest created Check.
@@ -336,16 +336,20 @@ pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
     self.checkContainsInner(phrase, null);
 }
 
-/// Like `checkContains()` but takes an additional argument `FileSource` which will be
+/// Like `checkContains()` but takes an additional argument `lazy_path` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkContainsPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
-    self.checkContainsInner(phrase, file_source);
+pub fn checkContainsPath(
+    self: *CheckObject,
+    phrase: []const u8,
+    lazy_path: std.Build.LazyPath,
+) void {
+    self.checkContainsInner(phrase, lazy_path);
 }
 
-fn checkContainsInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkContainsInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.contains(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.contains(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds an exact match phrase with variable extractor to the latest created Check.
@@ -353,16 +357,16 @@ pub fn checkExtract(self: *CheckObject, phrase: []const u8) void {
     self.checkExtractInner(phrase, null);
 }
 
-/// Like `checkExtract()` but takes an additional argument `FileSource` which will be
+/// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExtractFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
-    self.checkExtractInner(phrase, file_source);
+pub fn checkExtractLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    self.checkExtractInner(phrase, lazy_path);
 }
 
-fn checkExtractInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkExtractInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.extract(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.extract(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Adds another searched phrase to the latest created Check
@@ -371,16 +375,16 @@ pub fn checkNotPresent(self: *CheckObject, phrase: []const u8) void {
     self.checkNotPresentInner(phrase, null);
 }
 
-/// Like `checkExtract()` but takes an additional argument `FileSource` which will be
+/// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkNotPresentFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
-    self.checkNotPresentInner(phrase, file_source);
+pub fn checkNotPresentLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    self.checkNotPresentInner(phrase, lazy_path);
 }
 
-fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.notPresent(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.notPresent(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
 /// Creates a new check checking in the file headers (section, program headers, etc.).

@@ -109,7 +109,7 @@ const ExternPtrOrInt = extern union {
     int: u64,
 };
 test "extern union size" {
-    try comptime expect(@sizeOf(ExternPtrOrInt) == 8);
+    comptime assert(@sizeOf(ExternPtrOrInt) == 8);
 }
 
 test "0-sized extern union definition" {
@@ -161,7 +161,7 @@ test "access a member of tagged union with conflicting enum tag name" {
         const B = void;
     };
 
-    try comptime expect(Bar.A == u8);
+    comptime assert(Bar.A == u8);
 }
 
 test "constant tagged union with payload" {
@@ -371,14 +371,34 @@ const PackedPtrOrInt = packed union {
     int: u64,
 };
 test "packed union size" {
-    try comptime expect(@sizeOf(PackedPtrOrInt) == 8);
+    comptime assert(@sizeOf(PackedPtrOrInt) == 8);
 }
 
 const ZeroBits = union {
     OnlyField: void,
 };
 test "union with only 1 field which is void should be zero bits" {
-    try comptime expect(@sizeOf(ZeroBits) == 0);
+    comptime assert(@sizeOf(ZeroBits) == 0);
+}
+
+test "assigning to union with zero size field" {
+    const U = union {
+        a: u32,
+        b: void,
+        c: f32,
+    };
+
+    const u: U = .{ .b = {} };
+    _ = u;
+
+    const UE = union(enum) {
+        a: f32,
+        b: u32,
+        c: u0,
+    };
+
+    const ue: UE = .{ .c = 0 };
+    _ = ue;
 }
 
 test "tagged union initialization with runtime void" {
@@ -428,7 +448,7 @@ test "union with only 1 field casted to its enum type" {
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     _ = &e;
     const ExprTag = Tag(Expr);
-    try comptime expect(Tag(ExprTag) == u0);
+    comptime assert(Tag(ExprTag) == u0);
     var t = @as(ExprTag, e);
     _ = &t;
     try expect(t == Expr.Literal);
@@ -438,7 +458,7 @@ test "union with one member defaults to u0 tag type" {
     const U0 = union(enum) {
         X: u32,
     };
-    try comptime expect(Tag(Tag(U0)) == u0);
+    comptime assert(Tag(Tag(U0)) == u0);
 }
 
 const Foo1 = union(enum) {
@@ -629,7 +649,7 @@ test "union(enum(u32)) with specified and unspecified tag values" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try comptime expect(Tag(Tag(MultipleChoice2)) == u32);
+    comptime assert(Tag(Tag(MultipleChoice2)) == u32);
     try testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
     try comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2{ .C = 123 });
 }
@@ -709,11 +729,11 @@ test "union with only 1 field casted to its enum type which has enum value speci
 
     var e = Expr{ .Literal = Literal{ .Bool = true } };
     _ = &e;
-    try comptime expect(Tag(ExprTag) == comptime_int);
+    comptime assert(Tag(ExprTag) == comptime_int);
     const t = comptime @as(ExprTag, e);
     try expect(t == Expr.Literal);
     try expect(@intFromEnum(t) == 33);
-    try comptime expect(@intFromEnum(t) == 33);
+    comptime assert(@intFromEnum(t) == 33);
 }
 
 test "@intFromEnum works on unions" {
@@ -894,7 +914,7 @@ test "union with comptime_int tag" {
         Y: u16,
         Z: u8,
     };
-    try comptime expect(Tag(Tag(Union)) == comptime_int);
+    comptime assert(Tag(Tag(Union)) == comptime_int);
 }
 
 test "extern union doesn't trigger field check at comptime" {
@@ -904,7 +924,7 @@ test "extern union doesn't trigger field check at comptime" {
     };
 
     const x = U{ .x = 0x55AAAA55 };
-    try comptime expect(x.y == 0x55);
+    comptime assert(x.y == 0x55);
 }
 
 test "anonymous union literal syntax" {
@@ -1099,6 +1119,7 @@ test "@unionInit on union with tag but no fields" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         const Type = enum(u8) { no_op = 105 };
@@ -2039,7 +2060,6 @@ test "store of comptime reinterpreted memory to packed union" {
 
 test "union field is a pointer to an aligned version of itself" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const E = union {
         next: *align(1) @This(),
@@ -2111,4 +2131,145 @@ test "pass nested union with rls" {
     var c: u7 = 32;
     _ = &c;
     try expectEqual(@as(u7, 32), Union.getC(.{ .b = .{ .c = c } }));
+}
+
+test "runtime union init, most-aligned field != largest" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const U = union(enum) {
+        x: u128,
+        y: [17]u8,
+
+        fn foo(val: @This()) !void {
+            try expect(val.x == 1);
+        }
+    };
+    var x: u8 = 1;
+    _ = &x;
+    try U.foo(.{ .x = x });
+
+    const val: U = @unionInit(U, "x", x);
+    try expect(val.x == 1);
+
+    const val2: U = .{ .x = x };
+    try expect(val2.x == 1);
+}
+
+test "copied union field doesn't alias source" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const U = union(enum) {
+        array: [10]u32,
+        other: u32,
+    };
+
+    var x = U{ .array = undefined };
+
+    x.array[1] = 0;
+    const a = x.array;
+    x.array[1] = 15;
+
+    try expect(a[1] == 0);
+}
+
+test "create union(enum) from other union(enum)" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const string = "hello world";
+    const TempRef = struct {
+        index: usize,
+        is_weak: bool,
+    };
+    const BuiltinEnum = struct {
+        name: []const u8,
+    };
+    const ParamType = union(enum) {
+        boolean,
+        buffer,
+        one_of: BuiltinEnum,
+    };
+    const EnumLiteral = struct {
+        label: []const u8,
+    };
+
+    const ExpressionResult = union(enum) {
+        temp_buffer: TempRef,
+        literal_boolean: bool,
+        literal_enum_value: []const u8,
+
+        fn commitCalleeParam(result: @This(), callee_param_type: ParamType) @This() {
+            switch (callee_param_type) {
+                .boolean => return result,
+                .buffer => return .{
+                    .temp_buffer = .{ .index = 0, .is_weak = false },
+                },
+                .one_of => return result,
+            }
+        }
+    };
+    const Expression = union(enum) {
+        literal_boolean: bool,
+        literal_enum_value: EnumLiteral,
+
+        fn genExpression(expr: @This()) !ExpressionResult {
+            switch (expr) {
+                .literal_boolean => |value| return .{
+                    .literal_boolean = value,
+                },
+                .literal_enum_value => |v| {
+                    try std.testing.expectEqualStrings(string, v.label);
+                    const result: ExpressionResult = .{
+                        .literal_enum_value = v.label,
+                    };
+                    switch (result) {
+                        .literal_enum_value => |w| {
+                            try std.testing.expectEqualStrings(string, w);
+                        },
+                        else => {},
+                    }
+                    return result;
+                },
+            }
+        }
+    };
+    const CallArg = struct {
+        value: Expression,
+    };
+
+    var param: ParamType = .{
+        .one_of = .{ .name = "name" },
+    };
+    _ = &param;
+    var arg: CallArg = .{
+        .value = .{
+            .literal_enum_value = .{
+                .label = string,
+            },
+        },
+    };
+    _ = &arg;
+
+    const result = try arg.value.genExpression();
+    switch (result) {
+        .literal_enum_value => |w| {
+            try std.testing.expectEqualStrings(string, w);
+        },
+        else => {},
+    }
+
+    const derp = result.commitCalleeParam(param);
+    switch (derp) {
+        .literal_enum_value => |w| {
+            try std.testing.expectEqualStrings(string, w);
+        },
+        else => {},
+    }
 }

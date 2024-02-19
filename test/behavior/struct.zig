@@ -203,18 +203,18 @@ test "return struct byval from function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const bar = makeBar2(1234, 5678);
-    try expect(bar.y == 5678);
-}
-const Bar = struct {
-    x: i32,
-    y: i32,
-};
-fn makeBar2(x: i32, y: i32) Bar {
-    return Bar{
-        .x = x,
-        .y = y,
+    const Bar = struct {
+        x: i32,
+        y: i32,
+        fn makeBar2(x: i32, y: i32) @This() {
+            return .{
+                .x = x,
+                .y = y,
+            };
+        }
     };
+    const bar = Bar.makeBar2(1234, 5678);
+    try expect(bar.y == 5678);
 }
 
 test "call method with mutable reference to struct with no fields" {
@@ -591,7 +591,7 @@ test "bit field access" {
     try expect(getA(&data) == 1);
     try expect(getB(&data) == 2);
     try expect(getC(&data) == 3);
-    try comptime expect(@sizeOf(BitField1) == 1);
+    comptime assert(@sizeOf(BitField1) == 1);
 
     data.b += 1;
     try expect(data.b == 3);
@@ -730,7 +730,7 @@ test "packed struct with u0 field access" {
     };
     var s = S{ .f0 = 0 };
     _ = &s;
-    try comptime expect(s.f0 == 0);
+    comptime assert(s.f0 == 0);
 }
 
 test "access to global struct fields" {
@@ -947,7 +947,7 @@ test "comptime struct field" {
 
     var foo: T = undefined;
     _ = &foo;
-    try comptime expect(foo.b == 1234);
+    comptime assert(foo.b == 1234);
 }
 
 test "tuple element initialized with fn call" {
@@ -1744,8 +1744,6 @@ test "struct init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known struct init" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var side_effects: u4 = 0;
     const S = struct { a: u4, b: u4, c: u4, d: u4 };
     const init = S{
@@ -1883,10 +1881,249 @@ test "field calls do not force struct field init resolution" {
 }
 
 test "tuple with comptime-only field" {
-    const x = getTuple();
+    const S = struct {
+        fn getTuple() struct { comptime_int } {
+            return struct { comptime comptime_int = 0 }{0};
+        }
+    };
+
+    const x = S.getTuple();
     try expect(x.@"0" == 0);
 }
 
-fn getTuple() struct { comptime_int } {
-    return struct { comptime comptime_int = 0 }{0};
+test "extern struct fields are aligned to 1" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Foo = extern struct {
+        a: u8 align(1),
+        b: u16 align(1),
+    };
+
+    const foo = Foo{
+        .a = 1,
+        .b = 2,
+    };
+    try std.testing.expectEqual(1, foo.a);
+    try std.testing.expectEqual(2, foo.b);
+}
+
+test "assign to slice.len of global variable" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        const allocator = std.testing.allocator;
+        var list = std.ArrayList(u32).init(allocator);
+    };
+
+    S.list.items.len = 0;
+    try expect(S.list.items.len == 0);
+}
+
+test "pointers to fields of volatile pointer to struct are also volatile" {
+    const B = extern struct {
+        a: u32,
+        b: i32,
+    };
+    const A = extern struct {
+        value: *volatile B,
+    };
+
+    var a: *A = undefined;
+    try expect(@TypeOf(&a.value.a) == *volatile u32);
+    try expect(@TypeOf(&a.value.b) == *volatile i32);
+}
+
+test "pointers to fields of volatile pointer to union are also volatile" {
+    const D = extern union {
+        a: u32,
+        b: i32,
+    };
+    const C = extern struct {
+        value: *volatile D,
+    };
+
+    var c: *C = undefined;
+    try expect(@TypeOf(&c.value.a) == *volatile u32);
+    try expect(@TypeOf(&c.value.b) == *volatile i32);
+}
+
+test "array of structs inside struct initialized with undefined" {
+    const Item = struct { field: u8 };
+    const Thing = struct {
+        array: [1]Item,
+    };
+    _ = Thing{ .array = undefined };
+}
+
+test "runtime call in nested initializer" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Holder = struct {
+        array: []const u8,
+    };
+    const Test = struct {
+        holders: []const Holder,
+    };
+    const Letter = enum(u8) {
+        A = 0x41,
+        B,
+
+        fn letter(e: @This()) u8 {
+            return @intFromEnum(e);
+        }
+    };
+
+    const test_struct = Test{
+        .holders = &.{
+            Holder{
+                .array = &.{
+                    Letter.letter(.A),
+                },
+            },
+        },
+    };
+    try std.testing.expectEqualStrings("A", test_struct.holders[0].array);
+}
+
+test "runtime value in nested initializer passed as pointer to function" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+
+    const Bar = struct {
+        b: u32,
+    };
+    const Foo = struct {
+        a: Bar,
+
+        fn takeFoo(foo: *const @This()) !void {
+            try std.testing.expectEqual(@as(u32, 24), foo.a.b);
+        }
+    };
+
+    var baz: u32 = 24;
+    _ = &baz;
+    try Foo.takeFoo(&.{
+        .a = .{
+            .b = baz,
+        },
+    });
+}
+
+test "struct field default value is a call" {
+    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const Z = packed struct {
+        a: u32,
+    };
+    const Y = struct {
+        a: u16,
+        b: bool,
+        c: Z,
+        d: Z,
+
+        fn init() @This() {
+            return .{
+                .a = 0,
+                .b = false,
+                .c = @as(Z, @bitCast(@as(u32, 0))),
+                .d = @as(Z, @bitCast(@as(u32, 0))),
+            };
+        }
+    };
+    const X = struct {
+        y: Y = Y.init(),
+    };
+
+    const x = X{};
+    try std.testing.expectEqual(@as(u16, 0), x.y.a);
+    try std.testing.expectEqual(false, x.y.b);
+    try std.testing.expectEqual(Z{ .a = 0 }, x.y.c);
+    try std.testing.expectEqual(Z{ .a = 0 }, x.y.d);
+}
+
+test "aggregate initializers should allow initializing comptime fields, verifying equality" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var x: u32 = 15;
+    _ = &x;
+    const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
+    const a: T = .{ -1234, 5678, x + 1 };
+
+    try expect(a[0] == -1234);
+    try expect(a[1] == 5678);
+    try expect(a[2] == 16);
+}
+
+test "assignment of field with padding" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const Mesh = extern struct {
+        id: u32,
+    };
+    const Material = extern struct {
+        transparent: bool = true,
+        emits_shadows: bool = true,
+        render_color: bool = true,
+    };
+    const Renderable = extern struct {
+        material: Material,
+        mesh: Mesh,
+    };
+    var renderable: Renderable = undefined;
+    renderable = Renderable{
+        .mesh = Mesh{ .id = 0 },
+        .material = Material{
+            .transparent = false,
+            .emits_shadows = false,
+        },
+    };
+    try expect(false == renderable.material.transparent);
+    try expect(false == renderable.material.emits_shadows);
+    try expect(true == renderable.material.render_color);
+}
+
+test "initiate global variable with runtime value" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        field: i32,
+        fn couldFail() anyerror!i32 {
+            return 1;
+        }
+        var some_struct: @This() = undefined;
+    };
+
+    S.some_struct = .{
+        .field = S.couldFail() catch 0,
+    };
+    try expect(S.some_struct.field == 1);
+}
+
+test "struct containing optional pointer to array of @This()" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        x: ?*const [1]@This(),
+    };
+
+    var s: S = .{ .x = &.{.{ .x = null }} };
+    _ = &s;
+    try expect(s.x.?[0].x == null);
 }

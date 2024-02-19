@@ -2230,6 +2230,10 @@ test "zig fmt: switch cases trailing comma" {
         \\        1,2,3 => {},
         \\        4,5, => {},
         \\        6... 8, => {},
+        \\        9 ...
+        \\        10 => {},
+        \\        11 => {},
+        \\        12, => {},
         \\        else => {},
         \\    }
         \\}
@@ -2240,7 +2244,12 @@ test "zig fmt: switch cases trailing comma" {
         \\        4,
         \\        5,
         \\        => {},
-        \\        6...8 => {},
+        \\        6...8,
+        \\        => {},
+        \\        9...10 => {},
+        \\        11 => {},
+        \\        12,
+        \\        => {},
         \\        else => {},
         \\    }
         \\}
@@ -4374,6 +4383,21 @@ test "zig fmt: invalid doc comments on comptime and test blocks" {
         .comptime_doc_comment,
         .test_doc_comment,
     });
+}
+
+test "zig fmt: else comptime expr" {
+    try testCanonical(
+        \\comptime {
+        \\    if (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    while (true) {} else comptime foo();
+        \\}
+        \\comptime {
+        \\    for ("") |_| {} else comptime foo();
+        \\}
+        \\
+    );
 }
 
 test "zig fmt: invalid else branch statement" {

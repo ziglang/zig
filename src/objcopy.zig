@@ -284,10 +284,8 @@ fn emitElf(
             }
 
             var hex_writer = HexWriter{ .out_file = out_file };
-            for (binary_elf_output.sections.items) |section| {
-                if (section.segment) |segment| {
-                    try hex_writer.writeSegment(segment, in_file);
-                }
+            for (binary_elf_output.segments.items) |segment| {
+                try hex_writer.writeSegment(segment, in_file);
             }
             if (options.pad_to) |_| {
                 // Padding to a size in hex files isn't applicable
@@ -1300,8 +1298,7 @@ const ElfFileHelper = struct {
         try compressed_stream.writer().writeAll(prefix);
 
         {
-            var compressor = try std.compress.zlib.compressStream(allocator, compressed_stream.writer(), .{});
-            defer compressor.deinit();
+            var compressor = try std.compress.zlib.compressor(compressed_stream.writer(), .{});
 
             var buf: [8000]u8 = undefined;
             while (true) {

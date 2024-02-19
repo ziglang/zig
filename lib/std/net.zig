@@ -264,6 +264,7 @@ pub const Ip4Address = extern struct {
             error.InvalidEnd,
             error.InvalidCharacter,
             error.Incomplete,
+            error.NonCanonical,
             => {},
         }
         return error.InvalidIPAddressFormat;
@@ -650,7 +651,7 @@ pub const Ip6Address = extern struct {
 };
 
 pub fn connectUnixSocket(path: []const u8) !Stream {
-    const opt_non_block = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
+    const opt_non_block = 0;
     const sockfd = try os.socket(
         os.AF.UNIX,
         os.SOCK.STREAM | os.SOCK.CLOEXEC | opt_non_block,
@@ -659,17 +660,9 @@ pub fn connectUnixSocket(path: []const u8) !Stream {
     errdefer os.closeSocket(sockfd);
 
     var addr = try std.net.Address.initUnix(path);
+    try os.connect(sockfd, &addr.any, addr.getOsSockLen());
 
-    if (std.io.is_async) {
-        const loop = std.event.Loop.instance orelse return error.WouldBlock;
-        try loop.connect(sockfd, &addr.any, addr.getOsSockLen());
-    } else {
-        try os.connect(sockfd, &addr.any, addr.getOsSockLen());
-    }
-
-    return Stream{
-        .handle = sockfd,
-    };
+    return Stream{ .handle = sockfd };
 }
 
 fn if_nametoindex(name: []const u8) IPv6InterfaceError!u32 {
@@ -741,18 +734,13 @@ pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) T
 pub const TcpConnectToAddressError = std.os.SocketError || std.os.ConnectError;
 
 pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
-    const nonblock = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
+    const nonblock = 0;
     const sock_flags = os.SOCK.STREAM | nonblock |
         (if (builtin.target.os.tag == .windows) 0 else os.SOCK.CLOEXEC);
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO.TCP);
     errdefer os.closeSocket(sockfd);
 
-    if (std.io.is_async) {
-        const loop = std.event.Loop.instance orelse return error.WouldBlock;
-        try loop.connect(sockfd, &address.any, address.getOsSockLen());
-    } else {
-        try os.connect(sockfd, &address.any, address.getOsSockLen());
-    }
+    try os.connect(sockfd, &address.any, address.getOsSockLen());
 
     return Stream{ .handle = sockfd };
 }
@@ -1617,11 +1605,7 @@ fn resMSendRc(
                 if (answers[i].len == 0) {
                     var j: usize = 0;
                     while (j < ns.len) : (j += 1) {
-                        if (std.io.is_async) {
-                            _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
-                        } else {
-                            _ = os.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
-                        }
+                        _ = os.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
                     }
                 }
             }
@@ -1636,10 +1620,7 @@ fn resMSendRc(
 
         while (true) {
             var sl_copy = sl;
-            const rlen = if (std.io.is_async)
-                std.event.Loop.instance.?.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break
-            else
-                os.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
+            const rlen = os.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
 
             // Ignore non-identifiable packets
             if (rlen < 4) continue;
@@ -1665,11 +1646,7 @@ fn resMSendRc(
                 0, 3 => {},
                 2 => if (servfail_retry != 0) {
                     servfail_retry -= 1;
-                    if (std.io.is_async) {
-                        _ = std.event.Loop.instance.?.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
-                    } else {
-                        _ = os.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
-                    }
+                    _ = os.sendto(fd, queries[i], os.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
                 },
                 else => continue,
             }
@@ -1777,14 +1754,10 @@ pub const Stream = struct {
 
     pub fn read(self: Stream, buffer: []u8) ReadError!usize {
         if (builtin.os.tag == .windows) {
-            return os.windows.ReadFile(self.handle, buffer, null, io.default_mode);
+            return os.windows.ReadFile(self.handle, buffer, null);
         }
 
-        if (std.io.is_async) {
-            return std.event.Loop.instance.?.read(self.handle, buffer, false);
-        } else {
-            return os.read(self.handle, buffer);
-        }
+        return os.read(self.handle, buffer);
     }
 
     pub fn readv(s: Stream, iovecs: []const os.iovec) ReadError!usize {
@@ -1792,7 +1765,7 @@ pub const Stream = struct {
             // TODO improve this to use ReadFileScatter
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
-            return os.windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null, io.default_mode);
+            return os.windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null);
         }
 
         return os.readv(s.handle, iovecs);
@@ -1826,14 +1799,10 @@ pub const Stream = struct {
     /// use non-blocking I/O.
     pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
         if (builtin.os.tag == .windows) {
-            return os.windows.WriteFile(self.handle, buffer, null, io.default_mode);
+            return os.windows.WriteFile(self.handle, buffer, null);
         }
 
-        if (std.io.is_async) {
-            return std.event.Loop.instance.?.write(self.handle, buffer, false);
-        } else {
-            return os.write(self.handle, buffer);
-        }
+        return os.write(self.handle, buffer);
     }
 
     pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
@@ -1846,15 +1815,7 @@ pub const Stream = struct {
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.fs.File.writev`.
     pub fn writev(self: Stream, iovecs: []const os.iovec_const) WriteError!usize {
-        if (std.io.is_async) {
-            // TODO improve to actually take advantage of writev syscall, if available.
-            if (iovecs.len == 0) return 0;
-            const first_buffer = iovecs[0].iov_base[0..iovecs[0].iov_len];
-            try self.write(first_buffer);
-            return first_buffer.len;
-        } else {
-            return os.writev(self.handle, iovecs);
-        }
+        return os.writev(self.handle, iovecs);
     }
 
     /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
@@ -1926,7 +1887,7 @@ pub const StreamServer = struct {
     }
 
     pub fn listen(self: *StreamServer, address: Address) !void {
-        const nonblock = if (std.io.is_async) os.SOCK.NONBLOCK else 0;
+        const nonblock = 0;
         const sock_flags = os.SOCK.STREAM | os.SOCK.CLOEXEC | nonblock;
         var use_sock_flags: u32 = sock_flags;
         if (self.force_nonblocking) use_sock_flags |= os.SOCK.NONBLOCK;
@@ -2015,14 +1976,7 @@ pub const StreamServer = struct {
     pub fn accept(self: *StreamServer) AcceptError!Connection {
         var accepted_addr: Address = undefined;
         var adr_len: os.socklen_t = @sizeOf(Address);
-        const accept_result = blk: {
-            if (std.io.is_async) {
-                const loop = std.event.Loop.instance orelse return error.UnexpectedError;
-                break :blk loop.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK.CLOEXEC);
-            } else {
-                break :blk os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK.CLOEXEC);
-            }
-        };
+        const accept_result = os.accept(self.sockfd.?, &accepted_addr.any, &adr_len, os.SOCK.CLOEXEC);
 
         if (accept_result) |fd| {
             return Connection{

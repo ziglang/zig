@@ -132,6 +132,7 @@ pub fn InitError(comptime Stream: type) type {
         InvalidSignature,
         NotSquare,
         NonCanonical,
+        WeakPublicKey,
     };
 }
 
@@ -166,13 +167,9 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     }) ++ tls.extension(.signature_algorithms, enum_array(tls.SignatureScheme, &.{
         .ecdsa_secp256r1_sha256,
         .ecdsa_secp384r1_sha384,
-        .ecdsa_secp521r1_sha512,
         .rsa_pss_rsae_sha256,
         .rsa_pss_rsae_sha384,
         .rsa_pss_rsae_sha512,
-        .rsa_pkcs1_sha256,
-        .rsa_pkcs1_sha384,
-        .rsa_pkcs1_sha512,
         .ed25519,
     })) ++ tls.extension(.supported_groups, enum_array(tls.NamedGroup, &.{
         .x25519_kyber768d00,
@@ -455,11 +452,20 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                         if (ciphertext.len > cleartext_buf.len) return error.TlsRecordOverflow;
                         const cleartext = cleartext_buf[0..ciphertext.len];
                         const auth_tag = record_decoder.array(P.AEAD.tag_length).*;
-                        const V = @Vector(P.AEAD.nonce_length, u8);
-                        const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
-                        const operand: V = pad ++ @as([8]u8, @bitCast(big(read_seq)));
+                        const nonce = if (builtin.zig_backend == .stage2_x86_64 and
+                            P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
+                        nonce: {
+                            var nonce = p.server_handshake_iv;
+                            const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
+                            std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ read_seq, .big);
+                            break :nonce nonce;
+                        } else nonce: {
+                            const V = @Vector(P.AEAD.nonce_length, u8);
+                            const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                            const operand: V = pad ++ @as([8]u8, @bitCast(big(read_seq)));
+                            break :nonce @as(V, p.server_handshake_iv) ^ operand;
+                        };
                         read_seq += 1;
-                        const nonce = @as(V, p.server_handshake_iv) ^ operand;
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
                         break :c cleartext;
@@ -618,6 +624,15 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                         },
                                     }
                                 },
+                                inline .ed25519 => |comptime_scheme| {
+                                    if (main_cert_pub_key_algo != .curveEd25519) return error.TlsBadSignatureScheme;
+                                    const Eddsa = SchemeEddsa(comptime_scheme);
+                                    if (encoded_sig.len != Eddsa.Signature.encoded_length) return error.InvalidEncoding;
+                                    const sig = Eddsa.Signature.fromBytes(encoded_sig[0..Eddsa.Signature.encoded_length].*);
+                                    if (main_cert_pub_key.len != Eddsa.PublicKey.encoded_length) return error.InvalidEncoding;
+                                    const key = try Eddsa.PublicKey.fromBytes(main_cert_pub_key[0..Eddsa.PublicKey.encoded_length].*);
+                                    try sig.verify(verify_bytes, key);
+                                },
                                 else => {
                                     return error.TlsBadSignatureScheme;
                                 },
@@ -662,7 +677,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                     P.AEAD.encrypt(ciphertext, auth_tag, &out_cleartext, ad, nonce, p.client_handshake_key);
 
                                     const both_msgs = client_change_cipher_spec_msg ++ finished_msg;
-                                    try stream.writeAll(&both_msgs);
+                                    var both_msgs_vec = [_]std.os.iovec_const{.{
+                                        .iov_base = &both_msgs,
+                                        .iov_len = both_msgs.len,
+                                    }};
+                                    try stream.writevAll(&both_msgs_vec);
 
                                     const client_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                     const server_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
@@ -796,14 +815,13 @@ fn prepareCiphertextRecord(
     switch (c.application_cipher) {
         inline else => |*p| {
             const P = @TypeOf(p.*);
-            const V = @Vector(P.AEAD.nonce_length, u8);
             const overhead_len = tls.record_header_len + P.AEAD.tag_length + 1;
             const close_notify_alert_reserved = tls.close_notify_alert.len + overhead_len;
             while (true) {
                 const encrypted_content_len: u16 = @intCast(@min(
-                    @min(bytes.len - bytes_i, max_ciphertext_len - 1),
-                    ciphertext_buf.len - close_notify_alert_reserved -
-                        overhead_len - ciphertext_end,
+                    @min(bytes.len - bytes_i, tls.max_cipertext_inner_record_len),
+                    ciphertext_buf.len -|
+                        (close_notify_alert_reserved + overhead_len + ciphertext_end),
                 ));
                 if (encrypted_content_len == 0) return .{
                     .iovec_end = iovec_end,
@@ -828,10 +846,20 @@ fn prepareCiphertextRecord(
                 ciphertext_end += ciphertext_len;
                 const auth_tag = ciphertext_buf[ciphertext_end..][0..P.AEAD.tag_length];
                 ciphertext_end += auth_tag.len;
-                const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
-                const operand: V = pad ++ @as([8]u8, @bitCast(big(c.write_seq)));
+                const nonce = if (builtin.zig_backend == .stage2_x86_64 and
+                    P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
+                nonce: {
+                    var nonce = p.client_iv;
+                    const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
+                    std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.write_seq, .big);
+                    break :nonce nonce;
+                } else nonce: {
+                    const V = @Vector(P.AEAD.nonce_length, u8);
+                    const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                    const operand: V = pad ++ @as([8]u8, @bitCast(big(c.write_seq)));
+                    break :nonce @as(V, p.client_iv) ^ operand;
+                };
                 c.write_seq += 1; // TODO send key_update on overflow
-                const nonce = @as(V, p.client_iv) ^ operand;
                 P.AEAD.encrypt(ciphertext, auth_tag, cleartext, ad, nonce, p.client_key);
 
                 const record = ciphertext_buf[record_start..ciphertext_end];
@@ -1092,15 +1120,24 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.os.iovec) 
                 const cleartext = switch (c.application_cipher) {
                     inline else => |*p| c: {
                         const P = @TypeOf(p.*);
-                        const V = @Vector(P.AEAD.nonce_length, u8);
                         const ad = frag[in - 5 ..][0..5];
                         const ciphertext_len = record_len - P.AEAD.tag_length;
                         const ciphertext = frag[in..][0..ciphertext_len];
                         in += ciphertext_len;
                         const auth_tag = frag[in..][0..P.AEAD.tag_length].*;
-                        const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
-                        const operand: V = pad ++ @as([8]u8, @bitCast(big(c.read_seq)));
-                        const nonce: [P.AEAD.nonce_length]u8 = @as(V, p.server_iv) ^ operand;
+                        const nonce = if (builtin.zig_backend == .stage2_x86_64 and
+                            P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
+                        nonce: {
+                            var nonce = p.server_iv;
+                            const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
+                            std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.read_seq, .big);
+                            break :nonce nonce;
+                        } else nonce: {
+                            const V = @Vector(P.AEAD.nonce_length, u8);
+                            const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                            const operand: V = pad ++ @as([8]u8, @bitCast(big(c.read_seq)));
+                            break :nonce @as(V, p.server_iv) ^ operand;
+                        };
                         const out_buf = vp.peek();
                         const cleartext_buf = if (ciphertext.len <= out_buf.len)
                             out_buf
@@ -1293,7 +1330,6 @@ fn SchemeEcdsa(comptime scheme: tls.SignatureScheme) type {
     return switch (scheme) {
         .ecdsa_secp256r1_sha256 => crypto.sign.ecdsa.EcdsaP256Sha256,
         .ecdsa_secp384r1_sha384 => crypto.sign.ecdsa.EcdsaP384Sha384,
-        .ecdsa_secp521r1_sha512 => crypto.sign.ecdsa.EcdsaP512Sha512,
         else => @compileError("bad scheme"),
     };
 }
@@ -1303,6 +1339,13 @@ fn SchemeHash(comptime scheme: tls.SignatureScheme) type {
         .rsa_pss_rsae_sha256 => crypto.hash.sha2.Sha256,
         .rsa_pss_rsae_sha384 => crypto.hash.sha2.Sha384,
         .rsa_pss_rsae_sha512 => crypto.hash.sha2.Sha512,
+        else => @compileError("bad scheme"),
+    };
+}
+
+fn SchemeEddsa(comptime scheme: tls.SignatureScheme) type {
+    return switch (scheme) {
+        .ed25519 => crypto.sign.Ed25519,
         else => @compileError("bad scheme"),
     };
 }

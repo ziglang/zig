@@ -373,19 +373,19 @@ test "test all types" {
 test "parse" {
     try testing.expectEqual(false, try parseFromSliceLeaky(bool, testing.allocator, "false", .{}));
     try testing.expectEqual(true, try parseFromSliceLeaky(bool, testing.allocator, "true", .{}));
-    try testing.expectEqual(@as(u1, 1), try parseFromSliceLeaky(u1, testing.allocator, "1", .{}));
+    try testing.expectEqual(1, try parseFromSliceLeaky(u1, testing.allocator, "1", .{}));
     try testing.expectError(error.Overflow, parseFromSliceLeaky(u1, testing.allocator, "50", .{}));
-    try testing.expectEqual(@as(u64, 42), try parseFromSliceLeaky(u64, testing.allocator, "42", .{}));
-    try testing.expectEqual(@as(f64, 42), try parseFromSliceLeaky(f64, testing.allocator, "42.0", .{}));
-    try testing.expectEqual(@as(?bool, null), try parseFromSliceLeaky(?bool, testing.allocator, "null", .{}));
-    try testing.expectEqual(@as(?bool, true), try parseFromSliceLeaky(?bool, testing.allocator, "true", .{}));
+    try testing.expectEqual(42, try parseFromSliceLeaky(u64, testing.allocator, "42", .{}));
+    try testing.expectEqual(42, try parseFromSliceLeaky(f64, testing.allocator, "42.0", .{}));
+    try testing.expectEqual(null, try parseFromSliceLeaky(?bool, testing.allocator, "null", .{}));
+    try testing.expectEqual(true, try parseFromSliceLeaky(?bool, testing.allocator, "true", .{}));
 
-    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSliceLeaky([3]u8, testing.allocator, "\"foo\"", .{}));
-    try testing.expectEqual(@as([3]u8, "foo".*), try parseFromSliceLeaky([3]u8, testing.allocator, "[102, 111, 111]", .{}));
-    try testing.expectEqual(@as([0]u8, undefined), try parseFromSliceLeaky([0]u8, testing.allocator, "[]", .{}));
+    try testing.expectEqual("foo".*, try parseFromSliceLeaky([3]u8, testing.allocator, "\"foo\"", .{}));
+    try testing.expectEqual("foo".*, try parseFromSliceLeaky([3]u8, testing.allocator, "[102, 111, 111]", .{}));
+    try testing.expectEqual(undefined, try parseFromSliceLeaky([0]u8, testing.allocator, "[]", .{}));
 
-    try testing.expectEqual(@as(u64, 12345678901234567890), try parseFromSliceLeaky(u64, testing.allocator, "\"12345678901234567890\"", .{}));
-    try testing.expectEqual(@as(f64, 123.456), try parseFromSliceLeaky(f64, testing.allocator, "\"123.456\"", .{}));
+    try testing.expectEqual(12345678901234567890, try parseFromSliceLeaky(u64, testing.allocator, "\"12345678901234567890\"", .{}));
+    try testing.expectEqual(123.456, try parseFromSliceLeaky(f64, testing.allocator, "\"123.456\"", .{}));
 }
 
 test "parse into enum" {
@@ -394,9 +394,9 @@ test "parse into enum" {
         Bar,
         @"with\\escape",
     };
-    try testing.expectEqual(@as(T, .Foo), try parseFromSliceLeaky(T, testing.allocator, "\"Foo\"", .{}));
-    try testing.expectEqual(@as(T, .Foo), try parseFromSliceLeaky(T, testing.allocator, "42", .{}));
-    try testing.expectEqual(@as(T, .@"with\\escape"), try parseFromSliceLeaky(T, testing.allocator, "\"with\\\\escape\"", .{}));
+    try testing.expectEqual(.Foo, try parseFromSliceLeaky(T, testing.allocator, "\"Foo\"", .{}));
+    try testing.expectEqual(.Foo, try parseFromSliceLeaky(T, testing.allocator, "42", .{}));
+    try testing.expectEqual(.@"with\\escape", try parseFromSliceLeaky(T, testing.allocator, "\"with\\\\escape\"", .{}));
     try testing.expectError(error.InvalidEnumTag, parseFromSliceLeaky(T, testing.allocator, "5", .{}));
     try testing.expectError(error.InvalidEnumTag, parseFromSliceLeaky(T, testing.allocator, "\"Qux\"", .{}));
 }

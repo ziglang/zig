@@ -918,7 +918,6 @@ test "big.int mul multi-single" {
 
 test "big.int mul multi-multi" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
@@ -1042,7 +1041,6 @@ test "big.int mulWrap single-single signed" {
 
 test "big.int mulWrap multi-multi unsigned" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var op1: u256 = 0x998888efefefefefefefef;
     var op2: u256 = 0x333000abababababababab;
@@ -1698,7 +1696,6 @@ test "big.int div multi-multi (2 branch)" {
 
 test "big.int div multi-multi (3.1/3.3 branch)" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x11111111111111111111111111111111111111111111111111111111111111);
     defer a.deinit();
@@ -2187,7 +2184,6 @@ test "big.int bitNotWrap more than two limbs" {
     // This test requires int sizes greater than 128 bits.
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     // LLVM: unexpected runtime library name: __umodei4
@@ -2537,7 +2533,6 @@ test "big.int gcd non-one large" {
 
 test "big.int gcd large multi-limb result" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var a = try Managed.initSet(testing.allocator, 0x12345678123456781234567812345678123456781234567812345678);
     defer a.deinit();

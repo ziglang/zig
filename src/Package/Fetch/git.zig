@@ -1115,8 +1115,7 @@ fn indexPackFirstPass(
         const entry_header = try EntryHeader.read(entry_crc32_reader.reader());
         switch (entry_header) {
             inline .commit, .tree, .blob, .tag => |object, tag| {
-                var entry_decompress_stream = try std.compress.zlib.decompressStream(allocator, entry_crc32_reader.reader());
-                defer entry_decompress_stream.deinit();
+                var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
                 var entry_hashed_writer = hashedWriter(std.io.null_writer, Sha1.init(.{}));
                 const entry_writer = entry_hashed_writer.writer();
@@ -1135,8 +1134,7 @@ fn indexPackFirstPass(
                 });
             },
             inline .ofs_delta, .ref_delta => |delta| {
-                var entry_decompress_stream = try std.compress.zlib.decompressStream(allocator, entry_crc32_reader.reader());
-                defer entry_decompress_stream.deinit();
+                var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
                 var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
                 try fifo.pump(entry_counting_reader.reader(), std.io.null_writer);
@@ -1257,8 +1255,7 @@ fn resolveDeltaChain(
 fn readObjectRaw(allocator: Allocator, reader: anytype, size: u64) ![]u8 {
     const alloc_size = std.math.cast(usize, size) orelse return error.ObjectTooLarge;
     var buffered_reader = std.io.bufferedReader(reader);
-    var decompress_stream = try std.compress.zlib.decompressStream(allocator, buffered_reader.reader());
-    defer decompress_stream.deinit();
+    var decompress_stream = std.compress.zlib.decompressor(buffered_reader.reader());
     const data = try allocator.alloc(u8, alloc_size);
     errdefer allocator.free(data);
     try decompress_stream.reader().readNoEof(data);

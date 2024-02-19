@@ -17,13 +17,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         const lib = b.addExecutable(.{
             .name = "lib",
             .root_source_file = .{ .path = "lib.zig" },
-            .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
             .optimize = optimize_mode,
+            .strip = false,
         });
         lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
-        lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
         lib.link_gc_sections = false;
@@ -65,13 +65,13 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         const lib = b.addExecutable(.{
             .name = "lib",
             .root_source_file = .{ .path = "lib2.zig" },
-            .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
             .optimize = optimize_mode,
+            .strip = false,
         });
         lib.entry = .disabled;
         lib.use_llvm = false;
         lib.use_lld = false;
-        lib.strip = false;
         // to make sure the bss segment is emitted, we must import memory
         lib.import_memory = true;
         lib.link_gc_sections = false;

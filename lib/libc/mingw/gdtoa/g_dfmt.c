@@ -45,7 +45,7 @@ char *__g_dfmt (char *buf, double *d, int ndig, size_t bufsize)
 
 	if (ndig < 0)
 		ndig = 0;
-	if ((int) bufsize < ndig + 10)
+	if (bufsize < (size_t)(ndig + 10))
 		return 0;
 
 	L = (ULong*)d;

@@ -6,7 +6,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?comptime_int {
+pub const suggestVectorSizeForCpu = @compileError("deprecated; use 'suggestVectorLengthForCpu'");
+
+pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?comptime_int {
     // This is guesswork, if you have better suggestions can add it or edit the current here
     // This can run in comptime only, but stage 1 fails at it, stage 2 can understand it
     const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
@@ -53,24 +55,26 @@ pub fn suggestVectorSizeForCpu(comptime T: type, comptime cpu: std.Target.Cpu) ?
     return @divExact(vector_bit_size, element_bit_size);
 }
 
-/// Suggests a target-dependant vector size for a given type, or null if scalars are recommended.
+pub const suggestVectorSize = @compileError("deprecated; use 'suggestVectorLength'");
+
+/// Suggests a target-dependant vector length for a given type, or null if scalars are recommended.
 /// Not yet implemented for every CPU architecture.
-pub fn suggestVectorSize(comptime T: type) ?comptime_int {
-    return suggestVectorSizeForCpu(T, builtin.cpu);
+pub fn suggestVectorLength(comptime T: type) ?comptime_int {
+    return suggestVectorLengthForCpu(T, builtin.cpu);
 }
 
-test "suggestVectorSizeForCpu works with signed and unsigned values" {
+test "suggestVectorLengthForCpu works with signed and unsigned values" {
     comptime var cpu = std.Target.Cpu.baseline(std.Target.Cpu.Arch.x86_64);
     comptime cpu.features.addFeature(@intFromEnum(std.Target.x86.Feature.avx512f));
     comptime cpu.features.populateDependencies(&std.Target.x86.all_features);
-    const expected_size: usize = switch (builtin.zig_backend) {
+    const expected_len: usize = switch (builtin.zig_backend) {
         .stage2_x86_64 => 8,
         else => 16,
     };
-    const signed_integer_size = suggestVectorSizeForCpu(i32, cpu).?;
-    const unsigned_integer_size = suggestVectorSizeForCpu(u32, cpu).?;
-    try std.testing.expectEqual(expected_size, unsigned_integer_size);
-    try std.testing.expectEqual(expected_size, signed_integer_size);
+    const signed_integer_len = suggestVectorLengthForCpu(i32, cpu).?;
+    const unsigned_integer_len = suggestVectorLengthForCpu(u32, cpu).?;
+    try std.testing.expectEqual(expected_len, unsigned_integer_len);
+    try std.testing.expectEqual(expected_len, signed_integer_len);
 }
 
 fn vectorLength(comptime VectorType: type) comptime_int {
@@ -232,7 +236,7 @@ test "vector patterns" {
     }
 }
 
-/// Joins two vectors, shifts them leftwards (towards lower indices) and extracts the leftmost elements into a vector the size of a and b.
+/// Joins two vectors, shifts them leftwards (towards lower indices) and extracts the leftmost elements into a vector the length of a and b.
 pub fn mergeShift(a: anytype, b: anytype, comptime shift: VectorCount(@TypeOf(a, b))) @TypeOf(a, b) {
     const len = vectorLength(@TypeOf(a, b));
 
@@ -240,7 +244,7 @@ pub fn mergeShift(a: anytype, b: anytype, comptime shift: VectorCount(@TypeOf(a,
 }
 
 /// Elements are shifted rightwards (towards higher indices). New elements are added to the left, and the rightmost elements are cut off
-/// so that the size of the vector stays the same.
+/// so that the length of the vector stays the same.
 pub fn shiftElementsRight(vec: anytype, comptime amount: VectorCount(@TypeOf(vec)), shift_in: std.meta.Child(@TypeOf(vec))) @TypeOf(vec) {
     // It may be possible to implement shifts and rotates with a runtime-friendly slice of two joined vectors, as the length of the
     // slice would be comptime-known. This would permit vector shifts and rotates by a non-comptime-known amount.

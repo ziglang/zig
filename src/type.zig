@@ -1,9 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
 const Module = @import("Module.zig");
+const Zcu = Module;
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 const TypedValue = @import("TypedValue.zig");
@@ -129,7 +130,9 @@ pub const Type = struct {
         @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
     }
 
-    pub fn fmt(ty: Type, module: *Module) std.fmt.Formatter(format2) {
+    pub const Formatter = std.fmt.Formatter(format2);
+
+    pub fn fmt(ty: Type, module: *Module) Formatter {
         return .{ .data = .{
             .ty = ty,
             .module = module,
@@ -426,6 +429,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -651,6 +655,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -758,6 +763,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -1073,6 +1079,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -1380,12 +1387,15 @@ pub const Type = struct {
                         },
                         .eager => {},
                     }
-                    return switch (struct_type.layout) {
-                        .Packed => .{
+                    switch (struct_type.layout) {
+                        .Packed => return .{
                             .scalar = Type.fromInterned(struct_type.backingIntType(ip).*).abiSize(mod),
                         },
-                        .Auto, .Extern => .{ .scalar = struct_type.size(ip).* },
-                    };
+                        .Auto, .Extern => {
+                            assert(struct_type.haveLayout(ip));
+                            return .{ .scalar = struct_type.size(ip).* };
+                        },
+                    }
                 },
                 .anon_struct_type => |tuple| {
                     switch (strat) {
@@ -1411,6 +1421,7 @@ pub const Type = struct {
                         .eager => {},
                     }
 
+                    assert(union_type.haveLayout(ip));
                     return .{ .scalar = union_type.size(ip).* };
                 },
                 .opaque_type => unreachable, // no size available
@@ -1430,6 +1441,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -1603,8 +1615,12 @@ pub const Type = struct {
                 .type_info => unreachable,
             },
             .struct_type => |struct_type| {
-                if (struct_type.layout == .Packed) {
-                    if (opt_sema) |sema| try sema.resolveTypeLayout(ty);
+                const is_packed = struct_type.layout == .Packed;
+                if (opt_sema) |sema| {
+                    try sema.resolveTypeFields(ty);
+                    if (is_packed) try sema.resolveTypeLayout(ty);
+                }
+                if (is_packed) {
                     return try Type.fromInterned(struct_type.backingIntType(ip).*).bitSizeAdvanced(mod, opt_sema);
                 }
                 return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
@@ -1652,6 +1668,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -2187,6 +2204,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2530,6 +2548,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2723,6 +2742,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2888,22 +2908,21 @@ pub const Type = struct {
 
     // Asserts that `ty` is an error set and not `anyerror`.
     // Asserts that `ty` is resolved if it is an inferred error set.
-    pub fn errorSetNames(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
+    pub fn errorSetNames(ty: Type, mod: *Module) InternPool.NullTerminatedString.Slice {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .error_set_type => |x| x.names.get(ip),
+            .error_set_type => |x| x.names,
             .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
                 .none => unreachable, // unresolved inferred error set
                 .anyerror_type => unreachable,
-                else => |t| ip.indexToKey(t).error_set_type.names.get(ip),
+                else => |t| ip.indexToKey(t).error_set_type.names,
             },
             else => unreachable,
         };
     }
 
-    pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        const ip = &mod.intern_pool;
-        return ip.indexToKey(ty.toIntern()).enum_type.names.get(ip);
+    pub fn enumFields(ty: Type, mod: *Module) InternPool.NullTerminatedString.Slice {
+        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names;
     }
 
     pub fn enumFieldCount(ty: Type, mod: *Module) usize {
@@ -3208,6 +3227,17 @@ pub const Type = struct {
                 .child = (try ty.childType(mod).toUnsigned(mod)).toIntern(),
             }),
             else => unreachable,
+        };
+    }
+
+    pub fn typeDeclInst(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
+        return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
+            inline .struct_type,
+            .union_type,
+            .enum_type,
+            .opaque_type,
+            => |info| info.zir_index.unwrap(),
+            else => null,
         };
     }
 

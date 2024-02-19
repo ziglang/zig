@@ -213,29 +213,6 @@ pub fn restore_rt() callconv(.Naked) noreturn {
     );
 }
 
-pub const O = struct {
-    pub const CREAT = 0o0400;
-    pub const EXCL = 0o02000;
-    pub const NOCTTY = 0o04000;
-    pub const TRUNC = 0o01000;
-    pub const APPEND = 0o0010;
-    pub const NONBLOCK = 0o0200;
-    pub const DSYNC = 0o0020;
-    pub const SYNC = 0o040020;
-    pub const RSYNC = 0o040020;
-    pub const DIRECTORY = 0o0200000;
-    pub const NOFOLLOW = 0o0400000;
-    pub const CLOEXEC = 0o02000000;
-
-    pub const ASYNC = 0o010000;
-    pub const DIRECT = 0o0100000;
-    pub const LARGEFILE = 0o020000;
-    pub const NOATIME = 0o01000000;
-    pub const PATH = 0o010000000;
-    pub const TMPFILE = 0o020200000;
-    pub const NDELAY = NONBLOCK;
-};
-
 pub const F = struct {
     pub const DUPFD = 0;
     pub const GETFD = 1;
@@ -270,15 +247,6 @@ pub const LOCK = struct {
 };
 
 pub const MMAP2_UNIT = 4096;
-
-pub const MAP = struct {
-    pub const NORESERVE = 0x0400;
-    pub const GROWSDOWN = 0x1000;
-    pub const DENYWRITE = 0x2000;
-    pub const EXECUTABLE = 0x4000;
-    pub const LOCKED = 0x8000;
-    pub const @"32BIT" = 0x40;
-};
 
 pub const VDSO = struct {
     pub const CGT_SYM = "__kernel_clock_gettime";

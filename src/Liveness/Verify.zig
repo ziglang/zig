@@ -151,6 +151,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 try self.verifyInstOperands(inst, .{ un_op, .none, .none });
             },
             .ret,
+            .ret_safe,
             .ret_load,
             => {
                 const un_op = data[@intFromEnum(inst)].un_op;

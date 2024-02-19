@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const math = std.math;
@@ -273,7 +274,7 @@ test "comptime bitcast used in expression has the correct type" {
 test "bitcast passed as tuple element" {
     const S = struct {
         fn foo(args: anytype) !void {
-            try comptime expect(@TypeOf(args[0]) == f32);
+            comptime assert(@TypeOf(args[0]) == f32);
             try expect(args[0] == 12.34);
         }
     };
@@ -283,7 +284,7 @@ test "bitcast passed as tuple element" {
 test "triple level result location with bitcast sandwich passed as tuple element" {
     const S = struct {
         fn foo(args: anytype) !void {
-            try comptime expect(@TypeOf(args[0]) == f64);
+            comptime assert(@TypeOf(args[0]) == f64);
             try expect(args[0] > 12.33 and args[0] < 12.35);
         }
     };
@@ -297,7 +298,7 @@ test "@bitCast packed struct of floats" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const Foo = packed struct {
         a: f16 = 0,
@@ -335,7 +336,7 @@ test "comptime @bitCast packed struct to int and back" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
@@ -378,7 +379,7 @@ test "comptime bitcast with fields following f80" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const FloatT = extern struct { f: f80, x: u128 align(16) };
     const x: FloatT = .{ .f = 0.5, .x = 123 };
@@ -419,7 +420,7 @@ test "bitcast nan float does not modify signaling bit" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     // TODO: https://github.com/ziglang/zig/issues/14366
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;

@@ -179,6 +179,7 @@ fn getPrefixSubpath(allocator: Allocator, prefix: []const u8, path: []u8) ![]u8 
 pub const bin_digest_len = 16;
 pub const hex_digest_len = bin_digest_len * 2;
 pub const BinDigest = [bin_digest_len]u8;
+pub const HexDigest = [hex_digest_len]u8;
 
 /// This is currently just an arbitrary non-empty string that can't match another manifest line.
 const manifest_header = "0";
@@ -270,7 +271,7 @@ pub const HashHelper = struct {
                     .none => {},
                 }
             },
-            std.Build.Step.Compile.BuildId => switch (x) {
+            std.zig.BuildId => switch (x) {
                 .none, .fast, .uuid, .sha1, .md5 => hh.add(std.meta.activeTag(x)),
                 .hexstring => |hex_string| hh.addBytes(hex_string.toSlice()),
             },
@@ -300,10 +301,24 @@ pub const HashHelper = struct {
     }
 
     /// Returns a hex encoded hash of the inputs, mutating the state of the hasher.
-    pub fn final(hh: *HashHelper) [hex_digest_len]u8 {
+    pub fn final(hh: *HashHelper) HexDigest {
         var bin_digest: BinDigest = undefined;
         hh.hasher.final(&bin_digest);
 
+        var out_digest: HexDigest = undefined;
+        _ = fmt.bufPrint(
+            &out_digest,
+            "{s}",
+            .{fmt.fmtSliceHexLower(&bin_digest)},
+        ) catch unreachable;
+        return out_digest;
+    }
+
+    pub fn oneShot(bytes: []const u8) [hex_digest_len]u8 {
+        var hasher: Hasher = hasher_init;
+        hasher.update(bytes);
+        var bin_digest: BinDigest = undefined;
+        hasher.final(&bin_digest);
         var out_digest: [hex_digest_len]u8 = undefined;
         _ = fmt.bufPrint(
             &out_digest,
@@ -346,7 +361,7 @@ pub const Manifest = struct {
     // will then use the same timestamp, to avoid unnecessary filesystem writes.
     want_refresh_timestamp: bool = true,
     files: std.ArrayListUnmanaged(File) = .{},
-    hex_digest: [hex_digest_len]u8,
+    hex_digest: HexDigest,
     /// Populated when hit() returns an error because of one
     /// of the files listed in the manifest.
     failed_file_index: ?usize = null,
@@ -467,11 +482,11 @@ pub const Manifest = struct {
 
         self.want_refresh_timestamp = true;
 
-        while (true) {
+        const input_file_count = self.files.items.len;
+        while (true) : (self.unhit(bin_digest, input_file_count)) {
             const file_contents = try self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max);
             defer gpa.free(file_contents);
 
-            const input_file_count = self.files.items.len;
             var any_file_changed = false;
             var line_iter = mem.tokenizeScalar(u8, file_contents, '\n');
             var idx: usize = 0;
@@ -829,7 +844,7 @@ pub const Manifest = struct {
     }
 
     /// Returns a hex encoded hash of the inputs.
-    pub fn final(self: *Manifest) [hex_digest_len]u8 {
+    pub fn final(self: *Manifest) HexDigest {
         assert(self.manifest_file != null);
 
         // We don't close the manifest file yet, because we want to
@@ -841,7 +856,7 @@ pub const Manifest = struct {
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        var out_digest: [hex_digest_len]u8 = undefined;
+        var out_digest: HexDigest = undefined;
         _ = fmt.bufPrint(
             &out_digest,
             "{s}",
@@ -1021,8 +1036,8 @@ test "cache file and then recall it" {
         std.time.sleep(1);
     }
 
-    var digest1: [hex_digest_len]u8 = undefined;
-    var digest2: [hex_digest_len]u8 = undefined;
+    var digest1: HexDigest = undefined;
+    var digest2: HexDigest = undefined;
 
     {
         var cache = Cache{
@@ -1089,8 +1104,8 @@ test "check that changing a file makes cache fail" {
         std.time.sleep(1);
     }
 
-    var digest1: [hex_digest_len]u8 = undefined;
-    var digest2: [hex_digest_len]u8 = undefined;
+    var digest1: HexDigest = undefined;
+    var digest2: HexDigest = undefined;
 
     {
         var cache = Cache{
@@ -1152,8 +1167,8 @@ test "no file inputs" {
 
     const temp_manifest_dir = "no_file_inputs_manifest_dir";
 
-    var digest1: [hex_digest_len]u8 = undefined;
-    var digest2: [hex_digest_len]u8 = undefined;
+    var digest1: HexDigest = undefined;
+    var digest2: HexDigest = undefined;
 
     var cache = Cache{
         .gpa = testing.allocator,
@@ -1211,9 +1226,9 @@ test "Manifest with files added after initial hash work" {
         std.time.sleep(1);
     }
 
-    var digest1: [hex_digest_len]u8 = undefined;
-    var digest2: [hex_digest_len]u8 = undefined;
-    var digest3: [hex_digest_len]u8 = undefined;
+    var digest1: HexDigest = undefined;
+    var digest2: HexDigest = undefined;
+    var digest3: HexDigest = undefined;
 
     {
         var cache = Cache{

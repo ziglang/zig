@@ -30,7 +30,7 @@ instructions: std.MultiArrayList(Inst).Slice,
 /// is referencing the data here whether they want to store both index and length,
 /// thus allowing null bytes, or store only index, and use null-termination. The
 /// `string_bytes` array is agnostic to either usage.
-/// Indexes 0 and 1 are reserved for special cases.
+/// Index 0 is reserved for special cases.
 string_bytes: []u8,
 /// The meaning of this data is determined by `Inst.Tag` value.
 /// The first few indexes are reserved. See `ExtraIndex` for the values.
@@ -60,21 +60,6 @@ pub const ExtraIndex = enum(u32) {
     imports,
 
     _,
-
-    pub fn toOptional(i: ExtraIndex) OptionalExtraIndex {
-        return @enumFromInt(@intFromEnum(i));
-    }
-};
-
-pub const OptionalExtraIndex = enum(u32) {
-    compile_errors,
-    imports,
-    none = std.math.maxInt(u32),
-    _,
-
-    pub fn unwrap(oi: OptionalExtraIndex) ?ExtraIndex {
-        return if (oi == .none) null else @enumFromInt(@intFromEnum(oi));
-    }
 };
 
 fn ExtraData(comptime T: type) type {
@@ -93,13 +78,17 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
 
             Inst.Ref,
             Inst.Index,
+            Inst.Declaration.Name,
+            NullTerminatedString,
             => @enumFromInt(code.extra[i]),
 
             i32,
             Inst.Call.Flags,
             Inst.BuiltinCall.Flags,
             Inst.SwitchBlock.Bits,
+            Inst.SwitchBlockErrUnion.Bits,
             Inst.FuncFancy.Bits,
+            Inst.Declaration.Flags,
             => @bitCast(code.extra[i]),
 
             else => @compileError("bad field type"),
@@ -112,18 +101,13 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
     };
 }
 
-/// TODO migrate to use this for type safety
 pub const NullTerminatedString = enum(u32) {
+    empty = 0,
     _,
 };
 
-/// TODO: migrate to nullTerminatedString2 for type safety
-pub fn nullTerminatedString(code: Zir, index: usize) [:0]const u8 {
-    return nullTerminatedString2(code, @enumFromInt(index));
-}
-
 /// Given an index into `string_bytes` returns the null-terminated string found there.
-pub fn nullTerminatedString2(code: Zir, index: NullTerminatedString) [:0]const u8 {
+pub fn nullTerminatedString(code: Zir, index: NullTerminatedString) [:0]const u8 {
     const start = @intFromEnum(index);
     var end: u32 = start;
     while (code.string_bytes[end] != 0) {
@@ -279,9 +263,6 @@ pub const Inst = struct {
         /// Create a `anyframe->T` type.
         /// Uses the `un_node` field.
         anyframe_type,
-        /// Type coercion. No source location attached.
-        /// Uses the `bin` field.
-        as,
         /// Type coercion to the function's return type.
         /// Uses the `pl_node` field. Payload is `As`. AST node could be many things.
         as_node,
@@ -308,6 +289,12 @@ pub const Inst = struct {
         /// a noreturn instruction.
         /// Uses the `pl_node` union field. Payload is `Block`.
         block_inline,
+        /// This instruction may only ever appear in the list of declarations for a
+        /// namespace type, e.g. within a `struct_decl` instruction. It represents a
+        /// single source declaration (`const`/`var`/`fn`), containing the name,
+        /// attributes, type, and value of the declaration.
+        /// Uses the `pl_node` union field. Payload is `Declaration`.
+        declaration,
         /// Implements `suspend {...}`.
         /// Uses the `pl_node` union field. Payload is `Block`.
         suspend_block,
@@ -316,11 +303,11 @@ pub const Inst = struct {
         bool_not,
         /// Short-circuiting boolean `and`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `true`.
-        /// Uses the `bool_br` union field.
+        /// Uses the `pl_node` union field. Payload is `BoolBr`.
         bool_br_and,
         /// Short-circuiting boolean `or`. `lhs` is a boolean `Ref` and the other operand
         /// is a block, which is evaluated if `lhs` is `false`.
-        /// Uses the `bool_br` union field.
+        /// Uses the `pl_node` union field. Payload is `BoolBr`.
         bool_br_or,
         /// Return a value from a block.
         /// Uses the `break` union field.
@@ -605,16 +592,12 @@ pub const Inst = struct {
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceLength`.
         slice_length,
-        /// Write a value to a pointer. For loading, see `load`.
-        /// Source location is assumed to be same as previous instruction.
-        /// Uses the `bin` union field.
-        store,
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
-        /// Same as `store` but the type of the value being stored will be used to infer
-        /// the pointer type.
-        /// Uses the `bin` union field.
+        /// Same as `store_node` but the type of the value being stored will be
+        /// used to infer the pointer type of an `alloc_inferred`.
+        /// Uses the `pl_node` union field. Payload is `Bin`.
         store_to_inferred_ptr,
         /// String Literal. Makes an anonymous Decl and then takes a pointer to it.
         /// Uses the `str` union field.
@@ -690,6 +673,9 @@ pub const Inst = struct {
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`. Operand is a pointer.
         switch_block_ref,
+        /// A switch on an error union `a catch |err| switch (err) {...}`.
+        /// Uses the `pl_node` union field. AST node is the `catch`, payload is `SwitchBlockErrUnion`.
+        switch_block_err_union,
         /// Check that operand type supports the dereference operand (.*).
         /// Uses the `un_node` field.
         validate_deref,
@@ -1046,10 +1032,18 @@ pub const Inst = struct {
         /// block, if the operand is .none or of an error/error-union type.
         /// Uses the `save_err_ret_index` field.
         save_err_ret_index,
-        /// Sets error return trace to zero if no operand is given,
-        /// otherwise sets the value to the given amount.
-        /// Uses the `restore_err_ret_index` union field.
-        restore_err_ret_index,
+        /// Specialized form of `Extended.restore_err_ret_index`.
+        /// Unconditionally restores the error return index to its last saved state
+        /// in the block referred to by `operand`. If `operand` is `none`, restores
+        /// to the point of function entry.
+        /// Uses the `un_node` field.
+        restore_err_ret_index_unconditional,
+        /// Specialized form of `Extended.restore_err_ret_index`.
+        /// Restores the error return index to its state at the entry of
+        /// the current function conditional on `operand` being a non-error.
+        /// If `operand` is `none`, restores unconditionally.
+        /// Uses the `un_node` field.
+        restore_err_ret_index_fn_entry,
 
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
@@ -1085,7 +1079,6 @@ pub const Inst = struct {
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
-                .as,
                 .as_node,
                 .as_shift_operand,
                 .bit_and,
@@ -1094,6 +1087,7 @@ pub const Inst = struct {
                 .block,
                 .block_comptime,
                 .block_inline,
+                .declaration,
                 .suspend_block,
                 .loop,
                 .bool_br_and,
@@ -1155,7 +1149,6 @@ pub const Inst = struct {
                 .shl,
                 .shl_sat,
                 .shr,
-                .store,
                 .store_node,
                 .store_to_inferred_ptr,
                 .str,
@@ -1192,6 +1185,7 @@ pub const Inst = struct {
                 .set_eval_branch_quota,
                 .switch_block,
                 .switch_block_ref,
+                .switch_block_err_union,
                 .validate_deref,
                 .validate_destructure,
                 .union_init,
@@ -1274,7 +1268,6 @@ pub const Inst = struct {
                 .@"defer",
                 .defer_err_code,
                 .save_err_ret_index,
-                .restore_err_ret_index,
                 .for_len,
                 .opt_eu_base_ptr_init,
                 .coerce_ptr_elem_ty,
@@ -1299,6 +1292,8 @@ pub const Inst = struct {
                 .array_init_elem_type,
                 .array_init_elem_ptr,
                 .validate_ref_ty,
+                .restore_err_ret_index_unconditional,
+                .restore_err_ret_index_fn_entry,
                 => false,
 
                 .@"break",
@@ -1347,7 +1342,6 @@ pub const Inst = struct {
                 .ensure_err_union_payload_void,
                 .set_eval_branch_quota,
                 .atomic_store,
-                .store,
                 .store_node,
                 .store_to_inferred_ptr,
                 .resolve_inferred_alloc,
@@ -1361,8 +1355,9 @@ pub const Inst = struct {
                 .check_comptime_control_flow,
                 .@"defer",
                 .defer_err_code,
-                .restore_err_ret_index,
                 .save_err_ret_index,
+                .restore_err_ret_index_unconditional,
+                .restore_err_ret_index_fn_entry,
                 .validate_struct_init_ty,
                 .validate_struct_init_result_ty,
                 .validate_ptr_struct_init,
@@ -1398,7 +1393,6 @@ pub const Inst = struct {
                 .vector_elem_type,
                 .indexable_ptr_len,
                 .anyframe_type,
-                .as,
                 .as_node,
                 .as_shift_operand,
                 .bit_and,
@@ -1407,6 +1401,7 @@ pub const Inst = struct {
                 .block,
                 .block_comptime,
                 .block_inline,
+                .declaration,
                 .suspend_block,
                 .loop,
                 .bool_br_and,
@@ -1490,6 +1485,7 @@ pub const Inst = struct {
                 .typeof_log2_int_type,
                 .switch_block,
                 .switch_block_ref,
+                .switch_block_err_union,
                 .union_init,
                 .field_type_ref,
                 .enum_from_int,
@@ -1631,7 +1627,6 @@ pub const Inst = struct {
                 .vector_elem_type = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
-                .as = .bin,
                 .as_node = .pl_node,
                 .as_shift_operand = .pl_node,
                 .bit_and = .pl_node,
@@ -1641,10 +1636,11 @@ pub const Inst = struct {
                 .block = .pl_node,
                 .block_comptime = .pl_node,
                 .block_inline = .pl_node,
+                .declaration = .pl_node,
                 .suspend_block = .pl_node,
                 .bool_not = .un_node,
-                .bool_br_and = .bool_br,
-                .bool_br_or = .bool_br,
+                .bool_br_and = .pl_node,
+                .bool_br_or = .pl_node,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
                 .check_comptime_control_flow = .un_node,
@@ -1721,9 +1717,8 @@ pub const Inst = struct {
                 .slice_end = .pl_node,
                 .slice_sentinel = .pl_node,
                 .slice_length = .pl_node,
-                .store = .bin,
                 .store_node = .pl_node,
-                .store_to_inferred_ptr = .bin,
+                .store_to_inferred_ptr = .pl_node,
                 .str = .str,
                 .negate = .un_node,
                 .negate_wrap = .un_node,
@@ -1743,6 +1738,7 @@ pub const Inst = struct {
                 .enum_literal = .str_tok,
                 .switch_block = .pl_node,
                 .switch_block_ref = .pl_node,
+                .switch_block_err_union = .pl_node,
                 .validate_deref = .un_node,
                 .validate_destructure = .pl_node,
                 .field_type_ref = .pl_node,
@@ -1852,7 +1848,8 @@ pub const Inst = struct {
                 .defer_err_code = .defer_err_code,
 
                 .save_err_ret_index = .save_err_ret_index,
-                .restore_err_ret_index = .restore_err_ret_index,
+                .restore_err_ret_index_unconditional = .un_node,
+                .restore_err_ret_index_fn_entry = .un_node,
 
                 .struct_init_empty = .un_node,
                 .struct_init_empty_result = .un_node,
@@ -2082,6 +2079,13 @@ pub const Inst = struct {
         /// Implements the `@inComptime` builtin.
         /// `operand` is `src_node: i32`.
         in_comptime,
+        /// Restores the error return index to its last saved state in a given
+        /// block. If the block is `.none`, restores to the state from the point
+        /// of function entry. If the operand is not `.none`, the restore is
+        /// conditional on the operand value not being an error.
+        /// `operand` is payload index to `RestoreErrRetIndex`.
+        /// `small` is undefined.
+        restore_err_ret_index,
         /// Used as a placeholder instruction which is just a dummy index for Sema to replace
         /// with a specific value. For instance, this is used for the capture of an `errdefer`.
         /// This should never appear in a body.
@@ -2298,17 +2302,17 @@ pub const Inst = struct {
         /// For strings which may contain null bytes.
         str: struct {
             /// Offset into `string_bytes`.
-            start: u32,
+            start: NullTerminatedString,
             /// Number of bytes in the string.
             len: u32,
 
             pub fn get(self: @This(), code: Zir) []const u8 {
-                return code.string_bytes[self.start..][0..self.len];
+                return code.string_bytes[@intFromEnum(self.start)..][0..self.len];
             }
         },
         str_tok: struct {
             /// Offset into `string_bytes`. Null-terminated.
-            start: u32,
+            start: NullTerminatedString,
             /// Offset from Decl AST token index.
             src_tok: u32,
 
@@ -2352,11 +2356,6 @@ pub const Inst = struct {
                 return LazySrcLoc.nodeOffset(self.src_node);
             }
         },
-        bool_br: struct {
-            lhs: Ref,
-            /// Points to a `Block`.
-            payload_index: u32,
-        },
         @"unreachable": struct {
             /// Offset from Decl AST node index.
             /// `Tag` determines which kind of AST node this points to.
@@ -2385,7 +2384,7 @@ pub const Inst = struct {
         },
         str_op: struct {
             /// Offset into `string_bytes`. Null-terminated.
-            str: u32,
+            str: NullTerminatedString,
             operand: Ref,
 
             pub fn getStr(self: @This(), zir: Zir) [:0]const u8 {
@@ -2402,10 +2401,6 @@ pub const Inst = struct {
         },
         save_err_ret_index: struct {
             operand: Ref, // If error type (or .none), save new trace index
-        },
-        restore_err_ret_index: struct {
-            block: Ref, // If restored, the index is from this block's entrypoint
-            operand: Ref, // If non-error (or .none), then restore the index
         },
         elem_val_imm: struct {
             /// The indexable value being accessed.
@@ -2442,7 +2437,6 @@ pub const Inst = struct {
             float,
             ptr_type,
             int_type,
-            bool_br,
             @"unreachable",
             @"break",
             dbg_stmt,
@@ -2451,7 +2445,6 @@ pub const Inst = struct {
             @"defer",
             defer_err_code,
             save_err_ret_index,
-            restore_err_ret_index,
             elem_val_imm,
         };
     };
@@ -2466,11 +2459,11 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. Output for every outputs_len
     /// 1. Input for every inputs_len
-    /// 2. clobber: u32 // index into string_bytes (null terminated) for every clobbers_len.
+    /// 2. clobber: NullTerminatedString // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: i32,
         // null-terminated string index
-        asm_source: u32,
+        asm_source: NullTerminatedString,
         /// 1 bit for each outputs_len: whether it uses `-> T` or not.
         ///   0b0 - operand is a pointer to where to store the output.
         ///   0b1 - operand is a type; asm expression has the output as the result.
@@ -2479,18 +2472,18 @@ pub const Inst = struct {
 
         pub const Output = struct {
             /// index into string_bytes (null terminated)
-            name: u32,
+            name: NullTerminatedString,
             /// index into string_bytes (null terminated)
-            constraint: u32,
+            constraint: NullTerminatedString,
             /// How to interpret this is determined by `output_type_bits`.
             operand: Ref,
         };
 
         pub const Input = struct {
             /// index into string_bytes (null terminated)
-            name: u32,
+            name: NullTerminatedString,
             /// index into string_bytes (null terminated)
-            constraint: u32,
+            constraint: NullTerminatedString,
             operand: Ref,
         };
     };
@@ -2504,11 +2497,13 @@ pub const Inst = struct {
     /// }
     /// 2. body: Index // for each body_len
     /// 3. src_locs: SrcLocs // if body_len != 0
+    /// 4. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
     pub const Func = struct {
         /// If this is 0 it means a void return type.
         /// If this is 1 it means return_type is a simple Ref
         ret_body_len: u32,
         /// Points to the block that contains the param instructions for this function.
+        /// If this is a `declaration`, it refers to the declaration's value body.
         param_block: Index,
         body_len: u32,
 
@@ -2524,7 +2519,7 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
+    /// 0. lib_name: NullTerminatedString, // null terminated string index, if has_lib_name is set
     /// if (has_align_ref and !has_align_body) {
     ///   1. align: Ref,
     /// }
@@ -2564,8 +2559,10 @@ pub const Inst = struct {
     ///     - each bit starting with LSB corresponds to parameter indexes
     /// 17. body: Index // for each body_len
     /// 18. src_locs: Func.SrcLocs // if body_len != 0
+    /// 19. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
     pub const FuncFancy = struct {
         /// Points to the block that contains the param instructions for this function.
+        /// If this is a `declaration`, it refers to the declaration's value body.
         param_block: Index,
         body_len: u32,
         bits: Bits,
@@ -2598,7 +2595,7 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. lib_name: u32, // null terminated string index, if has_lib_name is set
+    /// 0. lib_name: NullTerminatedString, // null terminated string index, if has_lib_name is set
     /// 1. align: Ref, // if has_align is set
     /// 2. init: Ref // if has_init is set
     /// The source node is obtained from the containing `block_inline`.
@@ -2610,8 +2607,9 @@ pub const Inst = struct {
             has_align: bool,
             has_init: bool,
             is_extern: bool,
+            is_const: bool,
             is_threadlocal: bool,
-            _: u11 = undefined,
+            _: u10 = undefined,
         };
     };
 
@@ -2630,6 +2628,123 @@ pub const Inst = struct {
     /// Each operand is an `Index`.
     pub const Block = struct {
         body_len: u32,
+    };
+
+    /// Trailing:
+    /// * inst: Index // for each `body_len`
+    pub const BoolBr = struct {
+        lhs: Ref,
+        body_len: u32,
+    };
+
+    /// Trailing:
+    /// 0. doc_comment: u32          // if `has_doc_comment`; null-terminated string index
+    /// 1. align_body_len: u32       // if `has_align_linksection_addrspace`; 0 means no `align`
+    /// 2. linksection_body_len: u32 // if `has_align_linksection_addrspace`; 0 means no `linksection`
+    /// 3. addrspace_body_len: u32   // if `has_align_linksection_addrspace`; 0 means no `addrspace`
+    /// 4. value_body_inst: Zir.Inst.Index
+    ///    - for each `value_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    /// 5. align_body_inst: Zir.Inst.Index
+    ///    - for each `align_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    /// 6. linksection_body_inst: Zir.Inst.Index
+    ///    - for each `linksection_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    /// 7. addrspace_body_inst: Zir.Inst.Index
+    ///    - for each `addrspace_body_len`
+    ///    - body to be exited via `break_inline` to this `declaration` instruction
+    pub const Declaration = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        src_hash_0: u32,
+        src_hash_1: u32,
+        src_hash_2: u32,
+        src_hash_3: u32,
+        /// The name of this `Decl`. Also indicates whether it is a test, comptime block, etc.
+        name: Name,
+        /// This Decl's line number relative to that of its parent.
+        /// TODO: column must be encoded similarly to respect non-formatted code!
+        line_offset: u32,
+        flags: Flags,
+
+        pub const Flags = packed struct(u32) {
+            value_body_len: u28,
+            is_pub: bool,
+            is_export: bool,
+            has_doc_comment: bool,
+            has_align_linksection_addrspace: bool,
+        };
+
+        pub const Name = enum(u32) {
+            @"comptime" = std.math.maxInt(u32),
+            @"usingnamespace" = std.math.maxInt(u32) - 1,
+            unnamed_test = std.math.maxInt(u32) - 2,
+            /// In this case, `has_doc_comment` will be true, and the doc
+            /// comment body is the identifier name.
+            decltest = std.math.maxInt(u32) - 3,
+            /// Other values are `NullTerminatedString` values, i.e. index into
+            /// `string_bytes`. If the byte referenced is 0, the decl is a named
+            /// test, and the actual name begins at the following byte.
+            _,
+
+            pub fn isNamedTest(name: Name, zir: Zir) bool {
+                return switch (name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => false,
+                    _ => zir.string_bytes[@intFromEnum(name)] == 0,
+                };
+            }
+            pub fn toString(name: Name, zir: Zir) ?NullTerminatedString {
+                switch (name) {
+                    .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => return null,
+                    _ => {},
+                }
+                const idx: u32 = @intFromEnum(name);
+                if (zir.string_bytes[idx] == 0) {
+                    // Named test
+                    return @enumFromInt(idx + 1);
+                }
+                return @enumFromInt(idx);
+            }
+        };
+
+        pub const Bodies = struct {
+            value_body: []const Index,
+            align_body: ?[]const Index,
+            linksection_body: ?[]const Index,
+            addrspace_body: ?[]const Index,
+        };
+
+        pub fn getBodies(declaration: Declaration, extra_end: u32, zir: Zir) Bodies {
+            var extra_index: u32 = extra_end;
+            extra_index += @intFromBool(declaration.flags.has_doc_comment);
+            const value_body_len = declaration.flags.value_body_len;
+            const align_body_len, const linksection_body_len, const addrspace_body_len = lens: {
+                if (!declaration.flags.has_align_linksection_addrspace) {
+                    break :lens .{ 0, 0, 0 };
+                }
+                const lens = zir.extra[extra_index..][0..3].*;
+                extra_index += 3;
+                break :lens lens;
+            };
+            return .{
+                .value_body = b: {
+                    defer extra_index += value_body_len;
+                    break :b zir.bodySlice(extra_index, value_body_len);
+                },
+                .align_body = if (align_body_len == 0) null else b: {
+                    defer extra_index += align_body_len;
+                    break :b zir.bodySlice(extra_index, align_body_len);
+                },
+                .linksection_body = if (linksection_body_len == 0) null else b: {
+                    defer extra_index += linksection_body_len;
+                    break :b zir.bodySlice(extra_index, linksection_body_len);
+                },
+                .addrspace_body = if (addrspace_body_len == 0) null else b: {
+                    defer extra_index += addrspace_body_len;
+                    break :b zir.bodySlice(extra_index, addrspace_body_len);
+                },
+            };
+        }
     };
 
     /// Stored inside extra, with trailing arguments according to `args_len`.
@@ -2671,7 +2786,7 @@ pub const Inst = struct {
         flags: Call.Flags,
         obj_ptr: Ref,
         /// Offset into `string_bytes`.
-        field_name_start: u32,
+        field_name_start: NullTerminatedString,
     };
 
     pub const TypeOfPeer = struct {
@@ -2783,6 +2898,29 @@ pub const Inst = struct {
         index: u32,
     };
 
+    pub const SwitchBlockErrUnion = struct {
+        operand: Ref,
+        bits: Bits,
+        main_src_node_offset: i32,
+
+        pub const Bits = packed struct(u32) {
+            /// If true, one or more prongs have multiple items.
+            has_multi_cases: bool,
+            /// If true, there is an else prong. This is mutually exclusive with `has_under`.
+            has_else: bool,
+            any_uses_err_capture: bool,
+            payload_is_ref: bool,
+            scalar_cases_len: ScalarCasesLen,
+
+            pub const ScalarCasesLen = u28;
+        };
+
+        pub const MultiProng = struct {
+            items: []const Ref,
+            body: []const Index,
+        };
+    };
+
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
     /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
     /// 2. else_body { // If has_else or has_under is set.
@@ -2831,7 +2969,7 @@ pub const Inst = struct {
             };
         };
 
-        pub const Bits = packed struct {
+        pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
             has_multi_cases: bool,
             /// If true, there is an else prong. This is mutually exclusive with `has_under`.
@@ -2870,7 +3008,7 @@ pub const Inst = struct {
     pub const Field = struct {
         lhs: Ref,
         /// Offset into `string_bytes`.
-        field_name_start: u32,
+        field_name_start: NullTerminatedString,
     };
 
     pub const FieldNamed = struct {
@@ -2884,58 +3022,45 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. fields_len: u32, // if has_fields_len
-    /// 2. decls_len: u32, // if has_decls_len
-    /// 3. backing_int_body_len: u32, // if has_backing_int
-    /// 4. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
-    /// 5. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
-    /// 6. decl_bits: u32 // for every 8 decls
-    ///    - sets of 4 bits:
-    ///      0b000X: whether corresponding decl is pub
-    ///      0b00X0: whether corresponding decl is exported
-    ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 7. decl: { // for every decls_len
-    ///        src_hash: [4]u32, // hash of source bytes
-    ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
-    ///        - 0 means comptime or usingnamespace decl.
-    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
-    ///        - 1 means test decl with no name.
-    ///        - 2 means that the test is a decltest, doc_comment gives the name of the identifier
-    ///        - if there is a 0 byte at the position `name` indexes, it indicates
-    ///          this is a test decl, and the name starts at `name+1`.
-    ///        value: Index,
-    ///        doc_comment: u32, 0 if no doc comment, if this is a decltest, doc_comment references the decl name in the string table
-    ///        align: Ref, // if corresponding bit is set
-    ///        link_section_or_address_space: { // if corresponding bit is set.
-    ///            link_section: Ref,
-    ///            address_space: Ref,
-    ///        }
-    ///    }
-    /// 8. flags: u32 // for every 8 fields
+    /// 0. fields_len: u32, // if has_fields_len
+    /// 1. decls_len: u32, // if has_decls_len
+    /// 2. backing_int_body_len: u32, // if has_backing_int
+    /// 3. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
+    /// 4. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
+    /// 5. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 6. flags: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has an align expression
     ///      0b00X0: whether corresponding field has a default expression
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: whether corresponding field has a type expression
-    /// 9. fields: { // for every fields_len
+    /// 7. fields: { // for every fields_len
     ///        field_name: u32, // if !is_tuple
-    ///        doc_comment: u32, // 0 if no doc comment
+    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
     ///        field_type_body_len: u32, // if corresponding bit is set
     ///        align_body_len: u32, // if corresponding bit is set
     ///        init_body_len: u32, // if corresponding bit is set
     ///    }
-    /// 10. bodies: { // for every fields_len
+    /// 8. bodies: { // for every fields_len
     ///        field_type_body_inst: Inst, // for each field_type_body_len
     ///        align_body_inst: Inst, // for each align_body_len
     ///        init_body_inst: Inst, // for each init_body_len
     ///    }
     pub const StructDecl = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        // This hash contains the source of all fields, and any specified attributes (`extern`, backing type, etc).
+        fields_hash_0: u32,
+        fields_hash_1: u32,
+        fields_hash_2: u32,
+        fields_hash_3: u32,
+        src_node: i32,
+
+        pub fn src(self: StructDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_fields_len: bool,
             has_decls_len: bool,
             has_backing_int: bool,
@@ -2947,7 +3072,7 @@ pub const Inst = struct {
             any_default_inits: bool,
             any_comptime_fields: bool,
             any_aligned_fields: bool,
-            _: u2 = undefined,
+            _: u3 = undefined,
         };
     };
 
@@ -2981,102 +3106,78 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. tag_type: Ref, // if has_tag_type
-    /// 2. body_len: u32, // if has_body_len
-    /// 3. fields_len: u32, // if has_fields_len
-    /// 4. decls_len: u32, // if has_decls_len
-    /// 5. decl_bits: u32 // for every 8 decls
-    ///    - sets of 4 bits:
-    ///      0b000X: whether corresponding decl is pub
-    ///      0b00X0: whether corresponding decl is exported
-    ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 6. decl: { // for every decls_len
-    ///        src_hash: [4]u32, // hash of source bytes
-    ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
-    ///        - 0 means comptime or usingnamespace decl.
-    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
-    ///        - 1 means test decl with no name.
-    ///        - if there is a 0 byte at the position `name` indexes, it indicates
-    ///          this is a test decl, and the name starts at `name+1`.
-    ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc_comment
-    ///        align: Ref, // if corresponding bit is set
-    ///        link_section_or_address_space: { // if corresponding bit is set.
-    ///            link_section: Ref,
-    ///            address_space: Ref,
-    ///        }
-    ///    }
-    /// 7. inst: Index // for every body_len
-    /// 8. has_bits: u32 // for every 32 fields
+    /// 0. tag_type: Ref, // if has_tag_type
+    /// 1. body_len: u32, // if has_body_len
+    /// 2. fields_len: u32, // if has_fields_len
+    /// 3. decls_len: u32, // if has_decls_len
+    /// 4. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 5. inst: Index // for every body_len
+    /// 6. has_bits: u32 // for every 32 fields
     ///    - the bit is whether corresponding field has an value expression
-    /// 9. fields: { // for every fields_len
+    /// 7. fields: { // for every fields_len
     ///        field_name: u32,
-    ///        doc_comment: u32, // 0 if no doc_comment
+    ///        doc_comment: u32, // .empty if no doc_comment
     ///        value: Ref, // if corresponding bit is set
     ///    }
     pub const EnumDecl = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        // This hash contains the source of all fields, and the backing type if specified.
+        fields_hash_0: u32,
+        fields_hash_1: u32,
+        fields_hash_2: u32,
+        fields_hash_3: u32,
+        src_node: i32,
+
+        pub fn src(self: EnumDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_tag_type: bool,
             has_body_len: bool,
             has_fields_len: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
             nonexhaustive: bool,
-            _: u8 = undefined,
+            _: u9 = undefined,
         };
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. tag_type: Ref, // if has_tag_type
-    /// 2. body_len: u32, // if has_body_len
-    /// 3. fields_len: u32, // if has_fields_len
-    /// 4. decls_len: u32, // if has_decls_len
-    /// 5. decl_bits: u32 // for every 8 decls
-    ///    - sets of 4 bits:
-    ///      0b000X: whether corresponding decl is pub
-    ///      0b00X0: whether corresponding decl is exported
-    ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 6. decl: { // for every decls_len
-    ///        src_hash: [4]u32, // hash of source bytes
-    ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
-    ///        - 0 means comptime or usingnamespace decl.
-    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
-    ///        - 1 means test decl with no name.
-    ///        - if there is a 0 byte at the position `name` indexes, it indicates
-    ///          this is a test decl, and the name starts at `name+1`.
-    ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc comment
-    ///        align: Ref, // if corresponding bit is set
-    ///        link_section_or_address_space: { // if corresponding bit is set.
-    ///            link_section: Ref,
-    ///            address_space: Ref,
-    ///        }
-    ///    }
-    /// 7. inst: Index // for every body_len
-    /// 8. has_bits: u32 // for every 8 fields
+    /// 0. tag_type: Ref, // if has_tag_type
+    /// 1. body_len: u32, // if has_body_len
+    /// 2. fields_len: u32, // if has_fields_len
+    /// 3. decls_len: u32, // if has_decls_len
+    /// 4. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 5. inst: Index // for every body_len
+    /// 6. has_bits: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has a type expression
     ///      0b00X0: whether corresponding field has a align expression
     ///      0b0X00: whether corresponding field has a tag value expression
     ///      0bX000: unused
-    /// 9. fields: { // for every fields_len
-    ///        field_name: u32, // null terminated string index
-    ///        doc_comment: u32, // 0 if no doc comment
+    /// 7. fields: { // for every fields_len
+    ///        field_name: NullTerminatedString, // null terminated string index
+    ///        doc_comment: NullTerminatedString, // .empty if no doc comment
     ///        field_type: Ref, // if corresponding bit is set
     ///        - if none, means `anytype`.
     ///        align: Ref, // if corresponding bit is set
     ///        tag_value: Ref, // if corresponding bit is set
     ///    }
     pub const UnionDecl = struct {
+        // These fields should be concatenated and reinterpreted as a `std.zig.SrcHash`.
+        // This hash contains the source of all fields, and any specified attributes (`extern` etc).
+        fields_hash_0: u32,
+        fields_hash_1: u32,
+        fields_hash_2: u32,
+        fields_hash_3: u32,
+        src_node: i32,
+
+        pub fn src(self: UnionDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_tag_type: bool,
             has_body_len: bool,
             has_fields_len: bool,
@@ -3091,49 +3192,31 @@ pub const Inst = struct {
             ///    true      | false         |  union(T) { }
             auto_enum_tag: bool,
             any_aligned_fields: bool,
-            _: u5 = undefined,
+            _: u6 = undefined,
         };
     };
 
     /// Trailing:
-    /// 0. src_node: i32, // if has_src_node
-    /// 1. decls_len: u32, // if has_decls_len
-    /// 2. decl_bits: u32 // for every 8 decls
-    ///    - sets of 4 bits:
-    ///      0b000X: whether corresponding decl is pub
-    ///      0b00X0: whether corresponding decl is exported
-    ///      0b0X00: whether corresponding decl has an align expression
-    ///      0bX000: whether corresponding decl has a linksection or an address space expression
-    /// 3. decl: { // for every decls_len
-    ///        src_hash: [4]u32, // hash of source bytes
-    ///        line: u32, // line number of decl, relative to parent
-    ///        name: u32, // null terminated string index
-    ///        - 0 means comptime or usingnamespace decl.
-    ///          - if name == 0 `is_exported` determines which one: 0=comptime,1=usingnamespace
-    ///        - 1 means test decl with no name.
-    ///        - if there is a 0 byte at the position `name` indexes, it indicates
-    ///          this is a test decl, and the name starts at `name+1`.
-    ///        value: Index,
-    ///        doc_comment: u32, // 0 if no doc comment,
-    ///        align: Ref, // if corresponding bit is set
-    ///        link_section_or_address_space: { // if corresponding bit is set.
-    ///            link_section: Ref,
-    ///            address_space: Ref,
-    ///        }
-    ///    }
+    /// 0. decls_len: u32, // if has_decls_len
+    /// 1. decl: Index, // for every decls_len; points to a `declaration` instruction
     pub const OpaqueDecl = struct {
+        src_node: i32,
+
+        pub fn src(self: OpaqueDecl) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+
         pub const Small = packed struct {
-            has_src_node: bool,
             has_decls_len: bool,
             name_strategy: NameStrategy,
-            _: u12 = undefined,
+            _: u13 = undefined,
         };
     };
 
     /// Trailing:
     /// { // for every fields_len
-    ///      field_name: u32 // null terminated string index
-    ///     doc_comment: u32 // null terminated string index
+    ///      field_name: NullTerminatedString // null terminated string index
+    ///     doc_comment: NullTerminatedString // null terminated string index
     /// }
     pub const ErrorSetDecl = struct {
         fields_len: u32,
@@ -3176,7 +3259,7 @@ pub const Inst = struct {
 
         pub const Item = struct {
             /// Null-terminated string table index.
-            field_name: u32,
+            field_name: NullTerminatedString,
             /// The field init expression to be used as the field value.
             init: Ref,
         };
@@ -3185,7 +3268,7 @@ pub const Inst = struct {
     pub const FieldType = struct {
         container_type: Ref,
         /// Offset into `string_bytes`, null terminated.
-        name_start: u32,
+        name_start: NullTerminatedString,
     };
 
     pub const FieldTypeRef = struct {
@@ -3265,9 +3348,9 @@ pub const Inst = struct {
     /// Trailing: inst: Index // for every body_len
     pub const Param = struct {
         /// Null-terminated string index.
-        name: u32,
-        /// 0 if no doc comment
-        doc_comment: u32,
+        name: NullTerminatedString,
+        /// Null-terminated string index.
+        doc_comment: NullTerminatedString,
         /// The body contains the type of the parameter.
         body_len: u32,
     };
@@ -3292,7 +3375,7 @@ pub const Inst = struct {
         /// If omitted, this is referring to a Decl via identifier, e.g. `a`.
         namespace: Ref,
         /// Null-terminated string index.
-        decl_name: u32,
+        decl_name: NullTerminatedString,
         options: Ref,
     };
 
@@ -3310,7 +3393,7 @@ pub const Inst = struct {
         /// It's a payload index of another `Item`.
         pub const Item = struct {
             /// null terminated string index
-            msg: u32,
+            msg: NullTerminatedString,
             node: Ast.Node.Index,
             /// If node is 0 then this will be populated.
             token: Ast.TokenIndex,
@@ -3334,7 +3417,7 @@ pub const Inst = struct {
 
         pub const Item = struct {
             /// null terminated string index
-            name: u32,
+            name: NullTerminatedString,
             /// points to the import name
             token: Ast.TokenIndex,
         };
@@ -3379,49 +3462,34 @@ pub const Inst = struct {
         /// The RHS of the array multiplication.
         rhs: Ref,
     };
+
+    pub const RestoreErrRetIndex = struct {
+        src_node: i32,
+        /// If `.none`, restore the trace to its state upon function entry.
+        block: Ref,
+        /// If `.none`, restore unconditionally.
+        operand: Ref,
+
+        pub fn src(self: RestoreErrRetIndex) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
+    };
 };
 
 pub const SpecialProng = enum { none, @"else", under };
 
 pub const DeclIterator = struct {
-    extra_index: usize,
-    bit_bag_index: usize,
-    cur_bit_bag: u32,
-    decl_i: u32,
-    decls_len: u32,
+    extra_index: u32,
+    decls_remaining: u32,
     zir: Zir,
 
-    pub const Item = struct {
-        name: [:0]const u8,
-        sub_index: ExtraIndex,
-        flags: u4,
-    };
-
-    pub fn next(it: *DeclIterator) ?Item {
-        if (it.decl_i >= it.decls_len) return null;
-
-        if (it.decl_i % 8 == 0) {
-            it.cur_bit_bag = it.zir.extra[it.bit_bag_index];
-            it.bit_bag_index += 1;
-        }
-        it.decl_i += 1;
-
-        const flags: u4 = @truncate(it.cur_bit_bag);
-        it.cur_bit_bag >>= 4;
-
-        const sub_index: ExtraIndex = @enumFromInt(it.extra_index);
-        it.extra_index += 5; // src_hash(4) + line(1)
-        const name = it.zir.nullTerminatedString(it.zir.extra[it.extra_index]);
-        it.extra_index += 3; // name(1) + value(1) + doc_comment(1)
-        it.extra_index += @as(u1, @truncate(flags >> 2)); // align
-        it.extra_index += @as(u1, @truncate(flags >> 3)); // link_section
-        it.extra_index += @as(u1, @truncate(flags >> 3)); // address_space
-
-        return Item{
-            .sub_index = sub_index,
-            .name = name,
-            .flags = flags,
-        };
+    pub fn next(it: *DeclIterator) ?Inst.Index {
+        if (it.decls_remaining == 0) return null;
+        const decl_inst: Zir.Inst.Index = @enumFromInt(it.zir.extra[it.extra_index]);
+        it.extra_index += 1;
+        it.decls_remaining -= 1;
+        assert(it.zir.instructions.items(.tag)[@intFromEnum(decl_inst)] == .declaration);
+        return decl_inst;
     }
 };
 
@@ -3431,15 +3499,18 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
     switch (tags[@intFromEnum(decl_inst)]) {
         // Functions are allowed and yield no iterations.
         // There is one case matching this in the extended instruction set below.
-        .func, .func_inferred, .func_fancy => return declIteratorInner(zir, 0, 0),
+        .func, .func_inferred, .func_fancy => return .{
+            .extra_index = undefined,
+            .decls_remaining = 0,
+            .zir = zir,
+        },
 
         .extended => {
             const extended = datas[@intFromEnum(decl_inst)].extended;
             switch (extended.opcode) {
                 .struct_decl => {
                     const small: Inst.StructDecl.Small = @bitCast(extended.small);
-                    var extra_index: usize = extended.operand;
-                    extra_index += @intFromBool(small.has_src_node);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).Struct.fields.len);
                     extra_index += @intFromBool(small.has_fields_len);
                     const decls_len = if (small.has_decls_len) decls_len: {
                         const decls_len = zir.extra[extra_index];
@@ -3457,12 +3528,15 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                         }
                     }
 
-                    return declIteratorInner(zir, extra_index, decls_len);
+                    return .{
+                        .extra_index = extra_index,
+                        .decls_remaining = decls_len,
+                        .zir = zir,
+                    };
                 },
                 .enum_decl => {
                     const small: Inst.EnumDecl.Small = @bitCast(extended.small);
-                    var extra_index: usize = extended.operand;
-                    extra_index += @intFromBool(small.has_src_node);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).Struct.fields.len);
                     extra_index += @intFromBool(small.has_tag_type);
                     extra_index += @intFromBool(small.has_body_len);
                     extra_index += @intFromBool(small.has_fields_len);
@@ -3472,12 +3546,15 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                         break :decls_len decls_len;
                     } else 0;
 
-                    return declIteratorInner(zir, extra_index, decls_len);
+                    return .{
+                        .extra_index = extra_index,
+                        .decls_remaining = decls_len,
+                        .zir = zir,
+                    };
                 },
                 .union_decl => {
                     const small: Inst.UnionDecl.Small = @bitCast(extended.small);
-                    var extra_index: usize = extended.operand;
-                    extra_index += @intFromBool(small.has_src_node);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).Struct.fields.len);
                     extra_index += @intFromBool(small.has_tag_type);
                     extra_index += @intFromBool(small.has_body_len);
                     extra_index += @intFromBool(small.has_fields_len);
@@ -3487,19 +3564,26 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                         break :decls_len decls_len;
                     } else 0;
 
-                    return declIteratorInner(zir, extra_index, decls_len);
+                    return .{
+                        .extra_index = extra_index,
+                        .decls_remaining = decls_len,
+                        .zir = zir,
+                    };
                 },
                 .opaque_decl => {
                     const small: Inst.OpaqueDecl.Small = @bitCast(extended.small);
-                    var extra_index: usize = extended.operand;
-                    extra_index += @intFromBool(small.has_src_node);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.OpaqueDecl).Struct.fields.len);
                     const decls_len = if (small.has_decls_len) decls_len: {
                         const decls_len = zir.extra[extra_index];
                         extra_index += 1;
                         break :decls_len decls_len;
                     } else 0;
 
-                    return declIteratorInner(zir, extra_index, decls_len);
+                    return .{
+                        .extra_index = extra_index,
+                        .decls_remaining = decls_len,
+                        .zir = zir,
+                    };
                 },
                 else => unreachable,
             }
@@ -3508,25 +3592,17 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
     }
 }
 
-pub fn declIteratorInner(zir: Zir, extra_index: usize, decls_len: u32) DeclIterator {
-    const bit_bags_count = std.math.divCeil(usize, decls_len, 8) catch unreachable;
-    return .{
-        .zir = zir,
-        .extra_index = extra_index + bit_bags_count,
-        .bit_bag_index = extra_index,
-        .cur_bit_bag = undefined,
-        .decl_i = 0,
-        .decls_len = decls_len,
-    };
-}
-
 /// The iterator would have to allocate memory anyway to iterate. So here we populate
 /// an ArrayList as the result.
-pub fn findDecls(zir: Zir, list: *std.ArrayList(Inst.Index), decl_sub_index: ExtraIndex) !void {
-    const block_inst: Zir.Inst.Index = @enumFromInt(zir.extra[@intFromEnum(decl_sub_index) + 6]);
+pub fn findDecls(zir: Zir, list: *std.ArrayList(Inst.Index), decl_inst: Zir.Inst.Index) !void {
     list.clearRetainingCapacity();
+    const declaration, const extra_end = zir.getDeclaration(decl_inst);
+    const bodies = declaration.getBodies(extra_end, zir);
 
-    return zir.findDeclsInner(list, block_inst);
+    try zir.findDeclsBody(list, bodies.value_body);
+    if (bodies.align_body) |b| try zir.findDeclsBody(list, b);
+    if (bodies.linksection_body) |b| try zir.findDeclsBody(list, b);
+    if (bodies.addrspace_body) |b| try zir.findDeclsBody(list, b);
 }
 
 fn findDeclsInner(
@@ -3768,8 +3844,17 @@ pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const Zir.Inst.Index {
         else => unreachable,
     };
 
-    const param_block = zir.extraData(Inst.Block, datas[@intFromEnum(param_block_index)].pl_node.payload_index);
-    return zir.bodySlice(param_block.end, param_block.data.body_len);
+    switch (tags[@intFromEnum(param_block_index)]) {
+        .block, .block_comptime, .block_inline => {
+            const param_block = zir.extraData(Inst.Block, datas[@intFromEnum(param_block_index)].pl_node.payload_index);
+            return zir.bodySlice(param_block.end, param_block.data.body_len);
+        },
+        .declaration => {
+            const decl, const extra_end = zir.getDeclaration(param_block_index);
+            return decl.getBodies(extra_end, zir).value_body;
+        },
+        else => unreachable,
+    }
 }
 
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
@@ -3865,12 +3950,17 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         },
         else => unreachable,
     };
-    switch (tags[@intFromEnum(info.param_block)]) {
-        .block, .block_comptime, .block_inline => {}, // OK
-        else => unreachable, // assertion failure
-    }
-    const param_block = zir.extraData(Inst.Block, datas[@intFromEnum(info.param_block)].pl_node.payload_index);
-    const param_body = zir.bodySlice(param_block.end, param_block.data.body_len);
+    const param_body = switch (tags[@intFromEnum(info.param_block)]) {
+        .block, .block_comptime, .block_inline => param_body: {
+            const param_block = zir.extraData(Inst.Block, datas[@intFromEnum(info.param_block)].pl_node.payload_index);
+            break :param_body zir.bodySlice(param_block.end, param_block.data.body_len);
+        },
+        .declaration => param_body: {
+            const decl, const extra_end = zir.getDeclaration(info.param_block);
+            break :param_body decl.getBodies(extra_end, zir).value_body;
+        },
+        else => unreachable,
+    };
     var total_params_len: u32 = 0;
     for (param_body) |inst| {
         switch (tags[@intFromEnum(inst)]) {
@@ -3888,4 +3978,122 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         .body = info.body,
         .total_params_len = total_params_len,
     };
+}
+
+pub fn getDeclaration(zir: Zir, inst: Zir.Inst.Index) struct { Inst.Declaration, u32 } {
+    assert(zir.instructions.items(.tag)[@intFromEnum(inst)] == .declaration);
+    const pl_node = zir.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+    const extra = zir.extraData(Inst.Declaration, pl_node.payload_index);
+    return .{
+        extra.data,
+        @intCast(extra.end),
+    };
+}
+
+pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
+    const tag = zir.instructions.items(.tag);
+    const data = zir.instructions.items(.data);
+    switch (tag[@intFromEnum(inst)]) {
+        .declaration => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.Declaration, pl_node.payload_index);
+            return @bitCast([4]u32{
+                extra.data.src_hash_0,
+                extra.data.src_hash_1,
+                extra.data.src_hash_2,
+                extra.data.src_hash_3,
+            });
+        },
+        .func, .func_inferred => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.Func, pl_node.payload_index);
+            if (extra.data.body_len == 0) {
+                // Function type or extern fn - no associated hash
+                return null;
+            }
+            const extra_index = extra.end +
+                1 +
+                extra.data.body_len +
+                @typeInfo(Inst.Func.SrcLocs).Struct.fields.len;
+            return @bitCast([4]u32{
+                zir.extra[extra_index + 0],
+                zir.extra[extra_index + 1],
+                zir.extra[extra_index + 2],
+                zir.extra[extra_index + 3],
+            });
+        },
+        .func_fancy => {
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.FuncFancy, pl_node.payload_index);
+            if (extra.data.body_len == 0) {
+                // Function type or extern fn - no associated hash
+                return null;
+            }
+            const bits = extra.data.bits;
+            var extra_index = extra.end;
+            extra_index += @intFromBool(bits.has_lib_name);
+            if (bits.has_align_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_align_ref);
+            if (bits.has_addrspace_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_addrspace_ref);
+            if (bits.has_section_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_section_ref);
+            if (bits.has_cc_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_cc_ref);
+            if (bits.has_ret_ty_body) {
+                const body_len = zir.extra[extra_index];
+                extra_index += 1 + body_len;
+            } else extra_index += @intFromBool(bits.has_ret_ty_ref);
+            extra_index += @intFromBool(bits.has_any_noalias);
+            extra_index += extra.data.body_len;
+            extra_index += @typeInfo(Zir.Inst.Func.SrcLocs).Struct.fields.len;
+            return @bitCast([4]u32{
+                zir.extra[extra_index + 0],
+                zir.extra[extra_index + 1],
+                zir.extra[extra_index + 2],
+                zir.extra[extra_index + 3],
+            });
+        },
+        .extended => {},
+        else => return null,
+    }
+    const extended = data[@intFromEnum(inst)].extended;
+    switch (extended.opcode) {
+        .struct_decl => {
+            const extra = zir.extraData(Inst.StructDecl, extended.operand).data;
+            return @bitCast([4]u32{
+                extra.fields_hash_0,
+                extra.fields_hash_1,
+                extra.fields_hash_2,
+                extra.fields_hash_3,
+            });
+        },
+        .union_decl => {
+            const extra = zir.extraData(Inst.UnionDecl, extended.operand).data;
+            return @bitCast([4]u32{
+                extra.fields_hash_0,
+                extra.fields_hash_1,
+                extra.fields_hash_2,
+                extra.fields_hash_3,
+            });
+        },
+        .enum_decl => {
+            const extra = zir.extraData(Inst.EnumDecl, extended.operand).data;
+            return @bitCast([4]u32{
+                extra.fields_hash_0,
+                extra.fields_hash_1,
+                extra.fields_hash_2,
+                extra.fields_hash_3,
+            });
+        },
+        else => return null,
+    }
 }
