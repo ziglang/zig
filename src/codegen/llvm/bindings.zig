@@ -17,6 +17,14 @@ pub const Bool = enum(c_int) {
 };
 pub const AttributeIndex = c_uint;
 
+pub const MemoryBuffer = opaque {
+    pub const createMemoryBufferWithMemoryRange = LLVMCreateMemoryBufferWithMemoryRange;
+    pub const dispose = LLVMDisposeMemoryBuffer;
+
+    extern fn LLVMCreateMemoryBufferWithMemoryRange(InputData: [*]const u8, InputDataLength: usize, BufferName: ?[*:0]const u8, RequiresNullTerminator: Bool) *MemoryBuffer;
+    extern fn LLVMDisposeMemoryBuffer(MemBuf: *MemoryBuffer) void;
+};
+
 /// Make sure to use the *InContext functions instead of the global ones.
 pub const Context = opaque {
     pub const create = LLVMContextCreate;
@@ -24,6 +32,9 @@ pub const Context = opaque {
 
     pub const dispose = LLVMContextDispose;
     extern fn LLVMContextDispose(C: *Context) void;
+
+    pub const parseBitcodeInContext2 = LLVMParseBitcodeInContext2;
+    extern fn LLVMParseBitcodeInContext2(C: *Context, MemBuf: *MemoryBuffer, OutModule: **Module) Bool;
 
     pub const createEnumAttribute = LLVMCreateEnumAttribute;
     extern fn LLVMCreateEnumAttribute(C: *Context, KindID: c_uint, Val: u64) *Attribute;
