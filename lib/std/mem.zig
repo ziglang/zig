@@ -1501,7 +1501,8 @@ test "indexOfPos empty needle" {
 /// does not count overlapping needles
 pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     assert(needle.len > 0);
-    if (needle.len == 1) return countScalar(T, haystack, needle[0]);
+    // Remove this check when the native x86_64 backend is able to handle vectors.
+    if (needle.len == 1 and builtin.zig_backend != .stage2_x86_64) return countScalar(T, haystack, needle[0]);
 
     var i: usize = 0;
     var found: usize = 0;
@@ -1515,9 +1516,6 @@ pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
 }
 
 test count {
-    // Remove this skip when the native x86_64 backend is able to handle vectors..
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     try testing.expect(count(u8, "", "h") == 0);
     try testing.expect(count(u8, "h", "h") == 1);
     try testing.expect(count(u8, "hh", "h") == 2);
@@ -1533,6 +1531,9 @@ test count {
 
 /// Returns the number of occurrences of `needle` inside `haystack`.
 pub fn countScalar(comptime T: type, haystack: []const u8, needle: T) usize {
+    // Remove this check when the native x86_64 backend is able to handle vectors.
+    if (comptime builtin.zig_backend == .stage2_x86_64) return count(T, haystack, &.{needle});
+
     const v_len = std.simd.suggestVectorLength(T) orelse return countScalarNaive(T, haystack, needle);
     const V = @Vector(v_len, T);
 
