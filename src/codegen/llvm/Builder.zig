@@ -2723,6 +2723,10 @@ pub const Intrinsic = enum {
     @"threadlocal.address",
     vscale,
 
+    // Debug
+    @"dbg.declare",
+    @"dbg.value",
+
     // AMDGPU
     @"amdgcn.workitem.id.x",
     @"amdgcn.workitem.id.y",
@@ -3815,6 +3819,25 @@ pub const Intrinsic = enum {
                 .{ .kind = .overloaded },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"dbg.declare" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .metadata } },
+                .{ .kind = .{ .type = .metadata } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"dbg.value" = .{
+            .ret_len = 0,
+            .params = &.{
+                .{ .kind = .{ .type = .metadata } },
+                .{ .kind = .{ .type = .metadata } },
+                .{ .kind = .{ .type = .metadata } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
 
         .@"amdgcn.workitem.id.x" = .{
