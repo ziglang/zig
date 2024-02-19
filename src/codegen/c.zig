@@ -900,9 +900,9 @@ pub const DeclGen = struct {
 
                         try writer.writeByte('{');
                         var empty = true;
-                        for (0..ty.structFieldCount(mod)) |field_i| {
-                            if (ty.structFieldIsComptime(field_i, mod)) continue;
-                            const field_ty = ty.structFieldType(field_i, mod);
+                        for (0..ty.structFieldCount(mod)) |field_index| {
+                            if (ty.structFieldIsComptime(field_index, mod)) continue;
+                            const field_ty = ty.structFieldType(field_index, mod);
                             if (!field_ty.hasRuntimeBits(mod)) continue;
 
                             if (!empty) try writer.writeByte(',');
@@ -934,9 +934,10 @@ pub const DeclGen = struct {
                         try writer.writeAll(" .payload = {");
                     }
                     const union_obj = mod.typeToUnion(ty).?;
-                    for (union_obj.field_types.get(ip)) |field_ty| {
-                        if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
-                        try dg.renderValue(writer, Type.fromInterned(field_ty), val, initializer_type);
+                    for (0..union_obj.field_types.len) |field_index| {
+                        const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
+                        if (!field_ty.hasRuntimeBits(mod)) continue;
+                        try dg.renderValue(writer, field_ty, val, initializer_type);
                         break;
                     }
                     if (ty.unionTagTypeSafety(mod)) |_| try writer.writeByte('}');
@@ -1354,25 +1355,23 @@ pub const DeclGen = struct {
 
                     try writer.writeByte('{');
                     var empty = true;
-                    for (
-                        tuple.types.get(ip),
-                        tuple.values.get(ip),
-                        0..,
-                    ) |field_ty, comptime_ty, field_i| {
-                        if (comptime_ty != .none) continue;
-                        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                    for (0..tuple.types.len) |field_index| {
+                        const comptime_val = tuple.values.get(ip)[field_index];
+                        if (comptime_val != .none) continue;
+                        const field_ty = Type.fromInterned(tuple.types.get(ip)[field_index]);
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                         if (!empty) try writer.writeByte(',');
 
-                        const field_val = switch (ip.indexToKey(val.ip_index).aggregate.storage) {
+                        const field_val = Value.fromInterned(switch (ip.indexToKey(val.ip_index).aggregate.storage) {
                             .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                .ty = field_ty,
-                                .storage = .{ .u64 = bytes[field_i] },
+                                .ty = field_ty.toIntern(),
+                                .storage = .{ .u64 = bytes[field_index] },
                             } }),
-                            .elems => |elems| elems[field_i],
+                            .elems => |elems| elems[field_index],
                             .repeated_elem => |elem| elem,
-                        };
-                        try dg.renderValue(writer, Type.fromInterned(field_ty), Value.fromInterned(field_val), initializer_type);
+                        });
+                        try dg.renderValue(writer, field_ty, field_val, initializer_type);
 
                         empty = false;
                     }
@@ -1388,18 +1387,18 @@ pub const DeclGen = struct {
 
                         try writer.writeByte('{');
                         var empty = true;
-                        for (0..struct_type.field_types.len) |field_i| {
-                            const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_i]);
-                            if (struct_type.fieldIsComptime(ip, field_i)) continue;
+                        for (0..struct_type.field_types.len) |field_index| {
+                            const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                            if (struct_type.fieldIsComptime(ip, field_index)) continue;
                             if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                             if (!empty) try writer.writeByte(',');
                             const field_val = switch (ip.indexToKey(val.ip_index).aggregate.storage) {
                                 .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
                                     .ty = field_ty.toIntern(),
-                                    .storage = .{ .u64 = bytes[field_i] },
+                                    .storage = .{ .u64 = bytes[field_index] },
                                 } }),
-                                .elems => |elems| elems[field_i],
+                                .elems => |elems| elems[field_index],
                                 .repeated_elem => |elem| elem,
                             };
                             try dg.renderValue(writer, field_ty, Value.fromInterned(field_val), initializer_type);
@@ -1413,13 +1412,13 @@ pub const DeclGen = struct {
 
                         const bits = Type.smallestUnsignedBits(int_info.bits - 1);
                         const bit_offset_ty = try mod.intType(.unsigned, bits);
-                        const field_types = struct_type.field_types.get(ip);
 
                         var bit_offset: u64 = 0;
                         var eff_num_fields: usize = 0;
 
-                        for (field_types) |field_ty| {
-                            if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        for (0..struct_type.field_types.len) |field_index| {
+                            const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
                             eff_num_fields += 1;
                         }
 
@@ -1438,15 +1437,16 @@ pub const DeclGen = struct {
 
                             var eff_index: usize = 0;
                             var needs_closing_paren = false;
-                            for (field_types, 0..) |field_ty, field_i| {
-                                if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                            for (0..struct_type.field_types.len) |field_index| {
+                                const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 const field_val = switch (ip.indexToKey(val.ip_index).aggregate.storage) {
                                     .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                        .ty = field_ty,
-                                        .storage = .{ .u64 = bytes[field_i] },
+                                        .ty = field_ty.toIntern(),
+                                        .storage = .{ .u64 = bytes[field_index] },
                                     } }),
-                                    .elems => |elems| elems[field_i],
+                                    .elems => |elems| elems[field_index],
                                     .repeated_elem => |elem| elem,
                                 };
                                 const cast_context = IntCastContext{ .value = .{ .value = Value.fromInterned(field_val) } };
@@ -1454,19 +1454,19 @@ pub const DeclGen = struct {
                                     try writer.writeAll("zig_shl_");
                                     try dg.renderTypeForBuiltinFnName(writer, ty);
                                     try writer.writeByte('(');
-                                    try dg.renderIntCast(writer, ty, cast_context, Type.fromInterned(field_ty), .FunctionArgument);
+                                    try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
                                     try writer.writeAll(", ");
                                     const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
                                     try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
                                     try writer.writeByte(')');
                                 } else {
-                                    try dg.renderIntCast(writer, ty, cast_context, Type.fromInterned(field_ty), .FunctionArgument);
+                                    try dg.renderIntCast(writer, ty, cast_context, field_ty, .FunctionArgument);
                                 }
 
                                 if (needs_closing_paren) try writer.writeByte(')');
                                 if (eff_index != eff_num_fields - 1) try writer.writeAll(", ");
 
-                                bit_offset += Type.fromInterned(field_ty).bitSize(mod);
+                                bit_offset += field_ty.bitSize(mod);
                                 needs_closing_paren = true;
                                 eff_index += 1;
                             }
@@ -1474,8 +1474,9 @@ pub const DeclGen = struct {
                             try writer.writeByte('(');
                             // a << a_off | b << b_off | c << c_off
                             var empty = true;
-                            for (field_types, 0..) |field_ty, field_i| {
-                                if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
+                            for (0..struct_type.field_types.len) |field_index| {
+                                const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                                if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                                 if (!empty) try writer.writeAll(" | ");
                                 try writer.writeByte('(');
@@ -1484,23 +1485,23 @@ pub const DeclGen = struct {
 
                                 const field_val = switch (ip.indexToKey(val.ip_index).aggregate.storage) {
                                     .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                        .ty = field_ty,
-                                        .storage = .{ .u64 = bytes[field_i] },
+                                        .ty = field_ty.toIntern(),
+                                        .storage = .{ .u64 = bytes[field_index] },
                                     } }),
-                                    .elems => |elems| elems[field_i],
+                                    .elems => |elems| elems[field_index],
                                     .repeated_elem => |elem| elem,
                                 };
 
                                 if (bit_offset != 0) {
-                                    try dg.renderValue(writer, Type.fromInterned(field_ty), Value.fromInterned(field_val), .Other);
+                                    try dg.renderValue(writer, field_ty, Value.fromInterned(field_val), .Other);
                                     try writer.writeAll(" << ");
                                     const bit_offset_val = try mod.intValue(bit_offset_ty, bit_offset);
                                     try dg.renderValue(writer, bit_offset_ty, bit_offset_val, .FunctionArgument);
                                 } else {
-                                    try dg.renderValue(writer, Type.fromInterned(field_ty), Value.fromInterned(field_val), .Other);
+                                    try dg.renderValue(writer, field_ty, Value.fromInterned(field_val), .Other);
                                 }
 
-                                bit_offset += Type.fromInterned(field_ty).bitSize(mod);
+                                bit_offset += field_ty.bitSize(mod);
                                 empty = false;
                             }
                             try writer.writeByte(')');
@@ -1545,9 +1546,9 @@ pub const DeclGen = struct {
                         try writer.writeByte(')');
                     }
 
-                    const field_i = mod.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
-                    const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_i]);
-                    const field_name = union_obj.field_names.get(ip)[field_i];
+                    const field_index = mod.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
+                    const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
+                    const field_name = union_obj.field_names.get(ip)[field_index];
                     if (union_obj.getLayout(ip) == .Packed) {
                         if (field_ty.hasRuntimeBits(mod)) {
                             if (field_ty.isPtrAtRuntime(mod)) {
@@ -1581,9 +1582,10 @@ pub const DeclGen = struct {
                         try writer.print(" .{ } = ", .{fmtIdent(ip.stringToSlice(field_name))});
                         try dg.renderValue(writer, field_ty, Value.fromInterned(un.val), initializer_type);
                         try writer.writeByte(' ');
-                    } else for (union_obj.field_types.get(ip)) |this_field_ty| {
-                        if (!Type.fromInterned(this_field_ty).hasRuntimeBits(mod)) continue;
-                        try dg.renderValue(writer, Type.fromInterned(this_field_ty), Value.undef, initializer_type);
+                    } else for (0..union_obj.field_types.len) |this_field_index| {
+                        const this_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[this_field_index]);
+                        if (!this_field_ty.hasRuntimeBits(mod)) continue;
+                        try dg.renderValue(writer, this_field_ty, Value.undef, initializer_type);
                         break;
                     }
                     if (ty.unionTagTypeSafety(mod)) |_| try writer.writeByte('}');
@@ -7090,17 +7092,16 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
             }
         },
         .Struct => switch (inst_ty.containerLayout(mod)) {
-            .Auto, .Extern => for (resolved_elements, 0..) |element, field_i_usize| {
-                const field_i: u32 = @intCast(field_i_usize);
-                if (inst_ty.structFieldIsComptime(field_i, mod)) continue;
-                const field_ty = inst_ty.structFieldType(field_i, mod);
+            .Auto, .Extern => for (resolved_elements, 0..) |element, field_index| {
+                if (inst_ty.structFieldIsComptime(field_index, mod)) continue;
+                const field_ty = inst_ty.structFieldType(field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                 const a = try Assignment.start(f, writer, field_ty);
                 try f.writeCValueMember(writer, local, if (inst_ty.isSimpleTuple(mod))
-                    .{ .field = field_i }
+                    .{ .field = field_index }
                 else
-                    .{ .identifier = ip.stringToSlice(inst_ty.legacyStructFieldName(field_i, mod)) });
+                    .{ .identifier = ip.stringToSlice(inst_ty.legacyStructFieldName(@intCast(field_index), mod)) });
                 try a.assign(f, writer);
                 try f.writeCValue(writer, element, .Other);
                 try a.end(f, writer);
@@ -7115,9 +7116,9 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 var bit_offset: u64 = 0;
 
                 var empty = true;
-                for (0..elements.len) |field_i| {
-                    if (inst_ty.structFieldIsComptime(field_i, mod)) continue;
-                    const field_ty = inst_ty.structFieldType(field_i, mod);
+                for (0..elements.len) |field_index| {
+                    if (inst_ty.structFieldIsComptime(field_index, mod)) continue;
+                    const field_ty = inst_ty.structFieldType(field_index, mod);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     if (!empty) {
@@ -7128,9 +7129,9 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                     empty = false;
                 }
                 empty = true;
-                for (resolved_elements, 0..) |element, field_i| {
-                    if (inst_ty.structFieldIsComptime(field_i, mod)) continue;
-                    const field_ty = inst_ty.structFieldType(field_i, mod);
+                for (resolved_elements, 0..) |element, field_index| {
+                    if (inst_ty.structFieldIsComptime(field_index, mod)) continue;
+                    const field_ty = inst_ty.structFieldType(field_index, mod);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     if (!empty) try writer.writeAll(", ");
