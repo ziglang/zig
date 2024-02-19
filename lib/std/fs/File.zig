@@ -1486,7 +1486,7 @@ pub const LockError = error{
 /// A process may hold only one type of lock (shared or exclusive) on
 /// a file. When a process terminates in any way, the lock is released.
 ///
-/// Assumes the file is unlocked.
+/// Assumes the file is unlocked, or in the case of Lock.none, locked.
 ///
 /// TODO: integrate with async I/O
 pub fn lock(file: File, l: Lock) LockError!void {
@@ -1500,7 +1500,7 @@ pub fn lock(file: File, l: Lock) LockError!void {
                 &range_len,
                 null,
             ) catch |err| switch (err) {
-                error.RangeNotLocked => unreachable, // The file is assumed to be unlocked.
+                error.RangeNotLocked => unreachable, // The file is assumed to be locked.
                 error.Unexpected => unreachable, // Resource deallocation must succeed.
             },
             .shared => false,
@@ -1562,7 +1562,7 @@ pub fn unlock(file: File) void {
 /// A process may hold only one type of lock (shared or exclusive) on
 /// a file. When a process terminates in any way, the lock is released.
 ///
-/// Assumes the file is unlocked.
+/// Assumes the file is unlocked, or in the case of Lock.none, locked.
 ///
 /// TODO: integrate with async I/O
 pub fn tryLock(file: File, l: Lock) LockError!bool {
@@ -1575,7 +1575,10 @@ pub fn tryLock(file: File, l: Lock) LockError!bool {
                 &range_off,
                 &range_len,
                 null,
-            ) catch error.Unexpected,
+            ) catch |err| switch (err) {
+                error.RangeNotLocked => unreachable, // The file is assumed to be locked.
+                error.Unexpected => unreachable, // Resource deallocation must succeed.
+            },
             .shared => false,
             .exclusive => true,
         };
