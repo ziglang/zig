@@ -2315,6 +2315,7 @@ const DeclGen = struct {
             .sub, .sub_wrap, .sub_optimized => try self.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
             .mul, .mul_wrap, .mul_optimized => try self.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
 
+
             .abs => try self.airAbs(inst),
             .floor => try self.airFloor(inst),
 
@@ -2330,6 +2331,7 @@ const DeclGen = struct {
 
             .add_with_overflow => try self.airAddSubOverflow(inst, .OpIAdd, .OpULessThan, .OpSLessThan),
             .sub_with_overflow => try self.airAddSubOverflow(inst, .OpISub, .OpUGreaterThan, .OpSGreaterThan),
+            .mul_with_overflow => try self.airMulOverflow(inst),
             .shl_with_overflow => try self.airShlOverflow(inst),
 
             .mul_add => try self.airMulAdd(inst),
@@ -2733,8 +2735,8 @@ const DeclGen = struct {
             else => unreachable,
         };
         const set_id = switch (target.os.tag) {
-            .opencl => try self.spv.importInstructionSet("OpenCL.std"),
-            .vulkan => try self.spv.importInstructionSet("GLSL.std.450"),
+            .opencl => try self.spv.importInstructionSet(.@"OpenCL.std"),
+            .vulkan => try self.spv.importInstructionSet(.@"GLSL.std.450"),
             else => unreachable,
         };
 
@@ -2989,6 +2991,61 @@ const DeclGen = struct {
             };
 
             ov_id.* = try self.intFromBool(wip_ov.ty_ref, overflowed_id);
+        }
+
+        return try self.constructStruct(
+            result_ty,
+            &.{ operand_ty, ov_ty },
+            &.{ try wip_result.finalize(), try wip_ov.finalize() },
+        );
+    }
+
+    fn airMulOverflow(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+        const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+        const lhs = try self.resolve(extra.lhs);
+        const rhs = try self.resolve(extra.rhs);
+
+        const result_ty = self.typeOfIndex(inst);
+        const operand_ty = self.typeOf(extra.lhs);
+        const ov_ty = result_ty.structFieldType(1, self.module);
+
+        const info = self.arithmeticTypeInfo(operand_ty);
+        switch (info.class) {
+            .composite_integer => return self.todo("overflow ops for composite integers", .{}),
+            .strange_integer, .integer => {},
+            .float, .bool => unreachable,
+        }
+
+        var wip_result = try self.elementWise(operand_ty, true);
+        defer wip_result.deinit();
+        var wip_ov = try self.elementWise(ov_ty, true);
+        defer wip_ov.deinit();
+
+        const zero_id = try self.constInt(wip_result.ty_ref, 0);
+        const zero_ov_id = try self.constInt(wip_ov.ty_ref, 0);
+        const one_ov_id = try self.constInt(wip_ov.ty_ref, 1);
+
+        for (wip_result.results, wip_ov.results, 0..) |*result_id, *ov_id, i| {
+            const lhs_elem_id = try wip_result.elementAt(operand_ty, lhs, i);
+            const rhs_elem_id = try wip_result.elementAt(operand_ty, rhs, i);
+
+            result_id.* = try self.arithOp(wip_result.ty, lhs_elem_id, rhs_elem_id, .OpFMul, .OpIMul, .OpIMul);
+
+            // (a != 0) and (x / a != b)
+            const not_zero_id = try self.cmp(.neq, Type.bool, wip_result.ty, lhs_elem_id, zero_id);
+            const res_rhs_id = try self.arithOp(wip_result.ty, result_id.*, lhs_elem_id, .OpFDiv, .OpSDiv, .OpUDiv);
+            const res_rhs_not_rhs_id = try self.cmp(.neq, Type.bool, wip_result.ty, res_rhs_id, rhs_elem_id);
+            const cond_id = try self.binOpSimple(Type.bool, not_zero_id, res_rhs_not_rhs_id, .OpLogicalAnd);
+
+            ov_id.* = self.spv.allocId();
+            try self.func.body.emit(self.spv.gpa, .OpSelect, .{
+                .id_result_type = wip_ov.ty_id,
+                .id_result = ov_id.*,
+                .condition = cond_id,
+                .object_1 = one_ov_id,
+                .object_2 = zero_ov_id,
+            });
         }
 
         return try self.constructStruct(

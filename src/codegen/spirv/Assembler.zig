@@ -263,7 +263,10 @@ fn processInstruction(self: *Assembler) !void {
         .OpExtInstImport => blk: {
             const set_name_offset = self.inst.operands.items[1].string;
             const set_name = std.mem.sliceTo(self.inst.string_bytes.items[set_name_offset..], 0);
-            break :blk .{ .value = try self.spv.importInstructionSet(set_name) };
+            const set_tag = std.meta.stringToEnum(spec.InstructionSet, set_name) orelse {
+                return self.fail(set_name_offset, "unknown instruction set: {s}", .{set_name});
+            };
+            break :blk .{ .value = try self.spv.importInstructionSet(set_tag) };
         },
         else => switch (self.inst.opcode.class()) {
             .TypeDeclaration => try self.processTypeInstruction(),
