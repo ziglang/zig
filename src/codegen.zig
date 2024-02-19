@@ -513,7 +513,7 @@ pub fn generateSymbol(
             .struct_type => {
                 const struct_type = ip.loadStructType(typed_value.ty.toIntern());
                 switch (struct_type.layout) {
-                    .Packed => {
+                    .@"packed" => {
                         const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
                             return error.Overflow;
                         const current_pos = code.items.len;
@@ -550,7 +550,7 @@ pub fn generateSymbol(
                             bits += @as(u16, @intCast(Type.fromInterned(field_ty).bitSize(mod)));
                         }
                     },
-                    .Auto, .Extern => {
+                    .auto, .@"extern" => {
                         const struct_begin = code.items.len;
                         const field_types = struct_type.field_types.get(ip);
                         const offsets = struct_type.offsets.get(ip);
@@ -736,11 +736,11 @@ fn lowerParentPtr(
                     .anon_struct_type,
                     .union_type,
                     => switch (Type.fromInterned(base_ty).containerLayout(mod)) {
-                        .Auto, .Extern => @intCast(Type.fromInterned(base_ty).structFieldOffset(
+                        .auto, .@"extern" => @intCast(Type.fromInterned(base_ty).structFieldOffset(
                             @intCast(field.index),
                             mod,
                         )),
-                        .Packed => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
+                        .@"packed" => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
                             if (Type.fromInterned(ptr.ty).ptrInfo(mod).packed_offset.host_size == 0)
                                 @divExact(Type.fromInterned(base_ptr_ty).ptrInfo(mod)
                                     .packed_offset.bit_offset + mod.structPackedFieldBitOffset(

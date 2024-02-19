@@ -55,7 +55,7 @@ pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.built
 
 pub fn writeStruct(self: Self, value: anytype) anyerror!void {
     // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != .Auto);
+    comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != .auto);
     return self.writeAll(mem.asBytes(&value));
 }
 

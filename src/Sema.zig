@@ -3236,7 +3236,7 @@ fn zirUnionDecl(
             .status = .none,
             .runtime_tag = if (small.has_tag_type or small.auto_enum_tag)
                 .tagged
-            else if (small.layout != .Auto)
+            else if (small.layout != .auto)
                 .none
             else switch (block.wantSafety()) {
                 true => .safety,
@@ -10380,7 +10380,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             };
             return sema.failWithOwnedErrorMsg(block, msg);
         },
-        .Struct, .Union => if (dest_ty.containerLayout(mod) == .Auto) {
+        .Struct, .Union => if (dest_ty.containerLayout(mod) == .auto) {
             const container = switch (dest_ty.zigTypeTag(mod)) {
                 .Struct => "struct",
                 .Union => "union",
@@ -10443,7 +10443,7 @@ fn zirBitcast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             };
             return sema.failWithOwnedErrorMsg(block, msg);
         },
-        .Struct, .Union => if (operand_ty.containerLayout(mod) == .Auto) {
+        .Struct, .Union => if (operand_ty.containerLayout(mod) == .auto) {
             const container = switch (operand_ty.zigTypeTag(mod)) {
                 .Struct => "struct",
                 .Union => "union",
@@ -18131,8 +18131,8 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 };
 
                 const alignment = switch (layout) {
-                    .Auto, .Extern => try sema.unionFieldAlignment(union_obj, @intCast(i)),
-                    .Packed => .none,
+                    .auto, .@"extern" => try sema.unionFieldAlignment(union_obj, @intCast(i)),
+                    .@"packed" => .none,
                 };
 
                 const field_ty = union_obj.field_types.get(ip)[i];
@@ -18350,7 +18350,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const opt_default_val = if (field_init == .none) null else Value.fromInterned(field_init);
                     const default_val_ptr = try sema.optRefValue(opt_default_val);
                     const alignment = switch (struct_type.layout) {
-                        .Packed => .none,
+                        .@"packed" => .none,
                         else => try sema.structFieldAlignment(
                             struct_type.fieldAlign(ip, i),
                             field_ty,
@@ -19906,7 +19906,7 @@ fn zirStructInit(
         var field_i: u32 = 0;
         var extra_index = extra.end;
 
-        const is_packed = resolved_ty.containerLayout(mod) == .Packed;
+        const is_packed = resolved_ty.containerLayout(mod) == .@"packed";
         while (field_i < extra.data.fields_len) : (field_i += 1) {
             const item = sema.code.extraData(Zir.Inst.StructInit.Item, extra_index);
             extra_index = item.end;
@@ -21302,7 +21302,7 @@ fn zirReify(
                 return sema.fail(block, src, "reified structs must have no decls", .{});
             }
 
-            if (layout != .Packed and !backing_integer_val.isNull(mod)) {
+            if (layout != .@"packed" and !backing_integer_val.isNull(mod)) {
                 return sema.fail(block, src, "non-packed struct does not support backing integer type", .{});
             }
 
@@ -21665,7 +21665,7 @@ fn reifyUnion(
             .status = .none,
             .runtime_tag = if (opt_tag_type_val.optionalValue(mod) != null)
                 .tagged
-            else if (layout != .Auto)
+            else if (layout != .auto)
                 .none
             else switch (block.wantSafety()) {
                 true => .safety,
@@ -21804,7 +21804,7 @@ fn reifyUnion(
                 break :msg msg;
             });
         }
-        if (layout == .Extern and !try sema.validateExternType(field_ty, .union_field)) {
+        if (layout == .@"extern" and !try sema.validateExternType(field_ty, .union_field)) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(block, src, "extern unions cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
                 errdefer msg.destroy(gpa);
@@ -21815,7 +21815,7 @@ fn reifyUnion(
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             });
-        } else if (layout == .Packed and !try sema.validatePackedType(field_ty)) {
+        } else if (layout == .@"packed" and !try sema.validatePackedType(field_ty)) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(block, src, "packed unions cannot contain fields of type '{}'", .{field_ty.fmt(mod)});
                 errdefer msg.destroy(gpa);
@@ -21938,9 +21938,9 @@ fn reifyStruct(
     errdefer wip_ty.cancel(ip);
 
     if (is_tuple) switch (layout) {
-        .Extern => return sema.fail(block, src, "extern tuples are not supported", .{}),
-        .Packed => return sema.fail(block, src, "packed tuples are not supported", .{}),
-        .Auto => {},
+        .@"extern" => return sema.fail(block, src, "extern tuples are not supported", .{}),
+        .@"packed" => return sema.fail(block, src, "packed tuples are not supported", .{}),
+        .auto => {},
     };
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
@@ -21990,11 +21990,11 @@ fn reifyStruct(
 
             const byte_align = try field_alignment_val.toUnsignedIntAdvanced(sema);
             if (byte_align == 0) {
-                if (layout != .Packed) {
+                if (layout != .@"packed") {
                     struct_type.field_aligns.get(ip)[field_idx] = .none;
                 }
             } else {
-                if (layout == .Packed) return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
+                if (layout == .@"packed") return sema.fail(block, src, "alignment in a packed struct field must be set to 0", .{});
                 if (!math.isPowerOfTwo(byte_align)) return sema.fail(block, src, "alignment value '{d}' is not a power of two or zero", .{byte_align});
                 struct_type.field_aligns.get(ip)[field_idx] = Alignment.fromNonzeroByteUnits(byte_align);
             }
@@ -22004,9 +22004,9 @@ fn reifyStruct(
         if (field_is_comptime) {
             assert(any_comptime_fields);
             switch (layout) {
-                .Extern => return sema.fail(block, src, "extern struct fields cannot be marked comptime", .{}),
-                .Packed => return sema.fail(block, src, "packed struct fields cannot be marked comptime", .{}),
-                .Auto => struct_type.setFieldComptime(ip, field_idx),
+                .@"extern" => return sema.fail(block, src, "extern struct fields cannot be marked comptime", .{}),
+                .@"packed" => return sema.fail(block, src, "packed struct fields cannot be marked comptime", .{}),
+                .auto => struct_type.setFieldComptime(ip, field_idx),
             }
         }
 
@@ -22047,7 +22047,7 @@ fn reifyStruct(
                 break :msg msg;
             });
         }
-        if (layout == .Extern and !try sema.validateExternType(field_ty, .struct_field)) {
+        if (layout == .@"extern" and !try sema.validateExternType(field_ty, .struct_field)) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(block, src, "extern structs cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(gpa);
@@ -22058,7 +22058,7 @@ fn reifyStruct(
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
             });
-        } else if (layout == .Packed and !try sema.validatePackedType(field_ty)) {
+        } else if (layout == .@"packed" and !try sema.validatePackedType(field_ty)) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(block, src, "packed structs cannot contain fields of type '{}'", .{field_ty.fmt(sema.mod)});
                 errdefer msg.destroy(gpa);
@@ -22072,7 +22072,7 @@ fn reifyStruct(
         }
     }
 
-    if (layout == .Packed) {
+    if (layout == .@"packed") {
         var fields_bit_sum: u64 = 0;
         for (0..struct_type.field_types.len) |field_idx| {
             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_idx]);
@@ -23311,7 +23311,7 @@ fn bitOffsetOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!u6
     }
 
     switch (ty.containerLayout(mod)) {
-        .Packed => {
+        .@"packed" => {
             var bit_sum: u64 = 0;
             const struct_type = ip.loadStructType(ty.toIntern());
             for (0..struct_type.field_types.len) |i| {
@@ -24710,7 +24710,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
         },
     };
 
-    if (parent_ty.containerLayout(mod) == .Packed) {
+    if (parent_ty.containerLayout(mod) == .@"packed") {
         return sema.fail(block, src, "TODO handle packed structs/unions with @fieldParentPtr", .{});
     } else {
         ptr_ty_data.flags.alignment = blk: {
@@ -26328,15 +26328,15 @@ fn validateExternType(
             return sema.validateExternType(ty.intTagType(mod), position);
         },
         .Struct, .Union => switch (ty.containerLayout(mod)) {
-            .Extern => return true,
-            .Packed => {
+            .@"extern" => return true,
+            .@"packed" => {
                 const bit_size = try ty.bitSizeAdvanced(mod, sema);
                 switch (bit_size) {
                     0, 8, 16, 32, 64, 128 => return true,
                     else => return false,
                 }
             },
-            .Auto => return !(try sema.typeHasRuntimeBits(ty)),
+            .auto => return !(try sema.typeHasRuntimeBits(ty)),
         },
         .Array => {
             if (position == .ret_ty or position == .param_ty) return false;
@@ -26456,7 +26456,7 @@ fn validatePackedType(sema: *Sema, ty: Type) !bool {
         .Enum,
         => return true,
         .Pointer => return !ty.isSlice(mod) and !try sema.typeRequiresComptime(ty),
-        .Struct, .Union => return ty.containerLayout(mod) == .Packed,
+        .Struct, .Union => return ty.containerLayout(mod) == .@"packed",
     }
 }
 
@@ -27596,7 +27596,7 @@ fn structFieldPtrByIndex(
     else
         try sema.typeAbiAlignment(Type.fromInterned(struct_ptr_ty_info.child));
 
-    if (struct_type.layout == .Packed) {
+    if (struct_type.layout == .@"packed") {
         comptime assert(Type.packed_struct_layout_version == 2);
 
         var running_bits: u16 = 0;
@@ -27641,7 +27641,7 @@ fn structFieldPtrByIndex(
                 ptr_ty_data.packed_offset = .{ .host_size = 0, .bit_offset = 0 };
             }
         }
-    } else if (struct_type.layout == .Extern) {
+    } else if (struct_type.layout == .@"extern") {
         // For extern structs, field alignment might be bigger than type's
         // natural alignment. Eg, in `extern struct { x: u32, y: u16 }` the
         // second field is aligned as u32.
@@ -27846,7 +27846,7 @@ fn unionFieldPtr(
             .is_const = union_ptr_info.flags.is_const,
             .is_volatile = union_ptr_info.flags.is_volatile,
             .address_space = union_ptr_info.flags.address_space,
-            .alignment = if (union_obj.getLayout(ip) == .Auto) blk: {
+            .alignment = if (union_obj.getLayout(ip) == .auto) blk: {
                 const union_align = if (union_ptr_info.flags.alignment != .none)
                     union_ptr_info.flags.alignment
                 else
@@ -27875,7 +27875,7 @@ fn unionFieldPtr(
 
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| ct: {
         switch (union_obj.getLayout(ip)) {
-            .Auto => if (!initializing) {
+            .auto => if (!initializing) {
                 const union_val = (try sema.pointerDeref(block, src, union_ptr_val, union_ptr_ty)) orelse
                     break :ct;
                 if (union_val.isUndef(mod)) {
@@ -27899,7 +27899,7 @@ fn unionFieldPtr(
                     return sema.failWithOwnedErrorMsg(block, msg);
                 }
             },
-            .Packed, .Extern => {},
+            .@"packed", .@"extern" => {},
         }
         return Air.internedToRef((try mod.intern(.{ .ptr = .{
             .ty = ptr_field_ty.toIntern(),
@@ -27911,7 +27911,7 @@ fn unionFieldPtr(
     }
 
     try sema.requireRuntimeBlock(block, src, null);
-    if (!initializing and union_obj.getLayout(ip) == .Auto and block.wantSafety() and
+    if (!initializing and union_obj.getLayout(ip) == .auto and block.wantSafety() and
         union_ty.unionTagTypeSafety(mod) != null and union_obj.field_types.len > 1)
     {
         const wanted_tag_val = try mod.enumValueFieldIndex(Type.fromInterned(union_obj.enum_tag_ty), enum_field_index);
@@ -27954,7 +27954,7 @@ fn unionFieldVal(
         const field_tag = try mod.enumValueFieldIndex(Type.fromInterned(union_obj.enum_tag_ty), enum_field_index);
         const tag_matches = un.tag == field_tag.toIntern();
         switch (union_obj.getLayout(ip)) {
-            .Auto => {
+            .auto => {
                 if (tag_matches) {
                     return Air.internedToRef(un.val);
                 } else {
@@ -27971,7 +27971,7 @@ fn unionFieldVal(
                     return sema.failWithOwnedErrorMsg(block, msg);
                 }
             },
-            .Packed, .Extern => |layout| {
+            .@"packed", .@"extern" => |layout| {
                 if (tag_matches) {
                     return Air.internedToRef(un.val);
                 } else {
@@ -27989,7 +27989,7 @@ fn unionFieldVal(
     }
 
     try sema.requireRuntimeBlock(block, src, null);
-    if (union_obj.getLayout(ip) == .Auto and block.wantSafety() and
+    if (union_obj.getLayout(ip) == .auto and block.wantSafety() and
         union_ty.unionTagTypeSafety(mod) != null and union_obj.field_types.len > 1)
     {
         const wanted_tag_val = try mod.enumValueFieldIndex(Type.fromInterned(union_obj.enum_tag_ty), enum_field_index);
@@ -30961,7 +30961,7 @@ fn beginComptimePtrMutation(
 
                             const tag_type = base_child_ty.unionTagTypeHypothetical(mod);
                             const hypothetical_tag = try mod.enumValueFieldIndex(tag_type, field_index);
-                            if (layout == .Auto or (payload.tag != null and hypothetical_tag.eql(payload.tag.?, tag_type, mod))) {
+                            if (layout == .auto or (payload.tag != null and hypothetical_tag.eql(payload.tag.?, tag_type, mod))) {
                                 // We need to set the active field of the union.
                                 payload.tag = hypothetical_tag;
 
@@ -30988,7 +30988,7 @@ fn beginComptimePtrMutation(
                                     .pointee = .{ .reinterpret = .{
                                         .val_ptr = val_ptr,
                                         .byte_offset = 0,
-                                        .write_packed = layout == .Packed,
+                                        .write_packed = layout == .@"packed",
                                     } },
                                     .ty = parent.ty,
                                 };
@@ -31395,7 +31395,7 @@ fn beginComptimePtrLoad(
 
                 if (container_ty.hasWellDefinedLayout(mod)) {
                     const struct_obj = mod.typeToStruct(container_ty);
-                    if (struct_obj != null and struct_obj.?.layout == .Packed) {
+                    if (struct_obj != null and struct_obj.?.layout == .@"packed") {
                         // packed structs are not byte addressable
                         deref.parent = null;
                     } else if (deref.parent) |*parent| {
@@ -31551,7 +31551,7 @@ fn bitCastUnionFieldVal(
 
     // Reading a larger value means we need to reinterpret from undefined bytes.
     const offset = switch (layout) {
-        .Extern => offset: {
+        .@"extern" => offset: {
             if (field_size > old_size) @memset(buffer[old_size..], 0xaa);
             val.writeToMemory(old_ty, mod, buffer) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -31561,7 +31561,7 @@ fn bitCastUnionFieldVal(
             };
             break :offset 0;
         },
-        .Packed => offset: {
+        .@"packed" => offset: {
             if (field_size > old_size) {
                 const min_size = @max(old_size, 1);
                 switch (endian) {
@@ -31577,7 +31577,7 @@ fn bitCastUnionFieldVal(
 
             break :offset if (endian == .big) buffer.len - field_size else 0;
         },
-        .Auto => unreachable,
+        .auto => unreachable,
     };
 
     return Value.readFromMemory(field_ty, mod, buffer[offset..], sema.arena) catch |err| switch (err) {
@@ -35608,7 +35608,7 @@ pub fn resolveStructAlignment(
     const target = mod.getTarget();
 
     assert(struct_type.flagsPtr(ip).alignment == .none);
-    assert(struct_type.layout != .Packed);
+    assert(struct_type.layout != .@"packed");
 
     if (struct_type.flagsPtr(ip).field_types_wip) {
         // We'll guess "pointer-aligned", if the struct has an
@@ -35661,7 +35661,7 @@ fn resolveStructLayout(sema: *Sema, ty: Type) CompileError!void {
 
     try sema.resolveTypeFields(ty);
 
-    if (struct_type.layout == .Packed) {
+    if (struct_type.layout == .@"packed") {
         try semaBackingIntType(mod, struct_type);
         return;
     }
@@ -36625,11 +36625,11 @@ fn semaStructFields(
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     if (fields_len == 0) switch (struct_type.layout) {
-        .Packed => {
+        .@"packed" => {
             try semaBackingIntType(mod, struct_type);
             return;
         },
-        .Auto, .Extern => {
+        .auto, .@"extern" => {
             struct_type.size(ip).* = 0;
             struct_type.flagsPtr(ip).layout_resolved = true;
             return;
@@ -36810,7 +36810,7 @@ fn semaStructFields(
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
         switch (struct_type.layout) {
-            .Extern => if (!try sema.validateExternType(field_ty, .struct_field)) {
+            .@"extern" => if (!try sema.validateExternType(field_ty, .struct_field)) {
                 const msg = msg: {
                     const ty_src = mod.fieldSrcLoc(decl_index, .{
                         .index = field_i,
@@ -36826,7 +36826,7 @@ fn semaStructFields(
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);
             },
-            .Packed => if (!try sema.validatePackedType(field_ty)) {
+            .@"packed" => if (!try sema.validatePackedType(field_ty)) {
                 const msg = msg: {
                     const ty_src = mod.fieldSrcLoc(decl_index, .{
                         .index = field_i,
@@ -37350,7 +37350,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
         const layout = union_type.getLayout(ip);
-        if (layout == .Extern and
+        if (layout == .@"extern" and
             !try sema.validateExternType(field_ty, .union_field))
         {
             const msg = msg: {
@@ -37367,7 +37367,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        } else if (layout == .Packed and !try sema.validatePackedType(field_ty)) {
+        } else if (layout == .@"packed" and !try sema.validatePackedType(field_ty)) {
             const msg = msg: {
                 const ty_src = mod.fieldSrcLoc(union_type.decl, .{
                     .index = field_i,
@@ -38286,9 +38286,9 @@ fn structFieldAlignment(
         return explicit_alignment;
     const mod = sema.mod;
     switch (layout) {
-        .Packed => return .none,
-        .Auto => if (mod.getTarget().ofmt != .c) return sema.typeAbiAlignment(field_ty),
-        .Extern => {},
+        .@"packed" => return .none,
+        .auto => if (mod.getTarget().ofmt != .c) return sema.typeAbiAlignment(field_ty),
+        .@"extern" => {},
     }
     // extern
     const ty_abi_align = try sema.typeAbiAlignment(field_ty);

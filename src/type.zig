@@ -741,12 +741,12 @@ pub const Type = struct {
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
                 // Struct with no fields have a well-defined layout of no bits.
-                return struct_type.layout != .Auto or struct_type.field_types.len == 0;
+                return struct_type.layout != .auto or struct_type.field_types.len == 0;
             },
             .union_type => {
                 const union_type = ip.loadUnionType(ty.toIntern());
                 return switch (union_type.flagsPtr(ip).runtime_tag) {
-                    .none, .safety => union_type.flagsPtr(ip).layout != .Auto,
+                    .none, .safety => union_type.flagsPtr(ip).layout != .auto,
                     .tagged => false,
                 };
             },
@@ -1027,7 +1027,7 @@ pub const Type = struct {
                 },
                 .struct_type => {
                     const struct_type = ip.loadStructType(ty.toIntern());
-                    if (struct_type.layout == .Packed) {
+                    if (struct_type.layout == .@"packed") {
                         switch (strat) {
                             .sema => |sema| try sema.resolveTypeLayout(ty),
                             .lazy => if (struct_type.backingIntType(ip).* == .none) return .{
@@ -1407,7 +1407,7 @@ pub const Type = struct {
                     switch (strat) {
                         .sema => |sema| try sema.resolveTypeLayout(ty),
                         .lazy => switch (struct_type.layout) {
-                            .Packed => {
+                            .@"packed" => {
                                 if (struct_type.backingIntType(ip).* == .none) return .{
                                     .val = Value.fromInterned((try mod.intern(.{ .int = .{
                                         .ty = .comptime_int_type,
@@ -1415,7 +1415,7 @@ pub const Type = struct {
                                     } }))),
                                 };
                             },
-                            .Auto, .Extern => {
+                            .auto, .@"extern" => {
                                 if (!struct_type.haveLayout(ip)) return .{
                                     .val = Value.fromInterned((try mod.intern(.{ .int = .{
                                         .ty = .comptime_int_type,
@@ -1427,10 +1427,10 @@ pub const Type = struct {
                         .eager => {},
                     }
                     switch (struct_type.layout) {
-                        .Packed => return .{
+                        .@"packed" => return .{
                             .scalar = Type.fromInterned(struct_type.backingIntType(ip).*).abiSize(mod),
                         },
-                        .Auto, .Extern => {
+                        .auto, .@"extern" => {
                             assert(struct_type.haveLayout(ip));
                             return .{ .scalar = struct_type.size(ip).* };
                         },
@@ -1656,7 +1656,7 @@ pub const Type = struct {
             },
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
-                const is_packed = struct_type.layout == .Packed;
+                const is_packed = struct_type.layout == .@"packed";
                 if (opt_sema) |sema| {
                     try sema.resolveTypeFields(ty);
                     if (is_packed) try sema.resolveTypeLayout(ty);
@@ -1674,7 +1674,7 @@ pub const Type = struct {
 
             .union_type => {
                 const union_type = ip.loadUnionType(ty.toIntern());
-                const is_packed = ty.containerLayout(mod) == .Packed;
+                const is_packed = ty.containerLayout(mod) == .@"packed";
                 if (opt_sema) |sema| {
                     try sema.resolveTypeFields(ty);
                     if (is_packed) try sema.resolveTypeLayout(ty);
@@ -1987,9 +1987,9 @@ pub const Type = struct {
     /// Asserts the type is either an extern or packed union.
     pub fn unionBackingType(ty: Type, mod: *Module) !Type {
         return switch (ty.containerLayout(mod)) {
-            .Extern => try mod.arrayType(.{ .len = ty.abiSize(mod), .child = .u8_type }),
-            .Packed => try mod.intType(.unsigned, @intCast(ty.bitSize(mod))),
-            .Auto => unreachable,
+            .@"extern" => try mod.arrayType(.{ .len = ty.abiSize(mod), .child = .u8_type }),
+            .@"packed" => try mod.intType(.unsigned, @intCast(ty.bitSize(mod))),
+            .auto => unreachable,
         };
     }
 
@@ -2003,7 +2003,7 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => ip.loadStructType(ty.toIntern()).layout,
-            .anon_struct_type => .Auto,
+            .anon_struct_type => .auto,
             .union_type => ip.loadUnionType(ty.toIntern()).flagsPtr(ip).layout,
             else => unreachable,
         };
@@ -2177,7 +2177,7 @@ pub const Type = struct {
     pub fn isAbiInt(ty: Type, mod: *Module) bool {
         return switch (ty.zigTypeTag(mod)) {
             .Int, .Enum, .ErrorSet => true,
-            .Struct => ty.containerLayout(mod) == .Packed,
+            .Struct => ty.containerLayout(mod) == .@"packed",
             else => false,
         };
     }
@@ -2690,7 +2690,7 @@ pub const Type = struct {
                     const struct_type = ip.loadStructType(ty.toIntern());
                     // packed structs cannot be comptime-only because they have a well-defined
                     // memory layout and every field has a well-defined bit pattern.
-                    if (struct_type.layout == .Packed)
+                    if (struct_type.layout == .@"packed")
                         return false;
 
                     // A struct with no fields is not comptime-only.
@@ -3051,7 +3051,7 @@ pub const Type = struct {
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
-                assert(struct_type.layout != .Packed);
+                assert(struct_type.layout != .@"packed");
                 const explicit_align = struct_type.fieldAlign(ip, index);
                 const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[index]);
                 return mod.structFieldAlignment(explicit_align, field_ty, struct_type.layout);
@@ -3132,7 +3132,7 @@ pub const Type = struct {
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
                 assert(struct_type.haveLayout(ip));
-                assert(struct_type.layout != .Packed);
+                assert(struct_type.layout != .@"packed");
                 return struct_type.offsets.get(ip)[index];
             },
 
@@ -3208,7 +3208,7 @@ pub const Type = struct {
         return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
-                if (struct_type.layout == .Packed) return false;
+                if (struct_type.layout == .@"packed") return false;
                 if (struct_type.decl == .none) return false;
                 return struct_type.flagsPtr(ip).is_tuple;
             },
@@ -3230,7 +3230,7 @@ pub const Type = struct {
         return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
-                if (struct_type.layout == .Packed) return false;
+                if (struct_type.layout == .@"packed") return false;
                 if (struct_type.decl == .none) return false;
                 return struct_type.flagsPtr(ip).is_tuple;
             },

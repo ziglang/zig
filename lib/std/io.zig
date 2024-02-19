@@ -688,7 +688,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
         };
     }
     return @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &struct_fields,
         .decls = &.{},
         .is_tuple = false,

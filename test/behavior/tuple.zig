@@ -135,7 +135,7 @@ test "array-like initializer for tuple types" {
     const T = @Type(.{
         .Struct = .{
             .is_tuple = true,
-            .layout = .Auto,
+            .layout = .auto,
             .decls = &.{},
             .fields = &.{
                 .{
@@ -323,7 +323,7 @@ test "zero sized struct in tuple handled correctly" {
         data: @Type(.{
             .Struct = .{
                 .is_tuple = true,
-                .layout = .Auto,
+                .layout = .auto,
                 .decls = &.{},
                 .fields = &.{.{
                     .name = "0",
@@ -471,7 +471,7 @@ test "coerce anon tuple to tuple" {
 
 test "empty tuple type" {
     const S = @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &.{},
         .decls = &.{},
         .is_tuple = true,

@@ -42,7 +42,7 @@ pub fn classifyWindows(ty: Type, mod: *Module) Class {
             1, 2, 4, 8 => return .integer,
             else => switch (ty.zigTypeTag(mod)) {
                 .Int => return .win_i128,
-                .Struct, .Union => if (ty.containerLayout(mod) == .Packed) {
+                .Struct, .Union => if (ty.containerLayout(mod) == .@"packed") {
                     return .win_i128;
                 } else {
                     return .memory;
@@ -238,7 +238,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // separately.".
             const struct_type = mod.typeToStruct(ty).?;
             const ty_size = ty.abiSize(mod);
-            if (struct_type.layout == .Packed) {
+            if (struct_type.layout == .@"packed") {
                 assert(ty_size <= 16);
                 result[0] = .integer;
                 if (ty_size > 8) result[1] = .integer;
@@ -356,7 +356,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // separately.".
             const union_obj = mod.typeToUnion(ty).?;
             const ty_size = mod.unionAbiSize(union_obj);
-            if (union_obj.getLayout(ip) == .Packed) {
+            if (union_obj.getLayout(ip) == .@"packed") {
                 assert(ty_size <= 16);
                 result[0] = .integer;
                 if (ty_size > 8) result[1] = .integer;

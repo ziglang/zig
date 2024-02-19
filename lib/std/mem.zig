@@ -238,7 +238,7 @@ pub fn zeroes(comptime T: type) T {
         },
         .Struct => |struct_info| {
             if (@sizeOf(T) == 0) return undefined;
-            if (struct_info.layout == .Extern) {
+            if (struct_info.layout == .@"extern") {
                 var item: T = undefined;
                 @memset(asBytes(&item), 0);
                 return item;
@@ -284,7 +284,7 @@ pub fn zeroes(comptime T: type) T {
             return @splat(zeroes(info.child));
         },
         .Union => |info| {
-            if (info.layout == .Extern) {
+            if (info.layout == .@"extern") {
                 var item: T = undefined;
                 @memset(asBytes(&item), 0);
                 return item;
@@ -429,7 +429,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                         }
                     }
 
-                    var value: T = if (struct_info.layout == .Extern) zeroes(T) else undefined;
+                    var value: T = if (struct_info.layout == .@"extern") zeroes(T) else undefined;
 
                     inline for (struct_info.fields, 0..) |field, i| {
                         if (field.is_comptime) {

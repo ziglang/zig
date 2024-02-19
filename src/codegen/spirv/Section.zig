@@ -154,7 +154,7 @@ pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand)
                 }
             },
             .Struct => |info| {
-                if (info.layout == .Packed) {
+                if (info.layout == .@"packed") {
                     section.writeWord(@as(Word, @bitCast(operand)));
                 } else {
                     section.writeExtendedMask(Operand, operand);
@@ -288,7 +288,7 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
                 }
                 break :blk total;
             },
-            .Struct => |info| if (info.layout == .Packed) 1 else extendedMaskSize(Operand, operand),
+            .Struct => |info| if (info.layout == .@"packed") 1 else extendedMaskSize(Operand, operand),
             .Union => extendedUnionSize(Operand, operand),
             else => unreachable,
         },

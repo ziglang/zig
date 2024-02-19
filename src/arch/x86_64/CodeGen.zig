@@ -7962,8 +7962,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const src_mcv = try self.resolveInst(operand);
         const field_off: u32 = switch (container_ty.containerLayout(mod)) {
-            .Auto, .Extern => @intCast(container_ty.structFieldOffset(index, mod) * 8),
-            .Packed => if (mod.typeToStruct(container_ty)) |struct_type|
+            .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, mod) * 8),
+            .@"packed" => if (mod.typeToStruct(container_ty)) |struct_type|
                 mod.structPackedFieldBitOffset(struct_type, index)
             else
                 0,
@@ -17979,7 +17979,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         switch (result_ty.zigTypeTag(mod)) {
             .Struct => {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, mod));
-                if (result_ty.containerLayout(mod) == .Packed) {
+                if (result_ty.containerLayout(mod) == .@"packed") {
                     const struct_type = mod.typeToStruct(result_ty).?;
                     try self.genInlineMemset(
                         .{ .lea_frame = .{ .index = frame_index } },

@@ -1495,7 +1495,7 @@ pub const CType = extern union {
                     }
                 },
 
-                .Struct, .Union => |zig_ty_tag| if (ty.containerLayout(mod) == .Packed) {
+                .Struct, .Union => |zig_ty_tag| if (ty.containerLayout(mod) == .@"packed") {
                     if (mod.typeToPackedStruct(ty)) |packed_struct| {
                         try self.initType(Type.fromInterned(packed_struct.backingIntType(ip).*), kind, lookup);
                     } else {

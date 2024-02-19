@@ -890,7 +890,7 @@ pub const DeclGen = struct {
                     return writer.writeAll(" }");
                 },
                 .Struct => switch (ty.containerLayout(mod)) {
-                    .Auto, .Extern => {
+                    .auto, .@"extern" => {
                         if (!location.isInitializer()) {
                             try writer.writeByte('(');
                             try dg.renderType(writer, ty);
@@ -912,7 +912,7 @@ pub const DeclGen = struct {
 
                         return writer.writeByte('}');
                     },
-                    .Packed => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, Value.undef, .Other)}),
+                    .@"packed" => return writer.print("{x}", .{try dg.fmtIntLiteral(ty, Value.undef, .Other)}),
                 },
                 .Union => {
                     if (!location.isInitializer()) {
@@ -1379,7 +1379,7 @@ pub const DeclGen = struct {
                 .struct_type => {
                     const struct_type = ip.loadStructType(ty.toIntern());
                     switch (struct_type.layout) {
-                        .Auto, .Extern => {
+                        .auto, .@"extern" => {
                             if (!location.isInitializer()) {
                                 try writer.writeByte('(');
                                 try dg.renderType(writer, ty);
@@ -1408,7 +1408,7 @@ pub const DeclGen = struct {
                             }
                             try writer.writeByte('}');
                         },
-                        .Packed => {
+                        .@"packed" => {
                             const int_info = ty.intInfo(mod);
 
                             const bits = Type.smallestUnsignedBits(int_info.bits - 1);
@@ -1517,7 +1517,7 @@ pub const DeclGen = struct {
                 if (un.tag == .none) {
                     const backing_ty = try ty.unionBackingType(mod);
                     switch (union_obj.getLayout(ip)) {
-                        .Packed => {
+                        .@"packed" => {
                             if (!location.isInitializer()) {
                                 try writer.writeByte('(');
                                 try dg.renderType(writer, backing_ty);
@@ -1525,7 +1525,7 @@ pub const DeclGen = struct {
                             }
                             try dg.renderValue(writer, backing_ty, Value.fromInterned(un.val), initializer_type);
                         },
-                        .Extern => {
+                        .@"extern" => {
                             if (location == .StaticInitializer) {
                                 return dg.fail("TODO: C backend: implement extern union backing type rendering in static initializers", .{});
                             }
@@ -1551,7 +1551,7 @@ pub const DeclGen = struct {
                     const field_index = mod.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                     const field_name = union_obj.loadTagType(ip).names.get(ip)[field_index];
-                    if (union_obj.getLayout(ip) == .Packed) {
+                    if (union_obj.getLayout(ip) == .@"packed") {
                         if (field_ty.hasRuntimeBits(mod)) {
                             if (field_ty.isPtrAtRuntime(mod)) {
                                 try writer.writeByte('(');
@@ -5497,7 +5497,7 @@ fn fieldLocation(
         .Union => {
             const union_obj = mod.typeToUnion(container_ty).?;
             return switch (union_obj.getLayout(ip)) {
-                .Auto, .Extern => {
+                .auto, .@"extern" => {
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod))
                         return if (container_ty.unionTagTypeSafety(mod) != null and
@@ -5511,7 +5511,7 @@ fn fieldLocation(
                     else
                         .{ .identifier = ip.stringToSlice(field_name) } };
                 },
-                .Packed => .begin,
+                .@"packed" => .begin,
             };
         },
         .Pointer => switch (container_ty.ptrSize(mod)) {
@@ -5671,11 +5671,11 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const field_name: CValue = switch (mod.intern_pool.indexToKey(struct_ty.ip_index)) {
         .struct_type => switch (struct_ty.containerLayout(mod)) {
-            .Auto, .Extern => if (struct_ty.isSimpleTuple(mod))
+            .auto, .@"extern" => if (struct_ty.isSimpleTuple(mod))
                 .{ .field = extra.field_index }
             else
                 .{ .identifier = ip.stringToSlice(struct_ty.legacyStructFieldName(extra.field_index, mod)) },
-            .Packed => {
+            .@"packed" => {
                 const struct_type = mod.typeToStruct(struct_ty).?;
                 const int_info = struct_ty.intInfo(mod);
 
@@ -5740,7 +5740,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
 
         .union_type => field_name: {
             const union_obj = ip.loadUnionType(struct_ty.toIntern());
-            if (union_obj.flagsPtr(ip).layout == .Packed) {
+            if (union_obj.flagsPtr(ip).layout == .@"packed") {
                 const operand_lval = if (struct_byval == .constant) blk: {
                     const operand_local = try f.allocLocal(inst, struct_ty);
                     try f.writeCValue(writer, operand_local, .Other);
@@ -7081,7 +7081,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
             }
         },
         .Struct => switch (inst_ty.containerLayout(mod)) {
-            .Auto, .Extern => for (resolved_elements, 0..) |element, field_index| {
+            .auto, .@"extern" => for (resolved_elements, 0..) |element, field_index| {
                 if (inst_ty.structFieldIsComptime(field_index, mod)) continue;
                 const field_ty = inst_ty.structFieldType(field_index, mod);
                 if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
@@ -7095,7 +7095,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValue(writer, element, .Other);
                 try a.end(f, writer);
             },
-            .Packed => {
+            .@"packed" => {
                 try f.writeCValue(writer, local, .Other);
                 try writer.writeAll(" = ");
                 const int_info = inst_ty.intInfo(mod);
@@ -7181,7 +7181,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, union_ty);
-    if (union_obj.getLayout(ip) == .Packed) {
+    if (union_obj.getLayout(ip) == .@"packed") {
         try f.writeCValue(writer, local, .Other);
         try writer.writeAll(" = ");
         try f.writeCValue(writer, payload, .Initializer);
