@@ -8587,7 +8587,7 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
                 .positive => unsigned_float_number,
             };
             // If the value fits into a f64 without losing any precision, store it that way.
-            @setFloatMode(.Strict);
+            @setFloatMode(.strict);
             const smaller_float: f64 = @floatCast(float_number);
             const bigger_again: f128 = smaller_float;
             if (bigger_again == float_number) {

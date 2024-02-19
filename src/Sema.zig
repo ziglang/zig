@@ -357,7 +357,7 @@ pub const Block = struct {
     want_safety: ?bool = null,
 
     /// What mode to generate float operations in, set by @setFloatMode
-    float_mode: std.builtin.FloatMode = .Strict,
+    float_mode: std.builtin.FloatMode = .strict,
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
@@ -686,7 +686,7 @@ pub const Block = struct {
         const sema = block.sema;
         const mod = sema.mod;
         return block.addInst(.{
-            .tag = if (block.float_mode == .Optimized) .cmp_vector_optimized else .cmp_vector,
+            .tag = if (block.float_mode == .optimized) .cmp_vector_optimized else .cmp_vector,
             .data = .{ .ty_pl = .{
                 .ty = Air.internedToRef((try mod.vectorType(.{
                     .len = sema.typeOf(lhs).vectorLen(mod),
@@ -1020,10 +1020,10 @@ fn analyzeBodyInner(
             .field_call                   => try sema.zirCall(block, inst, .field),
             .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
             .cmp_lte                      => try sema.zirCmp(block, inst, .lte),
-            .cmp_eq                       => try sema.zirCmpEq(block, inst, .eq, Air.Inst.Tag.fromCmpOp(.eq, block.float_mode == .Optimized)),
+            .cmp_eq                       => try sema.zirCmpEq(block, inst, .eq, Air.Inst.Tag.fromCmpOp(.eq, block.float_mode == .optimized)),
             .cmp_gte                      => try sema.zirCmp(block, inst, .gte),
             .cmp_gt                       => try sema.zirCmp(block, inst, .gt),
-            .cmp_neq                      => try sema.zirCmpEq(block, inst, .neq, Air.Inst.Tag.fromCmpOp(.neq, block.float_mode == .Optimized)),
+            .cmp_neq                      => try sema.zirCmpEq(block, inst, .neq, Air.Inst.Tag.fromCmpOp(.neq, block.float_mode == .optimized)),
             .decl_ref                     => try sema.zirDeclRef(block, inst),
             .decl_val                     => try sema.zirDeclVal(block, inst),
             .load                         => try sema.zirLoad(block, inst),
@@ -10264,7 +10264,7 @@ fn intCast(
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff_unsigned, dest_range, .lte);
                     const all_in_range = try block.addInst(.{
-                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = is_in_range,
                             .operation = .And,
@@ -10281,7 +10281,7 @@ fn intCast(
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff, dest_max, .lte);
                     const all_in_range = try block.addInst(.{
-                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = is_in_range,
                             .operation = .And,
@@ -10303,7 +10303,7 @@ fn intCast(
                 const zero_inst = Air.internedToRef(zero_val.toIntern());
                 const is_in_range = try block.addCmpVector(operand, zero_inst, .gte);
                 const all_in_range = try block.addInst(.{
-                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                     .data = .{ .reduce = .{
                         .operand = is_in_range,
                         .operation = .And,
@@ -12530,7 +12530,7 @@ fn analyzeSwitchRuntimeBlock(
             cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
         } else {
             for (items) |item| {
-                const cmp_ok = try case_block.addBinOp(if (case_block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, item);
+                const cmp_ok = try case_block.addBinOp(if (case_block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, operand, item);
                 if (any_ok != .none) {
                     any_ok = try case_block.addBinOp(.bool_or, any_ok, cmp_ok);
                 } else {
@@ -12549,12 +12549,12 @@ fn analyzeSwitchRuntimeBlock(
 
                 // operand >= first and operand <= last
                 const range_first_ok = try case_block.addBinOp(
-                    if (case_block.float_mode == .Optimized) .cmp_gte_optimized else .cmp_gte,
+                    if (case_block.float_mode == .optimized) .cmp_gte_optimized else .cmp_gte,
                     operand,
                     item_first,
                 );
                 const range_last_ok = try case_block.addBinOp(
-                    if (case_block.float_mode == .Optimized) .cmp_lte_optimized else .cmp_lte,
+                    if (case_block.float_mode == .optimized) .cmp_lte_optimized else .cmp_lte,
                     operand,
                     item_last,
                 );
@@ -13904,7 +13904,7 @@ fn zirShl(
             const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
             const any_ov_bit = if (lhs_ty.zigTypeTag(mod) == .Vector)
                 try block.addInst(.{
-                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                     .data = .{ .reduce = .{
                         .operand = ov_bit,
                         .operation = .Or,
@@ -14044,7 +14044,7 @@ fn zirShr(
             const ok = if (rhs_ty.zigTypeTag(mod) == .Vector) ok: {
                 const eql = try block.addCmpVector(lhs, back, .eq);
                 break :ok try block.addInst(.{
-                    .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                    .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                     .data = .{ .reduce = .{
                         .operand = eql,
                         .operation = .And,
@@ -14811,7 +14811,7 @@ fn zirNegate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return Air.internedToRef((try rhs_val.floatNeg(rhs_ty, sema.arena, mod)).toIntern());
         }
         try sema.requireRuntimeBlock(block, src, null);
-        return block.addUnOp(if (block.float_mode == .Optimized) .neg_optimized else .neg, rhs);
+        return block.addUnOp(if (block.float_mode == .optimized) .neg_optimized else .neg, rhs);
     }
 
     const lhs = Air.internedToRef((try sema.splat(rhs_ty, try mod.intValue(rhs_scalar_ty, 0))).toIntern());
@@ -15018,8 +15018,8 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         }
         break :blk Air.Inst.Tag.div_trunc;
     } else switch (block.float_mode) {
-        .Optimized => Air.Inst.Tag.div_float_optimized,
-        .Strict => Air.Inst.Tag.div_float,
+        .optimized => Air.Inst.Tag.div_float_optimized,
+        .strict => Air.Inst.Tag.div_float,
     };
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }
@@ -15142,8 +15142,8 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const eql = try block.addCmpVector(result, floored, .eq);
                 break :ok try block.addInst(.{
                     .tag = switch (block.float_mode) {
-                        .Strict => .reduce,
-                        .Optimized => .reduce_optimized,
+                        .strict => .reduce,
+                        .optimized => .reduce_optimized,
                     },
                     .data = .{ .reduce = .{
                         .operand = eql,
@@ -15152,8 +15152,8 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 });
             } else {
                 const is_in_range = try block.addBinOp(switch (block.float_mode) {
-                    .Strict => .cmp_eq,
-                    .Optimized => .cmp_eq_optimized,
+                    .strict => .cmp_eq,
+                    .optimized => .cmp_eq_optimized,
                 }, result, floored);
                 break :ok is_in_range;
             }
@@ -15503,7 +15503,7 @@ fn addDivByZeroSafety(
     is_int: bool,
 ) CompileError!void {
     // Strict IEEE floats have well-defined division by zero.
-    if (!is_int and block.float_mode == .Strict) return;
+    if (!is_int and block.float_mode == .strict) return;
 
     // If rhs was comptime-known to be zero a compile error would have been
     // emitted above.
@@ -15535,8 +15535,8 @@ fn addDivByZeroSafety(
 fn airTag(block: *Block, is_int: bool, normal: Air.Inst.Tag, optimized: Air.Inst.Tag) Air.Inst.Tag {
     if (is_int) return normal;
     return switch (block.float_mode) {
-        .Strict => normal,
-        .Optimized => optimized,
+        .strict => normal,
+        .optimized => optimized,
     };
 }
 
@@ -16228,7 +16228,7 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                 }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .add_optimized else .add;
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .optimized) .add_optimized else .add;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef(mod)) {
                         if (is_int) {
@@ -16330,7 +16330,7 @@ fn analyzeArithmetic(
                         return casted_lhs;
                     }
                 }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .sub_optimized else .sub;
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .optimized) .sub_optimized else .sub;
                 if (maybe_lhs_val) |lhs_val| {
                     if (lhs_val.isUndef(mod)) {
                         if (is_int) {
@@ -16448,7 +16448,7 @@ fn analyzeArithmetic(
                         }
                     }
                 }
-                const air_tag: Air.Inst.Tag = if (block.float_mode == .Optimized) .mul_optimized else .mul;
+                const air_tag: Air.Inst.Tag = if (block.float_mode == .optimized) .mul_optimized else .mul;
                 if (maybe_rhs_val) |rhs_val| {
                     if (rhs_val.isUndef(mod)) {
                         if (is_int) {
@@ -16625,7 +16625,7 @@ fn analyzeArithmetic(
                 const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
                 const any_ov_bit = if (resolved_type.zigTypeTag(mod) == .Vector)
                     try block.addInst(.{
-                        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+                        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
                         .data = .{ .reduce = .{
                             .operand = ov_bit,
                             .operation = .Or,
@@ -17168,7 +17168,7 @@ fn cmpSelf(
     if (resolved_type.zigTypeTag(mod) == .Vector) {
         return block.addCmpVector(casted_lhs, casted_rhs, op);
     }
-    const tag = Air.Inst.Tag.fromCmpOp(op, block.float_mode == .Optimized);
+    const tag = Air.Inst.Tag.fromCmpOp(op, block.float_mode == .optimized);
     return block.addBinOp(tag, casted_lhs, casted_rhs);
 }
 
@@ -22226,7 +22226,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     if (dest_scalar_ty.intInfo(mod).bits == 0) {
         if (!is_vector) {
             if (block.wantSafety()) {
-                const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, Air.internedToRef((try mod.floatValue(operand_ty, 0.0)).toIntern()));
+                const ok = try block.addBinOp(if (block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, operand, Air.internedToRef((try mod.floatValue(operand_ty, 0.0)).toIntern()));
                 try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
             }
             return Air.internedToRef((try mod.intValue(dest_ty, 0)).toIntern());
@@ -22236,7 +22236,7 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
             for (0..len) |i| {
                 const idx_ref = try mod.intRef(Type.usize, i);
                 const elem_ref = try block.addBinOp(.array_elem_val, operand, idx_ref);
-                const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, elem_ref, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 0.0)).toIntern()));
+                const ok = try block.addBinOp(if (block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, elem_ref, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 0.0)).toIntern()));
                 try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
             }
         }
@@ -22246,12 +22246,12 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         } }));
     }
     if (!is_vector) {
-        const result = try block.addTyOp(if (block.float_mode == .Optimized) .int_from_float_optimized else .int_from_float, dest_ty, operand);
+        const result = try block.addTyOp(if (block.float_mode == .optimized) .int_from_float_optimized else .int_from_float, dest_ty, operand);
         if (block.wantSafety()) {
             const back = try block.addTyOp(.float_from_int, operand_ty, result);
             const diff = try block.addBinOp(.sub, operand, back);
-            const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_ty, 1.0)).toIntern()));
-            const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_ty, -1.0)).toIntern()));
+            const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_ty, 1.0)).toIntern()));
+            const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_ty, -1.0)).toIntern()));
             const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
             try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
         }
@@ -22262,12 +22262,12 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     for (new_elems, 0..) |*new_elem, i| {
         const idx_ref = try mod.intRef(Type.usize, i);
         const old_elem = try block.addBinOp(.array_elem_val, operand, idx_ref);
-        const result = try block.addTyOp(if (block.float_mode == .Optimized) .int_from_float_optimized else .int_from_float, dest_scalar_ty, old_elem);
+        const result = try block.addTyOp(if (block.float_mode == .optimized) .int_from_float_optimized else .int_from_float, dest_scalar_ty, old_elem);
         if (block.wantSafety()) {
             const back = try block.addTyOp(.float_from_int, operand_scalar_ty, result);
             const diff = try block.addBinOp(.sub, old_elem, back);
-            const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 1.0)).toIntern()));
-            const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, -1.0)).toIntern()));
+            const ok_pos = try block.addBinOp(if (block.float_mode == .optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 1.0)).toIntern()));
+            const ok_neg = try block.addBinOp(if (block.float_mode == .optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, -1.0)).toIntern()));
             const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
             try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
         }
@@ -24042,7 +24042,7 @@ fn zirReduce(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     try sema.requireRuntimeBlock(block, inst_data.src(), operand_src);
     return block.addInst(.{
-        .tag = if (block.float_mode == .Optimized) .reduce_optimized else .reduce,
+        .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
         .data = .{ .reduce = .{
             .operand = operand,
             .operation = operation,
@@ -33506,7 +33506,7 @@ fn cmpNumeric(
         };
         const casted_lhs = try sema.coerce(block, dest_ty, lhs, lhs_src);
         const casted_rhs = try sema.coerce(block, dest_ty, rhs, rhs_src);
-        return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .Optimized), casted_lhs, casted_rhs);
+        return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .optimized), casted_lhs, casted_rhs);
     }
     // For mixed unsigned integer sizes, implicit cast both operands to the larger integer.
     // For mixed signed and unsigned integers, implicit cast both operands to a signed
@@ -33651,7 +33651,7 @@ fn cmpNumeric(
     const casted_lhs = try sema.coerce(block, dest_ty, lhs, lhs_src);
     const casted_rhs = try sema.coerce(block, dest_ty, rhs, rhs_src);
 
-    return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .Optimized), casted_lhs, casted_rhs);
+    return block.addBinOp(Air.Inst.Tag.fromCmpOp(op, block.float_mode == .optimized), casted_lhs, casted_rhs);
 }
 
 /// Asserts that LHS value is an int or comptime int and not undefined, and

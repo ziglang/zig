@@ -25,6 +25,6 @@ test {
     try testing.expectEqual({}, @setAlignStack(16));
     try testing.expectEqual({}, @setCold(true));
     try testing.expectEqual({}, @setEvalBranchQuota(0));
-    try testing.expectEqual({}, @setFloatMode(.Optimized));
+    try testing.expectEqual({}, @setFloatMode(.optimized));
     try testing.expectEqual({}, @setRuntimeSafety(true));
 }
