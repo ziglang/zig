@@ -52,6 +52,17 @@ constant_items: std.MultiArrayList(Constant.Item),
 constant_extra: std.ArrayListUnmanaged(u32),
 constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
 
+metadata_map: std.AutoArrayHashMapUnmanaged(void, void),
+metadata_items: std.MultiArrayList(Metadata.Item),
+metadata_extra: std.ArrayListUnmanaged(u32),
+metadata_strings: std.AutoArrayHashMapUnmanaged(String, void),
+metadata_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
+metadata_forward_references: std.ArrayListUnmanaged(Metadata),
+metadata_named: std.AutoArrayHashMapUnmanaged(String, struct {
+    len: u32,
+    index: Metadata.Item.ExtraIndex,
+}),
+
 pub const expected_args_len = 16;
 pub const expected_attrs_len = 16;
 pub const expected_fields_len = 32;
@@ -6403,6 +6414,7 @@ pub const WipFunction = struct {
                         @intFromEnum(instruction)
                     ].toValue(),
                     .constant => |constant| constant.toValue(),
+                    .metadata => |metadata| metadata.toValue(),
                 };
             }
         } = .{ .items = try gpa.alloc(Instruction.Index, self.instructions.len) };
@@ -7400,10 +7412,10 @@ pub const Constant = enum(u32) {
     false,
     true,
     none,
-    no_init = 1 << 31,
+    no_init = (1 << 30) - 1,
     _,
 
-    const first_global: Constant = @enumFromInt(1 << 30);
+    const first_global: Constant = @enumFromInt(1 << 29);
 
     pub const Tag = enum(u7) {
         positive_integer,
@@ -8189,22 +8201,27 @@ pub const Value = enum(u32) {
     true = first_constant + @intFromEnum(Constant.true),
     _,
 
-    const first_constant = 1 << 31;
+    const first_constant = 1 << 30;
+    const first_metadata = 1 << 31;
 
     pub fn unwrap(self: Value) union(enum) {
         instruction: Function.Instruction.Index,
         constant: Constant,
+        metadata: Metadata,
     } {
         return if (@intFromEnum(self) < first_constant)
             .{ .instruction = @enumFromInt(@intFromEnum(self)) }
+        else if (@intFromEnum(self) < first_metadata)
+            .{ .constant = @enumFromInt(@intFromEnum(self) - first_constant) }
         else
-            .{ .constant = @enumFromInt(@intFromEnum(self) - first_constant) };
+            .{ .metadata = @enumFromInt(@intFromEnum(self) - first_metadata) };
     }
 
     pub fn typeOfWip(self: Value, wip: *const WipFunction) Type {
         return switch (self.unwrap()) {
             .instruction => |instruction| instruction.typeOfWip(wip),
             .constant => |constant| constant.typeOf(wip.builder),
+            .metadata => Type.metadata,
         };
     }
 
@@ -8212,12 +8229,13 @@ pub const Value = enum(u32) {
         return switch (self.unwrap()) {
             .instruction => |instruction| instruction.typeOf(function, builder),
             .constant => |constant| constant.typeOf(builder),
+            .metadata => Type.metadata,
         };
     }
 
     pub fn toConst(self: Value) ?Constant {
         return switch (self.unwrap()) {
-            .instruction => null,
+            .instruction, .metadata => null,
             .constant => |constant| constant,
         };
     }
@@ -8243,6 +8261,7 @@ pub const Value = enum(u32) {
                 .constant = constant,
                 .builder = data.builder,
             }, fmt_str, fmt_opts, writer),
+            .metadata => unreachable,
         }
     }
     pub fn fmt(self: Value, function: Function.Index, builder: *Builder) std.fmt.Formatter(format) {
@@ -8253,11 +8272,239 @@ pub const Value = enum(u32) {
         return switch (self.unwrap()) {
             .instruction => |instruction| instruction.toLlvm(wip),
             .constant => |constant| constant.toLlvm(wip.builder),
+            .metadata => unreachable,
         };
     }
 };
 
-pub const Metadata = enum(u32) { _ };
+pub const MetadataString = enum(u32) {
+    _,
+};
+
+pub const Metadata = enum(u32) {
+    none = 0,
+    _,
+
+    const first_forward_reference = 1 << 29;
+    const first_local_metadata = 1 << 30;
+
+    pub const Tag = enum(u6) {
+        none,
+        file,
+        compile_unit,
+        @"compile_unit optimized",
+        subprogram,
+        @"subprogram optimized",
+        @"subprogram local",
+        @"subprogram definition",
+        @"subprogram optimized local",
+        @"subprogram optimized definition",
+        @"subprogram optimized local definition",
+        @"subprogram local definition",
+        lexical_block,
+        location,
+        basic_bool_type,
+        basic_unsigned_type,
+        basic_signed_type,
+        basic_float_type,
+        composite_struct_type,
+        composite_union_type,
+        composite_enumeration_type,
+        composite_array_type,
+        derived_pointer_type,
+        derived_member_type,
+        subroutine_type,
+        enumerator_unsigned,
+        enumerator_signed_positive,
+        enumerator_signed_negative,
+        subrange,
+        tuple,
+        module_flag,
+        expression,
+        local_var,
+        parameter,
+        global_var,
+        @"global_var local",
+        global_var_expression,
+        constant,
+    };
+
+    pub fn unwrap(self: Metadata, builder: *const Builder) Metadata {
+        var metadata = self;
+        var count: usize = 0;
+        while (@intFromEnum(metadata) >= Metadata.first_forward_reference and
+            @intFromEnum(metadata) < Metadata.first_local_metadata)
+        {
+            const index = @intFromEnum(metadata) - Metadata.first_forward_reference;
+            metadata = builder.metadata_forward_references.items[index];
+            std.debug.assert(metadata != .none);
+            count += 1;
+        }
+        return metadata;
+    }
+
+    pub const Item = struct {
+        tag: Tag,
+        data: ExtraIndex,
+
+        const ExtraIndex = u32;
+    };
+
+    pub const File = struct {
+        path: MetadataString,
+        name: MetadataString,
+    };
+
+    pub const CompileUnit = struct {
+        pub const Flags = struct {
+            optimized: bool,
+        };
+
+        file: Metadata,
+        producer: MetadataString,
+        enums: Metadata,
+        globals: Metadata,
+    };
+
+    pub const Subprogram = struct {
+        pub const Flags = struct {
+            optimized: bool,
+            local: bool,
+            definition: bool,
+            debug_info_flags: u32,
+        };
+
+        file: Metadata,
+        name: MetadataString,
+        linkage_name: MetadataString,
+        line: u32,
+        scope_line: u32,
+        ty: Metadata,
+        debug_info_flags: u32,
+        compile_unit: Metadata,
+    };
+
+    pub const LexicalBlock = struct {
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        column: u32,
+    };
+
+    pub const Location = struct {
+        scope: Metadata,
+        line: u32,
+        column: u32,
+        inlined_at: Metadata,
+    };
+
+    pub const BasicType = struct {
+        name: MetadataString,
+        size_in_bits_lo: u32,
+        size_in_bits_hi: u32,
+    };
+
+    pub const CompositeType = struct {
+        name: MetadataString,
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        underlying_type: Metadata,
+        size_in_bits_lo: u32,
+        size_in_bits_hi: u32,
+        align_in_bits_lo: u32,
+        align_in_bits_hi: u32,
+        fields_tuple: Metadata,
+    };
+
+    pub const DerivedType = struct {
+        name: MetadataString,
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        underlying_type: Metadata,
+        size_in_bits_lo: u32,
+        size_in_bits_hi: u32,
+        align_in_bits_lo: u32,
+        align_in_bits_hi: u32,
+        offset_in_bits_lo: u32,
+        offset_in_bits_hi: u32,
+    };
+
+    pub const SubroutineType = struct {
+        types_tuple: Metadata,
+    };
+
+    pub const Enumerator = struct {
+        name: MetadataString,
+        bit_width: u32,
+        limbs_index: u32,
+        limbs_len: u32,
+    };
+
+    pub const Subrange = struct {
+        lower_bound: Metadata,
+        count: Metadata,
+    };
+
+    pub const Expression = struct {
+        elements_len: u32,
+
+        // elements: [elements_len]u32
+    };
+
+    pub const Tuple = struct {
+        elements_len: u32,
+
+        // elements: [elements_len]Metadata
+    };
+
+    pub const ModuleFlag = struct {
+        behaviour: Metadata,
+        name: MetadataString,
+        constant: Metadata,
+    };
+
+    pub const LocalVar = struct {
+        name: MetadataString,
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        ty: Metadata,
+    };
+
+    pub const Parameter = struct {
+        name: MetadataString,
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        ty: Metadata,
+        arg_no: u32,
+    };
+
+    pub const GlobalVar = struct {
+        pub const Flags = struct {
+            local: bool,
+        };
+
+        name: MetadataString,
+        linkage_name: MetadataString,
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        ty: Metadata,
+        variable: Variable.Index,
+    };
+
+    pub const GlobalVarExpression = struct {
+        variable: Metadata,
+        expression: Metadata,
+    };
+
+    pub fn toValue(self: Metadata) Value {
+        return @enumFromInt(Value.first_metadata + @intFromEnum(self));
+    }
+};
 
 pub const InitError = error{
     InvalidLlvmTriple,
@@ -8306,6 +8553,14 @@ pub fn init(options: Options) InitError!Builder {
         .constant_items = .{},
         .constant_extra = .{},
         .constant_limbs = .{},
+
+        .metadata_map = .{},
+        .metadata_items = .{},
+        .metadata_extra = .{},
+        .metadata_strings = .{},
+        .metadata_limbs = .{},
+        .metadata_forward_references = .{},
+        .metadata_named = .{},
     };
     if (self.useLibLlvm()) self.llvm = .{
         .context = llvm.Context.create(),
@@ -8395,6 +8650,7 @@ pub fn init(options: Options) InitError!Builder {
     assert(try self.intConst(.i1, 0) == .false);
     assert(try self.intConst(.i1, 1) == .true);
     assert(try self.noneConst(.token) == .none);
+    assert(try self.debugNone() == .none);
 
     return self;
 }
@@ -8444,6 +8700,14 @@ pub fn deinit(self: *Builder) void {
     self.constant_items.deinit(self.gpa);
     self.constant_extra.deinit(self.gpa);
     self.constant_limbs.deinit(self.gpa);
+
+    self.metadata_map.deinit(self.gpa);
+    self.metadata_items.deinit(self.gpa);
+    self.metadata_extra.deinit(self.gpa);
+    self.metadata_strings.deinit(self.gpa);
+    self.metadata_limbs.deinit(self.gpa);
+    self.metadata_forward_references.deinit(self.gpa);
+    self.metadata_named.deinit(self.gpa);
 
     self.* = undefined;
 }
@@ -12042,6 +12306,1188 @@ fn constantExtraData(self: *const Builder, comptime T: type, index: Constant.Ite
     return self.constantExtraDataTrail(T, index).data;
 }
 
+fn ensureUnusedMetadataCapacity(
+    self: *Builder,
+    count: usize,
+    comptime Extra: type,
+    trail_len: usize,
+) Allocator.Error!void {
+    try self.metadata_map.ensureUnusedCapacity(self.gpa, count);
+    try self.metadata_items.ensureUnusedCapacity(self.gpa, count);
+    try self.metadata_extra.ensureUnusedCapacity(
+        self.gpa,
+        count * (@typeInfo(Extra).Struct.fields.len + trail_len),
+    );
+}
+
+fn addMetadataExtraAssumeCapacity(self: *Builder, extra: anytype) Metadata.Item.ExtraIndex {
+    const result: Metadata.Item.ExtraIndex = @intCast(self.metadata_extra.items.len);
+    inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+        const value = @field(extra, field.name);
+        self.metadata_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => value,
+            MetadataString, Metadata, Variable.Index, Value => @intFromEnum(value),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
+        });
+    }
+    return result;
+}
+
+const MetadataExtraDataTrail = struct {
+    index: Metadata.Item.ExtraIndex,
+
+    fn nextMut(self: *MetadataExtraDataTrail, len: u32, comptime Item: type, builder: *Builder) []Item {
+        const items: []Item = @ptrCast(builder.metadata_extra.items[self.index..][0..len]);
+        self.index += @intCast(len);
+        return items;
+    }
+
+    fn next(
+        self: *MetadataExtraDataTrail,
+        len: u32,
+        comptime Item: type,
+        builder: *const Builder,
+    ) []const Item {
+        const items: []const Item = @ptrCast(builder.metadata_extra.items[self.index..][0..len]);
+        self.index += @intCast(len);
+        return items;
+    }
+};
+
+fn metadataExtraDataTrail(
+    self: *const Builder,
+    comptime T: type,
+    index: Metadata.Item.ExtraIndex,
+) struct { data: T, trail: MetadataExtraDataTrail } {
+    var result: T = undefined;
+    const fields = @typeInfo(T).Struct.fields;
+    inline for (fields, self.metadata_extra.items[index..][0..fields.len]) |field, value|
+        @field(result, field.name) = switch (field.type) {
+            u32 => value,
+            MetadataString, Metadata, Variable.Index, Value => @enumFromInt(value),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
+        };
+    return .{
+        .data = result,
+        .trail = .{ .index = index + @as(Metadata.Item.ExtraIndex, @intCast(fields.len)) },
+    };
+}
+
+fn metadataExtraData(self: *const Builder, comptime T: type, index: Metadata.Item.ExtraIndex) T {
+    return self.metadataExtraDataTrail(T, index).data;
+}
+
+fn metadataString(self: *Builder, str: String) Allocator.Error!MetadataString {
+    const gop = try self.metadata_strings.getOrPut(self.gpa, str);
+    if (!gop.found_existing) gop.key_ptr.* = str;
+
+    return @enumFromInt(gop.index);
+}
+
+pub fn debugNamed(self: *Builder, name: String, operands: []const Metadata) Allocator.Error!void {
+    try self.metadata_extra.ensureUnusedCapacity(
+        self.gpa,
+        operands.len * @sizeOf(Metadata),
+    );
+    try self.metadata_named.ensureUnusedCapacity(self.gpa, 1);
+    self.debugNamedAssumeCapacity(name, operands);
+}
+
+fn debugNone(self: *Builder) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, NoExtra, 0);
+    return self.debugNoneAssumeCapacity();
+}
+
+pub fn debugFile(self: *Builder, path: String, name: String) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.File, 0);
+    const metadata_path = try self.metadataString(path);
+    const metadata_name = try self.metadataString(name);
+    return self.debugFileAssumeCapacity(metadata_path, metadata_name);
+}
+
+pub fn debugCompileUnit(
+    self: *Builder,
+    file: Metadata,
+    producer: String,
+    enums: Metadata,
+    globals: Metadata,
+    flags: Metadata.CompileUnit.Flags,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.CompileUnit, 0);
+    const metadata_producer = try self.metadataString(producer);
+    return self.debugCompileUnitAssumeCapacity(file, metadata_producer, enums, globals, flags);
+}
+
+pub fn debugSubprogram(
+    self: *Builder,
+    file: Metadata,
+    name: String,
+    linkage_name: String,
+    line: u32,
+    scope_line: u32,
+    ty: Metadata,
+    flags: Metadata.Subprogram.Flags,
+    compile_unit: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, 0);
+    const metadata_name = try self.metadataString(name);
+    const metadata_linkage_name = try self.metadataString(linkage_name);
+    return self.debugSubprogramAssumeCapacity(
+        file,
+        metadata_name,
+        metadata_linkage_name,
+        line,
+        scope_line,
+        ty,
+        flags,
+        compile_unit,
+    );
+}
+
+pub fn debugLexicalBlock(self: *Builder, file: Metadata, scope: Metadata, line: u32, column: u32) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.LexicalBlock, 0);
+    return self.debugLexicalBlockAssumeCapacity(file, scope, line, column);
+}
+
+pub fn debugLocation(self: *Builder, scope: Metadata, line: u32, column: u32, inlined_at: Metadata) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Location, 0);
+    return self.debugLocationAssumeCapacity(scope, line, column, inlined_at);
+}
+
+pub fn debugBoolType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugBoolTypeAssumeCapacity(metadata_name, size_in_bits);
+}
+
+pub fn debugUnsignedType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugUnsignedTypeAssumeCapacity(metadata_name, size_in_bits);
+}
+
+pub fn debugSignedType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugSignedTypeAssumeCapacity(metadata_name, size_in_bits);
+}
+
+pub fn debugFloatType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugFloatTypeAssumeCapacity(metadata_name, size_in_bits);
+}
+
+pub fn debugForwardReference(self: *Builder) Allocator.Error!Metadata {
+    try self.metadata_forward_references.ensureUnusedCapacity(self.gpa, 1);
+    return self.debugForwardReferenceAssumeCapacity();
+}
+
+pub fn debugStructType(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugStructTypeAssumeCapacity(
+        metadata_name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+pub fn debugUnionType(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugUnionTypeAssumeCapacity(
+        metadata_name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+pub fn debugEnumerationType(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugEnumerationTypeAssumeCapacity(
+        metadata_name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+pub fn debugArrayType(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugArrayTypeAssumeCapacity(
+        metadata_name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+pub fn debugPointerType(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    offset_in_bits: u64,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugPointerTypeAssumeCapacity(
+        metadata_name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        offset_in_bits,
+    );
+}
+
+pub fn debugMemberType(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    offset_in_bits: u64,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugMemberTypeAssumeCapacity(
+        metadata_name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        offset_in_bits,
+    );
+}
+
+pub fn debugSubroutineType(
+    self: *Builder,
+    types_tuple: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.SubroutineType, 0);
+    return self.debugSubroutineTypeAssumeCapacity(types_tuple);
+}
+
+pub fn debugEnumerator(
+    self: *Builder,
+    name: String,
+    unsigned: bool,
+    bit_width: u32,
+    value: std.math.big.int.Const,
+) Allocator.Error!Metadata {
+    std.debug.assert(!(unsigned and !value.positive));
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Enumerator, 0);
+    try self.metadata_limbs.ensureUnusedCapacity(self.gpa, value.limbs.len);
+    const metadata_name = try self.metadataString(name);
+    return self.debugEnumeratorAssumeCapacity(metadata_name, unsigned, bit_width, value);
+}
+
+pub fn debugSubrange(
+    self: *Builder,
+    lower_bound: Metadata,
+    count: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Subrange, 0);
+    return self.debugSubrangeAssumeCapacity(lower_bound, count);
+}
+
+pub fn debugExpression(
+    self: *Builder,
+    elements: []const u32,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Expression, elements.len * @sizeOf(u32));
+    return self.debugExpressionAssumeCapacity(elements);
+}
+
+pub fn debugTuple(
+    self: *Builder,
+    elements: []const Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Tuple, elements.len * @sizeOf(Metadata));
+    return self.debugTupleAssumeCapacity(elements);
+}
+
+pub fn debugModuleFlag(
+    self: *Builder,
+    behaviour: Metadata,
+    name: String,
+    constant: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.ModuleFlag, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugModuleFlagAssumeCapacity(behaviour, metadata_name, constant);
+}
+
+pub fn debugLocalVar(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    ty: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.LocalVar, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugLocalVarAssumeCapacity(metadata_name, file, scope, line, ty);
+}
+
+pub fn debugParameter(
+    self: *Builder,
+    name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    ty: Metadata,
+    arg_no: u32,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Parameter, 0);
+    const metadata_name = try self.metadataString(name);
+    return self.debugParameterAssumeCapacity(metadata_name, file, scope, line, ty, arg_no);
+}
+
+pub fn debugGlobalVar(
+    self: *Builder,
+    name: String,
+    linkage_name: String,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    ty: Metadata,
+    variable: Variable.Index,
+    flags: Metadata.GlobalVar.Flags,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.GlobalVar, 0);
+    const metadata_name = try self.metadataString(name);
+    const metadata_linkage_name = try self.metadataString(linkage_name);
+    return self.debugGlobalVarAssumeCapacity(
+        metadata_name,
+        metadata_linkage_name,
+        file,
+        scope,
+        line,
+        ty,
+        variable,
+        flags,
+    );
+}
+
+pub fn debugGlobalVarExpression(
+    self: *Builder,
+    variable: Metadata,
+    expression: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.GlobalVarExpression, 0);
+    return self.debugGlobalVarExpressionAssumeCapacity(variable, expression);
+}
+
+pub fn debugConstant(self: *Builder, value: Constant) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, NoExtra, 0);
+    return self.debugConstantAssumeCapacity(value);
+}
+
+pub fn debugForwardReferenceSetType(self: *Builder, fwd_ref: Metadata, ty: Metadata) void {
+    std.debug.assert(
+        @intFromEnum(fwd_ref) >= Metadata.first_forward_reference and
+            @intFromEnum(fwd_ref) <= Metadata.first_local_metadata,
+    );
+    const index = @intFromEnum(fwd_ref) - Metadata.first_forward_reference;
+    self.metadata_forward_references.items[index] = ty;
+}
+
+fn metadataSimpleAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytype) Metadata {
+    const Key = struct {
+        tag: Metadata.Tag,
+        value: @TypeOf(value),
+    };
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Key) u32 {
+            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            inline for (std.meta.fields(@TypeOf(value))) |field| {
+                hasher.update(std.mem.asBytes(&@field(key.value, field.name)));
+            }
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            if (lhs_key.tag != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.metadataExtraData(@TypeOf(value), rhs_data);
+            inline for (std.meta.fields(@TypeOf(value))) |field| {
+                const lhs = @field(lhs_key.value, field.name);
+                const rhs = @field(rhs_extra, field.name);
+                if (lhs != rhs) return false;
+            }
+            return true;
+        }
+    };
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        Key{ .tag = tag, .value = value },
+        Adapter{ .builder = self },
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = self.addMetadataExtraAssumeCapacity(value),
+        });
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn debugNamedAssumeCapacity(self: *Builder, name: String, operands: []const Metadata) void {
+    const extra_index: u32 = @intCast(self.metadata_extra.items.len);
+    self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(operands));
+
+    const gop = self.metadata_named.getOrPutAssumeCapacity(name);
+    gop.value_ptr.* = .{
+        .index = extra_index,
+        .len = @intCast(operands.len),
+    };
+}
+
+pub fn debugNoneAssumeCapacity(self: *Builder) Metadata {
+    return self.metadataSimpleAssumeCapacity(.none, .{});
+}
+
+fn debugFileAssumeCapacity(self: *Builder, path: MetadataString, name: MetadataString) Metadata {
+    return self.metadataSimpleAssumeCapacity(.file, Metadata.File{
+        .path = path,
+        .name = name,
+    });
+}
+
+pub fn debugCompileUnitAssumeCapacity(
+    self: *Builder,
+    file: Metadata,
+    producer: MetadataString,
+    enums: Metadata,
+    globals: Metadata,
+    flags: Metadata.CompileUnit.Flags,
+) Metadata {
+    return self.metadataSimpleAssumeCapacity(
+        if (flags.optimized) .@"compile_unit optimized" else .compile_unit,
+        Metadata.CompileUnit{
+            .file = file,
+            .producer = producer,
+            .enums = enums,
+            .globals = globals,
+        },
+    );
+}
+
+fn debugSubprogramAssumeCapacity(
+    self: *Builder,
+    file: Metadata,
+    name: MetadataString,
+    linkage_name: MetadataString,
+    line: u32,
+    scope_line: u32,
+    ty: Metadata,
+    flags: Metadata.Subprogram.Flags,
+    compile_unit: Metadata,
+) Metadata {
+    const tag: Metadata.Tag = blk: {
+        var int: u3 = 0;
+        if (flags.optimized) int |= 0b1;
+        if (flags.local) int |= 0b10;
+        if (flags.definition) int |= 0b100;
+        break :blk switch (int) {
+            0 => .subprogram,
+            0b1 => .@"subprogram optimized",
+            0b10 => .@"subprogram local",
+            0b100 => .@"subprogram definition",
+            0b011 => .@"subprogram optimized local",
+            0b111 => .@"subprogram optimized local definition",
+            0b101 => .@"subprogram optimized definition",
+            0b110 => .@"subprogram local definition",
+        };
+    };
+    return self.metadataSimpleAssumeCapacity(tag, Metadata.Subprogram{
+        .file = file,
+        .name = name,
+        .linkage_name = linkage_name,
+        .line = line,
+        .scope_line = scope_line,
+        .ty = ty,
+        .debug_info_flags = flags.debug_info_flags,
+        .compile_unit = compile_unit,
+    });
+}
+
+fn debugLexicalBlockAssumeCapacity(self: *Builder, file: Metadata, scope: Metadata, line: u32, column: u32) Metadata {
+    return self.metadataSimpleAssumeCapacity(.lexical_block, Metadata.LexicalBlock{
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .column = column,
+    });
+}
+
+fn debugLocationAssumeCapacity(self: *Builder, scope: Metadata, line: u32, column: u32, inlined_at: Metadata) Metadata {
+    return self.metadataSimpleAssumeCapacity(.location, Metadata.Location{
+        .scope = scope,
+        .line = line,
+        .column = column,
+        .inlined_at = inlined_at,
+    });
+}
+
+fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    return self.metadataSimpleAssumeCapacity(.basic_bool_type, Metadata.BasicType{
+        .name = name,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+    });
+}
+
+fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    return self.metadataSimpleAssumeCapacity(.basic_unsigned_type, Metadata.BasicType{
+        .name = name,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+    });
+}
+
+fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    return self.metadataSimpleAssumeCapacity(.basic_signed_type, Metadata.BasicType{
+        .name = name,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+    });
+}
+
+fn debugFloatTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    return self.metadataSimpleAssumeCapacity(.basic_float_type, Metadata.BasicType{
+        .name = name,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+    });
+}
+
+fn debugForwardReferenceAssumeCapacity(self: *Builder) Metadata {
+    const index = Metadata.first_forward_reference + self.metadata_forward_references.items.len;
+    self.metadata_forward_references.appendAssumeCapacity(.none);
+    return @enumFromInt(index);
+}
+
+fn debugStructTypeAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Metadata {
+    return self.debugCompositeTypeAssumeCapacity(
+        .composite_struct_type,
+        name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+fn debugUnionTypeAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Metadata {
+    return self.debugCompositeTypeAssumeCapacity(
+        .composite_union_type,
+        name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+fn debugEnumerationTypeAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Metadata {
+    return self.debugCompositeTypeAssumeCapacity(
+        .composite_enumeration_type,
+        name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+fn debugArrayTypeAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Metadata {
+    return self.debugCompositeTypeAssumeCapacity(
+        .composite_array_type,
+        name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+fn debugCompositeTypeAssumeCapacity(
+    self: *Builder,
+    tag: Metadata.Tag,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Metadata {
+    const Key = struct {
+        tag: Metadata.Tag,
+        name: MetadataString,
+        file: Metadata,
+        scope: Metadata,
+        line: u32,
+        underlying_type: Metadata,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        fields_tuple: Metadata,
+    };
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Key) u32 {
+            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            hasher.update(std.mem.asBytes(&key.name));
+            hasher.update(std.mem.asBytes(&key.file));
+            hasher.update(std.mem.asBytes(&key.scope));
+            hasher.update(std.mem.asBytes(&key.line));
+            hasher.update(std.mem.asBytes(&key.underlying_type));
+            hasher.update(std.mem.asBytes(&key.size_in_bits));
+            hasher.update(std.mem.asBytes(&key.align_in_bits));
+            hasher.update(std.mem.asBytes(&key.fields_tuple));
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            if (lhs_key.tag != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.metadataExtraData(Metadata.CompositeType, rhs_data);
+            const rhs_size_in_bits = @as(u64, rhs_extra.size_in_bits_lo) | @as(u64, rhs_extra.size_in_bits_hi) << 32;
+            const rhs_align_in_bits = @as(u64, rhs_extra.align_in_bits_lo) | @as(u64, rhs_extra.align_in_bits_hi) << 32;
+            return lhs_key.name == rhs_extra.name and
+                lhs_key.file == rhs_extra.file and
+                lhs_key.scope == rhs_extra.scope and
+                lhs_key.line == rhs_extra.line and
+                lhs_key.underlying_type == rhs_extra.underlying_type and
+                lhs_key.size_in_bits == rhs_size_in_bits and
+                lhs_key.align_in_bits == rhs_align_in_bits and
+                lhs_key.fields_tuple == rhs_extra.fields_tuple;
+        }
+    };
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        Key{
+            .tag = tag,
+            .name = name,
+            .file = file,
+            .scope = scope,
+            .line = line,
+            .underlying_type = underlying_type,
+            .size_in_bits = size_in_bits,
+            .align_in_bits = align_in_bits,
+            .fields_tuple = fields_tuple,
+        },
+        Adapter{ .builder = self },
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = self.addMetadataExtraAssumeCapacity(Metadata.CompositeType{
+                .name = name,
+                .file = file,
+                .scope = scope,
+                .line = line,
+                .underlying_type = underlying_type,
+                .size_in_bits_lo = @truncate(size_in_bits),
+                .size_in_bits_hi = @truncate(size_in_bits >> 32),
+                .align_in_bits_lo = @truncate(align_in_bits),
+                .align_in_bits_hi = @truncate(align_in_bits >> 32),
+                .fields_tuple = fields_tuple,
+            }),
+        });
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn debugPointerTypeAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    offset_in_bits: u64,
+) Metadata {
+    return self.metadataSimpleAssumeCapacity(.derived_pointer_type, Metadata.DerivedType{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .underlying_type = underlying_type,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+        .align_in_bits_lo = @truncate(align_in_bits),
+        .align_in_bits_hi = @truncate(align_in_bits >> 32),
+        .offset_in_bits_lo = @truncate(offset_in_bits),
+        .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
+    });
+}
+
+fn debugMemberTypeAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    offset_in_bits: u64,
+) Metadata {
+    return self.metadataSimpleAssumeCapacity(.derived_member_type, Metadata.DerivedType{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .underlying_type = underlying_type,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+        .align_in_bits_lo = @truncate(align_in_bits),
+        .align_in_bits_hi = @truncate(align_in_bits >> 32),
+        .offset_in_bits_lo = @truncate(offset_in_bits),
+        .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
+    });
+}
+
+fn debugSubroutineTypeAssumeCapacity(
+    self: *Builder,
+    types_tuple: Metadata,
+) Metadata {
+    return self.metadataSimpleAssumeCapacity(.subroutine_type, Metadata.SubroutineType{
+        .types_tuple = types_tuple,
+    });
+}
+
+fn debugEnumeratorAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    unsigned: bool,
+    bit_width: u32,
+    value: std.math.big.int.Const,
+) Metadata {
+    const Key = struct {
+        tag: Metadata.Tag,
+        name: MetadataString,
+        bit_width: u32,
+        value: std.math.big.int.Const,
+    };
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Key) u32 {
+            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            hasher.update(std.mem.asBytes(&key.name));
+            hasher.update(std.mem.asBytes(&key.bit_width));
+            hasher.update(std.mem.sliceAsBytes(key.value.limbs));
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            if (lhs_key.tag != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.metadataExtraData(Metadata.Enumerator, rhs_data);
+            const limbs = ctx.builder.metadata_limbs
+                .items[rhs_extra.limbs_index..][0..rhs_extra.limbs_len];
+            const rhs_value = std.math.big.int.Const{
+                .limbs = limbs,
+                .positive = lhs_key.value.positive,
+            };
+            return lhs_key.name == rhs_extra.name and
+                lhs_key.bit_width == rhs_extra.bit_width and
+                lhs_key.value.eql(rhs_value);
+        }
+    };
+
+    const tag: Metadata.Tag = if (unsigned)
+        .enumerator_unsigned
+    else if (value.positive) .enumerator_signed_positive else .enumerator_signed_negative;
+
+    std.debug.assert(!(tag == .enumerator_unsigned and !value.positive));
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        Key{
+            .tag = tag,
+            .name = name,
+            .bit_width = bit_width,
+            .value = value,
+        },
+        Adapter{ .builder = self },
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = self.addMetadataExtraAssumeCapacity(Metadata.Enumerator{
+                .name = name,
+                .bit_width = bit_width,
+                .limbs_index = @intCast(self.metadata_limbs.items.len),
+                .limbs_len = @intCast(value.limbs.len),
+            }),
+        });
+        self.metadata_limbs.appendSliceAssumeCapacity(value.limbs);
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn debugSubrangeAssumeCapacity(
+    self: *Builder,
+    lower_bound: Metadata,
+    count: Metadata,
+) Metadata {
+    return self.metadataSimpleAssumeCapacity(.subrange, Metadata.Subrange{
+        .lower_bound = lower_bound,
+        .count = count,
+    });
+}
+
+fn debugExpressionAssumeCapacity(
+    self: *Builder,
+    elements: []const u32,
+) Metadata {
+    const Key = struct {
+        elements: []const u32,
+    };
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Key) u32 {
+            var hasher = comptime std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(Metadata.Tag.expression)));
+            hasher.update(std.mem.sliceAsBytes(key.elements));
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            if (Metadata.Tag.expression != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
+            var rhs_extra = ctx.builder.metadataExtraDataTrail(Metadata.Expression, rhs_data);
+            return std.mem.eql(
+                u32,
+                lhs_key.elements,
+                rhs_extra.trail.next(rhs_extra.data.elements_len, u32, ctx.builder),
+            );
+        }
+    };
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        Key{ .elements = elements },
+        Adapter{ .builder = self },
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = .expression,
+            .data = self.addMetadataExtraAssumeCapacity(Metadata.Expression{
+                .elements_len = @intCast(elements.len),
+            }),
+        });
+        self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(elements));
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn debugTupleAssumeCapacity(
+    self: *Builder,
+    elements: []const Metadata,
+) Metadata {
+    const Key = struct {
+        elements: []const Metadata,
+    };
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Key) u32 {
+            var hasher = comptime std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(Metadata.Tag.tuple)));
+            hasher.update(std.mem.sliceAsBytes(key.elements));
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            if (Metadata.Tag.tuple != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
+            var rhs_extra = ctx.builder.metadataExtraDataTrail(Metadata.Tuple, rhs_data);
+            return std.mem.eql(
+                Metadata,
+                lhs_key.elements,
+                rhs_extra.trail.next(rhs_extra.data.elements_len, Metadata, ctx.builder),
+            );
+        }
+    };
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        Key{ .elements = elements },
+        Adapter{ .builder = self },
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = .tuple,
+            .data = self.addMetadataExtraAssumeCapacity(Metadata.Tuple{
+                .elements_len = @intCast(elements.len),
+            }),
+        });
+        self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(elements));
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn debugModuleFlagAssumeCapacity(
+    self: *Builder,
+    behaviour: Metadata,
+    name: MetadataString,
+    constant: Metadata,
+) Metadata {
+    return self.metadataSimpleAssumeCapacity(.module_flag, Metadata.ModuleFlag{
+        .behaviour = behaviour,
+        .name = name,
+        .constant = constant,
+    });
+}
+
+fn debugLocalVarAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    ty: Metadata,
+) Allocator.Error!Metadata {
+    return self.metadataSimpleAssumeCapacity(.local_var, Metadata.LocalVar{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .ty = ty,
+    });
+}
+
+fn debugParameterAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    ty: Metadata,
+    arg_no: u32,
+) Allocator.Error!Metadata {
+    return self.metadataSimpleAssumeCapacity(.parameter, Metadata.Parameter{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .ty = ty,
+        .arg_no = arg_no,
+    });
+}
+
+fn debugGlobalVarAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    linkage_name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    ty: Metadata,
+    variable: Variable.Index,
+    flags: Metadata.GlobalVar.Flags,
+) Allocator.Error!Metadata {
+    return self.metadataSimpleAssumeCapacity(
+        if (flags.local) .@"global_var local" else .global_var,
+        Metadata.GlobalVar{
+            .name = name,
+            .linkage_name = linkage_name,
+            .file = file,
+            .scope = scope,
+            .line = line,
+            .ty = ty,
+            .variable = variable,
+        },
+    );
+}
+
+fn debugGlobalVarExpressionAssumeCapacity(
+    self: *Builder,
+    variable: Metadata,
+    expression: Metadata,
+) Metadata {
+    return self.metadataSimpleAssumeCapacity(.global_var_expression, Metadata.GlobalVarExpression{
+        .variable = variable,
+        .expression = expression,
+    });
+}
+
+fn debugConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: @This(), key: Constant) u32 {
+            var hasher = comptime std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(Metadata.Tag.constant)));
+            hasher.update(std.mem.asBytes(&key));
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(ctx: @This(), lhs_key: Constant, _: void, rhs_index: usize) bool {
+            if (Metadata.Tag.constant != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            const rhs_data: Constant = @enumFromInt(ctx.builder.metadata_items.items(.data)[rhs_index]);
+            return rhs_data == lhs_key;
+        }
+    };
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        constant,
+        Adapter{ .builder = self },
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = .constant,
+            .data = @intFromEnum(constant),
+        });
+    }
+    return @enumFromInt(gop.index);
+}
+
 pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]const u32 {
     const BitcodeWriter = bitcode_writer.BitcodeWriter(&.{ Type, FunctionAttributes });
     var bitcode = BitcodeWriter.init(allocator, &.{
@@ -12977,6 +14423,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     return @intCast(switch (value.unwrap()) {
                         .instruction => |instruction| instruction.valueIndex(adapter.func) + adapter.firstInstr(),
                         .constant => |constant| adapter.constant_adapter.getConstantIndex(constant),
+                        .metadata => unreachable,
                     });
                 }
 
