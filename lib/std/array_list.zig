@@ -2309,6 +2309,8 @@ test "std.ArrayListUnmanaged(u32).addOneNoResize()" {
     // consistent failure
     try testing.expectError(error.CapacityExceeded, list.addOneNoResize());
     try testing.expectError(error.CapacityExceeded, list.addOneNoResize());
+}
+
 test "return OutOfMemory when capacity would exceed maximum usize integer value" {
     const a = testing.allocator;
     const new_item: u32 = 42;
