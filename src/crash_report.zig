@@ -376,7 +376,7 @@ const PanicSwitch = struct {
         };
         state.* = new_state;
 
-        _ = panicking.fetchAdd(1, .SeqCst);
+        _ = panicking.fetchAdd(1, .seq_cst);
 
         state.recover_stage = .release_ref_count;
 
@@ -458,7 +458,7 @@ const PanicSwitch = struct {
     noinline fn releaseRefCount(state: *volatile PanicState) noreturn {
         state.recover_stage = .abort;
 
-        if (panicking.fetchSub(1, .SeqCst) != 1) {
+        if (panicking.fetchSub(1, .seq_cst) != 1) {
             // Another thread is panicking, wait for the last one to finish
             // and call abort()
 

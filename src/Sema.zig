@@ -6450,8 +6450,8 @@ fn zirFence(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) Co
         .needed_comptime_reason = "atomic order of @fence must be comptime-known",
     });
 
-    if (@intFromEnum(order) < @intFromEnum(std.builtin.AtomicOrder.Acquire)) {
-        return sema.fail(block, order_src, "atomic ordering must be Acquire or stricter", .{});
+    if (@intFromEnum(order) < @intFromEnum(std.builtin.AtomicOrder.acquire)) {
+        return sema.fail(block, order_src, "atomic ordering must be acquire or stricter", .{});
     }
 
     _ = try block.addInst(.{
@@ -23894,17 +23894,17 @@ fn zirCmpxchg(
         .needed_comptime_reason = "atomic order of cmpxchg failure must be comptime-known",
     });
 
-    if (@intFromEnum(success_order) < @intFromEnum(std.builtin.AtomicOrder.Monotonic)) {
-        return sema.fail(block, success_order_src, "success atomic ordering must be Monotonic or stricter", .{});
+    if (@intFromEnum(success_order) < @intFromEnum(std.builtin.AtomicOrder.monotonic)) {
+        return sema.fail(block, success_order_src, "success atomic ordering must be monotonic or stricter", .{});
     }
-    if (@intFromEnum(failure_order) < @intFromEnum(std.builtin.AtomicOrder.Monotonic)) {
-        return sema.fail(block, failure_order_src, "failure atomic ordering must be Monotonic or stricter", .{});
+    if (@intFromEnum(failure_order) < @intFromEnum(std.builtin.AtomicOrder.monotonic)) {
+        return sema.fail(block, failure_order_src, "failure atomic ordering must be monotonic or stricter", .{});
     }
     if (@intFromEnum(failure_order) > @intFromEnum(success_order)) {
         return sema.fail(block, failure_order_src, "failure atomic ordering must be no stricter than success", .{});
     }
-    if (failure_order == .Release or failure_order == .AcqRel) {
-        return sema.fail(block, failure_order_src, "failure atomic ordering must not be Release or AcqRel", .{});
+    if (failure_order == .release or failure_order == .acq_rel) {
+        return sema.fail(block, failure_order_src, "failure atomic ordering must not be release or acq_rel", .{});
     }
 
     const result_ty = try mod.optionalType(elem_ty.toIntern());
@@ -24346,11 +24346,11 @@ fn zirAtomicLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     });
 
     switch (order) {
-        .Release, .AcqRel => {
+        .release, .acq_rel => {
             return sema.fail(
                 block,
                 order_src,
-                "@atomicLoad atomic ordering must not be Release or AcqRel",
+                "@atomicLoad atomic ordering must not be release or acq_rel",
                 .{},
             );
         },
@@ -24412,8 +24412,8 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         .needed_comptime_reason = "atomic order of @atomicRmW must be comptime-known",
     });
 
-    if (order == .Unordered) {
-        return sema.fail(block, order_src, "@atomicRmw atomic ordering must not be Unordered", .{});
+    if (order == .unordered) {
+        return sema.fail(block, order_src, "@atomicRmw atomic ordering must not be unordered", .{});
     }
 
     // special case zero bit types
@@ -24482,18 +24482,18 @@ fn zirAtomicStore(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     });
 
     const air_tag: Air.Inst.Tag = switch (order) {
-        .Acquire, .AcqRel => {
+        .acquire, .acq_rel => {
             return sema.fail(
                 block,
                 order_src,
-                "@atomicStore atomic ordering must not be Acquire or AcqRel",
+                "@atomicStore atomic ordering must not be acquire or acq_rel",
                 .{},
             );
         },
-        .Unordered => .atomic_store_unordered,
-        .Monotonic => .atomic_store_monotonic,
-        .Release => .atomic_store_release,
-        .SeqCst => .atomic_store_seq_cst,
+        .unordered => .atomic_store_unordered,
+        .monotonic => .atomic_store_monotonic,
+        .release => .atomic_store_release,
+        .seq_cst => .atomic_store_seq_cst,
     };
 
     return sema.storePtr2(block, src, ptr, ptr_src, operand, operand_src, air_tag);

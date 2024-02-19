@@ -436,7 +436,7 @@ fn fchmodat1(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
 fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtError!void {
     const path_c = try toPosixPath(path);
     const use_fchmodat2 = (builtin.os.isAtLeast(.linux, .{ .major = 6, .minor = 6, .patch = 0 }) orelse false) and
-        has_fchmodat2_syscall.load(.Monotonic);
+        has_fchmodat2_syscall.load(.monotonic);
     while (use_fchmodat2) {
         // Later on this should be changed to `system.fchmodat2`
         // when the musl/glibc add a wrapper.
@@ -458,7 +458,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
             .ROFS => return error.ReadOnlyFileSystem,
 
             .NOSYS => { // Use fallback.
-                has_fchmodat2_syscall.store(false, .Monotonic);
+                has_fchmodat2_syscall.store(false, .monotonic);
                 break;
             },
             else => |err| return unexpectedErrno(err),
@@ -729,7 +729,7 @@ pub fn abort() noreturn {
             const global = struct {
                 var abort_entered: bool = false;
             };
-            while (@cmpxchgWeak(bool, &global.abort_entered, false, true, .SeqCst, .SeqCst)) |_| {}
+            while (@cmpxchgWeak(bool, &global.abort_entered, false, true, .seq_cst, .seq_cst)) |_| {}
         }
 
         // Install default handler so that the tkill below will terminate.
@@ -6809,7 +6809,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
     if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or
         ((comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5, .patch = 0 }) orelse false and
         std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) and
-        has_copy_file_range_syscall.load(.Monotonic)))
+        has_copy_file_range_syscall.load(.monotonic)))
     {
         var off_in_copy: i64 = @bitCast(off_in);
         var off_out_copy: i64 = @bitCast(off_out);
@@ -6844,7 +6844,7 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
                     .TXTBSY => return error.SwapFile,
                     .XDEV => break, // support for cross-filesystem copy added in Linux 5.3, use fallback
                     .NOSYS => { // syscall added in Linux 4.5, use fallback
-                        has_copy_file_range_syscall.store(false, .Monotonic);
+                        has_copy_file_range_syscall.store(false, .monotonic);
                         break;
                     },
                     else => |err| return unexpectedErrno(err),

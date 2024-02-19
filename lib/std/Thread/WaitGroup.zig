@@ -10,22 +10,22 @@ state: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 event: std.Thread.ResetEvent = .{},
 
 pub fn start(self: *WaitGroup) void {
-    const state = self.state.fetchAdd(one_pending, .Monotonic);
+    const state = self.state.fetchAdd(one_pending, .monotonic);
     assert((state / one_pending) < (std.math.maxInt(usize) / one_pending));
 }
 
 pub fn finish(self: *WaitGroup) void {
-    const state = self.state.fetchSub(one_pending, .Release);
+    const state = self.state.fetchSub(one_pending, .release);
     assert((state / one_pending) > 0);
 
     if (state == (one_pending | is_waiting)) {
-        self.state.fence(.Acquire);
+        self.state.fence(.acquire);
         self.event.set();
     }
 }
 
 pub fn wait(self: *WaitGroup) void {
-    const state = self.state.fetchAdd(is_waiting, .Acquire);
+    const state = self.state.fetchAdd(is_waiting, .acquire);
     assert(state & is_waiting == 0);
 
     if ((state / one_pending) > 0) {
@@ -34,12 +34,12 @@ pub fn wait(self: *WaitGroup) void {
 }
 
 pub fn reset(self: *WaitGroup) void {
-    self.state.store(0, .Monotonic);
+    self.state.store(0, .monotonic);
     self.event.reset();
 }
 
 pub fn isDone(wg: *WaitGroup) bool {
-    const state = wg.state.load(.Acquire);
+    const state = wg.state.load(.acquire);
     assert(state & is_waiting == 0);
 
     return (state / one_pending) == 0;

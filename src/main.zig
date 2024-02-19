@@ -4145,8 +4145,8 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
                     buf.appendSlice("... ") catch {};
                 }
                 need_ellipse = false;
-                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
-                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
+                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
+                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
                 const current_item = completed_items + 1;
                 if (node.name.len != 0 or eti > 0) {
                     if (node.name.len != 0) {
@@ -4163,7 +4163,7 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
                         need_ellipse = false;
                     }
                 }
-                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .Acquire);
+                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .acquire);
             }
         }
 

@@ -1278,7 +1278,7 @@ pub const Object = struct {
 
         const reloc_mode: llvm.RelocMode = if (pic)
             .PIC
-        else if (self.module.comp.config.link_mode == .Dynamic)
+        else if (self.module.comp.config.link_mode == .dynamic)
             llvm.RelocMode.DynamicNoPIC
         else
             .Static;
@@ -10801,12 +10801,12 @@ pub const FuncGen = struct {
 
 fn toLlvmAtomicOrdering(atomic_order: std.builtin.AtomicOrder) Builder.AtomicOrdering {
     return switch (atomic_order) {
-        .Unordered => .unordered,
-        .Monotonic => .monotonic,
-        .Acquire => .acquire,
-        .Release => .release,
-        .AcqRel => .acq_rel,
-        .SeqCst => .seq_cst,
+        .unordered => .unordered,
+        .monotonic => .monotonic,
+        .acquire => .acquire,
+        .release => .release,
+        .acq_rel => .acq_rel,
+        .seq_cst => .seq_cst,
     };
 }
 

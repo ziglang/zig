@@ -415,8 +415,8 @@ fn BufType(comptime T: type, comptime min_len: usize) type {
         .Enum => |info| info.tag_type,
         .Bool => u1,
         .Struct => |info| switch (info.layout) {
-            .Auto, .Extern => @compileError("Unsupported type: " ++ @typeName(T)),
-            .Packed => std.meta.Int(.unsigned, @bitSizeOf(T)),
+            .auto, .@"extern" => @compileError("Unsupported type: " ++ @typeName(T)),
+            .@"packed" => std.meta.Int(.unsigned, @bitSizeOf(T)),
         },
         else => @compileError("Unsupported type: " ++ @typeName(T)),
     })));
