@@ -727,6 +727,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Never resizes the list.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertNoResize(self: *Self, n: usize, item: T) error{CapacityExceeded}!void {
+            // Overflow can't happen because self.items.len can never hold the entire address space.
             if (self.items.len + 1 > self.capacity) return error.CapacityExceeded;
             return self.insertAssumeCapacity(n, item);
         }
@@ -775,7 +776,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             index: usize,
             count: usize,
         ) error{CapacityExceeded}![]T {
-            if (self.items.len + count > self.capacity) return error.CapacityExceeded;
+            const new_capacity = addOrOom(self.items.len, count) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
             return self.addManyAtAssumeCapacity(index, count);
         }
 
@@ -926,7 +928,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Append the slice of items to the list. Does not resize the list.
         pub fn appendSliceNoResize(self: *Self, items: []const T) error{CapacityExceeded}!void {
-            if (self.items.len + items.len > self.capacity) return error.CapacityExceeded;
+            const new_capacity = addOrOom(self.items.len, items.len) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
             self.appendSliceAssumeCapacity(items);
         }
 
@@ -1136,6 +1139,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Increase length by 1, returning a pointer to the new item.
         /// Does not resize the list. Does not invalidate pointers.
         pub fn addOneNoResize(self: *Self) error{CapacityExceeded}!*T {
+            // Overflow can't happen because self.items.len can never hold the entire address space.
             if (self.items.len + 1 > self.capacity) return error.CapacityExceeded;
             return self.addOneAssumeCapacity();
         }
@@ -1164,7 +1168,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The return value is an array pointing to the newly allocated elements.
         /// Does not resize the list. Never invalidates pointers.
         pub fn addManyAsArrayNoResize(self: *Self, comptime n: usize) error{CapacityExceeded}!*[n]T {
-            if (self.items.len + n > self.capacity) return error.CapacityExceeded;
+            const new_capacity = addOrOom(self.items.len, n) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
             return self.addManyAsArrayAssumeCapacity(n);
         }
 
@@ -1194,7 +1199,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// The return value is a slice pointing to the newly allocated elements.
         /// Never resizes the list. Never invalidates pointers.
         pub fn addManyAsSliceNoResize(self: *Self, n: usize) error{CapacityExceeded}![]T {
-            if (self.items.len + n > self.capacity) return error.CapacityExceeded;
+            const new_capacity = addOrOom(self.items.len, n) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
             return self.addManyAsSliceAssumeCapacity(n);
         }
 
