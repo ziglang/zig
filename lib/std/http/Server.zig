@@ -1,13 +1,7 @@
-version: http.Version,
-status: http.Status,
-reason: ?[]const u8,
-transfer_encoding: ResponseTransfer,
-keep_alive: bool,
 connection: Connection,
-connection_closing: bool,
-
-/// Externally-owned; must outlive the Server.
-extra_headers: []const http.Header,
+/// This value is determined by Server when sending headers to the client, and
+/// then used to determine the return value of `reset`.
+connection_keep_alive: bool,
 
 /// The HTTP request that this response is responding to.
 ///
@@ -21,20 +15,14 @@ state: State = .first,
 /// The returned `Server` is ready for `reset` or `wait` to be called.
 pub fn init(connection: std.net.Server.Connection, options: Server.Request.InitOptions) Server {
     return .{
-        .transfer_encoding = .none,
-        .keep_alive = true,
         .connection = .{
             .stream = connection.stream,
             .read_buf = undefined,
             .read_start = 0,
             .read_end = 0,
         },
-        .connection_closing = true,
+        .connection_keep_alive = false,
         .request = Server.Request.init(options),
-        .version = .@"HTTP/1.1",
-        .status = .ok,
-        .reason = null,
-        .extra_headers = &.{},
     };
 }
 
@@ -232,29 +220,122 @@ pub fn reset(res: *Server) ResetState {
 
     if (!res.request.parser.done) {
         // If the response wasn't fully read, then we need to close the connection.
-        res.connection_closing = true;
+        res.connection_keep_alive = false;
         return .closing;
     }
 
-    // A connection is only keep-alive if the Connection header is present
-    // and its value is not "close". The server and client must both agree.
-    //
-    // send() defaults to using keep-alive if the client requests it.
-    res.connection_closing = !res.keep_alive or !res.request.keep_alive;
-
     res.state = .start;
-    res.version = .@"HTTP/1.1";
-    res.status = .ok;
-    res.reason = null;
-
-    res.transfer_encoding = .none;
-
     res.request = Request.init(.{
         .client_header_buffer = res.request.parser.header_bytes_buffer,
     });
 
-    return if (res.connection_closing) .closing else .reset;
+    return if (res.connection_keep_alive) .reset else .closing;
 }
+
+pub const SendAllError = std.net.Stream.WriteError;
+
+pub const SendOptions = struct {
+    version: http.Version = .@"HTTP/1.1",
+    status: http.Status = .ok,
+    reason: ?[]const u8 = null,
+    keep_alive: bool = true,
+    extra_headers: []const http.Header = &.{},
+    content: []const u8,
+};
+
+/// Send an entire HTTP response to the client, including headers and body.
+/// Automatically handles HEAD requests by omitting the body.
+/// Uses the "content-length" header.
+/// Asserts status is not `continue`.
+/// Asserts there are at most 25 extra_headers.
+pub fn sendAll(s: *Server, options: SendOptions) SendAllError!void {
+    const max_extra_headers = 25;
+    assert(options.status != .@"continue");
+    assert(options.extra_headers.len <= max_extra_headers);
+
+    switch (s.state) {
+        .waited => s.state = .finished,
+        .first => unreachable, // Call reset() first.
+        .start => unreachable, // Call wait() first.
+        .responded => unreachable, // Cannot mix sendAll() with send().
+        .finished => unreachable, // Call reset() first.
+    }
+
+    s.connection_keep_alive = options.keep_alive and s.request.keep_alive;
+    const keep_alive_line = if (s.connection_keep_alive)
+        "connection: keep-alive\r\n"
+    else
+        "";
+    const phrase = options.reason orelse options.status.phrase() orelse "";
+
+    var first_buffer: [500]u8 = undefined;
+    const first_bytes = std.fmt.bufPrint(
+        &first_buffer,
+        "{s} {d} {s}\r\n{s}content-length: {d}\r\n",
+        .{
+            @tagName(options.version),
+            @intFromEnum(options.status),
+            phrase,
+            keep_alive_line,
+            options.content.len,
+        },
+    ) catch unreachable;
+
+    var iovecs: [max_extra_headers * 4 + 3]std.posix.iovec_const = undefined;
+    var iovecs_len: usize = 0;
+
+    iovecs[iovecs_len] = .{
+        .iov_base = first_bytes.ptr,
+        .iov_len = first_bytes.len,
+    };
+    iovecs_len += 1;
+
+    for (options.extra_headers) |header| {
+        iovecs[iovecs_len] = .{
+            .iov_base = header.name.ptr,
+            .iov_len = header.name.len,
+        };
+        iovecs_len += 1;
+
+        iovecs[iovecs_len] = .{
+            .iov_base = ": ",
+            .iov_len = 2,
+        };
+        iovecs_len += 1;
+
+        iovecs[iovecs_len] = .{
+            .iov_base = header.value.ptr,
+            .iov_len = header.value.len,
+        };
+        iovecs_len += 1;
+
+        iovecs[iovecs_len] = .{
+            .iov_base = "\r\n",
+            .iov_len = 2,
+        };
+        iovecs_len += 1;
+    }
+
+    iovecs[iovecs_len] = .{
+        .iov_base = "\r\n",
+        .iov_len = 2,
+    };
+    iovecs_len += 1;
+
+    if (s.request.method != .HEAD) {
+        iovecs[iovecs_len] = .{
+            .iov_base = options.content.ptr,
+            .iov_len = options.content.len,
+        };
+        iovecs_len += 1;
+    }
+
+    return s.connection.stream.writevAll(iovecs[0..iovecs_len]);
+}
+
+pub const Response = struct {
+    transfer_encoding: ResponseTransfer,
+};
 
 pub const SendError = Connection.WriteError || error{
     UnsupportedTransferEncoding,
@@ -285,7 +366,8 @@ pub fn send(res: *Server) SendError!void {
     if (res.status == .@"continue") {
         res.state = .waited; // we still need to send another request after this
     } else {
-        if (res.keep_alive and res.request.keep_alive) {
+        res.connection_keep_alive = res.keep_alive and res.request.keep_alive;
+        if (res.connection_keep_alive) {
             try w.writeAll("connection: keep-alive\r\n");
         } else {
             try w.writeAll("connection: close\r\n");
