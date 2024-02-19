@@ -908,14 +908,19 @@ fn glibcVerFromSoFile(file: fs.File) !std.SemanticVersion {
     return max_ver;
 }
 
-/// Recursively chases the shebang line until it finds what is likely the desired ELF.
-fn followElfShebangs(origin_file_name: []const u8) ?fs.File {
+/// This function looks for a shebang line in the given file. If it finds one,
+/// then it uses the file it references instead, doing the same logic
+/// recursively in the case it finds another shebang line.
+///
+/// Returns the opened ELF file if found, an error if the file exists but
+/// something went wrong opening it, or null if no file was found.
+fn followElfShebangs(origin_dir: fs.Dir, origin_file_name: []const u8) !?fs.File {
     var file_name = origin_file_name;
 
     // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
     var buffer: [258]u8 = undefined;
     while (true) {
-        const file = fs.openFileAbsolute(file_name, .{}) catch |err| switch (err) {
+        const file = origin_dir.openFile(file_name, .{}) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
             error.NameTooLong => unreachable,
             error.PathAlreadyExists => unreachable,
@@ -927,7 +932,8 @@ fn followElfShebangs(origin_file_name: []const u8) ?fs.File {
             error.WouldBlock => unreachable,
             error.FileBusy => unreachable, // opened without write permissions
             error.AntivirusInterference => unreachable, // Windows-only error
-            else => return null,
+            error.FileNotFound => return null,
+            else => return err,
         };
         errdefer file.close();
 
@@ -935,14 +941,14 @@ fn followElfShebangs(origin_file_name: []const u8) ?fs.File {
             error.UnexpectedEndOfFile,
             error.UnableToReadElfFile,
             => return file,
-            else => return null,
+            else => return err,
         };
         const newline = mem.indexOfScalar(u8, buffer[0..len], '\n') orelse return file;
         const line = buffer[0..newline];
         if (!mem.startsWith(u8, line, "#!")) return file;
         var it = mem.tokenizeScalar(u8, line[2..], ' ');
-        file_name = it.next() orelse return null;
         file.close();
+        file_name = it.next() orelse return null;
     }
 }
 
@@ -1019,33 +1025,44 @@ fn detectAbiAndDynamicLinker(
 
     // Best case scenario: the executable is dynamically linked, and we can iterate
     // over our own shared objects and find a dynamic linker.
-    const elf_file = blk: {
-        if (followElfShebangs("/usr/bin/env")) |file| {
-            break :blk file;
+    const elf_info: struct {
+        dir: []const u8,
+        file: fs.File,
+    } = blk: {
+        // First attempt to access /usr/bin/env
+        if (followElfShebangs(std.fs.cwd(), "/usr/bin/env") catch |e| {
+            std.log.warn("failed access '/usr/bin/env' to detect native ABI and dynamic linker: {s}", .{@errorName(e)});
+            return defaultAbiAndDynamicLinker(cpu, os, query);
+        }) |file| {
+            break :blk .{ .dir = "/usr/bin", .file = file };
         }
+
         // If /usr/bin/env is missing, iterate PATH to find another "env" binary.
-        const PATH = std.os.getenv("PATH") orelse {
-            std.log.warn("Could not find /usr/bin/env and PATH environment variable is missing, falling back to default ABI and dynamic linker.\n", .{});
+        const PATH = std.os.getenvZ("PATH") orelse {
+            std.log.warn("unable to detect native ABI and dynamic linker from system 'env' command: both /usr/bin/env and PATH environment variable are missing", .{});
             return defaultAbiAndDynamicLinker(cpu, os, query);
         };
         var path_it = mem.tokenizeScalar(u8, PATH, ':');
-        var path_buf: [std.os.PATH_MAX]u8 = undefined;
         while (path_it.next()) |path| {
-            var path_alloc = std.heap.FixedBufferAllocator.init(&path_buf);
-            const path_env = std.fs.path.join(path_alloc.allocator(), &.{ path, "env" }) catch continue;
-            const env_file = followElfShebangs(path_env) orelse continue;
-            break :blk env_file;
+            var dir = std.fs.openDirAbsolute(path, .{}) catch continue;
+            defer dir.close();
+            const file = followElfShebangs(dir, "env") catch |e| {
+                std.log.warn("failed access 'env' binary in '{s}' to detect native ABI and dynamic linker: {s}", .{ path, @errorName(e) });
+                return defaultAbiAndDynamicLinker(cpu, os, query);
+            } orelse continue;
+            break :blk .{ .dir = path, .file = file };
         }
-        std.log.warn("Could not find env in PATH, falling back to default ABI and dynamic linker.\n", .{});
+
+        std.log.warn("unable to detect native ABI and dynamic linker from system 'env' command: not found in /usr/bin/ or PATH", .{});
         return defaultAbiAndDynamicLinker(cpu, os, query);
     };
-    defer elf_file.close();
+    defer elf_info.file.close();
 
     // If Zig is statically linked, such as via distributed binary static builds, the above
     // trick (block self_exe) won't work. The next thing we fall back to is the same thing, but for elf_file.
     // TODO: inline this function and combine the buffer we already read above to find
     // the possible shebang line with the buffer we use for the ELF header.
-    return abiAndDynamicLinkerFromFile(elf_file, cpu, os, ld_info_list, query) catch |err| switch (err) {
+    return abiAndDynamicLinkerFromFile(elf_info.file, cpu, os, ld_info_list, query) catch |err| switch (err) {
         error.FileSystem,
         error.SystemResources,
         error.SymLinkLoop,
@@ -1064,7 +1081,7 @@ fn detectAbiAndDynamicLinker(
         error.NameTooLong,
         // Finally, we fall back on the standard path.
         => |e| {
-            std.log.warn("Encountered error: {s} whilst detecting dynamic linker in env binary, falling back to default ABI and dynamic linker.\n", .{@errorName(e)});
+            std.log.warn("failed to detect native ABI and dynamic linker from 'env' binary in '{s}': {s}", .{ elf_info.dir, @errorName(e) });
             return defaultAbiAndDynamicLinker(cpu, os, query);
         },
     };
