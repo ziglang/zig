@@ -817,7 +817,7 @@ test "shutdown socket" {
         error.SocketNotConnected => {},
         else => |e| return e,
     };
-    os.closeSocket(sock);
+    std.net.Stream.close(.{ .handle = sock });
 }
 
 test "sigaction" {

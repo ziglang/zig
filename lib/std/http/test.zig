@@ -8,13 +8,12 @@ test "trailers" {
 
     const gpa = testing.allocator;
 
-    var http_server = std.http.Server.init(.{
+    const address = try std.net.Address.parseIp("127.0.0.1", 0);
+    var http_server = try address.listen(.{
         .reuse_address = true,
     });
-    const address = try std.net.Address.parseIp("127.0.0.1", 0);
-    try http_server.listen(address);
 
-    const port = http_server.socket.listen_address.in.getPort();
+    const port = http_server.listen_address.in.getPort();
 
     const server_thread = try std.Thread.spawn(.{}, serverThread, .{&http_server});
     defer server_thread.join();
@@ -67,17 +66,14 @@ test "trailers" {
     try testing.expect(client.connection_pool.free_len == 1);
 }
 
-fn serverThread(http_server: *std.http.Server) anyerror!void {
-    const gpa = testing.allocator;
-
+fn serverThread(http_server: *std.net.Server) anyerror!void {
     var header_buffer: [1024]u8 = undefined;
     var remaining: usize = 1;
     accept: while (remaining != 0) : (remaining -= 1) {
-        var res = try http_server.accept(.{
-            .allocator = gpa,
-            .client_header_buffer = &header_buffer,
-        });
-        defer res.deinit();
+        const conn = try http_server.accept();
+        defer conn.stream.close();
+
+        var res = std.http.Server.init(conn, .{ .client_header_buffer = &header_buffer });
 
         res.wait() catch |err| switch (err) {
             error.HttpHeadersInvalid => continue :accept,
@@ -90,7 +86,7 @@ fn serverThread(http_server: *std.http.Server) anyerror!void {
     }
 }
 
-fn serve(res: *std.http.Server.Response) !void {
+fn serve(res: *std.http.Server) !void {
     try testing.expectEqualStrings(res.request.target, "/trailer");
     res.transfer_encoding = .chunked;
 
@@ -98,4 +94,74 @@ fn serve(res: *std.http.Server.Response) !void {
     try res.writeAll("Hello, ");
     try res.writeAll("World!\n");
     try res.connection.writeAll("0\r\nX-Checksum: aaaa\r\n\r\n");
+}
+
+test "HTTP server handles a chunked transfer coding request" {
+    // This test requires spawning threads.
+    if (builtin.single_threaded) {
+        return error.SkipZigTest;
+    }
+
+    const native_endian = comptime builtin.cpu.arch.endian();
+    if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
+        // https://github.com/ziglang/zig/issues/13782
+        return error.SkipZigTest;
+    }
+
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+    const expect = std.testing.expect;
+
+    const max_header_size = 8192;
+
+    const address = try std.net.Address.parseIp("127.0.0.1", 0);
+    var server = try address.listen(.{ .reuse_address = true });
+    defer server.deinit();
+    const server_port = server.listen_address.in.getPort();
+
+    const server_thread = try std.Thread.spawn(.{}, (struct {
+        fn apply(s: *std.net.Server) !void {
+            var header_buffer: [max_header_size]u8 = undefined;
+            const conn = try s.accept();
+            defer conn.stream.close();
+            var res = std.http.Server.init(conn, .{ .client_header_buffer = &header_buffer });
+            try res.wait();
+
+            try expect(res.request.transfer_encoding == .chunked);
+            const server_body: []const u8 = "message from server!\n";
+            res.transfer_encoding = .{ .content_length = server_body.len };
+            res.extra_headers = &.{
+                .{ .name = "content-type", .value = "text/plain" },
+            };
+            res.keep_alive = false;
+            try res.send();
+
+            var buf: [128]u8 = undefined;
+            const n = try res.readAll(&buf);
+            try expect(std.mem.eql(u8, buf[0..n], "ABCD"));
+            _ = try res.writer().writeAll(server_body);
+            try res.finish();
+        }
+    }).apply, .{&server});
+
+    const request_bytes =
+        "POST / HTTP/1.1\r\n" ++
+        "Content-Type: text/plain\r\n" ++
+        "Transfer-Encoding: chunked\r\n" ++
+        "\r\n" ++
+        "1\r\n" ++
+        "A\r\n" ++
+        "1\r\n" ++
+        "B\r\n" ++
+        "2\r\n" ++
+        "CD\r\n" ++
+        "0\r\n" ++
+        "\r\n";
+
+    const stream = try std.net.tcpConnectToHost(allocator, "127.0.0.1", server_port);
+    defer stream.close();
+    _ = try stream.writeAll(request_bytes[0..]);
+
+    server_thread.join();
 }

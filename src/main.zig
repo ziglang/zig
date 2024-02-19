@@ -3322,12 +3322,12 @@ fn buildOutputType(
         .ip4 => |ip4_addr| {
             if (build_options.only_core_functionality) unreachable;
 
-            var server = std.net.StreamServer.init(.{
+            const addr: std.net.Address = .{ .in = ip4_addr };
+
+            var server = try addr.listen(.{
                 .reuse_address = true,
             });
             defer server.deinit();
-
-            try server.listen(.{ .in = ip4_addr });
 
             const conn = try server.accept();
             defer conn.stream.close();

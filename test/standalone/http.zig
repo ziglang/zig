@@ -1,8 +1,6 @@
 const std = @import("std");
 
 const http = std.http;
-const Server = http.Server;
-const Client = http.Client;
 
 const mem = std.mem;
 const testing = std.testing;
@@ -19,9 +17,7 @@ var gpa_client = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 12 })
 const salloc = gpa_server.allocator();
 const calloc = gpa_client.allocator();
 
-var server: Server = undefined;
-
-fn handleRequest(res: *Server.Response) !void {
+fn handleRequest(res: *http.Server, listen_port: u16) !void {
     const log = std.log.scoped(.server);
 
     log.info("{} {s} {s}", .{ res.request.method, @tagName(res.request.version), res.request.target });
@@ -125,7 +121,9 @@ fn handleRequest(res: *Server.Response) !void {
     } else if (mem.eql(u8, res.request.target, "/redirect/3")) {
         res.transfer_encoding = .chunked;
 
-        const location = try std.fmt.allocPrint(salloc, "http://127.0.0.1:{d}/redirect/2", .{server.socket.listen_address.getPort()});
+        const location = try std.fmt.allocPrint(salloc, "http://127.0.0.1:{d}/redirect/2", .{
+            listen_port,
+        });
         defer salloc.free(location);
 
         res.status = .found;
@@ -168,14 +166,15 @@ fn handleRequest(res: *Server.Response) !void {
 
 var handle_new_requests = true;
 
-fn runServer(srv: *Server) !void {
+fn runServer(server: *std.net.Server) !void {
     var client_header_buffer: [1024]u8 = undefined;
     outer: while (handle_new_requests) {
-        var res = try srv.accept(.{
-            .allocator = salloc,
+        var connection = try server.accept();
+        defer connection.stream.close();
+
+        var res = http.Server.init(connection, .{
             .client_header_buffer = &client_header_buffer,
         });
-        defer res.deinit();
 
         while (res.reset() != .closing) {
             res.wait() catch |err| switch (err) {
@@ -184,16 +183,15 @@ fn runServer(srv: *Server) !void {
                 else => return err,
             };
 
-            try handleRequest(&res);
+            try handleRequest(&res, server.listen_address.getPort());
         }
     }
 }
 
-fn serverThread(srv: *Server) void {
-    defer srv.deinit();
+fn serverThread(server: *std.net.Server) void {
     defer _ = gpa_server.deinit();
 
-    runServer(srv) catch |err| {
+    runServer(server) catch |err| {
         std.debug.print("server error: {}\n", .{err});
 
         if (@errorReturnTrace()) |trace| {
@@ -205,18 +203,10 @@ fn serverThread(srv: *Server) void {
     };
 }
 
-fn killServer(addr: std.net.Address) void {
-    handle_new_requests = false;
-
-    const conn = std.net.tcpConnectToAddress(addr) catch return;
-    conn.close();
-}
-
 fn getUnusedTcpPort() !u16 {
     const addr = try std.net.Address.parseIp("127.0.0.1", 0);
-    var s = std.net.StreamServer.init(.{});
+    var s = try addr.listen(.{});
     defer s.deinit();
-    try s.listen(addr);
     return s.listen_address.in.getPort();
 }
 
@@ -225,16 +215,15 @@ pub fn main() !void {
 
     defer _ = gpa_client.deinit();
 
-    server = Server.init(.{ .reuse_address = true });
-
     const addr = std.net.Address.parseIp("127.0.0.1", 0) catch unreachable;
-    try server.listen(addr);
+    var server = try addr.listen(.{ .reuse_address = true });
+    defer server.deinit();
 
-    const port = server.socket.listen_address.getPort();
+    const port = server.listen_address.getPort();
 
     const server_thread = try std.Thread.spawn(.{}, serverThread, .{&server});
 
-    var client = Client{ .allocator = calloc };
+    var client: http.Client = .{ .allocator = calloc };
     errdefer client.deinit();
     // defer client.deinit(); handled below
 
@@ -691,6 +680,12 @@ pub fn main() !void {
 
     client.deinit();
 
-    killServer(server.socket.listen_address);
+    {
+        handle_new_requests = false;
+
+        const conn = std.net.tcpConnectToAddress(server.listen_address) catch return;
+        conn.close();
+    }
+
     server_thread.join();
 }
