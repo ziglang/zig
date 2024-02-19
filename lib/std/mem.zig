@@ -1501,6 +1501,8 @@ test "indexOfPos empty needle" {
 /// does not count overlapping needles
 pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     assert(needle.len > 0);
+    if (needle.len == 1) return countScalar(T, haystack, needle[0]);
+
     var i: usize = 0;
     var found: usize = 0;
 
@@ -1512,7 +1514,10 @@ pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     return found;
 }
 
-test "count" {
+test count {
+    // Remove this skip when the native x86_64 backend is able to handle vectors..
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     try testing.expect(count(u8, "", "h") == 0);
     try testing.expect(count(u8, "h", "h") == 1);
     try testing.expect(count(u8, "hh", "h") == 2);
@@ -1556,6 +1561,19 @@ fn countScalarNaive(comptime T: type, buffer: []const u8, scalar: T) usize {
 }
 
 test countScalar {
+    // Remove this skip when the native x86_64 backend is able to handle vectors..
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
+    try testing.expect(countScalar(u8, "", 'h') == 0);
+    try testing.expect(countScalar(u8, "h", 'h') == 1);
+    try testing.expect(countScalar(u8, "hh", 'h') == 2);
+    try testing.expect(countScalar(u8, "hahaha", 'h') == 3);
+}
+
+test "countScalar random data" {
+    // Remove this skip when the native x86_64 backend is able to handle vectors..
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+
     var random_buf: [(8 << 10) - 1]u8 = undefined;
 
     var r = std.rand.DefaultPrng.init(420);
