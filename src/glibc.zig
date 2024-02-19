@@ -1084,7 +1084,7 @@ fn buildSharedLib(
     const strip = comp.compilerRtStrip();
     const config = try Compilation.Config.resolve(.{
         .output_mode = .Lib,
-        .link_mode = .Dynamic,
+        .link_mode = .dynamic,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = false,

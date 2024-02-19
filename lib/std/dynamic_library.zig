@@ -56,7 +56,7 @@ const RDebug = extern struct {
 /// TODO make it possible to reference this same external symbol 2x so we don't need this
 /// helper function.
 pub fn get_DYNAMIC() ?[*]elf.Dyn {
-    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .Weak });
+    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
 }
 
 pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {

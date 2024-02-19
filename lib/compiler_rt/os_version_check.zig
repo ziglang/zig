@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const builtin = @import("builtin");
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .weak;
 const panic = @import("common.zig").panic;
 
 const have_availability_version_check = builtin.os.tag.isDarwin() and

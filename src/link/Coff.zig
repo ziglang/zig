@@ -2275,7 +2275,7 @@ fn writeHeader(self: *Coff) !void {
         .p32 => flags.@"32BIT_MACHINE" = 1,
         .p64 => flags.LARGE_ADDRESS_AWARE = 1,
     }
-    if (self.base.comp.config.output_mode == .Lib and self.base.comp.config.link_mode == .Dynamic) {
+    if (self.base.comp.config.output_mode == .Lib and self.base.comp.config.link_mode == .dynamic) {
         flags.DLL = 1;
     }
 

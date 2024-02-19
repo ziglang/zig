@@ -222,7 +222,7 @@ pub fn writeDylibLC(ctx: WriteDylibLCCtx, writer: anytype) !void {
 pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
     const comp = macho_file.base.comp;
     const gpa = comp.gpa;
-    assert(comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
+    assert(comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
     const emit = macho_file.base.emit;
     const install_name = macho_file.install_name orelse
         try emit.directory.join(gpa, &.{emit.sub_path});

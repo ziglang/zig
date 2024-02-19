@@ -110,7 +110,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const is_obj_or_static_lib = switch (emit.lower.output_mode) {
                         .Exe => false,
                         .Obj => true,
-                        .Lib => emit.lower.link_mode == .Static,
+                        .Lib => emit.lower.link_mode == .static,
                     };
                     const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
                     const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
@@ -158,7 +158,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const is_obj_or_static_lib = switch (emit.lower.output_mode) {
                         .Exe => false,
                         .Obj => true,
-                        .Lib => emit.lower.link_mode == .Static,
+                        .Lib => emit.lower.link_mode == .static,
                     };
                     const atom = macho_file.getSymbol(data.atom_index).getAtom(macho_file).?;
                     const sym_index = macho_file.getZigObject().?.symbols.items[data.sym_index];

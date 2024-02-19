@@ -262,7 +262,7 @@ pub fn createEmpty(
         .sparc64 => 0x2000,
         else => 0x1000,
     };
-    const is_dyn_lib = output_mode == .Lib and link_mode == .Dynamic;
+    const is_dyn_lib = output_mode == .Lib and link_mode == .dynamic;
     const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
         elf.VER_NDX_GLOBAL
     else
@@ -349,7 +349,7 @@ pub fn createEmpty(
     }
 
     const is_obj = output_mode == .Obj;
-    const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .Static);
+    const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .static);
 
     // What path should this ELF linker code output to?
     // If using LLD to link, this code should produce an object file so that it
@@ -1180,10 +1180,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
 
                 success: {
                     if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .static))
                         break :success;
 
                     try self.reportMissingLibraryError(
@@ -1211,8 +1211,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             });
         } else if (target.isMusl()) {
             const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
-                .Static => "libc.a",
-                .Dynamic => "libc.so",
+                .static => "libc.a",
+                .dynamic => "libc.so",
             });
             try system_libs.append(.{ .path = path });
         } else {
@@ -1628,7 +1628,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         // libc dep
         if (comp.config.link_libc) {
             if (self.base.comp.libc_installation != null) {
-                const needs_grouping = link_mode == .Static;
+                const needs_grouping = link_mode == .static;
                 if (needs_grouping) try argv.append("--start-group");
                 try argv.appendSlice(target_util.libcFullLinkFlags(target));
                 if (needs_grouping) try argv.append("--end-group");
@@ -1642,8 +1642,8 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
                 try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
                 try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
-                    .Static => "libc.a",
-                    .Dynamic => "libc.so",
+                    .static => "libc.a",
+                    .dynamic => "libc.so",
                 }));
             }
         }
@@ -1797,10 +1797,10 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 // Maybe we should hoist search-strategy all the way here?
                 for (self.lib_dirs) |lib_dir| {
                     if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .static))
                         break :success;
                 }
             } else {
@@ -1858,8 +1858,8 @@ fn accessLibPath(
     test_path.clearRetainingCapacity();
     const prefix = if (link_mode != null) "lib" else "";
     const suffix = if (link_mode) |mode| switch (mode) {
-        .Static => target.staticLibSuffix(),
-        .Dynamic => target.dynamicLibSuffix(),
+        .static => target.staticLibSuffix(),
+        .dynamic => target.dynamicLibSuffix(),
     } else "";
     try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
         lib_dir_path,
@@ -2150,10 +2150,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
     const is_obj = output_mode == .Obj;
     const is_lib = output_mode == .Lib;
     const link_mode = comp.config.link_mode;
-    const is_dyn_lib = link_mode == .Dynamic and is_lib;
+    const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
     const have_dynamic_linker = comp.config.link_libc and
-        link_mode == .Dynamic and is_exe_or_dyn_lib;
+        link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -2463,7 +2463,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.append(arg);
         }
 
-        if (link_mode == .Static) {
+        if (link_mode == .static) {
             if (target.cpu.arch.isArmOrThumb()) {
                 try argv.append("-Bstatic");
             } else {
@@ -2647,7 +2647,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             comp.link_error_flags.missing_libc = false;
             if (comp.config.link_libc) {
                 if (comp.libc_installation != null) {
-                    const needs_grouping = link_mode == .Static;
+                    const needs_grouping = link_mode == .static;
                     if (needs_grouping) try argv.append("--start-group");
                     try argv.appendSlice(target_util.libcFullLinkFlags(target));
                     if (needs_grouping) try argv.append("--end-group");
@@ -2661,8 +2661,8 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
                     try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
                     try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
-                        .Static => "libc.a",
-                        .Dynamic => "libc.so",
+                        .static => "libc.a",
+                        .dynamic => "libc.so",
                     }));
                 } else {
                     comp.link_error_flags.missing_libc = true;
@@ -2928,8 +2928,8 @@ pub fn writeElfHeader(self: *Elf) !void {
         .Exe => if (comp.config.pie) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (link_mode) {
-            .Static => @as(elf.ET, .REL),
-            .Dynamic => .DYN,
+            .static => @as(elf.ET, .REL),
+            .dynamic => .DYN,
         },
     };
     mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(elf_type), endian);
@@ -3216,7 +3216,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // __rela_iplt_start, __rela_iplt_end
     if (self.rela_dyn_section_index) |shndx| blk: {
-        if (link_mode != .Static or comp.config.pie) break :blk;
+        if (link_mode != .static or comp.config.pie) break :blk;
         const shdr = &self.shdrs.items[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;
         const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
@@ -5061,12 +5061,12 @@ const CsuObjects = struct {
         } = switch (comp.config.output_mode) {
             .Obj => return CsuObjects{},
             .Lib => switch (comp.config.link_mode) {
-                .Dynamic => .dynamic_lib,
-                .Static => return CsuObjects{},
+                .dynamic => .dynamic_lib,
+                .static => return CsuObjects{},
             },
             .Exe => switch (comp.config.link_mode) {
-                .Dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
-                .Static => if (comp.config.pie) .static_pie else .static_exe,
+                .dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
+                .static => if (comp.config.pie) .static_pie else .static_exe,
             },
         };
 

@@ -500,8 +500,8 @@ pub const OutputMode = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const LinkMode = enum {
-    Static,
-    Dynamic,
+    static,
+    dynamic,
 };
 
 /// This data structure is used by the Zig language code generation and
