@@ -3935,6 +3935,8 @@ pub const Function = struct {
     names: [*]const String = &[0]String{},
     value_indices: [*]const u32 = &[0]u32{},
     metadata: ?[*]const Metadata = null,
+    debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, ?DebugLocation) = .{},
+    debug_values: []const Instruction.Index = &.{},
     extra: []const u32 = &.{},
 
     pub const Index = enum(u32) {
@@ -5031,7 +5033,8 @@ pub const Function = struct {
 
     pub fn deinit(self: *Function, gpa: Allocator) void {
         gpa.free(self.extra);
-        if (self.metadata) |metadata| gpa.free(metadata[0..self.instructions.len]);
+        gpa.free(self.debug_values);
+        self.debug_locations.deinit(gpa);
         gpa.free(self.value_indices[0..self.instructions.len]);
         gpa.free(self.names[0..self.instructions.len]);
         self.instructions.deinit(gpa);
@@ -5103,6 +5106,13 @@ pub const Function = struct {
     }
 };
 
+pub const DebugLocation = struct {
+    line: u32,
+    column: u32,
+    scope: Metadata,
+    inlined_at: Metadata,
+};
+
 pub const WipFunction = struct {
     builder: *Builder,
     function: Function.Index,
@@ -5111,11 +5121,14 @@ pub const WipFunction = struct {
         blocks: std.ArrayListUnmanaged(*llvm.BasicBlock),
         instructions: std.ArrayListUnmanaged(*llvm.Value),
     } else void,
+    last_debug_location: ?DebugLocation,
+    current_debug_location: ?DebugLocation,
     cursor: Cursor,
     blocks: std.ArrayListUnmanaged(Block),
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayListUnmanaged(String),
-    metadata: std.ArrayListUnmanaged(Metadata),
+    debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, ?DebugLocation),
+    debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
     extra: std.ArrayListUnmanaged(u32),
 
     pub const Cursor = struct { block: Block.Index, instruction: u32 = 0 };
@@ -5169,20 +5182,27 @@ pub const WipFunction = struct {
             .blocks = .{},
             .instructions = .{},
             .names = .{},
-            .metadata = .{},
+            .debug_locations = .{},
+            .debug_values = .{},
             .extra = .{},
+            .current_debug_location = null,
+            .last_debug_location = null,
         };
         errdefer self.deinit();
 
         const params_len = function.typeOf(self.builder).functionParameters(self.builder).len;
         try self.ensureUnusedExtraCapacity(params_len, NoExtra, 0);
         try self.instructions.ensureUnusedCapacity(self.builder.gpa, params_len);
-        if (!self.builder.strip) try self.names.ensureUnusedCapacity(self.builder.gpa, params_len);
+        if (!self.builder.strip) {
+            try self.names.ensureUnusedCapacity(self.builder.gpa, params_len);
+        }
         if (self.builder.useLibLlvm())
             try self.llvm.instructions.ensureUnusedCapacity(self.builder.gpa, params_len);
         for (0..params_len) |param_index| {
             self.instructions.appendAssumeCapacity(.{ .tag = .arg, .data = @intCast(param_index) });
-            if (!self.builder.strip) self.names.appendAssumeCapacity(.empty); // TODO: param names
+            if (!self.builder.strip) {
+                self.names.appendAssumeCapacity(.empty); // TODO: param names
+            }
             if (self.builder.useLibLlvm()) self.llvm.instructions.appendAssumeCapacity(
                 function.toLlvm(self.builder).getParam(@intCast(param_index)),
             );
@@ -6395,6 +6415,22 @@ pub const WipFunction = struct {
         return instruction.toValue();
     }
 
+    pub fn debugValue(self: *WipFunction, value: Value) Allocator.Error!Metadata {
+        if (self.builder.strip) return .none;
+        return switch (value.unwrap()) {
+            .instruction => |instr_index| blk: {
+                const gop = try self.debug_values.getOrPut(self.builder.gpa, instr_index);
+
+                const metadata: Metadata = @enumFromInt(Metadata.first_local_metadata + gop.index);
+                if (!gop.found_existing) gop.key_ptr.* = instr_index;
+
+                break :blk metadata;
+            },
+            .constant => |constant| try self.builder.debugConstant(constant),
+            .metadata => |metadata| metadata,
+        };
+    }
+
     pub fn finish(self: *WipFunction) Allocator.Error!void {
         const gpa = self.builder.gpa;
         const function = self.function.ptr(self.builder);
@@ -6426,9 +6462,12 @@ pub const WipFunction = struct {
         const value_indices = try gpa.alloc(u32, final_instructions_len);
         errdefer gpa.free(value_indices);
 
-        const metadata =
-            if (self.builder.strip) null else try gpa.alloc(Metadata, final_instructions_len);
-        errdefer if (metadata) |new_metadata| gpa.free(new_metadata);
+        var debug_locations = std.AutoHashMapUnmanaged(Instruction.Index, ?DebugLocation){};
+        errdefer debug_locations.deinit(gpa);
+        try debug_locations.ensureUnusedCapacity(gpa, @intCast(self.debug_locations.count()));
+
+        const debug_values = try gpa.alloc(Instruction.Index, self.debug_values.count());
+        errdefer gpa.free(debug_values);
 
         var wip_extra: struct {
             index: Instruction.ExtraIndex = 0,
@@ -6482,8 +6521,10 @@ pub const WipFunction = struct {
         gpa.free(function.blocks);
         function.blocks = &.{};
         gpa.free(function.names[0..function.instructions.len]);
-        if (function.metadata) |old_metadata| gpa.free(old_metadata[0..function.instructions.len]);
-        function.metadata = null;
+        function.debug_locations.deinit(gpa);
+        function.debug_locations = .{};
+        gpa.free(function.debug_values);
+        function.debug_values = &.{};
         gpa.free(function.extra);
         function.extra = &.{};
 
@@ -6532,6 +6573,12 @@ pub const WipFunction = struct {
             names[@intFromEnum(new_argument_index)] = wip_name.map(
                 if (self.builder.strip) .empty else self.names.items[@intFromEnum(old_argument_index)],
             );
+            if (self.debug_locations.get(old_argument_index)) |location| {
+                debug_locations.putAssumeCapacity(new_argument_index, location);
+            }
+            if (self.debug_values.getIndex(old_argument_index)) |index| {
+                debug_values[index] = new_argument_index;
+            }
         }
         for (self.blocks.items) |current_block| {
             const new_block_index: Instruction.Index = @enumFromInt(function.instructions.len);
@@ -6846,6 +6893,14 @@ pub const WipFunction = struct {
                 else
                     self.names.items[@intFromEnum(old_instruction_index)]);
 
+                if (self.debug_locations.get(old_instruction_index)) |location| {
+                    debug_locations.putAssumeCapacity(new_instruction_index, location);
+                }
+
+                if (self.debug_values.getIndex(old_instruction_index)) |index| {
+                    debug_values[index] = new_instruction_index;
+                }
+
                 value_indices[@intFromEnum(new_instruction_index)] = value_index;
                 if (old_instruction_index.hasResultWip(self)) value_index += 1;
             }
@@ -6856,12 +6911,14 @@ pub const WipFunction = struct {
         function.blocks = blocks;
         function.names = names.ptr;
         function.value_indices = value_indices.ptr;
-        function.metadata = if (metadata) |new_metadata| new_metadata.ptr else null;
+        function.debug_locations = debug_locations;
+        function.debug_values = debug_values;
     }
 
     pub fn deinit(self: *WipFunction) void {
         self.extra.deinit(self.builder.gpa);
-        self.metadata.deinit(self.builder.gpa);
+        self.debug_values.deinit(self.builder.gpa);
+        self.debug_locations.deinit(self.builder.gpa);
         self.names.deinit(self.builder.gpa);
         self.instructions.deinit(self.builder.gpa);
         for (self.blocks.items) |*b| b.instructions.deinit(self.builder.gpa);
@@ -7137,7 +7194,16 @@ pub const WipFunction = struct {
     ) Allocator.Error!Instruction.Index {
         const block_instructions = &self.cursor.block.ptr(self).instructions;
         try self.instructions.ensureUnusedCapacity(self.builder.gpa, 1);
-        if (!self.builder.strip) try self.names.ensureUnusedCapacity(self.builder.gpa, 1);
+        if (!self.builder.strip) {
+            try self.names.ensureUnusedCapacity(self.builder.gpa, 1);
+            if (!std.mem.eql(
+                u8,
+                std.mem.asBytes(&self.current_debug_location),
+                std.mem.asBytes(&self.last_debug_location),
+            )) {
+                try self.debug_locations.ensureUnusedCapacity(self.builder.gpa, 1);
+            }
+        }
         try block_instructions.ensureUnusedCapacity(self.builder.gpa, 1);
         if (self.builder.useLibLlvm())
             try self.llvm.instructions.ensureUnusedCapacity(self.builder.gpa, 1);
@@ -7158,7 +7224,17 @@ pub const WipFunction = struct {
 
         const index: Instruction.Index = @enumFromInt(self.instructions.len);
         self.instructions.appendAssumeCapacity(instruction);
-        if (!self.builder.strip) self.names.appendAssumeCapacity(final_name);
+        if (!self.builder.strip) {
+            self.names.appendAssumeCapacity(final_name);
+            if (!std.mem.eql(
+                u8,
+                std.mem.asBytes(&self.current_debug_location),
+                std.mem.asBytes(&self.last_debug_location),
+            )) {
+                self.debug_locations.putAssumeCapacity(index, self.current_debug_location);
+                self.last_debug_location = self.current_debug_location;
+            }
+        }
         block_instructions.insertAssumeCapacity(self.cursor.instruction, index);
         self.cursor.instruction += 1;
         return index;
