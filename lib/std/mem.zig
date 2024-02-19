@@ -1502,7 +1502,7 @@ test "indexOfPos empty needle" {
 pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
     assert(needle.len > 0);
     // Remove this check when the native x86_64 backend is able to handle vectors.
-    if (needle.len == 1 and builtin.zig_backend != .stage2_x86_64) return countScalar(T, haystack, needle[0]);
+    if (needle.len == 1 and haystack.len >= 1 << 10 and builtin.zig_backend != .stage2_x86_64) return countScalar(T, haystack, needle[0]);
 
     var i: usize = 0;
     var found: usize = 0;
@@ -1562,7 +1562,7 @@ fn countScalarNaive(comptime T: type, buffer: []const u8, scalar: T) usize {
 }
 
 test countScalar {
-    // Remove this skip when the native x86_64 backend is able to handle vectors..
+    // Remove this skip when the native x86_64 backend is able to handle vectors.
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     try testing.expect(countScalar(u8, "", 'h') == 0);
@@ -1572,7 +1572,7 @@ test countScalar {
 }
 
 test "countScalar random data" {
-    // Remove this skip when the native x86_64 backend is able to handle vectors..
+    // Remove this skip when the native x86_64 backend is able to handle vectors.
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var random_buf: [(8 << 10) - 1]u8 = undefined;
