@@ -4149,6 +4149,13 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 return;
             }
 
+            if (try sema.typeRequiresComptime(final_elem_ty)) {
+                // The alloc wasn't comptime-known per the above logic, so the
+                // type cannot be comptime-only.
+                // TODO: source location of runtime control flow
+                return sema.fail(block, src, "value with comptime-only type '{}' depends on runtime control flow", .{final_elem_ty.fmt(mod)});
+            }
+
             try sema.queueFullTypeResolution(final_elem_ty);
 
             // Change it to a normal alloc.
