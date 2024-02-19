@@ -43,11 +43,13 @@ pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callc
         return dest;
     }
 
-    inline for (5..std.math.log2(2 * size) + 1) |p| {
-        const limit = 1 << p;
-        if (len <= limit) {
-            memcpy_range2(limit / 2, dest.?, src.?, len);
-            return dest;
+    if (5 <= std.math.log2(2 * size)) {
+        inline for (5..std.math.log2(2 * size) + 1) |p| {
+            const limit = 1 << p;
+            if (len <= limit) {
+                memcpy_range2(limit / 2, dest.?, src.?, len);
+                return dest;
+            }
         }
     }
 
