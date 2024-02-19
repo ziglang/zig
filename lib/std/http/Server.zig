@@ -96,7 +96,7 @@ pub const Request = struct {
         };
     }
 
-    pub const ParseError = Allocator.Error || error{
+    pub const ParseError = error{
         UnknownHttpMethod,
         HttpHeadersInvalid,
         HttpHeaderContinuationsUnsupported,
@@ -612,7 +612,6 @@ const http = std.http;
 const mem = std.mem;
 const net = std.net;
 const Uri = std.Uri;
-const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
 const Server = @This();
