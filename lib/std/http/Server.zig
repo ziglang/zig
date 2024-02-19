@@ -672,17 +672,15 @@ pub fn listen(server: *Server, address: net.Address) ListenError!void {
     try server.socket.listen(address);
 }
 
-pub const AcceptError = net.StreamServer.AcceptError || Allocator.Error;
+pub const AcceptError = net.StreamServer.AcceptError;
 
 pub const AcceptOptions = struct {
-    allocator: Allocator,
     /// Externally-owned memory used to store the client's entire HTTP header.
     /// `error.HttpHeadersOversize` is returned from read() when a
     /// client sends too many bytes of HTTP headers.
     client_header_buffer: []u8,
 };
 
-/// Accept a new connection.
 pub fn accept(server: *Server, options: AcceptOptions) AcceptError!Response {
     const in = try server.socket.accept();
 
