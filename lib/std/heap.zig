@@ -216,6 +216,10 @@ pub const page_allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os, "heap") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
+else if (builtin.target.os.tag == .emscripten and builtin.link_libc)
+    // NOTE: memory for C libraries seems to stomp over WasmPageAllocator allocated memory, and vice-versa
+    // so we use the C allocator so it uses memory functions Emscripten is aware of.
+    c_allocator
 else if (builtin.target.isWasm())
     Allocator{
         .ptr = undefined,

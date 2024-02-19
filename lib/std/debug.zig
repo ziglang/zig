@@ -346,6 +346,18 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
             addrs[i] = addr;
         }
         stack_trace.index = slice.len;
+    } else if (native_os == .emscripten) {
+        // TODO: Resolve issues where stack iterator fails
+        //
+        //      at segfault (index.js:332:2)
+        //      at index.wasm.SAFE_HEAP_LOAD_i32_4_4 (index.wasm:0x66d4df)
+        //      at index.wasm.debug.StackIterator.next_internal (index.wasm:0x3f7f85)
+        //      at index.wasm.debug.StackIterator.next (index.wasm:0x303559)
+        //      at index.wasm.debug.captureStackTrace (index.wasm:0x2e90c6)
+        //      at index.wasm.heap.general_purpose_allocator.GeneralPurposeAllocator(.{
+        //          .stack_trace_frames = 6, .enable_memory_limit = true, .safety = true,
+        //          .thread_safe = false, .MutexType = null, .never_unmap = false, .retain_metadata = false,
+        //          .verbose_log = false}).collectStackTrace (http://localhost:6931/index.wasm)
     } else {
         // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required).
         //       A new path for loading DebugInfo needs to be created which will only attempt to parse in-memory sections, because
@@ -688,7 +700,7 @@ pub const StackIterator = struct {
             }
 
             return true;
-        } else if (@hasDecl(os.system, "msync") and native_os != .wasi) {
+        } else if (@hasDecl(os.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
                 switch (err) {
                     os.MSyncError.UnmappedMemory => {
@@ -2444,7 +2456,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return &self.dwarf;
         }
     },
-    .wasi => struct {
+    .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
             _ = allocator;
@@ -2717,7 +2729,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 test "manage resources correctly" {
     if (builtin.strip_debug_info) return error.SkipZigTest;
 
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (builtin.os.tag == .wasi or builtin.os.tag == .emscripten) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/13963

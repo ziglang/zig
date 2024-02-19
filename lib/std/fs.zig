@@ -39,7 +39,7 @@ pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirE
 /// fit into a UTF-8 encoded array of this length.
 /// The byte count includes room for a null sentinel byte.
 pub const MAX_PATH_BYTES = switch (builtin.os.tag) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9 => os.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten => os.PATH_MAX,
     // Each UTF-16LE character may be expanded to 3 UTF-8 bytes.
     // If it would require 4 UTF-8 bytes, then there would be a surrogate
     // pair in the UTF-16LE, and we (over)account 3 bytes for it that way.

@@ -752,7 +752,7 @@ pub fn abort() noreturn {
         exit(127); // Pid 1 might not be signalled in some containers.
     }
     switch (builtin.os.tag) {
-        .uefi, .wasi, .cuda, .amdhsa => @trap(),
+        .uefi, .wasi, .cuda, .amdhsa, .emscripten => @trap(),
         else => system.abort(),
     }
 }
