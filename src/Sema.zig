@@ -11667,7 +11667,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
     // Validate for duplicate items, missing else prong, and invalid range.
     switch (operand_ty.zigTypeTag(mod)) {
-        .Union => unreachable, // handled in zirSwitchCond
+        .Union => unreachable, // handled in `switchCond`
         .Enum => {
             seen_enum_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount(mod));
             empty_enum = seen_enum_fields.len == 0 and !operand_ty.isNonexhaustiveEnum(mod);
@@ -33731,7 +33731,10 @@ fn unionToTag(
         return Air.internedToRef(opv.toIntern());
     }
     if (try sema.resolveValue(un)) |un_val| {
-        return Air.internedToRef(un_val.unionTag(mod).?.toIntern());
+        const tag_val = un_val.unionTag(mod).?;
+        if (tag_val.isUndef(mod))
+            return try mod.undefRef(enum_ty);
+        return Air.internedToRef(tag_val.toIntern());
     }
     try sema.requireRuntimeBlock(block, un_src, null);
     return block.addTyOp(.get_union_tag, enum_ty, un);
