@@ -1837,10 +1837,10 @@ pub const Preemption = enum {
     }
 };
 
-pub const Visibility = enum {
-    default,
-    hidden,
-    protected,
+pub const Visibility = enum(u2) {
+    default = 0,
+    hidden = 1,
+    protected = 2,
 
     pub fn format(
         self: Visibility,
@@ -1860,10 +1860,10 @@ pub const Visibility = enum {
     }
 };
 
-pub const DllStorageClass = enum {
-    default,
-    dllimport,
-    dllexport,
+pub const DllStorageClass = enum(u2) {
+    default = 0,
+    dllimport = 1,
+    dllexport = 2,
 
     pub fn format(
         self: DllStorageClass,
@@ -1883,12 +1883,12 @@ pub const DllStorageClass = enum {
     }
 };
 
-pub const ThreadLocal = enum {
-    default,
-    generaldynamic,
-    localdynamic,
-    initialexec,
-    localexec,
+pub const ThreadLocal = enum(u3) {
+    default = 0,
+    generaldynamic = 1,
+    localdynamic = 2,
+    initialexec = 3,
+    localexec = 4,
 
     pub fn format(
         self: ThreadLocal,
@@ -1914,10 +1914,10 @@ pub const ThreadLocal = enum {
 
 pub const Mutability = enum { global, constant };
 
-pub const UnnamedAddr = enum {
-    default,
-    unnamed_addr,
-    local_unnamed_addr,
+pub const UnnamedAddr = enum(u2) {
+    default = 0,
+    unnamed_addr = 1,
+    local_unnamed_addr = 2,
 
     pub fn format(
         self: UnnamedAddr,
