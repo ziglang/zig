@@ -64,10 +64,10 @@ pub const StackTrace = struct {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const GlobalLinkage = enum {
-    Internal,
-    Strong,
-    Weak,
-    LinkOnce,
+    internal,
+    strong,
+    weak,
+    link_once,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -659,7 +659,7 @@ pub const PrefetchOptions = struct {
 /// therefore must be kept in sync with the compiler implementation.
 pub const ExportOptions = struct {
     name: []const u8,
-    linkage: GlobalLinkage = .Strong,
+    linkage: GlobalLinkage = .strong,
     section: ?[]const u8 = null,
     visibility: SymbolVisibility = .default,
 };
@@ -669,7 +669,7 @@ pub const ExportOptions = struct {
 pub const ExternOptions = struct {
     name: []const u8,
     library_name: ?[]const u8 = null,
-    linkage: GlobalLinkage = .Strong,
+    linkage: GlobalLinkage = .strong,
     is_thread_local: bool = false,
 };
 

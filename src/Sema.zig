@@ -6274,7 +6274,7 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .needed_comptime_reason = "export target must be comptime-known",
     });
     const options = try sema.resolveExportOptions(block, options_src, extra.options);
-    if (options.linkage == .Internal)
+    if (options.linkage == .internal)
         return;
     if (operand.val.getFunction(mod)) |function| {
         const decl_index = function.owner_decl;
@@ -6301,7 +6301,7 @@ pub fn analyzeExport(
     const gpa = sema.gpa;
     const mod = sema.mod;
 
-    if (options.linkage == .Internal)
+    if (options.linkage == .internal)
         return;
 
     try mod.ensureDeclAnalyzed(exported_decl_index);
@@ -23802,7 +23802,7 @@ fn resolveExportOptions(
         return sema.fail(block, name_src, "exported symbol name cannot be empty", .{});
     }
 
-    if (visibility != .default and linkage == .Internal) {
+    if (visibility != .default and linkage == .internal) {
         return sema.fail(block, visibility_src, "symbol '{s}' exported with internal linkage has non-default visibility {s}", .{
             name, @tagName(visibility),
         });
@@ -25888,7 +25888,7 @@ fn resolveExternOptions(
 ) CompileError!struct {
     name: InternPool.NullTerminatedString,
     library_name: InternPool.OptionalNullTerminatedString = .none,
-    linkage: std.builtin.GlobalLinkage = .Strong,
+    linkage: std.builtin.GlobalLinkage = .strong,
     is_thread_local: bool = false,
 } {
     const mod = sema.mod;
@@ -25938,7 +25938,7 @@ fn resolveExternOptions(
         return sema.fail(block, name_src, "extern symbol name cannot be empty", .{});
     }
 
-    if (linkage != .Weak and linkage != .Strong) {
+    if (linkage != .weak and linkage != .strong) {
         return sema.fail(block, linkage_src, "extern symbol must use strong or weak linkage", .{});
     }
 
@@ -25984,7 +25984,7 @@ fn zirBuiltinExtern(
         else => |e| return e,
     };
 
-    if (options.linkage == .Weak and !ty.ptrAllowsZero(mod)) {
+    if (options.linkage == .weak and !ty.ptrAllowsZero(mod)) {
         ty = try mod.optionalType(ty.toIntern());
     }
     const ptr_info = ty.ptrInfo(mod);
@@ -26010,7 +26010,7 @@ fn zirBuiltinExtern(
                     .is_extern = true,
                     .is_const = ptr_info.flags.is_const,
                     .is_threadlocal = options.is_thread_local,
-                    .is_weak_linkage = options.linkage == .Weak,
+                    .is_weak_linkage = options.linkage == .weak,
                 } }),
         ),
     }, options.name);

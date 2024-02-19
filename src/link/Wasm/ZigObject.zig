@@ -896,14 +896,14 @@ pub fn updateExports(
         sym.name = export_name;
 
         switch (exp.opts.linkage) {
-            .Internal => {
+            .internal => {
                 sym.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             },
-            .Weak => {
+            .weak => {
                 sym.setFlag(.WASM_SYM_BINDING_WEAK);
             },
-            .Strong => {}, // symbols are strong by default
-            .LinkOnce => {
+            .strong => {}, // symbols are strong by default
+            .link_once => {
                 try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                     gpa,
                     decl.srcLoc(mod),

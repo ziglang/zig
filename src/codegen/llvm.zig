@@ -1873,10 +1873,10 @@ pub const Object = struct {
         if (comp.config.dll_export_fns)
             global_index.setDllStorageClass(.dllexport, &o.builder);
         global_index.setLinkage(switch (exports[0].opts.linkage) {
-            .Internal => unreachable,
-            .Strong => .external,
-            .Weak => .weak_odr,
-            .LinkOnce => .linkonce_odr,
+            .internal => unreachable,
+            .strong => .external,
+            .weak => .weak_odr,
+            .link_once => .linkonce_odr,
         }, &o.builder);
         global_index.setVisibility(switch (exports[0].opts.visibility) {
             .default => .default,

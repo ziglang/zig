@@ -8,7 +8,7 @@ const windows = std.os.windows;
 const system = std.os.system;
 
 pub const DynLib = switch (builtin.os.tag) {
-    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .Static)
+    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .static)
         ElfDynLib
     else
         DlDynLib,

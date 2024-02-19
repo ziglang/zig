@@ -1999,7 +1999,7 @@ pub const DeclGen = struct {
         try fwd.writeAll(if (is_global) "zig_extern " else "static ");
         const maybe_exports = dg.module.decl_exports.get(decl_index);
         const export_weak_linkage = if (maybe_exports) |exports|
-            exports.items[0].opts.linkage == .Weak
+            exports.items[0].opts.linkage == .weak
         else
             false;
         if (variable.is_weak_linkage or export_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
@@ -2689,7 +2689,7 @@ fn genExports(o: *Object) !void {
     const is_variable_const = switch (ip.indexToKey(tv.val.toIntern())) {
         .func => return for (exports.items[1..], 1..) |@"export", i| {
             try fwd.writeAll("zig_extern ");
-            if (@"export".opts.linkage == .Weak) try fwd.writeAll("zig_weak_linkage_fn ");
+            if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage_fn ");
             try o.dg.renderFunctionSignature(
                 fwd,
                 decl_index,
@@ -2707,7 +2707,7 @@ fn genExports(o: *Object) !void {
     };
     for (exports.items[1..]) |@"export"| {
         try fwd.writeAll("zig_extern ");
-        if (@"export".opts.linkage == .Weak) try fwd.writeAll("zig_weak_linkage ");
+        if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
         const export_name = ip.stringToSlice(@"export".opts.name);
         try o.dg.renderTypeAndName(
             fwd,
@@ -2842,7 +2842,7 @@ pub fn genFunc(f: *Function) !void {
     try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
 
     if (mod.decl_exports.get(decl_index)) |exports|
-        if (exports.items[0].opts.linkage == .Weak) try fwd_decl_writer.writeAll("zig_weak_linkage_fn ");
+        if (exports.items[0].opts.linkage == .weak) try fwd_decl_writer.writeAll("zig_weak_linkage_fn ");
     try o.dg.renderFunctionSignature(fwd_decl_writer, decl_index, .forward, .{ .export_index = 0 });
     try fwd_decl_writer.writeAll(";\n");
     try genExports(o);
