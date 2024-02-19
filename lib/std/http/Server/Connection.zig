@@ -1,18 +1,13 @@
 stream: std.net.Stream,
-protocol: Protocol,
 
 read_buf: [buffer_size]u8,
 read_start: u16,
 read_end: u16,
 
 pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
-pub const Protocol = enum { plain };
 
 pub fn rawReadAtLeast(conn: *Connection, buffer: []u8, len: usize) ReadError!usize {
-    return switch (conn.protocol) {
-        .plain => conn.stream.readAtLeast(buffer, len),
-        // .tls => conn.tls_client.readAtLeast(conn.stream, buffer, len),
-    } catch |err| {
+    return conn.stream.readAtLeast(buffer, len) catch |err| {
         switch (err) {
             error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
             else => return error.UnexpectedReadFailure,
@@ -91,20 +86,14 @@ pub fn reader(conn: *Connection) Reader {
 }
 
 pub fn writeAll(conn: *Connection, buffer: []const u8) WriteError!void {
-    return switch (conn.protocol) {
-        .plain => conn.stream.writeAll(buffer),
-        // .tls => return conn.tls_client.writeAll(conn.stream, buffer),
-    } catch |err| switch (err) {
+    return conn.stream.writeAll(buffer) catch |err| switch (err) {
         error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
         else => return error.UnexpectedWriteFailure,
     };
 }
 
 pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
-    return switch (conn.protocol) {
-        .plain => conn.stream.write(buffer),
-        // .tls => return conn.tls_client.write(conn.stream, buffer),
-    } catch |err| switch (err) {
+    return conn.stream.write(buffer) catch |err| switch (err) {
         error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
         else => return error.UnexpectedWriteFailure,
     };

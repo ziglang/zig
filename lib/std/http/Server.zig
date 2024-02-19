@@ -25,7 +25,6 @@ pub fn init(connection: std.net.Server.Connection, options: Server.Request.InitO
         .keep_alive = true,
         .connection = .{
             .stream = connection.stream,
-            .protocol = .plain,
             .read_buf = undefined,
             .read_start = 0,
             .read_end = 0,
