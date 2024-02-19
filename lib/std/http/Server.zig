@@ -4,6 +4,7 @@ reason: ?[]const u8,
 transfer_encoding: ResponseTransfer,
 keep_alive: bool,
 connection: Connection,
+connection_closing: bool,
 
 /// Externally-owned; must outlive the Server.
 extra_headers: []const http.Header,
@@ -25,11 +26,11 @@ pub fn init(connection: std.net.Server.Connection, options: Server.Request.InitO
         .connection = .{
             .stream = connection.stream,
             .protocol = .plain,
-            .closing = true,
             .read_buf = undefined,
             .read_start = 0,
             .read_end = 0,
         },
+        .connection_closing = true,
         .request = Server.Request.init(options),
         .version = .@"HTTP/1.1",
         .status = .ok,
@@ -232,7 +233,7 @@ pub fn reset(res: *Server) ResetState {
 
     if (!res.request.parser.done) {
         // If the response wasn't fully read, then we need to close the connection.
-        res.connection.closing = true;
+        res.connection_closing = true;
         return .closing;
     }
 
@@ -240,7 +241,7 @@ pub fn reset(res: *Server) ResetState {
     // and its value is not "close". The server and client must both agree.
     //
     // send() defaults to using keep-alive if the client requests it.
-    res.connection.closing = !res.keep_alive or !res.request.keep_alive;
+    res.connection_closing = !res.keep_alive or !res.request.keep_alive;
 
     res.state = .start;
     res.version = .@"HTTP/1.1";
@@ -253,7 +254,7 @@ pub fn reset(res: *Server) ResetState {
         .client_header_buffer = res.request.parser.header_bytes_buffer,
     });
 
-    return if (res.connection.closing) .closing else .reset;
+    return if (res.connection_closing) .closing else .reset;
 }
 
 pub const SendError = Connection.WriteError || error{

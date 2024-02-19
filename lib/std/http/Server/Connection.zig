@@ -1,8 +1,6 @@
 stream: std.net.Stream,
 protocol: Protocol,
 
-closing: bool,
-
 read_buf: [buffer_size]u8,
 read_start: u16,
 read_end: u16,
