@@ -1037,6 +1037,7 @@ const ModuleTestOptions = struct {
     name: []const u8,
     desc: []const u8,
     optimize_modes: []const OptimizeMode,
+    include_paths: []const []const u8,
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_cross_glibc: bool,
@@ -1140,7 +1141,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
-        these_tests.addIncludePath(.{ .path = "test" });
+        for (options.include_paths) |include_path| these_tests.addIncludePath(.{ .path = include_path });
 
         if (target.os.tag == .wasi) {
             // WASI's default stack size can be too small for some big tests.

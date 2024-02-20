@@ -66,8 +66,6 @@ Write-Output "Build x86_64-windows-msvc behavior tests using the C backend..."
 & "stage3-debug\bin\zig.exe" test `
   ..\test\behavior.zig `
   --zig-lib-dir "$ZIG_LIB_DIR" `
-  -I..\test `
-  -I..\lib `
   -ofmt=c `
   -femit-bin="test-x86_64-windows-msvc.c" `
   --test-no-exec `

@@ -471,6 +471,7 @@ pub fn build(b: *std.Build) !void {
         .name = "behavior",
         .desc = "Run the behavior tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
@@ -480,10 +481,24 @@ pub fn build(b: *std.Build) !void {
 
     test_step.dependOn(tests.addModuleTests(b, .{
         .test_filter = test_filter,
+        .root_src = "test/c_import.zig",
+        .name = "c-import",
+        .desc = "Run the @cImport tests",
+        .optimize_modes = optimization_modes,
+        .include_paths = &.{"test/c_import"},
+        .skip_single_threaded = true,
+        .skip_non_native = skip_non_native,
+        .skip_cross_glibc = skip_cross_glibc,
+        .skip_libc = skip_libc,
+    }));
+
+    test_step.dependOn(tests.addModuleTests(b, .{
+        .test_filter = test_filter,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
@@ -496,6 +511,7 @@ pub fn build(b: *std.Build) !void {
         .name = "universal-libc",
         .desc = "Run the universal libc tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,
@@ -527,6 +543,7 @@ pub fn build(b: *std.Build) !void {
         .name = "std",
         .desc = "Run the standard library tests",
         .optimize_modes = optimization_modes,
+        .include_paths = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
         .skip_cross_glibc = skip_cross_glibc,

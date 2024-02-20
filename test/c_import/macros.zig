@@ -4,8 +4,8 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualStrings = std.testing.expectEqualStrings;
 
-const h = @cImport(@cInclude("behavior/translate_c_macros.h"));
-const latin1 = @cImport(@cInclude("behavior/translate_c_macros_not_utf8.h"));
+const h = @cImport(@cInclude("macros.h"));
+const latin1 = @cImport(@cInclude("macros_not_utf8.h"));
 
 test "casting to void with a macro" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
