@@ -1197,7 +1197,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             prev_has_cflags = true;
                         }
 
-                        const root_path = c_source_files.root.getPath2(b, module.owner);
+                        const root_path = c_source_files.root.getPath2(module.owner, step);
                         for (c_source_files.files) |file| {
                             try zig_args.append(b.pathJoin(&.{ root_path, file }));
                         }
