@@ -69,31 +69,35 @@ test "trailers" {
 fn serverThread(http_server: *std.net.Server) anyerror!void {
     var header_buffer: [1024]u8 = undefined;
     var remaining: usize = 1;
-    accept: while (remaining != 0) : (remaining -= 1) {
+    while (remaining != 0) : (remaining -= 1) {
         const conn = try http_server.accept();
         defer conn.stream.close();
 
-        var res = std.http.Server.init(conn, .{ .client_header_buffer = &header_buffer });
+        var server = std.http.Server.init(conn, &header_buffer);
 
-        res.wait() catch |err| switch (err) {
-            error.HttpHeadersInvalid => continue :accept,
-            error.EndOfStream => continue,
-            else => return err,
-        };
-        try serve(&res);
-
-        try testing.expectEqual(.reset, res.reset());
+        try testing.expectEqual(.ready, server.state);
+        var request = try server.receiveHead();
+        try serve(&request);
+        try testing.expectEqual(.ready, server.state);
     }
 }
 
-fn serve(res: *std.http.Server) !void {
-    try testing.expectEqualStrings(res.request.target, "/trailer");
-    res.transfer_encoding = .chunked;
+fn serve(request: *std.http.Server.Request) !void {
+    try testing.expectEqualStrings(request.head.target, "/trailer");
 
-    try res.send();
-    try res.writeAll("Hello, ");
-    try res.writeAll("World!\n");
-    try res.connection.writeAll("0\r\nX-Checksum: aaaa\r\n\r\n");
+    var send_buffer: [1024]u8 = undefined;
+    var response = request.respondStreaming(.{
+        .send_buffer = &send_buffer,
+    });
+    try response.writeAll("Hello, ");
+    try response.flush();
+    try response.writeAll("World!\n");
+    try response.flush();
+    try response.endChunked(.{
+        .trailers = &.{
+            .{ .name = "X-Checksum", .value = "aaaa" },
+        },
+    });
 }
 
 test "HTTP server handles a chunked transfer coding request" {
@@ -116,34 +120,33 @@ test "HTTP server handles a chunked transfer coding request" {
     const max_header_size = 8192;
 
     const address = try std.net.Address.parseIp("127.0.0.1", 0);
-    var server = try address.listen(.{ .reuse_address = true });
-    defer server.deinit();
-    const server_port = server.listen_address.in.getPort();
+    var socket_server = try address.listen(.{ .reuse_address = true });
+    defer socket_server.deinit();
+    const server_port = socket_server.listen_address.in.getPort();
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
-        fn apply(s: *std.net.Server) !void {
+        fn apply(net_server: *std.net.Server) !void {
             var header_buffer: [max_header_size]u8 = undefined;
-            const conn = try s.accept();
+            const conn = try net_server.accept();
             defer conn.stream.close();
-            var res = std.http.Server.init(conn, .{ .client_header_buffer = &header_buffer });
-            try res.wait();
 
-            try expect(res.request.transfer_encoding == .chunked);
-            const server_body: []const u8 = "message from server!\n";
-            res.transfer_encoding = .{ .content_length = server_body.len };
-            res.extra_headers = &.{
-                .{ .name = "content-type", .value = "text/plain" },
-            };
-            res.keep_alive = false;
-            try res.send();
+            var server = std.http.Server.init(conn, &header_buffer);
+            var request = try server.receiveHead();
+
+            try expect(request.head.transfer_encoding == .chunked);
 
             var buf: [128]u8 = undefined;
-            const n = try res.readAll(&buf);
+            const n = try request.reader().readAll(&buf);
             try expect(std.mem.eql(u8, buf[0..n], "ABCD"));
-            _ = try res.writer().writeAll(server_body);
-            try res.finish();
+
+            try request.respond("message from server!\n", .{
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/plain" },
+                },
+                .keep_alive = false,
+            });
         }
-    }).apply, .{&server});
+    }).apply, .{&socket_server});
 
     const request_bytes =
         "POST / HTTP/1.1\r\n" ++
