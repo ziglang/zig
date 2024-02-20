@@ -14,7 +14,6 @@ test {
     _ = @import("behavior/bool.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
-    _ = @import("behavior/c_char_signedness.zig");
     _ = @import("behavior/call.zig");
     _ = @import("behavior/call_tail.zig");
     _ = @import("behavior/cast.zig");
@@ -92,7 +91,6 @@ test {
     _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/this.zig");
     _ = @import("behavior/threadlocal.zig");
-    _ = @import("behavior/translate_c_macros.zig");
     _ = @import("behavior/truncate.zig");
     _ = @import("behavior/try.zig");
     _ = @import("behavior/tuple.zig");

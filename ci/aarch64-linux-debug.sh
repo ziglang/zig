@@ -99,11 +99,11 @@ unset CXX
 
 ninja install
 
-stage3/bin/zig test ../test/behavior.zig -I../test
+stage3/bin/zig test ../test/behavior.zig
 stage3/bin/zig build -p stage4 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   -Dno-lib \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
-stage4/bin/zig test ../test/behavior.zig -I../test
+stage4/bin/zig test ../test/behavior.zig
