@@ -4298,7 +4298,7 @@ fn fnDecl(
 
         if (!fn_gz.endsWithNoReturn()) {
             // As our last action before the return, "pop" the error trace if needed
-            _ = try gz.addRestoreErrRetIndex(.ret, .always, decl_node);
+            _ = try fn_gz.addRestoreErrRetIndex(.ret, .always, decl_node);
 
             // Add implicit return at end of function.
             _ = try fn_gz.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
@@ -4746,7 +4746,7 @@ fn testDecl(
     if (fn_block.isEmpty() or !fn_block.refIsNoReturn(block_result)) {
 
         // As our last action before the return, "pop" the error trace if needed
-        _ = try gz.addRestoreErrRetIndex(.ret, .always, node);
+        _ = try fn_block.addRestoreErrRetIndex(.ret, .always, node);
 
         // Add implicit return at end of function.
         _ = try fn_block.addUnTok(.ret_implicit, .void_value, tree.lastToken(body_node));
