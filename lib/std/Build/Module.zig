@@ -80,7 +80,7 @@ pub const SystemLib = struct {
 
 pub const CSourceFiles = struct {
     root: LazyPath,
-    /// `files` is  relative to `root`, which is
+    /// `files` is relative to `root`, which is
     /// the build root by default
     files: []const []const u8,
     flags: []const []const u8,
