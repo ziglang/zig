@@ -88,7 +88,7 @@ pub fn stringifyAlloc(
     allocator: Allocator,
     value: anytype,
     options: StringifyOptions,
-) error{OutOfMemory}![]const u8 {
+) error{OutOfMemory}![]u8 {
     var list = std.ArrayList(u8).init(allocator);
     errdefer list.deinit();
     try stringifyArbitraryDepth(allocator, value, options, list.writer());
