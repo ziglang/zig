@@ -937,11 +937,28 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return .{ .context = .{ .self = self, .allocator = allocator } };
         }
 
-        /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// Same as `append` except it returns the number of bytes written,
+        /// which is always the same as `m.len`. The purpose of this function
+        /// existing is to match `std.io.Writer` API.
         /// Invalidates element pointers if additional memory is needed.
         fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
             try context.self.appendSlice(context.allocator, m);
+            return m.len;
+        }
+
+        pub const WriterAssumeCapacity = std.io.Writer(*Self, error{}, appendWriteAssumeCapacity);
+
+        /// Initializes a Writer which will append to the list, asserting the
+        /// list can hold the additional bytes.
+        pub fn writerAssumeCapacity(self: *Self) WriterAssumeCapacity {
+            return .{ .context = self };
+        }
+
+        /// Same as `appendSliceAssumeCapacity` except it returns the number of bytes written,
+        /// which is always the same as `m.len`. The purpose of this function
+        /// existing is to match `std.io.Writer` API.
+        fn appendWriteAssumeCapacity(self: *Self, m: []const u8) error{}!usize {
+            self.appendSliceAssumeCapacity(m);
             return m.len;
         }
 
