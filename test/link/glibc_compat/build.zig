@@ -47,6 +47,13 @@ pub fn build(b: *std.Build) void {
 
         const glibc_ver = target.result.os.version_range.linux.glibc;
 
+        // only build test if glibc version supports the architecture
+        if (target.result.cpu.arch.isAARCH64()) {
+            if (glibc_ver.order(.{ .major = 2, .minor = 17, .patch = 0 }) == .lt) {
+                continue;
+            }
+        }
+
         const exe = b.addExecutable(.{
             .name = t,
             .target = target,
