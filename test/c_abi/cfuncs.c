@@ -169,6 +169,64 @@ double complex zig_cmultd_comp(double a_r, double a_i, double b_r, double b_i);
 float complex zig_cmultf(float complex a, float complex b);
 double complex zig_cmultd(double complex a, double complex b);
 
+struct Struct_u64_u64 {
+    uint64_t a;
+    uint64_t b;
+};
+
+struct Struct_u64_u64 zig_ret_struct_u64_u64(void);
+
+void zig_struct_u64_u64_0(struct Struct_u64_u64);
+void zig_struct_u64_u64_1(size_t, struct Struct_u64_u64);
+void zig_struct_u64_u64_2(size_t, size_t, struct Struct_u64_u64);
+void zig_struct_u64_u64_3(size_t, size_t, size_t, struct Struct_u64_u64);
+void zig_struct_u64_u64_4(size_t, size_t, size_t, size_t, struct Struct_u64_u64);
+void zig_struct_u64_u64_5(size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64);
+void zig_struct_u64_u64_6(size_t, size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64);
+void zig_struct_u64_u64_7(size_t, size_t, size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64);
+void zig_struct_u64_u64_8(size_t, size_t, size_t, size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64);
+
+struct Struct_u64_u64 c_ret_struct_u64_u64(void) {
+    return (struct Struct_u64_u64){ 21, 22 };
+}
+
+void c_struct_u64_u64_0(struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 23);
+    assert_or_panic(s.b == 24);
+}
+void c_struct_u64_u64_1(size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 25);
+    assert_or_panic(s.b == 26);
+}
+void c_struct_u64_u64_2(size_t, size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 27);
+    assert_or_panic(s.b == 28);
+}
+void c_struct_u64_u64_3(size_t, size_t, size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 29);
+    assert_or_panic(s.b == 30);
+}
+void c_struct_u64_u64_4(size_t, size_t, size_t, size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 31);
+    assert_or_panic(s.b == 32);
+}
+void c_struct_u64_u64_5(size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 33);
+    assert_or_panic(s.b == 34);
+}
+void c_struct_u64_u64_6(size_t, size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 35);
+    assert_or_panic(s.b == 36);
+}
+void c_struct_u64_u64_7(size_t, size_t, size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 37);
+    assert_or_panic(s.b == 38);
+}
+void c_struct_u64_u64_8(size_t, size_t, size_t, size_t, size_t, size_t, size_t, size_t, struct Struct_u64_u64 s) {
+    assert_or_panic(s.a == 39);
+    assert_or_panic(s.b == 40);
+}
+
 struct BigStruct {
     uint64_t a;
     uint64_t b;
@@ -2492,6 +2550,23 @@ void run_c_tests(void) {
         double complex z = zig_cmultd_comp(a_r, a_i, b_r, b_i);
         assert_or_panic(creal(z) == 1.5);
         assert_or_panic(cimag(z) == 13.5);
+    }
+#endif
+
+#if !defined(__mips__) && !defined(ZIG_PPC32)
+    {
+        struct Struct_u64_u64 s = zig_ret_struct_u64_u64();
+        assert_or_panic(s.a == 1);
+        assert_or_panic(s.b == 2);
+        zig_struct_u64_u64_0((struct Struct_u64_u64){ .a = 3, .b = 4 });
+        zig_struct_u64_u64_1(0, (struct Struct_u64_u64){ .a = 5, .b = 6 });
+        zig_struct_u64_u64_2(0, 1, (struct Struct_u64_u64){ .a = 7, .b = 8 });
+        zig_struct_u64_u64_3(0, 1, 2, (struct Struct_u64_u64){ .a = 9, .b = 10 });
+        zig_struct_u64_u64_4(0, 1, 2, 3, (struct Struct_u64_u64){ .a = 11, .b = 12 });
+        zig_struct_u64_u64_5(0, 1, 2, 3, 4, (struct Struct_u64_u64){ .a = 13, .b = 14 });
+        zig_struct_u64_u64_6(0, 1, 2, 3, 4, 5, (struct Struct_u64_u64){ .a = 15, .b = 16 });
+        zig_struct_u64_u64_7(0, 1, 2, 3, 4, 5, 6, (struct Struct_u64_u64){ .a = 17, .b = 18 });
+        zig_struct_u64_u64_8(0, 1, 2, 3, 4, 5, 6, 7, (struct Struct_u64_u64){ .a = 19, .b = 20 });
     }
 #endif
 

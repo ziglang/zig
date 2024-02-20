@@ -11443,6 +11443,12 @@ const ParamTypeIterator = struct {
                 it.llvm_index += 1;
                 return .abi_sized_int;
             }
+            if (it.llvm_index + types_index > 6) {
+                it.zig_index += 1;
+                it.llvm_index += 1;
+                it.byval_attr = true;
+                return .byref;
+            }
             switch (ip.indexToKey(ty.toIntern())) {
                 .struct_type => |struct_type| {
                     assert(struct_type.haveLayout(ip));
