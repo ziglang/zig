@@ -80,8 +80,8 @@ pub const SystemLib = struct {
 
 pub const CSourceFiles = struct {
     root: LazyPath = .{ .path = "" },
-    /// If `dependency` is not null relative to it,
-    /// else relative to the build root.
+    /// `files` is  relative to `root`, which is
+    /// the build root by default
     files: []const []const u8,
     flags: []const []const u8,
 };
@@ -453,7 +453,7 @@ pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions
 }
 
 pub const AddCSourceFilesOptions = struct {
-    /// When provided, `files` are relative to `dependency` rather than the
+    /// When provided, `files` are relative to `root` rather than the
     /// package that owns the `Compile` step.
     root: LazyPath = .{ .path = "" },
     files: []const []const u8,
