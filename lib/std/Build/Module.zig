@@ -79,7 +79,7 @@ pub const SystemLib = struct {
 };
 
 pub const CSourceFiles = struct {
-    dependency: ?*std.Build.Dependency,
+    root: LazyPath = .{ .path = "" },
     /// If `dependency` is not null relative to it,
     /// else relative to the build root.
     files: []const []const u8,
@@ -455,7 +455,7 @@ pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions
 pub const AddCSourceFilesOptions = struct {
     /// When provided, `files` are relative to `dependency` rather than the
     /// package that owns the `Compile` step.
-    dependency: ?*std.Build.Dependency = null,
+    root: LazyPath = .{ .path = "" },
     files: []const []const u8,
     flags: []const []const u8 = &.{},
 };
@@ -466,7 +466,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     const allocator = b.allocator;
     const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
-        .dependency = options.dependency,
+        .root = options.root,
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
     };
