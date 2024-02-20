@@ -2201,6 +2201,23 @@ test "peer type resolution: pointer attributes are combined correctly" {
     try expectEqualSlices(u8, std.mem.span(@volatileCast(r3)), "baz");
 }
 
+test "peer type resolution: arrays of compatible types" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var e0: u8 = 3;
+    var e1: u8 = 2;
+    var e2: u8 = 1;
+    const a = [3]*u8{ &e0, &e1, &e2 };
+    const b = [3]*const u8{ &e0, &e1, &e2 };
+
+    comptime assert(@TypeOf(a, b) == [3]*const u8);
+    comptime assert(@TypeOf(b, a) == [3]*const u8);
+
+    try expectEqual(@as(@TypeOf(a, b), a), b);
+}
+
 test "cast builtins can wrap result in optional" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
