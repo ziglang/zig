@@ -25,34 +25,46 @@ pub fn writeAddend(
 }
 
 pub fn writeInstU(code: *[4]u8, value: u32) void {
-    const inst_mask: u32 = 0b00000000000000000000_11111_1111111;
-    const val_mask: u32 = 0xffff_f000;
-    var inst = mem.readInt(u32, code, .little);
-    inst &= inst_mask;
+    var inst = Instruction{
+        .U = mem.bytesToValue(std.meta.TagPayload(
+            Instruction,
+            Instruction.U,
+        ), code),
+    };
     const compensated: u32 = @bitCast(@as(i32, @bitCast(value)) + 0x800);
-    inst |= (compensated & val_mask);
-    mem.writeInt(u32, code, inst, .little);
+    inst.U.imm12_31 = @truncate(bitSlice(compensated, 31, 12));
+    mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
 pub fn writeInstI(code: *[4]u8, value: u32) void {
-    const mask: u32 = 0b00000000000_11111_111_11111_1111111;
-    var inst = mem.readInt(u32, code, .little);
-    inst &= mask;
-    inst |= (bitSlice(value, 11, 0) << 20);
-    mem.writeInt(u32, code, inst, .little);
+    var inst = Instruction{
+        .I = mem.bytesToValue(std.meta.TagPayload(
+            Instruction,
+            Instruction.I,
+        ), code),
+    };
+    inst.I.imm0_11 = @truncate(bitSlice(value, 11, 0));
+    mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
 pub fn writeInstS(code: *[4]u8, value: u32) void {
-    const mask: u32 = 0b000000_11111_11111_111_00000_1111111;
-    var inst = mem.readInt(u32, code, .little);
-    inst &= mask;
-    inst |= (bitSlice(value, 11, 5) << 25) | (bitSlice(value, 4, 0) << 7);
-    mem.writeInt(u32, code, inst, .little);
+    var inst = Instruction{
+        .S = mem.bytesToValue(std.meta.TagPayload(
+            Instruction,
+            Instruction.S,
+        ), code),
+    };
+    inst.S.imm0_4 = @truncate(bitSlice(value, 4, 0));
+    inst.S.imm5_11 = @truncate(bitSlice(value, 11, 5));
+    mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
 fn bitSlice(value: anytype, high: std.math.Log2Int(@TypeOf(value)), low: std.math.Log2Int(@TypeOf(value))) @TypeOf(value) {
     return (value >> low) & ((@as(@TypeOf(value), 1) << (high - low + 1)) - 1);
 }
 
+const bits = @import("../arch/riscv64/bits.zig");
 const mem = std.mem;
 const std = @import("std");
+
+pub const Instruction = bits.Instruction;
