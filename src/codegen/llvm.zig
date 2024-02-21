@@ -840,7 +840,6 @@ pub const Object = struct {
 
         var builder = try Builder.init(.{
             .allocator = gpa,
-            .use_lib_llvm = false,
             .strip = strip,
             .name = comp.root_name,
             .target = target,
@@ -900,16 +899,48 @@ pub const Object = struct {
                 try builder.string("Debug Info Version"),
                 try builder.debugConstant(try builder.intConst(.i32, 3)),
             );
-            const dwarf_version = try builder.debugModuleFlag(
-                try builder.debugConstant(try builder.intConst(.i32, 2)),
-                try builder.string("Dwarf Version"),
-                try builder.debugConstant(try builder.intConst(.i32, 4)),
-            );
 
-            try builder.debugNamed(try builder.string("llvm.module.flags"), &.{
-                debug_info_version,
-                dwarf_version,
-            });
+            switch (comp.config.debug_format) {
+                .dwarf => |f| {
+                    const dwarf_version = try builder.debugModuleFlag(
+                        try builder.debugConstant(try builder.intConst(.i32, 2)),
+                        try builder.string("Dwarf Version"),
+                        try builder.debugConstant(try builder.intConst(.i32, 4)),
+                    );
+                    switch (f) {
+                        .@"32" => {
+                            try builder.debugNamed(try builder.string("llvm.module.flags"), &.{
+                                debug_info_version,
+                                dwarf_version,
+                            });
+                        },
+                        .@"64" => {
+                            const dwarf64 = try builder.debugModuleFlag(
+                                try builder.debugConstant(try builder.intConst(.i32, 2)),
+                                try builder.string("DWARF64"),
+                                try builder.debugConstant(try builder.intConst(.i32, 1)),
+                            );
+                            try builder.debugNamed(try builder.string("llvm.module.flags"), &.{
+                                debug_info_version,
+                                dwarf_version,
+                                dwarf64,
+                            });
+                        },
+                    }
+                },
+                .code_view => {
+                    const code_view = try builder.debugModuleFlag(
+                        try builder.debugConstant(try builder.intConst(.i32, 2)),
+                        try builder.string("CodeView"),
+                        try builder.debugConstant(try builder.intConst(.i32, 1)),
+                    );
+                    try builder.debugNamed(try builder.string("llvm.module.flags"), &.{
+                        debug_info_version,
+                        code_view,
+                    });
+                },
+                .strip => unreachable,
+            }
 
             try builder.debugNamed(try builder.string("llvm.dbg.cu"), &.{debug_compile_unit});
         }
@@ -1145,10 +1176,21 @@ pub const Object = struct {
             }
         }
 
-        if (options.pre_bc_path) |path| _ = try self.builder.writeBitcodeToFile(path);
+        var bitcode_arena_allocator = std.heap.ArenaAllocator.init(
+            std.heap.page_allocator,
+        );
+        errdefer bitcode_arena_allocator.deinit();
 
-        if (std.debug.runtime_safety and !try self.builder.verify()) {
-            @panic("LLVM module verification failed");
+        const bitcode = try self.builder.toBitcode(
+            bitcode_arena_allocator.allocator(),
+        );
+
+        if (options.pre_bc_path) |path| {
+            var file = try std.fs.cwd().createFile(path, .{});
+            defer file.close();
+
+            const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
+            try file.writeAll(ptr[0..(bitcode.len * 4)]);
         }
 
         const emit_asm_msg = options.asm_path orelse "(none)";
@@ -1161,15 +1203,6 @@ pub const Object = struct {
 
         if (options.asm_path == null and options.bin_path == null and
             options.post_ir_path == null and options.post_bc_path == null) return;
-
-        var bitcode_arena_allocator = std.heap.ArenaAllocator.init(
-            std.heap.page_allocator,
-        );
-        errdefer bitcode_arena_allocator.deinit();
-
-        const bitcode = try self.builder.toBitcode(
-            bitcode_arena_allocator.allocator(),
-        );
 
         if (options.post_bc_path) |path| {
             var file = try std.fs.cwd().createFileZ(path, .{});
@@ -1184,7 +1217,7 @@ pub const Object = struct {
             return error.FailedToEmit;
         }
 
-        Builder.initializeLLVMTarget(self.module.comp.root_mod.resolved_target.result.cpu.arch);
+        initializeLLVMTarget(self.module.comp.root_mod.resolved_target.result.cpu.arch);
 
         const context: *llvm.Context = llvm.Context.create();
         defer context.dispose();
@@ -3077,26 +3110,6 @@ pub const Object = struct {
     }
 
     fn lowerType(o: *Object, t: Type) Allocator.Error!Builder.Type {
-        const ty = try o.lowerTypeInner(t);
-        const mod = o.module;
-        if (std.debug.runtime_safety and o.builder.useLibLlvm() and false) check: {
-            const llvm_ty = ty.toLlvm(&o.builder);
-            if (t.zigTypeTag(mod) == .Opaque) break :check;
-            if (!t.hasRuntimeBits(mod)) break :check;
-            if (!try ty.isSized(&o.builder)) break :check;
-
-            const zig_size = t.abiSize(mod);
-            const llvm_size = o.target_data.abiSizeOfType(llvm_ty);
-            if (llvm_size != zig_size) {
-                log.err("when lowering {}, Zig ABI size = {d} but LLVM ABI size = {d}", .{
-                    t.fmt(o.module), zig_size, llvm_size,
-                });
-            }
-        }
-        return ty;
-    }
-
-    fn lowerTypeInner(o: *Object, t: Type) Allocator.Error!Builder.Type {
         const mod = o.module;
         const target = mod.getTarget();
         const ip = &mod.intern_pool;
@@ -11751,4 +11764,196 @@ fn constraintAllowsRegister(constraint: []const u8) bool {
             else => return true,
         }
     } else return false;
+}
+
+pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
+    switch (arch) {
+        .aarch64, .aarch64_be, .aarch64_32 => {
+            llvm.LLVMInitializeAArch64Target();
+            llvm.LLVMInitializeAArch64TargetInfo();
+            llvm.LLVMInitializeAArch64TargetMC();
+            llvm.LLVMInitializeAArch64AsmPrinter();
+            llvm.LLVMInitializeAArch64AsmParser();
+        },
+        .amdgcn => {
+            llvm.LLVMInitializeAMDGPUTarget();
+            llvm.LLVMInitializeAMDGPUTargetInfo();
+            llvm.LLVMInitializeAMDGPUTargetMC();
+            llvm.LLVMInitializeAMDGPUAsmPrinter();
+            llvm.LLVMInitializeAMDGPUAsmParser();
+        },
+        .thumb, .thumbeb, .arm, .armeb => {
+            llvm.LLVMInitializeARMTarget();
+            llvm.LLVMInitializeARMTargetInfo();
+            llvm.LLVMInitializeARMTargetMC();
+            llvm.LLVMInitializeARMAsmPrinter();
+            llvm.LLVMInitializeARMAsmParser();
+        },
+        .avr => {
+            llvm.LLVMInitializeAVRTarget();
+            llvm.LLVMInitializeAVRTargetInfo();
+            llvm.LLVMInitializeAVRTargetMC();
+            llvm.LLVMInitializeAVRAsmPrinter();
+            llvm.LLVMInitializeAVRAsmParser();
+        },
+        .bpfel, .bpfeb => {
+            llvm.LLVMInitializeBPFTarget();
+            llvm.LLVMInitializeBPFTargetInfo();
+            llvm.LLVMInitializeBPFTargetMC();
+            llvm.LLVMInitializeBPFAsmPrinter();
+            llvm.LLVMInitializeBPFAsmParser();
+        },
+        .hexagon => {
+            llvm.LLVMInitializeHexagonTarget();
+            llvm.LLVMInitializeHexagonTargetInfo();
+            llvm.LLVMInitializeHexagonTargetMC();
+            llvm.LLVMInitializeHexagonAsmPrinter();
+            llvm.LLVMInitializeHexagonAsmParser();
+        },
+        .lanai => {
+            llvm.LLVMInitializeLanaiTarget();
+            llvm.LLVMInitializeLanaiTargetInfo();
+            llvm.LLVMInitializeLanaiTargetMC();
+            llvm.LLVMInitializeLanaiAsmPrinter();
+            llvm.LLVMInitializeLanaiAsmParser();
+        },
+        .mips, .mipsel, .mips64, .mips64el => {
+            llvm.LLVMInitializeMipsTarget();
+            llvm.LLVMInitializeMipsTargetInfo();
+            llvm.LLVMInitializeMipsTargetMC();
+            llvm.LLVMInitializeMipsAsmPrinter();
+            llvm.LLVMInitializeMipsAsmParser();
+        },
+        .msp430 => {
+            llvm.LLVMInitializeMSP430Target();
+            llvm.LLVMInitializeMSP430TargetInfo();
+            llvm.LLVMInitializeMSP430TargetMC();
+            llvm.LLVMInitializeMSP430AsmPrinter();
+            llvm.LLVMInitializeMSP430AsmParser();
+        },
+        .nvptx, .nvptx64 => {
+            llvm.LLVMInitializeNVPTXTarget();
+            llvm.LLVMInitializeNVPTXTargetInfo();
+            llvm.LLVMInitializeNVPTXTargetMC();
+            llvm.LLVMInitializeNVPTXAsmPrinter();
+            // There is no LLVMInitializeNVPTXAsmParser function available.
+        },
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
+            llvm.LLVMInitializePowerPCTarget();
+            llvm.LLVMInitializePowerPCTargetInfo();
+            llvm.LLVMInitializePowerPCTargetMC();
+            llvm.LLVMInitializePowerPCAsmPrinter();
+            llvm.LLVMInitializePowerPCAsmParser();
+        },
+        .riscv32, .riscv64 => {
+            llvm.LLVMInitializeRISCVTarget();
+            llvm.LLVMInitializeRISCVTargetInfo();
+            llvm.LLVMInitializeRISCVTargetMC();
+            llvm.LLVMInitializeRISCVAsmPrinter();
+            llvm.LLVMInitializeRISCVAsmParser();
+        },
+        .sparc, .sparc64, .sparcel => {
+            llvm.LLVMInitializeSparcTarget();
+            llvm.LLVMInitializeSparcTargetInfo();
+            llvm.LLVMInitializeSparcTargetMC();
+            llvm.LLVMInitializeSparcAsmPrinter();
+            llvm.LLVMInitializeSparcAsmParser();
+        },
+        .s390x => {
+            llvm.LLVMInitializeSystemZTarget();
+            llvm.LLVMInitializeSystemZTargetInfo();
+            llvm.LLVMInitializeSystemZTargetMC();
+            llvm.LLVMInitializeSystemZAsmPrinter();
+            llvm.LLVMInitializeSystemZAsmParser();
+        },
+        .wasm32, .wasm64 => {
+            llvm.LLVMInitializeWebAssemblyTarget();
+            llvm.LLVMInitializeWebAssemblyTargetInfo();
+            llvm.LLVMInitializeWebAssemblyTargetMC();
+            llvm.LLVMInitializeWebAssemblyAsmPrinter();
+            llvm.LLVMInitializeWebAssemblyAsmParser();
+        },
+        .x86, .x86_64 => {
+            llvm.LLVMInitializeX86Target();
+            llvm.LLVMInitializeX86TargetInfo();
+            llvm.LLVMInitializeX86TargetMC();
+            llvm.LLVMInitializeX86AsmPrinter();
+            llvm.LLVMInitializeX86AsmParser();
+        },
+        .xtensa => {
+            if (build_options.llvm_has_xtensa) {
+                llvm.LLVMInitializeXtensaTarget();
+                llvm.LLVMInitializeXtensaTargetInfo();
+                llvm.LLVMInitializeXtensaTargetMC();
+                // There is no LLVMInitializeXtensaAsmPrinter function.
+                llvm.LLVMInitializeXtensaAsmParser();
+            }
+        },
+        .xcore => {
+            llvm.LLVMInitializeXCoreTarget();
+            llvm.LLVMInitializeXCoreTargetInfo();
+            llvm.LLVMInitializeXCoreTargetMC();
+            llvm.LLVMInitializeXCoreAsmPrinter();
+            // There is no LLVMInitializeXCoreAsmParser function.
+        },
+        .m68k => {
+            if (build_options.llvm_has_m68k) {
+                llvm.LLVMInitializeM68kTarget();
+                llvm.LLVMInitializeM68kTargetInfo();
+                llvm.LLVMInitializeM68kTargetMC();
+                llvm.LLVMInitializeM68kAsmPrinter();
+                llvm.LLVMInitializeM68kAsmParser();
+            }
+        },
+        .csky => {
+            if (build_options.llvm_has_csky) {
+                llvm.LLVMInitializeCSKYTarget();
+                llvm.LLVMInitializeCSKYTargetInfo();
+                llvm.LLVMInitializeCSKYTargetMC();
+                // There is no LLVMInitializeCSKYAsmPrinter function.
+                llvm.LLVMInitializeCSKYAsmParser();
+            }
+        },
+        .ve => {
+            llvm.LLVMInitializeVETarget();
+            llvm.LLVMInitializeVETargetInfo();
+            llvm.LLVMInitializeVETargetMC();
+            llvm.LLVMInitializeVEAsmPrinter();
+            llvm.LLVMInitializeVEAsmParser();
+        },
+        .arc => {
+            if (build_options.llvm_has_arc) {
+                llvm.LLVMInitializeARCTarget();
+                llvm.LLVMInitializeARCTargetInfo();
+                llvm.LLVMInitializeARCTargetMC();
+                llvm.LLVMInitializeARCAsmPrinter();
+                // There is no LLVMInitializeARCAsmParser function.
+            }
+        },
+
+        // LLVM backends that have no initialization functions.
+        .tce,
+        .tcele,
+        .r600,
+        .le32,
+        .le64,
+        .amdil,
+        .amdil64,
+        .hsail,
+        .hsail64,
+        .shave,
+        .spir,
+        .spir64,
+        .kalimba,
+        .renderscript32,
+        .renderscript64,
+        .dxil,
+        .loongarch32,
+        .loongarch64,
+        => {},
+
+        .spu_2 => unreachable, // LLVM does not support this backend
+        .spirv32 => unreachable, // LLVM does not support this backend
+        .spirv64 => unreachable, // LLVM does not support this backend
+    }
 }
