@@ -438,6 +438,10 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
+            .aarch64 => aarch64.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -1547,6 +1551,61 @@ const x86_64 = struct {
     const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
     const Immediate = bits.Immediate;
     const Instruction = encoder.Instruction;
+};
+
+const aarch64 = struct {
+    fn scanReloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        symbol: *Symbol,
+        code: ?[]const u8,
+        it: *RelocsIterator,
+    ) !void {
+        _ = code;
+        _ = it;
+
+        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+        switch (r_type) {
+            .ABS64 => {
+                try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
+            },
+
+            .ADR_PREL_PG_HI21 => {
+                try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file);
+            },
+
+            .ADR_GOT_PAGE => {
+                // TODO: relax if possible
+                symbol.flags.needs_got = true;
+            },
+
+            .LD64_GOT_LO12_NC,
+            .LD64_GOTPAGE_LO15,
+            => {
+                symbol.flags.needs_got = true;
+            },
+
+            .CALL26,
+            .JUMP26,
+            => {
+                if (symbol.flags.import) {
+                    symbol.flags.needs_plt = true;
+                }
+            },
+
+            .ADD_ABS_LO12_NC,
+            .ADR_PREL_LO21,
+            .LDST8_ABS_LO12_NC,
+            .LDST16_ABS_LO12_NC,
+            .LDST32_ABS_LO12_NC,
+            .LDST64_ABS_LO12_NC,
+            .LDST128_ABS_LO12_NC,
+            => {},
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
 };
 
 const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64, i64 };
