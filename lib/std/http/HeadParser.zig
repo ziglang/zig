@@ -1,3 +1,5 @@
+//! Finds the end of an HTTP head in a stream.
+
 state: State = .start,
 
 pub const State = enum {
@@ -17,13 +19,12 @@ pub const State = enum {
 /// `bytes[result]`.
 pub fn feed(p: *HeadParser, bytes: []const u8) usize {
     const vector_len: comptime_int = @max(std.simd.suggestVectorLength(u8) orelse 1, 8);
-    const len: u32 = @intCast(bytes.len);
-    var index: u32 = 0;
+    var index: usize = 0;
 
     while (true) {
         switch (p.state) {
             .finished => return index,
-            .start => switch (len - index) {
+            .start => switch (bytes.len - index) {
                 0 => return index,
                 1 => {
                     switch (bytes[index]) {
@@ -218,7 +219,7 @@ pub fn feed(p: *HeadParser, bytes: []const u8) usize {
                     continue;
                 },
             },
-            .seen_n => switch (len - index) {
+            .seen_n => switch (bytes.len - index) {
                 0 => return index,
                 else => {
                     switch (bytes[index]) {
@@ -230,7 +231,7 @@ pub fn feed(p: *HeadParser, bytes: []const u8) usize {
                     continue;
                 },
             },
-            .seen_r => switch (len - index) {
+            .seen_r => switch (bytes.len - index) {
                 0 => return index,
                 1 => {
                     switch (bytes[index]) {
@@ -286,7 +287,7 @@ pub fn feed(p: *HeadParser, bytes: []const u8) usize {
                     continue;
                 },
             },
-            .seen_rn => switch (len - index) {
+            .seen_rn => switch (bytes.len - index) {
                 0 => return index,
                 1 => {
                     switch (bytes[index]) {
@@ -317,7 +318,7 @@ pub fn feed(p: *HeadParser, bytes: []const u8) usize {
                     continue;
                 },
             },
-            .seen_rnr => switch (len - index) {
+            .seen_rnr => switch (bytes.len - index) {
                 0 => return index,
                 else => {
                     switch (bytes[index]) {

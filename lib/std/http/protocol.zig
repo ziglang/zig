@@ -97,85 +97,32 @@ pub const HeadersParser = struct {
         return @intCast(result);
     }
 
-    /// Returns the number of bytes consumed by the chunk size. This is always
-    /// less than or equal to `bytes.len`.
-    /// You should check `r.state == .chunk_data` after this to check if the
-    /// chunk size has been fully parsed.
-    ///
-    /// If the amount returned is less than `bytes.len`, you may assume that
-    /// the parser is in the `chunk_data` state and that the first byte of the
-    /// chunk is at `bytes[result]`.
     pub fn findChunkedLen(r: *HeadersParser, bytes: []const u8) u32 {
-        const len = @as(u32, @intCast(bytes.len));
-
-        for (bytes[0..], 0..) |c, i| {
-            const index = @as(u32, @intCast(i));
-            switch (r.state) {
-                .chunk_data_suffix => switch (c) {
-                    '\r' => r.state = .chunk_data_suffix_r,
-                    '\n' => r.state = .chunk_head_size,
-                    else => {
-                        r.state = .invalid;
-                        return index;
-                    },
-                },
-                .chunk_data_suffix_r => switch (c) {
-                    '\n' => r.state = .chunk_head_size,
-                    else => {
-                        r.state = .invalid;
-                        return index;
-                    },
-                },
-                .chunk_head_size => {
-                    const digit = switch (c) {
-                        '0'...'9' => |b| b - '0',
-                        'A'...'Z' => |b| b - 'A' + 10,
-                        'a'...'z' => |b| b - 'a' + 10,
-                        '\r' => {
-                            r.state = .chunk_head_r;
-                            continue;
-                        },
-                        '\n' => {
-                            r.state = .chunk_data;
-                            return index + 1;
-                        },
-                        else => {
-                            r.state = .chunk_head_ext;
-                            continue;
-                        },
-                    };
-
-                    const new_len = r.next_chunk_length *% 16 +% digit;
-                    if (new_len <= r.next_chunk_length and r.next_chunk_length != 0) {
-                        r.state = .invalid;
-                        return index;
-                    }
-
-                    r.next_chunk_length = new_len;
-                },
-                .chunk_head_ext => switch (c) {
-                    '\r' => r.state = .chunk_head_r,
-                    '\n' => {
-                        r.state = .chunk_data;
-                        return index + 1;
-                    },
-                    else => continue,
-                },
-                .chunk_head_r => switch (c) {
-                    '\n' => {
-                        r.state = .chunk_data;
-                        return index + 1;
-                    },
-                    else => {
-                        r.state = .invalid;
-                        return index;
-                    },
-                },
+        var cp: std.http.ChunkParser = .{
+            .state = switch (r.state) {
+                .chunk_head_size => .head_size,
+                .chunk_head_ext => .head_ext,
+                .chunk_head_r => .head_r,
+                .chunk_data => .data,
+                .chunk_data_suffix => .data_suffix,
+                .chunk_data_suffix_r => .data_suffix_r,
+                .invalid => .invalid,
                 else => unreachable,
-            }
-        }
-
-        return len;
+            },
+            .chunk_len = r.next_chunk_length,
+        };
+        const result = cp.feed(bytes);
+        r.state = switch (cp.state) {
+            .head_size => .chunk_head_size,
+            .head_ext => .chunk_head_ext,
+            .head_r => .chunk_head_r,
+            .data => .chunk_data,
+            .data_suffix => .chunk_data_suffix,
+            .data_suffix_r => .chunk_data_suffix_r,
+            .invalid => .invalid,
+        };
+        r.next_chunk_length = cp.chunk_len;
+        return @intCast(result);
     }
 
     /// Returns whether or not the parser has finished parsing a complete
@@ -463,41 +410,6 @@ const MockBufferedConnection = struct {
         return Writer{ .context = conn };
     }
 };
-
-test "HeadersParser.findChunkedLen" {
-    var r: HeadersParser = undefined;
-    const data = "Ff\r\nf0f000 ; ext\n0\r\nffffffffffffffffffffffffffffffffffffffff\r\n";
-
-    r = HeadersParser.init(&.{});
-    r.state = .chunk_head_size;
-    r.next_chunk_length = 0;
-
-    const first = r.findChunkedLen(data[0..]);
-    try testing.expectEqual(@as(u32, 4), first);
-    try testing.expectEqual(@as(u64, 0xff), r.next_chunk_length);
-    try testing.expectEqual(State.chunk_data, r.state);
-    r.state = .chunk_head_size;
-    r.next_chunk_length = 0;
-
-    const second = r.findChunkedLen(data[first..]);
-    try testing.expectEqual(@as(u32, 13), second);
-    try testing.expectEqual(@as(u64, 0xf0f000), r.next_chunk_length);
-    try testing.expectEqual(State.chunk_data, r.state);
-    r.state = .chunk_head_size;
-    r.next_chunk_length = 0;
-
-    const third = r.findChunkedLen(data[first + second ..]);
-    try testing.expectEqual(@as(u32, 3), third);
-    try testing.expectEqual(@as(u64, 0), r.next_chunk_length);
-    try testing.expectEqual(State.chunk_data, r.state);
-    r.state = .chunk_head_size;
-    r.next_chunk_length = 0;
-
-    const fourth = r.findChunkedLen(data[first + second + third ..]);
-    try testing.expectEqual(@as(u32, 16), fourth);
-    try testing.expectEqual(@as(u64, 0xffffffffffffffff), r.next_chunk_length);
-    try testing.expectEqual(State.invalid, r.state);
-}
 
 test "HeadersParser.read length" {
     // mock BufferedConnection for read

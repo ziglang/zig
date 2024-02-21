@@ -4,6 +4,7 @@ pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
 pub const protocol = @import("http/protocol.zig");
 pub const HeadParser = @import("http/HeadParser.zig");
+pub const ChunkParser = @import("http/ChunkParser.zig");
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -313,5 +314,6 @@ test {
     _ = Server;
     _ = Status;
     _ = HeadParser;
+    _ = ChunkParser;
     _ = @import("http/test.zig");
 }

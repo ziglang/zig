@@ -164,7 +164,7 @@ test "HTTP server handles a chunked transfer coding request" {
 
     const stream = try std.net.tcpConnectToHost(allocator, "127.0.0.1", server_port);
     defer stream.close();
-    _ = try stream.writeAll(request_bytes[0..]);
+    try stream.writeAll(request_bytes);
 
     server_thread.join();
 }

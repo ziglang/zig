@@ -1,4 +1,5 @@
 //! Blocking HTTP server implementation.
+//! Handles a single connection's lifecycle.
 
 connection: net.Server.Connection,
 /// Keeps track of whether the Server is ready to accept a new request on the
@@ -62,20 +63,19 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
     // In case of a reused connection, move the next request's bytes to the
     // beginning of the buffer.
     if (s.next_request_start > 0) {
-        if (s.read_buffer_len > s.next_request_start) {
-            const leftover = s.read_buffer[s.next_request_start..s.read_buffer_len];
-            const dest = s.read_buffer[0..leftover.len];
-            if (leftover.len <= s.next_request_start) {
-                @memcpy(dest, leftover);
-            } else {
-                mem.copyBackwards(u8, dest, leftover);
-            }
-            s.read_buffer_len = leftover.len;
-        }
+        if (s.read_buffer_len > s.next_request_start) rebase(s, 0);
         s.next_request_start = 0;
     }
 
     var hp: http.HeadParser = .{};
+
+    if (s.read_buffer_len > 0) {
+        const bytes = s.read_buffer[0..s.read_buffer_len];
+        const end = hp.feed(bytes);
+        if (hp.state == .finished)
+            return finishReceivingHead(s, end);
+    }
+
     while (true) {
         const buf = s.read_buffer[s.read_buffer_len..];
         if (buf.len == 0)
@@ -85,14 +85,19 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
         s.read_buffer_len += read_n;
         const bytes = buf[0..read_n];
         const end = hp.feed(bytes);
-        if (hp.state == .finished) return .{
-            .server = s,
-            .head_end = end,
-            .head = Request.Head.parse(s.read_buffer[0..end]) catch
-                return error.HttpHeadersInvalid,
-            .reader_state = undefined,
-        };
+        if (hp.state == .finished)
+            return finishReceivingHead(s, s.read_buffer_len - bytes.len + end);
     }
+}
+
+fn finishReceivingHead(s: *Server, head_end: usize) ReceiveHeadError!Request {
+    return .{
+        .server = s,
+        .head_end = head_end,
+        .head = Request.Head.parse(s.read_buffer[0..head_end]) catch
+            return error.HttpHeadersInvalid,
+        .reader_state = undefined,
+    };
 }
 
 pub const Request = struct {
@@ -102,6 +107,7 @@ pub const Request = struct {
     head: Head,
     reader_state: union {
         remaining_content_length: u64,
+        chunk_parser: http.ChunkParser,
     },
 
     pub const Compression = union(enum) {
@@ -416,51 +422,130 @@ pub const Request = struct {
         };
     }
 
-    pub const ReadError = net.Stream.ReadError;
+    pub const ReadError = net.Stream.ReadError || error{ HttpChunkInvalid, HttpHeadersOversize };
 
     fn read_cl(context: *const anyopaque, buffer: []u8) ReadError!usize {
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
         const s = request.server;
         assert(s.state == .receiving_body);
-
         const remaining_content_length = &request.reader_state.remaining_content_length;
-
         if (remaining_content_length.* == 0) {
             s.state = .ready;
             return 0;
         }
-
-        const available_bytes = s.read_buffer_len - request.head_end;
-        if (available_bytes == 0)
-            s.read_buffer_len += try s.connection.stream.read(s.read_buffer[request.head_end..]);
-
-        const available_buf = s.read_buffer[request.head_end..s.read_buffer_len];
-        const len = @min(remaining_content_length.*, available_buf.len, buffer.len);
-        @memcpy(buffer[0..len], available_buf[0..len]);
+        const available = try fill(s, request.head_end);
+        const len = @min(remaining_content_length.*, available.len, buffer.len);
+        @memcpy(buffer[0..len], available[0..len]);
         remaining_content_length.* -= len;
+        s.next_request_start += len;
         if (remaining_content_length.* == 0)
             s.state = .ready;
         return len;
+    }
+
+    fn fill(s: *Server, head_end: usize) ReadError![]u8 {
+        const available = s.read_buffer[s.next_request_start..s.read_buffer_len];
+        if (available.len > 0) return available;
+        s.next_request_start = head_end;
+        s.read_buffer_len = head_end + try s.connection.stream.read(s.read_buffer[head_end..]);
+        return s.read_buffer[head_end..s.read_buffer_len];
     }
 
     fn read_chunked(context: *const anyopaque, buffer: []u8) ReadError!usize {
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
         const s = request.server;
         assert(s.state == .receiving_body);
-        _ = buffer;
-        @panic("TODO");
-    }
 
-    pub const ReadAllError = ReadError || error{HttpBodyOversize};
+        const cp = &request.reader_state.chunk_parser;
+        const head_end = request.head_end;
+
+        // Protect against returning 0 before the end of stream.
+        var out_end: usize = 0;
+        while (out_end == 0) {
+            switch (cp.state) {
+                .invalid => return 0,
+                .data => {
+                    const available = try fill(s, head_end);
+                    const len = @min(cp.chunk_len, available.len, buffer.len);
+                    @memcpy(buffer[0..len], available[0..len]);
+                    cp.chunk_len -= len;
+                    if (cp.chunk_len == 0)
+                        cp.state = .data_suffix;
+                    out_end += len;
+                    s.next_request_start += len;
+                    continue;
+                },
+                else => {
+                    const available = try fill(s, head_end);
+                    const n = cp.feed(available);
+                    switch (cp.state) {
+                        .invalid => return error.HttpChunkInvalid,
+                        .data => {
+                            if (cp.chunk_len == 0) {
+                                // The next bytes in the stream are trailers,
+                                // or \r\n to indicate end of chunked body.
+                                //
+                                // This function must append the trailers at
+                                // head_end so that headers and trailers are
+                                // together.
+                                //
+                                // Since returning 0 would indicate end of
+                                // stream, this function must read all the
+                                // trailers before returning.
+                                if (s.next_request_start > head_end) rebase(s, head_end);
+                                var hp: http.HeadParser = .{};
+                                {
+                                    const bytes = s.read_buffer[head_end..s.read_buffer_len];
+                                    const end = hp.feed(bytes);
+                                    if (hp.state == .finished) {
+                                        s.next_request_start = s.read_buffer_len - bytes.len + end;
+                                        return out_end;
+                                    }
+                                }
+                                while (true) {
+                                    const buf = s.read_buffer[s.read_buffer_len..];
+                                    if (buf.len == 0)
+                                        return error.HttpHeadersOversize;
+                                    const read_n = try s.connection.stream.read(buf);
+                                    s.read_buffer_len += read_n;
+                                    const bytes = buf[0..read_n];
+                                    const end = hp.feed(bytes);
+                                    if (hp.state == .finished) {
+                                        s.next_request_start = s.read_buffer_len - bytes.len + end;
+                                        return out_end;
+                                    }
+                                }
+                            }
+                            const data = available[n..];
+                            const len = @min(cp.chunk_len, data.len, buffer.len);
+                            @memcpy(buffer[0..len], data[0..len]);
+                            cp.chunk_len -= len;
+                            if (cp.chunk_len == 0)
+                                cp.state = .data_suffix;
+                            out_end += len;
+                            s.next_request_start += n + len;
+                            continue;
+                        },
+                        else => continue,
+                    }
+                },
+            }
+        }
+        return out_end;
+    }
 
     pub fn reader(request: *Request) std.io.AnyReader {
         const s = request.server;
         assert(s.state == .received_head);
         s.state = .receiving_body;
+        s.next_request_start = request.head_end;
         switch (request.head.transfer_encoding) {
-            .chunked => return .{
-                .readFn = read_chunked,
-                .context = request,
+            .chunked => {
+                request.reader_state = .{ .chunk_parser = http.ChunkParser.init };
+                return .{
+                    .readFn = read_chunked,
+                    .context = request,
+                };
             },
             .none => {
                 request.reader_state = .{
@@ -489,31 +574,8 @@ pub const Request = struct {
         const s = request.server;
         if (keep_alive and request.head.keep_alive) switch (s.state) {
             .received_head => {
-                s.state = .receiving_body;
-                switch (request.head.transfer_encoding) {
-                    .none => t: {
-                        const len = request.head.content_length orelse break :t;
-                        const head_end = request.head_end;
-                        var total_body_discarded: usize = 0;
-                        while (true) {
-                            const available_bytes = s.read_buffer_len - head_end;
-                            const remaining_len = len - total_body_discarded;
-                            if (available_bytes >= remaining_len) {
-                                s.next_request_start = head_end + remaining_len;
-                                break :t;
-                            }
-                            total_body_discarded += available_bytes;
-                            // Preserve request header memory until receiveHead is called.
-                            const buf = s.read_buffer[head_end..];
-                            const read_n = s.connection.stream.read(buf) catch return false;
-                            s.read_buffer_len = head_end + read_n;
-                        }
-                    },
-                    .chunked => {
-                        @panic("TODO");
-                    },
-                }
-                s.state = .ready;
+                _ = request.reader().discard() catch return false;
+                assert(s.state == .ready);
                 return true;
             },
             .receiving_body, .ready => return true,
@@ -798,6 +860,17 @@ pub const Response = struct {
         };
     }
 };
+
+fn rebase(s: *Server, index: usize) void {
+    const leftover = s.read_buffer[s.next_request_start..s.read_buffer_len];
+    const dest = s.read_buffer[index..][0..leftover.len];
+    if (leftover.len <= s.next_request_start - index) {
+        @memcpy(dest, leftover);
+    } else {
+        mem.copyBackwards(u8, dest, leftover);
+    }
+    s.read_buffer_len = index + leftover.len;
+}
 
 const std = @import("../std.zig");
 const http = std.http;
