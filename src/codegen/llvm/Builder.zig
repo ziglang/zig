@@ -4264,7 +4264,7 @@ pub const Function = struct {
                     => wip.builder.structTypeAssumeCapacity(.normal, &.{
                         wip.extraData(CmpXchg, instruction.data).cmp.typeOfWip(wip),
                         .i1,
-                    }) catch unreachable,
+                    }),
                     .extractelement => wip.extraData(ExtractElement, instruction.data)
                         .val.typeOfWip(wip).childType(wip.builder),
                     .extractvalue => {
@@ -4451,7 +4451,7 @@ pub const Function = struct {
                         function.extraData(CmpXchg, instruction.data)
                             .cmp.typeOf(function_index, builder),
                         .i1,
-                    }) catch unreachable,
+                    }),
                     .extractelement => function.extraData(ExtractElement, instruction.data)
                         .val.typeOf(function_index, builder).childType(builder),
                     .extractvalue => {
@@ -4838,6 +4838,44 @@ pub const DebugLocation = struct {
     column: u32,
     scope: Metadata,
     inlined_at: Metadata,
+};
+
+pub const DIFlags = opaque {
+    pub const Zero = 0;
+    pub const Private = 1;
+    pub const Protected = 2;
+    pub const Public = 3;
+
+    pub const FwdDecl = 1 << 2;
+    pub const AppleBlock = 1 << 3;
+    pub const BlockByrefStruct = 1 << 4;
+    pub const Virtual = 1 << 5;
+    pub const Artificial = 1 << 6;
+    pub const Explicit = 1 << 7;
+    pub const Prototyped = 1 << 8;
+    pub const ObjcClassComplete = 1 << 9;
+    pub const ObjectPointer = 1 << 10;
+    pub const Vector = 1 << 11;
+    pub const StaticMember = 1 << 12;
+    pub const LValueReference = 1 << 13;
+    pub const RValueReference = 1 << 14;
+    pub const Reserved = 1 << 15;
+
+    pub const SingleInheritance = 1 << 16;
+    pub const MultipleInheritance = 2 << 16;
+    pub const VirtualInheritance = 3 << 16;
+
+    pub const IntroducedVirtual = 1 << 18;
+    pub const BitField = 1 << 19;
+    pub const NoReturn = 1 << 20;
+    pub const TypePassByValue = 1 << 22;
+    pub const TypePassByReference = 1 << 23;
+    pub const EnumClass = 1 << 24;
+    pub const Thunk = 1 << 25;
+    pub const NonTrivial = 1 << 26;
+    pub const BigEndian = 1 << 27;
+    pub const LittleEndian = 1 << 28;
+    pub const AllCallsDescribed = 1 << 29;
 };
 
 pub const WipFunction = struct {
@@ -5610,7 +5648,7 @@ pub const WipFunction = struct {
             vals: []const Value,
             blocks: []const Block.Index,
             wip: *WipFunction,
-        ) (if (build_options.have_llvm) Allocator.Error else error{})!void {
+        ) void {
             const incoming_len = self.block.ptrConst(wip).incoming;
             assert(vals.len == incoming_len and blocks.len == incoming_len);
             const instruction = wip.instructions.get(@intFromEnum(self.instruction));
@@ -8007,7 +8045,7 @@ pub fn namedTypeSetBody(
     self: *Builder,
     named_type: Type,
     body_type: Type,
-) (if (build_options.have_llvm) Allocator.Error else error{})!void {
+) void {
     const named_item = self.type_items.items[@intFromEnum(named_type)];
     self.type_extra.items[named_item.data + std.meta.fieldIndex(Type.NamedStructure, "body").?] =
         @intFromEnum(body_type);
@@ -9372,7 +9410,7 @@ fn fnTypeAssumeCapacity(
     ret: Type,
     params: []const Type,
     comptime kind: Type.Function.Kind,
-) (if (build_options.have_llvm) Allocator.Error else error{})!Type {
+) Type {
     const tag: Type.Tag = switch (kind) {
         .normal => .function,
         .vararg => .vararg_function,
@@ -9528,7 +9566,7 @@ fn structTypeAssumeCapacity(
     self: *Builder,
     comptime kind: Type.Structure.Kind,
     fields: []const Type,
-) (if (build_options.have_llvm) Allocator.Error else error{})!Type {
+) Type {
     const tag: Type.Tag = switch (kind) {
         .normal => .structure,
         .@"packed" => .packed_structure,
@@ -9739,10 +9777,7 @@ fn bigIntConstAssumeCapacity(
     assert(type_item.tag == .integer);
     const bits = type_item.data;
 
-    const ExpectedContents = extern struct {
-        limbs: [64 / @sizeOf(std.math.big.Limb)]std.math.big.Limb,
-        llvm_limbs: if (build_options.have_llvm) [64 / @sizeOf(u64)]u64 else void,
-    };
+    const ExpectedContents = [64 / @sizeOf(std.math.big.Limb)]std.math.big.Limb;
     var stack align(@alignOf(ExpectedContents)) =
         std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
     const allocator = stack.get();
@@ -9973,11 +10008,7 @@ fn noneConstAssumeCapacity(self: *Builder, ty: Type) Constant {
     return result.constant;
 }
 
-fn structConstAssumeCapacity(
-    self: *Builder,
-    ty: Type,
-    vals: []const Constant,
-) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
+fn structConstAssumeCapacity(self: *Builder, ty: Type, vals: []const Constant) Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     var extra = self.typeExtraDataTrail(Type.Structure, switch (type_item.tag) {
         .structure, .packed_structure => type_item.data,
@@ -10007,11 +10038,7 @@ fn structConstAssumeCapacity(
     return result.constant;
 }
 
-fn arrayConstAssumeCapacity(
-    self: *Builder,
-    ty: Type,
-    vals: []const Constant,
-) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
+fn arrayConstAssumeCapacity(self: *Builder, ty: Type, vals: []const Constant) Constant {
     const type_item = self.type_items.items[@intFromEnum(ty)];
     const type_extra: struct { len: u64, child: Type } = switch (type_item.tag) {
         inline .small_array, .array => |kind| extra: {
@@ -10055,11 +10082,7 @@ fn stringNullConstAssumeCapacity(self: *Builder, val: String) Constant {
     return result.constant;
 }
 
-fn vectorConstAssumeCapacity(
-    self: *Builder,
-    ty: Type,
-    vals: []const Constant,
-) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
+fn vectorConstAssumeCapacity(self: *Builder, ty: Type, vals: []const Constant) Constant {
     assert(ty.isVector(self));
     assert(ty.vectorLen(self) == vals.len);
     for (vals) |val| assert(ty.childType(self) == val.typeOf(self));
@@ -10075,11 +10098,7 @@ fn vectorConstAssumeCapacity(
     return result.constant;
 }
 
-fn splatConstAssumeCapacity(
-    self: *Builder,
-    ty: Type,
-    val: Constant,
-) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
+fn splatConstAssumeCapacity(self: *Builder, ty: Type, val: Constant) Constant {
     assert(ty.scalarType(self) == val.typeOf(self));
 
     if (!ty.isVector(self)) return val;
@@ -10327,7 +10346,7 @@ fn gepConstAssumeCapacity(
     base: Constant,
     inrange: ?u16,
     indices: []const Constant,
-) (if (build_options.have_llvm) Allocator.Error else error{})!Constant {
+) Constant {
     const tag: Constant.Tag = switch (kind) {
         .normal => .getelementptr,
         .inbounds => .@"getelementptr inbounds",

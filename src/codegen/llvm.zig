@@ -1212,7 +1212,7 @@ pub const Object = struct {
             try file.writeAll(ptr[0..(bitcode.len * 4)]);
         }
 
-        if (!self.module.comp.config.use_lib_llvm) {
+        if (!build_options.have_llvm or !self.module.comp.config.use_lib_llvm) {
             log.err("emitting without libllvm not implemented", .{});
             return error.FailedToEmit;
         }
@@ -1647,7 +1647,7 @@ pub const Object = struct {
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
                 !zcu.decl_exports.contains(decl_index);
             const noret_bit: u29 = if (fn_info.return_type == .noreturn_type)
-                llvm.DIFlags.NoReturn
+                Builder.DIFlags.NoReturn
             else
                 0;
             const debug_decl_type = try o.lowerDebugType(decl.ty);
@@ -1663,7 +1663,7 @@ pub const Object = struct {
                     .optimized = owner_mod.optimize_mode != .Debug,
                     .definition = true,
                     .local = is_internal_linkage,
-                    .debug_info_flags = llvm.DIFlags.StaticMember | noret_bit,
+                    .debug_info_flags = Builder.DIFlags.StaticMember | noret_bit,
                 },
                 o.debug_compile_unit,
             );
@@ -3372,7 +3372,7 @@ pub const Object = struct {
                     const ty = try o.builder.opaqueType(name);
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
-                    try o.builder.namedTypeSetBody(
+                    o.builder.namedTypeSetBody(
                         ty,
                         try o.builder.structType(struct_kind, llvm_field_types.items),
                     );
@@ -3483,7 +3483,7 @@ pub const Object = struct {
                         const ty = try o.builder.opaqueType(name);
                         try o.type_map.put(o.gpa, t.toIntern(), ty);
 
-                        try o.builder.namedTypeSetBody(
+                        o.builder.namedTypeSetBody(
                             ty,
                             try o.builder.structType(.normal, &.{payload_ty}),
                         );
@@ -3511,7 +3511,7 @@ pub const Object = struct {
                     const ty = try o.builder.opaqueType(name);
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
-                    try o.builder.namedTypeSetBody(
+                    o.builder.namedTypeSetBody(
                         ty,
                         try o.builder.structType(.normal, llvm_fields[0..llvm_fields_len]),
                     );
@@ -4773,7 +4773,6 @@ pub const FuncGen = struct {
 
     sync_scope: Builder.SyncScope,
 
-    const DbgState = if (build_options.have_llvm) struct { loc: *llvm.DILocation, scope: *llvm.DIScope, base_line: u32 } else struct {};
     const BreakList = union {
         list: std.MultiArrayList(struct {
             bb: Builder.Function.Block.Index,
@@ -5760,7 +5759,7 @@ pub const FuncGen = struct {
                 };
 
                 const phi = try self.wip.phi(.i1, "");
-                try phi.finish(
+                phi.finish(
                     &incoming_values,
                     &.{ both_null_block, mixed_block, both_pl_block_end },
                     &self.wip,
@@ -5827,7 +5826,7 @@ pub const FuncGen = struct {
 
             parent_bb.ptr(&self.wip).incoming = @intCast(breaks.list.len);
             const phi = try self.wip.phi(llvm_ty, "");
-            try phi.finish(breaks.list.items(.val), breaks.list.items(.bb), &self.wip);
+            phi.finish(breaks.list.items(.val), breaks.list.items(.bb), &self.wip);
             return phi.toValue();
         } else {
             parent_bb.ptr(&self.wip).incoming = @intCast(breaks.len);
@@ -6615,7 +6614,7 @@ pub const FuncGen = struct {
                 .optimized = owner_mod.optimize_mode != .Debug,
                 .local = is_internal_linkage,
                 .definition = true,
-                .debug_info_flags = llvm.DIFlags.StaticMember,
+                .debug_info_flags = Builder.DIFlags.StaticMember,
             },
             o.debug_compile_unit,
         );
@@ -9350,7 +9349,7 @@ pub const FuncGen = struct {
         _ = try self.wip.br(loop_block);
 
         self.wip.cursor = .{ .block = end_block };
-        try it_ptr.finish(&.{ next_ptr, dest_ptr }, &.{ body_block, entry_block }, &self.wip);
+        it_ptr.finish(&.{ next_ptr, dest_ptr }, &.{ body_block, entry_block }, &self.wip);
         return .none;
     }
 
@@ -9585,7 +9584,7 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = end_block };
         const phi = try self.wip.phi(.i1, "");
-        try phi.finish(&.{ .true, .false }, &.{ valid_block, invalid_block }, &self.wip);
+        phi.finish(&.{ .true, .false }, &.{ valid_block, invalid_block }, &self.wip);
         return phi.toValue();
     }
 
