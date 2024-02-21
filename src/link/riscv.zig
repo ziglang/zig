@@ -32,7 +32,7 @@ pub fn writeInstU(code: *[4]u8, value: u32) void {
         ), code),
     };
     const compensated: u32 = @bitCast(@as(i32, @bitCast(value)) + 0x800);
-    inst.U.imm12_31 = @truncate(bitSlice(compensated, 31, 12));
+    inst.U.imm12_31 = bitSlice(compensated, 31, 12);
     mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
@@ -43,7 +43,7 @@ pub fn writeInstI(code: *[4]u8, value: u32) void {
             Instruction.I,
         ), code),
     };
-    inst.I.imm0_11 = @truncate(bitSlice(value, 11, 0));
+    inst.I.imm0_11 = bitSlice(value, 11, 0);
     mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
@@ -54,13 +54,17 @@ pub fn writeInstS(code: *[4]u8, value: u32) void {
             Instruction.S,
         ), code),
     };
-    inst.S.imm0_4 = @truncate(bitSlice(value, 4, 0));
-    inst.S.imm5_11 = @truncate(bitSlice(value, 11, 5));
+    inst.S.imm0_4 = bitSlice(value, 4, 0);
+    inst.S.imm5_11 = bitSlice(value, 11, 5);
     mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
-fn bitSlice(value: anytype, high: std.math.Log2Int(@TypeOf(value)), low: std.math.Log2Int(@TypeOf(value))) @TypeOf(value) {
-    return (value >> low) & ((@as(@TypeOf(value), 1) << (high - low + 1)) - 1);
+fn bitSlice(
+    value: anytype,
+    comptime high: comptime_int,
+    comptime low: comptime_int,
+) std.math.IntFittingRange(0, 1 << high - low) {
+    return @truncate((value >> low) & (1 << (high - low + 1)) - 1);
 }
 
 const bits = @import("../arch/riscv64/bits.zig");
