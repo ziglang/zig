@@ -7985,7 +7985,8 @@ pub fn getTrailingAggregate(
 ) Allocator.Error!Index {
     try ip.items.ensureUnusedCapacity(gpa, 1);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
-    const str: String = @enumFromInt(@intFromEnum(try getOrPutTrailingString(ip, gpa, len)));
+
+    const str: String = @enumFromInt(ip.string_bytes.items.len - len);
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .aggregate = .{
         .ty = ty,

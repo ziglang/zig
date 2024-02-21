@@ -4400,6 +4400,7 @@ fn newEmbedFile(
     src_loc: SrcLoc,
 ) !InternPool.Index {
     const gpa = mod.gpa;
+    const ip = &mod.intern_pool;
 
     const new_file = try gpa.create(EmbedFile);
     errdefer gpa.destroy(new_file);
@@ -4414,11 +4415,11 @@ fn newEmbedFile(
         .mtime = actual_stat.mtime,
     };
     const size = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
-    const ip = &mod.intern_pool;
 
-    const ptr = try ip.string_bytes.addManyAsSlice(gpa, size);
-    const actual_read = try file.readAll(ptr);
+    const bytes = try ip.string_bytes.addManyAsSlice(gpa, try std.math.add(usize, size, 1));
+    const actual_read = try file.readAll(bytes[0..size]);
     if (actual_read != size) return error.UnexpectedEndOfFile;
+    bytes[size] = 0;
 
     const comp = mod.comp;
     switch (comp.cache_use) {
@@ -4427,7 +4428,7 @@ fn newEmbedFile(
             errdefer gpa.free(copied_resolved_path);
             whole.cache_manifest_mutex.lock();
             defer whole.cache_manifest_mutex.unlock();
-            try man.addFilePostContents(copied_resolved_path, ptr, stat);
+            try man.addFilePostContents(copied_resolved_path, bytes[0..size], stat);
         },
         .incremental => {},
     }
@@ -4437,7 +4438,7 @@ fn newEmbedFile(
         .sentinel = .zero_u8,
         .child = .u8_type,
     } });
-    const array_val = try ip.getTrailingAggregate(gpa, array_ty, size);
+    const array_val = try ip.getTrailingAggregate(gpa, array_ty, bytes.len);
 
     const ptr_ty = (try mod.ptrType(.{
         .child = array_ty,

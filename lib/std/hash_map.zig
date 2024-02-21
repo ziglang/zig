@@ -92,27 +92,24 @@ pub fn hashString(s: []const u8) u64 {
 pub const StringIndexContext = struct {
     bytes: *const std.ArrayListUnmanaged(u8),
 
-    pub fn eql(self: @This(), a: u32, b: u32) bool {
-        _ = self;
+    pub fn eql(_: @This(), a: u32, b: u32) bool {
         return a == b;
     }
 
-    pub fn hash(self: @This(), x: u32) u64 {
-        const x_slice = mem.sliceTo(@as([*:0]const u8, @ptrCast(self.bytes.items.ptr)) + x, 0);
-        return hashString(x_slice);
+    pub fn hash(ctx: @This(), key: u32) u64 {
+        return hashString(mem.sliceTo(ctx.bytes.items[key..], 0));
     }
 };
 
 pub const StringIndexAdapter = struct {
     bytes: *const std.ArrayListUnmanaged(u8),
 
-    pub fn eql(self: @This(), a_slice: []const u8, b: u32) bool {
-        const b_slice = mem.sliceTo(@as([*:0]const u8, @ptrCast(self.bytes.items.ptr)) + b, 0);
-        return mem.eql(u8, a_slice, b_slice);
+    pub fn eql(ctx: @This(), a: []const u8, b: u32) bool {
+        return mem.eql(u8, a, mem.sliceTo(ctx.bytes.items[b..], 0));
     }
 
-    pub fn hash(self: @This(), adapted_key: []const u8) u64 {
-        _ = self;
+    pub fn hash(_: @This(), adapted_key: []const u8) u64 {
+        assert(mem.indexOfScalar(u8, adapted_key, 0) == null);
         return hashString(adapted_key);
     }
 };

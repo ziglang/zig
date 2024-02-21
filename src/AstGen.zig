@@ -11461,6 +11461,10 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
     const token_bytes = astgen.tree.tokenSlice(str_lit_token);
     try astgen.parseStrLit(str_lit_token, string_bytes, token_bytes, 0);
     const key: []const u8 = string_bytes.items[str_index..];
+    if (std.mem.indexOfScalar(u8, key, 0)) |_| return .{
+        .index = @enumFromInt(str_index),
+        .len = @intCast(key.len),
+    };
     const gop = try astgen.string_table.getOrPutContextAdapted(gpa, key, StringIndexAdapter{
         .bytes = string_bytes,
     }, StringIndexContext{
@@ -11468,7 +11472,7 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
     });
     if (gop.found_existing) {
         string_bytes.shrinkRetainingCapacity(str_index);
-        return IndexSlice{
+        return .{
             .index = @enumFromInt(gop.key_ptr.*),
             .len = @intCast(key.len),
         };
@@ -11478,7 +11482,7 @@ fn strLitAsString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !IndexSlice {
         // to lookup null terminated strings, so if we get a match, it has to
         // be null terminated for that to work.
         try string_bytes.append(gpa, 0);
-        return IndexSlice{
+        return .{
             .index = @enumFromInt(str_index),
             .len = @intCast(key.len),
         };
