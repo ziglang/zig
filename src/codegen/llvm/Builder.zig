@@ -14466,19 +14466,449 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             try constants_block.end();
         }
 
+        const MetadataAdapter = struct {
+            builder: *const Builder,
+            constant_adapter: ConstantAdapter,
+
+            pub fn init(
+                builder: *const Builder,
+                const_adapter: ConstantAdapter,
+            ) @This() {
+                return .{
+                    .builder = builder,
+                    .constant_adapter = const_adapter,
+                };
+            }
+
+            pub fn get(adapter: @This(), value: anytype, comptime field_name: []const u8) @TypeOf(value) {
+                _ = field_name;
+                const Ty = @TypeOf(value);
+                return switch (Ty) {
+                    Metadata => @enumFromInt(adapter.getMetadataIndex(value)),
+                    MetadataString => @enumFromInt(adapter.getMetadataStringIndex(value)),
+                    Constant => @enumFromInt(adapter.constant_adapter.getConstantIndex(value)),
+                    else => value,
+                };
+            }
+
+            pub fn getMetadataIndex(adapter: @This(), metadata: Metadata) u32 {
+                if (metadata == .none) return 0;
+                return @intCast(adapter.builder.metadata_strings.count() +
+                    @intFromEnum(metadata.unwrap(adapter.builder)));
+            }
+
+            pub fn getMetadataStringIndex(_: @This(), metadata_string: MetadataString) u32 {
+                return @intFromEnum(metadata_string) + 1;
+            }
+        };
+
+        const metadata_adapter = MetadataAdapter.init(self, constant_adapter);
+
+        // METADATA_BLOCK
+        if (!self.strip) {
+            const MetadataBlock = IR.MetadataBlock;
+            var metadata_block = try module_block.enterSubBlock(MetadataBlock);
+
+            const MetadataBlockWriter = @TypeOf(metadata_block);
+
+            // Emit all MetadataStrings
+            {
+                const strings_offset, const strings_size = blk: {
+                    var strings_offset: u32 = 0;
+                    var strings_size: u32 = 0;
+                    for (self.metadata_strings.keys()) |metadata_string| {
+                        if (metadata_string.slice(self)) |slice| {
+                            strings_offset += bitcode.bitsVBR(@as(u32, @intCast(slice.len)), 6);
+                            strings_size += @intCast(slice.len * 8);
+                        }
+                    }
+                    break :blk .{
+                        std.mem.alignForward(u32, strings_offset, 32) / 8,
+                        std.mem.alignForward(u32, strings_size, 32) / 8,
+                    };
+                };
+
+                try bitcode.writeBits(
+                    comptime MetadataBlockWriter.abbrevId(MetadataBlock.Strings),
+                    MetadataBlockWriter.abbrev_len,
+                );
+
+                try bitcode.writeVBR(@as(u32, @intCast(self.metadata_strings.count())), 6);
+                try bitcode.writeVBR(strings_offset, 6);
+
+                try bitcode.writeVBR(strings_size + strings_offset, 6);
+
+                try bitcode.alignTo32();
+
+                for (self.metadata_strings.keys()) |metadata_string| {
+                    if (metadata_string.slice(self)) |slice|
+                        try bitcode.writeVBR(@as(u32, @intCast(slice.len)), 6);
+                }
+
+                try bitcode.alignTo32();
+
+                for (self.metadata_strings.keys()) |metadata_string| {
+                    if (metadata_string.slice(self)) |slice| {
+                        for (slice) |c| {
+                            try bitcode.writeBits(c, 8);
+                        }
+                    }
+                }
+
+                try bitcode.alignTo32();
+            }
+
+            for (1..self.metadata_items.len) |metadata_index| {
+                const tag = self.metadata_items.items(.tag)[metadata_index];
+                const data = self.metadata_items.items(.data)[metadata_index];
+                switch (tag) {
+                    .none => unreachable,
+                    .file => {
+                        const extra = self.metadataExtraData(Metadata.File, data);
+
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.File{
+                            .name = extra.name,
+                            .path = extra.path,
+                        }, metadata_adapter);
+                    },
+                    .compile_unit, .@"compile_unit optimized" => |kind| {
+                        const is_optimized = kind == .@"compile_unit optimized";
+                        const extra = self.metadataExtraData(Metadata.CompileUnit, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.CompileUnit{
+                            .file = extra.file,
+                            .producer = extra.producer,
+                            .is_optimized = is_optimized,
+                            .enums = extra.enums,
+                            .globals = extra.globals,
+                        }, metadata_adapter);
+                    },
+                    .subprogram,
+                    .@"subprogram optimized",
+                    .@"subprogram local",
+                    .@"subprogram definition",
+                    .@"subprogram optimized local",
+                    .@"subprogram optimized definition",
+                    .@"subprogram optimized local definition",
+                    .@"subprogram local definition",
+                    => |kind| {
+                        const sp_flags: u32 = switch (kind) {
+                            .subprogram => 0,
+                            .@"subprogram optimized" => 1 << 4,
+                            .@"subprogram local" => 1 << 2,
+                            .@"subprogram definition" => 1 << 3,
+                            .@"subprogram optimized local" => (1 << 4) | (1 << 2),
+                            .@"subprogram optimized definition" => (1 << 4) | (1 << 3),
+                            .@"subprogram optimized local definition" => (1 << 4) | (1 << 2) | (1 << 3),
+                            .@"subprogram local definition" => (1 << 2) | (1 << 3),
+                            else => unreachable,
+                        };
+                        const extra = self.metadataExtraData(Metadata.Subprogram, data);
+
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Subprogram{
+                            .scope = extra.file,
+                            .name = extra.name,
+                            .linkage_name = extra.linkage_name,
+                            .file = extra.file,
+                            .line = extra.line,
+                            .ty = Metadata.none, //extra.ty,
+                            .scope_line = extra.scope_line,
+                            .sp_flags = sp_flags,
+                            .flags = extra.debug_info_flags,
+                            .compile_unit = extra.compile_unit,
+                        }, metadata_adapter);
+                    },
+                    .lexical_block => {
+                        const extra = self.metadataExtraData(Metadata.LexicalBlock, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.LexicalBlock{
+                            .scope = extra.scope,
+                            .file = extra.file,
+                            .line = extra.line,
+                            .column = extra.column,
+                        }, metadata_adapter);
+                    },
+                    .location => {
+                        const extra = self.metadataExtraData(Metadata.Location, data);
+                        std.debug.assert(extra.scope != Metadata.none);
+                        try metadata_block.writeAbbrev(MetadataBlock.Location{
+                            .line = extra.line,
+                            .column = extra.column,
+                            .scope = metadata_adapter.getMetadataIndex(extra.scope) - 1,
+                            .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(extra.inlined_at)),
+                        });
+                    },
+                    .basic_bool_type,
+                    .basic_unsigned_type,
+                    .basic_signed_type,
+                    .basic_float_type,
+                    => |kind| {
+                        const extra = self.metadataExtraData(Metadata.BasicType, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.BasicType{
+                            .name = extra.name,
+                            .size_in_bits = @as(u64, extra.size_in_bits_lo) | @as(u64, extra.size_in_bits_hi) << 32,
+                            .encoding = switch (kind) {
+                                .basic_bool_type => std.dwarf.ATE.boolean,
+                                .basic_unsigned_type => std.dwarf.ATE.unsigned,
+                                .basic_signed_type => std.dwarf.ATE.signed,
+                                .basic_float_type => std.dwarf.ATE.float,
+                                else => unreachable,
+                            },
+                        }, metadata_adapter);
+                    },
+                    .composite_struct_type,
+                    .composite_union_type,
+                    .composite_enumeration_type,
+                    .composite_array_type,
+                    => |kind| {
+                        const extra = self.metadataExtraData(Metadata.CompositeType, data);
+
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.CompositeType{
+                            .tag = switch (kind) {
+                                .composite_struct_type => std.dwarf.TAG.structure_type,
+                                .composite_union_type => std.dwarf.TAG.union_type,
+                                .composite_enumeration_type => std.dwarf.TAG.enumeration_type,
+                                .composite_array_type => std.dwarf.TAG.array_type,
+                                else => unreachable,
+                            },
+                            .name = extra.name,
+                            .file = extra.file,
+                            .line = extra.line,
+                            .scope = extra.scope,
+                            .underlying_type = extra.underlying_type,
+                            .size_in_bits = @as(u64, extra.size_in_bits_lo) | @as(u64, extra.size_in_bits_hi) << 32,
+                            .align_in_bits = @as(u64, extra.align_in_bits_lo) | @as(u64, extra.align_in_bits_hi) << 32,
+                            .elements = extra.fields_tuple,
+                        }, metadata_adapter);
+                    },
+                    .derived_pointer_type,
+                    .derived_member_type,
+                    => |kind| {
+                        const extra = self.metadataExtraData(Metadata.DerivedType, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.DerivedType{
+                            .tag = switch (kind) {
+                                .derived_pointer_type => std.dwarf.TAG.pointer_type,
+                                .derived_member_type => std.dwarf.TAG.member,
+                                else => unreachable,
+                            },
+                            .name = extra.name,
+                            .file = extra.file,
+                            .line = extra.line,
+                            .scope = extra.scope,
+                            .underlying_type = extra.underlying_type,
+                            .size_in_bits = @as(u64, extra.size_in_bits_lo) | @as(u64, extra.size_in_bits_hi) << 32,
+                            .align_in_bits = @as(u64, extra.align_in_bits_lo) | @as(u64, extra.align_in_bits_hi) << 32,
+                            .offset_in_bits = @as(u64, extra.offset_in_bits_lo) | @as(u64, extra.offset_in_bits_hi) << 32,
+                        }, metadata_adapter);
+                    },
+                    .subroutine_type => {
+                        const extra = self.metadataExtraData(Metadata.SubroutineType, data);
+
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.SubroutineType{
+                            .types = extra.types_tuple,
+                        }, metadata_adapter);
+                    },
+                    .enumerator_unsigned,
+                    .enumerator_signed_positive,
+                    .enumerator_signed_negative,
+                    => |kind| {
+                        const positive = switch (kind) {
+                            .enumerator_unsigned,
+                            .enumerator_signed_positive,
+                            => true,
+                            .enumerator_signed_negative => false,
+                            else => unreachable,
+                        };
+
+                        const unsigned = switch (kind) {
+                            .enumerator_unsigned => true,
+                            .enumerator_signed_positive,
+                            .enumerator_signed_negative,
+                            => false,
+                            else => unreachable,
+                        };
+
+                        const extra = self.metadataExtraData(Metadata.Enumerator, data);
+
+                        const limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len];
+
+                        const bigint = std.math.big.int.Const{
+                            .limbs = limbs,
+                            .positive = positive,
+                        };
+
+                        if (extra.bit_width <= 64) {
+                            const val = bigint.to(i64) catch unreachable;
+                            const emit_val = if (positive)
+                                @shlWithOverflow(val, 1)[0]
+                            else
+                                (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                            try metadata_block.writeAbbrevAdapted(MetadataBlock.Enumerator{
+                                .flags = .{
+                                    .unsigned = unsigned,
+                                    .bigint = false,
+                                },
+                                .bit_width = extra.bit_width,
+                                .name = extra.name,
+                                .value = @bitCast(emit_val),
+                            }, metadata_adapter);
+                        } else {
+                            const word_count = std.mem.alignForward(u32, extra.bit_width, 64) / 64;
+                            try record.ensureUnusedCapacity(self.gpa, 3 + word_count);
+
+                            const flags = MetadataBlock.Enumerator.Flags{
+                                .unsigned = unsigned,
+                                .bigint = true,
+                            };
+
+                            const FlagsInt = @typeInfo(MetadataBlock.Enumerator.Flags).Struct.backing_integer.?;
+
+                            const flags_int: FlagsInt = @bitCast(flags);
+
+                            record.appendAssumeCapacity(@intCast(flags_int));
+                            record.appendAssumeCapacity(@intCast(extra.bit_width));
+                            record.appendAssumeCapacity(metadata_adapter.getMetadataStringIndex(extra.name));
+
+                            const buffer: [*]u8 = @ptrCast(record.items.ptr);
+                            bigint.writeTwosComplement(buffer[0..(word_count * 8)], .little);
+
+                            const signed_buffer: [*]i64 = @ptrCast(record.items.ptr);
+                            for (signed_buffer[0..word_count], 0..) |val, i| {
+                                signed_buffer[i] = if (val >= 0)
+                                    @shlWithOverflow(val, 1)[0]
+                                else
+                                    (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                            }
+
+                            try metadata_block.writeUnabbrev(
+                                MetadataBlock.Enumerator.id,
+                                record.items.ptr[0..(3 + word_count)],
+                            );
+                        }
+                    },
+                    .subrange => {
+                        const extra = self.metadataExtraData(Metadata.Subrange, data);
+
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Subrange{
+                            .count = extra.count,
+                            .lower_bound = extra.lower_bound,
+                        }, metadata_adapter);
+                    },
+                    .expression => {
+                        var extra = self.metadataExtraDataTrail(Metadata.Expression, data);
+
+                        const elements = extra.trail.next(extra.data.elements_len, u32, self);
+
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Expression{
+                            .elements = elements,
+                        }, metadata_adapter);
+                    },
+                    .tuple => {
+                        var extra = self.metadataExtraDataTrail(Metadata.Tuple, data);
+
+                        const elements = extra.trail.next(extra.data.elements_len, Metadata, self);
+
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Node{
+                            .elements = elements,
+                        }, metadata_adapter);
+                    },
+                    .module_flag => {
+                        const extra = self.metadataExtraData(Metadata.ModuleFlag, data);
+                        try metadata_block.writeAbbrev(MetadataBlock.Node{
+                            .elements = &.{
+                                @enumFromInt(metadata_adapter.getMetadataIndex(extra.behaviour)),
+                                @enumFromInt(metadata_adapter.getMetadataStringIndex(extra.name)),
+                                @enumFromInt(metadata_adapter.getMetadataIndex(extra.constant)),
+                            },
+                        });
+                    },
+                    .local_var => {
+                        const extra = self.metadataExtraData(Metadata.LocalVar, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.LocalVar{
+                            .scope = extra.scope,
+                            .name = extra.name,
+                            .file = extra.file,
+                            .line = extra.line,
+                            .ty = extra.ty,
+                        }, metadata_adapter);
+                    },
+                    .parameter => {
+                        const extra = self.metadataExtraData(Metadata.Parameter, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Parameter{
+                            .scope = extra.scope,
+                            .name = extra.name,
+                            .file = extra.file,
+                            .line = extra.line,
+                            .ty = extra.ty,
+                            .arg = extra.arg_no,
+                        }, metadata_adapter);
+                    },
+                    .global_var,
+                    .@"global_var local",
+                    => |kind| {
+                        const extra = self.metadataExtraData(Metadata.GlobalVar, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.GlobalVar{
+                            .scope = extra.scope,
+                            .name = extra.name,
+                            .linkage_name = extra.linkage_name,
+                            .file = extra.file,
+                            .line = extra.line,
+                            .ty = extra.ty,
+                            .local = kind == .@"global_var local",
+                        }, metadata_adapter);
+                    },
+                    .global_var_expression => {
+                        const extra = self.metadataExtraData(Metadata.GlobalVarExpression, data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.GlobalVarExpression{
+                            .variable = extra.variable,
+                            .expression = extra.expression,
+                        }, metadata_adapter);
+                    },
+                    .constant => {
+                        const constant: Constant = @enumFromInt(data);
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Constant{
+                            .ty = constant.typeOf(self),
+                            .constant = constant,
+                        }, metadata_adapter);
+                    },
+                }
+                record.clearRetainingCapacity();
+            }
+
+            // Write named metadata
+            for (self.metadata_named.keys(), self.metadata_named.values()) |name, operands| {
+                const slice = name.slice(self).?;
+                try metadata_block.writeAbbrev(MetadataBlock.Name{
+                    .name = slice,
+                });
+
+                const elements = self.metadata_extra.items[operands.index..][0..operands.len];
+                for (elements) |*e| {
+                    e.* = metadata_adapter.getMetadataIndex(@enumFromInt(e.*)) - 1;
+                }
+
+                try metadata_block.writeAbbrev(MetadataBlock.NamedNode{
+                    .elements = @ptrCast(elements),
+                });
+            }
+
+            try metadata_block.end();
+        }
+
         // FUNCTION_BLOCKS
         {
             const FunctionAdapter = struct {
                 constant_adapter: ConstantAdapter,
+                metadata_adapter: MetadataAdapter,
                 func: *const Function,
                 instruction_index: u32 = 0,
 
                 pub fn init(
                     const_adapter: ConstantAdapter,
+                    meta_adapter: MetadataAdapter,
                     func: *const Function,
                 ) @This() {
                     return .{
                         .constant_adapter = const_adapter,
+                        .metadata_adapter = meta_adapter,
                         .func = func,
                         .instruction_index = 0,
                     };
@@ -14499,12 +14929,21 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     return @intCast(switch (value.unwrap()) {
                         .instruction => |instruction| instruction.valueIndex(adapter.func) + adapter.firstInstr(),
                         .constant => |constant| adapter.constant_adapter.getConstantIndex(constant),
-                        .metadata => unreachable,
+                        .metadata => |metadata| if (!adapter.metadata_adapter.builder.strip) blk: {
+                            const real_metadata = metadata.unwrap(adapter.metadata_adapter.builder);
+                            if (@intFromEnum(real_metadata) < Metadata.first_local_metadata)
+                                break :blk adapter.metadata_adapter.getMetadataIndex(real_metadata) - 1;
+
+                            return @intCast(@intFromEnum(metadata) -
+                                Metadata.first_local_metadata +
+                                adapter.metadata_adapter.builder.metadata_strings.count() +
+                                adapter.metadata_adapter.builder.metadata_map.count() - 1);
+                        } else unreachable,
                     });
                 }
 
                 pub fn getOffsetValueIndex(adapter: @This(), value: Value) u32 {
-                    return adapter.offset() - adapter.getValueIndex(value);
+                    return @subWithOverflow(adapter.offset(), adapter.getValueIndex(value))[0];
                 }
 
                 pub fn getOffsetValueSignedIndex(adapter: @This(), value: Value) i32 {
@@ -14543,10 +14982,27 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                 try function_block.writeAbbrev(FunctionBlock.DeclareBlocks{ .num_blocks = func.blocks.len });
 
-                var adapter = FunctionAdapter.init(constant_adapter, &func);
+                var adapter = FunctionAdapter.init(constant_adapter, metadata_adapter, &func);
+
+                // Emit function level metadata block
+                if (!self.strip and func.debug_values.len != 0) {
+                    const MetadataBlock = IR.FunctionMetadataBlock;
+                    var metadata_block = try function_block.enterSubBlock(MetadataBlock);
+
+                    for (func.debug_values) |value| {
+                        try metadata_block.writeAbbrev(MetadataBlock.Value{
+                            .ty = value.typeOf(@enumFromInt(func_index), self),
+                            .value = @enumFromInt(adapter.getValueIndex(value.toValue())),
+                        });
+                    }
+
+                    try metadata_block.end();
+                }
 
                 const tags = func.instructions.items(.tag);
                 const datas = func.instructions.items(.data);
+
+                var has_location = false;
 
                 var block_incoming_len: u32 = undefined;
                 for (0..func.instructions.len) |instr_index| {
@@ -14988,6 +15444,25 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .sync_scope = info.sync_scope,
                             });
                         },
+                    }
+
+                    if (!self.strip) {
+                        if (func.debug_locations.get(@enumFromInt(instr_index))) |maybe_location| {
+                            if (maybe_location) |location| {
+                                try function_block.writeAbbrev(FunctionBlock.DebugLoc{
+                                    .line = location.line,
+                                    .column = location.column,
+                                    .scope = @enumFromInt(metadata_adapter.getMetadataIndex(location.scope)),
+                                    .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(location.inlined_at)),
+                                    .is_implicit = false,
+                                });
+                                has_location = true;
+                            } else {
+                                has_location = false;
+                            }
+                        } else if (has_location) {
+                            try function_block.writeAbbrev(FunctionBlock.DebugLocAgain{});
+                        }
                     }
 
                     adapter.next();
