@@ -300,7 +300,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     self.* = .{};
 }
 
-pub fn relocs(self: Atom, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
+pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
     const shndx = self.relocsShndx() orelse return &[0]elf.Elf64_Rela{};
     return switch (self.file(elf_file).?) {
         .zig_object => |x| x.relocs.items[shndx].items,
@@ -394,11 +394,54 @@ pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {
     return false;
 }
 
-pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype) !void {
-    switch (elf_file.getTarget().cpu.arch) {
-        .x86_64 => try x86_64.scanRelocs(self, elf_file, code, undefs),
-        else => return error.UnsupportedCpuArch,
+pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype) RelocError!void {
+    const cpu_arch = elf_file.getTarget().cpu.arch;
+    const file_ptr = self.file(elf_file).?;
+    const rels = self.relocs(elf_file);
+
+    var has_reloc_errors = false;
+    var it = RelocsIterator{ .relocs = rels };
+    while (it.next()) |rel| {
+        const r_kind = relocation.decode(rel.r_type(), cpu_arch);
+        if (r_kind == .none) continue;
+
+        const symbol_index = switch (file_ptr) {
+            .zig_object => |x| x.symbol(rel.r_sym()),
+            .object => |x| x.symbols.items[rel.r_sym()],
+            else => unreachable,
+        };
+        const symbol = elf_file.symbol(symbol_index);
+
+        // Check for violation of One Definition Rule for COMDATs.
+        if (symbol.file(elf_file) == null) {
+            // TODO convert into an error
+            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+                file_ptr.fmtPath(),
+                self.name(elf_file),
+                symbol.name(elf_file),
+            });
+            continue;
+        }
+
+        // Report an undefined symbol.
+        if (try self.reportUndefined(elf_file, symbol, symbol_index, rel, undefs)) continue;
+
+        if (symbol.isIFunc(elf_file)) {
+            symbol.flags.needs_got = true;
+            symbol.flags.needs_plt = true;
+        }
+
+        // While traversing relocations, mark symbols that require special handling such as
+        // pointer indirection via GOT, or a stub trampoline via PLT.
+        switch (elf_file.getTarget().cpu.arch) {
+            .x86_64 => x86_64.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
+            else => return error.UnsupportedCpuArch,
+        }
     }
+    if (has_reloc_errors) return error.RelocFailure;
 }
 
 fn scanReloc(
@@ -407,7 +450,7 @@ fn scanReloc(
     rel: elf.Elf64_Rela,
     action: RelocAction,
     elf_file: *Elf,
-) error{OutOfMemory}!void {
+) RelocError!void {
     const is_writeable = self.inputShdr(elf_file).sh_flags & elf.SHF_WRITE != 0;
     const num_dynrelocs = switch (self.file(elf_file).?) {
         .linker_defined => unreachable,
@@ -554,7 +597,7 @@ fn dataType(symbol: *const Symbol, elf_file: *Elf) u2 {
     return 3;
 }
 
-fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) error{OutOfMemory}!void {
+fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) RelocError!void {
     var err = try elf_file.addErrorWithNotes(1);
     try err.addMsg(elf_file, "fatal linker error: unhandled relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
@@ -564,6 +607,7 @@ fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) er
         self.file(elf_file).?.fmtPath(),
         self.name(elf_file),
     });
+    return error.RelocFailure;
 }
 
 fn reportTextRelocError(
@@ -571,7 +615,7 @@ fn reportTextRelocError(
     symbol: *const Symbol,
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
-) error{OutOfMemory}!void {
+) RelocError!void {
     var err = try elf_file.addErrorWithNotes(1);
     try err.addMsg(elf_file, "relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
@@ -581,6 +625,7 @@ fn reportTextRelocError(
         self.file(elf_file).?.fmtPath(),
         self.name(elf_file),
     });
+    return error.RelocFailure;
 }
 
 fn reportPicError(
@@ -588,7 +633,7 @@ fn reportPicError(
     symbol: *const Symbol,
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
-) error{OutOfMemory}!void {
+) RelocError!void {
     var err = try elf_file.addErrorWithNotes(2);
     try err.addMsg(elf_file, "relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
@@ -599,6 +644,7 @@ fn reportPicError(
         self.name(elf_file),
     });
     try err.addNote(elf_file, "recompile with -fPIC", .{});
+    return error.RelocFailure;
 }
 
 fn reportNoPicError(
@@ -606,7 +652,7 @@ fn reportNoPicError(
     symbol: *const Symbol,
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
-) error{OutOfMemory}!void {
+) RelocError!void {
     var err = try elf_file.addErrorWithNotes(2);
     try err.addMsg(elf_file, "relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
@@ -617,6 +663,7 @@ fn reportNoPicError(
         self.name(elf_file),
     });
     try err.addNote(elf_file, "recompile with -fno-PIC", .{});
+    return error.RelocFailure;
 }
 
 // This function will report any undefined non-weak symbols that are not imports.
@@ -627,7 +674,7 @@ fn reportUndefined(
     sym_index: Symbol.Index,
     rel: elf.Elf64_Rela,
     undefs: anytype,
-) !void {
+) !bool {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     const rel_esym = switch (self.file(elf_file).?) {
@@ -647,7 +694,10 @@ fn reportUndefined(
             gop.value_ptr.* = std.ArrayList(Atom.Index).init(gpa);
         }
         try gop.value_ptr.append(self.atom_index);
+        return true;
     }
+
+    return false;
 }
 
 pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) !void {
@@ -831,152 +881,123 @@ pub const Flags = packed struct {
 };
 
 const x86_64 = struct {
-    fn scanRelocs(atom: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype) !void {
+    fn scanReloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        symbol: *Symbol,
+        code: ?[]const u8,
+        it: *RelocsIterator,
+    ) !void {
         const is_static = elf_file.base.isStatic();
         const is_dyn_lib = elf_file.base.isDynLib();
-        const file_ptr = atom.file(elf_file).?;
-        const rels = atom.relocs(elf_file);
-        var i: usize = 0;
-        while (i < rels.len) : (i += 1) {
-            const rel = rels[i];
-            const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
 
-            if (r_type == .NONE) continue;
+        const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
-            const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+        switch (r_type) {
+            .@"64" => {
+                try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
+            },
 
-            const symbol_index = switch (file_ptr) {
-                .zig_object => |x| x.symbol(rel.r_sym()),
-                .object => |x| x.symbols.items[rel.r_sym()],
-                else => unreachable,
-            };
-            const symbol = elf_file.symbol(symbol_index);
+            .@"32",
+            .@"32S",
+            => {
+                try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file);
+            },
 
-            // Check for violation of One Definition Rule for COMDATs.
-            if (symbol.file(elf_file) == null) {
-                // TODO convert into an error
-                log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
-                    file_ptr.fmtPath(),
-                    atom.name(elf_file),
-                    symbol.name(elf_file),
-                });
-                continue;
-            }
-
-            // Report an undefined symbol.
-            try atom.reportUndefined(elf_file, symbol, symbol_index, rel, undefs);
-
-            if (symbol.isIFunc(elf_file)) {
+            .GOT32,
+            .GOTPC32,
+            .GOTPC64,
+            .GOTPCREL,
+            .GOTPCREL64,
+            .GOTPCRELX,
+            .REX_GOTPCRELX,
+            => {
                 symbol.flags.needs_got = true;
-                symbol.flags.needs_plt = true;
-            }
+            },
 
-            // While traversing relocations, mark symbols that require special handling such as
-            // pointer indirection via GOT, or a stub trampoline via PLT.
-            switch (r_type) {
-                .@"64" => {
-                    try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
-                },
+            .PLT32,
+            .PLTOFF64,
+            => {
+                if (symbol.flags.import) {
+                    symbol.flags.needs_plt = true;
+                }
+            },
 
-                .@"32",
-                .@"32S",
+            .PC32 => {
+                try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file);
+            },
+
+            .TLSGD => {
+                // TODO verify followed by appropriate relocation such as PLT32 __tls_get_addr
+
+                if (is_static or (!symbol.flags.import and !is_dyn_lib)) {
+                    // Relax if building with -static flag as __tls_get_addr() will not be present in libc.a
+                    // We skip the next relocation.
+                    it.skip(1);
+                } else if (!symbol.flags.import and is_dyn_lib) {
+                    symbol.flags.needs_gottp = true;
+                    it.skip(1);
+                } else {
+                    symbol.flags.needs_tlsgd = true;
+                }
+            },
+
+            .TLSLD => {
+                // TODO verify followed by appropriate relocation such as PLT32 __tls_get_addr
+
+                if (is_static or !is_dyn_lib) {
+                    // Relax if building with -static flag as __tls_get_addr() will not be present in libc.a
+                    // We skip the next relocation.
+                    it.skip(1);
+                } else {
+                    elf_file.got.flags.needs_tlsld = true;
+                }
+            },
+
+            .GOTTPOFF => {
+                const should_relax = blk: {
+                    if (is_dyn_lib or symbol.flags.import) break :blk false;
+                    if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..])) break :blk false;
+                    break :blk true;
+                };
+                if (!should_relax) {
+                    symbol.flags.needs_gottp = true;
+                }
+            },
+
+            .GOTPC32_TLSDESC => {
+                const should_relax = is_static or (!is_dyn_lib and !symbol.flags.import);
+                if (!should_relax) {
+                    symbol.flags.needs_tlsdesc = true;
+                }
+            },
+
+            .TPOFF32,
+            .TPOFF64,
+            => {
+                if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
+            },
+
+            .GOTOFF64,
+            .DTPOFF32,
+            .DTPOFF64,
+            .SIZE32,
+            .SIZE64,
+            .TLSDESC_CALL,
+            => {},
+
+            else => |x| switch (@intFromEnum(x)) {
+                // Zig custom relocations
+                Elf.R_ZIG_GOT32,
+                Elf.R_ZIG_GOTPCREL,
                 => {
-                    try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file);
+                    assert(symbol.flags.has_zig_got);
                 },
 
-                .GOT32,
-                .GOTPC32,
-                .GOTPC64,
-                .GOTPCREL,
-                .GOTPCREL64,
-                .GOTPCRELX,
-                .REX_GOTPCRELX,
-                => {
-                    symbol.flags.needs_got = true;
-                },
-
-                .PLT32,
-                .PLTOFF64,
-                => {
-                    if (symbol.flags.import) {
-                        symbol.flags.needs_plt = true;
-                    }
-                },
-
-                .PC32 => {
-                    try atom.scanReloc(symbol, rel, pcRelocAction(symbol, elf_file), elf_file);
-                },
-
-                .TLSGD => {
-                    // TODO verify followed by appropriate relocation such as PLT32 __tls_get_addr
-
-                    if (is_static or (!symbol.flags.import and !is_dyn_lib)) {
-                        // Relax if building with -static flag as __tls_get_addr() will not be present in libc.a
-                        // We skip the next relocation.
-                        i += 1;
-                    } else if (!symbol.flags.import and is_dyn_lib) {
-                        symbol.flags.needs_gottp = true;
-                        i += 1;
-                    } else {
-                        symbol.flags.needs_tlsgd = true;
-                    }
-                },
-
-                .TLSLD => {
-                    // TODO verify followed by appropriate relocation such as PLT32 __tls_get_addr
-
-                    if (is_static or !is_dyn_lib) {
-                        // Relax if building with -static flag as __tls_get_addr() will not be present in libc.a
-                        // We skip the next relocation.
-                        i += 1;
-                    } else {
-                        elf_file.got.flags.needs_tlsld = true;
-                    }
-                },
-
-                .GOTTPOFF => {
-                    const should_relax = blk: {
-                        if (is_dyn_lib or symbol.flags.import) break :blk false;
-                        if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..])) break :blk false;
-                        break :blk true;
-                    };
-                    if (!should_relax) {
-                        symbol.flags.needs_gottp = true;
-                    }
-                },
-
-                .GOTPC32_TLSDESC => {
-                    const should_relax = is_static or (!is_dyn_lib and !symbol.flags.import);
-                    if (!should_relax) {
-                        symbol.flags.needs_tlsdesc = true;
-                    }
-                },
-
-                .TPOFF32,
-                .TPOFF64,
-                => {
-                    if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
-                },
-
-                .GOTOFF64,
-                .DTPOFF32,
-                .DTPOFF64,
-                .SIZE32,
-                .SIZE64,
-                .TLSDESC_CALL,
-                => {},
-
-                else => |x| switch (@intFromEnum(x)) {
-                    // Zig custom relocations
-                    Elf.R_ZIG_GOT32,
-                    Elf.R_ZIG_GOTPCREL,
-                    => {
-                        assert(symbol.flags.has_zig_got);
-                    },
-
-                    else => try atom.reportUnhandledRelocError(rel, elf_file),
-                },
-            }
+                else => try atom.reportUnhandledRelocError(rel, elf_file),
+            },
         }
     }
 
@@ -1195,7 +1216,7 @@ const x86_64 = struct {
             }
 
             // Report an undefined symbol.
-            try atom.reportUndefined(elf_file, target, target_index, rel, undefs);
+            if (try atom.reportUndefined(elf_file, target, target_index, rel, undefs)) continue;
 
             // We will use equation format to resolve relocations:
             // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
@@ -1483,6 +1504,36 @@ const x86_64 = struct {
     const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
     const Immediate = bits.Immediate;
     const Instruction = encoder.Instruction;
+};
+
+const RelocError = error{
+    Overflow,
+    OutOfMemory,
+    RelocFailure,
+    UnsupportedCpuArch,
+};
+
+const RelocsIterator = struct {
+    relocs: []const elf.Elf64_Rela,
+    pos: i64 = -1,
+
+    fn next(it: *RelocsIterator) ?elf.Elf64_Rela {
+        it.pos += 1;
+        if (it.pos >= it.relocs.len) return null;
+        return it.relocs[@intCast(it.pos)];
+    }
+
+    fn prev(it: *RelocsIterator) ?elf.Elf64_Rela {
+        if (it.pos == -1) return null;
+        const rel = it.relocs[@intCast(it.pos)];
+        it.pos -= 1;
+        return rel;
+    }
+
+    fn skip(it: *RelocsIterator, num: usize) void {
+        assert(num > 0);
+        it.pos += @intCast(num);
+    }
 };
 
 const std = @import("std");

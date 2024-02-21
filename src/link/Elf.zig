@@ -2049,17 +2049,21 @@ fn scanRelocs(self: *Elf) !void {
     if (self.zigObjectPtr()) |zo| objects.appendAssumeCapacity(zo.index);
     objects.appendSliceAssumeCapacity(self.objects.items);
 
+    var has_reloc_errors = false;
     for (objects.items) |index| {
         self.file(index).?.scanRelocs(self, &undefs) catch |err| switch (err) {
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
                 return error.FlushFailure;
             },
+            error.RelocFailure => has_reloc_errors = true,
             else => |e| return e,
         };
     }
 
     try self.reportUndefinedSymbols(&undefs);
+
+    if (has_reloc_errors) return error.FlushFailure;
 
     for (self.symbols.items, 0..) |*sym, i| {
         const index = @as(u32, @intCast(i));
@@ -4449,6 +4453,8 @@ fn writeAtoms(self: *Elf) !void {
         undefs.deinit();
     }
 
+    var has_reloc_errors = false;
+
     // TODO iterate over `output_sections` directly
     for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
@@ -4519,6 +4525,7 @@ fn writeAtoms(self: *Elf) !void {
                     try self.reportUnsupportedCpuArch();
                     return error.FlushFailure;
                 },
+                error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             };
         }
@@ -4527,6 +4534,8 @@ fn writeAtoms(self: *Elf) !void {
     }
 
     try self.reportUndefinedSymbols(&undefs);
+
+    if (has_reloc_errors) return error.FlushFailure;
 }
 
 pub fn updateSymtabSize(self: *Elf) !void {
