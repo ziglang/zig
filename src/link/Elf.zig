@@ -1344,6 +1344,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
     if (self.zigObjectPtr()) |zig_object| {
+        var has_reloc_errors = false;
         for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
@@ -1354,10 +1355,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             defer gpa.free(code);
             const file_offset = shdr.sh_offset + atom_ptr.value;
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
-                // TODO
-                error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
-                    log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
-                },
+                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
                     return error.FlushFailure;
@@ -1366,6 +1364,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             };
             try self.base.file.?.pwriteAll(code, file_offset);
         }
+
+        if (has_reloc_errors) return error.FlushFailure;
     }
 
     try self.writePhdrTable();
@@ -2052,6 +2052,7 @@ fn scanRelocs(self: *Elf) !void {
     var has_reloc_errors = false;
     for (objects.items) |index| {
         self.file(index).?.scanRelocs(self, &undefs) catch |err| switch (err) {
+            error.RelaxFailure => unreachable,
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
                 return error.FlushFailure;
@@ -4517,15 +4518,11 @@ fn writeAtoms(self: *Elf) !void {
             else
                 atom_ptr.resolveRelocsAlloc(self, out_code);
             _ = res catch |err| switch (err) {
-                // TODO
-                error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
-                    log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
-                },
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
                     return error.FlushFailure;
                 },
-                error.RelocFailure => has_reloc_errors = true,
+                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 else => |e| return e,
             };
         }
