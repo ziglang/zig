@@ -768,6 +768,14 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 => has_reloc_errors = true,
                 else => |e| return e,
             },
+            .aarch64 => aarch64.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure,
+                error.RelaxFailure,
+                error.UnexpectedRemainder,
+                error.DivisionByZero,
+                => has_reloc_errors = true,
+                else => |e| return e,
+            },
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -1606,6 +1614,117 @@ const aarch64 = struct {
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
+
+    fn resolveRelocAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+        stream: anytype,
+    ) (error{ UnexpectedRemainder, DivisionByZero } || RelocError)!void {
+        _ = it;
+
+        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+
+        try stream.seekTo(r_offset);
+        const cwriter = stream.writer();
+
+        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        _ = TP;
+        _ = DTP;
+        _ = ZIG_GOT;
+
+        switch (r_type) {
+            .NONE => unreachable,
+            .ABS64 => {
+                try atom.resolveDynAbsReloc(
+                    target,
+                    rel,
+                    dynAbsRelocAction(target, elf_file),
+                    elf_file,
+                    cwriter,
+                );
+            },
+
+            .CALL26,
+            .JUMP26,
+            => {
+                // TODO: add thunk support
+                const disp: i28 = math.cast(i28, S + A - P) orelse {
+                    var err = try elf_file.addErrorWithNotes(1);
+                    try err.addMsg(elf_file, "TODO: branch relocation target ({s}) exceeds max jump distance", .{
+                        target.name(elf_file),
+                    });
+                    try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                        atom.file(elf_file).?.fmtPath(),
+                        atom.name(elf_file),
+                        r_offset,
+                    });
+                    return;
+                };
+                try aarch64_util.writeBranchImm(disp, code[r_offset..][0..4]);
+            },
+
+            .ADR_PREL_PG_HI21 => {
+                // TODO: check for relaxation of ADRP+ADD
+                const saddr = @as(u64, @intCast(P));
+                const taddr = @as(u64, @intCast(S + A));
+                const pages = @as(u21, @bitCast(try aarch64_util.calcNumberOfPages(saddr, taddr)));
+                try aarch64_util.writePages(pages, code[r_offset..][0..4]);
+            },
+
+            .ADR_GOT_PAGE => if (target.flags.has_got) {
+                const saddr = @as(u64, @intCast(P));
+                const taddr = @as(u64, @intCast(G + GOT + A));
+                const pages = @as(u21, @bitCast(try aarch64_util.calcNumberOfPages(saddr, taddr)));
+                try aarch64_util.writePages(pages, code[r_offset..][0..4]);
+            } else {
+                // TODO: relax
+                var err = try elf_file.addErrorWithNotes(1);
+                try err.addMsg(elf_file, "TODO: relax ADR_GOT_PAGE", .{});
+                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                    atom.file(elf_file).?.fmtPath(),
+                    atom.name(elf_file),
+                    r_offset,
+                });
+            },
+
+            .LD64_GOT_LO12_NC => {
+                assert(target.flags.has_got);
+                const taddr = @as(u64, @intCast(G + GOT + A));
+                try aarch64_util.writePageOffset(.load_store_64, taddr, code[r_offset..][0..4]);
+            },
+
+            .ADD_ABS_LO12_NC,
+            .LDST8_ABS_LO12_NC,
+            .LDST16_ABS_LO12_NC,
+            .LDST32_ABS_LO12_NC,
+            .LDST64_ABS_LO12_NC,
+            .LDST128_ABS_LO12_NC,
+            => {
+                // TODO: NC means no overflow check
+                const taddr = @as(u64, @intCast(S + A));
+                const kind: aarch64_util.PageOffsetInstKind = switch (r_type) {
+                    .ADD_ABS_LO12_NC => .arithmetic,
+                    .LDST8_ABS_LO12_NC => .load_store_8,
+                    .LDST16_ABS_LO12_NC => .load_store_16,
+                    .LDST32_ABS_LO12_NC => .load_store_32,
+                    .LDST64_ABS_LO12_NC => .load_store_64,
+                    .LDST128_ABS_LO12_NC => .load_store_128,
+                    else => unreachable,
+                };
+                try aarch64_util.writePageOffset(kind, taddr, code[r_offset..][0..4]);
+            },
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    const aarch64_util = @import("../aarch64.zig");
 };
 
 const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64, i64 };
@@ -1647,6 +1766,7 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
+const math = std.math;
 const relocs_log = std.log.scoped(.link_relocs);
 const relocation = @import("relocation.zig");
 
