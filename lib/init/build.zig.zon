@@ -5,8 +5,6 @@
     .version = "0.0.0",
 
     // This field is optional.
-    // This is currently advisory only; Zig does not yet do anything
-    // with this value.
     //.minimum_zig_version = "0.11.0",
 
     // This field is optional.
@@ -48,7 +46,7 @@
     // A directory listed here means that all files within, recursively, are included.
     .paths = .{
         // This makes *all* files, recursively, included in this package. It is generally
-        // better to explicitly list the files and directories instead, to insure that
+        // better to explicitly list the files and directories instead, to ensure that
         // fetching from tarballs, file system paths, and version control all result
         // in the same contents hash.
         "",

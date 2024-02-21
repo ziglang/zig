@@ -248,6 +248,15 @@ const Parse = struct {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v null;
                 };
+
+                if (p.minimum_zig_version) |min_ver| {
+                    const host_version = @import("builtin").zig_version;
+                    if (host_version.order(min_ver) == .lt) {
+                        try appendError(p, main_tokens[field_init],
+                            \\the zig version you are using is too old to build. host: {}, min: {}.
+                        , .{ host_version, min_ver });
+                    }
+                }
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
