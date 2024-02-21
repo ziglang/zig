@@ -249,7 +249,7 @@ const Parse = struct {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v null;
                 };
-                if (p.minimum_zig_version) |_| min_version_index = main_tokens[field_init];
+                if (null != p.minimum_zig_version) min_version_index = main_tokens[field_init];
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
