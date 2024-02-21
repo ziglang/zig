@@ -442,6 +442,10 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
+            .riscv64 => riscv.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -776,6 +780,12 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 => has_reloc_errors = true,
                 else => |e| return e,
             },
+            .riscv64 => riscv.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure,
+                error.RelaxFailure,
+                => has_reloc_errors = true,
+                else => |e| return e,
+            },
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -950,6 +960,10 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
                 else => |e| return e,
             },
             .aarch64 => aarch64.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
+            .riscv64 => riscv.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
@@ -1756,6 +1770,202 @@ const aarch64 = struct {
     const aarch64_util = @import("../aarch64.zig");
 };
 
+const riscv = struct {
+    fn scanReloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        symbol: *Symbol,
+        code: ?[]const u8,
+        it: *RelocsIterator,
+    ) !void {
+        _ = code;
+        _ = it;
+
+        const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
+
+        switch (r_type) {
+            .@"64" => {
+                try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
+            },
+
+            .HI20 => {
+                try atom.scanReloc(symbol, rel, absRelocAction(symbol, elf_file), elf_file);
+            },
+
+            .CALL_PLT => if (symbol.flags.import) {
+                symbol.flags.needs_plt = true;
+            },
+
+            .GOT_HI20 => {
+                symbol.flags.needs_got = true;
+            },
+
+            .PCREL_HI20,
+            .PCREL_LO12_I,
+            .PCREL_LO12_S,
+            .LO12_I,
+            .ADD32,
+            .SUB32,
+            => {},
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    fn resolveRelocAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+        stream: anytype,
+    ) !void {
+        const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+        const cwriter = stream.writer();
+
+        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        _ = TP;
+        _ = DTP;
+        _ = ZIG_GOT;
+
+        switch (r_type) {
+            .NONE => unreachable,
+
+            .@"64" => {
+                try atom.resolveDynAbsReloc(
+                    target,
+                    rel,
+                    dynAbsRelocAction(target, elf_file),
+                    elf_file,
+                    cwriter,
+                );
+            },
+
+            .ADD32 => riscv_util.writeAddend(i32, .add, code[r_offset..][0..4], S + A),
+            .SUB32 => riscv_util.writeAddend(i32, .sub, code[r_offset..][0..4], S + A),
+
+            .HI20 => {
+                const value: u32 = @bitCast(math.cast(i32, S + A) orelse return error.Overflow);
+                riscv_util.writeInstU(code[r_offset..][0..4], value);
+            },
+
+            .LO12_I => {
+                const value: u32 = @bitCast(math.cast(i32, S + A) orelse return error.Overflow);
+                riscv_util.writeInstI(code[r_offset..][0..4], value);
+            },
+
+            .GOT_HI20 => {
+                assert(target.flags.has_got);
+                const disp: u32 = @bitCast(math.cast(i32, G + GOT + A - P) orelse return error.Overflow);
+                riscv_util.writeInstU(code[r_offset..][0..4], disp);
+            },
+
+            .CALL_PLT => {
+                // TODO: relax
+                const disp: u32 = @bitCast(math.cast(i32, S + A - P) orelse return error.Overflow);
+                riscv_util.writeInstU(code[r_offset..][0..4], disp); // auipc
+                riscv_util.writeInstI(code[r_offset + 4 ..][0..4], disp); // jalr
+            },
+
+            .PCREL_HI20 => {
+                const disp: u32 = @bitCast(math.cast(i32, S + A - P) orelse return error.Overflow);
+                riscv_util.writeInstU(code[r_offset..][0..4], disp);
+            },
+
+            .PCREL_LO12_I,
+            .PCREL_LO12_S,
+            => {
+                assert(A == 0); // according to the spec
+                // We need to find the paired reloc for this relocation.
+                // TODO: should we search forward too?
+                const file_ptr = atom.file(elf_file).?;
+                const pos = it.pos;
+                const pair = while (it.prev()) |pair| {
+                    if (target.address(.{}, elf_file) == atom.address(elf_file) + pair.r_offset) {
+                        break pair;
+                    }
+                } else unreachable; // TODO error
+                it.pos = pos;
+                const target_ = switch (file_ptr) {
+                    .zig_object => |x| elf_file.symbol(x.symbol(pair.r_sym())),
+                    .object => |x| elf_file.symbol(x.symbols.items[pair.r_sym()]),
+                    else => unreachable,
+                };
+                const S_ = @as(i64, @intCast(target_.address(.{}, elf_file)));
+                const A_ = pair.r_addend;
+                const P_ = @as(i64, @intCast(atom.address(elf_file) + pair.r_offset));
+                const G_ = @as(i64, @intCast(target_.gotAddress(elf_file))) - GOT;
+                const disp = switch (@as(elf.R_RISCV, @enumFromInt(pair.r_type()))) {
+                    .PCREL_HI20 => math.cast(i32, S_ + A_ - P_) orelse return error.Overflow,
+                    .GOT_HI20 => math.cast(i32, G_ + GOT + A_ - P_) orelse return error.Overflow,
+                    else => unreachable,
+                };
+                relocs_log.debug("      [{x} => {x}]", .{ P_, disp + P_ });
+                switch (r_type) {
+                    .PCREL_LO12_I => riscv_util.writeInstI(code[r_offset..][0..4], @bitCast(disp)),
+                    .PCREL_LO12_S => riscv_util.writeInstS(code[r_offset..][0..4], @bitCast(disp)),
+                    else => unreachable,
+                }
+            },
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    fn resolveRelocNonAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+        stream: anytype,
+    ) !void {
+        _ = target;
+        _ = it;
+
+        const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+        const cwriter = stream.writer();
+
+        _, const A, const S, const GOT, _, _, const DTP, _ = args;
+        _ = GOT;
+        _ = DTP;
+
+        switch (r_type) {
+            .NONE => unreachable,
+
+            .@"32" => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
+            .@"64" => try cwriter.writeInt(i64, S + A, .little),
+
+            .ADD8 => riscv_util.writeAddend(i8, .add, code[r_offset..][0..1], S + A),
+            .SUB8 => riscv_util.writeAddend(i8, .sub, code[r_offset..][0..1], S + A),
+            .ADD16 => riscv_util.writeAddend(i16, .add, code[r_offset..][0..2], S + A),
+            .SUB16 => riscv_util.writeAddend(i16, .sub, code[r_offset..][0..2], S + A),
+            .ADD32 => riscv_util.writeAddend(i32, .add, code[r_offset..][0..4], S + A),
+            .SUB32 => riscv_util.writeAddend(i32, .sub, code[r_offset..][0..4], S + A),
+            .ADD64 => riscv_util.writeAddend(i64, .add, code[r_offset..][0..8], S + A),
+            .SUB64 => riscv_util.writeAddend(i64, .sub, code[r_offset..][0..8], S + A),
+
+            .SET8 => mem.writeInt(i8, code[r_offset..][0..1], @as(i8, @truncate(S + A)), .little),
+            .SET16 => mem.writeInt(i16, code[r_offset..][0..2], @as(i16, @truncate(S + A)), .little),
+            .SET32 => mem.writeInt(i32, code[r_offset..][0..4], @as(i32, @truncate(S + A)), .little),
+
+            .SET6 => riscv_util.writeSetSub6(.set, code[r_offset..][0..1], S + A),
+            .SUB6 => riscv_util.writeSetSub6(.sub, code[r_offset..][0..1], S + A),
+
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    const riscv_util = @import("../riscv.zig");
+};
+
 const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64, i64 };
 
 const RelocError = error{
@@ -1796,10 +2006,11 @@ const elf = std.elf;
 const eh_frame = @import("eh_frame.zig");
 const log = std.log.scoped(.link);
 const math = std.math;
+const mem = std.mem;
 const relocs_log = std.log.scoped(.link_relocs);
 const relocation = @import("relocation.zig");
 
-const Allocator = std.mem.Allocator;
+const Allocator = mem.Allocator;
 const Atom = @This();
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;

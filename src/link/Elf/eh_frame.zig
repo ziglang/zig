@@ -319,6 +319,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     switch (cpu_arch) {
         .x86_64 => try x86_64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         .aarch64 => try aarch64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
+        .riscv64 => try riscv.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         else => return error.UnsupportedCpuArch,
     }
 }
@@ -572,6 +573,17 @@ const aarch64 = struct {
             .ABS64 => std.mem.writeInt(i64, data[0..8], target, .little),
             .PREL32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
             .PREL64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
+            else => try reportInvalidReloc(rec, elf_file, rel),
+        }
+    }
+};
+
+const riscv = struct {
+    fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
+        const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
+        switch (r_type) {
+            .NONE => {},
+            .@"32_PCREL" => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
             else => try reportInvalidReloc(rec, elf_file, rel),
         }
     }
