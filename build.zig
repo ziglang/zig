@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) !void {
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
-        .root_source_file = .{ .path = "tools/docgen.zig" },
+        .root_source_file = .{ .parent = .{ .path = "tools/docgen.zig" } },
         .target = b.host,
         .optimize = .Debug,
         .single_threaded = single_threaded,
@@ -50,7 +50,7 @@ pub fn build(b: *std.Build) !void {
         docgen_cmd.addArg("--zig-lib-dir");
         docgen_cmd.addDirectoryArg(p);
     }
-    docgen_cmd.addFileArg(.{ .path = "doc/langref.html.in" });
+    docgen_cmd.addFileArg(.{ .parent = .{ .path = "doc/langref.html.in" } });
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_langref) {
@@ -58,9 +58,9 @@ pub fn build(b: *std.Build) !void {
     }
 
     const autodoc_test = b.addTest(.{
-        .root_source_file = .{ .path = "lib/std/std.zig" },
+        .root_source_file = .{ .parent = .{ .path = "lib/std/std.zig" } },
         .target = target,
-        .zig_lib_dir = .{ .path = "lib" },
+        .zig_lib_dir = .{ .parent = .{ .path = "lib" } },
     });
     const install_std_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_test.getEmittedDocs(),
@@ -88,7 +88,7 @@ pub fn build(b: *std.Build) !void {
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
-        .root_source_file = .{ .path = "test/src/Cases.zig" },
+        .root_source_file = .{ .parent = .{ .path = "test/src/Cases.zig" } },
         .target = b.host,
         .optimize = optimize,
         .single_threaded = single_threaded,
@@ -137,7 +137,7 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_install_lib_files) {
         b.installDirectory(.{
-            .source_dir = .{ .path = "lib" },
+            .source_dir = .{ .parent = .{ .path = "lib" } },
             .install_dir = if (flat) .prefix else .lib,
             .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
