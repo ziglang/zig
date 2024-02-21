@@ -189,6 +189,7 @@ gnu_eh_frame_hdr_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
 rela_iplt_start_index: ?Symbol.Index = null,
 rela_iplt_end_index: ?Symbol.Index = null,
+global_pointer_index: ?Symbol.Index = null,
 start_stop_indexes: std.ArrayListUnmanaged(u32) = .{},
 
 /// An array of symbols parsed across all input files.
@@ -3095,6 +3096,10 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
         }
     }
 
+    if (self.getTarget().cpu.arch == .riscv64 and self.base.isDynLib()) {
+        self.global_pointer_index = try linker_defined.addGlobal("__global_pointer$", self);
+    }
+
     linker_defined.resolveSymbols(self);
 }
 
@@ -3220,6 +3225,19 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             start.output_section_index = shndx;
             stop.value = shdr.sh_addr + shdr.sh_size;
             stop.output_section_index = shndx;
+        }
+    }
+
+    // __global_pointer$
+    if (self.global_pointer_index) |index| {
+        const sym = self.symbol(index);
+        if (self.sectionByName(".sdata")) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            sym.value = shdr.sh_addr + 0x800;
+            sym.output_section_index = shndx;
+        } else {
+            sym.value = 0;
+            sym.output_section_index = 0;
         }
     }
 }
