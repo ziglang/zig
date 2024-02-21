@@ -217,7 +217,10 @@ pub const Address = extern union {
         /// If more than this many connections pool in the kernel, clients will start
         /// seeing "Connection refused".
         kernel_backlog: u31 = 128,
+        /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
+        /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
         reuse_address: bool = false,
+        /// Deprecated. Does nothing.
         reuse_port: bool = false,
         force_nonblocking: bool = false,
     };
@@ -242,15 +245,15 @@ pub const Address = extern union {
                 posix.SO.REUSEADDR,
                 &mem.toBytes(@as(c_int, 1)),
             );
-        }
-
-        if (options.reuse_port) {
-            try posix.setsockopt(
-                sockfd,
-                posix.SOL.SOCKET,
-                posix.SO.REUSEPORT,
-                &mem.toBytes(@as(c_int, 1)),
-            );
+            switch (builtin.os.tag) {
+                .windows => {},
+                else => try posix.setsockopt(
+                    sockfd,
+                    posix.SOL.SOCKET,
+                    posix.SO.REUSEPORT,
+                    &mem.toBytes(@as(c_int, 1)),
+                ),
+            }
         }
 
         var socklen = address.getOsSockLen();
