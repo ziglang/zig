@@ -384,7 +384,7 @@ pub const Constants = struct {
             .{ .literal = 4 },
             .{ .vbr = 16 },
         };
-        value: std.math.big.Limb,
+        value: u64,
     };
 
     pub const Half = struct {
@@ -853,7 +853,7 @@ pub const MetadataBlock = struct {
         flags: Flags,
         bit_width: u32,
         name: Builder.MetadataString,
-        value: std.math.big.Limb,
+        value: u64,
     };
 
     pub const Subrange = struct {
