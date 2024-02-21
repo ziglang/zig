@@ -40,13 +40,16 @@ constant_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
 metadata_map: std.AutoArrayHashMapUnmanaged(void, void),
 metadata_items: std.MultiArrayList(Metadata.Item),
 metadata_extra: std.ArrayListUnmanaged(u32),
-metadata_strings: std.AutoArrayHashMapUnmanaged(String, void),
 metadata_limbs: std.ArrayListUnmanaged(std.math.big.Limb),
 metadata_forward_references: std.ArrayListUnmanaged(Metadata),
-metadata_named: std.AutoArrayHashMapUnmanaged(String, struct {
+metadata_named: std.AutoArrayHashMapUnmanaged(MetadataString, struct {
     len: u32,
     index: Metadata.Item.ExtraIndex,
 }),
+
+metadata_string_map: std.AutoArrayHashMapUnmanaged(void, void),
+metadata_string_indices: std.ArrayListUnmanaged(u32),
+metadata_string_bytes: std.ArrayListUnmanaged(u8),
 
 pub const expected_args_len = 16;
 pub const expected_attrs_len = 16;
@@ -7553,7 +7556,26 @@ pub const Value = enum(u32) {
 };
 
 pub const MetadataString = enum(u32) {
+    none = 0,
     _,
+
+    pub fn slice(self: MetadataString, b: *const Builder) []const u8 {
+        const index = @intFromEnum(self);
+        const start = b.metadata_string_indices.items[index];
+        const end = b.metadata_string_indices.items[index + 1];
+        return b.metadata_string_bytes.items[start..end];
+    }
+
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: Adapter, key: []const u8) u32 {
+            return @truncate(std.hash.Wyhash.hash(0, key));
+        }
+        pub fn eql(ctx: Adapter, lhs_key: []const u8, _: void, rhs_index: usize) bool {
+            const rhs_metadata_string: MetadataString = @enumFromInt(rhs_index);
+            return std.mem.eql(u8, lhs_key, rhs_metadata_string.slice(ctx.builder));
+        }
+    };
 };
 
 pub const Metadata = enum(u32) {
@@ -7829,10 +7851,12 @@ pub fn init(options: Options) InitError!Builder {
         .metadata_map = .{},
         .metadata_items = .{},
         .metadata_extra = .{},
-        .metadata_strings = .{},
         .metadata_limbs = .{},
         .metadata_forward_references = .{},
         .metadata_named = .{},
+        .metadata_string_map = .{},
+        .metadata_string_indices = .{},
+        .metadata_string_bytes = .{},
     };
     errdefer self.deinit();
 
@@ -7876,6 +7900,9 @@ pub fn init(options: Options) InitError!Builder {
     assert(try self.noneConst(.token) == .none);
     assert(try self.debugNone() == .none);
 
+    try self.metadata_string_indices.append(self.gpa, 0);
+    assert(try self.metadataString("") == .none);
+
     return self;
 }
 
@@ -7914,10 +7941,13 @@ pub fn deinit(self: *Builder) void {
     self.metadata_map.deinit(self.gpa);
     self.metadata_items.deinit(self.gpa);
     self.metadata_extra.deinit(self.gpa);
-    self.metadata_strings.deinit(self.gpa);
     self.metadata_limbs.deinit(self.gpa);
     self.metadata_forward_references.deinit(self.gpa);
     self.metadata_named.deinit(self.gpa);
+
+    self.metadata_string_map.deinit(self.gpa);
+    self.metadata_string_indices.deinit(self.gpa);
+    self.metadata_string_bytes.deinit(self.gpa);
 
     self.* = undefined;
 }
@@ -10913,14 +10943,51 @@ fn metadataExtraData(self: *const Builder, comptime T: type, index: Metadata.Ite
     return self.metadataExtraDataTrail(T, index).data;
 }
 
-fn metadataString(self: *Builder, str: String) Allocator.Error!MetadataString {
-    const gop = try self.metadata_strings.getOrPut(self.gpa, str);
-    if (!gop.found_existing) gop.key_ptr.* = str;
+pub fn metadataString(self: *Builder, bytes: []const u8) Allocator.Error!MetadataString {
+    try self.metadata_string_bytes.ensureUnusedCapacity(self.gpa, bytes.len);
+    try self.metadata_string_indices.ensureUnusedCapacity(self.gpa, 1);
+    try self.metadata_string_map.ensureUnusedCapacity(self.gpa, 1);
 
+    const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(
+        bytes,
+        MetadataString.Adapter{ .builder = self },
+    );
+    if (!gop.found_existing) {
+        self.metadata_string_bytes.appendSliceAssumeCapacity(bytes);
+        self.metadata_string_indices.appendAssumeCapacity(@intCast(self.metadata_string_bytes.items.len));
+    }
     return @enumFromInt(gop.index);
 }
 
-pub fn debugNamed(self: *Builder, name: String, operands: []const Metadata) Allocator.Error!void {
+pub fn metadataStringFromString(self: *Builder, str: String) Allocator.Error!MetadataString {
+    if (str == .none or str == .empty) return MetadataString.none;
+
+    const slice = str.slice(self) orelse unreachable;
+    return try self.metadataString(slice);
+}
+
+pub fn metadataStringFmt(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) Allocator.Error!MetadataString {
+    try self.metadata_string_map.ensureUnusedCapacity(self.gpa, 1);
+    try self.metadata_string_bytes.ensureUnusedCapacity(self.gpa, @intCast(std.fmt.count(fmt_str, fmt_args)));
+    try self.metadata_string_indices.ensureUnusedCapacity(self.gpa, 1);
+    return self.metadataStringFmtAssumeCapacity(fmt_str, fmt_args);
+}
+
+pub fn metadataStringFmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) MetadataString {
+    const start = self.metadata_string_bytes.items.len;
+    self.metadata_string_bytes.writer(self.gpa).print(fmt_str, fmt_args) catch unreachable;
+    const bytes: []const u8 = self.metadata_string_bytes.items[start..self.metadata_string_bytes.items.len];
+
+    const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
+    if (gop.found_existing) {
+        self.metadata_string_bytes.shrinkRetainingCapacity(start);
+    } else {
+        self.metadata_string_indices.appendAssumeCapacity(@intCast(self.metadata_string_bytes.items.len));
+    }
+    return @enumFromInt(gop.index);
+}
+
+pub fn debugNamed(self: *Builder, name: MetadataString, operands: []const Metadata) Allocator.Error!void {
     try self.metadata_extra.ensureUnusedCapacity(
         self.gpa,
         operands.len * @sizeOf(Metadata),
@@ -10934,31 +11001,28 @@ fn debugNone(self: *Builder) Allocator.Error!Metadata {
     return self.debugNoneAssumeCapacity();
 }
 
-pub fn debugFile(self: *Builder, path: String, name: String) Allocator.Error!Metadata {
+pub fn debugFile(self: *Builder, path: MetadataString, name: MetadataString) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.File, 0);
-    const metadata_path = try self.metadataString(path);
-    const metadata_name = try self.metadataString(name);
-    return self.debugFileAssumeCapacity(metadata_path, metadata_name);
+    return self.debugFileAssumeCapacity(path, name);
 }
 
 pub fn debugCompileUnit(
     self: *Builder,
     file: Metadata,
-    producer: String,
+    producer: MetadataString,
     enums: Metadata,
     globals: Metadata,
     flags: Metadata.CompileUnit.Flags,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompileUnit, 0);
-    const metadata_producer = try self.metadataString(producer);
-    return self.debugCompileUnitAssumeCapacity(file, metadata_producer, enums, globals, flags);
+    return self.debugCompileUnitAssumeCapacity(file, producer, enums, globals, flags);
 }
 
 pub fn debugSubprogram(
     self: *Builder,
     file: Metadata,
-    name: String,
-    linkage_name: String,
+    name: MetadataString,
+    linkage_name: MetadataString,
     line: u32,
     scope_line: u32,
     ty: Metadata,
@@ -10966,12 +11030,10 @@ pub fn debugSubprogram(
     compile_unit: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, 0);
-    const metadata_name = try self.metadataString(name);
-    const metadata_linkage_name = try self.metadataString(linkage_name);
     return self.debugSubprogramAssumeCapacity(
         file,
-        metadata_name,
-        metadata_linkage_name,
+        name,
+        linkage_name,
         line,
         scope_line,
         ty,
@@ -10990,28 +11052,24 @@ pub fn debugLocation(self: *Builder, scope: Metadata, line: u32, column: u32, in
     return self.debugLocationAssumeCapacity(scope, line, column, inlined_at);
 }
 
-pub fn debugBoolType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugBoolType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
-    const metadata_name = try self.metadataString(name);
-    return self.debugBoolTypeAssumeCapacity(metadata_name, size_in_bits);
+    return self.debugBoolTypeAssumeCapacity(name, size_in_bits);
 }
 
-pub fn debugUnsignedType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugUnsignedType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
-    const metadata_name = try self.metadataString(name);
-    return self.debugUnsignedTypeAssumeCapacity(metadata_name, size_in_bits);
+    return self.debugUnsignedTypeAssumeCapacity(name, size_in_bits);
 }
 
-pub fn debugSignedType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugSignedType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
-    const metadata_name = try self.metadataString(name);
-    return self.debugSignedTypeAssumeCapacity(metadata_name, size_in_bits);
+    return self.debugSignedTypeAssumeCapacity(name, size_in_bits);
 }
 
-pub fn debugFloatType(self: *Builder, name: String, size_in_bits: u64) Allocator.Error!Metadata {
+pub fn debugFloatType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.BasicType, 0);
-    const metadata_name = try self.metadataString(name);
-    return self.debugFloatTypeAssumeCapacity(metadata_name, size_in_bits);
+    return self.debugFloatTypeAssumeCapacity(name, size_in_bits);
 }
 
 pub fn debugForwardReference(self: *Builder) Allocator.Error!Metadata {
@@ -11021,7 +11079,7 @@ pub fn debugForwardReference(self: *Builder) Allocator.Error!Metadata {
 
 pub fn debugStructType(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11031,9 +11089,8 @@ pub fn debugStructType(
     fields_tuple: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
-    const metadata_name = try self.metadataString(name);
     return self.debugStructTypeAssumeCapacity(
-        metadata_name,
+        name,
         file,
         scope,
         line,
@@ -11046,7 +11103,7 @@ pub fn debugStructType(
 
 pub fn debugUnionType(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11056,9 +11113,8 @@ pub fn debugUnionType(
     fields_tuple: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
-    const metadata_name = try self.metadataString(name);
     return self.debugUnionTypeAssumeCapacity(
-        metadata_name,
+        name,
         file,
         scope,
         line,
@@ -11071,7 +11127,7 @@ pub fn debugUnionType(
 
 pub fn debugEnumerationType(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11081,9 +11137,8 @@ pub fn debugEnumerationType(
     fields_tuple: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
-    const metadata_name = try self.metadataString(name);
     return self.debugEnumerationTypeAssumeCapacity(
-        metadata_name,
+        name,
         file,
         scope,
         line,
@@ -11096,7 +11151,7 @@ pub fn debugEnumerationType(
 
 pub fn debugArrayType(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11106,9 +11161,8 @@ pub fn debugArrayType(
     fields_tuple: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
-    const metadata_name = try self.metadataString(name);
     return self.debugArrayTypeAssumeCapacity(
-        metadata_name,
+        name,
         file,
         scope,
         line,
@@ -11121,7 +11175,7 @@ pub fn debugArrayType(
 
 pub fn debugPointerType(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11131,9 +11185,8 @@ pub fn debugPointerType(
     offset_in_bits: u64,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
-    const metadata_name = try self.metadataString(name);
     return self.debugPointerTypeAssumeCapacity(
-        metadata_name,
+        name,
         file,
         scope,
         line,
@@ -11146,7 +11199,7 @@ pub fn debugPointerType(
 
 pub fn debugMemberType(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11156,9 +11209,8 @@ pub fn debugMemberType(
     offset_in_bits: u64,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
-    const metadata_name = try self.metadataString(name);
     return self.debugMemberTypeAssumeCapacity(
-        metadata_name,
+        name,
         file,
         scope,
         line,
@@ -11179,7 +11231,7 @@ pub fn debugSubroutineType(
 
 pub fn debugEnumerator(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     unsigned: bool,
     bit_width: u32,
     value: std.math.big.int.Const,
@@ -11187,8 +11239,7 @@ pub fn debugEnumerator(
     std.debug.assert(!(unsigned and !value.positive));
     try self.ensureUnusedMetadataCapacity(1, Metadata.Enumerator, 0);
     try self.metadata_limbs.ensureUnusedCapacity(self.gpa, value.limbs.len);
-    const metadata_name = try self.metadataString(name);
-    return self.debugEnumeratorAssumeCapacity(metadata_name, unsigned, bit_width, value);
+    return self.debugEnumeratorAssumeCapacity(name, unsigned, bit_width, value);
 }
 
 pub fn debugSubrange(
@@ -11219,30 +11270,28 @@ pub fn debugTuple(
 pub fn debugModuleFlag(
     self: *Builder,
     behaviour: Metadata,
-    name: String,
+    name: MetadataString,
     constant: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.ModuleFlag, 0);
-    const metadata_name = try self.metadataString(name);
-    return self.debugModuleFlagAssumeCapacity(behaviour, metadata_name, constant);
+    return self.debugModuleFlagAssumeCapacity(behaviour, name, constant);
 }
 
 pub fn debugLocalVar(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
     ty: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.LocalVar, 0);
-    const metadata_name = try self.metadataString(name);
-    return self.debugLocalVarAssumeCapacity(metadata_name, file, scope, line, ty);
+    return self.debugLocalVarAssumeCapacity(name, file, scope, line, ty);
 }
 
 pub fn debugParameter(
     self: *Builder,
-    name: String,
+    name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11250,14 +11299,13 @@ pub fn debugParameter(
     arg_no: u32,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Parameter, 0);
-    const metadata_name = try self.metadataString(name);
-    return self.debugParameterAssumeCapacity(metadata_name, file, scope, line, ty, arg_no);
+    return self.debugParameterAssumeCapacity(name, file, scope, line, ty, arg_no);
 }
 
 pub fn debugGlobalVar(
     self: *Builder,
-    name: String,
-    linkage_name: String,
+    name: MetadataString,
+    linkage_name: MetadataString,
     file: Metadata,
     scope: Metadata,
     line: u32,
@@ -11266,11 +11314,9 @@ pub fn debugGlobalVar(
     flags: Metadata.GlobalVar.Flags,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.GlobalVar, 0);
-    const metadata_name = try self.metadataString(name);
-    const metadata_linkage_name = try self.metadataString(linkage_name);
     return self.debugGlobalVarAssumeCapacity(
-        metadata_name,
-        metadata_linkage_name,
+        name,
+        linkage_name,
         file,
         scope,
         line,
@@ -11347,7 +11393,8 @@ fn metadataSimpleAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytyp
     return @enumFromInt(gop.index);
 }
 
-fn debugNamedAssumeCapacity(self: *Builder, name: String, operands: []const Metadata) void {
+fn debugNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
+    std.debug.assert(name != .none);
     const extra_index: u32 = @intCast(self.metadata_extra.items.len);
     self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(operands));
 
@@ -12953,12 +13000,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
             pub fn getMetadataIndex(adapter: @This(), metadata: Metadata) u32 {
                 if (metadata == .none) return 0;
-                return @intCast(adapter.builder.metadata_strings.count() +
-                    @intFromEnum(metadata.unwrap(adapter.builder)));
+                return @intCast(adapter.builder.metadata_string_map.count() +
+                    @intFromEnum(metadata.unwrap(adapter.builder)) - 1);
             }
 
             pub fn getMetadataStringIndex(_: @This(), metadata_string: MetadataString) u32 {
-                return @intFromEnum(metadata_string) + 1;
+                return @intFromEnum(metadata_string);
             }
         };
 
@@ -12976,11 +13023,11 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 const strings_offset, const strings_size = blk: {
                     var strings_offset: u32 = 0;
                     var strings_size: u32 = 0;
-                    for (self.metadata_strings.keys()) |metadata_string| {
-                        if (metadata_string.slice(self)) |slice| {
-                            strings_offset += bitcode.bitsVBR(@as(u32, @intCast(slice.len)), 6);
-                            strings_size += @intCast(slice.len * 8);
-                        }
+                    for (1..self.metadata_string_map.count()) |metadata_string_index| {
+                        const metadata_string: MetadataString = @enumFromInt(metadata_string_index);
+                        const slice = metadata_string.slice(self);
+                        strings_offset += bitcode.bitsVBR(@as(u32, @intCast(slice.len)), 6);
+                        strings_size += @intCast(slice.len * 8);
                     }
                     break :blk .{
                         std.mem.alignForward(u32, strings_offset, 32) / 8,
@@ -12993,25 +13040,26 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     MetadataBlockWriter.abbrev_len,
                 );
 
-                try bitcode.writeVBR(@as(u32, @intCast(self.metadata_strings.count())), 6);
+                try bitcode.writeVBR(@as(u32, @intCast(self.metadata_string_map.count() - 1)), 6);
                 try bitcode.writeVBR(strings_offset, 6);
 
                 try bitcode.writeVBR(strings_size + strings_offset, 6);
 
                 try bitcode.alignTo32();
 
-                for (self.metadata_strings.keys()) |metadata_string| {
-                    if (metadata_string.slice(self)) |slice|
-                        try bitcode.writeVBR(@as(u32, @intCast(slice.len)), 6);
+                for (1..self.metadata_string_map.count()) |metadata_string_index| {
+                    const metadata_string: MetadataString = @enumFromInt(metadata_string_index);
+                    const slice = metadata_string.slice(self);
+                    try bitcode.writeVBR(@as(u32, @intCast(slice.len)), 6);
                 }
 
                 try bitcode.alignTo32();
 
-                for (self.metadata_strings.keys()) |metadata_string| {
-                    if (metadata_string.slice(self)) |slice| {
-                        for (slice) |c| {
-                            try bitcode.writeBits(c, 8);
-                        }
+                for (1..self.metadata_string_map.count()) |metadata_string_index| {
+                    const metadata_string: MetadataString = @enumFromInt(metadata_string_index);
+                    const slice = metadata_string.slice(self);
+                    for (slice) |c| {
+                        try bitcode.writeBits(c, 8);
                     }
                 }
 
@@ -13335,7 +13383,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
             // Write named metadata
             for (self.metadata_named.keys(), self.metadata_named.values()) |name, operands| {
-                const slice = name.slice(self).?;
+                const slice = name.slice(self);
                 try metadata_block.writeAbbrev(MetadataBlock.Name{
                     .name = slice,
                 });
@@ -13396,7 +13444,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                             return @intCast(@intFromEnum(metadata) -
                                 Metadata.first_local_metadata +
-                                adapter.metadata_adapter.builder.metadata_strings.count() +
+                                adapter.metadata_adapter.builder.metadata_string_map.count() - 1 +
                                 adapter.metadata_adapter.builder.metadata_map.count() - 1);
                         } else unreachable,
                     });

@@ -872,8 +872,8 @@ pub const Object = struct {
         };
 
         const debug_file = try builder.debugFile(
-            try builder.string(compile_unit_dir),
-            try builder.string(comp.root_name),
+            try builder.metadataString(compile_unit_dir),
+            try builder.metadataString(comp.root_name),
         );
 
         const debug_enums_fwd_ref = try builder.debugForwardReference();
@@ -883,7 +883,7 @@ pub const Object = struct {
             debug_file,
             // Don't use the version string here; LLVM misparses it when it
             // includes the git revision.
-            try builder.fmt("zig {d}.{d}.{d}", .{
+            try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
                 build_options.semver.major,
                 build_options.semver.minor,
                 build_options.semver.patch,
@@ -896,7 +896,7 @@ pub const Object = struct {
         if (!builder.strip) {
             const debug_info_version = try builder.debugModuleFlag(
                 try builder.debugConstant(try builder.intConst(.i32, 2)),
-                try builder.string("Debug Info Version"),
+                try builder.metadataString("Debug Info Version"),
                 try builder.debugConstant(try builder.intConst(.i32, 3)),
             );
 
@@ -904,12 +904,12 @@ pub const Object = struct {
                 .dwarf => |f| {
                     const dwarf_version = try builder.debugModuleFlag(
                         try builder.debugConstant(try builder.intConst(.i32, 2)),
-                        try builder.string("Dwarf Version"),
+                        try builder.metadataString("Dwarf Version"),
                         try builder.debugConstant(try builder.intConst(.i32, 4)),
                     );
                     switch (f) {
                         .@"32" => {
-                            try builder.debugNamed(try builder.string("llvm.module.flags"), &.{
+                            try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
                                 debug_info_version,
                                 dwarf_version,
                             });
@@ -917,10 +917,10 @@ pub const Object = struct {
                         .@"64" => {
                             const dwarf64 = try builder.debugModuleFlag(
                                 try builder.debugConstant(try builder.intConst(.i32, 2)),
-                                try builder.string("DWARF64"),
+                                try builder.metadataString("DWARF64"),
                                 try builder.debugConstant(try builder.intConst(.i32, 1)),
                             );
-                            try builder.debugNamed(try builder.string("llvm.module.flags"), &.{
+                            try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
                                 debug_info_version,
                                 dwarf_version,
                                 dwarf64,
@@ -931,10 +931,10 @@ pub const Object = struct {
                 .code_view => {
                     const code_view = try builder.debugModuleFlag(
                         try builder.debugConstant(try builder.intConst(.i32, 2)),
-                        try builder.string("CodeView"),
+                        try builder.metadataString("CodeView"),
                         try builder.debugConstant(try builder.intConst(.i32, 1)),
                     );
-                    try builder.debugNamed(try builder.string("llvm.module.flags"), &.{
+                    try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
                         debug_info_version,
                         code_view,
                     });
@@ -942,7 +942,7 @@ pub const Object = struct {
                 .strip => unreachable,
             }
 
-            try builder.debugNamed(try builder.string("llvm.dbg.cu"), &.{debug_compile_unit});
+            try builder.debugNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
         }
 
         const obj = try arena.create(Object);
@@ -1654,8 +1654,8 @@ pub const Object = struct {
 
             break :blk try o.builder.debugSubprogram(
                 file,
-                try o.builder.string(ip.stringToSlice(decl.name)),
-                function_index.name(&o.builder),
+                try o.builder.metadataString(ip.stringToSlice(decl.name)),
+                try o.builder.metadataStringFromString(function_index.name(&o.builder)),
                 line_number,
                 line_number + func.lbrace_line,
                 debug_decl_type,
@@ -1914,8 +1914,8 @@ pub const Object = struct {
 
     fn getDebugFile(o: *Object, file: *const Module.File) Allocator.Error!Builder.Metadata {
         return try o.builder.debugFile(
-            if (std.fs.path.dirname(file.sub_file_path)) |dirname| try o.builder.string(dirname) else .empty,
-            try o.builder.string(std.fs.path.basename(file.sub_file_path)),
+            if (std.fs.path.dirname(file.sub_file_path)) |dirname| try o.builder.metadataString(dirname) else .none,
+            try o.builder.metadataString(std.fs.path.basename(file.sub_file_path)),
         );
     }
 
@@ -1936,7 +1936,7 @@ pub const Object = struct {
             .NoReturn,
             => {
                 const debug_void_type = try o.builder.debugSignedType(
-                    try o.builder.string("void"),
+                    try o.builder.metadataString("void"),
                     0,
                 );
                 try o.debug_type_map.put(gpa, ty, debug_void_type);
@@ -1947,7 +1947,7 @@ pub const Object = struct {
                 assert(info.bits != 0);
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
-                const builder_name = try o.builder.string(name);
+                const builder_name = try o.builder.metadataString(name);
                 const debug_bits = ty.abiSize(mod) * 8; // lldb cannot handle non-byte sized types
                 const debug_int_type = switch (info.signedness) {
                     .signed => try o.builder.debugSignedType(builder_name, debug_bits),
@@ -1984,7 +1984,7 @@ pub const Object = struct {
                         std.math.big.int.Mutable.init(&bigint_space.limbs, i).toConst();
 
                     enumerators[i] = try o.builder.debugEnumerator(
-                        try o.builder.string(ip.stringToSlice(field_name_ip)),
+                        try o.builder.metadataString(ip.stringToSlice(field_name_ip)),
                         int_ty.isUnsignedInt(mod),
                         int_info.bits,
                         bigint,
@@ -1998,7 +1998,7 @@ pub const Object = struct {
                 defer gpa.free(name);
 
                 const debug_enum_type = try o.builder.debugEnumerationType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     file,
                     scope,
                     owner_decl.src_node + 1, // Line
@@ -2017,7 +2017,7 @@ pub const Object = struct {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
                 const debug_float_type = try o.builder.debugFloatType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     bits,
                 );
                 try o.debug_type_map.put(gpa, ty, debug_float_type);
@@ -2025,7 +2025,7 @@ pub const Object = struct {
             },
             .Bool => {
                 const debug_bool_type = try o.builder.debugBoolType(
-                    try o.builder.string("bool"),
+                    try o.builder.metadataString("bool"),
                     8, // lldb cannot handle non-byte sized types
                 );
                 try o.debug_type_map.put(gpa, ty, debug_bool_type);
@@ -2085,7 +2085,7 @@ pub const Object = struct {
                     const len_offset = len_align.forward(ptr_size);
 
                     const debug_ptr_type = try o.builder.debugMemberType(
-                        try o.builder.string("ptr"),
+                        try o.builder.metadataString("ptr"),
                         Builder.Metadata.none, // File
                         debug_fwd_ref,
                         0, // Line
@@ -2096,7 +2096,7 @@ pub const Object = struct {
                     );
 
                     const debug_len_type = try o.builder.debugMemberType(
-                        try o.builder.string("len"),
+                        try o.builder.metadataString("len"),
                         Builder.Metadata.none, // File
                         debug_fwd_ref,
                         0, // Line
@@ -2107,7 +2107,7 @@ pub const Object = struct {
                     );
 
                     const debug_slice_type = try o.builder.debugStructType(
-                        try o.builder.string(name),
+                        try o.builder.metadataString(name),
                         Builder.Metadata.none, // File
                         o.debug_compile_unit, // Scope
                         line,
@@ -2135,7 +2135,7 @@ pub const Object = struct {
                 defer gpa.free(name);
 
                 const debug_ptr_type = try o.builder.debugPointerType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     Builder.Metadata.none, // File
                     Builder.Metadata.none, // Scope
                     0, // Line
@@ -2156,7 +2156,7 @@ pub const Object = struct {
             .Opaque => {
                 if (ty.toIntern() == .anyopaque_type) {
                     const debug_opaque_type = try o.builder.debugSignedType(
-                        try o.builder.string("anyopaque"),
+                        try o.builder.metadataString("anyopaque"),
                         0,
                     );
                     try o.debug_type_map.put(gpa, ty, debug_opaque_type);
@@ -2168,7 +2168,7 @@ pub const Object = struct {
                 const owner_decl_index = ty.getOwnerDecl(mod);
                 const owner_decl = o.module.declPtr(owner_decl_index);
                 const debug_opaque_type = try o.builder.debugStructType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope),
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
                     owner_decl.src_node + 1, // Line
@@ -2182,7 +2182,7 @@ pub const Object = struct {
             },
             .Array => {
                 const debug_array_type = try o.builder.debugArrayType(
-                    Builder.String.empty, // Name
+                    Builder.MetadataString.none, // Name
                     Builder.Metadata.none, // File
                     Builder.Metadata.none, // Scope
                     0, // Line
@@ -2211,21 +2211,21 @@ pub const Object = struct {
                         assert(info.bits != 0);
                         const name = try o.allocTypeName(ty);
                         defer gpa.free(name);
-                        const builder_name = try o.builder.string(name);
+                        const builder_name = try o.builder.metadataString(name);
                         break :blk switch (info.signedness) {
                             .signed => try o.builder.debugSignedType(builder_name, info.bits),
                             .unsigned => try o.builder.debugUnsignedType(builder_name, info.bits),
                         };
                     },
                     .Bool => try o.builder.debugBoolType(
-                        try o.builder.string("bool"),
+                        try o.builder.metadataString("bool"),
                         1,
                     ),
                     else => try o.lowerDebugType(ty.childType(mod)),
                 };
 
                 const debug_vector_type = try o.builder.debugArrayType(
-                    Builder.String.empty, // Name
+                    Builder.MetadataString.none, // Name
                     Builder.Metadata.none, // File
                     Builder.Metadata.none, // Scope
                     0, // Line
@@ -2249,7 +2249,7 @@ pub const Object = struct {
                 const child_ty = ty.optionalChild(mod);
                 if (!child_ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const debug_bool_type = try o.builder.debugBoolType(
-                        try o.builder.string(name),
+                        try o.builder.metadataString(name),
                         8,
                     );
                     try o.debug_type_map.put(gpa, ty, debug_bool_type);
@@ -2281,7 +2281,7 @@ pub const Object = struct {
                 const non_null_offset = non_null_align.forward(payload_size);
 
                 const debug_data_type = try o.builder.debugMemberType(
-                    try o.builder.string("data"),
+                    try o.builder.metadataString("data"),
                     Builder.Metadata.none, // File
                     debug_fwd_ref,
                     0, // Line
@@ -2292,7 +2292,7 @@ pub const Object = struct {
                 );
 
                 const debug_some_type = try o.builder.debugMemberType(
-                    try o.builder.string("some"),
+                    try o.builder.metadataString("some"),
                     Builder.Metadata.none,
                     debug_fwd_ref,
                     0,
@@ -2303,7 +2303,7 @@ pub const Object = struct {
                 );
 
                 const debug_optional_type = try o.builder.debugStructType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     Builder.Metadata.none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
@@ -2361,7 +2361,7 @@ pub const Object = struct {
 
                 var fields: [2]Builder.Metadata = undefined;
                 fields[error_index] = try o.builder.debugMemberType(
-                    try o.builder.string("tag"),
+                    try o.builder.metadataString("tag"),
                     Builder.Metadata.none, // File
                     debug_fwd_ref,
                     0, // Line
@@ -2371,7 +2371,7 @@ pub const Object = struct {
                     error_offset * 8,
                 );
                 fields[payload_index] = try o.builder.debugMemberType(
-                    try o.builder.string("value"),
+                    try o.builder.metadataString("value"),
                     Builder.Metadata.none, // File
                     debug_fwd_ref,
                     0, // Line
@@ -2382,7 +2382,7 @@ pub const Object = struct {
                 );
 
                 const debug_error_union_type = try o.builder.debugStructType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     Builder.Metadata.none, // File
                     o.debug_compile_unit, // Sope
                     0, // Line
@@ -2399,7 +2399,7 @@ pub const Object = struct {
             },
             .ErrorSet => {
                 const debug_error_set = try o.builder.debugUnsignedType(
-                    try o.builder.string("anyerror"),
+                    try o.builder.metadataString("anyerror"),
                     16,
                 );
                 try o.debug_type_map.put(gpa, ty, debug_error_set);
@@ -2413,7 +2413,7 @@ pub const Object = struct {
                     const backing_int_ty = struct_type.backingIntType(ip).*;
                     if (backing_int_ty != .none) {
                         const info = Type.fromInterned(backing_int_ty).intInfo(mod);
-                        const builder_name = try o.builder.string(name);
+                        const builder_name = try o.builder.metadataString(name);
                         const debug_int_type = switch (info.signedness) {
                             .signed => try o.builder.debugSignedType(builder_name, ty.abiSize(mod) * 8),
                             .unsigned => try o.builder.debugUnsignedType(builder_name, ty.abiSize(mod) * 8),
@@ -2450,7 +2450,7 @@ pub const Object = struct {
                             defer if (tuple.names.len == 0) gpa.free(field_name);
 
                             fields.appendAssumeCapacity(try o.builder.debugMemberType(
-                                try o.builder.string(field_name),
+                                try o.builder.metadataString(field_name),
                                 Builder.Metadata.none, // File
                                 debug_fwd_ref,
                                 0,
@@ -2462,7 +2462,7 @@ pub const Object = struct {
                         }
 
                         const debug_struct_type = try o.builder.debugStructType(
-                            try o.builder.string(name),
+                            try o.builder.metadataString(name),
                             Builder.Metadata.none, // File
                             o.debug_compile_unit, // Scope
                             0, // Line
@@ -2531,7 +2531,7 @@ pub const Object = struct {
                         try ip.getOrPutStringFmt(gpa, "{d}", .{field_index});
 
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
-                        try o.builder.string(ip.stringToSlice(field_name)),
+                        try o.builder.metadataString(ip.stringToSlice(field_name)),
                         Builder.Metadata.none, // File
                         debug_fwd_ref,
                         0, // Line
@@ -2543,7 +2543,7 @@ pub const Object = struct {
                 }
 
                 const debug_struct_type = try o.builder.debugStructType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     Builder.Metadata.none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
@@ -2584,7 +2584,7 @@ pub const Object = struct {
 
                 if (layout.payload_size == 0) {
                     const debug_union_type = try o.builder.debugStructType(
-                        try o.builder.string(name),
+                        try o.builder.metadataString(name),
                         Builder.Metadata.none, // File
                         o.debug_compile_unit, // Scope
                         0, // Line
@@ -2622,7 +2622,7 @@ pub const Object = struct {
 
                     const field_name = union_obj.field_names.get(ip)[field_index];
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
-                        try o.builder.string(ip.stringToSlice(field_name)),
+                        try o.builder.metadataString(ip.stringToSlice(field_name)),
                         Builder.Metadata.none, // File
                         debug_union_fwd_ref,
                         0, // Line
@@ -2641,7 +2641,7 @@ pub const Object = struct {
                 };
 
                 const debug_union_type = try o.builder.debugUnionType(
-                    try o.builder.string(union_name),
+                    try o.builder.metadataString(union_name),
                     Builder.Metadata.none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
@@ -2672,7 +2672,7 @@ pub const Object = struct {
                 }
 
                 const debug_tag_type = try o.builder.debugMemberType(
-                    try o.builder.string("tag"),
+                    try o.builder.metadataString("tag"),
                     Builder.Metadata.none, // File
                     debug_fwd_ref,
                     0, // Line
@@ -2683,7 +2683,7 @@ pub const Object = struct {
                 );
 
                 const debug_payload_type = try o.builder.debugMemberType(
-                    try o.builder.string("payload"),
+                    try o.builder.metadataString("payload"),
                     Builder.Metadata.none, // File
                     debug_fwd_ref,
                     0, // Line
@@ -2700,7 +2700,7 @@ pub const Object = struct {
                     .{ debug_payload_type, debug_tag_type };
 
                 const debug_tagged_union_type = try o.builder.debugStructType(
-                    try o.builder.string(name),
+                    try o.builder.metadataString(name),
                     Builder.Metadata.none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
@@ -2794,7 +2794,7 @@ pub const Object = struct {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
         return o.builder.debugStructType(
-            try o.builder.string(mod.intern_pool.stringToSlice(decl.name)), // TODO use fully qualified name
+            try o.builder.metadataString(mod.intern_pool.stringToSlice(decl.name)), // TODO use fully qualified name
             try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope),
             try o.namespaceToDebugScope(decl.src_namespace),
             decl.src_line + 1,
@@ -4699,8 +4699,8 @@ pub const DeclGen = struct {
             const debug_file = try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope);
 
             const debug_global_var = try o.builder.debugGlobalVar(
-                try o.builder.string(mod.intern_pool.stringToSlice(decl.name)), // Name
-                variable_index.name(&o.builder), // Linkage name
+                try o.builder.metadataString(mod.intern_pool.stringToSlice(decl.name)), // Name
+                try o.builder.metadataStringFromString(variable_index.name(&o.builder)), // Linkage name
                 debug_file, // File
                 debug_file, // Scope
                 line_number,
@@ -6678,7 +6678,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(pl_op.operand);
 
         const debug_local_var = try o.builder.debugLocalVar(
-            try o.builder.string(name),
+            try o.builder.metadataString(name),
             self.file,
             self.current_scope,
             self.prev_dbg_line,
@@ -6712,7 +6712,7 @@ pub const FuncGen = struct {
         if (needDbgVarWorkaround(o)) return .none;
 
         const debug_local_var = try o.builder.debugLocalVar(
-            try o.builder.string(name),
+            try o.builder.metadataString(name),
             self.file,
             self.current_scope,
             self.prev_dbg_line,
@@ -8796,7 +8796,7 @@ pub const FuncGen = struct {
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.string(mod.getParamName(func_index, src_index)),
+            try o.builder.metadataString(mod.getParamName(func_index, src_index)),
             self.file,
             self.current_scope,
             lbrace_line,
