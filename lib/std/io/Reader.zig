@@ -360,6 +360,18 @@ pub fn readEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) any
     return E.InvalidValue;
 }
 
+/// Reads the stream until the end, ignoring all the data.
+/// Returns the number of bytes discarded.
+pub fn discard(self: Self) anyerror!u64 {
+    var trash: [4096]u8 = undefined;
+    var index: u64 = 0;
+    while (true) {
+        const n = try self.read(&trash);
+        if (n == 0) return index;
+        index += n;
+    }
+}
+
 const std = @import("../std.zig");
 const Self = @This();
 const math = std.math;
