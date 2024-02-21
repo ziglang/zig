@@ -748,8 +748,7 @@ fn writeLoadCommands(macho_file: *MachO) !struct { usize, usize } {
     defer gpa.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    var cwriter = std.io.countingWriter(stream.writer());
-    const writer = cwriter.writer();
+    const writer = stream.writer();
 
     var ncmds: usize = 0;
 
@@ -779,7 +778,7 @@ fn writeLoadCommands(macho_file: *MachO) !struct { usize, usize } {
         ncmds += 1;
     }
 
-    assert(cwriter.bytes_written == needed_size);
+    assert(stream.pos == needed_size);
 
     try macho_file.base.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 

@@ -40,7 +40,7 @@ pub const Bind = struct {
     }
 
     pub fn size(self: Self) u64 {
-        return @as(u64, @intCast(self.buffer.items.len));
+        return @intCast(self.buffer.items.len);
     }
 
     pub fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
@@ -124,7 +124,7 @@ pub const Bind = struct {
             switch (state) {
                 .start => {
                     if (current.offset < offset) {
-                        try addAddr(@as(u64, @bitCast(@as(i64, @intCast(current.offset)) - @as(i64, @intCast(offset)))), writer);
+                        try addAddr(@bitCast(@as(i64, @intCast(current.offset)) - @as(i64, @intCast(offset))), writer);
                         offset = offset - (offset - current.offset);
                     } else if (current.offset > offset) {
                         const delta = current.offset - offset;
@@ -195,7 +195,7 @@ pub const WeakBind = struct {
     }
 
     pub fn size(self: Self) u64 {
-        return @as(u64, @intCast(self.buffer.items.len));
+        return @intCast(self.buffer.items.len);
     }
 
     pub fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
@@ -286,7 +286,7 @@ pub const WeakBind = struct {
                     } else if (current.offset > offset) {
                         const delta = current.offset - offset;
                         state = .bind_times_skip;
-                        skip = @as(u64, @intCast(delta));
+                        skip = @intCast(delta);
                         offset += skip;
                     } else unreachable;
                     i -= 1;
@@ -341,23 +341,20 @@ pub const LazyBind = struct {
     }
 
     pub fn size(self: Self) u64 {
-        return @as(u64, @intCast(self.buffer.items.len));
+        return @intCast(self.buffer.items.len);
     }
 
     pub fn finalize(self: *Self, gpa: Allocator, ctx: *MachO) !void {
-        if (self.entries.items.len == 0) return;
-
         try self.offsets.ensureTotalCapacityPrecise(gpa, self.entries.items.len);
 
-        var cwriter = std.io.countingWriter(self.buffer.writer(gpa));
-        const writer = cwriter.writer();
+        const writer = self.buffer.writer(gpa);
 
         log.debug("lazy bind opcodes", .{});
 
         var addend: i64 = 0;
 
         for (self.entries.items) |entry| {
-            self.offsets.appendAssumeCapacity(@as(u32, @intCast(cwriter.bytes_written)));
+            self.offsets.appendAssumeCapacity(@intCast(self.buffer.items.len));
 
             const sym = ctx.getSymbol(entry.target);
             const name = sym.getName(ctx);
@@ -388,7 +385,6 @@ pub const LazyBind = struct {
     }
 
     pub fn write(self: Self, writer: anytype) !void {
-        if (self.size() == 0) return;
         try writer.writeAll(self.buffer.items);
     }
 };
