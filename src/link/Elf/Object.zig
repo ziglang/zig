@@ -848,7 +848,8 @@ pub fn updateSymtabSize(self: *Object, elf_file: *Elf) !void {
         if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
         const esym = local.elfSym(elf_file);
         switch (esym.st_type()) {
-            elf.STT_SECTION, elf.STT_NOTYPE => continue,
+            elf.STT_SECTION => continue,
+            elf.STT_NOTYPE => if (esym.st_shndx == elf.SHN_UNDEF) continue,
             else => {},
         }
         local.flags.output_symtab = true;
