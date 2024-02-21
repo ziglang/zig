@@ -433,7 +433,7 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
 
         // While traversing relocations, mark symbols that require special handling such as
         // pointer indirection via GOT, or a stub trampoline via PLT.
-        switch (elf_file.getTarget().cpu.arch) {
+        switch (cpu_arch) {
             .x86_64 => x86_64.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
@@ -765,6 +765,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
 
         switch (cpu_arch) {
             .x86_64 => x86_64.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure,
                 error.RelaxFailure,
                 error.InvalidInstruction,
                 error.CannotEncode,
@@ -880,10 +881,83 @@ fn applyDynamicReloc(value: i64, elf_file: *Elf, writer: anytype) !void {
 pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: anytype) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.address(elf_file), self.name(elf_file) });
 
-    switch (elf_file.getTarget().cpu.arch) {
-        .x86_64 => try x86_64.resolveRelocsNonAlloc(self, elf_file, code, undefs),
-        else => return error.UnsupportedCpuArch,
+    const cpu_arch = elf_file.getTarget().cpu.arch;
+    const file_ptr = self.file(elf_file).?;
+    var stream = std.io.fixedBufferStream(code);
+
+    const rels = self.relocs(elf_file);
+    var has_reloc_errors = false;
+    var it = RelocsIterator{ .relocs = rels };
+    while (it.next()) |rel| {
+        const r_kind = relocation.decode(rel.r_type(), cpu_arch);
+        if (r_kind == .none) continue;
+
+        const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
+
+        const target_index = switch (file_ptr) {
+            .zig_object => |x| x.symbol(rel.r_sym()),
+            .object => |x| x.symbols.items[rel.r_sym()],
+            else => unreachable,
+        };
+        const target = elf_file.symbol(target_index);
+
+        // Check for violation of One Definition Rule for COMDATs.
+        if (target.file(elf_file) == null) {
+            // TODO convert into an error
+            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+                file_ptr.fmtPath(),
+                self.name(elf_file),
+                target.name(elf_file),
+            });
+            continue;
+        }
+
+        // Report an undefined symbol.
+        if (try self.reportUndefined(elf_file, target, target_index, rel, undefs)) continue;
+
+        // We will use equation format to resolve relocations:
+        // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
+        //
+        const P = @as(i64, @intCast(self.address(elf_file) + rel.r_offset));
+        // Addend from the relocation.
+        const A = rel.r_addend;
+        // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
+        const S = @as(i64, @intCast(target.address(.{}, elf_file)));
+        // Address of the global offset table.
+        const GOT = blk: {
+            const shndx = if (elf_file.got_plt_section_index) |shndx|
+                shndx
+            else if (elf_file.got_section_index) |shndx|
+                shndx
+            else
+                null;
+            break :blk if (shndx) |index| @as(i64, @intCast(elf_file.shdrs.items[index].sh_addr)) else 0;
+        };
+        // Address of the dynamic thread pointer.
+        const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
+
+        const args = ResolveArgs{ P, A, S, GOT, 0, 0, DTP, 0 };
+
+        relocs_log.debug("  {}: {x}: [{x} => {x}] ({s})", .{
+            relocation.fmtRelocType(rel.r_type(), cpu_arch),
+            rel.r_offset,
+            P,
+            S + A,
+            target.name(elf_file),
+        });
+
+        try stream.seekTo(r_offset);
+
+        switch (cpu_arch) {
+            .x86_64 => x86_64.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
+            else => return error.UnsupportedCpuArch,
+        }
     }
+
+    if (has_reloc_errors) return error.RelocFailure;
 }
 
 pub fn format(
@@ -1210,98 +1284,48 @@ const x86_64 = struct {
                 Elf.R_ZIG_GOT32 => try cwriter.writeInt(u32, @as(u32, @intCast(ZIG_GOT + A)), .little),
                 Elf.R_ZIG_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(ZIG_GOT + A - P)), .little),
 
-                else => {},
+                else => try atom.reportUnhandledRelocError(rel, elf_file),
             },
         }
     }
 
-    fn resolveRelocsNonAlloc(atom: Atom, elf_file: *Elf, code: []u8, undefs: anytype) !void {
-        const file_ptr = atom.file(elf_file).?;
-        var stream = std.io.fixedBufferStream(code);
+    fn resolveRelocNonAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+        stream: anytype,
+    ) !void {
+        _ = code;
+        _ = it;
+        const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const cwriter = stream.writer();
 
-        const rels = atom.relocs(elf_file);
-        var i: usize = 0;
-        while (i < rels.len) : (i += 1) {
-            const rel = rels[i];
-            const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
-            if (r_type == .NONE) continue;
+        _, const A, const S, const GOT, _, _, const DTP, _ = args;
 
-            const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
-
-            const target_index = switch (file_ptr) {
-                .zig_object => |x| x.symbol(rel.r_sym()),
-                .object => |x| x.symbols.items[rel.r_sym()],
-                else => unreachable,
-            };
-            const target = elf_file.symbol(target_index);
-
-            // Check for violation of One Definition Rule for COMDATs.
-            if (target.file(elf_file) == null) {
-                // TODO convert into an error
-                log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
-                    file_ptr.fmtPath(),
-                    atom.name(elf_file),
-                    target.name(elf_file),
-                });
-                continue;
-            }
-
-            // Report an undefined symbol.
-            if (try atom.reportUndefined(elf_file, target, target_index, rel, undefs)) continue;
-
-            // We will use equation format to resolve relocations:
-            // https://intezer.com/blog/malware-analysis/executable-and-linkable-format-101-part-3-relocations/
-            //
-            const P = @as(i64, @intCast(atom.address(elf_file) + rel.r_offset));
-            // Addend from the relocation.
-            const A = rel.r_addend;
-            // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
-            const S = @as(i64, @intCast(target.address(.{}, elf_file)));
-            // Address of the global offset table.
-            const GOT = blk: {
-                const shndx = if (elf_file.got_plt_section_index) |shndx|
-                    shndx
-                else if (elf_file.got_section_index) |shndx|
-                    shndx
-                else
-                    null;
-                break :blk if (shndx) |index| @as(i64, @intCast(elf_file.shdrs.items[index].sh_addr)) else 0;
-            };
-            // Address of the dynamic thread pointer.
-            const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
-
-            relocs_log.debug("  {}: {x}: [{x} => {x}] ({s})", .{
-                relocation.fmtRelocType(rel.r_type(), .x86_64),
-                rel.r_offset,
-                P,
-                S + A,
-                target.name(elf_file),
-            });
-
-            try stream.seekTo(r_offset);
-
-            switch (r_type) {
-                .NONE => unreachable,
-                .@"8" => try cwriter.writeInt(u8, @as(u8, @bitCast(@as(i8, @intCast(S + A)))), .little),
-                .@"16" => try cwriter.writeInt(u16, @as(u16, @bitCast(@as(i16, @intCast(S + A)))), .little),
-                .@"32" => try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(S + A)))), .little),
-                .@"32S" => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
-                .@"64" => try cwriter.writeInt(i64, S + A, .little),
-                .DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - DTP)), .little),
-                .DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
-                .GOTOFF64 => try cwriter.writeInt(i64, S + A - GOT, .little),
-                .GOTPC64 => try cwriter.writeInt(i64, GOT + A, .little),
-                .SIZE32 => {
-                    const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
-                    try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(size + A)))), .little);
-                },
-                .SIZE64 => {
-                    const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
-                    try cwriter.writeInt(i64, @as(i64, @intCast(size + A)), .little);
-                },
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            }
+        switch (r_type) {
+            .NONE => unreachable,
+            .@"8" => try cwriter.writeInt(u8, @as(u8, @bitCast(@as(i8, @intCast(S + A)))), .little),
+            .@"16" => try cwriter.writeInt(u16, @as(u16, @bitCast(@as(i16, @intCast(S + A)))), .little),
+            .@"32" => try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(S + A)))), .little),
+            .@"32S" => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
+            .@"64" => try cwriter.writeInt(i64, S + A, .little),
+            .DTPOFF32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - DTP)), .little),
+            .DTPOFF64 => try cwriter.writeInt(i64, S + A - DTP, .little),
+            .GOTOFF64 => try cwriter.writeInt(i64, S + A - GOT, .little),
+            .GOTPC64 => try cwriter.writeInt(i64, GOT + A, .little),
+            .SIZE32 => {
+                const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
+                try cwriter.writeInt(u32, @as(u32, @bitCast(@as(i32, @intCast(size + A)))), .little);
+            },
+            .SIZE64 => {
+                const size = @as(i64, @intCast(target.elfSym(elf_file).st_size));
+                try cwriter.writeInt(i64, @as(i64, @intCast(size + A)), .little);
+            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
