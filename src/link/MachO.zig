@@ -2250,7 +2250,7 @@ fn initSegments(self: *MachO) !void {
 }
 
 fn allocateSections(self: *MachO) !void {
-    const headerpad = load_commands.calcMinHeaderPadSize(self);
+    const headerpad = try load_commands.calcMinHeaderPadSize(self);
     var vmaddr: u64 = if (self.pagezero_seg_index) |index|
         self.segments.items[index].vmaddr + self.segments.items[index].vmsize
     else
@@ -2904,13 +2904,12 @@ pub fn writeStrtab(self: *MachO, off: u32) !u32 {
 
 fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
     const gpa = self.base.comp.gpa;
-    const needed_size = load_commands.calcLoadCommandsSize(self, false);
+    const needed_size = try load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    var cwriter = std.io.countingWriter(stream.writer());
-    const writer = cwriter.writer();
+    const writer = stream.writer();
 
     var ncmds: usize = 0;
 
@@ -2974,7 +2973,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + cwriter.bytes_written;
+    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + stream.pos;
     try writer.writeStruct(self.uuid_cmd);
     ncmds += 1;
 
@@ -3002,7 +3001,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    assert(cwriter.bytes_written == needed_size);
+    assert(stream.pos == needed_size);
 
     try self.base.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
