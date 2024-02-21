@@ -218,6 +218,7 @@ const Parse = struct {
         var have_name = false;
         var have_version = false;
         var have_included_paths = false;
+        var min_version_index: Ast.TokenIndex = undefined;
 
         for (struct_init.ast.fields) |field_init| {
             const name_token = ast.firstToken(field_init) - 2;
@@ -248,15 +249,7 @@ const Parse = struct {
                     try appendError(p, main_tokens[field_init], "unable to parse semantic version: {s}", .{@errorName(err)});
                     break :v null;
                 };
-
-                if (p.minimum_zig_version) |min_ver| {
-                    const host_version = @import("builtin").zig_version;
-                    if (host_version.order(min_ver) == .lt) {
-                        try appendError(p, main_tokens[field_init],
-                            \\the zig version you are using is too old to build. host: {}, min: {}.
-                        , .{ host_version, min_ver });
-                    }
-                }
+                if (p.minimum_zig_version) |_| min_version_index = main_tokens[field_init];
             } else {
                 // Ignore unknown fields so that we can add fields in future zig
                 // versions without breaking older zig versions.
@@ -265,6 +258,17 @@ const Parse = struct {
 
         if (!have_name) {
             try appendError(p, main_token, "missing top-level 'name' field", .{});
+        }
+
+        // To use the name in the error message, we need to store the token until we
+        // finish parsing the struct.
+        if (p.minimum_zig_version) |min_ver| {
+            const host_version = @import("builtin").zig_version;
+            if (host_version.order(min_ver) == .lt) {
+                try appendError(p, min_version_index,
+                    \\Your Zig version '{}' does not meet the minimum build requirement of '{}' for package '{s}'
+                , .{ host_version, min_ver, p.name });
+            }
         }
 
         if (!have_version) {
