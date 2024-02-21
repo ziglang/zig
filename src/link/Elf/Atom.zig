@@ -949,6 +949,10 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
+            .aarch64 => aarch64.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+                error.RelocFailure => has_reloc_errors = true,
+                else => |e| return e,
+            },
             else => return error.UnsupportedCpuArch,
         }
     }
@@ -1629,8 +1633,6 @@ const aarch64 = struct {
 
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
-
-        try stream.seekTo(r_offset);
         const cwriter = stream.writer();
 
         const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
@@ -1720,6 +1722,33 @@ const aarch64 = struct {
                 try aarch64_util.writePageOffset(kind, taddr, code[r_offset..][0..4]);
             },
 
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
+        }
+    }
+
+    fn resolveRelocNonAlloc(
+        atom: Atom,
+        elf_file: *Elf,
+        rel: elf.Elf64_Rela,
+        target: *const Symbol,
+        args: ResolveArgs,
+        it: *RelocsIterator,
+        code: []u8,
+        stream: anytype,
+    ) !void {
+        _ = it;
+        _ = code;
+        _ = target;
+
+        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+        const cwriter = stream.writer();
+
+        _, const A, const S, _, _, _, _, _ = args;
+
+        switch (r_type) {
+            .NONE => unreachable,
+            .ABS32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A)), .little),
+            .ABS64 => try cwriter.writeInt(i64, S + A, .little),
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
