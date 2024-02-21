@@ -25,6 +25,11 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .os_tag = .linux,
         .abi = .musl,
     });
+    const riscv64_musl = b.resolveTargetQuery(.{
+        .cpu_arch = .riscv64,
+        .os_tag = .linux,
+        .abi = .musl,
+    });
 
     // x86_64 tests
     // Exercise linker in -r mode
@@ -137,6 +142,9 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     // aarch64 tests
     elf_step.dependOn(testLinkingC(b, .{ .target = aarch64_musl }));
+
+    // riscv64 tests
+    elf_step.dependOn(testLinkingC(b, .{ .target = riscv64_musl }));
 
     return elf_step;
 }
