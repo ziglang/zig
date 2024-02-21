@@ -31,7 +31,7 @@ pub const State = enum {
 
 /// Initialize an HTTP server that can respond to multiple requests on the same
 /// connection.
-/// The returned `Server` is ready for `readRequest` to be called.
+/// The returned `Server` is ready for `receiveHead` to be called.
 pub fn init(connection: net.Server.Connection, read_buffer: []u8) Server {
     return .{
         .connection = connection,
@@ -51,6 +51,12 @@ pub const ReceiveHeadError = error{
     HttpHeadersInvalid,
     /// A low level I/O error occurred trying to read the headers.
     HttpHeadersUnreadable,
+    /// Partial HTTP request was received but the connection was closed before
+    /// fully receiving the headers.
+    HttpRequestTruncated,
+    /// The client sent 0 bytes of headers before closing the stream.
+    /// In other words, a keep-alive connection was finally closed.
+    HttpConnectionClosing,
 };
 
 /// The header bytes reference the read buffer that Server was initialized with
@@ -63,8 +69,11 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
     // In case of a reused connection, move the next request's bytes to the
     // beginning of the buffer.
     if (s.next_request_start > 0) {
-        if (s.read_buffer_len > s.next_request_start) rebase(s, 0);
-        s.next_request_start = 0;
+        if (s.read_buffer_len > s.next_request_start) {
+            rebase(s, 0);
+        } else {
+            s.read_buffer_len = 0;
+        }
     }
 
     var hp: http.HeadParser = .{};
@@ -82,6 +91,13 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
             return error.HttpHeadersOversize;
         const read_n = s.connection.stream.read(buf) catch
             return error.HttpHeadersUnreadable;
+        if (read_n == 0) {
+            if (s.read_buffer_len > 0) {
+                return error.HttpRequestTruncated;
+            } else {
+                return error.HttpConnectionClosing;
+            }
+        }
         s.read_buffer_len += read_n;
         const bytes = buf[0..read_n];
         const end = hp.feed(bytes);
