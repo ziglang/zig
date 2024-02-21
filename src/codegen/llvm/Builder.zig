@@ -7608,6 +7608,7 @@ pub const Metadata = enum(u32) {
         composite_union_type,
         composite_enumeration_type,
         composite_array_type,
+        composite_vector_type,
         derived_pointer_type,
         derived_member_type,
         subroutine_type,
@@ -11173,6 +11174,30 @@ pub fn debugArrayType(
     );
 }
 
+pub fn debugVectorType(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
+    return self.debugVectorTypeAssumeCapacity(
+        name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
 pub fn debugPointerType(
     self: *Builder,
     name: MetadataString,
@@ -11615,6 +11640,30 @@ fn debugArrayTypeAssumeCapacity(
 ) Metadata {
     return self.debugCompositeTypeAssumeCapacity(
         .composite_array_type,
+        name,
+        file,
+        scope,
+        line,
+        underlying_type,
+        size_in_bits,
+        align_in_bits,
+        fields_tuple,
+    );
+}
+
+fn debugVectorTypeAssumeCapacity(
+    self: *Builder,
+    name: MetadataString,
+    file: Metadata,
+    scope: Metadata,
+    line: u32,
+    underlying_type: Metadata,
+    size_in_bits: u64,
+    align_in_bits: u64,
+    fields_tuple: Metadata,
+) Metadata {
+    return self.debugCompositeTypeAssumeCapacity(
+        .composite_vector_type,
         name,
         file,
         scope,
@@ -13166,6 +13215,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .composite_union_type,
                     .composite_enumeration_type,
                     .composite_array_type,
+                    .composite_vector_type,
                     => |kind| {
                         const extra = self.metadataExtraData(Metadata.CompositeType, data);
 
@@ -13174,7 +13224,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .composite_struct_type => std.dwarf.TAG.structure_type,
                                 .composite_union_type => std.dwarf.TAG.union_type,
                                 .composite_enumeration_type => std.dwarf.TAG.enumeration_type,
-                                .composite_array_type => std.dwarf.TAG.array_type,
+                                .composite_array_type,
+                                .composite_vector_type,
+                                => std.dwarf.TAG.array_type,
                                 else => unreachable,
                             },
                             .name = extra.name,
@@ -13184,6 +13236,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .underlying_type = extra.underlying_type,
                             .size_in_bits = @as(u64, extra.size_in_bits_lo) | @as(u64, extra.size_in_bits_hi) << 32,
                             .align_in_bits = @as(u64, extra.align_in_bits_lo) | @as(u64, extra.align_in_bits_hi) << 32,
+                            .flags = if (kind == .composite_vector_type) DIFlags.Vector else 0,
                             .elements = extra.fields_tuple,
                         }, metadata_adapter);
                     },

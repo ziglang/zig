@@ -2224,7 +2224,7 @@ pub const Object = struct {
                     else => try o.lowerDebugType(ty.childType(mod)),
                 };
 
-                const debug_vector_type = try o.builder.debugArrayType(
+                const debug_vector_type = try o.builder.debugVectorType(
                     Builder.MetadataString.none, // Name
                     Builder.Metadata.none, // File
                     Builder.Metadata.none, // Scope

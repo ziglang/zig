@@ -767,7 +767,7 @@ pub const MetadataBlock = struct {
             .{ .vbr = 6 }, // size in bits
             .{ .vbr = 6 }, // align in bits
             .{ .literal = 0 }, // offset in bits
-            .{ .literal = 0 }, // flags
+            .{ .fixed = 32 }, // flags
             MetadataAbbrev, // elements
             .{ .literal = 0 }, // runtime lang
             .{ .literal = 0 }, // vtable holder
@@ -789,6 +789,7 @@ pub const MetadataBlock = struct {
         underlying_type: Builder.Metadata,
         size_in_bits: u64,
         align_in_bits: u64,
+        flags: u32,
         elements: Builder.Metadata,
     };
 
