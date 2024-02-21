@@ -12,6 +12,12 @@ const ValueArrayAbbrev = AbbrevOp{ .array_vbr = 6 };
 const ConstantAbbrev = AbbrevOp{ .vbr = 6 };
 const ConstantArrayAbbrev = AbbrevOp{ .array_vbr = 6 };
 
+const MetadataAbbrev = AbbrevOp{ .vbr = 16 };
+const MetadataArrayAbbrev = AbbrevOp{ .array_vbr = 16 };
+
+const LineAbbrev = AbbrevOp{ .vbr = 8 };
+const ColumnAbbrev = AbbrevOp{ .vbr = 8 };
+
 const BlockAbbrev = AbbrevOp{ .vbr = 6 };
 
 pub const Identification = struct {
@@ -574,6 +580,446 @@ pub const Constants = struct {
     };
 };
 
+pub const MetadataBlock = struct {
+    pub const id = 15;
+
+    pub const abbrevs = [_]type{
+        Strings,
+        File,
+        CompileUnit,
+        Subprogram,
+        LexicalBlock,
+        Location,
+        BasicType,
+        CompositeType,
+        DerivedType,
+        SubroutineType,
+        Enumerator,
+        Subrange,
+        Expression,
+        Node,
+        LocalVar,
+        Parameter,
+        GlobalVar,
+        GlobalVarExpression,
+        Constant,
+        Name,
+        NamedNode,
+    };
+
+    pub const Strings = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 35 },
+            .{ .vbr = 6 },
+            .{ .vbr = 6 },
+            .blob,
+        };
+        num_strings: u32,
+        strings_offset: u32,
+        blob: []const u8,
+    };
+
+    pub const File = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 16 },
+            .{ .literal = 1 }, // is distinct
+            MetadataAbbrev, // name
+            MetadataAbbrev, // path
+            .{ .literal = 0 }, // checksum
+            .{ .literal = 0 }, // checksum
+        };
+
+        name: Builder.MetadataString,
+        path: Builder.MetadataString,
+    };
+
+    pub const CompileUnit = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 20 },
+            .{ .literal = 1 }, // is distinct
+            .{ .literal = std.dwarf.LANG.C99 }, // source language
+            MetadataAbbrev, // file
+            MetadataAbbrev, // producer
+            .{ .fixed = 1 }, // is optimized
+            .{ .literal = 0 }, // raw flags
+            .{ .literal = 0 }, // runtime version
+            .{ .literal = 0 }, // split debug file name
+            .{ .literal = 1 }, // emission kind
+            MetadataAbbrev, // enum types
+            .{ .literal = 0 }, // retained types
+            .{ .literal = 0 }, // subprograms
+            MetadataAbbrev, // global variables
+            .{ .literal = 0 }, // imported entities
+            .{ .literal = 0 }, // DWO ID
+            .{ .literal = 0 }, // macros
+            .{ .literal = 0 }, // split debug inlining
+            .{ .literal = 0 }, // debug info profiling
+            .{ .literal = 0 }, // name table kind
+            .{ .literal = 0 }, // ranges base address
+            .{ .literal = 0 }, // raw sysroot
+            .{ .literal = 0 }, // raw SDK
+        };
+
+        file: Builder.Metadata,
+        producer: Builder.MetadataString,
+        is_optimized: bool,
+        enums: Builder.Metadata,
+        globals: Builder.Metadata,
+    };
+
+    pub const Subprogram = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 21 },
+            .{ .literal = 0b111 }, // is distinct | has sp flags | has flags
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // name
+            MetadataAbbrev, // linkage name
+            MetadataAbbrev, // file
+            LineAbbrev, // line
+            MetadataAbbrev, // type
+            LineAbbrev, // scope line
+            .{ .literal = 0 }, // containing type
+            .{ .fixed = 32 }, // sp flags
+            .{ .literal = 0 }, // virtual index
+            .{ .fixed = 32 }, // flags
+            MetadataAbbrev, // compile unit
+            .{ .literal = 0 }, // template params
+            .{ .literal = 0 }, // declaration
+            .{ .literal = 0 }, // retained nodes
+            .{ .literal = 0 }, // this adjustment
+            .{ .literal = 0 }, // thrown types
+            .{ .literal = 0 }, // annotations
+            .{ .literal = 0 }, // target function name
+        };
+
+        scope: Builder.Metadata,
+        name: Builder.MetadataString,
+        linkage_name: Builder.MetadataString,
+        file: Builder.Metadata,
+        line: u32,
+        ty: Builder.Metadata,
+        scope_line: u32,
+        sp_flags: u32,
+        flags: u32,
+        compile_unit: Builder.Metadata,
+    };
+
+    pub const LexicalBlock = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 22 },
+            .{ .literal = 1 }, // is distinct
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // file
+            LineAbbrev, // line
+            ColumnAbbrev, // column
+        };
+
+        scope: Builder.Metadata,
+        file: Builder.Metadata,
+        line: u32,
+        column: u32,
+    };
+
+    pub const Location = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 7 },
+            .{ .literal = 0 }, // is distinct
+            LineAbbrev, // line
+            ColumnAbbrev, // column
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // inlined at
+            .{ .literal = 0 }, // is implicit code
+        };
+
+        line: u32,
+        column: u32,
+        scope: u32,
+        inlined_at: Builder.Metadata,
+    };
+
+    pub const BasicType = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 15 },
+            .{ .literal = 1 }, // is distinct
+            .{ .literal = std.dwarf.TAG.base_type }, // tag
+            MetadataAbbrev, // name
+            .{ .vbr = 6 }, // size in bits
+            .{ .literal = 0 }, // align in bits
+            .{ .vbr = 8 }, // encoding
+            .{ .literal = 0 }, // flags
+        };
+
+        name: Builder.MetadataString,
+        size_in_bits: u64,
+        encoding: u32,
+    };
+
+    pub const CompositeType = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 18 },
+            .{ .literal = 1 | 0x2 }, // is distinct | is not used in old type ref
+            .{ .fixed = 32 }, // tag
+            MetadataAbbrev, // name
+            MetadataAbbrev, // file
+            LineAbbrev, // line
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // underlying type
+            .{ .vbr = 6 }, // size in bits
+            .{ .vbr = 6 }, // align in bits
+            .{ .literal = 0 }, // offset in bits
+            .{ .literal = 0 }, // flags
+            MetadataAbbrev, // elements
+            .{ .literal = 0 }, // runtime lang
+            .{ .literal = 0 }, // vtable holder
+            .{ .literal = 0 }, // template params
+            .{ .literal = 0 }, // raw id
+            .{ .literal = 0 }, // discriminator
+            .{ .literal = 0 }, // data location
+            .{ .literal = 0 }, // associated
+            .{ .literal = 0 }, // allocated
+            .{ .literal = 0 }, // rank
+            .{ .literal = 0 }, // annotations
+        };
+
+        tag: u32,
+        name: Builder.MetadataString,
+        file: Builder.Metadata,
+        line: u32,
+        scope: Builder.Metadata,
+        underlying_type: Builder.Metadata,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        elements: Builder.Metadata,
+    };
+
+    pub const DerivedType = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 17 },
+            .{ .literal = 1 }, // is distinct
+            .{ .fixed = 32 }, // tag
+            MetadataAbbrev, // name
+            MetadataAbbrev, // file
+            LineAbbrev, // line
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // underlying type
+            .{ .vbr = 6 }, // size in bits
+            .{ .vbr = 6 }, // align in bits
+            .{ .vbr = 6 }, // offset in bits
+            .{ .literal = 0 }, // flags
+            .{ .literal = 0 }, // extra data
+        };
+
+        tag: u32,
+        name: Builder.MetadataString,
+        file: Builder.Metadata,
+        line: u32,
+        scope: Builder.Metadata,
+        underlying_type: Builder.Metadata,
+        size_in_bits: u64,
+        align_in_bits: u64,
+        offset_in_bits: u64,
+    };
+
+    pub const SubroutineType = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 19 },
+            .{ .literal = 1 | 0x2 }, // is distinct | has no old type refs
+            .{ .literal = 0 }, // flags
+            MetadataAbbrev, // types
+            .{ .literal = 0 }, // cc
+        };
+
+        types: Builder.Metadata,
+    };
+
+    pub const Enumerator = struct {
+        pub const id = 14;
+
+        pub const Flags = packed struct(u3) {
+            distinct: bool = true,
+            unsigned: bool,
+            bigint: bool,
+        };
+
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = Enumerator.id },
+            .{ .fixed = @bitSizeOf(Flags) }, // flags
+            .{ .vbr = 6 }, // bit width
+            MetadataAbbrev, // name
+            .{ .vbr = 16 }, // integer value
+        };
+
+        flags: Flags,
+        bit_width: u32,
+        name: Builder.MetadataString,
+        value: std.math.big.Limb,
+    };
+
+    pub const Subrange = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 0b11 },
+            MetadataAbbrev, // count
+            MetadataAbbrev, // lower bound
+            .{ .literal = 0 }, // upper bound
+            .{ .literal = 0 }, // stride
+        };
+
+        count: Builder.Metadata,
+        lower_bound: Builder.Metadata,
+    };
+
+    pub const Expression = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 29 },
+            .{ .literal = 0 | (3 << 1) }, // is distinct | version
+            MetadataArrayAbbrev, // elements
+        };
+
+        elements: []const u32,
+    };
+
+    pub const Node = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 3 },
+            MetadataArrayAbbrev, // elements
+        };
+
+        elements: []const Builder.Metadata,
+    };
+
+    pub const LocalVar = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 28 },
+            .{ .literal = 0b11 }, // is distinct | has alignment
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // name
+            MetadataAbbrev, // file
+            LineAbbrev, // line
+            MetadataAbbrev, // type
+            .{ .literal = 0 }, // arg
+            .{ .literal = 0 }, // flags
+            .{ .literal = 0 }, // align bits
+            .{ .literal = 0 }, // annotations
+        };
+
+        scope: Builder.Metadata,
+        name: Builder.MetadataString,
+        file: Builder.Metadata,
+        line: u32,
+        ty: Builder.Metadata,
+    };
+
+    pub const Parameter = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 28 },
+            .{ .literal = 0b11 }, // is distinct | has alignment
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // name
+            MetadataAbbrev, // file
+            LineAbbrev, // line
+            MetadataAbbrev, // type
+            .{ .vbr = 4 }, // arg
+            .{ .literal = 0 }, // flags
+            .{ .literal = 0 }, // align bits
+            .{ .literal = 0 }, // annotations
+        };
+
+        scope: Builder.Metadata,
+        name: Builder.MetadataString,
+        file: Builder.Metadata,
+        line: u32,
+        ty: Builder.Metadata,
+        arg: u32,
+    };
+
+    pub const GlobalVar = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 27 },
+            .{ .literal = 0b101 }, // is distinct | version
+            MetadataAbbrev, // scope
+            MetadataAbbrev, // name
+            MetadataAbbrev, // linkage name
+            MetadataAbbrev, // file
+            LineAbbrev, // line
+            MetadataAbbrev, // type
+            .{ .fixed = 1 }, // local
+            .{ .literal = 1 }, // defined
+            .{ .literal = 0 }, // static data members declaration
+            .{ .literal = 0 }, // template params
+            .{ .literal = 0 }, // align in bits
+            .{ .literal = 0 }, // annotations
+        };
+
+        scope: Builder.Metadata,
+        name: Builder.MetadataString,
+        linkage_name: Builder.MetadataString,
+        file: Builder.Metadata,
+        line: u32,
+        ty: Builder.Metadata,
+        local: bool,
+    };
+
+    pub const GlobalVarExpression = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 37 },
+            .{ .literal = 1 }, // is distinct
+            MetadataAbbrev, // variable
+            MetadataAbbrev, // expression
+        };
+
+        variable: Builder.Metadata,
+        expression: Builder.Metadata,
+    };
+
+    pub const Constant = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 2 },
+            MetadataAbbrev, // type
+            MetadataAbbrev, // value
+        };
+
+        ty: Builder.Type,
+        constant: Builder.Constant,
+    };
+
+    pub const Name = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 4 },
+            .{ .array_fixed = 8 }, // name
+        };
+
+        name: []const u8,
+    };
+
+    pub const NamedNode = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 10 },
+            MetadataArrayAbbrev, // elements
+        };
+
+        elements: []const Builder.Metadata,
+    };
+};
+
+pub const FunctionMetadataBlock = struct {
+    pub const id = 15;
+
+    pub const abbrevs = [_]type{
+        Value,
+    };
+
+    pub const Value = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 2 },
+            .{ .fixed = 32 }, // variable
+            .{ .fixed = 32 }, // expression
+        };
+
+        ty: Builder.Type,
+        value: Builder.Value,
+    };
+};
+
 pub const FunctionBlock = struct {
     pub const id = 12;
 
@@ -610,6 +1056,8 @@ pub const FunctionBlock = struct {
         AtomicRmw,
         CmpXchg,
         Fence,
+        DebugLoc,
+        DebugLocAgain,
     };
 
     pub const DeclareBlocks = struct {
@@ -1066,6 +1514,28 @@ pub const FunctionBlock = struct {
         };
         ordering: Builder.AtomicOrdering,
         sync_scope: Builder.SyncScope,
+    };
+
+    pub const DebugLoc = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 35 },
+            .{ .fixed = 32 },
+            .{ .fixed = 32 },
+            .{ .fixed = 32 },
+            .{ .fixed = 32 },
+            .{ .fixed = 1 },
+        };
+        line: u32,
+        column: u32,
+        scope: Builder.Metadata,
+        inlined_at: Builder.Metadata,
+        is_implicit: bool,
+    };
+
+    pub const DebugLocAgain = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 33 },
+        };
     };
 };
 
