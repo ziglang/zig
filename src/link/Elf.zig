@@ -5550,6 +5550,15 @@ pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupO
     return &self.comdat_groups_owners.items[index];
 }
 
+pub fn gotAddress(self: *Elf) u64 {
+    const shndx = blk: {
+        if (self.getTarget().cpu.arch == .x86_64 and self.got_plt_section_index != null)
+            break :blk self.got_plt_section_index.?;
+        break :blk if (self.got_section_index) |shndx| shndx else null;
+    };
+    return if (shndx) |index| self.shdrs.items[index].sh_addr else 0;
+}
+
 pub fn tpAddress(self: *Elf) u64 {
     const index = self.phdr_tls_index orelse return 0;
     const phdr = self.phdrs.items[index];

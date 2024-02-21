@@ -731,15 +731,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
         const S = @as(i64, @intCast(target.address(.{}, elf_file)));
         // Address of the global offset table.
-        const GOT = blk: {
-            const shndx = if (elf_file.got_plt_section_index) |shndx|
-                shndx
-            else if (elf_file.got_section_index) |shndx|
-                shndx
-            else
-                null;
-            break :blk if (shndx) |index| @as(i64, @intCast(elf_file.shdrs.items[index].sh_addr)) else 0;
-        };
+        const GOT = @as(i64, @intCast(elf_file.gotAddress()));
         // Address of the .zig.got table entry if any.
         const ZIG_GOT = @as(i64, @intCast(target.zigGotAddress(elf_file)));
         // Relative offset to the start of the global offset table.
@@ -924,15 +916,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
         // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
         const S = @as(i64, @intCast(target.address(.{}, elf_file)));
         // Address of the global offset table.
-        const GOT = blk: {
-            const shndx = if (elf_file.got_plt_section_index) |shndx|
-                shndx
-            else if (elf_file.got_section_index) |shndx|
-                shndx
-            else
-                null;
-            break :blk if (shndx) |index| @as(i64, @intCast(elf_file.shdrs.items[index].sh_addr)) else 0;
-        };
+        const GOT = @as(i64, @intCast(elf_file.gotAddress()));
         // Address of the dynamic thread pointer.
         const DTP = @as(i64, @intCast(elf_file.dtpAddress()));
 
