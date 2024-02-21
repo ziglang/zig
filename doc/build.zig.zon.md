@@ -24,9 +24,6 @@ String. Optional.
 
 [semver](https://semver.org/)
 
-This is currently advisory only; the compiler does not yet do anything
-with this version.
-
 ### `dependencies`
 
 Struct.
