@@ -318,6 +318,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 
     switch (cpu_arch) {
         .x86_64 => try x86_64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
+        .aarch64 => try aarch64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         else => return error.UnsupportedCpuArch,
     }
 }
@@ -558,6 +559,19 @@ const x86_64 = struct {
             .@"64" => std.mem.writeInt(i64, data[0..8], target, .little),
             .PC32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
             .PC64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
+            else => try reportInvalidReloc(rec, elf_file, rel),
+        }
+    }
+};
+
+const aarch64 = struct {
+    fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
+        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+        switch (r_type) {
+            .NONE => {},
+            .ABS64 => std.mem.writeInt(i64, data[0..8], target, .little),
+            .PREL32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
+            .PREL64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
             else => try reportInvalidReloc(rec, elf_file, rel),
         }
     }
