@@ -34238,7 +34238,21 @@ fn resolvePeerTypesInner(
                     .peer_idx_b = i,
                 } };
 
-                if (!ty.childType(mod).eql(elem_ty, mod)) {
+                const peer_elem_ty = ty.childType(mod);
+                if (!peer_elem_ty.eql(elem_ty, mod)) coerce: {
+                    const peer_elem_coerces_to_elem =
+                        try sema.coerceInMemoryAllowed(block, elem_ty, peer_elem_ty, false, mod.getTarget(), src, src);
+                    if (peer_elem_coerces_to_elem == .ok) {
+                        break :coerce;
+                    }
+
+                    const elem_coerces_to_peer_elem =
+                        try sema.coerceInMemoryAllowed(block, peer_elem_ty, elem_ty, false, mod.getTarget(), src, src);
+                    if (elem_coerces_to_peer_elem == .ok) {
+                        elem_ty = peer_elem_ty;
+                        break :coerce;
+                    }
+
                     return .{ .conflict = .{
                         .peer_idx_a = first_arr_idx,
                         .peer_idx_b = i,
