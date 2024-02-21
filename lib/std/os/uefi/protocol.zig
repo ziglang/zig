@@ -38,7 +38,7 @@ pub const BlockIo = @import("protocol/media/block_io.zig").BlockIo;
 // NvmExpressPassThrough
 // SdmmcPassThrough
 // RamDisk
-// PartitionInfo
+pub const PartitionInfo = @import("protocol/media/partition_info.zig").PartitionInfo;
 // NvdimmLabel
 // UfsDeviceConfig
 

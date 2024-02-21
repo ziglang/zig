@@ -1,4 +1,3 @@
-const std = @import("../../../../std.zig");
 const bits = @import("../../bits.zig");
 
 const cc = bits.cc;
@@ -6,36 +5,39 @@ const Status = @import("../../status.zig").Status;
 
 const Guid = bits.Guid;
 
+/// This protocol is used to abstract the block accesses of the Block I/O protocol to a more general offset-length
+/// protocol. The firmware is responsible for adding this protocol to any Block I/O interface that appears in the
+/// system that does not already have a Disk I/O protocol. File systems and other disk access code utilize the
+/// Disk I/O protocol
 pub const DiskIo = extern struct {
     revision: u64,
-
-    _read: *const fn (*const DiskIo, media_id: u32, offset: u64, buffer_size: usize, buf: [*]u8) callconv(cc) Status,
-    _write: *const fn (*const DiskIo, media_id: u32, offset: u64, buffer_size: usize, buf: [*]const u8) callconv(cc) Status,
+    _read_disk: *const fn (*const DiskIo, media_id: u32, offset: u64, buf_size: usize, buf: [*]u8) callconv(cc) Status,
+    _write_disk: *const fn (*const DiskIo, media_id: u32, offset: u64, buf_size: usize, buf: [*]const u8) callconv(cc) Status,
 
     /// Reads a specified number of bytes from a device.
     pub fn read(
-        self: *DiskIo,
-        /// The media ID that the read request is for.
+        self: *const DiskIo,
+        /// The ID of the medium to read from.
         media_id: u32,
         /// The starting byte offset on the logical block I/O device to read from.
         offset: u64,
-        /// The buffer into which the data is read.
-        buffer: []u8,
+        /// The buffer to read data into
+        buf: []u8,
     ) !void {
-        try self._read(self, media_id, offset, buffer.len, buffer.ptr).err();
+        try self._read_disk(self, media_id, offset, buf.len, buf.ptr).err();
     }
 
-    /// Writes a specified number of bytes to the device.
+    /// Writes a specified number of bytes to a device.
     pub fn write(
-        self: *DiskIo,
-        /// The media ID that the write request is for.
+        self: *const DiskIo,
+        /// The ID of the medium to write to.
         media_id: u32,
         /// The starting byte offset on the logical block I/O device to write to.
         offset: u64,
-        /// The buffer from which the data is written.
-        buffer: []const u8,
+        /// The buffer to write data from
+        buf: []const u8,
     ) !void {
-        try self._write(self, media_id, offset, buffer.len, buffer.ptr).err();
+        try self._write_disk(self, media_id, offset, buf.len, buf.ptr).err();
     }
 
     pub const guid align(8) = Guid{
