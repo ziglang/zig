@@ -1371,14 +1371,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     try self.writePhdrTable();
     try self.writeShdrTable();
     try self.writeAtoms();
-
-    self.writeSyntheticSections() catch |err| switch (err) {
-        error.UnsupportedCpuArch => {
-            try self.reportUnsupportedCpuArch();
-            return error.FlushFailure;
-        },
-        else => |e| return e,
-    };
+    try self.writeSyntheticSections();
 
     if (self.entry_index == null and self.base.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
@@ -4689,7 +4682,14 @@ fn writeSyntheticSections(self: *Elf) !void {
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
-        try eh_frame.writeEhFrame(self, buffer.writer());
+        eh_frame.writeEhFrame(self, buffer.writer()) catch |err| switch (err) {
+            error.RelocFailure => return error.FlushFailure,
+            error.UnsupportedCpuArch => {
+                try self.reportUnsupportedCpuArch();
+                return error.FlushFailure;
+            },
+            else => |e| return e,
+        };
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
