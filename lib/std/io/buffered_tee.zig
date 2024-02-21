@@ -299,19 +299,18 @@ test "io.BufferedTee io.BufferedReader Block" {
 }
 
 test "io.BufferedTee with zero lookahead" {
-    // output is has same bytes as reader
+    // output has same bytes as consumer
     const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } ** 12;
     var in = io.fixedBufferStream(&data);
     var out = std.ArrayList(u8).init(testing.allocator);
     defer out.deinit();
 
-    var lbr = bufferedTee(8, 0, in.reader(), out.writer());
+    var bt = bufferedTee(8, 0, in.reader(), out.writer());
 
     var buf: [16]u8 = undefined;
-
     var read_len: usize = 0;
     for (0..buf.len) |i| {
-        const n = try lbr.read(buf[0..i]);
+        const n = try bt.read(buf[0..i]);
         try testing.expectEqual(i, n);
         read_len += i;
         try testing.expectEqual(read_len, out.items.len);
@@ -319,72 +318,71 @@ test "io.BufferedTee with zero lookahead" {
 }
 
 test "io.BufferedTee with lookahead" {
-    // output is lookahead bytes behind reader
+    // output is lookahead bytes behind consumer
     inline for (1..8) |lookahead| {
         const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } ** 12;
         var in = io.fixedBufferStream(&data);
         var out = std.ArrayList(u8).init(testing.allocator);
         defer out.deinit();
 
-        var lbr = bufferedTee(8, lookahead, in.reader(), out.writer());
+        var bt = bufferedTee(8, lookahead, in.reader(), out.writer());
         var buf: [16]u8 = undefined;
 
         var read_len: usize = 0;
         for (1..buf.len) |i| {
-            const n = try lbr.read(buf[0..i]);
+            const n = try bt.read(buf[0..i]);
             try testing.expectEqual(i, n);
             read_len += i;
             const out_len = if (read_len < lookahead) 0 else read_len - lookahead;
             try testing.expectEqual(out_len, out.items.len);
-            // std.debug.print("{d} {d} {d}\n", .{ lookahead, read_len, out_len });
         }
         try testing.expectEqual(read_len, out.items.len + lookahead);
-        try lbr.flush();
+        try bt.flush();
         try testing.expectEqual(read_len, out.items.len);
     }
 }
 
 test "io.BufferedTee internal state" {
-    const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } ** 10;
+    const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } ** 2;
     var in = io.fixedBufferStream(&data);
     var out = std.ArrayList(u8).init(testing.allocator);
     defer out.deinit();
 
-    var lbr = bufferedTee(8, 4, in.reader(), out.writer());
+    var bt = bufferedTee(8, 4, in.reader(), out.writer());
 
     var buf: [16]u8 = undefined;
-    var n = try lbr.read(buf[0..3]);
+    var n = try bt.read(buf[0..3]);
     try testing.expectEqual(3, n);
     try testing.expectEqualSlices(u8, data[0..3], buf[0..n]);
-    try testing.expectEqual(8, lbr.tail);
-    try testing.expectEqual(3, lbr.rp);
+    try testing.expectEqual(8, bt.tail);
+    try testing.expectEqual(3, bt.rp);
     try testing.expectEqual(0, out.items.len);
 
-    n = try lbr.read(buf[0..6]);
+    n = try bt.read(buf[0..6]);
     try testing.expectEqual(6, n);
     try testing.expectEqualSlices(u8, data[3..9], buf[0..n]);
-    try testing.expectEqual(8, lbr.tail);
-    try testing.expectEqual(5, lbr.rp);
-    try testing.expectEqualSlices(u8, data[4..12], &lbr.buf);
+    try testing.expectEqual(8, bt.tail);
+    try testing.expectEqual(5, bt.rp);
+    try testing.expectEqualSlices(u8, data[4..12], &bt.buf);
     try testing.expectEqual(5, out.items.len);
 
-    n = try lbr.read(buf[0..9]);
+    n = try bt.read(buf[0..9]);
     try testing.expectEqual(9, n);
     try testing.expectEqualSlices(u8, data[9..18], buf[0..n]);
-    try testing.expectEqual(8, lbr.tail);
-    try testing.expectEqual(6, lbr.rp);
-    try testing.expectEqualSlices(u8, data[12..20], &lbr.buf);
+    try testing.expectEqual(8, bt.tail);
+    try testing.expectEqual(6, bt.rp);
+    try testing.expectEqualSlices(u8, data[12..20], &bt.buf);
     try testing.expectEqual(14, out.items.len);
 
-    try lbr.flush();
+    try bt.flush();
     try testing.expectEqual(18, out.items.len);
 
-    lbr.putBack(4);
-    n = try lbr.read(buf[0..4]);
+    bt.putBack(4);
+    n = try bt.read(buf[0..4]);
     try testing.expectEqual(4, n);
     try testing.expectEqualSlices(u8, data[14..18], buf[0..n]);
 
     try testing.expectEqual(18, out.items.len);
-    try lbr.flush();
+    try bt.flush();
     try testing.expectEqual(18, out.items.len);
 }
