@@ -1881,14 +1881,22 @@ const riscv = struct {
             => {
                 assert(A == 0); // according to the spec
                 // We need to find the paired reloc for this relocation.
-                // TODO: should we search forward too?
                 const file_ptr = atom.file(elf_file).?;
+                const atom_addr = atom.address(elf_file);
                 const pos = it.pos;
                 const pair = while (it.prev()) |pair| {
-                    if (target.address(.{}, elf_file) == atom.address(elf_file) + pair.r_offset) {
-                        break pair;
-                    }
-                } else unreachable; // TODO error
+                    if (S == atom_addr + pair.r_offset) break pair;
+                } else {
+                    // TODO: implement searching forward
+                    var err = try elf_file.addErrorWithNotes(1);
+                    try err.addMsg(elf_file, "TODO: find HI20 paired reloc scanning forward", .{});
+                    try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                        atom.file(elf_file).?.fmtPath(),
+                        atom.name(elf_file),
+                        rel.r_offset,
+                    });
+                    return error.RelocFailure;
+                };
                 it.pos = pos;
                 const target_ = switch (file_ptr) {
                     .zig_object => |x| elf_file.symbol(x.symbol(pair.r_sym())),
@@ -1897,7 +1905,7 @@ const riscv = struct {
                 };
                 const S_ = @as(i64, @intCast(target_.address(.{}, elf_file)));
                 const A_ = pair.r_addend;
-                const P_ = @as(i64, @intCast(atom.address(elf_file) + pair.r_offset));
+                const P_ = @as(i64, @intCast(atom_addr + pair.r_offset));
                 const G_ = @as(i64, @intCast(target_.gotAddress(elf_file))) - GOT;
                 const disp = switch (@as(elf.R_RISCV, @enumFromInt(pair.r_type()))) {
                     .PCREL_HI20 => math.cast(i32, S_ + A_ - P_) orelse return error.Overflow,
