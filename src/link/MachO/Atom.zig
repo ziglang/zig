@@ -699,14 +699,7 @@ fn resolveRelocInner(
                         const S_: i64 = @intCast(thunk.getTargetAddress(rel.target, macho_file));
                         break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                     };
-                    var inst = aarch64.Instruction{
-                        .unconditional_branch_immediate = mem.bytesToValue(std.meta.TagPayload(
-                            aarch64.Instruction,
-                            aarch64.Instruction.unconditional_branch_immediate,
-                        ), code[rel_offset..][0..4]),
-                    };
-                    inst.unconditional_branch_immediate.imm26 = @as(u26, @truncate(@as(u28, @bitCast(disp >> 2))));
-                    try writer.writeInt(u32, inst.toU32(), .little);
+                    try aarch64.writeBranchImm(disp, code[rel_offset..][0..4]);
                 },
                 else => unreachable,
             }
@@ -776,16 +769,8 @@ fn resolveRelocInner(
                 };
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
-            const pages = @as(u21, @bitCast(try Relocation.calcNumberOfPages(source, target)));
-            var inst = aarch64.Instruction{
-                .pc_relative_address = mem.bytesToValue(std.meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.pc_relative_address,
-                ), code[rel_offset..][0..4]),
-            };
-            inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
-            inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
-            try writer.writeInt(u32, inst.toU32(), .little);
+            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(source, target)));
+            try aarch64.writePages(pages, code[rel_offset..][0..4]);
         },
 
         .pageoff => {
@@ -794,35 +779,8 @@ fn resolveRelocInner(
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, S + A) orelse return error.Overflow;
             const inst_code = code[rel_offset..][0..4];
-            if (Relocation.isArithmeticOp(inst_code)) {
-                const off = try Relocation.calcPageOffset(target, .arithmetic);
-                var inst = aarch64.Instruction{
-                    .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.add_subtract_immediate,
-                    ), inst_code),
-                };
-                inst.add_subtract_immediate.imm12 = off;
-                try writer.writeInt(u32, inst.toU32(), .little);
-            } else {
-                var inst = aarch64.Instruction{
-                    .load_store_register = mem.bytesToValue(std.meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.load_store_register,
-                    ), inst_code),
-                };
-                const off = try Relocation.calcPageOffset(target, switch (inst.load_store_register.size) {
-                    0 => if (inst.load_store_register.v == 1)
-                        Relocation.PageOffsetInstKind.load_store_128
-                    else
-                        Relocation.PageOffsetInstKind.load_store_8,
-                    1 => .load_store_16,
-                    2 => .load_store_32,
-                    3 => .load_store_64,
-                });
-                inst.load_store_register.offset = off;
-                try writer.writeInt(u32, inst.toU32(), .little);
-            }
+            const kind = aarch64.classifyInst(inst_code);
+            try aarch64.writePageOffset(kind, target, inst_code);
         },
 
         .got_load_pageoff => {
@@ -830,15 +788,7 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, G + A) orelse return error.Overflow;
-            const off = try Relocation.calcPageOffset(target, .load_store_64);
-            var inst: aarch64.Instruction = .{
-                .load_store_register = mem.bytesToValue(std.meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.load_store_register,
-                ), code[rel_offset..][0..4]),
-            };
-            inst.load_store_register.offset = off;
-            try writer.writeInt(u32, inst.toU32(), .little);
+            try aarch64.writePageOffset(.load_store_64, target, code[rel_offset..][0..4]);
         },
 
         .tlvp_pageoff => {
@@ -863,7 +813,7 @@ fn resolveRelocInner(
 
             const inst_code = code[rel_offset..][0..4];
             const reg_info: RegInfo = blk: {
-                if (Relocation.isArithmeticOp(inst_code)) {
+                if (aarch64.isArithmeticOp(inst_code)) {
                     const inst = mem.bytesToValue(std.meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.add_subtract_immediate,
@@ -890,7 +840,7 @@ fn resolveRelocInner(
                 .load_store_register = .{
                     .rt = reg_info.rd,
                     .rn = reg_info.rn,
-                    .offset = try Relocation.calcPageOffset(target, .load_store_64),
+                    .offset = try aarch64.calcPageOffset(.load_store_64, target),
                     .opc = 0b01,
                     .op1 = 0b01,
                     .v = 0,
@@ -900,7 +850,7 @@ fn resolveRelocInner(
                 .add_subtract_immediate = .{
                     .rd = reg_info.rd,
                     .rn = reg_info.rn,
-                    .imm12 = try Relocation.calcPageOffset(target, .arithmetic),
+                    .imm12 = try aarch64.calcPageOffset(.arithmetic, target),
                     .sh = 0,
                     .s = 0,
                     .op = 0,
@@ -1183,7 +1133,7 @@ pub const Loc = struct {
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
-const aarch64 = @import("../../arch/aarch64/bits.zig");
+const aarch64 = @import("../aarch64.zig");
 const assert = std.debug.assert;
 const bind = @import("dyld_info/bind.zig");
 const macho = std.macho;
