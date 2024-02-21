@@ -857,6 +857,7 @@ pub const MetadataBlock = struct {
 
     pub const Subrange = struct {
         pub const ops = [_]AbbrevOp{
+            .{ .literal = 13 },
             .{ .literal = 0b11 },
             MetadataAbbrev, // count
             MetadataAbbrev, // lower bound
