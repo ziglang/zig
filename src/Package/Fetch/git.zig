@@ -1091,7 +1091,7 @@ pub fn indexPack(allocator: Allocator, pack: std.fs.File, index_writer: anytype)
     try index_writer.writeAll(&index_checksum);
 }
 
-// Performs the first pass over the packfile data for index construction.
+/// Performs the first pass over the packfile data for index construction.
 /// This will index all non-delta objects, queue delta objects for further
 /// processing, and return the pack checksum (which is part of the index
 /// format).
@@ -1117,14 +1117,14 @@ fn indexPackFirstPass(
         const entry_header = try EntryHeader.read(pack_reader);
 
         switch (entry_header) {
-            inline .commit, .tree, .blob, .tag => |object, tag| {
+            .commit, .tree, .blob, .tag => |object| {
                 var entry_decompress_stream = std.compress.zlib.decompressor(pack_reader);
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
                 var entry_hashed_writer = hashedWriter(std.io.null_writer, Sha1.init(.{}));
                 const entry_writer = entry_hashed_writer.writer();
                 // The object header is not included in the pack data but is
                 // part of the object's ID
-                try entry_writer.print("{s} {}\x00", .{ @tagName(tag), object.uncompressed_length });
+                try entry_writer.print("{s} {}\x00", .{ @tagName(entry_header), object.uncompressed_length });
                 var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
                 try fifo.pump(entry_counting_reader.reader(), entry_writer);
                 if (entry_counting_reader.bytes_read != object.uncompressed_length) {
