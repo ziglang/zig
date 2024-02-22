@@ -580,6 +580,42 @@ pub const Constants = struct {
     };
 };
 
+pub const MetadataKindBlock = struct {
+    pub const id = 22;
+
+    pub const abbrevs = [_]type{
+        Kind,
+    };
+
+    pub const Kind = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 6 },
+            .{ .vbr = 4 },
+            .{ .array_fixed = 8 },
+        };
+        id: u32,
+        name: []const u8,
+    };
+};
+
+pub const MetadataAttachmentBlock = struct {
+    pub const id = 16;
+
+    pub const abbrevs = [_]type{
+        AttachmentSingle,
+    };
+
+    pub const AttachmentSingle = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 11 },
+            .{ .vbr = 4 },
+            MetadataAbbrev,
+        };
+        id: u32,
+        metadata: Builder.Metadata,
+    };
+};
+
 pub const MetadataBlock = struct {
     pub const id = 15;
 

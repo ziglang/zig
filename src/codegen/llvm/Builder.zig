@@ -13739,6 +13739,25 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             try constants_block.end();
         }
 
+        const MetadataKind = enum(u8) {
+            dbg = 0,
+        };
+
+        // METADATA_KIND_BLOCK
+        if (!self.strip) {
+            const MetadataKindBlock = ir.MetadataKindBlock;
+            var metadata_kind_block = try module_block.enterSubBlock(MetadataKindBlock);
+
+            inline for (@typeInfo(MetadataKind).Enum.fields) |field| {
+                try metadata_kind_block.writeAbbrev(MetadataKindBlock.Kind{
+                    .id = field.value,
+                    .name = field.name,
+                });
+            }
+
+            try metadata_kind_block.end();
+        }
+
         const MetadataAdapter = struct {
             builder: *const Builder,
             constant_adapter: ConstantAdapter,
@@ -14764,6 +14783,23 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     // TODO: Emit non block entries if the builder ever starts assigning names to non blocks
 
                     try value_symtab_block.end();
+                }
+
+                // METADATA_ATTACHMENT_BLOCK
+                if (!self.strip) blk: {
+                    const dbg = func.global.ptrConst(self).dbg;
+
+                    if (dbg == .none) break :blk;
+
+                    const MetadataAttachmentBlock = ir.MetadataAttachmentBlock;
+                    var metadata_attach_block = try function_block.enterSubBlock(MetadataAttachmentBlock);
+
+                    try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentSingle{
+                        .id = @intFromEnum(MetadataKind.dbg),
+                        .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(dbg) - 1),
+                    });
+
+                    try metadata_attach_block.end();
                 }
 
                 try function_block.end();
