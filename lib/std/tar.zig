@@ -299,14 +299,14 @@ fn Iterator(comptime ReaderType: type) type {
             return header;
         }
 
-        inline fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
+        fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
             if (size > buffer.len) return error.TarCorruptInput;
             const buf = buffer[0..size];
             try self.reader.readNoEof(buf);
             return nullStr(buf);
         }
 
-        inline fn initFile(self: *Self) void {
+        fn initFile(self: *Self) void {
             self.file = File{
                 .name = self.file_name_buffer[0..0],
                 .link_name = self.link_name_buffer[0..0],
@@ -318,7 +318,7 @@ fn Iterator(comptime ReaderType: type) type {
         }
 
         // Number of padding bytes in the last file block.
-        inline fn blockPadding(size: u64) usize {
+        fn blockPadding(size: u64) usize {
             const block_rounded = std.mem.alignForward(u64, size, Header.SIZE); // size rounded to te block boundary
             return @intCast(block_rounded - size);
         }
@@ -498,22 +498,22 @@ fn PaxIterator(comptime ReaderType: type) type {
             return null;
         }
 
-        inline fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
+        fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
             var fbs = std.io.fixedBufferStream(&self.scratch);
             try self.reader.streamUntilDelimiter(fbs.writer(), delimiter, null);
             return fbs.getWritten();
         }
 
-        inline fn eql(a: []const u8, b: []const u8) bool {
+        fn eql(a: []const u8, b: []const u8) bool {
             return std.mem.eql(u8, a, b);
         }
 
-        inline fn hasNull(str: []const u8) bool {
+        fn hasNull(str: []const u8) bool {
             return (std.mem.indexOfScalar(u8, str, 0)) != null;
         }
 
         // Checks that each record ends with new line.
-        inline fn validateAttributeEnding(reader: ReaderType) !void {
+        fn validateAttributeEnding(reader: ReaderType) !void {
             if (try reader.readByte() != '\n') return error.PaxInvalidAttributeEnd;
         }
     };
