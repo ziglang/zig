@@ -462,7 +462,6 @@ pub const Response = struct {
 
         const first_line = it.next().?;
         if (first_line.len < 12) {
-            std.debug.print("first line: '{s}'\n", .{first_line});
             return error.HttpHeadersInvalid;
         }
 
@@ -1573,6 +1572,7 @@ pub const FetchOptions = struct {
     method: ?http.Method = null,
     payload: ?[]const u8 = null,
     raw_uri: bool = false,
+    keep_alive: bool = true,
 
     /// Standard headers that have default, but overridable, behavior.
     headers: Request.Headers = .{},
@@ -1622,6 +1622,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
         .headers = options.headers,
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
+        .keep_alive = options.keep_alive,
     });
     defer req.deinit();
 
