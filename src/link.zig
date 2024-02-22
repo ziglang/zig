@@ -113,6 +113,7 @@ pub const File = struct {
         gc_sections: ?bool,
         allow_shlib_undefined: ?bool,
         allow_undefined_version: bool,
+        enable_new_dtags: ?bool,
         subsystem: ?std.Target.SubSystem,
         linker_script: ?[]const u8,
         version_script: ?[]const u8,
