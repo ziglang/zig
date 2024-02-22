@@ -26,17 +26,7 @@ fn handleRequest(request: *http.Server.Request, listen_port: u16) !void {
         request.head.target,
     });
 
-    if (request.head.expect) |expect| {
-        if (mem.eql(u8, expect, "100-continue")) {
-            @panic("test failure, didn't handle expect 100-continue");
-        } else {
-            return request.respond("", .{
-                .status = .expectation_failed,
-            });
-        }
-    }
-
-    const body = try request.reader().readAllAlloc(salloc, 8192);
+    const body = try (try request.reader()).readAllAlloc(salloc, 8192);
     defer salloc.free(body);
 
     var send_buffer: [100]u8 = undefined;

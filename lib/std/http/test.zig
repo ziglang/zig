@@ -136,7 +136,7 @@ test "HTTP server handles a chunked transfer coding request" {
             try expect(request.head.transfer_encoding == .chunked);
 
             var buf: [128]u8 = undefined;
-            const n = try request.reader().readAll(&buf);
+            const n = try (try request.reader()).readAll(&buf);
             try expect(std.mem.eql(u8, buf[0..n], "ABCD"));
 
             try request.respond("message from server!\n", .{
@@ -187,13 +187,13 @@ test "echo content server" {
 
     const server_thread = try std.Thread.spawn(.{}, (struct {
         fn handleRequest(request: *std.http.Server.Request) !void {
-            std.debug.print("server received {s} {s} {s}\n", .{
-                @tagName(request.head.method),
-                @tagName(request.head.version),
-                request.head.target,
-            });
+            //std.debug.print("server received {s} {s} {s}\n", .{
+            //    @tagName(request.head.method),
+            //    @tagName(request.head.version),
+            //    request.head.target,
+            //});
 
-            const body = try request.reader().readAllAlloc(std.testing.allocator, 8192);
+            const body = try (try request.reader()).readAllAlloc(std.testing.allocator, 8192);
             defer std.testing.allocator.free(body);
 
             try testing.expect(std.mem.startsWith(u8, request.head.target, "/echo-content"));
@@ -217,7 +217,7 @@ test "echo content server" {
             try w.writeAll("Hello, ");
             try w.writeAll("World!\n");
             try response.end();
-            std.debug.print("  server finished responding\n", .{});
+            //std.debug.print("  server finished responding\n", .{});
         }
 
         fn run(net_server: *std.net.Server) anyerror!void {
@@ -236,6 +236,13 @@ test "echo content server" {
                     };
                     if (std.mem.eql(u8, request.head.target, "/end")) {
                         return request.respond("", .{ .keep_alive = false });
+                    }
+                    if (request.head.expect) |expect| {
+                        if (std.mem.eql(u8, expect, "garbage")) {
+                            try testing.expectError(error.HttpExpectationFailed, request.reader());
+                            try request.respond("", .{ .keep_alive = false });
+                            continue;
+                        }
                     }
                     handleRequest(&request) catch |err| {
                         // This message helps the person troubleshooting determine whether
