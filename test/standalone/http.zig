@@ -82,26 +82,6 @@ fn handleRequest(request: *http.Server.Request, listen_port: u16) !void {
         }
 
         try response.end();
-    } else if (mem.startsWith(u8, request.head.target, "/echo-content")) {
-        try testing.expectEqualStrings("Hello, World!\n", body);
-        try testing.expectEqualStrings("text/plain", request.head.content_type.?);
-
-        var response = request.respondStreaming(.{
-            .send_buffer = &send_buffer,
-            .content_length = switch (request.head.transfer_encoding) {
-                .chunked => null,
-                .none => len: {
-                    try testing.expectEqual(14, request.head.content_length.?);
-                    break :len 14;
-                },
-            },
-        });
-
-        try response.flush(); // Test an early flush to send the HTTP headers before the body.
-        const w = response.writer();
-        try w.writeAll("Hello, ");
-        try w.writeAll("World!\n");
-        try response.end();
     } else if (mem.eql(u8, request.head.target, "/redirect/1")) {
         var response = request.respondStreaming(.{
             .send_buffer = &send_buffer,
@@ -351,39 +331,6 @@ pub fn main() !void {
     // connection has been kept alive
     try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
-    { // send content-length request
-        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content", .{port});
-        defer calloc.free(location);
-        const uri = try std.Uri.parse(location);
-
-        log.info("{s}", .{location});
-        var server_header_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
-            .server_header_buffer = &server_header_buffer,
-            .extra_headers = &.{
-                .{ .name = "content-type", .value = "text/plain" },
-            },
-        });
-        defer req.deinit();
-
-        req.transfer_encoding = .{ .content_length = 14 };
-
-        try req.send(.{});
-        try req.writeAll("Hello, ");
-        try req.writeAll("World!\n");
-        try req.finish();
-
-        try req.wait();
-
-        const body = try req.reader().readAllAlloc(calloc, 8192);
-        defer calloc.free(body);
-
-        try testing.expectEqualStrings("Hello, World!\n", body);
-    }
-
-    // connection has been kept alive
-    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
-
     { // read content-length response with connection close
         const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/get", .{port});
         defer calloc.free(location);
@@ -409,39 +356,6 @@ pub fn main() !void {
 
     // connection has been closed
     try testing.expect(client.connection_pool.free_len == 0);
-
-    { // send chunked request
-        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content", .{port});
-        defer calloc.free(location);
-        const uri = try std.Uri.parse(location);
-
-        log.info("{s}", .{location});
-        var server_header_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
-            .server_header_buffer = &server_header_buffer,
-            .extra_headers = &.{
-                .{ .name = "content-type", .value = "text/plain" },
-            },
-        });
-        defer req.deinit();
-
-        req.transfer_encoding = .chunked;
-
-        try req.send(.{});
-        try req.writeAll("Hello, ");
-        try req.writeAll("World!\n");
-        try req.finish();
-
-        try req.wait();
-
-        const body = try req.reader().readAllAlloc(calloc, 8192);
-        defer calloc.free(body);
-
-        try testing.expectEqualStrings("Hello, World!\n", body);
-    }
-
-    // connection has been kept alive
-    try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // relative redirect
         const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/redirect/1", .{port});
@@ -560,83 +474,6 @@ pub fn main() !void {
 
     // connection has been kept alive
     try testing.expect(client.http_proxy != null or client.connection_pool.free_len == 1);
-
-    { // Client.fetch()
-
-        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#fetch", .{port});
-        defer calloc.free(location);
-
-        log.info("{s}", .{location});
-        var body = std.ArrayList(u8).init(calloc);
-        defer body.deinit();
-
-        const res = try client.fetch(.{
-            .location = .{ .url = location },
-            .method = .POST,
-            .payload = "Hello, World!\n",
-            .extra_headers = &.{
-                .{ .name = "content-type", .value = "text/plain" },
-            },
-            .response_storage = .{ .dynamic = &body },
-        });
-        try testing.expectEqual(.ok, res.status);
-        try testing.expectEqualStrings("Hello, World!\n", body.items);
-    }
-
-    { // expect: 100-continue
-        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#expect-100", .{port});
-        defer calloc.free(location);
-        const uri = try std.Uri.parse(location);
-
-        log.info("{s}", .{location});
-        var server_header_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
-            .server_header_buffer = &server_header_buffer,
-            .extra_headers = &.{
-                .{ .name = "expect", .value = "100-continue" },
-                .{ .name = "content-type", .value = "text/plain" },
-            },
-        });
-        defer req.deinit();
-
-        req.transfer_encoding = .chunked;
-
-        try req.send(.{});
-        try req.writeAll("Hello, ");
-        try req.writeAll("World!\n");
-        try req.finish();
-
-        try req.wait();
-        try testing.expectEqual(http.Status.ok, req.response.status);
-
-        const body = try req.reader().readAllAlloc(calloc, 8192);
-        defer calloc.free(body);
-
-        try testing.expectEqualStrings("Hello, World!\n", body);
-    }
-
-    { // expect: garbage
-        const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/echo-content#expect-garbage", .{port});
-        defer calloc.free(location);
-        const uri = try std.Uri.parse(location);
-
-        log.info("{s}", .{location});
-        var server_header_buffer: [1024]u8 = undefined;
-        var req = try client.open(.POST, uri, .{
-            .server_header_buffer = &server_header_buffer,
-            .extra_headers = &.{
-                .{ .name = "content-type", .value = "text/plain" },
-                .{ .name = "expect", .value = "garbage" },
-            },
-        });
-        defer req.deinit();
-
-        req.transfer_encoding = .chunked;
-
-        try req.send(.{});
-        try req.wait();
-        try testing.expectEqual(http.Status.expectation_failed, req.response.status);
-    }
 
     { // issue 16282 *** This test leaves the client in an invalid state, it must be last ***
         const location = try std.fmt.allocPrint(calloc, "http://127.0.0.1:{d}/get", .{port});

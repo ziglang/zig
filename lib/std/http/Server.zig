@@ -279,13 +279,15 @@ pub const Request = struct {
         reason: ?[]const u8 = null,
         keep_alive: bool = true,
         extra_headers: []const http.Header = &.{},
+        transfer_encoding: ?http.TransferEncoding = null,
     };
 
     /// Send an entire HTTP response to the client, including headers and body.
     ///
     /// Automatically handles HEAD requests by omitting the body.
-    /// Uses the "content-length" header unless `content` is empty in which
-    /// case it omits the content-length header.
+    ///
+    /// Unless `transfer_encoding` is specified, uses the "content-length"
+    /// header.
     ///
     /// If the request contains a body and the connection is to be reused,
     /// discards the request body, leaving the Server in the `ready` state. If
@@ -303,7 +305,9 @@ pub const Request = struct {
         assert(options.status != .@"continue");
         assert(options.extra_headers.len <= max_extra_headers);
 
-        const keep_alive = request.discardBody(options.keep_alive);
+        const transfer_encoding_none = (options.transfer_encoding orelse .chunked) == .none;
+        const server_keep_alive = !transfer_encoding_none and options.keep_alive;
+        const keep_alive = request.discardBody(server_keep_alive);
 
         const phrase = options.reason orelse options.status.phrase() orelse "";
 
@@ -314,9 +318,15 @@ pub const Request = struct {
         }) catch unreachable;
         if (keep_alive)
             h.appendSliceAssumeCapacity("connection: keep-alive\r\n");
-        if (content.len > 0)
-            h.fixedWriter().print("content-length: {d}\r\n", .{content.len}) catch unreachable;
 
+        if (options.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
+            .none => {},
+            .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
+        } else {
+            h.fixedWriter().print("content-length: {d}\r\n", .{content.len}) catch unreachable;
+        }
+
+        var chunk_header_buffer: [18]u8 = undefined;
         var iovecs: [max_extra_headers * 4 + 3]std.posix.iovec_const = undefined;
         var iovecs_len: usize = 0;
 
@@ -358,12 +368,47 @@ pub const Request = struct {
         };
         iovecs_len += 1;
 
-        if (request.head.method != .HEAD and content.len > 0) {
-            iovecs[iovecs_len] = .{
-                .iov_base = content.ptr,
-                .iov_len = content.len,
-            };
-            iovecs_len += 1;
+        if (request.head.method != .HEAD) {
+            const is_chunked = (options.transfer_encoding orelse .none) == .chunked;
+            if (is_chunked) {
+                if (content.len > 0) {
+                    const chunk_header = std.fmt.bufPrint(
+                        &chunk_header_buffer,
+                        "{x}\r\n",
+                        .{content.len},
+                    ) catch unreachable;
+
+                    iovecs[iovecs_len] = .{
+                        .iov_base = chunk_header.ptr,
+                        .iov_len = chunk_header.len,
+                    };
+                    iovecs_len += 1;
+
+                    iovecs[iovecs_len] = .{
+                        .iov_base = content.ptr,
+                        .iov_len = content.len,
+                    };
+                    iovecs_len += 1;
+
+                    iovecs[iovecs_len] = .{
+                        .iov_base = "\r\n",
+                        .iov_len = 2,
+                    };
+                    iovecs_len += 1;
+                }
+
+                iovecs[iovecs_len] = .{
+                    .iov_base = "0\r\n\r\n",
+                    .iov_len = 5,
+                };
+                iovecs_len += 1;
+            } else if (content.len > 0) {
+                iovecs[iovecs_len] = .{
+                    .iov_base = content.ptr,
+                    .iov_len = content.len,
+                };
+                iovecs_len += 1;
+            }
         }
 
         try request.server.connection.stream.writevAll(iovecs[0..iovecs_len]);
@@ -400,8 +445,9 @@ pub const Request = struct {
     pub fn respondStreaming(request: *Request, options: RespondStreamingOptions) Response {
         const o = options.respond_options;
         assert(o.status != .@"continue");
-
-        const keep_alive = request.discardBody(o.keep_alive);
+        const transfer_encoding_none = (o.transfer_encoding orelse .chunked) == .none;
+        const server_keep_alive = !transfer_encoding_none and o.keep_alive;
+        const keep_alive = request.discardBody(server_keep_alive);
         const phrase = o.reason orelse o.status.phrase() orelse "";
 
         var h = std.ArrayListUnmanaged(u8).initBuffer(options.send_buffer);
@@ -815,26 +861,32 @@ pub const Response = struct {
         };
         iovecs_len += 1;
 
-        iovecs[iovecs_len] = .{
-            .iov_base = chunk_header.ptr,
-            .iov_len = chunk_header.len,
-        };
-        iovecs_len += 1;
+        if (r.chunk_len > 0) {
+            iovecs[iovecs_len] = .{
+                .iov_base = chunk_header.ptr,
+                .iov_len = chunk_header.len,
+            };
+            iovecs_len += 1;
 
-        iovecs[iovecs_len] = .{
-            .iov_base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-            .iov_len = r.chunk_len,
-        };
-        iovecs_len += 1;
+            iovecs[iovecs_len] = .{
+                .iov_base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
+                .iov_len = r.chunk_len,
+            };
+            iovecs_len += 1;
+
+            iovecs[iovecs_len] = .{
+                .iov_base = "\r\n",
+                .iov_len = 2,
+            };
+            iovecs_len += 1;
+        }
 
         if (end_trailers) |trailers| {
-            if (r.chunk_len > 0) {
-                iovecs[iovecs_len] = .{
-                    .iov_base = "\r\n0\r\n",
-                    .iov_len = 5,
-                };
-                iovecs_len += 1;
-            }
+            iovecs[iovecs_len] = .{
+                .iov_base = "0\r\n",
+                .iov_len = 3,
+            };
+            iovecs_len += 1;
 
             for (trailers) |trailer| {
                 iovecs[iovecs_len] = .{
@@ -862,12 +914,6 @@ pub const Response = struct {
                 iovecs_len += 1;
             }
 
-            iovecs[iovecs_len] = .{
-                .iov_base = "\r\n",
-                .iov_len = 2,
-            };
-            iovecs_len += 1;
-        } else if (r.chunk_len > 0) {
             iovecs[iovecs_len] = .{
                 .iov_base = "\r\n",
                 .iov_len = 2,
