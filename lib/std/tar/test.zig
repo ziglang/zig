@@ -313,6 +313,10 @@ test "tar run Go test cases" {
                 },
             },
         },
+        .{
+            .data = @embedFile("testdata/fuzz1.tar"),
+            .err = error.TarCorruptInput,
+        },
     };
 
     for (cases) |case| {

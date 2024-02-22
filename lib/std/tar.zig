@@ -300,7 +300,7 @@ fn Iterator(comptime ReaderType: type) type {
         }
 
         inline fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
-            assert(buffer.len >= size);
+            if (size > buffer.len) return error.TarCorruptInput;
             const buf = buffer[0..size];
             try self.reader.readNoEof(buf);
             return nullStr(buf);
