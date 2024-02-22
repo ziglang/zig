@@ -1,24 +1,23 @@
-//! BufferedTee provides reader interface to the consumer. Data read by consumer
-//! is also written to the output. Output is hold lookahead_size bytes behind
-//! consumer. Allowing consumer to put back some bytes to be read again. On flush
-//! all consumed bytes are flushed to the output.
-//!
-//!       input   ->   tee   ->   consumer
-//!                     |
-//!                  output
-//!
-//! input - underlying unbuffered reader
-//! output - writer, receives data read by consumer
-//! consumer - uses provided reader interface
-//!
-//! If lookahead_size is zero output always has same bytes as consumer.
-//!
-
 const std = @import("std");
 const io = std.io;
 const assert = std.debug.assert;
 const testing = std.testing;
 
+/// BufferedTee provides reader interface to the consumer. Data read by consumer
+/// is also written to the output. Output is hold lookahead_size bytes behind
+/// consumer. Allowing consumer to put back some bytes to be read again. On flush
+/// all consumed bytes are flushed to the output.
+///
+///       input   ->   tee   ->   consumer
+///                     |
+///                  output
+///
+/// input - underlying unbuffered reader
+/// output - writer, receives data read by consumer
+/// consumer - uses provided reader interface
+///
+/// If lookahead_size is zero output always has same bytes as consumer.
+///
 pub fn BufferedTee(
     comptime buffer_size: usize, // internal buffer size in bytes
     comptime lookahead_size: usize, // lookahead, number of bytes to hold output behind consumer
@@ -130,15 +129,7 @@ pub fn bufferedTee(
     @TypeOf(input),
     @TypeOf(output),
 ) {
-    return BufferedTee(
-        buffer_size,
-        lookahead_size,
-        @TypeOf(input),
-        @TypeOf(output),
-    ){
-        .input = input,
-        .output = output,
-    };
+    return .{ .input = input, .output = output };
 }
 
 // Running test from std.io.BufferedReader on BufferedTee
