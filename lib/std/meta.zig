@@ -460,13 +460,11 @@ test "std.meta.FieldType" {
     try testing.expect(FieldType(U, .d) == *const u8);
 }
 
-pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
+pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
     return comptime blk: {
         const fieldInfos = fields(T);
-        var names: [fieldInfos.len][]const u8 = undefined;
-        for (fieldInfos, 0..) |field, i| {
-            names[i] = field.name;
-        }
+        var names: [fieldInfos.len][:0]const u8 = undefined;
+        for (&names, fieldInfos) |*name, field| name.* = field.name;
         break :blk &names;
     };
 }

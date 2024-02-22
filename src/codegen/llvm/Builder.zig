@@ -77,11 +77,11 @@ pub const String = enum(u32) {
         return self.toIndex() == null;
     }
 
-    pub fn slice(self: String, b: *const Builder) ?[:0]const u8 {
+    pub fn slice(self: String, builder: *const Builder) ?[:0]const u8 {
         const index = self.toIndex() orelse return null;
-        const start = b.string_indices.items[index];
-        const end = b.string_indices.items[index + 1];
-        return b.string_bytes.items[start .. end - 1 :0];
+        const start = builder.string_indices.items[index];
+        const end = builder.string_indices.items[index + 1];
+        return builder.string_bytes.items[start .. end - 1 :0];
     }
 
     const FormatData = struct {
@@ -1124,7 +1124,8 @@ pub const Attribute = union(Kind) {
                         u32 => storage.value,
                         Alignment, String, Type, UwTable => @enumFromInt(storage.value),
                         AllocKind, AllocSize, FpClass, Memory, VScaleRange => @bitCast(storage.value),
-                        else => @compileError("bad payload type: " ++ @typeName(field.type)),
+                        else => @compileError("bad payload type: " ++ field.name ++ ": " ++
+                            @typeName(field.type)),
                     });
                 },
                 .string, .none => unreachable,
@@ -1550,12 +1551,12 @@ pub const Attribute = union(Kind) {
 
     fn toStorage(self: Attribute) Storage {
         return switch (self) {
-            inline else => |value| .{ .kind = @as(Kind, self), .value = switch (@TypeOf(value)) {
+            inline else => |value, tag| .{ .kind = @as(Kind, self), .value = switch (@TypeOf(value)) {
                 void => 0,
                 u32 => value,
                 Alignment, String, Type, UwTable => @intFromEnum(value),
                 AllocKind, AllocSize, FpClass, Memory, VScaleRange => @bitCast(value),
-                else => @compileError("bad payload type: " ++ @typeName(@TypeOf(value))),
+                else => @compileError("bad payload type: " ++ @tagName(tag) ++ @typeName(@TypeOf(value))),
             } },
             .string => |string_attr| .{
                 .kind = Kind.fromString(string_attr.kind),
@@ -2130,6 +2131,7 @@ pub const Global = struct {
     externally_initialized: ExternallyInitialized = .default,
     type: Type,
     partition: String = .none,
+    dbg: Metadata = .none,
     kind: union(enum) {
         alias: Alias.Index,
         variable: Variable.Index,
@@ -2202,6 +2204,10 @@ pub const Global = struct {
 
         pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
             self.ptr(builder).unnamed_addr = unnamed_addr;
+        }
+
+        pub fn setDebugMetadata(self: Index, dbg: Metadata, builder: *Builder) void {
+            self.ptr(builder).dbg = dbg;
         }
 
         const FormatData = struct {
@@ -2424,6 +2430,10 @@ pub const Variable = struct {
 
         pub fn getAlignment(self: Index, builder: *Builder) Alignment {
             return self.ptr(builder).alignment;
+        }
+
+        pub fn setGlobalVariableExpression(self: Index, expression: Metadata, builder: *Builder) void {
+            self.ptrConst(builder).global.setDebugMetadata(expression, builder);
         }
     };
 };
@@ -3772,8 +3782,7 @@ pub const Function = struct {
     instructions: std.MultiArrayList(Instruction) = .{},
     names: [*]const String = &[0]String{},
     value_indices: [*]const u32 = &[0]u32{},
-    metadata: ?[*]const Metadata = null,
-    debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, ?DebugLocation) = .{},
+    debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, Metadata) = .{},
     debug_values: []const Instruction.Index = &.{},
     extra: []const u32 = &.{},
 
@@ -3835,6 +3844,10 @@ pub const Function = struct {
 
         pub fn setAlignment(self: Index, alignment: Alignment, builder: *Builder) void {
             self.ptr(builder).alignment = alignment;
+        }
+
+        pub fn setSubprogram(self: Index, subprogram: Metadata, builder: *Builder) void {
+            self.ptrConst(builder).global.setDebugMetadata(subprogram, builder);
         }
     };
 
@@ -4823,7 +4836,7 @@ pub const Function = struct {
                 Instruction.Alloca.Info,
                 Instruction.Call.Info,
                 => @bitCast(value),
-                else => @compileError("bad field type: " ++ @typeName(field.type)),
+                else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
             };
         return .{
             .data = result,
@@ -4836,61 +4849,16 @@ pub const Function = struct {
     }
 };
 
-pub const DebugLocation = struct {
-    line: u32,
-    column: u32,
-    scope: Metadata,
-    inlined_at: Metadata,
-};
-
-pub const DIFlags = opaque {
-    pub const Zero = 0;
-    pub const Private = 1;
-    pub const Protected = 2;
-    pub const Public = 3;
-
-    pub const FwdDecl = 1 << 2;
-    pub const AppleBlock = 1 << 3;
-    pub const BlockByrefStruct = 1 << 4;
-    pub const Virtual = 1 << 5;
-    pub const Artificial = 1 << 6;
-    pub const Explicit = 1 << 7;
-    pub const Prototyped = 1 << 8;
-    pub const ObjcClassComplete = 1 << 9;
-    pub const ObjectPointer = 1 << 10;
-    pub const Vector = 1 << 11;
-    pub const StaticMember = 1 << 12;
-    pub const LValueReference = 1 << 13;
-    pub const RValueReference = 1 << 14;
-    pub const Reserved = 1 << 15;
-
-    pub const SingleInheritance = 1 << 16;
-    pub const MultipleInheritance = 2 << 16;
-    pub const VirtualInheritance = 3 << 16;
-
-    pub const IntroducedVirtual = 1 << 18;
-    pub const BitField = 1 << 19;
-    pub const NoReturn = 1 << 20;
-    pub const TypePassByValue = 1 << 22;
-    pub const TypePassByReference = 1 << 23;
-    pub const EnumClass = 1 << 24;
-    pub const Thunk = 1 << 25;
-    pub const NonTrivial = 1 << 26;
-    pub const BigEndian = 1 << 27;
-    pub const LittleEndian = 1 << 28;
-    pub const AllCallsDescribed = 1 << 29;
-};
-
 pub const WipFunction = struct {
     builder: *Builder,
     function: Function.Index,
-    last_debug_location: ?DebugLocation,
-    current_debug_location: ?DebugLocation,
+    last_debug_location: Metadata,
+    current_debug_location: Metadata,
     cursor: Cursor,
     blocks: std.ArrayListUnmanaged(Block),
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayListUnmanaged(String),
-    debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, ?DebugLocation),
+    debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, Metadata),
     debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
     extra: std.ArrayListUnmanaged(u32),
 
@@ -4923,9 +4891,11 @@ pub const WipFunction = struct {
     pub const Instruction = Function.Instruction;
 
     pub fn init(builder: *Builder, function: Function.Index) Allocator.Error!WipFunction {
-        var self = WipFunction{
+        var self: WipFunction = .{
             .builder = builder,
             .function = function,
+            .last_debug_location = .none,
+            .current_debug_location = .none,
             .cursor = undefined,
             .blocks = .{},
             .instructions = .{},
@@ -4933,8 +4903,6 @@ pub const WipFunction = struct {
             .debug_locations = .{},
             .debug_values = .{},
             .extra = .{},
-            .current_debug_location = null,
-            .last_debug_location = null,
         };
         errdefer self.deinit();
 
@@ -5874,7 +5842,7 @@ pub const WipFunction = struct {
         const value_indices = try gpa.alloc(u32, final_instructions_len);
         errdefer gpa.free(value_indices);
 
-        var debug_locations = std.AutoHashMapUnmanaged(Instruction.Index, ?DebugLocation){};
+        var debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, Metadata) = .{};
         errdefer debug_locations.deinit(gpa);
         try debug_locations.ensureUnusedCapacity(gpa, @intCast(self.debug_locations.count()));
 
@@ -5902,7 +5870,7 @@ pub const WipFunction = struct {
                         Instruction.Alloca.Info,
                         Instruction.Call.Info,
                         => @bitCast(value),
-                        else => @compileError("bad field type: " ++ @typeName(field.type)),
+                        else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
                     };
                     wip_extra.index += 1;
                 }
@@ -6472,13 +6440,7 @@ pub const WipFunction = struct {
         try self.instructions.ensureUnusedCapacity(self.builder.gpa, 1);
         if (!self.builder.strip) {
             try self.names.ensureUnusedCapacity(self.builder.gpa, 1);
-            if (!std.mem.eql(
-                u8,
-                std.mem.asBytes(&self.current_debug_location),
-                std.mem.asBytes(&self.last_debug_location),
-            )) {
-                try self.debug_locations.ensureUnusedCapacity(self.builder.gpa, 1);
-            }
+            try self.debug_locations.ensureUnusedCapacity(self.builder.gpa, 1);
         }
         try block_instructions.ensureUnusedCapacity(self.builder.gpa, 1);
         const final_name = if (name) |n|
@@ -6490,11 +6452,7 @@ pub const WipFunction = struct {
         self.instructions.appendAssumeCapacity(instruction);
         if (!self.builder.strip) {
             self.names.appendAssumeCapacity(final_name);
-            if (!std.mem.eql(
-                u8,
-                std.mem.asBytes(&self.current_debug_location),
-                std.mem.asBytes(&self.last_debug_location),
-            )) {
+            if (!std.meta.eql(self.current_debug_location, self.last_debug_location)) {
                 self.debug_locations.putAssumeCapacity(index, self.current_debug_location);
                 self.last_debug_location = self.current_debug_location;
             }
@@ -6521,7 +6479,7 @@ pub const WipFunction = struct {
                 Instruction.Alloca.Info,
                 Instruction.Call.Info,
                 => @bitCast(value),
-                else => @compileError("bad field type: " ++ @typeName(field.type)),
+                else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
             });
         }
         return result;
@@ -6569,7 +6527,7 @@ pub const WipFunction = struct {
                 Instruction.Alloca.Info,
                 Instruction.Call.Info,
                 => @bitCast(value),
-                else => @compileError("bad field type: " ++ @typeName(field.type)),
+                else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
             };
         return .{
             .data = result,
@@ -7194,7 +7152,7 @@ pub const Constant = enum(u32) {
                             @ptrCast(data.builder.constant_limbs.items[item.data..][0..Integer.limbs]);
                         const limbs = data.builder.constant_limbs
                             .items[item.data + Integer.limbs ..][0..extra.limbs_len];
-                        const bigint = std.math.big.int.Const{
+                        const bigint: std.math.big.int.Const = .{
                             .limbs = limbs,
                             .positive = tag == .positive_integer,
                         };
@@ -7507,7 +7465,7 @@ pub const Value = enum(u32) {
         return switch (self.unwrap()) {
             .instruction => |instruction| instruction.typeOfWip(wip),
             .constant => |constant| constant.typeOf(wip.builder),
-            .metadata => Type.metadata,
+            .metadata => .metadata,
         };
     }
 
@@ -7515,7 +7473,7 @@ pub const Value = enum(u32) {
         return switch (self.unwrap()) {
             .instruction => |instruction| instruction.typeOf(function, builder),
             .constant => |constant| constant.typeOf(builder),
-            .metadata => Type.metadata,
+            .metadata => .metadata,
         };
     }
 
@@ -7559,11 +7517,11 @@ pub const MetadataString = enum(u32) {
     none = 0,
     _,
 
-    pub fn slice(self: MetadataString, b: *const Builder) []const u8 {
+    pub fn slice(self: MetadataString, builder: *const Builder) []const u8 {
         const index = @intFromEnum(self);
-        const start = b.metadata_string_indices.items[index];
-        const end = b.metadata_string_indices.items[index + 1];
-        return b.metadata_string_bytes.items[start..end];
+        const start = builder.metadata_string_indices.items[index];
+        const end = builder.metadata_string_indices.items[index + 1];
+        return builder.metadata_string_bytes.items[start..end];
     }
 
     const Adapter = struct {
@@ -7576,6 +7534,22 @@ pub const MetadataString = enum(u32) {
             return std.mem.eql(u8, lhs_key, rhs_metadata_string.slice(ctx.builder));
         }
     };
+
+    const FormatData = struct {
+        metadata_string: MetadataString,
+        builder: *const Builder,
+    };
+    fn format(
+        data: FormatData,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        try printEscapedString(data.metadata_string.slice(data.builder), .always_quote, writer);
+    }
+    fn fmt(self: MetadataString, builder: *const Builder) std.fmt.Formatter(format) {
+        return .{ .data = .{ .metadata_string = self, .builder = builder } };
+    }
 };
 
 pub const Metadata = enum(u32) {
@@ -7591,13 +7565,13 @@ pub const Metadata = enum(u32) {
         compile_unit,
         @"compile_unit optimized",
         subprogram,
-        @"subprogram optimized",
         @"subprogram local",
         @"subprogram definition",
+        @"subprogram local definition",
+        @"subprogram optimized",
         @"subprogram optimized local",
         @"subprogram optimized definition",
         @"subprogram optimized local definition",
-        @"subprogram local definition",
         lexical_block,
         location,
         basic_bool_type,
@@ -7625,18 +7599,66 @@ pub const Metadata = enum(u32) {
         @"global_var local",
         global_var_expression,
         constant,
+
+        pub fn isInline(tag: Tag) bool {
+            return switch (tag) {
+                .none,
+                .tuple,
+                .expression,
+                .constant,
+                => true,
+                .file,
+                .compile_unit,
+                .@"compile_unit optimized",
+                .subprogram,
+                .@"subprogram local",
+                .@"subprogram definition",
+                .@"subprogram local definition",
+                .@"subprogram optimized",
+                .@"subprogram optimized local",
+                .@"subprogram optimized definition",
+                .@"subprogram optimized local definition",
+                .lexical_block,
+                .location,
+                .basic_bool_type,
+                .basic_unsigned_type,
+                .basic_signed_type,
+                .basic_float_type,
+                .composite_struct_type,
+                .composite_union_type,
+                .composite_enumeration_type,
+                .composite_array_type,
+                .composite_vector_type,
+                .derived_pointer_type,
+                .derived_member_type,
+                .subroutine_type,
+                .enumerator_unsigned,
+                .enumerator_signed_positive,
+                .enumerator_signed_negative,
+                .subrange,
+                .module_flag,
+                .local_var,
+                .parameter,
+                .global_var,
+                .@"global_var local",
+                .global_var_expression,
+                => false,
+            };
+        }
     };
+
+    pub fn isInline(self: Metadata, builder: *const Builder) bool {
+        return builder.metadata_items.items(.tag)[@intFromEnum(self)].isInline();
+    }
 
     pub fn unwrap(self: Metadata, builder: *const Builder) Metadata {
         var metadata = self;
-        var count: usize = 0;
         while (@intFromEnum(metadata) >= Metadata.first_forward_reference and
             @intFromEnum(metadata) < Metadata.first_local_metadata)
         {
             const index = @intFromEnum(metadata) - Metadata.first_forward_reference;
             metadata = builder.metadata_forward_references.items[index];
             std.debug.assert(metadata != .none);
-            count += 1;
         }
         return metadata;
     }
@@ -7648,13 +7670,75 @@ pub const Metadata = enum(u32) {
         const ExtraIndex = u32;
     };
 
+    pub const DIFlags = packed struct(u32) {
+        Visibility: enum(u2) { Zero, Private, Protected, Public } = .Zero,
+        FwdDecl: bool = false,
+        AppleBlock: bool = false,
+        ReservedBit4: u1 = 0,
+        Virtual: bool = false,
+        Artificial: bool = false,
+        Explicit: bool = false,
+        Prototyped: bool = false,
+        ObjcClassComplete: bool = false,
+        ObjectPointer: bool = false,
+        Vector: bool = false,
+        StaticMember: bool = false,
+        LValueReference: bool = false,
+        RValueReference: bool = false,
+        ExportSymbols: bool = false,
+        Inheritance: enum(u2) {
+            Zero,
+            SingleInheritance,
+            MultipleInheritance,
+            VirtualInheritance,
+        } = .Zero,
+        IntroducedVirtual: bool = false,
+        BitField: bool = false,
+        NoReturn: bool = false,
+        ReservedBit21: u1 = 0,
+        TypePassbyValue: bool = false,
+        TypePassbyReference: bool = false,
+        EnumClass: bool = false,
+        Thunk: bool = false,
+        NonTrivial: bool = false,
+        BigEndian: bool = false,
+        LittleEndian: bool = false,
+        AllCallsDescribed: bool = false,
+        Unused: u2 = 0,
+
+        pub fn format(
+            self: DIFlags,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            var need_pipe = false;
+            inline for (@typeInfo(DIFlags).Struct.fields) |field| {
+                switch (@typeInfo(field.type)) {
+                    .Bool => if (@field(self, field.name)) {
+                        if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
+                        try writer.print("DIFlag{s}", .{field.name});
+                    },
+                    .Enum => if (@field(self, field.name) != .Zero) {
+                        if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
+                        try writer.print("DIFlag{s}", .{@tagName(@field(self, field.name))});
+                    },
+                    .Int => assert(@field(self, field.name) == 0),
+                    else => @compileError("bad field type: " ++ field.name ++ ": " ++
+                        @typeName(field.type)),
+                }
+            }
+            if (!need_pipe) try writer.writeByte('0');
+        }
+    };
+
     pub const File = struct {
-        path: MetadataString,
-        name: MetadataString,
+        filename: MetadataString,
+        directory: MetadataString,
     };
 
     pub const CompileUnit = struct {
-        pub const Flags = struct {
+        pub const Options = struct {
             optimized: bool,
         };
 
@@ -7665,11 +7749,49 @@ pub const Metadata = enum(u32) {
     };
 
     pub const Subprogram = struct {
-        pub const Flags = struct {
-            optimized: bool,
-            local: bool,
-            definition: bool,
-            debug_info_flags: u32,
+        pub const Options = struct {
+            di_flags: DIFlags,
+            sp_flags: SPFlags,
+        };
+
+        pub const SPFlags = packed struct(u32) {
+            Virtuality: enum(u2) { Zero, Virtual, PureVirtual } = .Zero,
+            LocalToUnit: bool = false,
+            Definition: bool = false,
+            Optimized: bool = false,
+            Pure: bool = false,
+            Elemental: bool = false,
+            Recursive: bool = false,
+            MainSubprogram: bool = false,
+            Deleted: bool = false,
+            ReservedBit10: u1 = 0,
+            ObjCDirect: bool = false,
+            Unused: u20 = 0,
+
+            pub fn format(
+                self: SPFlags,
+                comptime _: []const u8,
+                _: std.fmt.FormatOptions,
+                writer: anytype,
+            ) @TypeOf(writer).Error!void {
+                var need_pipe = false;
+                inline for (@typeInfo(SPFlags).Struct.fields) |field| {
+                    switch (@typeInfo(field.type)) {
+                        .Bool => if (@field(self, field.name)) {
+                            if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
+                            try writer.print("SPFlag{s}", .{field.name});
+                        },
+                        .Enum => if (@field(self, field.name) != .Zero) {
+                            if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
+                            try writer.print("SPFlag{s}", .{@tagName(@field(self, field.name))});
+                        },
+                        .Int => assert(@field(self, field.name) == 0),
+                        else => @compileError("bad field type: " ++ field.name ++ ": " ++
+                            @typeName(field.type)),
+                    }
+                }
+                if (!need_pipe) try writer.writeByte('0');
+            }
         };
 
         file: Metadata,
@@ -7678,21 +7800,21 @@ pub const Metadata = enum(u32) {
         line: u32,
         scope_line: u32,
         ty: Metadata,
-        debug_info_flags: u32,
+        di_flags: DIFlags,
         compile_unit: Metadata,
     };
 
     pub const LexicalBlock = struct {
-        file: Metadata,
         scope: Metadata,
+        file: Metadata,
         line: u32,
         column: u32,
     };
 
     pub const Location = struct {
-        scope: Metadata,
         line: u32,
         column: u32,
+        scope: Metadata,
         inlined_at: Metadata,
     };
 
@@ -7700,6 +7822,10 @@ pub const Metadata = enum(u32) {
         name: MetadataString,
         size_in_bits_lo: u32,
         size_in_bits_hi: u32,
+
+        pub fn bitSize(self: BasicType) u64 {
+            return @as(u64, self.size_in_bits_hi) << 32 | self.size_in_bits_lo;
+        }
     };
 
     pub const CompositeType = struct {
@@ -7713,6 +7839,13 @@ pub const Metadata = enum(u32) {
         align_in_bits_lo: u32,
         align_in_bits_hi: u32,
         fields_tuple: Metadata,
+
+        pub fn bitSize(self: CompositeType) u64 {
+            return @as(u64, self.size_in_bits_hi) << 32 | self.size_in_bits_lo;
+        }
+        pub fn bitAlign(self: CompositeType) u64 {
+            return @as(u64, self.align_in_bits_hi) << 32 | self.align_in_bits_lo;
+        }
     };
 
     pub const DerivedType = struct {
@@ -7727,6 +7860,16 @@ pub const Metadata = enum(u32) {
         align_in_bits_hi: u32,
         offset_in_bits_lo: u32,
         offset_in_bits_hi: u32,
+
+        pub fn bitSize(self: DerivedType) u64 {
+            return @as(u64, self.size_in_bits_hi) << 32 | self.size_in_bits_lo;
+        }
+        pub fn bitAlign(self: DerivedType) u64 {
+            return @as(u64, self.align_in_bits_hi) << 32 | self.align_in_bits_lo;
+        }
+        pub fn bitOffset(self: DerivedType) u64 {
+            return @as(u64, self.offset_in_bits_hi) << 32 | self.offset_in_bits_lo;
+        }
     };
 
     pub const SubroutineType = struct {
@@ -7758,7 +7901,7 @@ pub const Metadata = enum(u32) {
     };
 
     pub const ModuleFlag = struct {
-        behaviour: Metadata,
+        behavior: Metadata,
         name: MetadataString,
         constant: Metadata,
     };
@@ -7781,7 +7924,7 @@ pub const Metadata = enum(u32) {
     };
 
     pub const GlobalVar = struct {
-        pub const Flags = struct {
+        pub const Options = struct {
             local: bool,
         };
 
@@ -7802,13 +7945,276 @@ pub const Metadata = enum(u32) {
     pub fn toValue(self: Metadata) Value {
         return @enumFromInt(Value.first_metadata + @intFromEnum(self));
     }
+
+    const Formatter = struct {
+        builder: *Builder,
+        need_comma: bool,
+        map: std.AutoArrayHashMapUnmanaged(Metadata, void) = .{},
+
+        fn unwrapAssumeExists(formatter: *Formatter, item: Metadata) FormatData.Item {
+            if (item == .none) return .none;
+            const unwrapped_metadata = item.unwrap(formatter.builder);
+            const tag = formatter.builder.metadata_items.items(.tag)[@intFromEnum(unwrapped_metadata)];
+            return if (tag.isInline())
+                .{ .@"inline" = unwrapped_metadata }
+            else
+                .{ .index = @intCast(formatter.map.getIndex(unwrapped_metadata).?) };
+        }
+        fn unwrap(formatter: *Formatter, item: Metadata) Allocator.Error!FormatData.Item {
+            if (item == .none) return .none;
+            const builder = formatter.builder;
+            const unwrapped_metadata = item.unwrap(builder);
+            const tag = formatter.builder.metadata_items.items(.tag)[@intFromEnum(unwrapped_metadata)];
+            switch (tag) {
+                .none => unreachable,
+                .tuple => {
+                    var extra = builder.metadataExtraDataTrail(
+                        Metadata.Tuple,
+                        builder.metadata_items.items(.data)[@intFromEnum(unwrapped_metadata)],
+                    );
+                    const elements = extra.trail.next(extra.data.elements_len, Metadata, builder);
+                    for (elements) |element| _ = try formatter.unwrap(element);
+                },
+                .expression, .constant => {},
+                else => {
+                    assert(!tag.isInline());
+                    const gop = try formatter.map.getOrPutValue(builder.gpa, unwrapped_metadata, {});
+                    return .{ .index = @intCast(gop.index) };
+                },
+            }
+            return .{ .@"inline" = unwrapped_metadata };
+        }
+
+        const FormatData = struct {
+            formatter: *Formatter,
+            prefix: []const u8 = "",
+            item: FormatData.Item,
+
+            const Item = union(enum) {
+                none,
+                @"inline": Metadata,
+                index: u32,
+                string: MetadataString,
+                value: struct {
+                    value: Value,
+                    function: Function.Index,
+                },
+                bool: bool,
+                u32: u32,
+                u64: u64,
+                raw: []const u8,
+            };
+        };
+        fn format(
+            data: FormatData,
+            comptime fmt_str: []const u8,
+            fmt_opts: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            if (data.item == .none) return;
+
+            if (data.formatter.need_comma) try writer.writeAll(", ");
+            defer data.formatter.need_comma = true;
+            try writer.writeAll(data.prefix);
+
+            const builder = data.formatter.builder;
+            switch (data.item) {
+                .none => unreachable,
+                .@"inline" => |item| {
+                    const needed_comma = data.formatter.need_comma;
+                    defer data.formatter.need_comma = needed_comma;
+                    data.formatter.need_comma = false;
+
+                    const metadata_item = builder.metadata_items.get(@intFromEnum(item));
+                    switch (metadata_item.tag) {
+                        .tuple => {
+                            var extra =
+                                builder.metadataExtraDataTrail(Metadata.Tuple, metadata_item.data);
+                            const elements =
+                                extra.trail.next(extra.data.elements_len, Metadata, builder);
+                            try writer.writeAll("!{");
+                            for (elements) |element| try format(.{
+                                .formatter = data.formatter,
+                                .item = data.formatter.unwrapAssumeExists(element),
+                            }, "%", fmt_opts, writer);
+                            try writer.writeByte('}');
+                        },
+                        .expression => {
+                            var extra =
+                                builder.metadataExtraDataTrail(Metadata.Expression, metadata_item.data);
+                            const elements = extra.trail.next(extra.data.elements_len, u32, builder);
+                            try writer.writeAll("!DIExpression(");
+                            for (elements) |element| try format(.{
+                                .formatter = data.formatter,
+                                .item = .{ .u64 = element },
+                            }, "%", fmt_opts, writer);
+                            try writer.writeByte(')');
+                        },
+                        .constant => try Constant.format(.{
+                            .constant = @enumFromInt(metadata_item.data),
+                            .builder = builder,
+                        }, "%", fmt_opts, writer),
+                        else => unreachable,
+                    }
+                },
+                .index => |item| try writer.print("!{d}", .{item}),
+                .value => |item| try Value.format(.{
+                    .value = switch (item.value.unwrap()) {
+                        .instruction, .constant => item.value,
+                        .metadata => |metadata| if (@intFromEnum(metadata) >=
+                            Metadata.first_local_metadata)
+                            item.function.ptrConst(builder).debug_values[
+                                @intFromEnum(metadata) - Metadata.first_local_metadata
+                            ].toValue()
+                        else if (metadata != .none) {
+                            if (comptime std.mem.eql(u8, fmt_str, "%"))
+                                try writer.print("{%} ", .{Type.metadata.fmt(builder)});
+                            try Metadata.Formatter.format(.{
+                                .formatter = data.formatter,
+                                .item = data.formatter.unwrapAssumeExists(metadata),
+                            }, "", fmt_opts, writer);
+                            return;
+                        } else return,
+                    },
+                    .function = item.function,
+                    .builder = builder,
+                }, "%", fmt_opts, writer),
+                .string => |item| try writer.print("{}", .{item.fmt(data.formatter.builder)}),
+                inline .bool, .u32, .u64 => |item| try writer.print("{}", .{item}),
+                .raw => |item| try writer.print("{s}", .{item}),
+            }
+        }
+        inline fn fmt(formatter: *Formatter, prefix: []const u8, item: anytype) switch (@TypeOf(item)) {
+            Metadata => Allocator.Error,
+            else => error{},
+        }!std.fmt.Formatter(format) {
+            return .{ .data = .{
+                .formatter = formatter,
+                .prefix = prefix,
+                .item = switch (@typeInfo(@TypeOf(item))) {
+                    .Null => .none,
+                    .Enum => |enum_info| switch (@TypeOf(item)) {
+                        Metadata => try formatter.unwrap(item),
+                        MetadataString => .{ .string = item },
+                        else => if (enum_info.is_exhaustive)
+                            .{ .raw = @tagName(item) }
+                        else
+                            @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
+                    },
+                    .EnumLiteral => .{ .raw = @tagName(item) },
+                    .Bool => .{ .bool = item },
+                    .Struct => .{ .u32 = @bitCast(item) },
+                    .Int, .ComptimeInt => .{ .u64 = item },
+                    .Pointer => .{ .raw = item },
+                    .Optional => if (item) |some| switch (@typeInfo(@TypeOf(some))) {
+                        .Enum => |enum_info| switch (@TypeOf(some)) {
+                            Metadata => try formatter.unwrap(some),
+                            MetadataString => .{ .string = some },
+                            else => if (enum_info.is_exhaustive)
+                                .{ .raw = @tagName(some) }
+                            else
+                                @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
+                        },
+                        .Bool => .{ .bool = some },
+                        .Struct => .{ .u32 = @bitCast(some) },
+                        .Int => .{ .u64 = some },
+                        .Pointer => .{ .raw = some },
+                        else => @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
+                    } else .none,
+                    else => @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
+                },
+            } };
+        }
+        inline fn fmtLocal(
+            formatter: *Formatter,
+            prefix: []const u8,
+            item: Value,
+            function: Function.Index,
+        ) Allocator.Error!std.fmt.Formatter(format) {
+            return .{ .data = .{
+                .formatter = formatter,
+                .prefix = prefix,
+                .item = .{ .value = .{
+                    .value = switch (item.unwrap()) {
+                        .instruction, .constant => item,
+                        .metadata => |metadata| value: {
+                            const unwrapped_metadata = metadata.unwrap(formatter.builder);
+                            if (@intFromEnum(unwrapped_metadata) < Metadata.first_local_metadata)
+                                _ = try formatter.unwrap(unwrapped_metadata);
+                            break :value unwrapped_metadata.toValue();
+                        },
+                    },
+                    .function = function,
+                } },
+            } };
+        }
+
+        inline fn specialized(
+            formatter: *Formatter,
+            distinct: enum { @"!", @"distinct !" },
+            node: enum {
+                DIFile,
+                DICompileUnit,
+                DISubprogram,
+                DILexicalBlock,
+                DILocation,
+                DIBasicType,
+                DICompositeType,
+                DIDerivedType,
+                DISubroutineType,
+                DIEnumerator,
+                DISubrange,
+                DILocalVariable,
+                DIGlobalVariable,
+                DIGlobalVariableExpression,
+            },
+            items: anytype,
+            writer: anytype,
+        ) !void {
+            comptime var fmt_str: []const u8 = "";
+            const names = comptime std.meta.fieldNames(@TypeOf(items));
+            comptime var fields: [2 + names.len]std.builtin.Type.StructField = undefined;
+            inline for (fields[0..2], .{ "distinct", "node" }) |*field, name| {
+                fmt_str = fmt_str ++ "{[" ++ name ++ "]s}";
+                field.* = .{
+                    .name = name,
+                    .type = []const u8,
+                    .default_value = null,
+                    .is_comptime = false,
+                    .alignment = 0,
+                };
+            }
+            fmt_str = fmt_str ++ "(";
+            inline for (fields[2..], names) |*field, name| {
+                fmt_str = fmt_str ++ "{[" ++ name ++ "]}";
+                field.* = .{
+                    .name = name ++ "",
+                    .type = std.fmt.Formatter(format),
+                    .default_value = null,
+                    .is_comptime = false,
+                    .alignment = 0,
+                };
+            }
+            fmt_str = fmt_str ++ ")\n";
+
+            var fmt_args: @Type(.{ .Struct = .{
+                .layout = .Auto,
+                .fields = &fields,
+                .decls = &.{},
+                .is_tuple = false,
+            } }) = undefined;
+            fmt_args.distinct = @tagName(distinct);
+            fmt_args.node = @tagName(node);
+            inline for (names) |name| @field(fmt_args, name) = try formatter.fmt(
+                name ++ ": ",
+                @field(items, name),
+            );
+            try writer.print(fmt_str, fmt_args);
+        }
+    };
 };
 
-pub const InitError = error{
-    InvalidLlvmTriple,
-} || Allocator.Error;
-
-pub fn init(options: Options) InitError!Builder {
+pub fn init(options: Options) Allocator.Error!Builder {
     var self = Builder{
         .gpa = options.allocator,
         .strip = options.strip,
@@ -8800,9 +9206,11 @@ pub fn printUnbuffered(
     writer: anytype,
 ) (@TypeOf(writer).Error || Allocator.Error)!void {
     var need_newline = false;
+    var metadata_formatter: Metadata.Formatter = .{ .builder = self, .need_comma = undefined };
+    defer metadata_formatter.map.deinit(self.gpa);
 
     if (self.source_filename != .none or self.data_layout != .none or self.target_triple != .none) {
-        if (need_newline) try writer.writeByte('\n');
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
         if (self.source_filename != .none) try writer.print(
             \\; ModuleID = '{s}'
             \\source_filename = {"}
@@ -8816,36 +9224,35 @@ pub fn printUnbuffered(
             \\target triple = {"}
             \\
         , .{self.target_triple.fmt(self)});
-        need_newline = true;
     }
 
     if (self.module_asm.items.len > 0) {
-        if (need_newline) try writer.writeByte('\n');
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
         var line_it = std.mem.tokenizeScalar(u8, self.module_asm.items, '\n');
         while (line_it.next()) |line| {
             try writer.writeAll("module asm ");
             try printEscapedString(line, .always_quote, writer);
             try writer.writeByte('\n');
         }
-        need_newline = true;
     }
 
     if (self.types.count() > 0) {
-        if (need_newline) try writer.writeByte('\n');
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
         for (self.types.keys(), self.types.values()) |id, ty| try writer.print(
             \\%{} = type {}
             \\
         , .{ id.fmt(self), ty.fmt(self) });
-        need_newline = true;
     }
 
     if (self.variables.items.len > 0) {
-        if (need_newline) try writer.writeByte('\n');
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
         for (self.variables.items) |variable| {
             if (variable.global.getReplacement(self) != .none) continue;
             const global = variable.global.ptrConst(self);
+            metadata_formatter.need_comma = true;
+            defer metadata_formatter.need_comma = undefined;
             try writer.print(
-                \\{} ={}{}{}{}{ }{}{ }{} {s} {%}{ }{, }
+                \\{} ={}{}{}{}{ }{}{ }{} {s} {%}{ }{, }{}
                 \\
             , .{
                 variable.global.fmt(self),
@@ -8861,18 +9268,20 @@ pub fn printUnbuffered(
                 global.type.fmt(self),
                 variable.init.fmt(self),
                 variable.alignment,
+                try metadata_formatter.fmt("!dbg ", global.dbg),
             });
         }
-        need_newline = true;
     }
 
     if (self.aliases.items.len > 0) {
-        if (need_newline) try writer.writeByte('\n');
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
         for (self.aliases.items) |alias| {
             if (alias.global.getReplacement(self) != .none) continue;
             const global = alias.global.ptrConst(self);
+            metadata_formatter.need_comma = true;
+            defer metadata_formatter.need_comma = undefined;
             try writer.print(
-                \\{} ={}{}{}{}{ }{} alias {%}, {%}
+                \\{} ={}{}{}{}{ }{} alias {%}, {%}{}
                 \\
             , .{
                 alias.global.fmt(self),
@@ -8884,9 +9293,9 @@ pub fn printUnbuffered(
                 global.unnamed_addr,
                 global.type.fmt(self),
                 alias.aliasee.fmt(self),
+                try metadata_formatter.fmt("!dbg ", global.dbg),
             });
         }
-        need_newline = true;
     }
 
     var attribute_groups: std.AutoArrayHashMapUnmanaged(Attributes, void) = .{};
@@ -8894,7 +9303,7 @@ pub fn printUnbuffered(
 
     for (0.., self.functions.items) |function_i, function| {
         if (function.global.getReplacement(self) != .none) continue;
-        if (need_newline) try writer.writeByte('\n');
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
         const function_index: Function.Index = @enumFromInt(function_i);
         const global = function.global.ptrConst(self);
         const params_len = global.type.functionParameters(self).len;
@@ -8940,13 +9349,23 @@ pub fn printUnbuffered(
         if (function_attributes != .none) try writer.print(" #{d}", .{
             (try attribute_groups.getOrPutValue(self.gpa, function_attributes, {})).index,
         });
-        try writer.print("{ }", .{function.alignment});
+        {
+            metadata_formatter.need_comma = false;
+            defer metadata_formatter.need_comma = undefined;
+            try writer.print("{ }{}", .{
+                function.alignment,
+                try metadata_formatter.fmt("!dbg ", global.dbg),
+            });
+        }
         if (function.instructions.len > 0) {
             var block_incoming_len: u32 = undefined;
             try writer.writeAll(" {\n");
+            var dbg: Metadata = .none;
             for (params_len..function.instructions.len) |instruction_i| {
                 const instruction_index: Function.Instruction.Index = @enumFromInt(instruction_i);
                 const instruction = function.instructions.get(@intFromEnum(instruction_index));
+                if (function.debug_locations.get(instruction_index)) |debug_location|
+                    dbg = debug_location;
                 switch (instruction.tag) {
                     .add,
                     .@"add nsw",
@@ -9031,7 +9450,7 @@ pub fn printUnbuffered(
                     .xor,
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Binary, instruction.data);
-                        try writer.print("  %{} = {s} {%}, {}\n", .{
+                        try writer.print("  %{} = {s} {%}, {}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.lhs.fmt(function_index, self),
@@ -9053,7 +9472,7 @@ pub fn printUnbuffered(
                     .zext,
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Cast, instruction.data);
-                        try writer.print("  %{} = {s} {%} to {%}\n", .{
+                        try writer.print("  %{} = {s} {%} to {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.val.fmt(function_index, self),
@@ -9064,7 +9483,7 @@ pub fn printUnbuffered(
                     .@"alloca inalloca",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Alloca, instruction.data);
-                        try writer.print("  %{} = {s} {%}{,%}{, }{, }\n", .{
+                        try writer.print("  %{} = {s} {%}{,%}{, }{, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.type.fmt(self),
@@ -9077,7 +9496,7 @@ pub fn printUnbuffered(
                     .atomicrmw => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.AtomicRmw, instruction.data);
-                        try writer.print("  %{} = {s}{ } {s} {%}, {%}{ }{ }{, }\n", .{
+                        try writer.print("  %{} = {s}{ } {s} {%}, {%}{ }{ }{, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.info.access_kind,
@@ -9094,17 +9513,17 @@ pub fn printUnbuffered(
                         const name = instruction_index.name(&function);
                         if (@intFromEnum(instruction_index) > params_len)
                             try writer.writeByte('\n');
-                        try writer.print("{}:\n", .{name.fmt(self)});
+                        try writer.print("{}:", .{name.fmt(self)});
                     },
                     .br => |tag| {
                         const target: Function.Block.Index = @enumFromInt(instruction.data);
-                        try writer.print("  {s} {%}\n", .{
+                        try writer.print("  {s} {%}", .{
                             @tagName(tag), target.toInst(&function).fmt(function_index, self),
                         });
                     },
                     .br_cond => {
                         const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
-                        try writer.print("  br {%}, {%}, {%}\n", .{
+                        try writer.print("  br {%}, {%}, {%}", .{
                             extra.cond.fmt(function_index, self),
                             extra.then.toInst(&function).fmt(function_index, self),
                             extra.@"else".toInst(&function).fmt(function_index, self),
@@ -9144,10 +9563,12 @@ pub fn printUnbuffered(
                         });
                         for (0.., args) |arg_index, arg| {
                             if (arg_index > 0) try writer.writeAll(", ");
-                            try writer.print("{%}{} {}", .{
+                            metadata_formatter.need_comma = false;
+                            defer metadata_formatter.need_comma = undefined;
+                            try writer.print("{%}{}{}", .{
                                 arg.typeOf(function_index, self).fmt(self),
                                 extra.data.attributes.param(arg_index, self).fmt(self),
-                                arg.fmt(function_index, self),
+                                try metadata_formatter.fmtLocal(" ", arg, function_index),
                             });
                         }
                         try writer.writeByte(')');
@@ -9159,14 +9580,13 @@ pub fn printUnbuffered(
                                 {},
                             )).index,
                         });
-                        try writer.writeByte('\n');
                     },
                     .cmpxchg,
                     .@"cmpxchg weak",
                     => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.CmpXchg, instruction.data);
-                        try writer.print("  %{} = {s}{ } {%}, {%}, {%}{ }{ }{ }{, }\n", .{
+                        try writer.print("  %{} = {s}{ } {%}, {%}, {%}{ }{ }{ }{, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.info.access_kind,
@@ -9182,7 +9602,7 @@ pub fn printUnbuffered(
                     .extractelement => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.ExtractElement, instruction.data);
-                        try writer.print("  %{} = {s} {%}, {%}\n", .{
+                        try writer.print("  %{} = {s} {%}, {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.val.fmt(function_index, self),
@@ -9201,7 +9621,6 @@ pub fn printUnbuffered(
                             extra.data.val.fmt(function_index, self),
                         });
                         for (indices) |index| try writer.print(", {d}", .{index});
-                        try writer.writeByte('\n');
                     },
                     .fence => |tag| {
                         const info: MemoryAccessInfo = @bitCast(instruction.data);
@@ -9215,7 +9634,7 @@ pub fn printUnbuffered(
                     .@"fneg fast",
                     => |tag| {
                         const val: Value = @enumFromInt(instruction.data);
-                        try writer.print("  %{} = {s} {%}\n", .{
+                        try writer.print("  %{} = {s} {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             val.fmt(function_index, self),
@@ -9238,12 +9657,11 @@ pub fn printUnbuffered(
                         for (indices) |index| try writer.print(", {%}", .{
                             index.fmt(function_index, self),
                         });
-                        try writer.writeByte('\n');
                     },
                     .insertelement => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.InsertElement, instruction.data);
-                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                        try writer.print("  %{} = {s} {%}, {%}, {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.val.fmt(function_index, self),
@@ -9262,13 +9680,12 @@ pub fn printUnbuffered(
                             extra.data.elem.fmt(function_index, self),
                         });
                         for (indices) |index| try writer.print(", {d}", .{index});
-                        try writer.writeByte('\n');
                     },
                     .load,
                     .@"load atomic",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Load, instruction.data);
-                        try writer.print("  %{} = {s}{ } {%}, {%}{ }{ }{, }\n", .{
+                        try writer.print("  %{} = {s}{ } {%}, {%}{ }{ }{, }", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.info.access_kind,
@@ -9298,23 +9715,22 @@ pub fn printUnbuffered(
                                 incoming_block.toInst(&function).fmt(function_index, self),
                             });
                         }
-                        try writer.writeByte('\n');
                     },
                     .ret => |tag| {
                         const val: Value = @enumFromInt(instruction.data);
-                        try writer.print("  {s} {%}\n", .{
+                        try writer.print("  {s} {%}", .{
                             @tagName(tag),
                             val.fmt(function_index, self),
                         });
                     },
                     .@"ret void",
                     .@"unreachable",
-                    => |tag| try writer.print("  {s}\n", .{@tagName(tag)}),
+                    => |tag| try writer.print("  {s}", .{@tagName(tag)}),
                     .select,
                     .@"select fast",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Select, instruction.data);
-                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                        try writer.print("  %{} = {s} {%}, {%}, {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.cond.fmt(function_index, self),
@@ -9325,7 +9741,7 @@ pub fn printUnbuffered(
                     .shufflevector => |tag| {
                         const extra =
                             function.extraData(Function.Instruction.ShuffleVector, instruction.data);
-                        try writer.print("  %{} = {s} {%}, {%}, {%}\n", .{
+                        try writer.print("  %{} = {s} {%}, {%}, {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.lhs.fmt(function_index, self),
@@ -9337,7 +9753,7 @@ pub fn printUnbuffered(
                     .@"store atomic",
                     => |tag| {
                         const extra = function.extraData(Function.Instruction.Store, instruction.data);
-                        try writer.print("  {s}{ } {%}, {%}{ }{ }{, }\n", .{
+                        try writer.print("  {s}{ } {%}, {%}{ }{ }{, }", .{
                             @tagName(tag),
                             extra.info.access_kind,
                             extra.val.fmt(function_index, self),
@@ -9365,11 +9781,11 @@ pub fn printUnbuffered(
                                 case_block.toInst(&function).fmt(function_index, self),
                             },
                         );
-                        try writer.writeAll("  ]\n");
+                        try writer.writeAll("  ]");
                     },
                     .va_arg => |tag| {
                         const extra = function.extraData(Function.Instruction.VaArg, instruction.data);
-                        try writer.print("  %{} = {s} {%}, {%}\n", .{
+                        try writer.print("  %{} = {s} {%}, {%}", .{
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.list.fmt(function_index, self),
@@ -9377,11 +9793,13 @@ pub fn printUnbuffered(
                         });
                     },
                 }
+                metadata_formatter.need_comma = true;
+                defer metadata_formatter.need_comma = undefined;
+                try writer.print("{}\n", .{try metadata_formatter.fmt("!dbg ", dbg)});
             }
             try writer.writeByte('}');
         }
         try writer.writeByte('\n');
-        need_newline = true;
     }
 
     if (attribute_groups.count() > 0) {
@@ -9391,7 +9809,367 @@ pub fn printUnbuffered(
                 \\attributes #{d} = {{{#"} }}
                 \\
             , .{ attribute_group_index, attribute_group.fmt(self) });
-        need_newline = true;
+    }
+
+    if (self.metadata_named.count() > 0) {
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
+        for (self.metadata_named.keys(), self.metadata_named.values()) |name, data| {
+            const elements: []const Metadata =
+                @ptrCast(self.metadata_extra.items[data.index..][0..data.len]);
+            try writer.writeByte('!');
+            try printEscapedString(name.slice(self), .quote_unless_valid_identifier, writer);
+            try writer.writeAll(" = !{");
+            metadata_formatter.need_comma = false;
+            defer metadata_formatter.need_comma = undefined;
+            for (elements) |element| try writer.print("{}", .{try metadata_formatter.fmt("", element)});
+            try writer.writeAll("}\n");
+        }
+    }
+
+    if (metadata_formatter.map.count() > 0) {
+        if (need_newline) try writer.writeByte('\n') else need_newline = true;
+        var metadata_index: usize = 0;
+        while (metadata_index < metadata_formatter.map.count()) : (metadata_index += 1) {
+            @setEvalBranchQuota(10_000);
+            const metadata_item =
+                self.metadata_items.get(@intFromEnum(metadata_formatter.map.keys()[metadata_index]));
+            try writer.print("!{} = ", .{metadata_index});
+            metadata_formatter.need_comma = false;
+            defer metadata_formatter.need_comma = undefined;
+            switch (metadata_item.tag) {
+                .none, .tuple, .expression, .constant => unreachable,
+                .file => {
+                    const extra = self.metadataExtraData(Metadata.File, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DIFile, .{
+                        .filename = extra.filename,
+                        .directory = extra.directory,
+                        .checksumkind = null,
+                        .checksum = null,
+                        .source = null,
+                    }, writer);
+                },
+                .compile_unit,
+                .@"compile_unit optimized",
+                => |kind| {
+                    const extra = self.metadataExtraData(Metadata.CompileUnit, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DICompileUnit, .{
+                        .language = .DW_LANG_C99,
+                        .file = extra.file,
+                        .producer = extra.producer,
+                        .isOptimized = switch (kind) {
+                            .compile_unit => false,
+                            .@"compile_unit optimized" => true,
+                            else => unreachable,
+                        },
+                        .flags = null,
+                        .runtimeVersion = 0,
+                        .splitDebugFilename = null,
+                        .emissionKind = .FullDebug,
+                        .enums = extra.enums,
+                        .retainedTypes = null,
+                        .globals = extra.globals,
+                        .imports = null,
+                        .macros = null,
+                        .dwoId = null,
+                        .splitDebugInlining = false,
+                        .debugInfoForProfiling = null,
+                        .nameTableKind = null,
+                        .rangesBaseAddress = null,
+                        .sysroot = null,
+                        .sdk = null,
+                    }, writer);
+                },
+                .subprogram,
+                .@"subprogram local",
+                .@"subprogram definition",
+                .@"subprogram local definition",
+                .@"subprogram optimized",
+                .@"subprogram optimized local",
+                .@"subprogram optimized definition",
+                .@"subprogram optimized local definition",
+                => |kind| {
+                    const extra = self.metadataExtraData(Metadata.Subprogram, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DISubprogram, .{
+                        .name = extra.name,
+                        .linkageName = extra.linkage_name,
+                        .scope = extra.file,
+                        .file = extra.file,
+                        .line = extra.line,
+                        .type = null,
+                        .scopeLine = extra.scope_line,
+                        .containingType = null,
+                        .virtualIndex = null,
+                        .thisAdjustment = null,
+                        .flags = extra.di_flags,
+                        .spFlags = @as(Metadata.Subprogram.SPFlags, @bitCast(@as(u32, @as(u3, @intCast(
+                            @intFromEnum(kind) - @intFromEnum(Metadata.Tag.subprogram),
+                        ))) << 2)),
+                        .unit = extra.compile_unit,
+                        .templateParams = null,
+                        .declaration = null,
+                        .retainedNodes = null,
+                        .thrownTypes = null,
+                        .annotations = null,
+                        .targetFuncName = null,
+                    }, writer);
+                },
+                .lexical_block => {
+                    const extra = self.metadataExtraData(Metadata.LexicalBlock, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DILexicalBlock, .{
+                        .scope = extra.scope,
+                        .file = extra.file,
+                        .line = extra.line,
+                        .column = extra.column,
+                    }, writer);
+                },
+                .location => {
+                    const extra = self.metadataExtraData(Metadata.Location, metadata_item.data);
+                    try metadata_formatter.specialized(.@"!", .DILocation, .{
+                        .line = extra.line,
+                        .column = extra.column,
+                        .scope = extra.scope,
+                        .inlinedAt = extra.inlined_at,
+                        .isImplicitCode = false,
+                    }, writer);
+                },
+                .basic_bool_type,
+                .basic_unsigned_type,
+                .basic_signed_type,
+                .basic_float_type,
+                => |kind| {
+                    const extra = self.metadataExtraData(Metadata.BasicType, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DIBasicType, .{
+                        .tag = null,
+                        .name = switch (extra.name) {
+                            .none => null,
+                            else => extra.name,
+                        },
+                        .size = extra.bitSize(),
+                        .@"align" = null,
+                        .encoding = @as(enum {
+                            DW_ATE_boolean,
+                            DW_ATE_unsigned,
+                            DW_ATE_signed,
+                            DW_ATE_float,
+                        }, switch (kind) {
+                            .basic_bool_type => .DW_ATE_boolean,
+                            .basic_unsigned_type => .DW_ATE_unsigned,
+                            .basic_signed_type => .DW_ATE_signed,
+                            .basic_float_type => .DW_ATE_float,
+                            else => unreachable,
+                        }),
+                        .flags = null,
+                    }, writer);
+                },
+                .composite_struct_type,
+                .composite_union_type,
+                .composite_enumeration_type,
+                .composite_array_type,
+                => |kind| {
+                    const extra = self.metadataExtraData(Metadata.CompositeType, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DICompositeType, .{
+                        .tag = @as(enum {
+                            DW_TAG_structure_type,
+                            DW_TAG_union_type,
+                            DW_TAG_enumeration_type,
+                            DW_TAG_array_type,
+                        }, switch (kind) {
+                            .composite_struct_type => .DW_TAG_structure_type,
+                            .composite_union_type => .DW_TAG_union_type,
+                            .composite_enumeration_type => .DW_TAG_enumeration_type,
+                            .composite_array_type, .composite_vector_type => .DW_TAG_array_type,
+                            else => unreachable,
+                        }),
+                        .name = switch (extra.name) {
+                            .none => null,
+                            else => extra.name,
+                        },
+                        .scope = extra.scope,
+                        .file = null,
+                        .line = null,
+                        .baseType = extra.underlying_type,
+                        .size = extra.bitSize(),
+                        .@"align" = extra.bitAlign(),
+                        .offset = null,
+                        .flags = null,
+                        .elements = extra.fields_tuple,
+                        .runtimeLang = null,
+                        .vtableHolder = null,
+                        .templateParams = null,
+                        .identifier = null,
+                        .discriminator = null,
+                        .dataLocation = null,
+                        .associated = null,
+                        .allocated = null,
+                        .rank = null,
+                        .annotations = null,
+                    }, writer);
+                },
+                .derived_pointer_type,
+                .derived_member_type,
+                => |kind| {
+                    const extra = self.metadataExtraData(Metadata.DerivedType, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DIDerivedType, .{
+                        .tag = @as(enum {
+                            DW_TAG_pointer_type,
+                            DW_TAG_member,
+                        }, switch (kind) {
+                            .derived_pointer_type => .DW_TAG_pointer_type,
+                            .derived_member_type => .DW_TAG_member,
+                            else => unreachable,
+                        }),
+                        .name = switch (extra.name) {
+                            .none => null,
+                            else => extra.name,
+                        },
+                        .scope = extra.scope,
+                        .file = null,
+                        .line = null,
+                        .baseType = extra.underlying_type,
+                        .size = extra.bitSize(),
+                        .@"align" = extra.bitAlign(),
+                        .offset = switch (extra.bitOffset()) {
+                            0 => null,
+                            else => |bit_offset| bit_offset,
+                        },
+                        .flags = null,
+                        .extraData = null,
+                        .dwarfAddressSpace = null,
+                        .annotations = null,
+                    }, writer);
+                },
+                .subroutine_type => {
+                    const extra = self.metadataExtraData(Metadata.SubroutineType, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DISubroutineType, .{
+                        .flags = null,
+                        .cc = null,
+                        .types = extra.types_tuple,
+                    }, writer);
+                },
+                .enumerator_unsigned,
+                .enumerator_signed_positive,
+                .enumerator_signed_negative,
+                => |kind| {
+                    const extra = self.metadataExtraData(Metadata.Enumerator, metadata_item.data);
+
+                    const ExpectedContents = extern struct {
+                        string: [(64 * 8 / std.math.log2(10)) + 2]u8,
+                        limbs: [
+                            std.math.big.int.calcToStringLimbsBufferLen(
+                                64 / @sizeOf(std.math.big.Limb),
+                                10,
+                            )
+                        ]std.math.big.Limb,
+                    };
+                    var stack align(@alignOf(ExpectedContents)) =
+                        std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+                    const allocator = stack.get();
+
+                    const limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len];
+                    const bigint: std.math.big.int.Const = .{
+                        .limbs = limbs,
+                        .positive = switch (kind) {
+                            .enumerator_unsigned,
+                            .enumerator_signed_positive,
+                            => true,
+                            .enumerator_signed_negative => false,
+                            else => unreachable,
+                        },
+                    };
+                    const str = try bigint.toStringAlloc(allocator, 10, undefined);
+                    defer allocator.free(str);
+
+                    try metadata_formatter.specialized(.@"distinct !", .DIEnumerator, .{
+                        .name = extra.name,
+                        .value = str,
+                        .isUnsigned = switch (kind) {
+                            .enumerator_unsigned => true,
+                            .enumerator_signed_positive, .enumerator_signed_negative => false,
+                            else => unreachable,
+                        },
+                    }, writer);
+                },
+                .subrange => {
+                    const extra = self.metadataExtraData(Metadata.Subrange, metadata_item.data);
+                    try metadata_formatter.specialized(.@"!", .DISubrange, .{
+                        .count = extra.count,
+                        .lowerBound = extra.lower_bound,
+                        .upperBound = null,
+                        .stride = null,
+                    }, writer);
+                },
+                .module_flag => {
+                    const extra = self.metadataExtraData(Metadata.ModuleFlag, metadata_item.data);
+                    try writer.print("!{{{[behavior]}{[name]}{[constant]}}}\n", .{
+                        .behavior = try metadata_formatter.fmt("", extra.behavior),
+                        .name = try metadata_formatter.fmt("!", extra.name),
+                        .constant = try metadata_formatter.fmt("", extra.constant),
+                    });
+                },
+                .local_var => {
+                    const extra = self.metadataExtraData(Metadata.LocalVar, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DILocalVariable, .{
+                        .name = extra.name,
+                        .arg = null,
+                        .scope = extra.scope,
+                        .file = extra.file,
+                        .line = extra.line,
+                        .type = extra.ty,
+                        .flags = null,
+                        .@"align" = null,
+                        .annotations = null,
+                    }, writer);
+                },
+                .parameter => {
+                    const extra = self.metadataExtraData(Metadata.Parameter, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DILocalVariable, .{
+                        .name = extra.name,
+                        .arg = extra.arg_no,
+                        .scope = extra.scope,
+                        .file = extra.file,
+                        .line = extra.line,
+                        .type = extra.ty,
+                        .flags = null,
+                        .@"align" = null,
+                        .annotations = null,
+                    }, writer);
+                },
+                .global_var,
+                .@"global_var local",
+                => |kind| {
+                    const extra = self.metadataExtraData(Metadata.GlobalVar, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DIGlobalVariable, .{
+                        .name = extra.name,
+                        .linkageName = extra.linkage_name,
+                        .scope = extra.scope,
+                        .file = extra.file,
+                        .line = extra.line,
+                        .type = extra.ty,
+                        .isLocal = switch (kind) {
+                            .global_var => false,
+                            .@"global_var local" => true,
+                            else => unreachable,
+                        },
+                        .isDefinition = true,
+                        .declaration = null,
+                        .templateParams = null,
+                        .@"align" = null,
+                        .annotations = null,
+                    }, writer);
+                },
+                .global_var_expression => {
+                    const extra =
+                        self.metadataExtraData(Metadata.GlobalVarExpression, metadata_item.data);
+                    try metadata_formatter.specialized(.@"distinct !", .DIGlobalVariableExpression, .{
+                        .@"var" = extra.variable,
+                        .expr = extra.expression,
+                    }, writer);
+                },
+                else => {
+                    try writer.writeByte('\n');
+                },
+            }
+        }
     }
 }
 
@@ -9725,7 +10503,7 @@ fn addTypeExtraAssumeCapacity(self: *Builder, extra: anytype) Type.Item.ExtraInd
         self.type_extra.appendAssumeCapacity(switch (field.type) {
             u32 => value,
             String, Type => @intFromEnum(value),
-            else => @compileError("bad field type: " ++ @typeName(field.type)),
+            else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
         });
     }
     return result;
@@ -10894,6 +11672,7 @@ fn addMetadataExtraAssumeCapacity(self: *Builder, extra: anytype) Metadata.Item.
         self.metadata_extra.appendAssumeCapacity(switch (field.type) {
             u32 => value,
             MetadataString, Metadata, Variable.Index, Value => @intFromEnum(value),
+            Metadata.DIFlags => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
@@ -10932,6 +11711,7 @@ fn metadataExtraDataTrail(
         @field(result, field.name) = switch (field.type) {
             u32 => value,
             MetadataString, Metadata, Variable.Index, Value => @enumFromInt(value),
+            Metadata.DIFlags => @bitCast(value),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     return .{
@@ -10989,10 +11769,7 @@ pub fn metadataStringFmtAssumeCapacity(self: *Builder, comptime fmt_str: []const
 }
 
 pub fn debugNamed(self: *Builder, name: MetadataString, operands: []const Metadata) Allocator.Error!void {
-    try self.metadata_extra.ensureUnusedCapacity(
-        self.gpa,
-        operands.len * @sizeOf(Metadata),
-    );
+    try self.metadata_extra.ensureUnusedCapacity(self.gpa, operands.len);
     try self.metadata_named.ensureUnusedCapacity(self.gpa, 1);
     self.debugNamedAssumeCapacity(name, operands);
 }
@@ -11002,9 +11779,13 @@ fn debugNone(self: *Builder) Allocator.Error!Metadata {
     return self.debugNoneAssumeCapacity();
 }
 
-pub fn debugFile(self: *Builder, path: MetadataString, name: MetadataString) Allocator.Error!Metadata {
+pub fn debugFile(
+    self: *Builder,
+    filename: MetadataString,
+    directory: MetadataString,
+) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.File, 0);
-    return self.debugFileAssumeCapacity(path, name);
+    return self.debugFileAssumeCapacity(filename, directory);
 }
 
 pub fn debugCompileUnit(
@@ -11013,10 +11794,10 @@ pub fn debugCompileUnit(
     producer: MetadataString,
     enums: Metadata,
     globals: Metadata,
-    flags: Metadata.CompileUnit.Flags,
+    options: Metadata.CompileUnit.Options,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompileUnit, 0);
-    return self.debugCompileUnitAssumeCapacity(file, producer, enums, globals, flags);
+    return self.debugCompileUnitAssumeCapacity(file, producer, enums, globals, options);
 }
 
 pub fn debugSubprogram(
@@ -11027,7 +11808,7 @@ pub fn debugSubprogram(
     line: u32,
     scope_line: u32,
     ty: Metadata,
-    flags: Metadata.Subprogram.Flags,
+    options: Metadata.Subprogram.Options,
     compile_unit: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, 0);
@@ -11038,19 +11819,19 @@ pub fn debugSubprogram(
         line,
         scope_line,
         ty,
-        flags,
+        options,
         compile_unit,
     );
 }
 
-pub fn debugLexicalBlock(self: *Builder, file: Metadata, scope: Metadata, line: u32, column: u32) Allocator.Error!Metadata {
+pub fn debugLexicalBlock(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.LexicalBlock, 0);
-    return self.debugLexicalBlockAssumeCapacity(file, scope, line, column);
+    return self.debugLexicalBlockAssumeCapacity(scope, file, line, column);
 }
 
-pub fn debugLocation(self: *Builder, scope: Metadata, line: u32, column: u32, inlined_at: Metadata) Allocator.Error!Metadata {
+pub fn debugLocation(self: *Builder, line: u32, column: u32, scope: Metadata, inlined_at: Metadata) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.Location, 0);
-    return self.debugLocationAssumeCapacity(scope, line, column, inlined_at);
+    return self.debugLocationAssumeCapacity(line, column, scope, inlined_at);
 }
 
 pub fn debugBoolType(self: *Builder, name: MetadataString, size_in_bits: u64) Allocator.Error!Metadata {
@@ -11294,12 +12075,12 @@ pub fn debugTuple(
 
 pub fn debugModuleFlag(
     self: *Builder,
-    behaviour: Metadata,
+    behavior: Metadata,
     name: MetadataString,
     constant: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.ModuleFlag, 0);
-    return self.debugModuleFlagAssumeCapacity(behaviour, name, constant);
+    return self.debugModuleFlagAssumeCapacity(behavior, name, constant);
 }
 
 pub fn debugLocalVar(
@@ -11336,7 +12117,7 @@ pub fn debugGlobalVar(
     line: u32,
     ty: Metadata,
     variable: Variable.Index,
-    flags: Metadata.GlobalVar.Flags,
+    options: Metadata.GlobalVar.Options,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.GlobalVar, 0);
     return self.debugGlobalVarAssumeCapacity(
@@ -11347,7 +12128,7 @@ pub fn debugGlobalVar(
         line,
         ty,
         variable,
-        flags,
+        options,
     );
 }
 
@@ -11393,18 +12174,44 @@ fn metadataSimpleAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytyp
             if (lhs_key.tag != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
             const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
             const rhs_extra = ctx.builder.metadataExtraData(@TypeOf(value), rhs_data);
-            inline for (std.meta.fields(@TypeOf(value))) |field| {
-                const lhs = @field(lhs_key.value, field.name);
-                const rhs = @field(rhs_extra, field.name);
-                if (lhs != rhs) return false;
-            }
-            return true;
+            return std.meta.eql(lhs_key.value, rhs_extra);
         }
     };
 
     const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
         Key{ .tag = tag, .value = value },
         Adapter{ .builder = self },
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = self.addMetadataExtraAssumeCapacity(value),
+        });
+    }
+    return @enumFromInt(gop.index);
+}
+
+fn metadataDistinctAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anytype) Metadata {
+    const Key = struct { tag: Metadata.Tag, index: Metadata };
+    const Adapter = struct {
+        pub fn hash(_: @This(), key: Key) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(key.tag)),
+                std.mem.asBytes(&key.index),
+            ));
+        }
+
+        pub fn eql(_: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            return @intFromEnum(lhs_key.index) == rhs_index;
+        }
+    };
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        Key{ .tag = tag, .index = @enumFromInt(self.metadata_map.count()) },
+        Adapter{},
     );
 
     if (!gop.found_existing) {
@@ -11434,10 +12241,14 @@ pub fn debugNoneAssumeCapacity(self: *Builder) Metadata {
     return self.metadataSimpleAssumeCapacity(.none, .{});
 }
 
-fn debugFileAssumeCapacity(self: *Builder, path: MetadataString, name: MetadataString) Metadata {
-    return self.metadataSimpleAssumeCapacity(.file, Metadata.File{
-        .path = path,
-        .name = name,
+fn debugFileAssumeCapacity(
+    self: *Builder,
+    filename: MetadataString,
+    directory: MetadataString,
+) Metadata {
+    return self.metadataDistinctAssumeCapacity(.file, Metadata.File{
+        .filename = filename,
+        .directory = directory,
     });
 }
 
@@ -11447,10 +12258,10 @@ pub fn debugCompileUnitAssumeCapacity(
     producer: MetadataString,
     enums: Metadata,
     globals: Metadata,
-    flags: Metadata.CompileUnit.Flags,
+    options: Metadata.CompileUnit.Options,
 ) Metadata {
-    return self.metadataSimpleAssumeCapacity(
-        if (flags.optimized) .@"compile_unit optimized" else .compile_unit,
+    return self.metadataDistinctAssumeCapacity(
+        if (options.optimized) .@"compile_unit optimized" else .compile_unit,
         Metadata.CompileUnit{
             .file = file,
             .producer = producer,
@@ -11468,57 +12279,43 @@ fn debugSubprogramAssumeCapacity(
     line: u32,
     scope_line: u32,
     ty: Metadata,
-    flags: Metadata.Subprogram.Flags,
+    options: Metadata.Subprogram.Options,
     compile_unit: Metadata,
 ) Metadata {
-    const tag: Metadata.Tag = blk: {
-        var int: u3 = 0;
-        if (flags.optimized) int |= 0b1;
-        if (flags.local) int |= 0b10;
-        if (flags.definition) int |= 0b100;
-        break :blk switch (int) {
-            0 => .subprogram,
-            0b1 => .@"subprogram optimized",
-            0b10 => .@"subprogram local",
-            0b100 => .@"subprogram definition",
-            0b011 => .@"subprogram optimized local",
-            0b111 => .@"subprogram optimized local definition",
-            0b101 => .@"subprogram optimized definition",
-            0b110 => .@"subprogram local definition",
-        };
-    };
-    return self.metadataSimpleAssumeCapacity(tag, Metadata.Subprogram{
+    const tag: Metadata.Tag = @enumFromInt(@intFromEnum(Metadata.Tag.subprogram) +
+        @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2)));
+    return self.metadataDistinctAssumeCapacity(tag, Metadata.Subprogram{
         .file = file,
         .name = name,
         .linkage_name = linkage_name,
         .line = line,
         .scope_line = scope_line,
         .ty = ty,
-        .debug_info_flags = flags.debug_info_flags,
+        .di_flags = options.di_flags,
         .compile_unit = compile_unit,
     });
 }
 
-fn debugLexicalBlockAssumeCapacity(self: *Builder, file: Metadata, scope: Metadata, line: u32, column: u32) Metadata {
-    return self.metadataSimpleAssumeCapacity(.lexical_block, Metadata.LexicalBlock{
-        .file = file,
+fn debugLexicalBlockAssumeCapacity(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Metadata {
+    return self.metadataDistinctAssumeCapacity(.lexical_block, Metadata.LexicalBlock{
         .scope = scope,
+        .file = file,
         .line = line,
         .column = column,
     });
 }
 
-fn debugLocationAssumeCapacity(self: *Builder, scope: Metadata, line: u32, column: u32, inlined_at: Metadata) Metadata {
+fn debugLocationAssumeCapacity(self: *Builder, line: u32, column: u32, scope: Metadata, inlined_at: Metadata) Metadata {
     return self.metadataSimpleAssumeCapacity(.location, Metadata.Location{
-        .scope = scope,
         .line = line,
         .column = column,
+        .scope = scope,
         .inlined_at = inlined_at,
     });
 }
 
 fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
-    return self.metadataSimpleAssumeCapacity(.basic_bool_type, Metadata.BasicType{
+    return self.metadataDistinctAssumeCapacity(.basic_bool_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -11526,7 +12323,7 @@ fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bit
 }
 
 fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
-    return self.metadataSimpleAssumeCapacity(.basic_unsigned_type, Metadata.BasicType{
+    return self.metadataDistinctAssumeCapacity(.basic_unsigned_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -11534,7 +12331,7 @@ fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in
 }
 
 fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
-    return self.metadataSimpleAssumeCapacity(.basic_signed_type, Metadata.BasicType{
+    return self.metadataDistinctAssumeCapacity(.basic_signed_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -11542,7 +12339,7 @@ fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_b
 }
 
 fn debugFloatTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
-    return self.metadataSimpleAssumeCapacity(.basic_float_type, Metadata.BasicType{
+    return self.metadataDistinctAssumeCapacity(.basic_float_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -11687,84 +12484,18 @@ fn debugCompositeTypeAssumeCapacity(
     align_in_bits: u64,
     fields_tuple: Metadata,
 ) Metadata {
-    const Key = struct {
-        tag: Metadata.Tag,
-        name: MetadataString,
-        file: Metadata,
-        scope: Metadata,
-        line: u32,
-        underlying_type: Metadata,
-        size_in_bits: u64,
-        align_in_bits: u64,
-        fields_tuple: Metadata,
-    };
-    const Adapter = struct {
-        builder: *const Builder,
-        pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
-            hasher.update(std.mem.asBytes(&key.name));
-            hasher.update(std.mem.asBytes(&key.file));
-            hasher.update(std.mem.asBytes(&key.scope));
-            hasher.update(std.mem.asBytes(&key.line));
-            hasher.update(std.mem.asBytes(&key.underlying_type));
-            hasher.update(std.mem.asBytes(&key.size_in_bits));
-            hasher.update(std.mem.asBytes(&key.align_in_bits));
-            hasher.update(std.mem.asBytes(&key.fields_tuple));
-            return @truncate(hasher.final());
-        }
-
-        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
-            if (lhs_key.tag != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
-            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.metadataExtraData(Metadata.CompositeType, rhs_data);
-            const rhs_size_in_bits = @as(u64, rhs_extra.size_in_bits_lo) | @as(u64, rhs_extra.size_in_bits_hi) << 32;
-            const rhs_align_in_bits = @as(u64, rhs_extra.align_in_bits_lo) | @as(u64, rhs_extra.align_in_bits_hi) << 32;
-            return lhs_key.name == rhs_extra.name and
-                lhs_key.file == rhs_extra.file and
-                lhs_key.scope == rhs_extra.scope and
-                lhs_key.line == rhs_extra.line and
-                lhs_key.underlying_type == rhs_extra.underlying_type and
-                lhs_key.size_in_bits == rhs_size_in_bits and
-                lhs_key.align_in_bits == rhs_align_in_bits and
-                lhs_key.fields_tuple == rhs_extra.fields_tuple;
-        }
-    };
-
-    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
-        Key{
-            .tag = tag,
-            .name = name,
-            .file = file,
-            .scope = scope,
-            .line = line,
-            .underlying_type = underlying_type,
-            .size_in_bits = size_in_bits,
-            .align_in_bits = align_in_bits,
-            .fields_tuple = fields_tuple,
-        },
-        Adapter{ .builder = self },
-    );
-
-    if (!gop.found_existing) {
-        gop.key_ptr.* = {};
-        gop.value_ptr.* = {};
-        self.metadata_items.appendAssumeCapacity(.{
-            .tag = tag,
-            .data = self.addMetadataExtraAssumeCapacity(Metadata.CompositeType{
-                .name = name,
-                .file = file,
-                .scope = scope,
-                .line = line,
-                .underlying_type = underlying_type,
-                .size_in_bits_lo = @truncate(size_in_bits),
-                .size_in_bits_hi = @truncate(size_in_bits >> 32),
-                .align_in_bits_lo = @truncate(align_in_bits),
-                .align_in_bits_hi = @truncate(align_in_bits >> 32),
-                .fields_tuple = fields_tuple,
-            }),
-        });
-    }
-    return @enumFromInt(gop.index);
+    return self.metadataDistinctAssumeCapacity(tag, Metadata.CompositeType{
+        .name = name,
+        .file = file,
+        .scope = scope,
+        .line = line,
+        .underlying_type = underlying_type,
+        .size_in_bits_lo = @truncate(size_in_bits),
+        .size_in_bits_hi = @truncate(size_in_bits >> 32),
+        .align_in_bits_lo = @truncate(align_in_bits),
+        .align_in_bits_hi = @truncate(align_in_bits >> 32),
+        .fields_tuple = fields_tuple,
+    });
 }
 
 fn debugPointerTypeAssumeCapacity(
@@ -11778,7 +12509,7 @@ fn debugPointerTypeAssumeCapacity(
     align_in_bits: u64,
     offset_in_bits: u64,
 ) Metadata {
-    return self.metadataSimpleAssumeCapacity(.derived_pointer_type, Metadata.DerivedType{
+    return self.metadataDistinctAssumeCapacity(.derived_pointer_type, Metadata.DerivedType{
         .name = name,
         .file = file,
         .scope = scope,
@@ -11804,7 +12535,7 @@ fn debugMemberTypeAssumeCapacity(
     align_in_bits: u64,
     offset_in_bits: u64,
 ) Metadata {
-    return self.metadataSimpleAssumeCapacity(.derived_member_type, Metadata.DerivedType{
+    return self.metadataDistinctAssumeCapacity(.derived_member_type, Metadata.DerivedType{
         .name = name,
         .file = file,
         .scope = scope,
@@ -11823,7 +12554,7 @@ fn debugSubroutineTypeAssumeCapacity(
     self: *Builder,
     types_tuple: Metadata,
 ) Metadata {
-    return self.metadataSimpleAssumeCapacity(.subroutine_type, Metadata.SubroutineType{
+    return self.metadataDistinctAssumeCapacity(.subroutine_type, Metadata.SubroutineType{
         .types_tuple = types_tuple,
     });
 }
@@ -11835,52 +12566,32 @@ fn debugEnumeratorAssumeCapacity(
     bit_width: u32,
     value: std.math.big.int.Const,
 ) Metadata {
-    const Key = struct {
-        tag: Metadata.Tag,
-        name: MetadataString,
-        bit_width: u32,
-        value: std.math.big.int.Const,
-    };
+    const Key = struct { tag: Metadata.Tag, index: Metadata };
     const Adapter = struct {
-        builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
-            hasher.update(std.mem.asBytes(&key.name));
-            hasher.update(std.mem.asBytes(&key.bit_width));
-            hasher.update(std.mem.sliceAsBytes(key.value.limbs));
-            return @truncate(hasher.final());
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(key.tag)),
+                std.mem.asBytes(&key.index),
+            ));
         }
 
-        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
-            if (lhs_key.tag != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
-            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
-            const rhs_extra = ctx.builder.metadataExtraData(Metadata.Enumerator, rhs_data);
-            const limbs = ctx.builder.metadata_limbs
-                .items[rhs_extra.limbs_index..][0..rhs_extra.limbs_len];
-            const rhs_value = std.math.big.int.Const{
-                .limbs = limbs,
-                .positive = lhs_key.value.positive,
-            };
-            return lhs_key.name == rhs_extra.name and
-                lhs_key.bit_width == rhs_extra.bit_width and
-                lhs_key.value.eql(rhs_value);
+        pub fn eql(_: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            return @intFromEnum(lhs_key.index) == rhs_index;
         }
     };
 
     const tag: Metadata.Tag = if (unsigned)
         .enumerator_unsigned
-    else if (value.positive) .enumerator_signed_positive else .enumerator_signed_negative;
+    else if (value.positive)
+        .enumerator_signed_positive
+    else
+        .enumerator_signed_negative;
 
     std.debug.assert(!(tag == .enumerator_unsigned and !value.positive));
 
     const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
-        Key{
-            .tag = tag,
-            .name = name,
-            .bit_width = bit_width,
-            .value = value,
-        },
-        Adapter{ .builder = self },
+        Key{ .tag = tag, .index = @enumFromInt(self.metadata_map.count()) },
+        Adapter{},
     );
 
     if (!gop.found_existing) {
@@ -11905,7 +12616,7 @@ fn debugSubrangeAssumeCapacity(
     lower_bound: Metadata,
     count: Metadata,
 ) Metadata {
-    return self.metadataSimpleAssumeCapacity(.subrange, Metadata.Subrange{
+    return self.metadataDistinctAssumeCapacity(.subrange, Metadata.Subrange{
         .lower_bound = lower_bound,
         .count = count,
     });
@@ -12005,12 +12716,12 @@ fn debugTupleAssumeCapacity(
 
 fn debugModuleFlagAssumeCapacity(
     self: *Builder,
-    behaviour: Metadata,
+    behavior: Metadata,
     name: MetadataString,
     constant: Metadata,
 ) Metadata {
     return self.metadataSimpleAssumeCapacity(.module_flag, Metadata.ModuleFlag{
-        .behaviour = behaviour,
+        .behavior = behavior,
         .name = name,
         .constant = constant,
     });
@@ -12024,7 +12735,7 @@ fn debugLocalVarAssumeCapacity(
     line: u32,
     ty: Metadata,
 ) Allocator.Error!Metadata {
-    return self.metadataSimpleAssumeCapacity(.local_var, Metadata.LocalVar{
+    return self.metadataDistinctAssumeCapacity(.local_var, Metadata.LocalVar{
         .name = name,
         .file = file,
         .scope = scope,
@@ -12042,7 +12753,7 @@ fn debugParameterAssumeCapacity(
     ty: Metadata,
     arg_no: u32,
 ) Allocator.Error!Metadata {
-    return self.metadataSimpleAssumeCapacity(.parameter, Metadata.Parameter{
+    return self.metadataDistinctAssumeCapacity(.parameter, Metadata.Parameter{
         .name = name,
         .file = file,
         .scope = scope,
@@ -12061,10 +12772,10 @@ fn debugGlobalVarAssumeCapacity(
     line: u32,
     ty: Metadata,
     variable: Variable.Index,
-    flags: Metadata.GlobalVar.Flags,
+    options: Metadata.GlobalVar.Options,
 ) Allocator.Error!Metadata {
-    return self.metadataSimpleAssumeCapacity(
-        if (flags.local) .@"global_var local" else .global_var,
+    return self.metadataDistinctAssumeCapacity(
+        if (options.local) .@"global_var local" else .global_var,
         Metadata.GlobalVar{
             .name = name,
             .linkage_name = linkage_name,
@@ -12082,7 +12793,7 @@ fn debugGlobalVarExpressionAssumeCapacity(
     variable: Metadata,
     expression: Metadata,
 ) Metadata {
-    return self.metadataSimpleAssumeCapacity(.global_var_expression, Metadata.GlobalVarExpression{
+    return self.metadataDistinctAssumeCapacity(.global_var_expression, Metadata.GlobalVarExpression{
         .variable = variable,
         .expression = expression,
     });
@@ -12123,20 +12834,26 @@ fn debugConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
 pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]const u32 {
     const BitcodeWriter = bitcode_writer.BitcodeWriter(&.{ Type, FunctionAttributes });
     var bitcode = BitcodeWriter.init(allocator, &.{
-        std.math.log2_int_ceil(usize, self.type_items.items.len - 1),
-        std.math.log2_int_ceil(usize, self.function_attributes_set.count() - 1),
+        if (self.type_items.items.len > 0)
+            std.math.log2_int_ceil(usize, self.type_items.items.len)
+        else
+            undefined,
+        if (self.type_items.items.len > 0)
+            std.math.log2_int_ceil(usize, self.function_attributes_set.count())
+        else
+            undefined,
     });
     errdefer bitcode.deinit();
 
     // Write LLVM IR magic
-    try bitcode.writeBits(IR.MAGIC, 32);
+    try bitcode.writeBits(ir.MAGIC, 32);
 
-    var record = std.ArrayListUnmanaged(u64){};
+    var record: std.ArrayListUnmanaged(u64) = .{};
     defer record.deinit(self.gpa);
 
     // IDENTIFICATION_BLOCK
     {
-        const Identification = IR.Identification;
+        const Identification = ir.Identification;
         var identification_block = try bitcode.enterTopBlock(Identification);
 
         const producer = try std.fmt.allocPrint(self.gpa, "zig {d}.{d}.{d}", .{
@@ -12154,7 +12871,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
     // MODULE_BLOCK
     {
-        const Module = IR.Module;
+        const Module = ir.Module;
         var module_block = try bitcode.enterTopBlock(Module);
 
         try module_block.writeAbbrev(Module.Version{});
@@ -12189,16 +12906,16 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
         // TYPE_BLOCK
         {
-            var type_block = try module_block.enterSubBlock(IR.Type);
+            var type_block = try module_block.enterSubBlock(ir.Type);
 
-            try type_block.writeAbbrev(IR.Type.NumEntry{ .num = @intCast(self.type_items.items.len) });
+            try type_block.writeAbbrev(ir.Type.NumEntry{ .num = @intCast(self.type_items.items.len) });
 
             for (self.type_items.items, 0..) |item, i| {
                 const ty: Type = @enumFromInt(i);
 
                 switch (item.tag) {
-                    .simple => try type_block.writeAbbrev(IR.Type.Simple{ .code = @truncate(item.data) }),
-                    .integer => try type_block.writeAbbrev(IR.Type.Integer{ .width = item.data }),
+                    .simple => try type_block.writeAbbrev(ir.Type.Simple{ .code = @truncate(item.data) }),
+                    .integer => try type_block.writeAbbrev(ir.Type.Integer{ .width = item.data }),
                     .structure,
                     .packed_structure,
                     => |kind| {
@@ -12208,14 +12925,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             else => unreachable,
                         };
                         var extra = self.typeExtraDataTrail(Type.Structure, item.data);
-                        try type_block.writeAbbrev(IR.Type.StructAnon{
+                        try type_block.writeAbbrev(ir.Type.StructAnon{
                             .is_packed = is_packed,
                             .types = extra.trail.next(extra.data.fields_len, Type, self),
                         });
                     },
                     .named_structure => {
                         const extra = self.typeExtraData(Type.NamedStructure, item.data);
-                        try type_block.writeAbbrev(IR.Type.StructName{
+                        try type_block.writeAbbrev(ir.Type.StructName{
                             .string = extra.id.slice(self).?,
                         });
 
@@ -12227,36 +12944,36 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         };
 
                         var real_extra = self.typeExtraDataTrail(Type.Structure, real_struct.data);
-                        try type_block.writeAbbrev(IR.Type.StructNamed{
+                        try type_block.writeAbbrev(ir.Type.StructNamed{
                             .is_packed = is_packed,
                             .types = real_extra.trail.next(real_extra.data.fields_len, Type, self),
                         });
                     },
                     .array,
                     .small_array,
-                    => try type_block.writeAbbrev(IR.Type.Array{
+                    => try type_block.writeAbbrev(ir.Type.Array{
                         .len = ty.aggregateLen(self),
                         .child = ty.childType(self),
                     }),
                     .vector,
                     .scalable_vector,
-                    => try type_block.writeAbbrev(IR.Type.Vector{
+                    => try type_block.writeAbbrev(ir.Type.Vector{
                         .len = ty.aggregateLen(self),
                         .child = ty.childType(self),
                     }),
-                    .pointer => try type_block.writeAbbrev(IR.Type.Pointer{
+                    .pointer => try type_block.writeAbbrev(ir.Type.Pointer{
                         .addr_space = ty.pointerAddrSpace(self),
                     }),
                     .target => {
                         var extra = self.typeExtraDataTrail(Type.Target, item.data);
-                        try type_block.writeAbbrev(IR.Type.StructName{
+                        try type_block.writeAbbrev(ir.Type.StructName{
                             .string = extra.data.name.slice(self).?,
                         });
 
                         const types = extra.trail.next(extra.data.types_len, Type, self);
                         const ints = extra.trail.next(extra.data.ints_len, u32, self);
 
-                        try type_block.writeAbbrev(IR.Type.Target{
+                        try type_block.writeAbbrev(ir.Type.Target{
                             .num_types = extra.data.types_len,
                             .types = types,
                             .ints = ints,
@@ -12269,7 +12986,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             else => unreachable,
                         };
                         var extra = self.typeExtraDataTrail(Type.Function, item.data);
-                        try type_block.writeAbbrev(IR.Type.Function{
+                        try type_block.writeAbbrev(ir.Type.Function{
                             .is_vararg = is_vararg,
                             .return_type = extra.data.ret,
                             .param_types = extra.trail.next(extra.data.params_len, Type, self),
@@ -12289,7 +13006,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
         // PARAMATTR_GROUP_BLOCK
         {
-            const ParamattrGroup = IR.ParamattrGroup;
+            const ParamattrGroup = ir.ParamattrGroup;
 
             var paramattr_group_block = try module_block.enterSubBlock(ParamattrGroup);
 
@@ -12493,7 +13210,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
         // PARAMATTR_BLOCK
         {
-            const Paramattr = IR.Paramattr;
+            const Paramattr = ir.Paramattr;
             var paramattr_block = try module_block.enterSubBlock(Paramattr);
 
             for (self.function_attributes_set.keys()) |func_attributes| {
@@ -12517,7 +13234,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             try paramattr_block.end();
         }
 
-        var globals = std.AutoArrayHashMapUnmanaged(Global.Index, void){};
+        var globals: std.AutoArrayHashMapUnmanaged(Global.Index, void) = .{};
         defer globals.deinit(self.gpa);
         try globals.ensureUnusedCapacity(
             self.gpa,
@@ -12696,7 +13413,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
         // CONSTANTS_BLOCK
         {
-            const Constants = IR.Constants;
+            const Constants = ir.Constants;
             var constants_block = try module_block.enterSubBlock(Constants);
 
             var current_type: Type = .none;
@@ -12725,7 +13442,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             @ptrCast(self.constant_limbs.items[data..][0..Constant.Integer.limbs]);
                         const limbs = self.constant_limbs
                             .items[data + Constant.Integer.limbs ..][0..extra.limbs_len];
-                        const bigint = std.math.big.int.Const{
+                        const bigint: std.math.big.int.Const = .{
                             .limbs = limbs,
                             .positive = tag == .positive_integer,
                         };
@@ -13062,7 +13779,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
         // METADATA_BLOCK
         if (!self.strip) {
-            const MetadataBlock = IR.MetadataBlock;
+            const MetadataBlock = ir.MetadataBlock;
             var metadata_block = try module_block.enterSubBlock(MetadataBlock);
 
             const MetadataBlockWriter = @TypeOf(metadata_block);
@@ -13115,50 +13832,45 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 try bitcode.alignTo32();
             }
 
-            for (1..self.metadata_items.len) |metadata_index| {
-                const tag = self.metadata_items.items(.tag)[metadata_index];
-                const data = self.metadata_items.items(.data)[metadata_index];
+            for (
+                self.metadata_items.items(.tag)[1..],
+                self.metadata_items.items(.data)[1..],
+            ) |tag, data| {
                 switch (tag) {
                     .none => unreachable,
                     .file => {
                         const extra = self.metadataExtraData(Metadata.File, data);
 
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.File{
-                            .name = extra.name,
-                            .path = extra.path,
+                            .filename = extra.filename,
+                            .directory = extra.directory,
                         }, metadata_adapter);
                     },
-                    .compile_unit, .@"compile_unit optimized" => |kind| {
-                        const is_optimized = kind == .@"compile_unit optimized";
+                    .compile_unit,
+                    .@"compile_unit optimized",
+                    => |kind| {
                         const extra = self.metadataExtraData(Metadata.CompileUnit, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.CompileUnit{
                             .file = extra.file,
                             .producer = extra.producer,
-                            .is_optimized = is_optimized,
+                            .is_optimized = switch (kind) {
+                                .compile_unit => false,
+                                .@"compile_unit optimized" => true,
+                                else => unreachable,
+                            },
                             .enums = extra.enums,
                             .globals = extra.globals,
                         }, metadata_adapter);
                     },
                     .subprogram,
-                    .@"subprogram optimized",
                     .@"subprogram local",
                     .@"subprogram definition",
+                    .@"subprogram local definition",
+                    .@"subprogram optimized",
                     .@"subprogram optimized local",
                     .@"subprogram optimized definition",
                     .@"subprogram optimized local definition",
-                    .@"subprogram local definition",
                     => |kind| {
-                        const sp_flags: u32 = switch (kind) {
-                            .subprogram => 0,
-                            .@"subprogram optimized" => 1 << 4,
-                            .@"subprogram local" => 1 << 2,
-                            .@"subprogram definition" => 1 << 3,
-                            .@"subprogram optimized local" => (1 << 4) | (1 << 2),
-                            .@"subprogram optimized definition" => (1 << 4) | (1 << 3),
-                            .@"subprogram optimized local definition" => (1 << 4) | (1 << 2) | (1 << 3),
-                            .@"subprogram local definition" => (1 << 2) | (1 << 3),
-                            else => unreachable,
-                        };
                         const extra = self.metadataExtraData(Metadata.Subprogram, data);
 
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Subprogram{
@@ -13167,10 +13879,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .linkage_name = extra.linkage_name,
                             .file = extra.file,
                             .line = extra.line,
-                            .ty = Metadata.none, //extra.ty,
+                            .ty = .none, //extra.ty,
                             .scope_line = extra.scope_line,
-                            .sp_flags = sp_flags,
-                            .flags = extra.debug_info_flags,
+                            .sp_flags = @bitCast(@as(u32, @as(u3, @intCast(
+                                @intFromEnum(kind) - @intFromEnum(Metadata.Tag.subprogram),
+                            ))) << 2),
+                            .flags = extra.di_flags,
                             .compile_unit = extra.compile_unit,
                         }, metadata_adapter);
                     },
@@ -13185,7 +13899,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     },
                     .location => {
                         const extra = self.metadataExtraData(Metadata.Location, data);
-                        std.debug.assert(extra.scope != Metadata.none);
+                        std.debug.assert(extra.scope != .none);
                         try metadata_block.writeAbbrev(MetadataBlock.Location{
                             .line = extra.line,
                             .column = extra.column,
@@ -13201,12 +13915,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         const extra = self.metadataExtraData(Metadata.BasicType, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.BasicType{
                             .name = extra.name,
-                            .size_in_bits = @as(u64, extra.size_in_bits_lo) | @as(u64, extra.size_in_bits_hi) << 32,
+                            .size_in_bits = extra.bitSize(),
                             .encoding = switch (kind) {
-                                .basic_bool_type => std.dwarf.ATE.boolean,
-                                .basic_unsigned_type => std.dwarf.ATE.unsigned,
-                                .basic_signed_type => std.dwarf.ATE.signed,
-                                .basic_float_type => std.dwarf.ATE.float,
+                                .basic_bool_type => DW.ATE.boolean,
+                                .basic_unsigned_type => DW.ATE.unsigned,
+                                .basic_signed_type => DW.ATE.signed,
+                                .basic_float_type => DW.ATE.float,
                                 else => unreachable,
                             },
                         }, metadata_adapter);
@@ -13221,12 +13935,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.CompositeType{
                             .tag = switch (kind) {
-                                .composite_struct_type => std.dwarf.TAG.structure_type,
-                                .composite_union_type => std.dwarf.TAG.union_type,
-                                .composite_enumeration_type => std.dwarf.TAG.enumeration_type,
-                                .composite_array_type,
-                                .composite_vector_type,
-                                => std.dwarf.TAG.array_type,
+                                .composite_struct_type => DW.TAG.structure_type,
+                                .composite_union_type => DW.TAG.union_type,
+                                .composite_enumeration_type => DW.TAG.enumeration_type,
+                                .composite_array_type, .composite_vector_type => DW.TAG.array_type,
                                 else => unreachable,
                             },
                             .name = extra.name,
@@ -13234,9 +13946,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .line = extra.line,
                             .scope = extra.scope,
                             .underlying_type = extra.underlying_type,
-                            .size_in_bits = @as(u64, extra.size_in_bits_lo) | @as(u64, extra.size_in_bits_hi) << 32,
-                            .align_in_bits = @as(u64, extra.align_in_bits_lo) | @as(u64, extra.align_in_bits_hi) << 32,
-                            .flags = if (kind == .composite_vector_type) DIFlags.Vector else 0,
+                            .size_in_bits = extra.bitSize(),
+                            .align_in_bits = extra.bitAlign(),
+                            .flags = if (kind == .composite_vector_type) .{ .Vector = true } else .{},
                             .elements = extra.fields_tuple,
                         }, metadata_adapter);
                     },
@@ -13246,8 +13958,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         const extra = self.metadataExtraData(Metadata.DerivedType, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.DerivedType{
                             .tag = switch (kind) {
-                                .derived_pointer_type => std.dwarf.TAG.pointer_type,
-                                .derived_member_type => std.dwarf.TAG.member,
+                                .derived_pointer_type => DW.TAG.pointer_type,
+                                .derived_member_type => DW.TAG.member,
                                 else => unreachable,
                             },
                             .name = extra.name,
@@ -13255,9 +13967,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .line = extra.line,
                             .scope = extra.scope,
                             .underlying_type = extra.underlying_type,
-                            .size_in_bits = @as(u64, extra.size_in_bits_lo) | @as(u64, extra.size_in_bits_hi) << 32,
-                            .align_in_bits = @as(u64, extra.align_in_bits_lo) | @as(u64, extra.align_in_bits_hi) << 32,
-                            .offset_in_bits = @as(u64, extra.offset_in_bits_lo) | @as(u64, extra.offset_in_bits_hi) << 32,
+                            .size_in_bits = extra.bitSize(),
+                            .align_in_bits = extra.bitAlign(),
+                            .offset_in_bits = extra.bitOffset(),
                         }, metadata_adapter);
                     },
                     .subroutine_type => {
@@ -13291,7 +14003,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                         const limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len];
 
-                        const bigint = std.math.big.int.Const{
+                        const bigint: std.math.big.int.Const = .{
                             .limbs = limbs,
                             .positive = positive,
                         };
@@ -13315,7 +14027,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             const word_count = std.mem.alignForward(u32, extra.bit_width, 64) / 64;
                             try record.ensureUnusedCapacity(self.gpa, 3 + word_count);
 
-                            const flags = MetadataBlock.Enumerator.Flags{
+                            const flags: MetadataBlock.Enumerator.Flags = .{
                                 .unsigned = unsigned,
                                 .bigint = true,
                             };
@@ -13375,7 +14087,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         const extra = self.metadataExtraData(Metadata.ModuleFlag, data);
                         try metadata_block.writeAbbrev(MetadataBlock.Node{
                             .elements = &.{
-                                @enumFromInt(metadata_adapter.getMetadataIndex(extra.behaviour)),
+                                @enumFromInt(metadata_adapter.getMetadataIndex(extra.behavior)),
                                 @enumFromInt(metadata_adapter.getMetadataStringIndex(extra.name)),
                                 @enumFromInt(metadata_adapter.getMetadataIndex(extra.constant)),
                             },
@@ -13534,7 +14246,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             };
 
             for (self.functions.items, 0..) |func, func_index| {
-                const FunctionBlock = IR.FunctionBlock;
+                const FunctionBlock = ir.FunctionBlock;
                 if (func.global.getReplacement(self) != .none) continue;
 
                 if (func.instructions.len == 0) continue;
@@ -13547,7 +14259,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                 // Emit function level metadata block
                 if (!self.strip and func.debug_values.len != 0) {
-                    const MetadataBlock = IR.FunctionMetadataBlock;
+                    const MetadataBlock = ir.FunctionMetadataBlock;
                     var metadata_block = try function_block.enterSubBlock(MetadataBlock);
 
                     for (func.debug_values) |value| {
@@ -13656,10 +14368,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .srem,
                         .ashr,
                         .@"ashr exact",
-                        => {
+                        => |kind| {
                             const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
                             try function_block.writeAbbrev(FunctionBlock.Binary{
-                                .opcode = tag.toBinaryOpcode(),
+                                .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
                             });
@@ -13669,10 +14381,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"fmul fast",
                         .@"frem fast",
                         .@"fsub fast",
-                        => {
+                        => |kind| {
                             const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
                             try function_block.writeAbbrev(FunctionBlock.BinaryFast{
-                                .opcode = tag.toBinaryOpcode(),
+                                .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
                                 .fast_math = .{},
@@ -13709,12 +14421,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .fpext,
                         .sext,
                         .zext,
-                        => {
+                        => |kind| {
                             const extra = func.extraData(Function.Instruction.Cast, datas[instr_index]);
                             try function_block.writeAbbrev(FunctionBlock.Cast{
                                 .val = adapter.getOffsetValueIndex(extra.val),
                                 .type_index = extra.type,
-                                .opcode = tag.toCastOpcode(),
+                                .opcode = kind.toCastOpcode(),
                             });
                         },
                         .@"fcmp false",
@@ -13743,12 +14455,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"icmp ugt",
                         .@"icmp ule",
                         .@"icmp ult",
-                        => {
+                        => |kind| {
                             const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
                             try function_block.writeAbbrev(FunctionBlock.Cmp{
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
-                                .pred = tag.toCmpPredicate(),
+                                .pred = kind.toCmpPredicate(),
                             });
                         },
                         .@"fcmp fast false",
@@ -13767,12 +14479,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"fcmp fast ult",
                         .@"fcmp fast une",
                         .@"fcmp fast uno",
-                        => {
+                        => |kind| {
                             const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
                             try function_block.writeAbbrev(FunctionBlock.CmpFast{
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
-                                .pred = tag.toCmpPredicate(),
+                                .pred = kind.toCmpPredicate(),
                                 .fast_math = .{},
                             });
                         },
@@ -13842,12 +14554,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         },
                         .getelementptr,
                         .@"getelementptr inbounds",
-                        => {
+                        => |kind| {
                             var extra = func.extraDataTrail(Function.Instruction.GetElementPtr, datas[instr_index]);
                             const indices = extra.trail.next(extra.data.indices_len, Value, &func);
                             try function_block.writeAbbrevAdapted(
                                 FunctionBlock.GetElementPtr{
-                                    .is_inbounds = tag == .@"getelementptr inbounds",
+                                    .is_inbounds = kind == .@"getelementptr inbounds",
                                     .type_index = extra.data.type,
                                     .base = extra.data.base,
                                     .indices = indices,
@@ -14008,13 +14720,16 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     }
 
                     if (!self.strip) {
-                        if (func.debug_locations.get(@enumFromInt(instr_index))) |maybe_location| {
-                            if (maybe_location) |location| {
+                        if (func.debug_locations.get(@enumFromInt(instr_index))) |debug_location| {
+                            if (debug_location != .none) {
+                                const location = self.metadata_items.get(@intFromEnum(debug_location));
+                                assert(location.tag == .location);
+                                const extra = self.metadataExtraData(Metadata.Location, location.data);
                                 try function_block.writeAbbrev(FunctionBlock.DebugLoc{
-                                    .line = location.line,
-                                    .column = location.column,
-                                    .scope = @enumFromInt(metadata_adapter.getMetadataIndex(location.scope)),
-                                    .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(location.inlined_at)),
+                                    .line = extra.line,
+                                    .column = extra.column,
+                                    .scope = @enumFromInt(metadata_adapter.getMetadataIndex(extra.scope)),
+                                    .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(extra.inlined_at)),
                                     .is_implicit = false,
                                 });
                                 has_location = true;
@@ -14031,7 +14746,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                 // VALUE_SYMTAB
                 if (!self.strip) {
-                    const ValueSymbolTable = IR.FunctionValueSymbolTable;
+                    const ValueSymbolTable = ir.FunctionValueSymbolTable;
 
                     var value_symtab_block = try function_block.enterSubBlock(ValueSymbolTable);
 
@@ -14060,7 +14775,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
     // STRTAB_BLOCK
     {
-        const Strtab = IR.Strtab;
+        const Strtab = ir.Strtab;
         var strtab_block = try bitcode.enterTopBlock(Strtab);
 
         try strtab_block.writeAbbrev(Strtab.Blob{ .blob = self.string_bytes.items });
@@ -14071,14 +14786,13 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
     return bitcode.toSlice();
 }
 
+const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const bitcode_writer = @import("bitcode_writer.zig");
 const build_options = @import("build_options");
+const Builder = @This();
 const builtin = @import("builtin");
+const DW = std.dwarf;
+const ir = @import("ir.zig");
 const log = std.log.scoped(.llvm);
 const std = @import("std");
-
-const bitcode_writer = @import("bitcode_writer.zig");
-const IR = @import("IR.zig");
-
-const Allocator = std.mem.Allocator;
-const Builder = @This();

@@ -872,8 +872,8 @@ pub const Object = struct {
         };
 
         const debug_file = try builder.debugFile(
-            try builder.metadataString(compile_unit_dir),
             try builder.metadataString(comp.root_name),
+            try builder.metadataString(compile_unit_dir),
         );
 
         const debug_enums_fwd_ref = try builder.debugForwardReference();
@@ -1646,10 +1646,6 @@ pub const Object = struct {
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
                 !zcu.decl_exports.contains(decl_index);
-            const noret_bit: u29 = if (fn_info.return_type == .noreturn_type)
-                Builder.DIFlags.NoReturn
-            else
-                0;
             const debug_decl_type = try o.lowerDebugType(decl.ty);
 
             break :blk try o.builder.debugSubprogram(
@@ -1660,14 +1656,20 @@ pub const Object = struct {
                 line_number + func.lbrace_line,
                 debug_decl_type,
                 .{
-                    .optimized = owner_mod.optimize_mode != .Debug,
-                    .definition = true,
-                    .local = is_internal_linkage,
-                    .debug_info_flags = Builder.DIFlags.StaticMember | noret_bit,
+                    .di_flags = .{
+                        .StaticMember = true,
+                        .NoReturn = fn_info.return_type == .noreturn_type,
+                    },
+                    .sp_flags = .{
+                        .Optimized = owner_mod.optimize_mode != .Debug,
+                        .Definition = true,
+                        .LocalToUnit = is_internal_linkage,
+                    },
                 },
                 o.debug_compile_unit,
             );
         };
+        function_index.setSubprogram(subprogram, &o.builder);
 
         var fg: FuncGen = .{
             .gpa = gpa,
@@ -1682,8 +1684,7 @@ pub const Object = struct {
             .blocks = .{},
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .file = file,
-            .subprogram = subprogram,
-            .current_scope = subprogram,
+            .scope = subprogram,
             .base_line = dg.decl.src_line,
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
@@ -1914,8 +1915,8 @@ pub const Object = struct {
 
     fn getDebugFile(o: *Object, file: *const Module.File) Allocator.Error!Builder.Metadata {
         return try o.builder.debugFile(
-            if (std.fs.path.dirname(file.sub_file_path)) |dirname| try o.builder.metadataString(dirname) else .none,
             try o.builder.metadataString(std.fs.path.basename(file.sub_file_path)),
+            if (std.fs.path.dirname(file.sub_file_path)) |dirname| try o.builder.metadataString(dirname) else .none,
         );
     }
 
@@ -1923,7 +1924,7 @@ pub const Object = struct {
         o: *Object,
         ty: Type,
     ) Allocator.Error!Builder.Metadata {
-        if (o.builder.strip) return Builder.Metadata.none;
+        if (o.builder.strip) return .none;
         const gpa = o.gpa;
         const target = o.target;
         const mod = o.module;
@@ -2086,7 +2087,7 @@ pub const Object = struct {
 
                     const debug_ptr_type = try o.builder.debugMemberType(
                         try o.builder.metadataString("ptr"),
-                        Builder.Metadata.none, // File
+                        .none, // File
                         debug_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(ptr_ty),
@@ -2097,7 +2098,7 @@ pub const Object = struct {
 
                     const debug_len_type = try o.builder.debugMemberType(
                         try o.builder.metadataString("len"),
-                        Builder.Metadata.none, // File
+                        .none, // File
                         debug_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(len_ty),
@@ -2108,10 +2109,10 @@ pub const Object = struct {
 
                     const debug_slice_type = try o.builder.debugStructType(
                         try o.builder.metadataString(name),
-                        Builder.Metadata.none, // File
+                        .none, // File
                         o.debug_compile_unit, // Scope
                         line,
-                        Builder.Metadata.none, // Underlying type
+                        .none, // Underlying type
                         ty.abiSize(mod) * 8,
                         ty.abiAlignment(mod).toByteUnits(0) * 8,
                         try o.builder.debugTuple(&.{
@@ -2136,8 +2137,8 @@ pub const Object = struct {
 
                 const debug_ptr_type = try o.builder.debugPointerType(
                     try o.builder.metadataString(name),
-                    Builder.Metadata.none, // File
-                    Builder.Metadata.none, // Scope
+                    .none, // File
+                    .none, // Scope
                     0, // Line
                     debug_elem_ty,
                     target.ptrBitWidth(),
@@ -2172,19 +2173,19 @@ pub const Object = struct {
                     try o.getDebugFile(mod.namespacePtr(owner_decl.src_namespace).file_scope),
                     try o.namespaceToDebugScope(owner_decl.src_namespace),
                     owner_decl.src_node + 1, // Line
-                    Builder.Metadata.none, // Underlying type
+                    .none, // Underlying type
                     0, // Size
                     0, // Align
-                    Builder.Metadata.none, // Fields
+                    .none, // Fields
                 );
                 try o.debug_type_map.put(gpa, ty, debug_opaque_type);
                 return debug_opaque_type;
             },
             .Array => {
                 const debug_array_type = try o.builder.debugArrayType(
-                    Builder.MetadataString.none, // Name
-                    Builder.Metadata.none, // File
-                    Builder.Metadata.none, // Scope
+                    .none, // Name
+                    .none, // File
+                    .none, // Scope
                     0, // Line
                     try o.lowerDebugType(ty.childType(mod)),
                     ty.abiSize(mod) * 8,
@@ -2225,9 +2226,9 @@ pub const Object = struct {
                 };
 
                 const debug_vector_type = try o.builder.debugVectorType(
-                    Builder.MetadataString.none, // Name
-                    Builder.Metadata.none, // File
-                    Builder.Metadata.none, // Scope
+                    .none, // Name
+                    .none, // File
+                    .none, // Scope
                     0, // Line
                     debug_elem_type,
                     ty.abiSize(mod) * 8,
@@ -2282,7 +2283,7 @@ pub const Object = struct {
 
                 const debug_data_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("data"),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(child_ty),
@@ -2293,7 +2294,7 @@ pub const Object = struct {
 
                 const debug_some_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("some"),
-                    Builder.Metadata.none,
+                    .none,
                     debug_fwd_ref,
                     0,
                     try o.lowerDebugType(non_null_ty),
@@ -2304,10 +2305,10 @@ pub const Object = struct {
 
                 const debug_optional_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
-                    Builder.Metadata.none, // Underlying type
+                    .none, // Underlying type
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod).toByteUnits(0) * 8,
                     try o.builder.debugTuple(&.{
@@ -2362,7 +2363,7 @@ pub const Object = struct {
                 var fields: [2]Builder.Metadata = undefined;
                 fields[error_index] = try o.builder.debugMemberType(
                     try o.builder.metadataString("tag"),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(Type.anyerror),
@@ -2372,7 +2373,7 @@ pub const Object = struct {
                 );
                 fields[payload_index] = try o.builder.debugMemberType(
                     try o.builder.metadataString("value"),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(payload_ty),
@@ -2383,10 +2384,10 @@ pub const Object = struct {
 
                 const debug_error_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     o.debug_compile_unit, // Sope
                     0, // Line
-                    Builder.Metadata.none, // Underlying type
+                    .none, // Underlying type
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod).toByteUnits(0) * 8,
                     try o.builder.debugTuple(&fields),
@@ -2451,7 +2452,7 @@ pub const Object = struct {
 
                             fields.appendAssumeCapacity(try o.builder.debugMemberType(
                                 try o.builder.metadataString(field_name),
-                                Builder.Metadata.none, // File
+                                .none, // File
                                 debug_fwd_ref,
                                 0,
                                 try o.lowerDebugType(Type.fromInterned(field_ty)),
@@ -2463,10 +2464,10 @@ pub const Object = struct {
 
                         const debug_struct_type = try o.builder.debugStructType(
                             try o.builder.metadataString(name),
-                            Builder.Metadata.none, // File
+                            .none, // File
                             o.debug_compile_unit, // Scope
                             0, // Line
-                            Builder.Metadata.none, // Underlying type
+                            .none, // Underlying type
                             ty.abiSize(mod) * 8,
                             ty.abiAlignment(mod).toByteUnits(0) * 8,
                             try o.builder.debugTuple(fields.items),
@@ -2532,7 +2533,7 @@ pub const Object = struct {
 
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(ip.stringToSlice(field_name)),
-                        Builder.Metadata.none, // File
+                        .none, // File
                         debug_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(field_ty),
@@ -2544,10 +2545,10 @@ pub const Object = struct {
 
                 const debug_struct_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
-                    Builder.Metadata.none, // Underlying type
+                    .none, // Underlying type
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod).toByteUnits(0) * 8,
                     try o.builder.debugTuple(fields.items),
@@ -2585,10 +2586,10 @@ pub const Object = struct {
                 if (layout.payload_size == 0) {
                     const debug_union_type = try o.builder.debugStructType(
                         try o.builder.metadataString(name),
-                        Builder.Metadata.none, // File
+                        .none, // File
                         o.debug_compile_unit, // Scope
                         0, // Line
-                        Builder.Metadata.none, // Underlying type
+                        .none, // Underlying type
                         ty.abiSize(mod) * 8,
                         ty.abiAlignment(mod).toByteUnits(0) * 8,
                         try o.builder.debugTuple(
@@ -2623,7 +2624,7 @@ pub const Object = struct {
                     const field_name = union_obj.field_names.get(ip)[field_index];
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(ip.stringToSlice(field_name)),
-                        Builder.Metadata.none, // File
+                        .none, // File
                         debug_union_fwd_ref,
                         0, // Line
                         try o.lowerDebugType(Type.fromInterned(field_ty)),
@@ -2642,10 +2643,10 @@ pub const Object = struct {
 
                 const debug_union_type = try o.builder.debugUnionType(
                     try o.builder.metadataString(union_name),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
-                    Builder.Metadata.none, // Underlying type
+                    .none, // Underlying type
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod).toByteUnits(0) * 8,
                     try o.builder.debugTuple(fields.items),
@@ -2673,7 +2674,7 @@ pub const Object = struct {
 
                 const debug_tag_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("tag"),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     debug_fwd_ref,
                     0, // Line
                     try o.lowerDebugType(Type.fromInterned(union_obj.enum_tag_ty)),
@@ -2684,7 +2685,7 @@ pub const Object = struct {
 
                 const debug_payload_type = try o.builder.debugMemberType(
                     try o.builder.metadataString("payload"),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     debug_fwd_ref,
                     0, // Line
                     debug_union_type,
@@ -2701,10 +2702,10 @@ pub const Object = struct {
 
                 const debug_tagged_union_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    Builder.Metadata.none, // File
+                    .none, // File
                     o.debug_compile_unit, // Scope
                     0, // Line
-                    Builder.Metadata.none, // Underlying type
+                    .none, // Underlying type
                     ty.abiSize(mod) * 8,
                     ty.abiAlignment(mod).toByteUnits(0) * 8,
                     try o.builder.debugTuple(&full_fields),
@@ -2798,7 +2799,7 @@ pub const Object = struct {
             try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope),
             try o.namespaceToDebugScope(decl.src_namespace),
             decl.src_line + 1,
-            Builder.Metadata.none,
+            .none,
             0,
             0,
             .none,
@@ -4715,7 +4716,8 @@ pub const DeclGen = struct {
                 debug_global_var,
                 debug_expression,
             );
-
+            if (!is_internal_linkage or decl.isExtern(mod))
+                variable_index.setGlobalVariableExpression(debug_global_var_expression, &o.builder);
             try o.debug_globals.append(o.gpa, debug_global_var_expression);
         }
     }
@@ -4729,8 +4731,7 @@ pub const FuncGen = struct {
     wip: Builder.WipFunction,
 
     file: Builder.Metadata,
-    subprogram: Builder.Metadata,
-    current_scope: Builder.Metadata,
+    scope: Builder.Metadata,
 
     inlined: std.ArrayListUnmanaged(struct {
         base_line: u32,
@@ -6557,20 +6558,20 @@ pub const FuncGen = struct {
         const inlined_at = if (self.inlined.items.len > 0)
             self.inlined.items[self.inlined.items.len - 1].location
         else
-            Builder.Metadata.none;
+            .none;
 
-        self.wip.current_debug_location = .{
-            .line = self.prev_dbg_line,
-            .column = self.prev_dbg_column,
-            .scope = self.current_scope,
-            .inlined_at = inlined_at,
-        };
+        self.wip.current_debug_location = try self.wip.builder.debugLocation(
+            self.prev_dbg_line,
+            self.prev_dbg_column,
+            self.scope,
+            inlined_at,
+        );
 
         return .none;
     }
 
     fn airDbgInlineBegin(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        if (self.wip.builder.strip or true) return .none;
+        if (self.wip.builder.strip) return .none;
         const o = self.dg.object;
         const zcu = o.module;
 
@@ -6585,13 +6586,8 @@ pub const FuncGen = struct {
 
         const line_number = decl.src_line + 1;
         try self.inlined.append(self.gpa, .{
-            .location = if (self.wip.current_debug_location) |location| try self.wip.builder.debugLocation(
-                location.scope,
-                location.line,
-                location.column,
-                location.inlined_at,
-            ) else .none,
-            .scope = self.current_scope,
+            .location = self.wip.current_debug_location,
+            .scope = self.scope,
             .base_line = self.base_line,
         });
 
@@ -6605,16 +6601,18 @@ pub const FuncGen = struct {
 
         const subprogram = try o.builder.debugSubprogram(
             self.file,
-            try o.builder.string(zcu.intern_pool.stringToSlice(decl.name)),
-            try o.builder.string(zcu.intern_pool.stringToSlice(fqn)),
+            try o.builder.metadataString(zcu.intern_pool.stringToSlice(decl.name)),
+            try o.builder.metadataString(zcu.intern_pool.stringToSlice(fqn)),
             line_number,
             line_number + func.lbrace_line,
             try o.lowerDebugType(fn_ty),
             .{
-                .optimized = owner_mod.optimize_mode != .Debug,
-                .local = is_internal_linkage,
-                .definition = true,
-                .debug_info_flags = Builder.DIFlags.StaticMember,
+                .di_flags = .{ .StaticMember = true },
+                .sp_flags = .{
+                    .Optimized = owner_mod.optimize_mode != .Debug,
+                    .Definition = true,
+                    .LocalToUnit = is_internal_linkage,
+                },
             },
             o.debug_compile_unit,
         );
@@ -6625,13 +6623,13 @@ pub const FuncGen = struct {
             line_number,
             1,
         );
-        self.current_scope = lexical_block;
+        self.scope = lexical_block;
         self.base_line = decl.src_line;
         return .none;
     }
 
     fn airDbgInlineEnd(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
-        if (self.wip.builder.strip or true) return .none;
+        if (self.wip.builder.strip) return .none;
         const o = self.dg.object;
 
         const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
@@ -6641,7 +6639,7 @@ pub const FuncGen = struct {
         self.file = try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope);
 
         const old = self.inlined.pop();
-        self.current_scope = old.scope;
+        self.scope = old.scope;
         self.base_line = old.base_line;
         return .none;
     }
@@ -6650,12 +6648,12 @@ pub const FuncGen = struct {
         if (self.wip.builder.strip) return .none;
         const o = self.dg.object;
 
-        try self.scope_stack.append(self.gpa, self.current_scope);
+        try self.scope_stack.append(self.gpa, self.scope);
 
-        const old = self.current_scope;
-        self.current_scope = try o.builder.debugLexicalBlock(
-            self.file,
+        const old = self.scope;
+        self.scope = try o.builder.debugLexicalBlock(
             old,
+            self.file,
             self.prev_dbg_line,
             self.prev_dbg_column,
         );
@@ -6664,7 +6662,7 @@ pub const FuncGen = struct {
 
     fn airDbgBlockEnd(self: *FuncGen) !Builder.Value {
         if (self.wip.builder.strip) return .none;
-        self.current_scope = self.scope_stack.pop();
+        self.scope = self.scope_stack.pop();
         return .none;
     }
 
@@ -6680,7 +6678,7 @@ pub const FuncGen = struct {
         const debug_local_var = try o.builder.debugLocalVar(
             try o.builder.metadataString(name),
             self.file,
-            self.current_scope,
+            self.scope,
             self.prev_dbg_line,
             try o.lowerDebugType(ptr_ty.childType(mod)),
         );
@@ -6714,7 +6712,7 @@ pub const FuncGen = struct {
         const debug_local_var = try o.builder.debugLocalVar(
             try o.builder.metadataString(name),
             self.file,
-            self.current_scope,
+            self.scope,
             self.prev_dbg_line,
             try o.lowerDebugType(operand_ty),
         );
@@ -8798,19 +8796,19 @@ pub const FuncGen = struct {
         const debug_parameter = try o.builder.debugParameter(
             try o.builder.metadataString(mod.getParamName(func_index, src_index)),
             self.file,
-            self.current_scope,
+            self.scope,
             lbrace_line,
             try o.lowerDebugType(inst_ty),
             @intCast(self.arg_index),
         );
 
         const old_location = self.wip.current_debug_location;
-        self.wip.current_debug_location = .{
-            .line = lbrace_line,
-            .column = lbrace_col,
-            .scope = self.current_scope,
-            .inlined_at = Builder.Metadata.none,
-        };
+        self.wip.current_debug_location = try o.builder.debugLocation(
+            lbrace_line,
+            lbrace_col,
+            self.scope,
+            .none,
+        );
 
         const owner_mod = self.dg.ownerModule();
         if (isByRef(inst_ty, mod)) {
@@ -11718,7 +11716,7 @@ fn buildAllocaInner(
         }
 
         wip.cursor = .{ .block = .entry };
-        wip.current_debug_location = null;
+        wip.current_debug_location = .none;
         break :blk try wip.alloca(.normal, llvm_ty, .none, alignment, address_space, "");
     };
 

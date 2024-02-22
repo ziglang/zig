@@ -623,14 +623,14 @@ pub const MetadataBlock = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 16 },
             .{ .literal = 1 }, // is distinct
-            MetadataAbbrev, // name
-            MetadataAbbrev, // path
+            MetadataAbbrev, // filename
+            MetadataAbbrev, // directory
             .{ .literal = 0 }, // checksum
             .{ .literal = 0 }, // checksum
         };
 
-        name: Builder.MetadataString,
-        path: Builder.MetadataString,
+        filename: Builder.MetadataString,
+        directory: Builder.MetadataString,
     };
 
     pub const CompileUnit = struct {
@@ -640,15 +640,15 @@ pub const MetadataBlock = struct {
             .{ .literal = std.dwarf.LANG.C99 }, // source language
             MetadataAbbrev, // file
             MetadataAbbrev, // producer
-            .{ .fixed = 1 }, // is optimized
+            .{ .fixed = 1 }, // isOptimized
             .{ .literal = 0 }, // raw flags
             .{ .literal = 0 }, // runtime version
             .{ .literal = 0 }, // split debug file name
             .{ .literal = 1 }, // emission kind
-            MetadataAbbrev, // enum types
+            MetadataAbbrev, // enums
             .{ .literal = 0 }, // retained types
             .{ .literal = 0 }, // subprograms
-            MetadataAbbrev, // global variables
+            MetadataAbbrev, // globals
             .{ .literal = 0 }, // imported entities
             .{ .literal = 0 }, // DWO ID
             .{ .literal = 0 }, // macros
@@ -699,8 +699,8 @@ pub const MetadataBlock = struct {
         line: u32,
         ty: Builder.Metadata,
         scope_line: u32,
-        sp_flags: u32,
-        flags: u32,
+        sp_flags: Builder.Metadata.Subprogram.SPFlags,
+        flags: Builder.Metadata.DIFlags,
         compile_unit: Builder.Metadata,
     };
 
@@ -789,7 +789,7 @@ pub const MetadataBlock = struct {
         underlying_type: Builder.Metadata,
         size_in_bits: u64,
         align_in_bits: u64,
-        flags: u32,
+        flags: Builder.Metadata.DIFlags,
         elements: Builder.Metadata,
     };
 
@@ -859,7 +859,7 @@ pub const MetadataBlock = struct {
     pub const Subrange = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 13 },
-            .{ .literal = 0b11 },
+            .{ .literal = 0b11 }, // is distinct | version
             MetadataAbbrev, // count
             MetadataAbbrev, // lower bound
             .{ .literal = 0 }, // upper bound
