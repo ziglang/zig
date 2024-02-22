@@ -7220,17 +7220,31 @@ pub const Constant = enum(u32) {
                                 };
                             }
                         };
+                        const Mantissa64 = std.meta.FieldType(Float.Repr(f64), .mantissa);
                         const Exponent32 = std.meta.FieldType(Float.Repr(f32), .exponent);
                         const Exponent64 = std.meta.FieldType(Float.Repr(f64), .exponent);
+
                         const repr: Float.Repr(f32) = @bitCast(item.data);
+                        const denormal_shift = switch (repr.exponent) {
+                            std.math.minInt(Exponent32) => @as(
+                                std.math.Log2Int(Mantissa64),
+                                @clz(repr.mantissa),
+                            ) + 1,
+                            else => 0,
+                        };
                         try writer.print("0x{X:0>16}", .{@as(u64, @bitCast(Float.Repr(f64){
                             .mantissa = std.math.shl(
-                                std.meta.FieldType(Float.Repr(f64), .mantissa),
+                                Mantissa64,
                                 repr.mantissa,
-                                std.math.floatMantissaBits(f64) - std.math.floatMantissaBits(f32),
+                                std.math.floatMantissaBits(f64) - std.math.floatMantissaBits(f32) +
+                                    denormal_shift,
                             ),
                             .exponent = switch (repr.exponent) {
-                                std.math.minInt(Exponent32) => std.math.minInt(Exponent64),
+                                std.math.minInt(Exponent32) => if (repr.mantissa > 0)
+                                    @as(Exponent64, std.math.floatExponentMin(f32) +
+                                        std.math.floatExponentMax(f64)) - denormal_shift
+                                else
+                                    std.math.minInt(Exponent64),
                                 else => @as(Exponent64, repr.exponent) +
                                     (std.math.floatExponentMax(f64) - std.math.floatExponentMax(f32)),
                                 std.math.maxInt(Exponent32) => std.math.maxInt(Exponent64),
@@ -9920,7 +9934,7 @@ pub fn printUnbuffered(
                         .scope = extra.file,
                         .file = extra.file,
                         .line = extra.line,
-                        .type = null,
+                        .type = extra.ty,
                         .scopeLine = extra.scope_line,
                         .containingType = null,
                         .virtualIndex = null,

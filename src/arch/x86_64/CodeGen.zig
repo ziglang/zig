@@ -16683,36 +16683,44 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                             else => null,
                         };
                         defer if (elem_lock) |lock| self.register_manager.unlockReg(lock);
-                        const elem_reg = registerAlias(
-                            try self.copyToTmpRegister(elem_ty, mat_elem_mcv),
-                            elem_abi_size,
-                        );
+
                         const elem_extra_bits = self.regExtraBits(elem_ty);
-                        if (elem_bit_off < elem_extra_bits) {
-                            try self.truncateRegister(elem_ty, elem_reg);
+                        {
+                            const temp_reg = try self.copyToTmpRegister(elem_ty, mat_elem_mcv);
+                            const temp_alias = registerAlias(temp_reg, elem_abi_size);
+                            const temp_lock = self.register_manager.lockRegAssumeUnused(temp_reg);
+                            defer self.register_manager.unlockReg(temp_lock);
+
+                            if (elem_bit_off < elem_extra_bits) {
+                                try self.truncateRegister(elem_ty, temp_alias);
+                            }
+                            if (elem_bit_off > 0) try self.genShiftBinOpMir(
+                                .{ ._l, .sh },
+                                elem_ty,
+                                .{ .register = temp_alias },
+                                Type.u8,
+                                .{ .immediate = elem_bit_off },
+                            );
+                            try self.genBinOpMir(
+                                .{ ._, .@"or" },
+                                elem_ty,
+                                .{ .load_frame = .{ .index = frame_index, .off = elem_byte_off } },
+                                .{ .register = temp_alias },
+                            );
                         }
-                        if (elem_bit_off > 0) try self.genShiftBinOpMir(
-                            .{ ._l, .sh },
-                            elem_ty,
-                            .{ .register = elem_reg },
-                            Type.u8,
-                            .{ .immediate = elem_bit_off },
-                        );
-                        try self.genBinOpMir(
-                            .{ ._, .@"or" },
-                            elem_ty,
-                            .{ .load_frame = .{ .index = frame_index, .off = elem_byte_off } },
-                            .{ .register = elem_reg },
-                        );
                         if (elem_bit_off > elem_extra_bits) {
-                            const reg = try self.copyToTmpRegister(elem_ty, mat_elem_mcv);
+                            const temp_reg = try self.copyToTmpRegister(elem_ty, mat_elem_mcv);
+                            const temp_alias = registerAlias(temp_reg, elem_abi_size);
+                            const temp_lock = self.register_manager.lockRegAssumeUnused(temp_reg);
+                            defer self.register_manager.unlockReg(temp_lock);
+
                             if (elem_extra_bits > 0) {
-                                try self.truncateRegister(elem_ty, registerAlias(reg, elem_abi_size));
+                                try self.truncateRegister(elem_ty, temp_alias);
                             }
                             try self.genShiftBinOpMir(
                                 .{ ._r, .sh },
                                 elem_ty,
-                                .{ .register = reg },
+                                .{ .register = temp_reg },
                                 Type.u8,
                                 .{ .immediate = elem_abi_bits - elem_bit_off },
                             );
@@ -16723,7 +16731,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                                     .index = frame_index,
                                     .off = elem_byte_off + @as(i32, @intCast(elem_abi_size)),
                                 } },
-                                .{ .register = reg },
+                                .{ .register = temp_alias },
                             );
                         }
                     }
