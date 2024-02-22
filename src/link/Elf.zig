@@ -22,6 +22,7 @@ bind_global_refs_locally: bool,
 linker_script: ?[]const u8,
 version_script: ?[]const u8,
 allow_undefined_version: bool,
+enable_new_dtags: ?bool,
 print_icf_sections: bool,
 print_map: bool,
 entry_name: ?[]const u8,
@@ -330,6 +331,7 @@ pub fn createEmpty(
         .linker_script = options.linker_script,
         .version_script = options.version_script,
         .allow_undefined_version = options.allow_undefined_version,
+        .enable_new_dtags = options.enable_new_dtags,
         .print_icf_sections = options.print_icf_sections,
         .print_map = options.print_map,
     };
@@ -2170,11 +2172,12 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
         // We are about to obtain this lock, so here we give other processes a chance first.
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 12);
+        comptime assert(Compilation.link_hash_implementation_version == 13);
 
         try man.addOptionalFile(self.linker_script);
         try man.addOptionalFile(self.version_script);
         man.hash.add(self.allow_undefined_version);
+        man.hash.addOptional(self.enable_new_dtags);
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
             man.hash.add(obj.must_link);
@@ -2528,6 +2531,13 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
                 try argv.append("--undefined-version");
             } else {
                 try argv.append("--no-undefined-version");
+            }
+            if (self.enable_new_dtags) |enable_new_dtags| {
+                if (enable_new_dtags) {
+                    try argv.append("--enable-new-dtags");
+                } else {
+                    try argv.append("--disable-new-dtags");
+                }
             }
         }
 
