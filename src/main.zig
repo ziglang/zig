@@ -496,6 +496,8 @@ const usage_build_generic =
     \\  --version-script [path]        Provide a version .map file
     \\  --undefined-version            Allow version scripts to refer to undefined symbols
     \\  --no-undefined-version         (default) Disallow version scripts from referring to undefined symbols
+    \\  --enable-new-dtags             Use the new behavior for dynamic tags (RUNPATH)
+    \\  --disable-new-dtags            Use the old behavior for dynamic tags (RPATH)
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
@@ -824,6 +826,7 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var linker_allow_undefined_version: bool = false;
+    var linker_enable_new_dtags: ?bool = null;
     var disable_c_depfile = false;
     var linker_sort_section: ?link.File.Elf.SortSection = null;
     var linker_gc_sections: ?bool = null;
@@ -1191,6 +1194,10 @@ fn buildOutputType(
                         linker_allow_undefined_version = true;
                     } else if (mem.eql(u8, arg, "--no-undefined-version")) {
                         linker_allow_undefined_version = false;
+                    } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                        linker_enable_new_dtags = true;
+                    } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                        linker_enable_new_dtags = false;
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc
                         // or libc++ until we resolve the target, so we append
@@ -2153,6 +2160,10 @@ fn buildOutputType(
                     linker_allow_undefined_version = true;
                 } else if (mem.eql(u8, arg, "--no-undefined-version")) {
                     linker_allow_undefined_version = false;
+                } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                    linker_enable_new_dtags = true;
+                } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                    linker_enable_new_dtags = false;
                 } else if (mem.eql(u8, arg, "-O")) {
                     linker_optimization = linker_args_it.nextOrFatal();
                 } else if (mem.startsWith(u8, arg, "-O")) {
@@ -3181,6 +3192,7 @@ fn buildOutputType(
         .linker_script = linker_script,
         .version_script = version_script,
         .linker_allow_undefined_version = linker_allow_undefined_version,
+        .linker_enable_new_dtags = linker_enable_new_dtags,
         .disable_c_depfile = disable_c_depfile,
         .soname = resolved_soname,
         .linker_sort_section = linker_sort_section,
