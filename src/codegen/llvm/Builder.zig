@@ -77,11 +77,11 @@ pub const String = enum(u32) {
         return self.toIndex() == null;
     }
 
-    pub fn slice(self: String, builder: *const Builder) ?[:0]const u8 {
+    pub fn slice(self: String, builder: *const Builder) ?[]const u8 {
         const index = self.toIndex() orelse return null;
         const start = builder.string_indices.items[index];
         const end = builder.string_indices.items[index + 1];
-        return builder.string_bytes.items[start .. end - 1 :0];
+        return builder.string_bytes.items[start..end];
     }
 
     const FormatData = struct {
@@ -94,17 +94,21 @@ pub const String = enum(u32) {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        if (comptime std.mem.indexOfNone(u8, fmt_str, "@\"")) |_|
+        if (comptime std.mem.indexOfNone(u8, fmt_str, "\"r")) |_|
             @compileError("invalid format string: '" ++ fmt_str ++ "'");
         assert(data.string != .none);
-        const sentinel_slice = data.string.slice(data.builder) orelse
+        const string_slice = data.string.slice(data.builder) orelse
             return writer.print("{d}", .{@intFromEnum(data.string)});
-        try printEscapedString(sentinel_slice[0 .. sentinel_slice.len + comptime @intFromBool(
-            std.mem.indexOfScalar(u8, fmt_str, '@') != null,
-        )], if (comptime std.mem.indexOfScalar(u8, fmt_str, '"')) |_|
-            .always_quote
-        else
-            .quote_unless_valid_identifier, writer);
+        if (comptime std.mem.indexOfScalar(u8, fmt_str, 'r')) |_|
+            return writer.writeAll(string_slice);
+        try printEscapedString(
+            string_slice,
+            if (comptime std.mem.indexOfScalar(u8, fmt_str, '"')) |_|
+                .always_quote
+            else
+                .quote_unless_valid_identifier,
+            writer,
+        );
     }
     pub fn fmt(self: String, builder: *const Builder) std.fmt.Formatter(format) {
         return .{ .data = .{ .string = self, .builder = builder } };
@@ -4597,13 +4601,6 @@ pub const Function = struct {
             ) std.fmt.Formatter(format) {
                 return .{ .data = .{ .instruction = self, .function = function, .builder = builder } };
             }
-
-            fn llvmName(self: Instruction.Index, wip: *const WipFunction) [:0]const u8 {
-                return if (wip.builder.strip)
-                    ""
-                else
-                    wip.names.items[@intFromEnum(self)].slice(wip.builder).?;
-            }
         };
 
         pub const ExtraIndex = u32;
@@ -5931,15 +5928,47 @@ pub const WipFunction = struct {
 
         var wip_name: struct {
             next_name: String = @enumFromInt(0),
+            next_unique_name: std.AutoHashMap(String, String),
+            builder: *Builder,
 
-            fn map(wip_name: *@This(), old_name: String) String {
-                if (old_name != .empty) return old_name;
+            fn map(wip_name: *@This(), name: String, sep: []const u8) Allocator.Error!String {
+                switch (name) {
+                    .none => return .none,
+                    .empty => {
+                        assert(wip_name.next_name != .none);
+                        defer wip_name.next_name = @enumFromInt(@intFromEnum(wip_name.next_name) + 1);
+                        return wip_name.next_name;
+                    },
+                    _ => {
+                        assert(!name.isAnon());
+                        const gop = try wip_name.next_unique_name.getOrPut(name);
+                        if (!gop.found_existing) {
+                            gop.value_ptr.* = @enumFromInt(0);
+                            return name;
+                        }
 
-                const new_name = wip_name.next_name;
-                wip_name.next_name = @enumFromInt(@intFromEnum(new_name) + 1);
-                return new_name;
+                        while (true) {
+                            gop.value_ptr.* = @enumFromInt(@intFromEnum(gop.value_ptr.*) + 1);
+                            const unique_name = try wip_name.builder.fmt("{r}{s}{r}", .{
+                                name.fmt(wip_name.builder),
+                                sep,
+                                gop.value_ptr.fmt(wip_name.builder),
+                            });
+                            const unique_gop = try wip_name.next_unique_name.getOrPut(unique_name);
+                            if (!unique_gop.found_existing) {
+                                unique_gop.value_ptr.* = @enumFromInt(0);
+                                return unique_name;
+                            }
+                        }
+                    },
+                }
             }
-        } = .{};
+        } = .{
+            .next_unique_name = std.AutoHashMap(String, String).init(gpa),
+            .builder = self.builder,
+        };
+        defer wip_name.next_unique_name.deinit();
+
         var value_index: u32 = 0;
         for (0..params_len) |param_index| {
             const old_argument_index: Instruction.Index = @enumFromInt(param_index);
@@ -5950,8 +5979,9 @@ pub const WipFunction = struct {
             value_indices[function.instructions.len] = value_index;
             value_index += 1;
             function.instructions.appendAssumeCapacity(argument);
-            names[@intFromEnum(new_argument_index)] = wip_name.map(
+            names[@intFromEnum(new_argument_index)] = try wip_name.map(
                 if (self.builder.strip) .empty else self.names.items[@intFromEnum(old_argument_index)],
+                ".",
             );
             if (self.debug_locations.get(old_argument_index)) |location| {
                 debug_locations.putAssumeCapacity(new_argument_index, location);
@@ -5967,7 +5997,7 @@ pub const WipFunction = struct {
                 .tag = .block,
                 .data = current_block.incoming,
             });
-            names[@intFromEnum(new_block_index)] = wip_name.map(current_block.name);
+            names[@intFromEnum(new_block_index)] = try wip_name.map(current_block.name, "");
             for (current_block.instructions.items) |old_instruction_index| {
                 const new_instruction_index: Instruction.Index =
                     @enumFromInt(function.instructions.len);
@@ -6268,10 +6298,10 @@ pub const WipFunction = struct {
                     },
                 }
                 function.instructions.appendAssumeCapacity(instruction);
-                names[@intFromEnum(new_instruction_index)] = wip_name.map(if (self.builder.strip)
+                names[@intFromEnum(new_instruction_index)] = try wip_name.map(if (self.builder.strip)
                     if (old_instruction_index.hasResultWip(self)) .empty else .none
                 else
-                    self.names.items[@intFromEnum(old_instruction_index)]);
+                    self.names.items[@intFromEnum(old_instruction_index)], ".");
 
                 if (self.debug_locations.get(old_instruction_index)) |location| {
                     debug_locations.putAssumeCapacity(new_instruction_index, location);
@@ -6687,7 +6717,6 @@ pub const Constant = enum(u32) {
         packed_structure,
         array,
         string,
-        string_null,
         vector,
         splat,
         zeroinitializer,
@@ -6943,10 +6972,8 @@ pub const Constant = enum(u32) {
                     => builder.constantExtraData(Aggregate, item.data).type,
                     .splat => builder.constantExtraData(Splat, item.data).type,
                     .string,
-                    .string_null,
                     => builder.arrayTypeAssumeCapacity(
-                        @as(String, @enumFromInt(item.data)).slice(builder).?.len +
-                            @intFromBool(item.tag == .string_null),
+                        @as(String, @enumFromInt(item.data)).slice(builder).?.len,
                         .i8,
                     ),
                     .blockaddress => builder.ptrTypeAssumeCapacity(
@@ -7281,13 +7308,9 @@ pub const Constant = enum(u32) {
                         }
                         try writer.writeByte('>');
                     },
-                    inline .string,
-                    .string_null,
-                    => |tag| try writer.print("c{\"" ++ switch (tag) {
-                        .string => "",
-                        .string_null => "@",
-                        else => unreachable,
-                    } ++ "}", .{@as(String, @enumFromInt(item.data)).fmt(data.builder)}),
+                    .string => try writer.print("c{\"}", .{
+                        @as(String, @enumFromInt(item.data)).fmt(data.builder),
+                    }),
                     .blockaddress => |tag| {
                         const extra = data.builder.constantExtraData(BlockAddress, item.data);
                         const function = extra.function.ptrConst(data.builder);
@@ -7658,7 +7681,7 @@ pub const Metadata = enum(u32) {
         {
             const index = @intFromEnum(metadata) - Metadata.first_forward_reference;
             metadata = builder.metadata_forward_references.items[index];
-            std.debug.assert(metadata != .none);
+            assert(metadata != .none);
         }
         return metadata;
     }
@@ -8058,30 +8081,33 @@ pub const Metadata = enum(u32) {
                     }
                 },
                 .index => |item| try writer.print("!{d}", .{item}),
-                .value => |item| try Value.format(.{
-                    .value = switch (item.value.unwrap()) {
-                        .instruction, .constant => item.value,
-                        .metadata => |metadata| if (@intFromEnum(metadata) >=
-                            Metadata.first_local_metadata)
-                            item.function.ptrConst(builder).debug_values[
+                .value => |item| switch (item.value.unwrap()) {
+                    .instruction, .constant => try Value.format(.{
+                        .value = item.value,
+                        .function = item.function,
+                        .builder = builder,
+                    }, fmt_str, fmt_opts, writer),
+                    .metadata => |metadata| if (@intFromEnum(metadata) >=
+                        Metadata.first_local_metadata)
+                        try Value.format(.{
+                            .value = item.function.ptrConst(builder).debug_values[
                                 @intFromEnum(metadata) - Metadata.first_local_metadata
-                            ].toValue()
-                        else if (metadata != .none) {
-                            if (comptime std.mem.eql(u8, fmt_str, "%"))
-                                try writer.print("{%} ", .{Type.metadata.fmt(builder)});
-                            try Metadata.Formatter.format(.{
-                                .formatter = data.formatter,
-                                .item = data.formatter.unwrapAssumeExists(metadata),
-                            }, "", fmt_opts, writer);
-                            return;
-                        } else return,
+                            ].toValue(),
+                            .function = item.function,
+                            .builder = builder,
+                        }, "%", fmt_opts, writer)
+                    else if (metadata != .none) {
+                        if (comptime std.mem.eql(u8, fmt_str, "%"))
+                            try writer.print("{%} ", .{Type.metadata.fmt(builder)});
+                        try Metadata.Formatter.format(.{
+                            .formatter = data.formatter,
+                            .item = data.formatter.unwrapAssumeExists(metadata),
+                        }, "", fmt_opts, writer);
                     },
-                    .function = item.function,
-                    .builder = builder,
-                }, "%", fmt_opts, writer),
+                },
                 .string => |item| try writer.print("{}", .{item.fmt(data.formatter.builder)}),
                 inline .bool, .u32, .u64 => |item| try writer.print("{}", .{item}),
-                .raw => |item| try writer.print("{s}", .{item}),
+                .raw => |item| try writer.writeAll(item),
             }
         }
         inline fn fmt(formatter: *Formatter, prefix: []const u8, item: anytype) switch (@TypeOf(item)) {
@@ -8188,7 +8214,7 @@ pub const Metadata = enum(u32) {
             inline for (fields[2..], names) |*field, name| {
                 fmt_str = fmt_str ++ "{[" ++ name ++ "]}";
                 field.* = .{
-                    .name = name ++ "",
+                    .name = name,
                     .type = std.fmt.Formatter(format),
                     .default_value = null,
                     .is_comptime = false,
@@ -8305,7 +8331,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
     assert(try self.intConst(.i1, 0) == .false);
     assert(try self.intConst(.i1, 1) == .true);
     assert(try self.noneConst(.token) == .none);
-    assert(try self.debugNone() == .none);
+    if (!self.strip) assert(try self.debugNone() == .none);
 
     try self.metadata_string_indices.append(self.gpa, 0);
     assert(try self.metadataString("") == .none);
@@ -8374,17 +8400,20 @@ pub fn finishModuleAsm(self: *Builder) Allocator.Error!void {
 }
 
 pub fn string(self: *Builder, bytes: []const u8) Allocator.Error!String {
-    try self.string_bytes.ensureUnusedCapacity(self.gpa, bytes.len + 1);
+    try self.string_bytes.ensureUnusedCapacity(self.gpa, bytes.len);
     try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
 
     const gop = self.string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (!gop.found_existing) {
         self.string_bytes.appendSliceAssumeCapacity(bytes);
-        self.string_bytes.appendAssumeCapacity(0);
         self.string_indices.appendAssumeCapacity(@intCast(self.string_bytes.items.len));
     }
     return String.fromIndex(gop.index);
+}
+
+pub fn stringNull(self: *Builder, bytes: [:0]const u8) Allocator.Error!String {
+    return self.string(bytes[0 .. bytes.len + 1]);
 }
 
 pub fn stringIfExists(self: *const Builder, bytes: []const u8) ?String {
@@ -8395,15 +8424,15 @@ pub fn stringIfExists(self: *const Builder, bytes: []const u8) ?String {
 
 pub fn fmt(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) Allocator.Error!String {
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
-    try self.string_bytes.ensureUnusedCapacity(self.gpa, @intCast(std.fmt.count(fmt_str ++ .{0}, fmt_args)));
+    try self.string_bytes.ensureUnusedCapacity(self.gpa, @intCast(std.fmt.count(fmt_str, fmt_args)));
     try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
     return self.fmtAssumeCapacity(fmt_str, fmt_args);
 }
 
 pub fn fmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) String {
     const start = self.string_bytes.items.len;
-    self.string_bytes.writer(self.gpa).print(fmt_str ++ .{0}, fmt_args) catch unreachable;
-    const bytes: []const u8 = self.string_bytes.items[start .. self.string_bytes.items.len - 1];
+    self.string_bytes.writer(undefined).print(fmt_str, fmt_args) catch unreachable;
+    const bytes: []const u8 = self.string_bytes.items[start..];
 
     const gop = self.string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (gop.found_existing) {
@@ -8468,7 +8497,7 @@ pub fn structType(
 pub fn opaqueType(self: *Builder, name: String) Allocator.Error!Type {
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
     if (name.slice(self)) |id| {
-        const count: usize = comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)});
+        const count: usize = comptime std.fmt.count("{d}", .{std.math.maxInt(u32)});
         try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len + count);
     }
     try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
@@ -8911,16 +8940,6 @@ pub fn stringValue(self: *Builder, val: String) Allocator.Error!Value {
     return (try self.stringConst(val)).toValue();
 }
 
-pub fn stringNullConst(self: *Builder, val: String) Allocator.Error!Constant {
-    try self.ensureUnusedTypeCapacity(1, Type.Array, 0);
-    try self.ensureUnusedConstantCapacity(1, NoExtra, 0);
-    return self.stringNullConstAssumeCapacity(val);
-}
-
-pub fn stringNullValue(self: *Builder, val: String) Allocator.Error!Value {
-    return (try self.stringNullConst(val)).toValue();
-}
-
 pub fn vectorConst(self: *Builder, ty: Type, vals: []const Constant) Allocator.Error!Constant {
     try self.ensureUnusedConstantCapacity(1, Constant.Aggregate, vals.len);
     return self.vectorConstAssumeCapacity(ty, vals);
@@ -9354,7 +9373,7 @@ pub fn printUnbuffered(
             defer metadata_formatter.need_comma = undefined;
             try writer.print("{ }{}", .{
                 function.alignment,
-                try metadata_formatter.fmt("!dbg ", global.dbg),
+                try metadata_formatter.fmt(" !dbg ", global.dbg),
             });
         }
         if (function.instructions.len > 0) {
@@ -9513,7 +9532,8 @@ pub fn printUnbuffered(
                         const name = instruction_index.name(&function);
                         if (@intFromEnum(instruction_index) > params_len)
                             try writer.writeByte('\n');
-                        try writer.print("{}:", .{name.fmt(self)});
+                        try writer.print("{}:\n", .{name.fmt(self)});
+                        continue;
                     },
                     .br => |tag| {
                         const target: Function.Block.Index = @enumFromInt(instruction.data);
@@ -9965,6 +9985,7 @@ pub fn printUnbuffered(
                 .composite_union_type,
                 .composite_enumeration_type,
                 .composite_array_type,
+                .composite_vector_type,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.CompositeType, metadata_item.data);
                     try metadata_formatter.specialized(.@"distinct !", .DICompositeType, .{
@@ -10165,9 +10186,6 @@ pub fn printUnbuffered(
                         .expr = extra.expression,
                     }, writer);
                 },
-                else => {
-                    try writer.writeByte('\n');
-                },
             }
         }
     }
@@ -10206,7 +10224,7 @@ fn printEscapedString(
 fn ensureUnusedGlobalCapacity(self: *Builder, name: String) Allocator.Error!void {
     try self.string_map.ensureUnusedCapacity(self.gpa, 1);
     if (name.slice(self)) |id| {
-        const count: usize = comptime std.fmt.count("{d}" ++ .{0}, .{std.math.maxInt(u32)});
+        const count: usize = comptime std.fmt.count("{d}", .{std.math.maxInt(u32)});
         try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len + count);
     }
     try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
@@ -10877,16 +10895,6 @@ fn stringConstAssumeCapacity(self: *Builder, val: String) Constant {
     if (std.mem.allEqual(u8, slice, 0)) return self.zeroInitConstAssumeCapacity(ty);
     const result = self.getOrPutConstantNoExtraAssumeCapacity(
         .{ .tag = .string, .data = @intFromEnum(val) },
-    );
-    return result.constant;
-}
-
-fn stringNullConstAssumeCapacity(self: *Builder, val: String) Constant {
-    const slice = val.slice(self).?;
-    const ty = self.arrayTypeAssumeCapacity(slice.len + 1, .i8);
-    if (std.mem.allEqual(u8, slice, 0)) return self.zeroInitConstAssumeCapacity(ty);
-    const result = self.getOrPutConstantNoExtraAssumeCapacity(
-        .{ .tag = .string_null, .data = @intFromEnum(val) },
     );
     return result.constant;
 }
@@ -11756,8 +11764,8 @@ pub fn metadataStringFmt(self: *Builder, comptime fmt_str: []const u8, fmt_args:
 
 pub fn metadataStringFmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) MetadataString {
     const start = self.metadata_string_bytes.items.len;
-    self.metadata_string_bytes.writer(self.gpa).print(fmt_str, fmt_args) catch unreachable;
-    const bytes: []const u8 = self.metadata_string_bytes.items[start..self.metadata_string_bytes.items.len];
+    self.metadata_string_bytes.writer(undefined).print(fmt_str, fmt_args) catch unreachable;
+    const bytes: []const u8 = self.metadata_string_bytes.items[start..];
 
     const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (gop.found_existing) {
@@ -12042,7 +12050,7 @@ pub fn debugEnumerator(
     bit_width: u32,
     value: std.math.big.int.Const,
 ) Allocator.Error!Metadata {
-    std.debug.assert(!(unsigned and !value.positive));
+    assert(!(unsigned and !value.positive));
     try self.ensureUnusedMetadataCapacity(1, Metadata.Enumerator, 0);
     try self.metadata_limbs.ensureUnusedCapacity(self.gpa, value.limbs.len);
     return self.debugEnumeratorAssumeCapacity(name, unsigned, bit_width, value);
@@ -12147,7 +12155,7 @@ pub fn debugConstant(self: *Builder, value: Constant) Allocator.Error!Metadata {
 }
 
 pub fn debugForwardReferenceSetType(self: *Builder, fwd_ref: Metadata, ty: Metadata) void {
-    std.debug.assert(
+    assert(
         @intFromEnum(fwd_ref) >= Metadata.first_forward_reference and
             @intFromEnum(fwd_ref) <= Metadata.first_local_metadata,
     );
@@ -12226,7 +12234,8 @@ fn metadataDistinctAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anyt
 }
 
 fn debugNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
-    std.debug.assert(name != .none);
+    assert(!self.strip);
+    assert(name != .none);
     const extra_index: u32 = @intCast(self.metadata_extra.items.len);
     self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(operands));
 
@@ -12238,6 +12247,7 @@ fn debugNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []co
 }
 
 pub fn debugNoneAssumeCapacity(self: *Builder) Metadata {
+    assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.none, .{});
 }
 
@@ -12246,6 +12256,7 @@ fn debugFileAssumeCapacity(
     filename: MetadataString,
     directory: MetadataString,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.file, Metadata.File{
         .filename = filename,
         .directory = directory,
@@ -12260,6 +12271,7 @@ pub fn debugCompileUnitAssumeCapacity(
     globals: Metadata,
     options: Metadata.CompileUnit.Options,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(
         if (options.optimized) .@"compile_unit optimized" else .compile_unit,
         Metadata.CompileUnit{
@@ -12282,6 +12294,7 @@ fn debugSubprogramAssumeCapacity(
     options: Metadata.Subprogram.Options,
     compile_unit: Metadata,
 ) Metadata {
+    assert(!self.strip);
     const tag: Metadata.Tag = @enumFromInt(@intFromEnum(Metadata.Tag.subprogram) +
         @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2)));
     return self.metadataDistinctAssumeCapacity(tag, Metadata.Subprogram{
@@ -12297,6 +12310,7 @@ fn debugSubprogramAssumeCapacity(
 }
 
 fn debugLexicalBlockAssumeCapacity(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.lexical_block, Metadata.LexicalBlock{
         .scope = scope,
         .file = file,
@@ -12306,6 +12320,7 @@ fn debugLexicalBlockAssumeCapacity(self: *Builder, scope: Metadata, file: Metada
 }
 
 fn debugLocationAssumeCapacity(self: *Builder, line: u32, column: u32, scope: Metadata, inlined_at: Metadata) Metadata {
+    assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.location, Metadata.Location{
         .line = line,
         .column = column,
@@ -12315,6 +12330,7 @@ fn debugLocationAssumeCapacity(self: *Builder, line: u32, column: u32, scope: Me
 }
 
 fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.basic_bool_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
@@ -12323,6 +12339,7 @@ fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bit
 }
 
 fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.basic_unsigned_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
@@ -12331,6 +12348,7 @@ fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in
 }
 
 fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.basic_signed_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
@@ -12339,6 +12357,7 @@ fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_b
 }
 
 fn debugFloatTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.basic_float_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
@@ -12347,6 +12366,7 @@ fn debugFloatTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bi
 }
 
 fn debugForwardReferenceAssumeCapacity(self: *Builder) Metadata {
+    assert(!self.strip);
     const index = Metadata.first_forward_reference + self.metadata_forward_references.items.len;
     self.metadata_forward_references.appendAssumeCapacity(.none);
     return @enumFromInt(index);
@@ -12363,6 +12383,7 @@ fn debugStructTypeAssumeCapacity(
     align_in_bits: u64,
     fields_tuple: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
         .composite_struct_type,
         name,
@@ -12387,6 +12408,7 @@ fn debugUnionTypeAssumeCapacity(
     align_in_bits: u64,
     fields_tuple: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
         .composite_union_type,
         name,
@@ -12411,6 +12433,7 @@ fn debugEnumerationTypeAssumeCapacity(
     align_in_bits: u64,
     fields_tuple: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
         .composite_enumeration_type,
         name,
@@ -12435,6 +12458,7 @@ fn debugArrayTypeAssumeCapacity(
     align_in_bits: u64,
     fields_tuple: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
         .composite_array_type,
         name,
@@ -12459,6 +12483,7 @@ fn debugVectorTypeAssumeCapacity(
     align_in_bits: u64,
     fields_tuple: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
         .composite_vector_type,
         name,
@@ -12484,6 +12509,7 @@ fn debugCompositeTypeAssumeCapacity(
     align_in_bits: u64,
     fields_tuple: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(tag, Metadata.CompositeType{
         .name = name,
         .file = file,
@@ -12509,6 +12535,7 @@ fn debugPointerTypeAssumeCapacity(
     align_in_bits: u64,
     offset_in_bits: u64,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.derived_pointer_type, Metadata.DerivedType{
         .name = name,
         .file = file,
@@ -12535,6 +12562,7 @@ fn debugMemberTypeAssumeCapacity(
     align_in_bits: u64,
     offset_in_bits: u64,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.derived_member_type, Metadata.DerivedType{
         .name = name,
         .file = file,
@@ -12554,6 +12582,7 @@ fn debugSubroutineTypeAssumeCapacity(
     self: *Builder,
     types_tuple: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.subroutine_type, Metadata.SubroutineType{
         .types_tuple = types_tuple,
     });
@@ -12566,6 +12595,7 @@ fn debugEnumeratorAssumeCapacity(
     bit_width: u32,
     value: std.math.big.int.Const,
 ) Metadata {
+    assert(!self.strip);
     const Key = struct { tag: Metadata.Tag, index: Metadata };
     const Adapter = struct {
         pub fn hash(_: @This(), key: Key) u32 {
@@ -12587,7 +12617,7 @@ fn debugEnumeratorAssumeCapacity(
     else
         .enumerator_signed_negative;
 
-    std.debug.assert(!(tag == .enumerator_unsigned and !value.positive));
+    assert(!(tag == .enumerator_unsigned and !value.positive));
 
     const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
         Key{ .tag = tag, .index = @enumFromInt(self.metadata_map.count()) },
@@ -12616,6 +12646,7 @@ fn debugSubrangeAssumeCapacity(
     lower_bound: Metadata,
     count: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.subrange, Metadata.Subrange{
         .lower_bound = lower_bound,
         .count = count,
@@ -12626,6 +12657,7 @@ fn debugExpressionAssumeCapacity(
     self: *Builder,
     elements: []const u32,
 ) Metadata {
+    assert(!self.strip);
     const Key = struct {
         elements: []const u32,
     };
@@ -12672,6 +12704,7 @@ fn debugTupleAssumeCapacity(
     self: *Builder,
     elements: []const Metadata,
 ) Metadata {
+    assert(!self.strip);
     const Key = struct {
         elements: []const Metadata,
     };
@@ -12720,6 +12753,7 @@ fn debugModuleFlagAssumeCapacity(
     name: MetadataString,
     constant: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.module_flag, Metadata.ModuleFlag{
         .behavior = behavior,
         .name = name,
@@ -12734,7 +12768,8 @@ fn debugLocalVarAssumeCapacity(
     scope: Metadata,
     line: u32,
     ty: Metadata,
-) Allocator.Error!Metadata {
+) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.local_var, Metadata.LocalVar{
         .name = name,
         .file = file,
@@ -12752,7 +12787,8 @@ fn debugParameterAssumeCapacity(
     line: u32,
     ty: Metadata,
     arg_no: u32,
-) Allocator.Error!Metadata {
+) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.parameter, Metadata.Parameter{
         .name = name,
         .file = file,
@@ -12773,7 +12809,8 @@ fn debugGlobalVarAssumeCapacity(
     ty: Metadata,
     variable: Variable.Index,
     options: Metadata.GlobalVar.Options,
-) Allocator.Error!Metadata {
+) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(
         if (options.local) .@"global_var local" else .global_var,
         Metadata.GlobalVar{
@@ -12793,6 +12830,7 @@ fn debugGlobalVarExpressionAssumeCapacity(
     variable: Metadata,
     expression: Metadata,
 ) Metadata {
+    assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(.global_var_expression, Metadata.GlobalVarExpression{
         .variable = variable,
         .expression = expression,
@@ -12800,6 +12838,7 @@ fn debugGlobalVarExpressionAssumeCapacity(
 }
 
 fn debugConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
+    assert(!self.strip);
     const Adapter = struct {
         builder: *const Builder,
         pub fn hash(_: @This(), key: Constant) u32 {
@@ -13528,18 +13567,16 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         }
                     },
                     .string,
-                    .string_null,
                     => {
                         const str: String = @enumFromInt(data);
                         if (str == .none) {
                             try constants_block.writeAbbrev(Constants.Null{});
                         } else {
                             const slice = str.slice(self) orelse unreachable;
-                            switch (tags[index]) {
-                                .string => try constants_block.writeAbbrev(Constants.String{ .string = slice }),
-                                .string_null => try constants_block.writeAbbrev(Constants.CString{ .string = slice }),
-                                else => unreachable,
-                            }
+                            if (slice.len > 0 and slice[slice.len - 1] == 0)
+                                try constants_block.writeAbbrev(Constants.CString{ .string = slice[0 .. slice.len - 1] })
+                            else
+                                try constants_block.writeAbbrev(Constants.String{ .string = slice });
                         }
                     },
                     .bitcast,
@@ -13918,7 +13955,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     },
                     .location => {
                         const extra = self.metadataExtraData(Metadata.Location, data);
-                        std.debug.assert(extra.scope != .none);
+                        assert(extra.scope != .none);
                         try metadata_block.writeAbbrev(MetadataBlock.Location{
                             .line = extra.line,
                             .column = extra.column,

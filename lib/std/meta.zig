@@ -464,7 +464,8 @@ pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
     return comptime blk: {
         const fieldInfos = fields(T);
         var names: [fieldInfos.len][:0]const u8 = undefined;
-        for (&names, fieldInfos) |*name, field| name.* = field.name;
+        // This concat can be removed with the next zig1 update.
+        for (&names, fieldInfos) |*name, field| name.* = field.name ++ "";
         break :blk &names;
     };
 }

@@ -849,51 +849,53 @@ pub const Object = struct {
 
         builder.data_layout = try builder.fmt("{}", .{DataLayoutBuilder{ .target = target }});
 
-        // We fully resolve all paths at this point to avoid lack of
-        // source line info in stack traces or lack of debugging
-        // information which, if relative paths were used, would be
-        // very location dependent.
-        // TODO: the only concern I have with this is WASI as either host or target, should
-        // we leave the paths as relative then?
-        // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
-        // a particular directory, and then the directory path is specified elsewhere.
-        // In the compiler frontend we have it stored correctly in this
-        // way already, but here we throw all that sweet information
-        // into the garbage can by converting into absolute paths. What
-        // a terrible tragedy.
-        const compile_unit_dir = blk: {
-            if (comp.module) |zcu| m: {
-                const d = try zcu.root_mod.root.joinString(arena, "");
-                if (d.len == 0) break :m;
-                if (std.fs.path.isAbsolute(d)) break :blk d;
-                break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
-            }
-            break :blk try std.process.getCwdAlloc(arena);
-        };
+        const debug_compile_unit, const debug_enums_fwd_ref, const debug_globals_fwd_ref =
+            if (!builder.strip)
+        debug_info: {
+            // We fully resolve all paths at this point to avoid lack of
+            // source line info in stack traces or lack of debugging
+            // information which, if relative paths were used, would be
+            // very location dependent.
+            // TODO: the only concern I have with this is WASI as either host or target, should
+            // we leave the paths as relative then?
+            // TODO: This is totally wrong. In dwarf, paths are encoded as relative to
+            // a particular directory, and then the directory path is specified elsewhere.
+            // In the compiler frontend we have it stored correctly in this
+            // way already, but here we throw all that sweet information
+            // into the garbage can by converting into absolute paths. What
+            // a terrible tragedy.
+            const compile_unit_dir = blk: {
+                if (comp.module) |zcu| m: {
+                    const d = try zcu.root_mod.root.joinString(arena, "");
+                    if (d.len == 0) break :m;
+                    if (std.fs.path.isAbsolute(d)) break :blk d;
+                    break :blk std.fs.realpathAlloc(arena, d) catch break :blk d;
+                }
+                break :blk try std.process.getCwdAlloc(arena);
+            };
 
-        const debug_file = try builder.debugFile(
-            try builder.metadataString(comp.root_name),
-            try builder.metadataString(compile_unit_dir),
-        );
+            const debug_file = try builder.debugFile(
+                try builder.metadataString(comp.root_name),
+                try builder.metadataString(compile_unit_dir),
+            );
 
-        const debug_enums_fwd_ref = try builder.debugForwardReference();
-        const debug_globals_fwd_ref = try builder.debugForwardReference();
+            const debug_enums_fwd_ref = try builder.debugForwardReference();
+            const debug_globals_fwd_ref = try builder.debugForwardReference();
 
-        const debug_compile_unit = try builder.debugCompileUnit(
-            debug_file,
-            // Don't use the version string here; LLVM misparses it when it
-            // includes the git revision.
-            try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
-                build_options.semver.major,
-                build_options.semver.minor,
-                build_options.semver.patch,
-            }),
-            debug_enums_fwd_ref,
-            debug_globals_fwd_ref,
-            .{ .optimized = comp.root_mod.optimize_mode != .Debug },
-        );
+            const debug_compile_unit = try builder.debugCompileUnit(
+                debug_file,
+                // Don't use the version string here; LLVM misparses it when it
+                // includes the git revision.
+                try builder.metadataStringFmt("zig {d}.{d}.{d}", .{
+                    build_options.semver.major,
+                    build_options.semver.minor,
+                    build_options.semver.patch,
+                }),
+                debug_enums_fwd_ref,
+                debug_globals_fwd_ref,
+                .{ .optimized = comp.root_mod.optimize_mode != .Debug },
+            );
 
-        if (!builder.strip) {
             const debug_info_version = try builder.debugModuleFlag(
                 try builder.debugConstant(try builder.intConst(.i32, 2)),
                 try builder.metadataString("Debug Info Version"),
@@ -901,6 +903,7 @@ pub const Object = struct {
             );
 
             switch (comp.config.debug_format) {
+                .strip => unreachable,
                 .dwarf => |f| {
                     const dwarf_version = try builder.debugModuleFlag(
                         try builder.debugConstant(try builder.intConst(.i32, 2)),
@@ -939,11 +942,11 @@ pub const Object = struct {
                         code_view,
                     });
                 },
-                .strip => unreachable,
             }
 
             try builder.debugNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
-        }
+            break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
+        } else .{.none} ** 3;
 
         const obj = try arena.create(Object);
         obj.* = .{
@@ -1004,8 +1007,8 @@ pub const Object = struct {
 
         llvm_errors[0] = try o.builder.undefConst(llvm_slice_ty);
         for (llvm_errors[1..], error_name_list[1..]) |*llvm_error, name| {
-            const name_string = try o.builder.string(mod.intern_pool.stringToSlice(name));
-            const name_init = try o.builder.stringNullConst(name_string);
+            const name_string = try o.builder.stringNull(mod.intern_pool.stringToSlice(name));
+            const name_init = try o.builder.stringConst(name_string);
             const name_variable_index =
                 try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);
             try name_variable_index.setInitializer(name_init, &o.builder);
@@ -1016,7 +1019,7 @@ pub const Object = struct {
 
             llvm_error.* = try o.builder.structConst(llvm_slice_ty, &.{
                 name_variable_index.toConst(&o.builder),
-                try o.builder.intConst(llvm_usize_ty, name_string.slice(&o.builder).?.len),
+                try o.builder.intConst(llvm_usize_ty, name_string.slice(&o.builder).?.len - 1),
             });
         }
 
@@ -1145,28 +1148,27 @@ pub const Object = struct {
         try self.genCmpLtErrorsLenFunction();
         try self.genModuleLevelAssembly();
 
-        {
-            var i: usize = 0;
-            while (i < self.debug_unresolved_namespace_scopes.count()) : (i += 1) {
-                const namespace_index = self.debug_unresolved_namespace_scopes.keys()[i];
-                const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
+        if (!self.builder.strip) {
+            for (
+                self.debug_unresolved_namespace_scopes.keys(),
+                self.debug_unresolved_namespace_scopes.values(),
+            ) |namespace_index, fwd_ref| {
                 const namespace = self.module.namespacePtr(namespace_index);
-
                 const debug_type = try self.lowerDebugType(namespace.ty);
 
                 self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
             }
+
+            self.builder.debugForwardReferenceSetType(
+                self.debug_enums_fwd_ref,
+                try self.builder.debugTuple(self.debug_enums.items),
+            );
+
+            self.builder.debugForwardReferenceSetType(
+                self.debug_globals_fwd_ref,
+                try self.builder.debugTuple(self.debug_globals.items),
+            );
         }
-
-        self.builder.debugForwardReferenceSetType(
-            self.debug_enums_fwd_ref,
-            try self.builder.debugTuple(self.debug_enums.items),
-        );
-
-        self.builder.debugForwardReferenceSetType(
-            self.debug_globals_fwd_ref,
-            try self.builder.debugTuple(self.debug_globals.items),
-        );
 
         if (options.pre_ir_path) |path| {
             if (std.mem.eql(u8, path, "-")) {
@@ -1241,13 +1243,12 @@ pub const Object = struct {
         };
         bitcode_arena_allocator.deinit();
 
-        var error_message: [*:0]const u8 = undefined;
+        const target_triple_sentinel =
+            try self.gpa.dupeZ(u8, self.builder.target_triple.slice(&self.builder).?);
+        defer self.gpa.free(target_triple_sentinel);
         var target: *llvm.Target = undefined;
-        if (llvm.Target.getFromTriple(
-            self.builder.target_triple.slice(&self.builder).?,
-            &target,
-            &error_message,
-        ).toBool()) {
+        var error_message: [*:0]const u8 = undefined;
+        if (llvm.Target.getFromTriple(target_triple_sentinel, &target, &error_message).toBool()) {
             defer llvm.disposeMessage(error_message);
 
             log.err("LLVM failed to parse '{s}': {s}", .{
@@ -1286,7 +1287,7 @@ pub const Object = struct {
 
         var target_machine = llvm.TargetMachine.create(
             target,
-            self.builder.target_triple.slice(&self.builder).?,
+            target_triple_sentinel,
             if (self.module.comp.root_mod.resolved_target.result.cpu.model.llvm_name) |s| s.ptr else null,
             self.module.comp.root_mod.resolved_target.llvm_cpu_features.?,
             opt_level,
@@ -1640,15 +1641,15 @@ pub const Object = struct {
 
         function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
-        const file = try o.getDebugFile(namespace.file_scope);
+        const file, const subprogram = if (!o.builder.strip) debug_info: {
+            const file = try o.getDebugFile(namespace.file_scope);
 
-        const subprogram = blk: {
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
                 !zcu.decl_exports.contains(decl_index);
             const debug_decl_type = try o.lowerDebugType(decl.ty);
 
-            break :blk try o.builder.debugSubprogram(
+            const subprogram = try o.builder.debugSubprogram(
                 file,
                 try o.builder.metadataString(ip.stringToSlice(decl.name)),
                 try o.builder.metadataStringFromString(function_index.name(&o.builder)),
@@ -1668,8 +1669,9 @@ pub const Object = struct {
                 },
                 o.debug_compile_unit,
             );
-        };
-        function_index.setSubprogram(subprogram, &o.builder);
+            function_index.setSubprogram(subprogram, &o.builder);
+            break :debug_info .{ file, subprogram };
+        } else .{.none} ** 2;
 
         var fg: FuncGen = .{
             .gpa = gpa,
@@ -1924,7 +1926,8 @@ pub const Object = struct {
         o: *Object,
         ty: Type,
     ) Allocator.Error!Builder.Metadata {
-        if (o.builder.strip) return .none;
+        assert(!o.builder.strip);
+
         const gpa = o.gpa;
         const target = o.target;
         const mod = o.module;
@@ -4608,8 +4611,8 @@ pub const Object = struct {
         defer wip_switch.finish(&wip);
 
         for (0..enum_type.names.len) |field_index| {
-            const name = try o.builder.string(ip.stringToSlice(enum_type.names.get(ip)[field_index]));
-            const name_init = try o.builder.stringNullConst(name);
+            const name = try o.builder.stringNull(ip.stringToSlice(enum_type.names.get(ip)[field_index]));
+            const name_init = try o.builder.stringConst(name);
             const name_variable_index =
                 try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);
             try name_variable_index.setInitializer(name_init, &o.builder);
@@ -4620,7 +4623,7 @@ pub const Object = struct {
 
             const name_val = try o.builder.structValue(ret_ty, &.{
                 name_variable_index.toConst(&o.builder),
-                try o.builder.intConst(usize_ty, name.slice(&o.builder).?.len),
+                try o.builder.intConst(usize_ty, name.slice(&o.builder).?.len - 1),
             });
 
             const return_block = try wip.block(1, "Name");
