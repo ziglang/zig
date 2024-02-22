@@ -6625,6 +6625,13 @@ pub const FuncGen = struct {
         );
         self.scope = lexical_block;
         self.base_line = decl.src_line;
+        const inlined_at = self.wip.current_debug_location;
+        self.wip.current_debug_location = try o.builder.debugLocation(
+            line_number,
+            0,
+            self.scope,
+            inlined_at,
+        );
         return .none;
     }
 
@@ -6641,6 +6648,7 @@ pub const FuncGen = struct {
         const old = self.inlined.pop();
         self.scope = old.scope;
         self.base_line = old.base_line;
+        self.wip.current_debug_location = old.location;
         return .none;
     }
 
