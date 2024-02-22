@@ -17,150 +17,145 @@ var gpa_client = std.heap.GeneralPurposeAllocator(.{ .stack_trace_frames = 12 })
 const salloc = gpa_server.allocator();
 const calloc = gpa_client.allocator();
 
-fn handleRequest(res: *http.Server, listen_port: u16) !void {
+fn handleRequest(request: *http.Server.Request, listen_port: u16) !void {
     const log = std.log.scoped(.server);
 
-    log.info("{} {s} {s}", .{ res.request.method, @tagName(res.request.version), res.request.target });
+    log.info("{} {s} {s}", .{
+        request.head.method,
+        @tagName(request.head.version),
+        request.head.target,
+    });
 
-    if (res.request.expect) |expect| {
+    if (request.head.expect) |expect| {
         if (mem.eql(u8, expect, "100-continue")) {
-            res.status = .@"continue";
-            try res.send();
-            res.status = .ok;
+            @panic("test failure, didn't handle expect 100-continue");
         } else {
-            res.status = .expectation_failed;
-            try res.send();
-            return;
+            return request.respond("", .{
+                .status = .expectation_failed,
+            });
         }
     }
 
-    const body = try res.reader().readAllAlloc(salloc, 8192);
+    const body = try request.reader().readAllAlloc(salloc, 8192);
     defer salloc.free(body);
 
-    if (res.request.keep_alive) {
-        res.keep_alive = true;
-    }
+    var send_buffer: [100]u8 = undefined;
 
-    if (mem.startsWith(u8, res.request.target, "/get")) {
-        if (std.mem.indexOf(u8, res.request.target, "?chunked") != null) {
-            res.transfer_encoding = .chunked;
-        } else {
-            res.transfer_encoding = .{ .content_length = 14 };
-        }
+    if (mem.startsWith(u8, request.head.target, "/get")) {
+        var response = request.respondStreaming(.{
+            .send_buffer = &send_buffer,
+            .content_length = if (std.mem.indexOf(u8, request.head.target, "?chunked") == null)
+                14
+            else
+                null,
+            .respond_options = .{
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/plain" },
+                },
+            },
+        });
+        const w = response.writer();
+        try w.writeAll("Hello, ");
+        try w.writeAll("World!\n");
+        try response.end();
+        // Writing again would cause an assertion failure.
+    } else if (mem.startsWith(u8, request.head.target, "/large")) {
+        var response = request.respondStreaming(.{
+            .send_buffer = &send_buffer,
+            .content_length = 14 * 1024 + 14 * 10,
+        });
 
-        res.extra_headers = &.{
-            .{ .name = "content-type", .value = "text/plain" },
-        };
+        try response.flush(); // Test an early flush to send the HTTP headers before the body.
 
-        try res.send();
-        if (res.request.method != .HEAD) {
-            try res.writeAll("Hello, ");
-            try res.writeAll("World!\n");
-            try res.finish();
-        } else {
-            try testing.expectEqual(res.writeAll("errors"), error.NotWriteable);
-        }
-    } else if (mem.startsWith(u8, res.request.target, "/large")) {
-        res.transfer_encoding = .{ .content_length = 14 * 1024 + 14 * 10 };
-
-        try res.send();
+        const w = response.writer();
 
         var i: u32 = 0;
         while (i < 5) : (i += 1) {
-            try res.writeAll("Hello, World!\n");
+            try w.writeAll("Hello, World!\n");
         }
 
-        try res.writeAll("Hello, World!\n" ** 1024);
+        try w.writeAll("Hello, World!\n" ** 1024);
 
         i = 0;
         while (i < 5) : (i += 1) {
-            try res.writeAll("Hello, World!\n");
+            try w.writeAll("Hello, World!\n");
         }
 
-        try res.finish();
-    } else if (mem.startsWith(u8, res.request.target, "/echo-content")) {
+        try response.end();
+    } else if (mem.startsWith(u8, request.head.target, "/echo-content")) {
         try testing.expectEqualStrings("Hello, World!\n", body);
-        try testing.expectEqualStrings("text/plain", res.request.content_type.?);
+        try testing.expectEqualStrings("text/plain", request.head.content_type.?);
 
-        switch (res.request.transfer_encoding) {
-            .chunked => res.transfer_encoding = .chunked,
-            .none => {
-                res.transfer_encoding = .{ .content_length = 14 };
-                try testing.expectEqual(14, res.request.content_length.?);
+        var response = request.respondStreaming(.{
+            .send_buffer = &send_buffer,
+            .content_length = switch (request.head.transfer_encoding) {
+                .chunked => null,
+                .none => len: {
+                    try testing.expectEqual(14, request.head.content_length.?);
+                    break :len 14;
+                },
             },
-        }
+        });
 
-        try res.send();
-        try res.writeAll("Hello, ");
-        try res.writeAll("World!\n");
-        try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/redirect/1")) {
-        res.transfer_encoding = .chunked;
+        try response.flush(); // Test an early flush to send the HTTP headers before the body.
+        const w = response.writer();
+        try w.writeAll("Hello, ");
+        try w.writeAll("World!\n");
+        try response.end();
+    } else if (mem.eql(u8, request.head.target, "/redirect/1")) {
+        var response = request.respondStreaming(.{
+            .send_buffer = &send_buffer,
+            .respond_options = .{
+                .status = .found,
+                .extra_headers = &.{
+                    .{ .name = "location", .value = "../../get" },
+                },
+            },
+        });
 
-        res.status = .found;
-        res.extra_headers = &.{
-            .{ .name = "location", .value = "../../get" },
-        };
-
-        try res.send();
-        try res.writeAll("Hello, ");
-        try res.writeAll("Redirected!\n");
-        try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/redirect/2")) {
-        res.transfer_encoding = .chunked;
-
-        res.status = .found;
-        res.extra_headers = &.{
-            .{ .name = "location", .value = "/redirect/1" },
-        };
-
-        try res.send();
-        try res.writeAll("Hello, ");
-        try res.writeAll("Redirected!\n");
-        try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/redirect/3")) {
-        res.transfer_encoding = .chunked;
-
+        const w = response.writer();
+        try w.writeAll("Hello, ");
+        try w.writeAll("Redirected!\n");
+        try response.end();
+    } else if (mem.eql(u8, request.head.target, "/redirect/2")) {
+        try request.respond("Hello, Redirected!\n", .{
+            .status = .found,
+            .extra_headers = &.{
+                .{ .name = "location", .value = "/redirect/1" },
+            },
+        });
+    } else if (mem.eql(u8, request.head.target, "/redirect/3")) {
         const location = try std.fmt.allocPrint(salloc, "http://127.0.0.1:{d}/redirect/2", .{
             listen_port,
         });
         defer salloc.free(location);
 
-        res.status = .found;
-        res.extra_headers = &.{
-            .{ .name = "location", .value = location },
-        };
-
-        try res.send();
-        try res.writeAll("Hello, ");
-        try res.writeAll("Redirected!\n");
-        try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/redirect/4")) {
-        res.transfer_encoding = .chunked;
-
-        res.status = .found;
-        res.extra_headers = &.{
-            .{ .name = "location", .value = "/redirect/3" },
-        };
-
-        try res.send();
-        try res.writeAll("Hello, ");
-        try res.writeAll("Redirected!\n");
-        try res.finish();
-    } else if (mem.eql(u8, res.request.target, "/redirect/invalid")) {
+        try request.respond("Hello, Redirected!\n", .{
+            .status = .found,
+            .extra_headers = &.{
+                .{ .name = "location", .value = location },
+            },
+        });
+    } else if (mem.eql(u8, request.head.target, "/redirect/4")) {
+        try request.respond("Hello, Redirected!\n", .{
+            .status = .found,
+            .extra_headers = &.{
+                .{ .name = "location", .value = "/redirect/3" },
+            },
+        });
+    } else if (mem.eql(u8, request.head.target, "/redirect/invalid")) {
         const invalid_port = try getUnusedTcpPort();
         const location = try std.fmt.allocPrint(salloc, "http://127.0.0.1:{d}", .{invalid_port});
         defer salloc.free(location);
 
-        res.status = .found;
-        res.extra_headers = &.{
-            .{ .name = "location", .value = location },
-        };
-        try res.send();
-        try res.finish();
+        try request.respond("", .{
+            .status = .found,
+            .extra_headers = &.{
+                .{ .name = "location", .value = location },
+            },
+        });
     } else {
-        res.status = .not_found;
-        try res.send();
+        try request.respond("", .{ .status = .not_found });
     }
 }
 
@@ -172,18 +167,15 @@ fn runServer(server: *std.net.Server) !void {
         var connection = try server.accept();
         defer connection.stream.close();
 
-        var res = http.Server.init(connection, .{
-            .client_header_buffer = &client_header_buffer,
-        });
+        var http_server = http.Server.init(connection, &client_header_buffer);
 
-        while (res.reset() != .closing) {
-            res.wait() catch |err| switch (err) {
-                error.HttpHeadersInvalid => continue :outer,
-                error.EndOfStream => continue,
-                else => return err,
+        while (http_server.state == .ready) {
+            var request = http_server.receiveHead() catch |err| switch (err) {
+                error.HttpConnectionClosing => continue :outer,
+                else => |e| return e,
             };
 
-            try handleRequest(&res, server.listen_address.getPort());
+            try handleRequest(&request, server.listen_address.getPort());
         }
     }
 }
