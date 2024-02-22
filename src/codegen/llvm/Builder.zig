@@ -57,7 +57,6 @@ pub const expected_fields_len = 32;
 pub const expected_gep_indices_len = 8;
 pub const expected_cases_len = 8;
 pub const expected_incoming_len = 8;
-pub const expected_intrinsic_name_len = 64;
 
 pub const Options = struct {
     allocator: Allocator,
@@ -2180,7 +2179,7 @@ pub const Global = struct {
 
             return .{
                 .offset = builder.string_indices.items[name_index],
-                .size = builder.string_indices.items[name_index + 1] - builder.string_indices.items[name_index] - 1,
+                .size = builder.string_indices.items[name_index + 1] - builder.string_indices.items[name_index],
             };
         }
 
@@ -8430,10 +8429,19 @@ pub fn fmt(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) Allo
 }
 
 pub fn fmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) String {
-    const start = self.string_bytes.items.len;
     self.string_bytes.writer(undefined).print(fmt_str, fmt_args) catch unreachable;
-    const bytes: []const u8 = self.string_bytes.items[start..];
+    return self.trailingStringAssumeCapacity();
+}
 
+pub fn trailingString(self: *Builder) Allocator.Error!String {
+    try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
+    try self.string_map.ensureUnusedCapacity(self.gpa, 1);
+    return self.trailingStringAssumeCapacity();
+}
+
+pub fn trailingStringAssumeCapacity(self: *Builder) String {
+    const start = self.string_indices.getLast();
+    const bytes: []const u8 = self.string_bytes.items[start..];
     const gop = self.string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (gop.found_existing) {
         self.string_bytes.shrinkRetainingCapacity(start);
@@ -8678,7 +8686,6 @@ pub fn getIntrinsic(
     overload: []const Type,
 ) Allocator.Error!Function.Index {
     const ExpectedContents = extern union {
-        name: [expected_intrinsic_name_len]u8,
         attrs: extern struct {
             params: [expected_args_len]Type,
             fn_attrs: [FunctionAttributes.params_index + expected_args_len]Attributes,
@@ -8691,12 +8698,10 @@ pub fn getIntrinsic(
     const allocator = stack.get();
 
     const name = name: {
-        var buffer = std.ArrayList(u8).init(allocator);
-        defer buffer.deinit();
-
-        try buffer.writer().print("llvm.{s}", .{@tagName(id)});
-        for (overload) |ty| try buffer.writer().print(".{m}", .{ty.fmt(self)});
-        break :name try self.string(buffer.items);
+        const writer = self.string_bytes.writer(self.gpa);
+        try writer.print("llvm.{s}", .{@tagName(id)});
+        for (overload) |ty| try writer.print(".{m}", .{ty.fmt(self)});
+        break :name try self.trailingString();
     };
     if (self.getGlobal(name)) |global| return global.ptrConst(self).kind.function;
 
@@ -11750,9 +11755,7 @@ pub fn metadataString(self: *Builder, bytes: []const u8) Allocator.Error!Metadat
 
 pub fn metadataStringFromString(self: *Builder, str: String) Allocator.Error!MetadataString {
     if (str == .none or str == .empty) return MetadataString.none;
-
-    const slice = str.slice(self) orelse unreachable;
-    return try self.metadataString(slice);
+    return try self.metadataString(str.slice(self).?);
 }
 
 pub fn metadataStringFmt(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) Allocator.Error!MetadataString {
@@ -11763,10 +11766,19 @@ pub fn metadataStringFmt(self: *Builder, comptime fmt_str: []const u8, fmt_args:
 }
 
 pub fn metadataStringFmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) MetadataString {
-    const start = self.metadata_string_bytes.items.len;
     self.metadata_string_bytes.writer(undefined).print(fmt_str, fmt_args) catch unreachable;
-    const bytes: []const u8 = self.metadata_string_bytes.items[start..];
+    return self.trailingMetadataStringAssumeCapacity();
+}
 
+pub fn trailingMetadataString(self: *Builder) Allocator.Error!MetadataString {
+    try self.metadata_string_indices.ensureUnusedCapacity(self.gpa, 1);
+    try self.metadata_string_map.ensureUnusedCapacity(self.gpa, 1);
+    return self.trailingMetadataStringAssumeCapacity();
+}
+
+pub fn trailingMetadataStringAssumeCapacity(self: *Builder) MetadataString {
+    const start = self.metadata_string_indices.getLast();
+    const bytes: []const u8 = self.metadata_string_bytes.items[start..];
     const gop = self.metadata_string_map.getOrPutAssumeCapacityAdapted(bytes, String.Adapter{ .builder = self });
     if (gop.found_existing) {
         self.metadata_string_bytes.shrinkRetainingCapacity(start);
