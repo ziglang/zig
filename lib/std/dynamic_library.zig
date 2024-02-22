@@ -368,7 +368,7 @@ pub const WindowsDynLib = struct {
 };
 
 pub const DlDynLib = struct {
-    pub const Error = error{FileNotFound};
+    pub const Error = error{OpenFailed};
 
     handle: *anyopaque,
 
@@ -380,7 +380,10 @@ pub const DlDynLib = struct {
     pub fn openZ(path_c: [*:0]const u8) !DlDynLib {
         return DlDynLib{
             .handle = system.dlopen(path_c, system.RTLD.LAZY) orelse {
-                return error.FileNotFound;
+                if (system.dlerror()) |err| {
+                    std.log.err("dlopen failed: {s}", .{err});
+                }
+                return error.OpenFailed;
             },
         };
     }
@@ -410,7 +413,7 @@ test "dynamic_library" {
     };
 
     _ = DynLib.open(libname) catch |err| {
-        try testing.expect(err == error.FileNotFound);
+        try testing.expect(err == error.OpenFailed);
         return;
     };
 }
