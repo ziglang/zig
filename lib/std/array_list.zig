@@ -946,18 +946,20 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return m.len;
         }
 
-        pub const WriterAssumeCapacity = std.io.Writer(*Self, error{}, appendWriteAssumeCapacity);
+        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
 
-        /// Initializes a Writer which will append to the list, asserting the
-        /// list can hold the additional bytes.
-        pub fn writerAssumeCapacity(self: *Self) WriterAssumeCapacity {
+        /// Initializes a Writer which will append to the list but will return
+        /// `error.OutOfMemory` rather than increasing capacity.
+        pub fn fixedWriter(self: *Self) FixedWriter {
             return .{ .context = self };
         }
 
-        /// Same as `appendSliceAssumeCapacity` except it returns the number of bytes written,
-        /// which is always the same as `m.len`. The purpose of this function
-        /// existing is to match `std.io.Writer` API.
-        fn appendWriteAssumeCapacity(self: *Self, m: []const u8) error{}!usize {
+        /// The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
+            const available_capacity = self.capacity - self.items.len;
+            if (m.len > available_capacity)
+                return error.OutOfMemory;
+
             self.appendSliceAssumeCapacity(m);
             return m.len;
         }
