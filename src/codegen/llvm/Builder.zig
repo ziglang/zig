@@ -13879,7 +13879,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .linkage_name = extra.linkage_name,
                             .file = extra.file,
                             .line = extra.line,
-                            .ty = .none, //extra.ty,
+                            .ty = extra.ty,
                             .scope_line = extra.scope_line,
                             .sp_flags = @bitCast(@as(u32, @as(u3, @intCast(
                                 @intFromEnum(kind) - @intFromEnum(Metadata.Tag.subprogram),
