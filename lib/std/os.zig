@@ -59,7 +59,7 @@ test {
 /// Applications can override the `system` API layer in their root source file.
 /// Otherwise, when linking libc, this is the C API.
 /// When not linking libc, it is the OS-specific system interface.
-pub const system = if (@hasDecl(root, "os") and root.os != @This())
+pub const system = if (@hasDecl(root, "os") and @hasDecl(root.os, "system") and root.os != @This())
     root.os.system
 else if (use_libc)
     std.c
