@@ -773,11 +773,6 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
-    if (builtin.target.os.tag == .macos) {
-        // https://github.com/ziglang/zig/issues/18395
-        return error.SkipZigTest;
-    }
-
     if (!@hasDecl(os.system, "rlimit")) {
         return error.SkipZigTest;
     }
@@ -785,6 +780,13 @@ test "getrlimit and setrlimit" {
     inline for (std.meta.fields(os.rlimit_resource)) |field| {
         const resource = @as(os.rlimit_resource, @enumFromInt(field.value));
         const limit = try os.getrlimit(resource);
+
+        // XNU kernel does not support RLIMIT_STACK if a custom stack is active,
+        // which looks to always be the case. EINVAL is returned.
+        // See https://github.com/apple-oss-distributions/xnu/blob/5e3eaea39dcf651e66cb99ba7d70e32cc4a99587/bsd/kern/kern_resource.c#L1173
+        if (builtin.os.tag.isDarwin() and resource == .STACK) {
+            continue;
+        }
 
         // On 32 bit MIPS musl includes a fix which changes limits greater than -1UL/2 to RLIM_INFINITY.
         // See http://git.musl-libc.org/cgit/musl/commit/src/misc/getrlimit.c?id=8258014fd1e34e942a549c88c7e022a00445c352
