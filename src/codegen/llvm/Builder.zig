@@ -7804,10 +7804,10 @@ pub const Metadata = enum(u32) {
     pub const Subprogram = struct {
         pub const Options = struct {
             di_flags: DIFlags,
-            sp_flags: SPFlags,
+            sp_flags: DISPFlags,
         };
 
-        pub const SPFlags = packed struct(u32) {
+        pub const DISPFlags = packed struct(u32) {
             Virtuality: enum(u2) { Zero, Virtual, PureVirtual } = .Zero,
             LocalToUnit: bool = false,
             Definition: bool = false,
@@ -7822,21 +7822,21 @@ pub const Metadata = enum(u32) {
             Unused: u20 = 0,
 
             pub fn format(
-                self: SPFlags,
+                self: DISPFlags,
                 comptime _: []const u8,
                 _: std.fmt.FormatOptions,
                 writer: anytype,
             ) @TypeOf(writer).Error!void {
                 var need_pipe = false;
-                inline for (@typeInfo(SPFlags).Struct.fields) |field| {
+                inline for (@typeInfo(DISPFlags).Struct.fields) |field| {
                     switch (@typeInfo(field.type)) {
                         .Bool => if (@field(self, field.name)) {
                             if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
-                            try writer.print("SPFlag{s}", .{field.name});
+                            try writer.print("DISPFlag{s}", .{field.name});
                         },
                         .Enum => if (@field(self, field.name) != .Zero) {
                             if (need_pipe) try writer.writeAll(" | ") else need_pipe = true;
-                            try writer.print("SPFlag{s}", .{@tagName(@field(self, field.name))});
+                            try writer.print("DISPFlag{s}", .{@tagName(@field(self, field.name))});
                         },
                         .Int => assert(@field(self, field.name) == 0),
                         else => @compileError("bad field type: " ++ field.name ++ ": " ++
@@ -8023,6 +8023,8 @@ pub const Metadata = enum(u32) {
                 bool: bool,
                 u32: u32,
                 u64: u64,
+                di_flags: DIFlags,
+                sp_flags: Subprogram.DISPFlags,
                 raw: []const u8,
 
                 const ValueData = struct {
@@ -8094,7 +8096,12 @@ pub const Metadata = enum(u32) {
                 .string => |node| try writer.print((if (is_specialized) "" else "!") ++ "{}", .{
                     node.fmt(builder),
                 }),
-                inline .bool, .u32, .u64 => |node| try writer.print("{}", .{node}),
+                inline .bool,
+                .u32,
+                .u64,
+                .di_flags,
+                .sp_flags,
+                => |node| try writer.print("{}", .{node}),
                 .raw => |node| try writer.writeAll(node),
             }
         }
@@ -8126,7 +8133,11 @@ pub const Metadata = enum(u32) {
                     },
                     .EnumLiteral => .{ .raw = @tagName(some) },
                     .Bool => .{ .bool = some },
-                    .Struct => .{ .u32 = @bitCast(some) },
+                    .Struct => switch (Some) {
+                        DIFlags => .{ .di_flags = some },
+                        Subprogram.DISPFlags => .{ .sp_flags = some },
+                        else => @compileError("unknown type to format: " ++ @typeName(Node)),
+                    },
                     .Int, .ComptimeInt => .{ .u64 = some },
                     .Pointer => .{ .raw = some },
                     else => @compileError("unknown type to format: " ++ @typeName(Node)),
@@ -9943,7 +9954,7 @@ pub fn printUnbuffered(
                         .virtualIndex = null,
                         .thisAdjustment = null,
                         .flags = extra.di_flags,
-                        .spFlags = @as(Metadata.Subprogram.SPFlags, @bitCast(@as(u32, @as(u3, @intCast(
+                        .spFlags = @as(Metadata.Subprogram.DISPFlags, @bitCast(@as(u32, @as(u3, @intCast(
                             @intFromEnum(kind) - @intFromEnum(Metadata.Tag.subprogram),
                         ))) << 2)),
                         .unit = extra.compile_unit,

@@ -743,7 +743,7 @@ pub const MetadataBlock = struct {
         line: u32,
         ty: Builder.Metadata,
         scope_line: u32,
-        sp_flags: Builder.Metadata.Subprogram.SPFlags,
+        sp_flags: Builder.Metadata.Subprogram.DISPFlags,
         flags: Builder.Metadata.DIFlags,
         compile_unit: Builder.Metadata,
     };
