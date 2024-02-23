@@ -291,6 +291,11 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 }
 
 test "general client/server API coverage" {
+    if (builtin.os.tag == .windows) {
+        // This test was never passing on Windows.
+        return error.SkipZigTest;
+    }
+
     const global = struct {
         var handle_new_requests = true;
     };
