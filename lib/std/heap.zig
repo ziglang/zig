@@ -216,6 +216,8 @@ pub const page_allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os, "heap") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
+else if (builtin.target.os.tag == .emscripten)
+    c_allocator
 else if (builtin.target.isWasm())
     Allocator{
         .ptr = undefined,
