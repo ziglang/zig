@@ -1676,3 +1676,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
         .status = req.response.status,
     };
 }
+
+test {
+    _ = &initDefaultProxies;
+}
