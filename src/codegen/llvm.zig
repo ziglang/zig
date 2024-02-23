@@ -779,6 +779,7 @@ pub const Object = struct {
     debug_enums: std.ArrayListUnmanaged(Builder.Metadata),
     debug_globals: std.ArrayListUnmanaged(Builder.Metadata),
 
+    debug_file_map: std.AutoHashMapUnmanaged(*const Module.File, Builder.Metadata),
     debug_type_map: std.AutoHashMapUnmanaged(Type, Builder.Metadata),
 
     debug_unresolved_namespace_scopes: std.AutoArrayHashMapUnmanaged(InternPool.NamespaceIndex, Builder.Metadata),
@@ -961,6 +962,7 @@ pub const Object = struct {
             .debug_globals_fwd_ref = debug_globals_fwd_ref,
             .debug_enums = .{},
             .debug_globals = .{},
+            .debug_file_map = .{},
             .debug_type_map = .{},
             .debug_unresolved_namespace_scopes = .{},
             .target = target,
@@ -978,8 +980,9 @@ pub const Object = struct {
 
     pub fn deinit(self: *Object) void {
         const gpa = self.gpa;
-        self.debug_globals.deinit(gpa);
         self.debug_enums.deinit(gpa);
+        self.debug_globals.deinit(gpa);
+        self.debug_file_map.deinit(gpa);
         self.debug_type_map.deinit(gpa);
         self.debug_unresolved_namespace_scopes.deinit(gpa);
         self.decl_map.deinit(gpa);
@@ -1922,10 +1925,25 @@ pub const Object = struct {
     }
 
     fn getDebugFile(o: *Object, file: *const Module.File) Allocator.Error!Builder.Metadata {
-        return try o.builder.debugFile(
+        const gpa = o.gpa;
+        const gop = try o.debug_file_map.getOrPut(gpa, file);
+        errdefer assert(o.debug_file_map.remove(file));
+        if (gop.found_existing) return gop.value_ptr.*;
+        gop.value_ptr.* = try o.builder.debugFile(
             try o.builder.metadataString(std.fs.path.basename(file.sub_file_path)),
-            if (std.fs.path.dirname(file.sub_file_path)) |dirname| try o.builder.metadataString(dirname) else .none,
+            dir_path: {
+                const sub_path = std.fs.path.dirname(file.sub_file_path) orelse "";
+                const dir_path = try file.mod.root.joinString(gpa, sub_path);
+                defer gpa.free(dir_path);
+                if (std.fs.path.isAbsolute(dir_path))
+                    break :dir_path try o.builder.metadataString(dir_path);
+                var abs_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                const abs_path = std.fs.realpath(dir_path, &abs_buffer) catch
+                    break :dir_path try o.builder.metadataString(dir_path);
+                break :dir_path try o.builder.metadataString(abs_path);
+            },
         );
+        return gop.value_ptr.*;
     }
 
     pub fn lowerDebugType(
