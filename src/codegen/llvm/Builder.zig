@@ -6481,7 +6481,9 @@ pub const WipFunction = struct {
         self.instructions.appendAssumeCapacity(instruction);
         if (!self.builder.strip) {
             self.names.appendAssumeCapacity(final_name);
-            if (!std.meta.eql(self.current_debug_location, self.last_debug_location)) {
+            if (block_instructions.items.len == 0 or
+                self.current_debug_location != self.last_debug_location)
+            {
                 self.debug_locations.putAssumeCapacity(index, self.current_debug_location);
                 self.last_debug_location = self.current_debug_location;
             }
