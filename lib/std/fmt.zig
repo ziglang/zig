@@ -48,8 +48,6 @@ pub const FormatOptions = struct {
 ///
 /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
 /// all parameters after the separator are omitted.
-/// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
-/// the digits after `:` is interpreted as *width*, not *fill*.
 ///
 /// The *specifier* has several options for types:
 /// - `x` and `X`: output numeric value in hexadecimal notation
@@ -245,7 +243,7 @@ pub const Placeholder = struct {
         const fill = comptime if (parser.peek(1)) |ch|
             switch (ch) {
                 '<', '^', '>' => parser.char().?,
-                else => ' ',
+                else => parser.char() orelse ' ',
             }
         else
             ' ';
