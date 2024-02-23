@@ -8090,7 +8090,7 @@ pub const Metadata = enum(u32) {
                         .constant => try Constant.format(.{
                             .constant = @enumFromInt(metadata_item.data),
                             .builder = builder,
-                        }, "%", fmt_opts, writer),
+                        }, fmt_str, fmt_opts, writer),
                         else => unreachable,
                     }
                 },
@@ -10141,7 +10141,7 @@ pub fn printUnbuffered(
                 },
                 .module_flag => {
                     const extra = self.metadataExtraData(Metadata.ModuleFlag, metadata_item.data);
-                    try writer.print("!{{{[behavior]}{[name]}{[constant]}}}\n", .{
+                    try writer.print("!{{{[behavior]%}{[name]%}{[constant]%}}}\n", .{
                         .behavior = try metadata_formatter.fmt("", extra.behavior),
                         .name = try metadata_formatter.fmt("!", extra.name),
                         .constant = try metadata_formatter.fmt("", extra.constant),
