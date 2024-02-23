@@ -155,7 +155,7 @@ pub const Module = struct {
 
     pub const Alias = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 9 }, // Code
+            .{ .literal = 14 }, // Code
             .{ .vbr = 16 }, // strtab_offset
             .{ .vbr = 16 }, // strtab_size
             .{ .fixed_runtime = Builder.Type },
