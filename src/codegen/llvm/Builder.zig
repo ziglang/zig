@@ -13015,18 +13015,23 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .string = extra.id.slice(self).?,
                         });
 
-                        const real_struct = self.type_items.items[@intFromEnum(extra.body)];
-                        const is_packed: bool = switch (real_struct.tag) {
-                            .structure => false,
-                            .packed_structure => true,
-                            else => unreachable,
-                        };
+                        switch (extra.body) {
+                            .none => try type_block.writeAbbrev(ir.Type.Opaque{}),
+                            else => {
+                                const real_struct = self.type_items.items[@intFromEnum(extra.body)];
+                                const is_packed: bool = switch (real_struct.tag) {
+                                    .structure => false,
+                                    .packed_structure => true,
+                                    else => unreachable,
+                                };
 
-                        var real_extra = self.typeExtraDataTrail(Type.Structure, real_struct.data);
-                        try type_block.writeAbbrev(ir.Type.StructNamed{
-                            .is_packed = is_packed,
-                            .types = real_extra.trail.next(real_extra.data.fields_len, Type, self),
-                        });
+                                var real_extra = self.typeExtraDataTrail(Type.Structure, real_struct.data);
+                                try type_block.writeAbbrev(ir.Type.StructNamed{
+                                    .is_packed = is_packed,
+                                    .types = real_extra.trail.next(real_extra.data.fields_len, Type, self),
+                                });
+                            },
+                        }
                     },
                     .array,
                     .small_array,

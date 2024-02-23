@@ -188,6 +188,7 @@ pub const Type = struct {
     pub const abbrevs = [_]type{
         NumEntry,
         Simple,
+        Opaque,
         Integer,
         StructAnon,
         StructNamed,
@@ -212,6 +213,13 @@ pub const Type = struct {
             .{ .vbr = 4 },
         };
         code: u5,
+    };
+
+    pub const Opaque = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 6 },
+            .{ .literal = 0 },
+        };
     };
 
     pub const Integer = struct {
