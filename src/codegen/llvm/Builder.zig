@@ -7640,7 +7640,6 @@ pub const Metadata = enum(u32) {
         pub fn isInline(tag: Tag) bool {
             return switch (tag) {
                 .none,
-                .tuple,
                 .expression,
                 .constant,
                 => true,
@@ -7673,6 +7672,7 @@ pub const Metadata = enum(u32) {
                 .enumerator_signed_positive,
                 .enumerator_signed_negative,
                 .subrange,
+                .tuple,
                 .module_flag,
                 .local_var,
                 .parameter,
@@ -7988,58 +7988,31 @@ pub const Metadata = enum(u32) {
         need_comma: bool,
         map: std.AutoArrayHashMapUnmanaged(Metadata, void) = .{},
 
-        fn unwrapAssumeExists(formatter: *Formatter, item: Metadata) FormatData.Item {
-            if (item == .none) return .none;
-            const unwrapped_metadata = item.unwrap(formatter.builder);
-            const tag = formatter.builder.metadata_items.items(.tag)[@intFromEnum(unwrapped_metadata)];
-            return if (tag.isInline())
-                .{ .@"inline" = unwrapped_metadata }
-            else
-                .{ .index = @intCast(formatter.map.getIndex(unwrapped_metadata).?) };
-        }
-        fn unwrap(formatter: *Formatter, item: Metadata) Allocator.Error!FormatData.Item {
-            if (item == .none) return .none;
-            const builder = formatter.builder;
-            const unwrapped_metadata = item.unwrap(builder);
-            const tag = formatter.builder.metadata_items.items(.tag)[@intFromEnum(unwrapped_metadata)];
-            switch (tag) {
-                .none => unreachable,
-                .tuple => {
-                    var extra = builder.metadataExtraDataTrail(
-                        Metadata.Tuple,
-                        builder.metadata_items.items(.data)[@intFromEnum(unwrapped_metadata)],
-                    );
-                    const elements = extra.trail.next(extra.data.elements_len, Metadata, builder);
-                    for (elements) |element| _ = try formatter.unwrap(element);
-                },
-                .expression, .constant => {},
-                else => {
-                    assert(!tag.isInline());
-                    const gop = try formatter.map.getOrPutValue(builder.gpa, unwrapped_metadata, {});
-                    return .{ .index = @intCast(gop.index) };
-                },
-            }
-            return .{ .@"inline" = unwrapped_metadata };
-        }
-
         const FormatData = struct {
             formatter: *Formatter,
             prefix: []const u8 = "",
-            item: FormatData.Item,
+            node: Node,
 
-            const Item = union(enum) {
+            const Node = union(enum) {
                 none,
                 @"inline": Metadata,
                 index: u32,
+
+                local_value: ValueData,
+                local_metadata: ValueData,
+                local_inline: Metadata,
+                local_index: u32,
+
                 string: MetadataString,
-                value: struct {
-                    value: Value,
-                    function: Function.Index,
-                },
                 bool: bool,
                 u32: u32,
                 u64: u64,
                 raw: []const u8,
+
+                const ValueData = struct {
+                    value: Value,
+                    function: Function.Index,
+                };
             };
         };
         fn format(
@@ -8048,145 +8021,153 @@ pub const Metadata = enum(u32) {
             fmt_opts: std.fmt.FormatOptions,
             writer: anytype,
         ) @TypeOf(writer).Error!void {
-            if (data.item == .none) return;
+            if (data.node == .none) return;
+
+            const is_specialized = fmt_str.len > 0 and fmt_str[0] == 'S';
+            const recurse_fmt_str = if (is_specialized) fmt_str[1..] else fmt_str;
 
             if (data.formatter.need_comma) try writer.writeAll(", ");
             defer data.formatter.need_comma = true;
             try writer.writeAll(data.prefix);
 
             const builder = data.formatter.builder;
-            switch (data.item) {
+            switch (data.node) {
                 .none => unreachable,
-                .@"inline" => |item| {
+                .@"inline" => |node| {
                     const needed_comma = data.formatter.need_comma;
                     defer data.formatter.need_comma = needed_comma;
                     data.formatter.need_comma = false;
 
-                    const metadata_item = builder.metadata_items.get(@intFromEnum(item));
-                    switch (metadata_item.tag) {
-                        .tuple => {
-                            var extra =
-                                builder.metadataExtraDataTrail(Metadata.Tuple, metadata_item.data);
-                            const elements =
-                                extra.trail.next(extra.data.elements_len, Metadata, builder);
-                            try writer.writeAll("!{");
-                            for (elements) |element| try format(.{
-                                .formatter = data.formatter,
-                                .item = data.formatter.unwrapAssumeExists(element),
-                            }, "%", fmt_opts, writer);
-                            try writer.writeByte('}');
-                        },
+                    const item = builder.metadata_items.get(@intFromEnum(node));
+                    switch (item.tag) {
                         .expression => {
-                            var extra =
-                                builder.metadataExtraDataTrail(Metadata.Expression, metadata_item.data);
+                            var extra = builder.metadataExtraDataTrail(Expression, item.data);
                             const elements = extra.trail.next(extra.data.elements_len, u32, builder);
                             try writer.writeAll("!DIExpression(");
                             for (elements) |element| try format(.{
                                 .formatter = data.formatter,
-                                .item = .{ .u64 = element },
+                                .node = .{ .u64 = element },
                             }, "%", fmt_opts, writer);
                             try writer.writeByte(')');
                         },
                         .constant => try Constant.format(.{
-                            .constant = @enumFromInt(metadata_item.data),
+                            .constant = @enumFromInt(item.data),
                             .builder = builder,
-                        }, fmt_str, fmt_opts, writer),
+                        }, recurse_fmt_str, fmt_opts, writer),
                         else => unreachable,
                     }
                 },
-                .index => |item| try writer.print("!{d}", .{item}),
-                .value => |item| switch (item.value.unwrap()) {
-                    .instruction, .constant => try Value.format(.{
-                        .value = item.value,
-                        .function = item.function,
-                        .builder = builder,
-                    }, fmt_str, fmt_opts, writer),
-                    .metadata => |metadata| if (@intFromEnum(metadata) >=
-                        Metadata.first_local_metadata)
-                        try Value.format(.{
-                            .value = item.function.ptrConst(builder).debug_values[
-                                @intFromEnum(metadata) - Metadata.first_local_metadata
-                            ].toValue(),
-                            .function = item.function,
-                            .builder = builder,
-                        }, "%", fmt_opts, writer)
-                    else if (metadata != .none) {
-                        if (comptime std.mem.eql(u8, fmt_str, "%"))
-                            try writer.print("{%} ", .{Type.metadata.fmt(builder)});
-                        try Metadata.Formatter.format(.{
-                            .formatter = data.formatter,
-                            .item = data.formatter.unwrapAssumeExists(metadata),
-                        }, "", fmt_opts, writer);
-                    },
+                .index => |node| try writer.print("!{d}", .{node}),
+                inline .local_value, .local_metadata => |node, tag| try Value.format(.{
+                    .value = node.value,
+                    .function = node.function,
+                    .builder = builder,
+                }, switch (tag) {
+                    .local_value => recurse_fmt_str,
+                    .local_metadata => "%",
+                    else => unreachable,
+                }, fmt_opts, writer),
+                inline .local_inline, .local_index => |node, tag| {
+                    if (comptime std.mem.eql(u8, recurse_fmt_str, "%"))
+                        try writer.print("{%} ", .{Type.metadata.fmt(builder)});
+                    try format(.{
+                        .formatter = data.formatter,
+                        .node = @unionInit(FormatData.Node, @tagName(tag)["local_".len..], node),
+                    }, "", fmt_opts, writer);
                 },
-                .string => |item| try writer.print("{}", .{item.fmt(data.formatter.builder)}),
-                inline .bool, .u32, .u64 => |item| try writer.print("{}", .{item}),
-                .raw => |item| try writer.writeAll(item),
+                .string => |node| try writer.print("{s}{}", .{
+                    if (is_specialized) "" else "!",
+                    node.fmt(builder),
+                }),
+                inline .bool, .u32, .u64 => |node| try writer.print("{}", .{node}),
+                .raw => |node| try writer.writeAll(node),
             }
         }
-        inline fn fmt(formatter: *Formatter, prefix: []const u8, item: anytype) switch (@TypeOf(item)) {
+        inline fn fmt(formatter: *Formatter, prefix: []const u8, node: anytype) switch (@TypeOf(node)) {
             Metadata => Allocator.Error,
             else => error{},
         }!std.fmt.Formatter(format) {
+            const Node = @TypeOf(node);
+            const MaybeNode = switch (@typeInfo(Node)) {
+                .Optional => Node,
+                .Null => ?noreturn,
+                else => ?Node,
+            };
+            const Some = @typeInfo(MaybeNode).Optional.child;
             return .{ .data = .{
                 .formatter = formatter,
                 .prefix = prefix,
-                .item = switch (@typeInfo(@TypeOf(item))) {
-                    .Null => .none,
-                    .Enum => |enum_info| switch (@TypeOf(item)) {
-                        Metadata => try formatter.unwrap(item),
-                        MetadataString => .{ .string = item },
-                        else => if (enum_info.is_exhaustive)
-                            .{ .raw = @tagName(item) }
-                        else
-                            @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
-                    },
-                    .EnumLiteral => .{ .raw = @tagName(item) },
-                    .Bool => .{ .bool = item },
-                    .Struct => .{ .u32 = @bitCast(item) },
-                    .Int, .ComptimeInt => .{ .u64 = item },
-                    .Pointer => .{ .raw = item },
-                    .Optional => if (item) |some| switch (@typeInfo(@TypeOf(some))) {
-                        .Enum => |enum_info| switch (@TypeOf(some)) {
-                            Metadata => try formatter.unwrap(some),
-                            MetadataString => .{ .string = some },
-                            else => if (enum_info.is_exhaustive)
-                                .{ .raw = @tagName(some) }
-                            else
-                                @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
+                .node = if (@as(MaybeNode, node)) |some| switch (@typeInfo(Some)) {
+                    .Enum => |enum_info| switch (Some) {
+                        Metadata => switch (some) {
+                            .none => .none,
+                            else => try formatter.refUnwrapped(some.unwrap(formatter.builder)),
                         },
-                        .Bool => .{ .bool = some },
-                        .Struct => .{ .u32 = @bitCast(some) },
-                        .Int => .{ .u64 = some },
-                        .Pointer => .{ .raw = some },
-                        else => @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
-                    } else .none,
-                    else => @compileError("unknown type to format: " ++ @typeName(@TypeOf(item))),
+                        MetadataString => .{ .string = some },
+                        else => if (enum_info.is_exhaustive)
+                            .{ .raw = @tagName(some) }
+                        else
+                            @compileError("unknown type to format: " ++ @typeName(Node)),
+                    },
+                    .EnumLiteral => .{ .raw = @tagName(some) },
+                    .Bool => .{ .bool = some },
+                    .Struct => .{ .u32 = @bitCast(some) },
+                    .Int, .ComptimeInt => .{ .u64 = some },
+                    .Pointer => .{ .raw = some },
+                    else => @compileError("unknown type to format: " ++ @typeName(Node)),
+                } else switch (@typeInfo(Node)) {
+                    .Optional, .Null => .none,
+                    else => unreachable,
                 },
             } };
         }
         inline fn fmtLocal(
             formatter: *Formatter,
             prefix: []const u8,
-            item: Value,
+            value: Value,
             function: Function.Index,
         ) Allocator.Error!std.fmt.Formatter(format) {
             return .{ .data = .{
                 .formatter = formatter,
                 .prefix = prefix,
-                .item = .{ .value = .{
-                    .value = switch (item.unwrap()) {
-                        .instruction, .constant => item,
-                        .metadata => |metadata| value: {
-                            const unwrapped_metadata = metadata.unwrap(formatter.builder);
-                            if (@intFromEnum(unwrapped_metadata) < Metadata.first_local_metadata)
-                                _ = try formatter.unwrap(unwrapped_metadata);
-                            break :value unwrapped_metadata.toValue();
-                        },
+                .node = switch (value.unwrap()) {
+                    .instruction, .constant => .{ .local_value = .{
+                        .value = value,
+                        .function = function,
+                    } },
+                    .metadata => |metadata| if (value == .none) .none else node: {
+                        const unwrapped = metadata.unwrap(formatter.builder);
+                        break :node if (@intFromEnum(unwrapped) >= first_local_metadata)
+                            .{ .local_metadata = .{
+                                .value = function.ptrConst(formatter.builder).debug_values[
+                                    @intFromEnum(unwrapped) - first_local_metadata
+                                ].toValue(),
+                                .function = function,
+                            } }
+                        else switch (try formatter.refUnwrapped(unwrapped)) {
+                            .@"inline" => |node| .{ .local_inline = node },
+                            .index => |node| .{ .local_index = node },
+                            else => unreachable,
+                        };
                     },
-                    .function = function,
-                } },
+                },
             } };
+        }
+        fn refUnwrapped(formatter: *Formatter, node: Metadata) Allocator.Error!FormatData.Node {
+            assert(node != .none);
+            assert(@intFromEnum(node) < first_forward_reference);
+            const builder = formatter.builder;
+            const unwrapped_metadata = node.unwrap(builder);
+            const tag = formatter.builder.metadata_items.items(.tag)[@intFromEnum(unwrapped_metadata)];
+            switch (tag) {
+                .none => unreachable,
+                .expression, .constant => return .{ .@"inline" = unwrapped_metadata },
+                else => {
+                    assert(!tag.isInline());
+                    const gop = try formatter.map.getOrPutValue(builder.gpa, unwrapped_metadata, {});
+                    return .{ .index = @intCast(gop.index) };
+                },
+            }
         }
 
         inline fn specialized(
@@ -8208,11 +8189,11 @@ pub const Metadata = enum(u32) {
                 DIGlobalVariable,
                 DIGlobalVariableExpression,
             },
-            items: anytype,
+            nodes: anytype,
             writer: anytype,
         ) !void {
             comptime var fmt_str: []const u8 = "";
-            const names = comptime std.meta.fieldNames(@TypeOf(items));
+            const names = comptime std.meta.fieldNames(@TypeOf(nodes));
             comptime var fields: [2 + names.len]std.builtin.Type.StructField = undefined;
             inline for (fields[0..2], .{ "distinct", "node" }) |*field, name| {
                 fmt_str = fmt_str ++ "{[" ++ name ++ "]s}";
@@ -8226,7 +8207,7 @@ pub const Metadata = enum(u32) {
             }
             fmt_str = fmt_str ++ "(";
             inline for (fields[2..], names) |*field, name| {
-                fmt_str = fmt_str ++ "{[" ++ name ++ "]}";
+                fmt_str = fmt_str ++ "{[" ++ name ++ "]S}";
                 field.* = .{
                     .name = name,
                     .type = std.fmt.Formatter(format),
@@ -8247,7 +8228,7 @@ pub const Metadata = enum(u32) {
             fmt_args.node = @tagName(node);
             inline for (names) |name| @field(fmt_args, name) = try formatter.fmt(
                 name ++ ": ",
-                @field(items, name),
+                @field(nodes, name),
             );
             try writer.print(fmt_str, fmt_args);
         }
@@ -9877,7 +9858,7 @@ pub fn printUnbuffered(
             metadata_formatter.need_comma = false;
             defer metadata_formatter.need_comma = undefined;
             switch (metadata_item.tag) {
-                .none, .tuple, .expression, .constant => unreachable,
+                .none, .expression, .constant => unreachable,
                 .file => {
                     const extra = self.metadataExtraData(Metadata.File, metadata_item.data);
                     try metadata_formatter.specialized(.@"!", .DIFile, .{
@@ -10139,11 +10120,20 @@ pub fn printUnbuffered(
                         .stride = null,
                     }, writer);
                 },
+                .tuple => {
+                    var extra = self.metadataExtraDataTrail(Metadata.Tuple, metadata_item.data);
+                    const elements = extra.trail.next(extra.data.elements_len, Metadata, self);
+                    try writer.writeAll("!{");
+                    for (elements) |element| try writer.print("{[element]%}", .{
+                        .element = try metadata_formatter.fmt("", element),
+                    });
+                    try writer.writeAll("}\n");
+                },
                 .module_flag => {
                     const extra = self.metadataExtraData(Metadata.ModuleFlag, metadata_item.data);
                     try writer.print("!{{{[behavior]%}{[name]%}{[constant]%}}}\n", .{
                         .behavior = try metadata_formatter.fmt("", extra.behavior),
-                        .name = try metadata_formatter.fmt("!", extra.name),
+                        .name = try metadata_formatter.fmt("", extra.name),
                         .constant = try metadata_formatter.fmt("", extra.constant),
                     });
                 },
