@@ -155,7 +155,7 @@ pub const Header = struct {
         // If the leading byte is 0x80 (128), the non-leading bytes of the
         // field are concatenated in big-endian order.
         if (raw[0] == 0x80) {
-            if (raw[1] + raw[2] + raw[3] != 0) return error.TarNumericValueTooBig;
+            if (raw[1] != 0 or raw[2] != 0 or raw[3] != 0) return error.TarNumericValueTooBig;
             return std.mem.readInt(u64, raw[4..12], .big);
         }
         return try header.octal(start, len);
@@ -769,6 +769,7 @@ test "tar header parse size" {
         .{ .in = "\x80\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08", .want = 0x0102030405060708 },
         .{ .in = "\x80\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09", .err = error.TarNumericValueTooBig },
         .{ .in = "\x80\x00\x00\x00\x07\x76\xa2\x22\xeb\x8a\x72\x61", .want = 537795476381659745 },
+        .{ .in = "\x80\x80\x80\x00\x01\x02\x03\x04\x05\x06\x07\x08", .err = error.TarNumericValueTooBig },
 
         // // Test base-8 (octal) encoded values.
         .{ .in = "00000000227\x00", .want = 0o227 },
