@@ -914,6 +914,7 @@ const TestServer = struct {
 
     fn destroy(self: *@This()) void {
         self.server_thread.join();
+        self.net_server.deinit();
         std.testing.allocator.destroy(self);
     }
 
@@ -924,7 +925,6 @@ const TestServer = struct {
 
 fn createTestServer(S: type) !*TestServer {
     if (builtin.single_threaded) return error.SkipZigTest;
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm and native_endian == .big) {
         // https://github.com/ziglang/zig/issues/13782
         return error.SkipZigTest;

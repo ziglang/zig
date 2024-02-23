@@ -1,5 +1,3 @@
-const std = @import("std.zig");
-
 pub const Client = @import("http/Client.zig");
 pub const Server = @import("http/Server.zig");
 pub const protocol = @import("http/protocol.zig");
@@ -308,6 +306,9 @@ pub const Header = struct {
     value: []const u8,
 };
 
+const builtin = @import("builtin");
+const std = @import("std.zig");
+
 test {
     _ = Client;
     _ = Method;
@@ -315,5 +316,7 @@ test {
     _ = Status;
     _ = HeadParser;
     _ = ChunkParser;
-    _ = @import("http/test.zig");
+    if (builtin.os.tag != .wasi) {
+        _ = @import("http/test.zig");
+    }
 }
