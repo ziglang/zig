@@ -6972,8 +6972,7 @@ pub const Constant = enum(u32) {
                     .vector,
                     => builder.constantExtraData(Aggregate, item.data).type,
                     .splat => builder.constantExtraData(Splat, item.data).type,
-                    .string,
-                    => builder.arrayTypeAssumeCapacity(
+                    .string => builder.arrayTypeAssumeCapacity(
                         @as(String, @enumFromInt(item.data)).slice(builder).?.len,
                         .i8,
                     ),
@@ -13594,8 +13593,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try bitcode.writeBits(c, Constants.Aggregate.ops[1].array_fixed);
                         }
                     },
-                    .string,
-                    => {
+                    .string => {
                         const str: String = @enumFromInt(data);
                         if (str == .none) {
                             try constants_block.writeAbbrev(Constants.Null{});
