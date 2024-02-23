@@ -1149,14 +1149,17 @@ pub const Object = struct {
         try self.genModuleLevelAssembly();
 
         if (!self.builder.strip) {
-            for (
-                self.debug_unresolved_namespace_scopes.keys(),
-                self.debug_unresolved_namespace_scopes.values(),
-            ) |namespace_index, fwd_ref| {
-                const namespace = self.module.namespacePtr(namespace_index);
-                const debug_type = try self.lowerDebugType(namespace.ty);
+            {
+                var i: usize = 0;
+                while (i < self.debug_unresolved_namespace_scopes.count()) : (i += 1) {
+                    const namespace_index = self.debug_unresolved_namespace_scopes.keys()[i];
+                    const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
 
-                self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
+                    const namespace = self.module.namespacePtr(namespace_index);
+                    const debug_type = try self.lowerDebugType(namespace.ty);
+
+                    self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
+                }
             }
 
             self.builder.debugForwardReferenceSetType(
@@ -1967,7 +1970,6 @@ pub const Object = struct {
                 if (!ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const debug_enum_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
                     try o.debug_type_map.put(gpa, ty, debug_enum_type);
-                    try o.debug_enums.append(gpa, debug_enum_type);
                     return debug_enum_type;
                 }
 
