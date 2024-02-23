@@ -1505,12 +1505,26 @@ pub const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
 ///
 /// The caller is responsible for calling `deinit()` on the `Request`.
 /// This function is threadsafe.
+///
+/// Asserts that "\r\n" does not occur in any header name or value.
 pub fn open(
     client: *Client,
     method: http.Method,
     uri: Uri,
     options: RequestOptions,
 ) RequestError!Request {
+    if (std.debug.runtime_safety) {
+        for (options.extra_headers) |header| {
+            assert(std.mem.indexOfScalar(u8, header.name, ':') == null);
+            assert(std.mem.indexOfPosLinear(u8, header.name, 0, "\r\n") == null);
+            assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
+        }
+        for (options.privileged_headers) |header| {
+            assert(std.mem.indexOfPosLinear(u8, header.name, 0, "\r\n") == null);
+            assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
+        }
+    }
+
     const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUrlScheme;
 
     const port: u16 = uri.port orelse switch (protocol) {

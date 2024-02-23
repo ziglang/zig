@@ -296,6 +296,7 @@ pub const Request = struct {
     ///
     /// Asserts status is not `continue`.
     /// Asserts there are at most 25 extra_headers.
+    /// Asserts that "\r\n" does not occur in any header name or value.
     pub fn respond(
         request: *Request,
         content: []const u8,
@@ -304,6 +305,13 @@ pub const Request = struct {
         const max_extra_headers = 25;
         assert(options.status != .@"continue");
         assert(options.extra_headers.len <= max_extra_headers);
+        if (std.debug.runtime_safety) {
+            for (options.extra_headers) |header| {
+                assert(std.mem.indexOfScalar(u8, header.name, ':') == null);
+                assert(std.mem.indexOfPosLinear(u8, header.name, 0, "\r\n") == null);
+                assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
+            }
+        }
 
         const transfer_encoding_none = (options.transfer_encoding orelse .chunked) == .none;
         const server_keep_alive = !transfer_encoding_none and options.keep_alive;
@@ -765,7 +773,7 @@ pub const Response = struct {
     /// Respects the value of `elide_body` to omit all data after the headers.
     /// Asserts there are at most 25 trailers.
     pub fn endChunked(r: *Response, options: EndChunkedOptions) WriteError!void {
-        assert(r.content_length == null);
+        assert(r.transfer_encoding == .chunked);
         try flush_chunked(r, options.trailers);
         r.* = undefined;
     }
