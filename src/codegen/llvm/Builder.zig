@@ -5197,10 +5197,9 @@ pub const WipFunction = struct {
     ) Allocator.Error!Value {
         const scalar_ty = try ty.changeLength(1, self.builder);
         const mask_ty = try ty.changeScalar(.i32, self.builder);
-        const zero = try self.builder.intConst(.i32, 0);
         const poison = try self.builder.poisonValue(scalar_ty);
-        const mask = try self.builder.splatValue(mask_ty, zero);
-        const scalar = try self.insertElement(poison, elem, zero.toValue(), name);
+        const mask = try self.builder.splatValue(mask_ty, .@"0");
+        const scalar = try self.insertElement(poison, elem, .@"0", name);
         return self.shuffleVector(scalar, poison, mask, name);
     }
 
@@ -5278,7 +5277,10 @@ pub const WipFunction = struct {
             },
             .data = self.addExtraAssumeCapacity(Instruction.Alloca{
                 .type = ty,
-                .len = len,
+                .len = switch (len) {
+                    .none => .@"1",
+                    else => len,
+                },
                 .info = .{ .alignment = alignment, .addr_space = addr_space },
             }),
         });
@@ -6708,6 +6710,8 @@ pub const FastMathKind = enum {
 pub const Constant = enum(u32) {
     false,
     true,
+    @"0",
+    @"1",
     none,
     no_init = (1 << 30) - 1,
     _,
@@ -7492,6 +7496,8 @@ pub const Value = enum(u32) {
     none = std.math.maxInt(u31),
     false = first_constant + @intFromEnum(Constant.false),
     true = first_constant + @intFromEnum(Constant.true),
+    @"0" = first_constant + @intFromEnum(Constant.@"0"),
+    @"1" = first_constant + @intFromEnum(Constant.@"1"),
     _,
 
     const first_constant = 1 << 30;
@@ -8336,6 +8342,8 @@ pub fn init(options: Options) Allocator.Error!Builder {
 
     assert(try self.intConst(.i1, 0) == .false);
     assert(try self.intConst(.i1, 1) == .true);
+    assert(try self.intConst(.i32, 0) == .@"0");
+    assert(try self.intConst(.i32, 1) == .@"1");
     assert(try self.noneConst(.token) == .none);
     if (!self.strip) assert(try self.debugNone() == .none);
 
@@ -9519,7 +9527,10 @@ pub fn printUnbuffered(
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.type.fmt(self),
-                            extra.len.fmt(function_index, self),
+                            Value.fmt(switch (extra.len) {
+                                .@"1" => .none,
+                                else => extra.len,
+                            }, function_index, self),
                             extra.info.alignment,
                             extra.info.addr_space,
                         });
@@ -14510,8 +14521,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             const alignment = extra.info.alignment.toLlvm();
                             try function_block.writeAbbrev(FunctionBlock.Alloca{
                                 .inst_type = extra.type,
-                                .len_type = if (extra.len == .none) .i1 else extra.len.typeOf(@enumFromInt(func_index), self),
-                                .len_value = adapter.getValueIndex(if (extra.len == .none) Constant.true.toValue() else extra.len),
+                                .len_type = extra.len.typeOf(@enumFromInt(func_index), self),
+                                .len_value = adapter.getValueIndex(extra.len),
                                 .flags = .{
                                     .align_lower = @truncate(alignment),
                                     .inalloca = kind == .@"alloca inalloca",
