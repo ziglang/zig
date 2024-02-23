@@ -9880,7 +9880,7 @@ pub fn printUnbuffered(
                 .none, .tuple, .expression, .constant => unreachable,
                 .file => {
                     const extra = self.metadataExtraData(Metadata.File, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DIFile, .{
+                    try metadata_formatter.specialized(.@"!", .DIFile, .{
                         .filename = extra.filename,
                         .directory = extra.directory,
                         .checksumkind = null,
@@ -9978,7 +9978,7 @@ pub fn printUnbuffered(
                 .basic_float_type,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.BasicType, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DIBasicType, .{
+                    try metadata_formatter.specialized(.@"!", .DIBasicType, .{
                         .tag = null,
                         .name = switch (extra.name) {
                             .none => null,
@@ -10008,7 +10008,7 @@ pub fn printUnbuffered(
                 .composite_vector_type,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.CompositeType, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DICompositeType, .{
+                    try metadata_formatter.specialized(.@"!", .DICompositeType, .{
                         .tag = @as(enum {
                             DW_TAG_structure_type,
                             DW_TAG_union_type,
@@ -10050,7 +10050,7 @@ pub fn printUnbuffered(
                 .derived_member_type,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.DerivedType, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DIDerivedType, .{
+                    try metadata_formatter.specialized(.@"!", .DIDerivedType, .{
                         .tag = @as(enum {
                             DW_TAG_pointer_type,
                             DW_TAG_member,
@@ -10081,7 +10081,7 @@ pub fn printUnbuffered(
                 },
                 .subroutine_type => {
                     const extra = self.metadataExtraData(Metadata.SubroutineType, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DISubroutineType, .{
+                    try metadata_formatter.specialized(.@"!", .DISubroutineType, .{
                         .flags = null,
                         .cc = null,
                         .types = extra.types_tuple,
@@ -10120,7 +10120,7 @@ pub fn printUnbuffered(
                     const str = try bigint.toStringAlloc(allocator, 10, undefined);
                     defer allocator.free(str);
 
-                    try metadata_formatter.specialized(.@"distinct !", .DIEnumerator, .{
+                    try metadata_formatter.specialized(.@"!", .DIEnumerator, .{
                         .name = extra.name,
                         .value = str,
                         .isUnsigned = switch (kind) {
@@ -10149,7 +10149,7 @@ pub fn printUnbuffered(
                 },
                 .local_var => {
                     const extra = self.metadataExtraData(Metadata.LocalVar, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DILocalVariable, .{
+                    try metadata_formatter.specialized(.@"!", .DILocalVariable, .{
                         .name = extra.name,
                         .arg = null,
                         .scope = extra.scope,
@@ -10163,7 +10163,7 @@ pub fn printUnbuffered(
                 },
                 .parameter => {
                     const extra = self.metadataExtraData(Metadata.Parameter, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DILocalVariable, .{
+                    try metadata_formatter.specialized(.@"!", .DILocalVariable, .{
                         .name = extra.name,
                         .arg = extra.arg_no,
                         .scope = extra.scope,
@@ -10201,7 +10201,7 @@ pub fn printUnbuffered(
                 .global_var_expression => {
                     const extra =
                         self.metadataExtraData(Metadata.GlobalVarExpression, metadata_item.data);
-                    try metadata_formatter.specialized(.@"distinct !", .DIGlobalVariableExpression, .{
+                    try metadata_formatter.specialized(.@"!", .DIGlobalVariableExpression, .{
                         .@"var" = extra.variable,
                         .expr = extra.expression,
                     }, writer);
@@ -12623,17 +12623,35 @@ fn debugEnumeratorAssumeCapacity(
     value: std.math.big.int.Const,
 ) Metadata {
     assert(!self.strip);
-    const Key = struct { tag: Metadata.Tag, index: Metadata };
+    const Key = struct {
+        tag: Metadata.Tag,
+        name: MetadataString,
+        bit_width: u32,
+        value: std.math.big.int.Const,
+    };
     const Adapter = struct {
+        builder: *const Builder,
         pub fn hash(_: @This(), key: Key) u32 {
-            return @truncate(std.hash.Wyhash.hash(
-                std.hash.uint32(@intFromEnum(key.tag)),
-                std.mem.asBytes(&key.index),
-            ));
+            var hasher = std.hash.Wyhash.init(std.hash.uint32(@intFromEnum(key.tag)));
+            hasher.update(std.mem.asBytes(&key.name));
+            hasher.update(std.mem.asBytes(&key.bit_width));
+            hasher.update(std.mem.sliceAsBytes(key.value.limbs));
+            return @truncate(hasher.final());
         }
 
-        pub fn eql(_: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
-            return @intFromEnum(lhs_key.index) == rhs_index;
+        pub fn eql(ctx: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            if (lhs_key.tag != ctx.builder.metadata_items.items(.tag)[rhs_index]) return false;
+            const rhs_data = ctx.builder.metadata_items.items(.data)[rhs_index];
+            const rhs_extra = ctx.builder.metadataExtraData(Metadata.Enumerator, rhs_data);
+            const limbs = ctx.builder.metadata_limbs
+                .items[rhs_extra.limbs_index..][0..rhs_extra.limbs_len];
+            const rhs_value = std.math.big.int.Const{
+                .limbs = limbs,
+                .positive = lhs_key.value.positive,
+            };
+            return lhs_key.name == rhs_extra.name and
+                lhs_key.bit_width == rhs_extra.bit_width and
+                lhs_key.value.eql(rhs_value);
         }
     };
 
@@ -12647,8 +12665,13 @@ fn debugEnumeratorAssumeCapacity(
     assert(!(tag == .enumerator_unsigned and !value.positive));
 
     const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
-        Key{ .tag = tag, .index = @enumFromInt(self.metadata_map.count()) },
-        Adapter{},
+        Key{
+            .tag = tag,
+            .name = name,
+            .bit_width = bit_width,
+            .value = value,
+        },
+        Adapter{ .builder = self },
     );
 
     if (!gop.found_existing) {

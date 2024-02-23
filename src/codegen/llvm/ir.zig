@@ -873,7 +873,7 @@ pub const MetadataBlock = struct {
         pub const id = 14;
 
         pub const Flags = packed struct(u3) {
-            distinct: bool = true,
+            distinct: bool = false,
             unsigned: bool,
             bigint: bool,
         };
