@@ -658,7 +658,7 @@ pub const MetadataBlock = struct {
     pub const File = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 16 },
-            .{ .literal = 1 }, // is distinct
+            .{ .literal = 0 }, // is distinct
             MetadataAbbrev, // filename
             MetadataAbbrev, // directory
             .{ .literal = 0 }, // checksum
@@ -743,7 +743,7 @@ pub const MetadataBlock = struct {
     pub const LexicalBlock = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 22 },
-            .{ .literal = 1 }, // is distinct
+            .{ .literal = 0 }, // is distinct
             MetadataAbbrev, // scope
             MetadataAbbrev, // file
             LineAbbrev, // line
@@ -776,7 +776,7 @@ pub const MetadataBlock = struct {
     pub const BasicType = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 15 },
-            .{ .literal = 1 }, // is distinct
+            .{ .literal = 0 }, // is distinct
             .{ .literal = std.dwarf.TAG.base_type }, // tag
             MetadataAbbrev, // name
             .{ .vbr = 6 }, // size in bits
@@ -793,7 +793,7 @@ pub const MetadataBlock = struct {
     pub const CompositeType = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 18 },
-            .{ .literal = 1 | 0x2 }, // is distinct | is not used in old type ref
+            .{ .literal = 0 | 0x2 }, // is distinct | is not used in old type ref
             .{ .fixed = 32 }, // tag
             MetadataAbbrev, // name
             MetadataAbbrev, // file
@@ -832,7 +832,7 @@ pub const MetadataBlock = struct {
     pub const DerivedType = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 17 },
-            .{ .literal = 1 }, // is distinct
+            .{ .literal = 0 }, // is distinct
             .{ .fixed = 32 }, // tag
             MetadataAbbrev, // name
             MetadataAbbrev, // file
@@ -860,7 +860,7 @@ pub const MetadataBlock = struct {
     pub const SubroutineType = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 19 },
-            .{ .literal = 1 | 0x2 }, // is distinct | has no old type refs
+            .{ .literal = 0 | 0x2 }, // is distinct | has no old type refs
             .{ .literal = 0 }, // flags
             MetadataAbbrev, // types
             .{ .literal = 0 }, // cc
@@ -895,7 +895,7 @@ pub const MetadataBlock = struct {
     pub const Subrange = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 13 },
-            .{ .literal = 0b11 }, // is distinct | version
+            .{ .literal = 0b10 }, // is distinct | version
             MetadataAbbrev, // count
             MetadataAbbrev, // lower bound
             .{ .literal = 0 }, // upper bound
@@ -928,7 +928,7 @@ pub const MetadataBlock = struct {
     pub const LocalVar = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 28 },
-            .{ .literal = 0b11 }, // is distinct | has alignment
+            .{ .literal = 0b10 }, // is distinct | has alignment
             MetadataAbbrev, // scope
             MetadataAbbrev, // name
             MetadataAbbrev, // file
@@ -950,7 +950,7 @@ pub const MetadataBlock = struct {
     pub const Parameter = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 28 },
-            .{ .literal = 0b11 }, // is distinct | has alignment
+            .{ .literal = 0b10 }, // is distinct | has alignment
             MetadataAbbrev, // scope
             MetadataAbbrev, // name
             MetadataAbbrev, // file
@@ -1000,7 +1000,7 @@ pub const MetadataBlock = struct {
     pub const GlobalVarExpression = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 37 },
-            .{ .literal = 1 }, // is distinct
+            .{ .literal = 0 }, // is distinct
             MetadataAbbrev, // variable
             MetadataAbbrev, // expression
         };

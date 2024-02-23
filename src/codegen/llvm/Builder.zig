@@ -12284,7 +12284,7 @@ fn debugFileAssumeCapacity(
     directory: MetadataString,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.file, Metadata.File{
+    return self.metadataSimpleAssumeCapacity(.file, Metadata.File{
         .filename = filename,
         .directory = directory,
     });
@@ -12338,7 +12338,7 @@ fn debugSubprogramAssumeCapacity(
 
 fn debugLexicalBlockAssumeCapacity(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.lexical_block, Metadata.LexicalBlock{
+    return self.metadataSimpleAssumeCapacity(.lexical_block, Metadata.LexicalBlock{
         .scope = scope,
         .file = file,
         .line = line,
@@ -12358,7 +12358,7 @@ fn debugLocationAssumeCapacity(self: *Builder, line: u32, column: u32, scope: Me
 
 fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.basic_bool_type, Metadata.BasicType{
+    return self.metadataSimpleAssumeCapacity(.basic_bool_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -12367,7 +12367,7 @@ fn debugBoolTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bit
 
 fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.basic_unsigned_type, Metadata.BasicType{
+    return self.metadataSimpleAssumeCapacity(.basic_unsigned_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -12376,7 +12376,7 @@ fn debugUnsignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in
 
 fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.basic_signed_type, Metadata.BasicType{
+    return self.metadataSimpleAssumeCapacity(.basic_signed_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -12385,7 +12385,7 @@ fn debugSignedTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_b
 
 fn debugFloatTypeAssumeCapacity(self: *Builder, name: MetadataString, size_in_bits: u64) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.basic_float_type, Metadata.BasicType{
+    return self.metadataSimpleAssumeCapacity(.basic_float_type, Metadata.BasicType{
         .name = name,
         .size_in_bits_lo = @truncate(size_in_bits),
         .size_in_bits_hi = @truncate(size_in_bits >> 32),
@@ -12537,7 +12537,7 @@ fn debugCompositeTypeAssumeCapacity(
     fields_tuple: Metadata,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(tag, Metadata.CompositeType{
+    return self.metadataSimpleAssumeCapacity(tag, Metadata.CompositeType{
         .name = name,
         .file = file,
         .scope = scope,
@@ -12563,7 +12563,7 @@ fn debugPointerTypeAssumeCapacity(
     offset_in_bits: u64,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.derived_pointer_type, Metadata.DerivedType{
+    return self.metadataSimpleAssumeCapacity(.derived_pointer_type, Metadata.DerivedType{
         .name = name,
         .file = file,
         .scope = scope,
@@ -12590,7 +12590,7 @@ fn debugMemberTypeAssumeCapacity(
     offset_in_bits: u64,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.derived_member_type, Metadata.DerivedType{
+    return self.metadataSimpleAssumeCapacity(.derived_member_type, Metadata.DerivedType{
         .name = name,
         .file = file,
         .scope = scope,
@@ -12610,7 +12610,7 @@ fn debugSubroutineTypeAssumeCapacity(
     types_tuple: Metadata,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.subroutine_type, Metadata.SubroutineType{
+    return self.metadataSimpleAssumeCapacity(.subroutine_type, Metadata.SubroutineType{
         .types_tuple = types_tuple,
     });
 }
@@ -12674,7 +12674,7 @@ fn debugSubrangeAssumeCapacity(
     count: Metadata,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.subrange, Metadata.Subrange{
+    return self.metadataSimpleAssumeCapacity(.subrange, Metadata.Subrange{
         .lower_bound = lower_bound,
         .count = count,
     });
@@ -12797,7 +12797,7 @@ fn debugLocalVarAssumeCapacity(
     ty: Metadata,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.local_var, Metadata.LocalVar{
+    return self.metadataSimpleAssumeCapacity(.local_var, Metadata.LocalVar{
         .name = name,
         .file = file,
         .scope = scope,
@@ -12816,7 +12816,7 @@ fn debugParameterAssumeCapacity(
     arg_no: u32,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.parameter, Metadata.Parameter{
+    return self.metadataSimpleAssumeCapacity(.parameter, Metadata.Parameter{
         .name = name,
         .file = file,
         .scope = scope,
@@ -12858,7 +12858,7 @@ fn debugGlobalVarExpressionAssumeCapacity(
     expression: Metadata,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataDistinctAssumeCapacity(.global_var_expression, Metadata.GlobalVarExpression{
+    return self.metadataSimpleAssumeCapacity(.global_var_expression, Metadata.GlobalVarExpression{
         .variable = variable,
         .expression = expression,
     });
