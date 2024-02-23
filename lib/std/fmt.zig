@@ -272,7 +272,7 @@ pub const Placeholder = struct {
         // When none of the fill character and the alignment specifier have
         // been provided, check whether the width starts with a zero.
         if (fill == null and alignment == null) {
-            fill = comptime if (parser.peek(0)) |ch| (if (ch == '0') ch else null) else null;
+            fill = comptime if (parser.peek(0) == '0') '0' else null;
         }
 
         // Parse the width parameter
