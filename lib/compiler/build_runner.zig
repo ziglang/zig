@@ -101,6 +101,10 @@ pub fn main() !void {
     var steps_menu: bool = false;
     var output_tmp_nonce: ?[16]u8 = null;
 
+    if (graph.env_map.get("ZIG_SYSROOT")) |sysroot| {
+        builder.sysroot = sysroot;
+    }
+
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-Z")) {
             if (arg.len != 18) fatalWithHint("bad argument: '{s}'", .{arg});

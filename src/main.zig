@@ -970,7 +970,7 @@ fn buildOutputType(
         .rc_source_files = .{},
 
         .llvm_m_args = .{},
-        .sysroot = null,
+        .sysroot = try EnvVar.ZIG_SYSROOT.get(arena),
         .lib_dirs = .{}, // populated by createModule()
         .lib_dir_args = .{}, // populated from CLI arg parsing
         .libc_installation = null,
