@@ -1790,6 +1790,18 @@ pub const Linkage = enum(u4) {
     ) @TypeOf(writer).Error!void {
         if (self != .external) try writer.print(" {s}", .{@tagName(self)});
     }
+
+    fn formatOptional(
+        data: ?Linkage,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (data) |linkage| try writer.print(" {s}", .{@tagName(linkage)});
+    }
+    pub fn fmtOptional(self: ?Linkage) std.fmt.Formatter(formatOptional) {
+        return .{ .data = self };
+    }
 };
 
 pub const Preemption = enum {
@@ -8073,10 +8085,9 @@ pub const Metadata = enum(u32) {
                     try format(.{
                         .formatter = data.formatter,
                         .node = @unionInit(FormatData.Node, @tagName(tag)["local_".len..], node),
-                    }, "", fmt_opts, writer);
+                    }, "%", fmt_opts, writer);
                 },
-                .string => |node| try writer.print("{s}{}", .{
-                    if (is_specialized) "" else "!",
+                .string => |node| try writer.print((if (is_specialized) "" else "!") ++ "{}", .{
                     node.fmt(builder),
                 }),
                 inline .bool, .u32, .u64 => |node| try writer.print("{}", .{node}),
@@ -9276,7 +9287,8 @@ pub fn printUnbuffered(
                 \\
             , .{
                 variable.global.fmt(self),
-                global.linkage,
+                Linkage.fmtOptional(if (global.linkage == .external and
+                    variable.init != .no_init) null else global.linkage),
                 global.preemption,
                 global.visibility,
                 global.dll_storage_class,
