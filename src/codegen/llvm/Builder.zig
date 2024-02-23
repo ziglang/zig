@@ -5533,9 +5533,7 @@ pub const WipFunction = struct {
         name: []const u8,
     ) Allocator.Error!Value {
         assert(ty.isStruct(self.builder));
-        return self.gep(.inbounds, ty, base, &.{
-            try self.builder.intValue(.i32, 0), try self.builder.intValue(.i32, index),
-        }, name);
+        return self.gep(.inbounds, ty, base, &.{ .@"0", try self.builder.intValue(.i32, index) }, name);
     }
 
     pub fn conv(

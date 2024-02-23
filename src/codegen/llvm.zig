@@ -896,19 +896,22 @@ pub const Object = struct {
                 .{ .optimized = comp.root_mod.optimize_mode != .Debug },
             );
 
+            const i32_2 = try builder.intConst(.i32, 2);
+            const i32_3 = try builder.intConst(.i32, 3);
             const debug_info_version = try builder.debugModuleFlag(
-                try builder.debugConstant(try builder.intConst(.i32, 2)),
+                try builder.debugConstant(i32_2),
                 try builder.metadataString("Debug Info Version"),
-                try builder.debugConstant(try builder.intConst(.i32, 3)),
+                try builder.debugConstant(i32_3),
             );
 
             switch (comp.config.debug_format) {
                 .strip => unreachable,
                 .dwarf => |f| {
+                    const i32_4 = try builder.intConst(.i32, 4);
                     const dwarf_version = try builder.debugModuleFlag(
-                        try builder.debugConstant(try builder.intConst(.i32, 2)),
+                        try builder.debugConstant(i32_2),
                         try builder.metadataString("Dwarf Version"),
-                        try builder.debugConstant(try builder.intConst(.i32, 4)),
+                        try builder.debugConstant(i32_4),
                     );
                     switch (f) {
                         .@"32" => {
@@ -919,9 +922,9 @@ pub const Object = struct {
                         },
                         .@"64" => {
                             const dwarf64 = try builder.debugModuleFlag(
-                                try builder.debugConstant(try builder.intConst(.i32, 2)),
+                                try builder.debugConstant(i32_2),
                                 try builder.metadataString("DWARF64"),
-                                try builder.debugConstant(try builder.intConst(.i32, 1)),
+                                try builder.debugConstant(.@"1"),
                             );
                             try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
                                 debug_info_version,
@@ -933,9 +936,9 @@ pub const Object = struct {
                 },
                 .code_view => {
                     const code_view = try builder.debugModuleFlag(
-                        try builder.debugConstant(try builder.intConst(.i32, 2)),
+                        try builder.debugConstant(i32_2),
                         try builder.metadataString("CodeView"),
-                        try builder.debugConstant(try builder.intConst(.i32, 1)),
+                        try builder.debugConstant(.@"1"),
                     );
                     try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
                         debug_info_version,
@@ -4265,7 +4268,7 @@ pub const Object = struct {
                 const err_align = err_int_ty.abiAlignment(mod);
                 const index: u32 = if (payload_align.compare(.gt, err_align)) 2 else 1;
                 return o.builder.gepConst(.inbounds, try o.lowerType(eu_ty), parent_ptr, null, &.{
-                    try o.builder.intConst(.i32, 0), try o.builder.intConst(.i32, index),
+                    .@"0", try o.builder.intConst(.i32, index),
                 });
             },
             .opt_payload => |opt_ptr| {
@@ -4281,9 +4284,7 @@ pub const Object = struct {
                     return parent_ptr;
                 }
 
-                return o.builder.gepConst(.inbounds, try o.lowerType(opt_ty), parent_ptr, null, &.{
-                    try o.builder.intConst(.i32, 0), try o.builder.intConst(.i32, 0),
-                });
+                return o.builder.gepConst(.inbounds, try o.lowerType(opt_ty), parent_ptr, null, &.{ .@"0", .@"0" });
             },
             .comptime_field => unreachable,
             .elem => |elem_ptr| {
@@ -4314,7 +4315,7 @@ pub const Object = struct {
 
                         const parent_llvm_ty = try o.lowerType(parent_ty);
                         return o.builder.gepConst(.inbounds, parent_llvm_ty, parent_ptr, null, &.{
-                            try o.builder.intConst(.i32, 0),
+                            .@"0",
                             try o.builder.intConst(.i32, @intFromBool(
                                 layout.tag_size > 0 and layout.tag_align.compare(.gte, layout.payload_align),
                             )),
@@ -4340,7 +4341,7 @@ pub const Object = struct {
                             parent_ptr,
                             null,
                             if (o.llvmFieldIndex(parent_ty, field_index)) |llvm_field_index| &.{
-                                try o.builder.intConst(.i32, 0),
+                                .@"0",
                                 try o.builder.intConst(.i32, llvm_field_index),
                             } else &.{
                                 try o.builder.intConst(.i32, @intFromBool(
@@ -4353,7 +4354,7 @@ pub const Object = struct {
                         assert(parent_ty.isSlice(mod));
                         const parent_llvm_ty = try o.lowerType(parent_ty);
                         return o.builder.gepConst(.inbounds, parent_llvm_ty, parent_ptr, null, &.{
-                            try o.builder.intConst(.i32, 0), try o.builder.intConst(.i32, field_index),
+                            .@"0", try o.builder.intConst(.i32, field_index),
                         });
                     },
                     else => unreachable,
@@ -7842,7 +7843,7 @@ pub const FuncGen = struct {
             .none,
             if (scalar_ty.isSignedInt(mod)) .@"smul.fix.sat" else .@"umul.fix.sat",
             &.{try o.lowerType(inst_ty)},
-            &.{ lhs, rhs, try o.builder.intValue(.i32, 0) },
+            &.{ lhs, rhs, .@"0" },
             "",
         );
     }
@@ -8165,7 +8166,6 @@ pub const FuncGen = struct {
 
         const libc_fn = try self.getLibcFunction(fn_name, &.{ scalar_llvm_ty, scalar_llvm_ty }, .i32);
 
-        const zero = try o.builder.intConst(.i32, 0);
         const int_cond: Builder.IntegerCondition = switch (pred) {
             .eq => .eq,
             .neq => .ne,
@@ -8182,7 +8182,7 @@ pub const FuncGen = struct {
             const init = try o.builder.poisonValue(vector_result_ty);
             const result = try self.buildElementwiseCall(libc_fn, &params, init, vec_len);
 
-            const zero_vector = try o.builder.splatValue(vector_result_ty, zero);
+            const zero_vector = try o.builder.splatValue(vector_result_ty, .@"0");
             return self.wip.icmp(int_cond, result, zero_vector, "");
         }
 
@@ -8195,7 +8195,7 @@ pub const FuncGen = struct {
             &params,
             "",
         );
-        return self.wip.icmp(int_cond, result, zero.toValue(), "");
+        return self.wip.icmp(int_cond, result, .@"0", "");
     }
 
     const FloatOp = enum {
@@ -9021,18 +9021,14 @@ pub const FuncGen = struct {
             // https://github.com/ziglang/zig/issues/11946
             return o.builder.intValue(llvm_usize, 0);
         }
-        const result = try self.wip.callIntrinsic(.normal, .none, .returnaddress, &.{}, &.{
-            try o.builder.intValue(.i32, 0),
-        }, "");
+        const result = try self.wip.callIntrinsic(.normal, .none, .returnaddress, &.{}, &.{.@"0"}, "");
         return self.wip.cast(.ptrtoint, result, llvm_usize, "");
     }
 
     fn airFrameAddress(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
         const o = self.dg.object;
-        const result = try self.wip.callIntrinsic(.normal, .none, .frameaddress, &.{.ptr}, &.{
-            try o.builder.intValue(.i32, 0),
-        }, "");
+        const result = try self.wip.callIntrinsic(.normal, .none, .frameaddress, &.{.ptr}, &.{.@"0"}, "");
         return self.wip.cast(.ptrtoint, result, try o.lowerType(Type.usize), "");
     }
 
@@ -10116,7 +10112,6 @@ pub const FuncGen = struct {
         const field_align = mod.unionFieldNormalAlignment(union_obj, extra.field_index);
         const llvm_usize = try o.lowerType(Type.usize);
         const usize_zero = try o.builder.intValue(llvm_usize, 0);
-        const i32_zero = try o.builder.intValue(.i32, 0);
 
         const llvm_union_ty = t: {
             const payload_ty = p: {
@@ -10155,7 +10150,7 @@ pub const FuncGen = struct {
             .flags = .{ .alignment = field_align },
         });
         if (layout.tag_size == 0) {
-            const indices = [3]Builder.Value{ usize_zero, i32_zero, i32_zero };
+            const indices = [3]Builder.Value{ usize_zero, .@"0", .@"0" };
             const len: usize = if (field_size == layout.payload_size) 2 else 3;
             const field_ptr =
                 try self.wip.gep(.inbounds, llvm_union_ty, result_ptr, indices[0..len], "");
@@ -10165,11 +10160,9 @@ pub const FuncGen = struct {
 
         {
             const payload_index = @intFromBool(layout.tag_align.compare(.gte, layout.payload_align));
-            const indices: [3]Builder.Value =
-                .{ usize_zero, try o.builder.intValue(.i32, payload_index), i32_zero };
+            const indices: [3]Builder.Value = .{ usize_zero, try o.builder.intValue(.i32, payload_index), .@"0" };
             const len: usize = if (field_size == layout.payload_size) 2 else 3;
-            const field_ptr =
-                try self.wip.gep(.inbounds, llvm_union_ty, result_ptr, indices[0..len], "");
+            const field_ptr = try self.wip.gep(.inbounds, llvm_union_ty, result_ptr, indices[0..len], "");
             try self.store(field_ptr, field_ptr_ty, llvm_payload, .none);
         }
         {
@@ -10275,7 +10268,7 @@ pub const FuncGen = struct {
 
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
-        if (dimension >= 3) return o.builder.intValue(.i32, 1);
+        if (dimension >= 3) return .@"1";
 
         // Fetch the dispatch pointer, which points to this structure:
         // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
