@@ -13581,8 +13581,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .x86_fp80 => {
                         const extra = self.constantExtraData(Constant.Fp80, data);
                         try constants_block.writeAbbrev(Constants.Fp80{
-                            .lo = @as(u64, extra.lo_hi) << 32 | @as(u64, extra.lo_lo),
-                            .hi = @intCast(extra.hi),
+                            .hi = @as(u64, extra.hi) << 48 | @as(u64, extra.lo_hi) << 16 |
+                                extra.lo_lo >> 16,
+                            .lo = @truncate(extra.lo_lo),
                         });
                     },
                     .fp128,

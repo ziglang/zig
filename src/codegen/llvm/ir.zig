@@ -425,8 +425,8 @@ pub const Constants = struct {
             .{ .vbr = 6 },
             .{ .vbr = 6 },
         };
-        lo: u64,
-        hi: u16,
+        hi: u64,
+        lo: u16,
     };
 
     pub const Fp128 = struct {
