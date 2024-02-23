@@ -245,6 +245,9 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                 atom.rel_index = @intCast(self.relocs.items.len);
                 atom.rel_num = @intCast(relocs.len);
                 try self.relocs.appendUnalignedSlice(allocator, relocs);
+                if (elf_file.getTarget().cpu.arch == .riscv64) {
+                    sortRelocs(self.relocs.items[atom.rel_index..][0..atom.rel_num]);
+                }
             }
         },
         else => {},
@@ -333,6 +336,7 @@ fn skipShdr(self: *Object, index: u32, elf_file: *Elf) bool {
         if (mem.startsWith(u8, name, ".note")) break :blk true;
         if (mem.startsWith(u8, name, ".comment")) break :blk true;
         if (mem.startsWith(u8, name, ".llvm_addrsig")) break :blk true;
+        if (mem.startsWith(u8, name, ".riscv.attributes")) break :blk true; // TODO: riscv attributes
         if (comp.config.debug_format == .strip and shdr.sh_flags & elf.SHF_ALLOC == 0 and
             mem.startsWith(u8, name, ".debug")) break :blk true;
         break :blk false;
@@ -381,12 +385,15 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
     defer allocator.free(relocs);
     const rel_start = @as(u32, @intCast(self.relocs.items.len));
     try self.relocs.appendUnalignedSlice(allocator, relocs);
+    if (elf_file.getTarget().cpu.arch == .riscv64) {
+        sortRelocs(self.relocs.items[rel_start..][0..relocs.len]);
+    }
     const fdes_start = self.fdes.items.len;
     const cies_start = self.cies.items.len;
 
     var it = eh_frame.Iterator{ .data = raw };
     while (try it.next()) |rec| {
-        const rel_range = filterRelocs(relocs, rec.offset, rec.size + 4);
+        const rel_range = filterRelocs(self.relocs.items[rel_start..][0..relocs.len], rec.offset, rec.size + 4);
         switch (rec.tag) {
             .cie => try self.cies.append(allocator, .{
                 .offset = data_start + rec.offset,
@@ -449,8 +456,18 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
     }
 }
 
+fn sortRelocs(relocs: []elf.Elf64_Rela) void {
+    const sortFn = struct {
+        fn lessThan(c: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+            _ = c;
+            return lhs.r_offset < rhs.r_offset;
+        }
+    }.lessThan;
+    mem.sort(elf.Elf64_Rela, relocs, {}, sortFn);
+}
+
 fn filterRelocs(
-    relocs: []align(1) const elf.Elf64_Rela,
+    relocs: []const elf.Elf64_Rela,
     start: u64,
     len: u64,
 ) struct { start: u64, len: u64 } {
@@ -832,7 +849,8 @@ pub fn updateSymtabSize(self: *Object, elf_file: *Elf) !void {
         if (local.atom(elf_file)) |atom| if (!atom.flags.alive) continue;
         const esym = local.elfSym(elf_file);
         switch (esym.st_type()) {
-            elf.STT_SECTION, elf.STT_NOTYPE => continue,
+            elf.STT_SECTION => continue,
+            elf.STT_NOTYPE => if (esym.st_shndx == elf.SHN_UNDEF) continue,
             else => {},
         }
         local.flags.output_symtab = true;

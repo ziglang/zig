@@ -1,4 +1,6 @@
 pub const Kind = enum {
+    none,
+    other,
     abs,
     copy,
     rel,
@@ -13,23 +15,24 @@ pub const Kind = enum {
 
 fn Table(comptime len: comptime_int, comptime RelType: type, comptime mapping: [len]struct { Kind, RelType }) type {
     return struct {
-        fn decode(r_type: u32) ?Kind {
+        fn decode(r_type: u32) Kind {
             inline for (mapping) |entry| {
                 if (@intFromEnum(entry[1]) == r_type) return entry[0];
             }
-            return null;
+            return .other;
         }
 
         fn encode(comptime kind: Kind) u32 {
             inline for (mapping) |entry| {
                 if (entry[0] == kind) return @intFromEnum(entry[1]);
             }
-            unreachable;
+            @panic("encoding .other is ambiguous");
         }
     };
 }
 
-const x86_64_relocs = Table(10, elf.R_X86_64, .{
+const x86_64_relocs = Table(11, elf.R_X86_64, .{
+    .{ .none, .NONE },
     .{ .abs, .@"64" },
     .{ .copy, .COPY },
     .{ .rel, .RELATIVE },
@@ -42,7 +45,8 @@ const x86_64_relocs = Table(10, elf.R_X86_64, .{
     .{ .tlsdesc, .TLSDESC },
 });
 
-const aarch64_relocs = Table(10, elf.R_AARCH64, .{
+const aarch64_relocs = Table(11, elf.R_AARCH64, .{
+    .{ .none, .NONE },
     .{ .abs, .ABS64 },
     .{ .copy, .COPY },
     .{ .rel, .RELATIVE },
@@ -55,7 +59,8 @@ const aarch64_relocs = Table(10, elf.R_AARCH64, .{
     .{ .tlsdesc, .TLSDESC },
 });
 
-const riscv64_relocs = Table(10, elf.R_RISCV, .{
+const riscv64_relocs = Table(11, elf.R_RISCV, .{
+    .{ .none, .NONE },
     .{ .abs, .@"64" },
     .{ .copy, .COPY },
     .{ .rel, .RELATIVE },

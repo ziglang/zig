@@ -99,9 +99,9 @@ pub const Thunk = struct {
             const sym = macho_file.getSymbol(sym_index);
             const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
             const taddr = sym.getAddress(.{}, macho_file);
-            const pages = try Relocation.calcNumberOfPages(saddr, taddr);
+            const pages = try aarch64.calcNumberOfPages(saddr, taddr);
             try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-            const off = try Relocation.calcPageOffset(taddr, .arithmetic);
+            const off = try aarch64.calcPageOffset(.arithmetic, taddr);
             try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
             try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
         }
@@ -164,7 +164,7 @@ const max_distance = (1 << (jump_bits - 1));
 /// and assume margin to be 5MiB.
 const max_allowed_distance = max_distance - 0x500_000;
 
-const aarch64 = @import("../../arch/aarch64/bits.zig");
+const aarch64 = @import("../aarch64.zig");
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 const macho = std.macho;

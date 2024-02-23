@@ -189,6 +189,7 @@ gnu_eh_frame_hdr_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
 rela_iplt_start_index: ?Symbol.Index = null,
 rela_iplt_end_index: ?Symbol.Index = null,
+global_pointer_index: ?Symbol.Index = null,
 start_stop_indexes: std.ArrayListUnmanaged(u32) = .{},
 
 /// An array of symbols parsed across all input files.
@@ -1343,6 +1344,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
     if (self.zigObjectPtr()) |zig_object| {
+        var has_reloc_errors = false;
         for (zig_object.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
@@ -1353,10 +1355,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             defer gpa.free(code);
             const file_offset = shdr.sh_offset + atom_ptr.value;
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
-                // TODO
-                error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
-                    log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
-                },
+                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
                     return error.FlushFailure;
@@ -1365,19 +1364,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             };
             try self.base.file.?.pwriteAll(code, file_offset);
         }
+
+        if (has_reloc_errors) return error.FlushFailure;
     }
 
     try self.writePhdrTable();
     try self.writeShdrTable();
     try self.writeAtoms();
-
-    self.writeSyntheticSections() catch |err| switch (err) {
-        error.UnsupportedCpuArch => {
-            try self.reportUnsupportedCpuArch();
-            return error.FlushFailure;
-        },
-        else => |e| return e,
-    };
+    try self.writeSyntheticSections();
 
     if (self.entry_index == null and self.base.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
@@ -2048,17 +2042,22 @@ fn scanRelocs(self: *Elf) !void {
     if (self.zigObjectPtr()) |zo| objects.appendAssumeCapacity(zo.index);
     objects.appendSliceAssumeCapacity(self.objects.items);
 
+    var has_reloc_errors = false;
     for (objects.items) |index| {
         self.file(index).?.scanRelocs(self, &undefs) catch |err| switch (err) {
+            error.RelaxFailure => unreachable,
             error.UnsupportedCpuArch => {
                 try self.reportUnsupportedCpuArch();
                 return error.FlushFailure;
             },
+            error.RelocFailure => has_reloc_errors = true,
             else => |e| return e,
         };
     }
 
     try self.reportUndefinedSymbols(&undefs);
+
+    if (has_reloc_errors) return error.FlushFailure;
 
     for (self.symbols.items, 0..) |*sym, i| {
         const index = @as(u32, @intCast(i));
@@ -3095,6 +3094,10 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
         }
     }
 
+    if (self.getTarget().cpu.arch == .riscv64 and self.base.isDynLib()) {
+        self.global_pointer_index = try linker_defined.addGlobal("__global_pointer$", self);
+    }
+
     linker_defined.resolveSymbols(self);
 }
 
@@ -3220,6 +3223,19 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
             start.output_section_index = shndx;
             stop.value = shdr.sh_addr + shdr.sh_size;
             stop.output_section_index = shndx;
+        }
+    }
+
+    // __global_pointer$
+    if (self.global_pointer_index) |index| {
+        const sym = self.symbol(index);
+        if (self.sectionByName(".sdata")) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            sym.value = shdr.sh_addr + 0x800;
+            sym.output_section_index = shndx;
+        } else {
+            sym.value = 0;
+            sym.output_section_index = 0;
         }
     }
 }
@@ -4431,6 +4447,8 @@ fn writeAtoms(self: *Elf) !void {
         undefs.deinit();
     }
 
+    var has_reloc_errors = false;
+
     // TODO iterate over `output_sections` directly
     for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
@@ -4493,14 +4511,11 @@ fn writeAtoms(self: *Elf) !void {
             else
                 atom_ptr.resolveRelocsAlloc(self, out_code);
             _ = res catch |err| switch (err) {
-                // TODO
-                error.RelaxFail, error.InvalidInstruction, error.CannotEncode => {
-                    log.err("relaxing intructions failed; TODO this should be a fatal linker error", .{});
-                },
                 error.UnsupportedCpuArch => {
                     try self.reportUnsupportedCpuArch();
                     return error.FlushFailure;
                 },
+                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 else => |e| return e,
             };
         }
@@ -4509,6 +4524,8 @@ fn writeAtoms(self: *Elf) !void {
     }
 
     try self.reportUndefinedSymbols(&undefs);
+
+    if (has_reloc_errors) return error.FlushFailure;
 }
 
 pub fn updateSymtabSize(self: *Elf) !void {
@@ -4665,7 +4682,14 @@ fn writeSyntheticSections(self: *Elf) !void {
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
-        try eh_frame.writeEhFrame(self, buffer.writer());
+        eh_frame.writeEhFrame(self, buffer.writer()) catch |err| switch (err) {
+            error.RelocFailure => return error.FlushFailure,
+            error.UnsupportedCpuArch => {
+                try self.reportUnsupportedCpuArch();
+                return error.FlushFailure;
+            },
+            else => |e| return e,
+        };
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
@@ -5524,6 +5548,15 @@ pub fn comdatGroup(self: *Elf, index: ComdatGroup.Index) *ComdatGroup {
 pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupOwner {
     assert(index < self.comdat_groups_owners.items.len);
     return &self.comdat_groups_owners.items[index];
+}
+
+pub fn gotAddress(self: *Elf) u64 {
+    const shndx = blk: {
+        if (self.getTarget().cpu.arch == .x86_64 and self.got_plt_section_index != null)
+            break :blk self.got_plt_section_index.?;
+        break :blk if (self.got_section_index) |shndx| shndx else null;
+    };
+    return if (shndx) |index| self.shdrs.items[index].sh_addr else 0;
 }
 
 pub fn tpAddress(self: *Elf) u64 {
