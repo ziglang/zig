@@ -222,6 +222,72 @@ test "echo content server" {
     }
 }
 
+test "Server.Request.respondStreaming non-chunked, unknown content-length" {
+    // In this case, the response is expected to stream until the connection is
+    // closed, indicating the end of the body.
+    const test_server = try createTestServer(struct {
+        fn run(net_server: *std.net.Server) anyerror!void {
+            var header_buffer: [1000]u8 = undefined;
+            var remaining: usize = 1;
+            while (remaining != 0) : (remaining -= 1) {
+                const conn = try net_server.accept();
+                defer conn.stream.close();
+
+                var server = std.http.Server.init(conn, &header_buffer);
+
+                try expectEqual(.ready, server.state);
+                var request = try server.receiveHead();
+                try expectEqualStrings(request.head.target, "/foo");
+                var send_buffer: [500]u8 = undefined;
+                var response = request.respondStreaming(.{
+                    .send_buffer = &send_buffer,
+                    .respond_options = .{
+                        .transfer_encoding = .none,
+                    },
+                });
+                var total: usize = 0;
+                for (0..500) |i| {
+                    var buf: [30]u8 = undefined;
+                    const line = try std.fmt.bufPrint(&buf, "{d}, ah ha ha!\n", .{i});
+                    try response.writeAll(line);
+                    total += line.len;
+                }
+                try expectEqual(7390, total);
+                try response.end();
+                try expectEqual(.closing, server.state);
+            }
+        }
+    });
+    defer test_server.destroy();
+
+    const request_bytes = "GET /foo HTTP/1.1\r\n\r\n";
+    const gpa = std.testing.allocator;
+    const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    defer stream.close();
+    try stream.writeAll(request_bytes);
+
+    const response = try stream.reader().readAllAlloc(gpa, 8192);
+    defer gpa.free(response);
+
+    var expected_response = std.ArrayList(u8).init(gpa);
+    defer expected_response.deinit();
+
+    try expected_response.appendSlice("HTTP/1.1 200 OK\r\n\r\n");
+
+    {
+        var total: usize = 0;
+        for (0..500) |i| {
+            var buf: [30]u8 = undefined;
+            const line = try std.fmt.bufPrint(&buf, "{d}, ah ha ha!\n", .{i});
+            try expected_response.appendSlice(line);
+            total += line.len;
+        }
+        try expectEqual(7390, total);
+    }
+
+    try expectEqualStrings(expected_response.items, response);
+}
+
 fn echoTests(client: *std.http.Client, port: u16) !void {
     const gpa = std.testing.allocator;
     var location_buffer: [100]u8 = undefined;

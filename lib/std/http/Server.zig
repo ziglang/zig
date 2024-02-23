@@ -474,7 +474,10 @@ pub const Request = struct {
             }) catch unreachable;
             if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n");
 
-            if (options.content_length) |len| {
+            if (o.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
+                .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
+                .none => {},
+            } else if (options.content_length) |len| {
                 h.fixedWriter().print("content-length: {d}\r\n", .{len}) catch unreachable;
             } else {
                 h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n");
@@ -496,7 +499,12 @@ pub const Request = struct {
             .send_buffer = options.send_buffer,
             .send_buffer_start = 0,
             .send_buffer_end = h.items.len,
-            .content_length = options.content_length,
+            .transfer_encoding = if (o.transfer_encoding) |te| switch (te) {
+                .chunked => .chunked,
+                .none => .none,
+            } else if (options.content_length) |len| .{
+                .content_length = len,
+            } else .chunked,
             .elide_body = elide_body,
             .chunk_len = 0,
         };
@@ -709,11 +717,20 @@ pub const Response = struct {
     send_buffer_end: usize,
     /// `null` means transfer-encoding: chunked.
     /// As a debugging utility, counts down to zero as bytes are written.
-    content_length: ?u64,
+    transfer_encoding: TransferEncoding,
     elide_body: bool,
     /// Indicates how much of the end of the `send_buffer` corresponds to a
     /// chunk. This amount of data will be wrapped by an HTTP chunk header.
     chunk_len: usize,
+
+    pub const TransferEncoding = union(enum) {
+        /// End of connection signals the end of the stream.
+        none,
+        /// As a debugging utility, counts down to zero as bytes are written.
+        content_length: u64,
+        /// Each chunk is wrapped in a header and trailer.
+        chunked,
+    };
 
     pub const WriteError = net.Stream.WriteError;
 
@@ -723,11 +740,17 @@ pub const Response = struct {
     /// end-of-stream message, then flushes the stream to the system.
     /// Respects the value of `elide_body` to omit all data after the headers.
     pub fn end(r: *Response) WriteError!void {
-        if (r.content_length) |len| {
-            assert(len == 0); // Trips when end() called before all bytes written.
-            try flush_cl(r);
-        } else {
-            try flush_chunked(r, &.{});
+        switch (r.transfer_encoding) {
+            .content_length => |len| {
+                assert(len == 0); // Trips when end() called before all bytes written.
+                try flush_cl(r);
+            },
+            .none => {
+                try flush_cl(r);
+            },
+            .chunked => {
+                try flush_chunked(r, &.{});
+            },
         }
         r.* = undefined;
     }
@@ -752,16 +775,21 @@ pub const Response = struct {
     /// May return 0, which does not indicate end of stream. The caller decides
     /// when the end of stream occurs by calling `end`.
     pub fn write(r: *Response, bytes: []const u8) WriteError!usize {
-        if (r.content_length != null) {
-            return write_cl(r, bytes);
-        } else {
-            return write_chunked(r, bytes);
+        switch (r.transfer_encoding) {
+            .content_length, .none => return write_cl(r, bytes),
+            .chunked => return write_chunked(r, bytes),
         }
     }
 
     fn write_cl(context: *const anyopaque, bytes: []const u8) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
-        const len = &r.content_length.?;
+
+        var trash: u64 = std.math.maxInt(u64);
+        const len = switch (r.transfer_encoding) {
+            .content_length => |*len| len,
+            else => &trash,
+        };
+
         if (r.elide_body) {
             len.* -= bytes.len;
             return bytes.len;
@@ -805,7 +833,7 @@ pub const Response = struct {
 
     fn write_chunked(context: *const anyopaque, bytes: []const u8) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
-        assert(r.content_length == null);
+        assert(r.transfer_encoding == .chunked);
 
         if (r.elide_body)
             return bytes.len;
@@ -867,15 +895,13 @@ pub const Response = struct {
     /// This is redundant after calling `end`.
     /// Respects the value of `elide_body` to omit all data after the headers.
     pub fn flush(r: *Response) WriteError!void {
-        if (r.content_length != null) {
-            return flush_cl(r);
-        } else {
-            return flush_chunked(r, null);
+        switch (r.transfer_encoding) {
+            .none, .content_length => return flush_cl(r),
+            .chunked => return flush_chunked(r, null),
         }
     }
 
     fn flush_cl(r: *Response) WriteError!void {
-        assert(r.content_length != null);
         try r.stream.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
@@ -884,7 +910,7 @@ pub const Response = struct {
     fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) WriteError!void {
         const max_trailers = 25;
         if (end_trailers) |trailers| assert(trailers.len <= max_trailers);
-        assert(r.content_length == null);
+        assert(r.transfer_encoding == .chunked);
 
         const http_headers = r.send_buffer[r.send_buffer_start .. r.send_buffer_end - r.chunk_len];
 
@@ -976,7 +1002,10 @@ pub const Response = struct {
 
     pub fn writer(r: *Response) std.io.AnyWriter {
         return .{
-            .writeFn = if (r.content_length != null) write_cl else write_chunked,
+            .writeFn = switch (r.transfer_encoding) {
+                .none, .content_length => write_cl,
+                .chunked => write_chunked,
+            },
             .context = r,
         };
     }
