@@ -242,9 +242,10 @@ pub const Placeholder = struct {
             }
         }
 
-        // Parse the fill character, if present
-        // The fill character must be followed by an alignment specifier unless
-        // it's zero, in which case it's handled as part of the width specifier
+        // Parse the fill character, if present.
+        // When the width field is also specified, the fill character must
+        // be followed by an alignment specifier, unless it's '0' (zero)
+        // (in which case it's handled as part of the width specifier)
         var fill: ?u21 = comptime if (parser.peek(1)) |ch|
             switch (ch) {
                 '<', '^', '>' => parser.char(),
