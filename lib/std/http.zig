@@ -3,6 +3,7 @@ pub const Server = @import("http/Server.zig");
 pub const protocol = @import("http/protocol.zig");
 pub const HeadParser = @import("http/HeadParser.zig");
 pub const ChunkParser = @import("http/ChunkParser.zig");
+pub const HeaderIterator = @import("http/HeaderIterator.zig");
 
 pub const Version = enum {
     @"HTTP/1.0",

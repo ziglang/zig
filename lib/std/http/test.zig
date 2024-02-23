@@ -290,6 +290,58 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     try expectEqualStrings(expected_response.items, response);
 }
 
+test "receiving arbitrary http headers from the client" {
+    const test_server = try createTestServer(struct {
+        fn run(net_server: *std.net.Server) anyerror!void {
+            var read_buffer: [666]u8 = undefined;
+            var remaining: usize = 1;
+            while (remaining != 0) : (remaining -= 1) {
+                const conn = try net_server.accept();
+                defer conn.stream.close();
+
+                var server = http.Server.init(conn, &read_buffer);
+                try expectEqual(.ready, server.state);
+                var request = try server.receiveHead();
+                try expectEqualStrings("/bar", request.head.target);
+                var it = request.iterateHeaders();
+                {
+                    const header = it.next().?;
+                    try expectEqualStrings("CoNneCtIoN", header.name);
+                    try expectEqualStrings("close", header.value);
+                    try expect(!it.is_trailer);
+                }
+                {
+                    const header = it.next().?;
+                    try expectEqualStrings("aoeu", header.name);
+                    try expectEqualStrings("asdf", header.value);
+                    try expect(!it.is_trailer);
+                }
+                try request.respond("", .{});
+            }
+        }
+    });
+    defer test_server.destroy();
+
+    const request_bytes = "GET /bar HTTP/1.1\r\n" ++
+        "CoNneCtIoN: close\r\n" ++
+        "aoeu: asdf\r\n" ++
+        "\r\n";
+    const gpa = std.testing.allocator;
+    const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    defer stream.close();
+    try stream.writeAll(request_bytes);
+
+    const response = try stream.reader().readAllAlloc(gpa, 8192);
+    defer gpa.free(response);
+
+    var expected_response = std.ArrayList(u8).init(gpa);
+    defer expected_response.deinit();
+
+    try expected_response.appendSlice("HTTP/1.1 200 OK\r\n");
+    try expected_response.appendSlice("content-length: 0\r\n\r\n");
+    try expectEqualStrings(expected_response.items, response);
+}
+
 test "general client/server API coverage" {
     if (builtin.os.tag == .windows) {
         // This test was never passing on Windows.

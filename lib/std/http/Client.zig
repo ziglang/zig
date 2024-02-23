@@ -568,8 +568,8 @@ pub const Response = struct {
         try expectEqual(@as(u10, 999), parseInt3("999"));
     }
 
-    pub fn iterateHeaders(r: Response) proto.HeaderIterator {
-        return proto.HeaderIterator.init(r.parser.get());
+    pub fn iterateHeaders(r: Response) http.HeaderIterator {
+        return http.HeaderIterator.init(r.parser.get());
     }
 };
 

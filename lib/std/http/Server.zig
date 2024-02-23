@@ -273,6 +273,10 @@ pub const Request = struct {
         }
     };
 
+    pub fn iterateHeaders(r: *Request) http.HeaderIterator {
+        return http.HeaderIterator.init(r.server.read_buffer[0..r.head_end]);
+    }
+
     pub const RespondOptions = struct {
         version: http.Version = .@"HTTP/1.1",
         status: http.Status = .ok,
