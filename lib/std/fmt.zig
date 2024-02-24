@@ -275,7 +275,7 @@ pub const Placeholder = struct {
         if (fill == null and alignment == null) {
             fill = comptime if (parser.peek(0)) |ch| init: {
                 switch (ch) {
-                    '.', '1', '2', '3', '4', '5', '6', '7', '8', '9' => break :init null,
+                    '1'...'9', '.' => break :init null,
                     else => {
                         _ = parser.char(); // consume the character
                         break :init ch;
