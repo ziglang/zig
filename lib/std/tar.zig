@@ -544,12 +544,12 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
 
-                const fs_file = dir.createFile(file_name, .{}) catch |err| switch (err) {
+                const fs_file = dir.createFile(file_name, .{ .exclusive = true }) catch |err| switch (err) {
                     error.FileNotFound => again: {
                         const code = code: {
                             if (std.fs.path.dirname(file_name)) |dir_name| {
                                 dir.makePath(dir_name) catch |code| break :code code;
-                                break :again dir.createFile(file_name, .{}) catch |code| {
+                                break :again dir.createFile(file_name, .{ .exclusive = true }) catch |code| {
                                     break :code code;
                                 };
                             }

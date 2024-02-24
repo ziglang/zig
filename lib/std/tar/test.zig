@@ -369,3 +369,60 @@ const Md5Writer = struct {
         return std.fmt.bytesToHex(s, .lower);
     }
 };
+
+test "tar should not overwrite existing file" {
+    // Starting from this folder structure:
+    // $ tree root
+    //    root
+    //    ├── a
+    //    │   └── b
+    //    │       └── c
+    //    │           └── file.txt
+    //    └── d
+    //        └── b
+    //            └── c
+    //                └── file.txt
+    //
+    // Packed with command:
+    // $ cd root; tar cf overwrite_file.tar *
+    // Resulting tar has following structure:
+    // $ tar tvf overwrite_file.tar
+    //  size path
+    //  0    a/
+    //  0    a/b/
+    //  0    a/b/c/
+    //  2    a/b/c/file.txt
+    //  0    d/
+    //  0    d/b/
+    //  0    d/b/c/
+    //  2    d/b/c/file.txt
+    //
+    // Note that there is no root folder in archive.
+    //
+    // With strip_components = 1 resulting unpacked folder was:
+    //  root
+    //     └── b
+    //         └── c
+    //             └── file.txt
+    //
+    // a/b/c/file.txt is overwritten with d/b/c/file.txt !!!
+    // This ensures that file is not overwritten.
+    //
+    const data = @embedFile("testdata/overwrite_file.tar");
+    var fsb = std.io.fixedBufferStream(data);
+
+    // Unpack with strip_components = 1 should fail
+    var root = std.testing.tmpDir(.{});
+    defer root.cleanup();
+    try testing.expectError(
+        error.PathAlreadyExists,
+        tar.pipeToFileSystem(root.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 1 }),
+    );
+
+    // Unpack with strip_components = 0 should pass
+    fsb.reset();
+    var root2 = std.testing.tmpDir(.{});
+    defer root2.cleanup();
+    try tar.pipeToFileSystem(root2.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 0 });
+}
+
