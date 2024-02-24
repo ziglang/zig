@@ -1149,59 +1149,36 @@ pub const Object = struct {
     };
 
     pub fn emit(self: *Object, options: EmitOptions) !void {
-        try self.resolveExportExternCollisions();
-        try self.genErrorNameTable();
-        try self.genCmpLtErrorsLenFunction();
-        try self.genModuleLevelAssembly();
+        {
+            try self.resolveExportExternCollisions();
+            try self.genErrorNameTable();
+            try self.genCmpLtErrorsLenFunction();
+            try self.genModuleLevelAssembly();
 
-        if (!self.builder.strip) {
-            {
-                var i: usize = 0;
-                while (i < self.debug_unresolved_namespace_scopes.count()) : (i += 1) {
-                    const namespace_index = self.debug_unresolved_namespace_scopes.keys()[i];
-                    const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
+            if (!self.builder.strip) {
+                {
+                    var i: usize = 0;
+                    while (i < self.debug_unresolved_namespace_scopes.count()) : (i += 1) {
+                        const namespace_index = self.debug_unresolved_namespace_scopes.keys()[i];
+                        const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
 
-                    const namespace = self.module.namespacePtr(namespace_index);
-                    const debug_type = try self.lowerDebugType(namespace.ty);
+                        const namespace = self.module.namespacePtr(namespace_index);
+                        const debug_type = try self.lowerDebugType(namespace.ty);
 
-                    self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
+                        self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
+                    }
                 }
+
+                self.builder.debugForwardReferenceSetType(
+                    self.debug_enums_fwd_ref,
+                    try self.builder.debugTuple(self.debug_enums.items),
+                );
+
+                self.builder.debugForwardReferenceSetType(
+                    self.debug_globals_fwd_ref,
+                    try self.builder.debugTuple(self.debug_globals.items),
+                );
             }
-
-            self.builder.debugForwardReferenceSetType(
-                self.debug_enums_fwd_ref,
-                try self.builder.debugTuple(self.debug_enums.items),
-            );
-
-            self.builder.debugForwardReferenceSetType(
-                self.debug_globals_fwd_ref,
-                try self.builder.debugTuple(self.debug_globals.items),
-            );
-        }
-
-        if (options.pre_ir_path) |path| {
-            if (std.mem.eql(u8, path, "-")) {
-                self.builder.dump();
-            } else {
-                _ = try self.builder.printToFile(path);
-            }
-        }
-
-        var bitcode_arena_allocator = std.heap.ArenaAllocator.init(
-            std.heap.page_allocator,
-        );
-        errdefer bitcode_arena_allocator.deinit();
-
-        const bitcode = try self.builder.toBitcode(
-            bitcode_arena_allocator.allocator(),
-        );
-
-        if (options.pre_bc_path) |path| {
-            var file = try std.fs.cwd().createFile(path, .{});
-            defer file.close();
-
-            const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
-            try file.writeAll(ptr[0..(bitcode.len * 4)]);
         }
 
         const emit_asm_msg = options.asm_path orelse "(none)";
@@ -1212,28 +1189,47 @@ pub const Object = struct {
             emit_asm_msg, emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,
         });
 
-        if (options.asm_path == null and options.bin_path == null and
-            options.post_ir_path == null and options.post_bc_path == null) return;
+        const context, const module = emit: {
+            if (options.pre_ir_path) |path| {
+                if (std.mem.eql(u8, path, "-")) {
+                    self.builder.dump();
+                } else {
+                    _ = try self.builder.printToFile(path);
+                }
+            }
 
-        if (options.post_bc_path) |path| {
-            var file = try std.fs.cwd().createFileZ(path, .{});
-            defer file.close();
+            const bitcode = try self.builder.toBitcode(self.gpa);
+            defer self.gpa.free(bitcode);
 
-            const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
-            try file.writeAll(ptr[0..(bitcode.len * 4)]);
-        }
+            if (options.pre_bc_path) |path| {
+                var file = try std.fs.cwd().createFile(path, .{});
+                defer file.close();
 
-        if (!build_options.have_llvm or !self.module.comp.config.use_lib_llvm) {
-            log.err("emitting without libllvm not implemented", .{});
-            return error.FailedToEmit;
-        }
+                const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
+                try file.writeAll(ptr[0..(bitcode.len * 4)]);
+            }
 
-        initializeLLVMTarget(self.module.comp.root_mod.resolved_target.result.cpu.arch);
+            if (options.asm_path == null and options.bin_path == null and
+                options.post_ir_path == null and options.post_bc_path == null) return;
 
-        const context: *llvm.Context = llvm.Context.create();
-        defer context.dispose();
+            if (options.post_bc_path) |path| {
+                var file = try std.fs.cwd().createFileZ(path, .{});
+                defer file.close();
 
-        const module = blk: {
+                const ptr: [*]const u8 = @ptrCast(bitcode.ptr);
+                try file.writeAll(ptr[0..(bitcode.len * 4)]);
+            }
+
+            if (!build_options.have_llvm or !self.module.comp.config.use_lib_llvm) {
+                log.err("emitting without libllvm not implemented", .{});
+                return error.FailedToEmit;
+            }
+
+            initializeLLVMTarget(self.module.comp.root_mod.resolved_target.result.cpu.arch);
+
+            const context: *llvm.Context = llvm.Context.create();
+            errdefer context.dispose();
+
             const bitcode_memory_buffer = llvm.MemoryBuffer.createMemoryBufferWithMemoryRange(
                 @ptrCast(bitcode.ptr),
                 bitcode.len * 4,
@@ -1247,10 +1243,9 @@ pub const Object = struct {
                 std.debug.print("Failed to parse bitcode\n", .{});
                 return error.FailedToEmit;
             }
-
-            break :blk module;
+            break :emit .{ context, module };
         };
-        bitcode_arena_allocator.deinit();
+        defer context.dispose();
 
         const target_triple_sentinel =
             try self.gpa.dupeZ(u8, self.builder.target_triple.slice(&self.builder).?);

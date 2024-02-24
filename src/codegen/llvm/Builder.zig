@@ -14945,7 +14945,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         try strtab_block.end();
     }
 
-    return bitcode.toSlice();
+    return bitcode.toOwnedSlice();
 }
 
 const Allocator = std.mem.Allocator;
