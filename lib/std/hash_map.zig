@@ -894,7 +894,7 @@ pub fn HashMapUnmanaged(
         }
 
         fn capacityForSize(size: Size) Size {
-            var new_cap: u32 = @truncate((@as(u64, size) * 100) / max_load_percentage + 1);
+            var new_cap: u32 = @intCast((@as(u64, size) * 100) / max_load_percentage + 1);
             new_cap = math.ceilPowerOfTwo(u32, new_cap) catch unreachable;
             return new_cap;
         }
@@ -1537,14 +1537,15 @@ pub fn HashMapUnmanaged(
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
             const max_align = comptime @max(header_align, key_align, val_align);
 
-            const meta_size = @sizeOf(Header) + new_capacity * @sizeOf(Metadata);
+            const new_cap: usize = new_capacity;
+            const meta_size = @sizeOf(Header) + new_cap * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
             const keys_start = std.mem.alignForward(usize, meta_size, key_align);
-            const keys_end = keys_start + new_capacity * @sizeOf(K);
+            const keys_end = keys_start + new_cap * @sizeOf(K);
 
             const vals_start = std.mem.alignForward(usize, keys_end, val_align);
-            const vals_end = vals_start + new_capacity * @sizeOf(V);
+            const vals_end = vals_start + new_cap * @sizeOf(V);
 
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
@@ -1572,7 +1573,7 @@ pub fn HashMapUnmanaged(
             const val_align = if (@sizeOf(V) == 0) 1 else @alignOf(V);
             const max_align = comptime @max(header_align, key_align, val_align);
 
-            const cap = self.capacity();
+            const cap: usize = self.capacity();
             const meta_size = @sizeOf(Header) + cap * @sizeOf(Metadata);
             comptime assert(@alignOf(Metadata) == 1);
 
