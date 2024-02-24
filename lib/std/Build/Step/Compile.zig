@@ -1197,15 +1197,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             prev_has_cflags = true;
                         }
 
-                        if (c_source_files.dependency) |dep| {
-                            for (c_source_files.files) |file| {
-                                try zig_args.append(dep.builder.pathFromRoot(file));
-                            }
-                        } else {
-                            for (c_source_files.files) |file| {
-                                try zig_args.append(b.pathFromRoot(file));
-                            }
+                        const root_path = c_source_files.root.getPath2(module.owner, step);
+                        for (c_source_files.files) |file| {
+                            try zig_args.append(b.pathJoin(&.{ root_path, file }));
                         }
+
                         total_linker_objects += c_source_files.files.len;
                     },
 
