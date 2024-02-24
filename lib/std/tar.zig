@@ -376,7 +376,7 @@ fn Iterator(comptime ReaderType: type) type {
                                     self.file.link_name = try attr.value(&self.link_name_buffer);
                                 },
                                 .size => {
-                                    var buf: [64]u8 = undefined;
+                                    var buf: [pax_max_size_attr_len]u8 = undefined;
                                     self.file.size = try std.fmt.parseInt(u64, try attr.value(&buf), 10);
                                 },
                             }
@@ -429,6 +429,9 @@ const PaxAttributeKind = enum {
     linkpath,
     size,
 };
+
+// maxInt(u64) has 20 chars, base 10 in practice we got 24 chars
+const pax_max_size_attr_len = 64;
 
 fn PaxIterator(comptime ReaderType: type) type {
     return struct {
@@ -486,6 +489,9 @@ fn PaxIterator(comptime ReaderType: type) type {
                     try validateAttributeEnding(self.reader);
                     continue;
                 };
+                if (kind == .size and value_len > pax_max_size_attr_len) {
+                    return error.PaxSizeAttrOverflow;
+                }
                 return Attribute{
                     .kind = kind,
                     .len = value_len,
