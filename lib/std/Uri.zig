@@ -4,6 +4,7 @@
 const Uri = @This();
 const std = @import("std.zig");
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
 
 scheme: []const u8,
 user: ?[]const u8 = null,
@@ -15,15 +16,15 @@ query: ?[]const u8 = null,
 fragment: ?[]const u8 = null,
 
 /// Applies URI encoding and replaces all reserved characters with their respective %XX code.
-pub fn escapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn escapeString(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isUnreserved);
 }
 
-pub fn escapePath(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn escapePath(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isPathChar);
 }
 
-pub fn escapeQuery(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn escapeQuery(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     return escapeStringWithFn(allocator, input, isQueryChar);
 }
 
@@ -39,7 +40,7 @@ pub fn writeEscapedQuery(writer: anytype, input: []const u8) !void {
     return writeEscapedStringWithFn(writer, input, isQueryChar);
 }
 
-pub fn escapeStringWithFn(allocator: std.mem.Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) std.mem.Allocator.Error![]u8 {
+pub fn escapeStringWithFn(allocator: Allocator, input: []const u8, comptime keepUnescaped: fn (c: u8) bool) Allocator.Error![]u8 {
     var outsize: usize = 0;
     for (input) |c| {
         outsize += if (keepUnescaped(c)) @as(usize, 1) else 3;
@@ -76,7 +77,7 @@ pub fn writeEscapedStringWithFn(writer: anytype, input: []const u8, comptime kee
 
 /// Parses a URI string and unescapes all %XX where XX is a valid hex number. Otherwise, verbatim copies
 /// them to the output.
-pub fn unescapeString(allocator: std.mem.Allocator, input: []const u8) error{OutOfMemory}![]u8 {
+pub fn unescapeString(allocator: Allocator, input: []const u8) error{OutOfMemory}![]u8 {
     var outsize: usize = 0;
     var inptr: usize = 0;
     while (inptr < input.len) {
@@ -341,7 +342,7 @@ pub fn format(
 /// The return value will contain unescaped strings pointing into the
 /// original `text`. Each component that is provided, will be non-`null`.
 pub fn parse(text: []const u8) ParseError!Uri {
-    var reader = SliceReader{ .slice = text };
+    var reader: SliceReader = .{ .slice = text };
     const scheme = reader.readWhile(isSchemeChar);
 
     // after the scheme, a ':' must appear
@@ -358,111 +359,145 @@ pub fn parse(text: []const u8) ParseError!Uri {
     return uri;
 }
 
-/// Implementation of RFC 3986, Section 5.2.4. Removes dot segments from a URI path.
-///
-/// `std.fs.path.resolvePosix` is not sufficient here because it may return relative paths and does not preserve trailing slashes.
-fn removeDotSegments(allocator: std.mem.Allocator, paths: []const []const u8) std.mem.Allocator.Error![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
-
-    for (paths) |p| {
-        var it = std.mem.tokenizeScalar(u8, p, '/');
-        while (it.next()) |component| {
-            if (std.mem.eql(u8, component, ".")) {
-                continue;
-            } else if (std.mem.eql(u8, component, "..")) {
-                if (result.items.len == 0)
-                    continue;
-
-                while (true) {
-                    const ends_with_slash = result.items[result.items.len - 1] == '/';
-                    result.items.len -= 1;
-                    if (ends_with_slash or result.items.len == 0) break;
-                }
-            } else {
-                try result.ensureUnusedCapacity(1 + component.len);
-                result.appendAssumeCapacity('/');
-                result.appendSliceAssumeCapacity(component);
-            }
-        }
-    }
-
-    // ensure a trailing slash is kept
-    const last_path = paths[paths.len - 1];
-    if (last_path.len > 0 and last_path[last_path.len - 1] == '/') {
-        try result.append('/');
-    }
-
-    return result.toOwnedSlice();
-}
+pub const ResolveInplaceError = ParseError || error{OutOfMemory};
 
 /// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
-///
-/// Assumes `arena` owns all memory in `base` and `ref`. `arena` will own all memory in the returned URI.
-pub fn resolve(base: Uri, ref: Uri, strict: bool, arena: std.mem.Allocator) std.mem.Allocator.Error!Uri {
-    var target: Uri = Uri{
-        .scheme = "",
-        .user = null,
-        .password = null,
-        .host = null,
-        .port = null,
-        .path = "",
-        .query = null,
-        .fragment = null,
+/// Copies `new` to the beginning of `aux_buf`, allowing the slices to overlap,
+/// then parses `new` as a URI, and then resolves the path in place.
+/// If a merge needs to take place, the newly constructed path will be stored
+/// in `aux_buf` just after the copied `new`.
+pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: []u8) ResolveInplaceError!Uri {
+    std.mem.copyBackwards(u8, aux_buf, new);
+    // At this point, new is an invalid pointer.
+    const new_mut = aux_buf[0..new.len];
+
+    const new_parsed, const has_scheme = p: {
+        break :p .{
+            parse(new_mut) catch |first_err| {
+                break :p .{
+                    parseWithoutScheme(new_mut) catch return first_err,
+                    false,
+                };
+            },
+            true,
+        };
     };
 
-    if (ref.scheme.len > 0 and (strict or !std.mem.eql(u8, ref.scheme, base.scheme))) {
-        target.scheme = ref.scheme;
-        target.user = ref.user;
-        target.host = ref.host;
-        target.port = ref.port;
-        target.path = try removeDotSegments(arena, &.{ref.path});
-        target.query = ref.query;
-    } else {
-        target.scheme = base.scheme;
-        if (ref.host) |host| {
-            target.user = ref.user;
-            target.host = host;
-            target.port = ref.port;
-            target.path = ref.path;
-            target.path = try removeDotSegments(arena, &.{ref.path});
-            target.query = ref.query;
-        } else {
-            if (ref.path.len == 0) {
-                target.path = base.path;
-                target.query = ref.query orelse base.query;
-            } else {
-                if (ref.path[0] == '/') {
-                    target.path = try removeDotSegments(arena, &.{ref.path});
-                } else {
-                    target.path = try removeDotSegments(arena, &.{ std.fs.path.dirnamePosix(base.path) orelse "", ref.path });
-                }
-                target.query = ref.query;
-            }
+    // As you can see above, `new_mut` is not a const pointer.
+    const new_path: []u8 = @constCast(new_parsed.path);
 
-            target.user = base.user;
-            target.host = base.host;
-            target.port = base.port;
-        }
-    }
+    if (has_scheme) return .{
+        .scheme = new_parsed.scheme,
+        .user = new_parsed.user,
+        .host = new_parsed.host,
+        .port = new_parsed.port,
+        .path = remove_dot_segments(new_path),
+        .query = new_parsed.query,
+        .fragment = new_parsed.fragment,
+    };
 
-    target.fragment = ref.fragment;
+    if (new_parsed.host) |host| return .{
+        .scheme = base.scheme,
+        .user = new_parsed.user,
+        .host = host,
+        .port = new_parsed.port,
+        .path = remove_dot_segments(new_path),
+        .query = new_parsed.query,
+        .fragment = new_parsed.fragment,
+    };
 
-    return target;
+    const path, const query = b: {
+        if (new_path.len == 0)
+            break :b .{
+                base.path,
+                new_parsed.query orelse base.query,
+            };
+
+        if (new_path[0] == '/')
+            break :b .{
+                remove_dot_segments(new_path),
+                new_parsed.query,
+            };
+
+        break :b .{
+            try merge_paths(base.path, new_path, aux_buf[new_mut.len..]),
+            new_parsed.query,
+        };
+    };
+
+    return .{
+        .scheme = base.scheme,
+        .user = base.user,
+        .host = base.host,
+        .port = base.port,
+        .path = path,
+        .query = query,
+        .fragment = new_parsed.fragment,
+    };
 }
 
-test resolve {
-    const base = try parse("http://a/b/c/d;p?q");
+/// In-place implementation of RFC 3986, Section 5.2.4.
+fn remove_dot_segments(path: []u8) []u8 {
+    var in_i: usize = 0;
+    var out_i: usize = 0;
+    while (in_i < path.len) {
+        if (std.mem.startsWith(u8, path[in_i..], "./")) {
+            in_i += 2;
+        } else if (std.mem.startsWith(u8, path[in_i..], "../")) {
+            in_i += 3;
+        } else if (std.mem.startsWith(u8, path[in_i..], "/./")) {
+            in_i += 2;
+        } else if (std.mem.eql(u8, path[in_i..], "/.")) {
+            in_i += 1;
+            path[in_i] = '/';
+        } else if (std.mem.startsWith(u8, path[in_i..], "/../")) {
+            in_i += 3;
+            while (out_i > 0) {
+                out_i -= 1;
+                if (path[out_i] == '/') break;
+            }
+        } else if (std.mem.eql(u8, path[in_i..], "/..")) {
+            in_i += 2;
+            path[in_i] = '/';
+            while (out_i > 0) {
+                out_i -= 1;
+                if (path[out_i] == '/') break;
+            }
+        } else if (std.mem.eql(u8, path[in_i..], ".")) {
+            in_i += 1;
+        } else if (std.mem.eql(u8, path[in_i..], "..")) {
+            in_i += 2;
+        } else {
+            while (true) {
+                path[out_i] = path[in_i];
+                out_i += 1;
+                in_i += 1;
+                if (in_i >= path.len or path[in_i] == '/') break;
+            }
+        }
+    }
+    return path[0..out_i];
+}
 
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
+test remove_dot_segments {
+    {
+        var buffer = "/a/b/c/./../../g".*;
+        try std.testing.expectEqualStrings("/a/g", remove_dot_segments(&buffer));
+    }
+}
 
-    try std.testing.expectEqualDeep(try parse("http://a/b/c/blog/"), try base.resolve(try parseWithoutScheme("blog/"), true, arena.allocator()));
-    try std.testing.expectEqualDeep(try parse("http://a/b/c/blog/?k"), try base.resolve(try parseWithoutScheme("blog/?k"), true, arena.allocator()));
-    try std.testing.expectEqualDeep(try parse("http://a/b/blog/"), try base.resolve(try parseWithoutScheme("../blog/"), true, arena.allocator()));
-    try std.testing.expectEqualDeep(try parse("http://a/b/blog"), try base.resolve(try parseWithoutScheme("../blog"), true, arena.allocator()));
-    try std.testing.expectEqualDeep(try parse("http://e"), try base.resolve(try parseWithoutScheme("//e"), true, arena.allocator()));
-    try std.testing.expectEqualDeep(try parse("https://a:1/"), try base.resolve(try parse("https://a:1/"), true, arena.allocator()));
+/// 5.2.3. Merge Paths
+fn merge_paths(base: []const u8, new: []u8, aux: []u8) error{OutOfMemory}![]u8 {
+    if (aux.len < base.len + 1 + new.len) return error.OutOfMemory;
+    if (base.len == 0) {
+        aux[0] = '/';
+        @memcpy(aux[1..][0..new.len], new);
+        return remove_dot_segments(aux[0 .. new.len + 1]);
+    }
+    const pos = std.mem.lastIndexOfScalar(u8, base, '/') orelse return remove_dot_segments(new);
+    @memcpy(aux[0 .. pos + 1], base[0 .. pos + 1]);
+    @memcpy(aux[pos + 1 ..][0..new.len], new);
+    return remove_dot_segments(aux[0 .. pos + 1 + new.len]);
 }
 
 const SliceReader = struct {

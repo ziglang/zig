@@ -3322,12 +3322,12 @@ fn buildOutputType(
         .ip4 => |ip4_addr| {
             if (build_options.only_core_functionality) unreachable;
 
-            var server = std.net.StreamServer.init(.{
+            const addr: std.net.Address = .{ .in = ip4_addr };
+
+            var server = try addr.listen(.{
                 .reuse_address = true,
             });
             defer server.deinit();
-
-            try server.listen(.{ .in = ip4_addr });
 
             const conn = try server.accept();
             defer conn.stream.close();
@@ -5486,7 +5486,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     job_queue.read_only = true;
                     cleanup_build_dir = job_queue.global_cache.handle;
                 } else {
-                    try http_client.loadDefaultProxies();
+                    try http_client.initDefaultProxies(arena);
                 }
 
                 try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
@@ -7442,7 +7442,7 @@ fn cmdFetch(
     var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
 
-    try http_client.loadDefaultProxies();
+    try http_client.initDefaultProxies(arena);
 
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const root_prog_node = progress.start("Fetch", 0);

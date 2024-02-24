@@ -3598,14 +3598,6 @@ pub fn shutdown(sock: socket_t, how: ShutdownHow) ShutdownError!void {
     }
 }
 
-pub fn closeSocket(sock: socket_t) void {
-    if (builtin.os.tag == .windows) {
-        windows.closesocket(sock) catch unreachable;
-    } else {
-        close(sock);
-    }
-}
-
 pub const BindError = error{
     /// The address is protected, and the user is not the superuser.
     /// For UNIX domain sockets: Search permission is denied on  a  component

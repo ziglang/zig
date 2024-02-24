@@ -354,7 +354,8 @@ pub fn run(f: *Fetch) RunError!void {
                         .{ path_or_url, @errorName(file_err), @errorName(uri_err) },
                     ));
                 };
-                var resource = try f.initResource(uri);
+                var server_header_buffer: [header_buffer_size]u8 = undefined;
+                var resource = try f.initResource(uri, &server_header_buffer);
                 return runResource(f, uri.path, &resource, null);
             }
         },
@@ -415,7 +416,8 @@ pub fn run(f: *Fetch) RunError!void {
         f.location_tok,
         try eb.printString("invalid URI: {s}", .{@errorName(err)}),
     );
-    var resource = try f.initResource(uri);
+    var server_header_buffer: [header_buffer_size]u8 = undefined;
+    var resource = try f.initResource(uri, &server_header_buffer);
     return runResource(f, uri.path, &resource, remote.hash);
 }
 
@@ -876,7 +878,9 @@ const FileType = enum {
     }
 };
 
-fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
+const header_buffer_size = 16 * 1024;
+
+fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Resource {
     const gpa = f.arena.child_allocator;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
@@ -894,10 +898,9 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
-        var h = std.http.Headers{ .allocator = gpa };
-        defer h.deinit();
-
-        var req = http_client.open(.GET, uri, h, .{}) catch |err| {
+        var req = http_client.open(.GET, uri, .{
+            .server_header_buffer = server_header_buffer,
+        }) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to connect to server: {s}",
                 .{@errorName(err)},
@@ -935,7 +938,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         transport_uri.scheme = uri.scheme["git+".len..];
         var redirect_uri: []u8 = undefined;
         var session: git.Session = .{ .transport = http_client, .uri = transport_uri };
-        session.discoverCapabilities(gpa, &redirect_uri) catch |err| switch (err) {
+        session.discoverCapabilities(gpa, &redirect_uri, server_header_buffer) catch |err| switch (err) {
             error.Redirected => {
                 defer gpa.free(redirect_uri);
                 return f.fail(f.location_tok, try eb.printString(
@@ -961,6 +964,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
             var ref_iterator = session.listRefs(gpa, .{
                 .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
                 .include_peeled = true,
+                .server_header_buffer = server_header_buffer,
             }) catch |err| {
                 return f.fail(f.location_tok, try eb.printString(
                     "unable to list refs: {s}",
@@ -1003,7 +1007,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{
             std.fmt.fmtSliceHexLower(&want_oid),
         }) catch unreachable;
-        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}) catch |err| {
+        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",
                 .{@errorName(err)},
@@ -1036,7 +1040,7 @@ fn unpackResource(
 
         .http_request => |req| ft: {
             // Content-Type takes first precedence.
-            const content_type = req.response.headers.getFirstValue("Content-Type") orelse
+            const content_type = req.response.content_type orelse
                 return f.fail(f.location_tok, try eb.addString("missing 'Content-Type' header"));
 
             // Extract the MIME type, ignoring charset and boundary directives
@@ -1069,7 +1073,7 @@ fn unpackResource(
             }
 
             // Next, the filename from 'content-disposition: attachment' takes precedence.
-            if (req.response.headers.getFirstValue("Content-Disposition")) |cd_header| {
+            if (req.response.content_disposition) |cd_header| {
                 break :ft FileType.fromContentDisposition(cd_header) orelse {
                     return f.fail(f.location_tok, try eb.printString(
                         "unsupported Content-Disposition header value: '{s}' for Content-Type=application/octet-stream",
@@ -1105,8 +1109,29 @@ fn unpackResource(
             var dcp = std.compress.gzip.decompressor(br.reader());
             try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .@"tar.xz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.xz),
-        .@"tar.zst" => try unpackTarballCompressed(f, tmp_directory.handle, resource, ZstdWrapper),
+        .@"tar.xz" => {
+            const gpa = f.arena.child_allocator;
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.xz.decompress(gpa, br.reader()) catch |err| {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to decompress tarball: {s}",
+                    .{@errorName(err)},
+                ));
+            };
+            defer dcp.deinit();
+            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
+        .@"tar.zst" => {
+            const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
+            const window_buffer = try f.arena.allocator().create([window_size]u8);
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.zstd.decompressor(br.reader(), .{
+                .window_buffer = window_buffer,
+            });
+            return unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
         .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
             error.OutOfMemory => return error.OutOfMemory,
@@ -1116,40 +1141,6 @@ fn unpackResource(
             )),
         },
     }
-}
-
-// due to slight differences in the API of std.compress.(gzip|xz) and std.compress.zstd, zstd is
-// wrapped for generic use in unpackTarballCompressed: see github.com/ziglang/zig/issues/14739
-const ZstdWrapper = struct {
-    fn DecompressType(comptime T: type) type {
-        return error{}!std.compress.zstd.DecompressStream(T, .{});
-    }
-
-    fn decompress(allocator: Allocator, reader: anytype) DecompressType(@TypeOf(reader)) {
-        return std.compress.zstd.decompressStream(allocator, reader);
-    }
-};
-
-fn unpackTarballCompressed(
-    f: *Fetch,
-    out_dir: fs.Dir,
-    resource: *Resource,
-    comptime Compression: type,
-) RunError!void {
-    const gpa = f.arena.child_allocator;
-    const eb = &f.error_bundle;
-    const reader = resource.reader();
-    var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
-
-    var decompress = Compression.decompress(gpa, br.reader()) catch |err| {
-        return f.fail(f.location_tok, try eb.printString(
-            "unable to decompress tarball: {s}",
-            .{@errorName(err)},
-        ));
-    };
-    defer decompress.deinit();
-
-    return unpackTarball(f, out_dir, decompress.reader());
 }
 
 fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {

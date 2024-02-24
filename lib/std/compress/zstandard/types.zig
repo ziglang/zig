@@ -1,3 +1,5 @@
+pub const block_size_max = 1 << 17;
+
 pub const frame = struct {
     pub const Kind = enum { zstandard, skippable };
 
@@ -391,7 +393,7 @@ pub const compressed_block = struct {
     pub const table_size_max = struct {
         pub const literal = 1 << table_accuracy_log_max.literal;
         pub const match = 1 << table_accuracy_log_max.match;
-        pub const offset = 1 << table_accuracy_log_max.match;
+        pub const offset = 1 << table_accuracy_log_max.offset;
     };
 };
 
