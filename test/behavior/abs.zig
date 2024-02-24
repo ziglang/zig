@@ -283,11 +283,6 @@ test "@abs float vectors" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    // https://github.com/ziglang/zig/issues/12827
-    if (builtin.zig_backend == .stage2_llvm and
-        builtin.os.tag == .macos and
-        builtin.target.cpu.arch == .x86_64) return error.SkipZigTest;
-
     @setEvalBranchQuota(2000);
     try comptime testAbsFloatVectors(f16, 1);
     try testAbsFloatVectors(f16, 1);
