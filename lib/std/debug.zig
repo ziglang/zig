@@ -688,7 +688,7 @@ pub const StackIterator = struct {
             }
 
             return true;
-        } else if (@hasDecl(os.system, "msync") and native_os != .wasi) {
+        } else if (@hasDecl(os.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
                 switch (err) {
                     os.MSyncError.UnmappedMemory => {
