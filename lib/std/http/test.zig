@@ -142,6 +142,17 @@ test "HTTP server handles a chunked transfer coding request" {
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
     try stream.writeAll(request_bytes);
+
+    const response = try stream.reader().readAllAlloc(gpa, 100);
+    defer gpa.free(response);
+
+    const expected_response =
+        "HTTP/1.1 200 OK\r\n" ++
+        "content-length: 21\r\n" ++
+        "content-type: text/plain\r\n" ++
+        "\r\n" ++
+        "message from server!\n";
+    try expectEqualStrings(expected_response, response);
 }
 
 test "echo content server" {
