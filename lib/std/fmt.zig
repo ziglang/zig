@@ -51,8 +51,9 @@ pub const FormatOptions = struct {
 ///
 /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
 /// all parameters after the separator are omitted.
-/// Only exception is the *fill* parameter. If a non-zero *fill* character is required at the same time as *width* is specified,
-/// one has to specify *alignment* as well, as otherwise the digit following `:` is interpreted as *width*, not *fill*.
+/// Only exception is the *fill* parameter. If a *fill* character is required at the same time as *width*,
+/// and the fill character is a non-zero digit (1-9) or a dot (.) then one has to specify *alignment* as well,
+/// as otherwise the fill character is interpreted as part of *width*, not as *fill*.
 ///
 /// The *specifier* has several options for types:
 /// - `x` and `X`: output numeric value in hexadecimal notation
