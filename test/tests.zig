@@ -1040,7 +1040,6 @@ const ModuleTestOptions = struct {
     include_paths: []const []const u8,
     skip_single_threaded: bool,
     skip_non_native: bool,
-    skip_cross_glibc: bool,
     skip_libc: bool,
     max_rss: usize = 0,
 };
@@ -1058,10 +1057,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
         const target = resolved_target.result;
-
-        if (options.skip_cross_glibc and !test_target.target.isNative() and
-            target.isGnuLibC() and test_target.link_libc == true)
-            continue;
 
         if (options.skip_libc and test_target.link_libc == true)
             continue;
