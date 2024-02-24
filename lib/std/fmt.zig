@@ -259,8 +259,8 @@ pub const Placeholder = struct {
         const alignment: ?Alignment = comptime if (parser.peek(0)) |ch| init: {
             switch (ch) {
                 '<', '^', '>' => {
-                    _ = parser.char(); // consume the character
-                    break :init switch (ch) {
+                    // consume the character
+                    break :init switch (parser.char().?) {
                         '<' => .left,
                         '^' => .center,
                         else => .right,
@@ -277,8 +277,7 @@ pub const Placeholder = struct {
                 switch (ch) {
                     '1'...'9', '.' => break :init null,
                     else => {
-                        _ = parser.char(); // consume the character
-                        break :init ch;
+                        break :init parser.char().?;
                     },
                 }
             } else null;
