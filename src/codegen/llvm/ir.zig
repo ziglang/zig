@@ -20,6 +20,10 @@ const ColumnAbbrev = AbbrevOp{ .vbr = 8 };
 
 const BlockAbbrev = AbbrevOp{ .vbr = 6 };
 
+pub const MetadataKind = enum(u1) {
+    dbg = 0,
+};
+
 pub const Identification = struct {
     pub const id = 13;
 
@@ -616,10 +620,10 @@ pub const MetadataAttachmentBlock = struct {
     pub const AttachmentSingle = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 11 },
-            .{ .vbr = 4 },
+            .{ .fixed = 1 },
             MetadataAbbrev,
         };
-        id: u32,
+        kind: MetadataKind,
         metadata: Builder.Metadata,
     };
 };
@@ -649,6 +653,7 @@ pub const MetadataBlock = struct {
         Constant,
         Name,
         NamedNode,
+        GlobalDeclAttachment,
     };
 
     pub const Strings = struct {
@@ -1044,6 +1049,19 @@ pub const MetadataBlock = struct {
         };
 
         elements: []const Builder.Metadata,
+    };
+
+    pub const GlobalDeclAttachment = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 36 },
+            ValueAbbrev, // value id
+            .{ .fixed = 1 }, // kind
+            MetadataAbbrev, // elements
+        };
+
+        value: Builder.Constant,
+        kind: MetadataKind,
+        metadata: Builder.Metadata,
     };
 };
 

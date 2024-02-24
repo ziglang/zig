@@ -13853,16 +13853,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             try constants_block.end();
         }
 
-        const MetadataKind = enum(u8) {
-            dbg = 0,
-        };
-
         // METADATA_KIND_BLOCK
         if (!self.strip) {
             const MetadataKindBlock = ir.MetadataKindBlock;
             var metadata_kind_block = try module_block.enterSubBlock(MetadataKindBlock);
 
-            inline for (@typeInfo(MetadataKind).Enum.fields) |field| {
+            inline for (@typeInfo(ir.MetadataKind).Enum.fields) |field| {
                 try metadata_kind_block.writeAbbrev(MetadataKindBlock.Kind{
                     .id = field.value,
                     .name = field.name,
@@ -14294,6 +14290,25 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 try metadata_block.writeAbbrev(MetadataBlock.NamedNode{
                     .elements = @ptrCast(elements),
                 });
+            }
+
+            // Write global attached metadata
+            {
+                for (globals.keys()) |global| {
+                    const global_ptr = global.ptrConst(self);
+                    if (global_ptr.dbg == .none) continue;
+
+                    switch (global_ptr.kind) {
+                        .function => |f| if (f.ptrConst(self).instructions.len != 0) continue,
+                        else => {},
+                    }
+
+                    try metadata_block.writeAbbrev(MetadataBlock.GlobalDeclAttachment{
+                        .value = @enumFromInt(constant_adapter.getConstantIndex(global.toConst())),
+                        .kind = ir.MetadataKind.dbg,
+                        .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(global_ptr.dbg) - 1),
+                    });
+                }
             }
 
             try metadata_block.end();
@@ -14909,7 +14924,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     var metadata_attach_block = try function_block.enterSubBlock(MetadataAttachmentBlock);
 
                     try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentSingle{
-                        .id = @intFromEnum(MetadataKind.dbg),
+                        .kind = ir.MetadataKind.dbg,
                         .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(dbg) - 1),
                     });
 
