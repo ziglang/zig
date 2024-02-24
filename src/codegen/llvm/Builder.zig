@@ -12944,7 +12944,7 @@ fn debugConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
 
 pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]const u32 {
     const BitcodeWriter = bitcode_writer.BitcodeWriter(&.{ Type, FunctionAttributes });
-    var bitcode = BitcodeWriter.init(allocator, &.{
+    var bitcode = BitcodeWriter.init(allocator, .{
         std.math.log2_int_ceil(usize, self.type_items.items.len),
         std.math.log2_int_ceil(usize, 1 + self.function_attributes_set.count()),
     });

@@ -23,17 +23,13 @@ pub fn BitcodeWriter(comptime types: []const type) type {
         bit_buffer: u32 = 0,
         bit_count: u5 = 0,
 
-        widths: []const u16,
+        widths: [types.len]u16,
 
-        pub fn getTypeIndex(comptime ty: type) usize {
-            inline for (types, 0..) |t, i| {
-                if (t == ty) return i;
-            }
-            unreachable;
+        pub fn getTypeWidth(self: BcWriter, comptime Type: type) u16 {
+            return self.widths[comptime std.mem.indexOfScalar(type, types, Type).?];
         }
 
-        pub fn init(allocator: std.mem.Allocator, widths: []const u16) BcWriter {
-            std.debug.assert(widths.len == types.len);
+        pub fn init(allocator: std.mem.Allocator, widths: [types.len]u16) BcWriter {
             return .{
                 .buffer = std.ArrayList(u32).init(allocator),
                 .widths = widths,
@@ -250,7 +246,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                             .fixed => |len| try self.bitcode.writeBits(adapter.get(param, field_name), len),
                             .fixed_runtime => |width_ty| try self.bitcode.writeBits(
                                 adapter.get(param, field_name),
-                                self.bitcode.widths[getTypeIndex(width_ty)],
+                                self.bitcode.getTypeWidth(width_ty),
                             ),
                             .vbr => |len| try self.bitcode.writeVBR(adapter.get(param, field_name), len),
                             .char6 => try self.bitcode.write6BitChar(adapter.get(param, field_name)),
@@ -273,7 +269,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                                 for (param) |x| {
                                     try self.bitcode.writeBits(
                                         adapter.get(x, field_name),
-                                        self.bitcode.widths[getTypeIndex(width_ty)],
+                                        self.bitcode.getTypeWidth(width_ty),
                                     );
                                 }
                             },
@@ -324,7 +320,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                             .fixed_runtime => |width_ty| {
                                 try bitcode.writeBits(0, 1);
                                 try bitcode.writeBits(1, 3);
-                                try bitcode.writeVBR(bitcode.widths[getTypeIndex(width_ty)], 5);
+                                try bitcode.writeVBR(bitcode.getTypeWidth(width_ty), 5);
                             },
                             .vbr => |width| {
                                 try bitcode.writeBits(0, 1);
@@ -357,7 +353,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                                 // Fixed or VBR op
                                 try bitcode.writeBits(0, 1);
                                 try bitcode.writeBits(1, 3);
-                                try bitcode.writeVBR(bitcode.widths[getTypeIndex(width_ty)], 5);
+                                try bitcode.writeVBR(bitcode.getTypeWidth(width_ty), 5);
                             },
                             .array_vbr => |width| {
                                 // Array op
