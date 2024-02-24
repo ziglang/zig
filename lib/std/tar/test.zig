@@ -317,6 +317,10 @@ test "tar run Go test cases" {
             .data = @embedFile("testdata/fuzz1.tar"),
             .err = error.TarCorruptInput,
         },
+        .{
+            .data = @embedFile("testdata/fuzz2.tar"),
+            .err = error.PaxSizeAttrOverflow,
+        },
     };
 
     for (cases) |case| {
