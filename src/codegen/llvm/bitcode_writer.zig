@@ -40,9 +40,9 @@ pub fn BitcodeWriter(comptime types: []const type) type {
             self.buffer.deinit();
         }
 
-        pub fn toSlice(self: BcWriter) []const u32 {
+        pub fn toOwnedSlice(self: *BcWriter) Error![]const u32 {
             std.debug.assert(self.bit_count == 0);
-            return self.buffer.items;
+            return self.buffer.toOwnedSlice();
         }
 
         pub fn length(self: BcWriter) usize {
