@@ -453,7 +453,8 @@ pub fn FindClose(hFindFile: HANDLE) void {
 
 pub const ReadFileError = error{
     BrokenPipe,
-    NetNameDeleted,
+    /// The specified network name is no longer available.
+    ConnectionResetByPeer,
     OperationAborted,
     Unexpected,
 };
@@ -485,7 +486,7 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .OPERATION_ABORTED => continue,
                 .BROKEN_PIPE => return 0,
                 .HANDLE_EOF => return 0,
-                .NETNAME_DELETED => return error.NetNameDeleted,
+                .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -501,6 +502,8 @@ pub const WriteFileError = error{
     /// The process cannot access the file because another process has locked
     /// a portion of the file.
     LockViolation,
+    /// The specified network name is no longer available.
+    ConnectionResetByPeer,
     Unexpected,
 };
 
@@ -517,8 +520,8 @@ pub fn WriteFile(
             .InternalHigh = 0,
             .DUMMYUNIONNAME = .{
                 .DUMMYSTRUCTNAME = .{
-                    .Offset = @as(u32, @truncate(off)),
-                    .OffsetHigh = @as(u32, @truncate(off >> 32)),
+                    .Offset = @truncate(off),
+                    .OffsetHigh = @truncate(off >> 32),
                 },
             },
             .hEvent = null,
@@ -536,6 +539,7 @@ pub fn WriteFile(
             .BROKEN_PIPE => return error.BrokenPipe,
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
+            .NETNAME_DELETED => return error.ConnectionResetByPeer,
             else => |err| return unexpectedError(err),
         }
     }
