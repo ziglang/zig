@@ -645,10 +645,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_end,
             => try self.airDbgInline(inst),
 
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try self.airDbgBlock(inst),
-
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
@@ -1146,6 +1142,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+    // TODO emit debug info lexical block
     try self.genBody(body);
 
     // relocations for `bpcc` instructions
@@ -1653,11 +1650,6 @@ fn airCtz(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airCtz for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
-    // TODO emit debug info lexical block
-    return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
 fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {

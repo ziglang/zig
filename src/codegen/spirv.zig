@@ -2322,8 +2322,6 @@ const DeclGen = struct {
             .dbg_inline_begin          => return self.airDbgInlineBegin(inst),
             .dbg_inline_end            => return self.airDbgInlineEnd(inst),
             .dbg_var_ptr, .dbg_var_val => return self.airDbgVar(inst),
-            .dbg_block_begin  => return,
-            .dbg_block_end    => return,
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
             .unwrap_errunion_payload => try self.airErrUnionPayload(inst),

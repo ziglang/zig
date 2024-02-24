@@ -392,10 +392,6 @@ pub const Inst = struct {
         /// Same as `dbg_var_ptr` but the local is always a const and the operand
         /// is the local's value.
         dbg_var_val,
-        /// Marks the beginning of a semantic scope for debug info variables.
-        dbg_block_begin,
-        /// Marks the end of a semantic scope for debug info variables.
-        dbg_block_end,
         /// Uses a name to identify a Decl and takes a pointer to it.
         /// Uses the `str_tok` union field.
         decl_ref,
@@ -1107,8 +1103,6 @@ pub const Inst = struct {
                 .dbg_stmt,
                 .dbg_var_ptr,
                 .dbg_var_val,
-                .dbg_block_begin,
-                .dbg_block_end,
                 .decl_ref,
                 .decl_val,
                 .load,
@@ -1335,8 +1329,6 @@ pub const Inst = struct {
                 .dbg_stmt,
                 .dbg_var_ptr,
                 .dbg_var_val,
-                .dbg_block_begin,
-                .dbg_block_end,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
@@ -1663,8 +1655,6 @@ pub const Inst = struct {
                 .dbg_stmt = .dbg_stmt,
                 .dbg_var_ptr = .str_op,
                 .dbg_var_val = .str_op,
-                .dbg_block_begin = .tok,
-                .dbg_block_end = .tok,
                 .decl_ref = .str_tok,
                 .decl_val = .str_tok,
                 .load = .un_node,

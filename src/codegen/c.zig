@@ -3268,10 +3268,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .dbg_inline_end,
             => try airDbgInline(f, inst),
 
-            .dbg_block_begin,
-            .dbg_block_end,
-            => .none,
-
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => .none,
             .call_never_tail   => try airCall(f, inst, .never_tail),

@@ -443,10 +443,6 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
-        /// Marks the beginning of a semantic scope for debug info variables.
-        dbg_block_begin,
-        /// Marks the end of a semantic scope for debug info variables.
-        dbg_block_end,
         /// Marks the start of an inline call.
         /// Uses the `ty_fn` field.
         dbg_inline_begin,
@@ -1454,8 +1450,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         .dbg_var_ptr,
         .dbg_var_val,
         .store,
@@ -1612,8 +1606,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .@"try",
         .try_ptr,
         .dbg_stmt,
-        .dbg_block_begin,
-        .dbg_block_end,
         .dbg_inline_begin,
         .dbg_inline_end,
         .dbg_var_ptr,
