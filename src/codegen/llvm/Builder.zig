@@ -12945,14 +12945,8 @@ fn debugConstantAssumeCapacity(self: *Builder, constant: Constant) Metadata {
 pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]const u32 {
     const BitcodeWriter = bitcode_writer.BitcodeWriter(&.{ Type, FunctionAttributes });
     var bitcode = BitcodeWriter.init(allocator, &.{
-        if (self.type_items.items.len > 0)
-            std.math.log2_int_ceil(usize, self.type_items.items.len)
-        else
-            undefined,
-        if (self.type_items.items.len > 0)
-            std.math.log2_int_ceil(usize, self.function_attributes_set.count())
-        else
-            undefined,
+        std.math.log2_int_ceil(usize, self.type_items.items.len),
+        std.math.log2_int_ceil(usize, 1 + self.function_attributes_set.count()),
     });
     errdefer bitcode.deinit();
 
@@ -13340,7 +13334,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     const group_index = attributes_set.getIndex(.{
                         .attributes = attributes,
                         .index = @intCast(i),
-                    }) orelse unreachable;
+                    }).?;
                     record.appendAssumeCapacity(@intCast(group_index));
                 }
 
@@ -13426,7 +13420,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     if (!gop.found_existing) {
                         try module_block.writeAbbrev(Module.String{
                             .code = 5,
-                            .string = variable.section.slice(self) orelse unreachable,
+                            .string = variable.section.slice(self).?,
                         });
                     }
                     break :blk gop.index + 1;
@@ -13473,7 +13467,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     if (!gop.found_existing) {
                         try module_block.writeAbbrev(Module.String{
                             .code = 5,
-                            .string = func.section.slice(self) orelse unreachable,
+                            .string = func.section.slice(self).?,
                         });
                     }
                     break :blk gop.index + 1;
@@ -13649,7 +13643,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         if (str == .none) {
                             try constants_block.writeAbbrev(Constants.Null{});
                         } else {
-                            const slice = str.slice(self) orelse unreachable;
+                            const slice = str.slice(self).?;
                             if (slice.len > 0 and slice[slice.len - 1] == 0)
                                 try constants_block.writeAbbrev(Constants.CString{ .string = slice[0 .. slice.len - 1] })
                             else
@@ -13791,8 +13785,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     => |tag| {
                         const extra = self.constantExtraData(Constant.Assembly, data);
 
-                        const assembly_slice = extra.assembly.slice(self) orelse unreachable;
-                        const constraints_slice = extra.constraints.slice(self) orelse unreachable;
+                        const assembly_slice = extra.assembly.slice(self).?;
+                        const constraints_slice = extra.constraints.slice(self).?;
 
                         try record.ensureUnusedCapacity(self.gpa, 4 + assembly_slice.len + constraints_slice.len);
 
@@ -14341,7 +14335,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     return switch (Ty) {
                         Value => @enumFromInt(adapter.getOffsetValueIndex(value)),
                         Constant => @enumFromInt(adapter.getOffsetConstantIndex(value)),
-                        FunctionAttributes => @enumFromInt(if (value == .none) 0 else (adapter.constant_adapter.builder.function_attributes_set.getIndex(value) orelse unreachable) + 1),
+                        FunctionAttributes => @enumFromInt(switch (value) {
+                            .none => 0,
+                            else => 1 + adapter.constant_adapter.builder.function_attributes_set.getIndex(value).?,
+                        }),
                         else => value,
                     };
                 }
