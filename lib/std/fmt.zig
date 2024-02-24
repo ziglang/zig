@@ -272,7 +272,15 @@ pub const Placeholder = struct {
         // When none of the fill character and the alignment specifier have
         // been provided, check whether the width starts with a zero.
         if (fill == null and alignment == null) {
-            fill = comptime if (parser.peek(0) == '0') '0' else null;
+            fill = comptime if (parser.peek(0)) |ch| init: {
+                switch (ch) {
+                    '.', '1', '2', '3', '4', '5', '6', '7', '8', '9' => break :init null,
+                    else => {
+                        _ = parser.char(); // consume the character
+                        break :init ch;
+                    },
+                }
+            } else null;
         }
 
         // Parse the width parameter
@@ -2660,13 +2668,28 @@ test "sci float padding" {
     try expectFmt("right-pad:  3.142e0****\n", "right-pad:  {e:*<11.3}\n", .{number});
 }
 
-test "padding.zero" {
+test "zero padding" {
     try expectFmt("zero-pad: '0042'", "zero-pad: '{:04}'", .{42});
-    try expectFmt("std-pad: '        42'", "std-pad: '{:10}'", .{42});
     try expectFmt("std-pad-1: '001'", "std-pad-1: '{:0>3}'", .{1});
     try expectFmt("std-pad-2: '911'", "std-pad-2: '{:1<03}'", .{9});
     try expectFmt("std-pad-3: '  1'", "std-pad-3: '{:>03}'", .{1});
     try expectFmt("center-pad: '515'", "center-pad: '{:5^03}'", .{1});
+}
+
+test "padding width, no alignment" {
+    try expectFmt("std-pad: '        42'", "std-pad: '{:10}'", .{42});
+}
+
+test "padding with misc fill chars" {
+    try expectFmt("space-pad: '  1'", "space-pad: '{: 3}'", .{1});
+    try expectFmt("score-pad: '__42'", "score-pad: '{:_04}'", .{42});
+    try expectFmt("lt-pad-1: '42<<'", "lt-pad-1: '{:<<04}'", .{42});
+    try expectFmt("lt-pad-2: '<<42'", "lt-pad-2: '{:<>04}'", .{42});
+    try expectFmt("gt-pad: '>42>'", "gt-pad: '{:>^04}'", .{42});
+    try expectFmt("float-pad-1: '42.123'", "float-pad-1: '{d:.3}'", .{42.1234});
+    try expectFmt("float-pad-2: '42.123'", "float-pad-2: '{d:.>.3}'", .{42.1234});
+    try expectFmt("float-pad-3: '42.123'", "float-pad-3: '{d:.>0.3}'", .{42.1234});
+    try expectFmt("float-pad-4: '...42.1'", "float-pad-4: '{d:.>7.1}'", .{42.1234});
 }
 
 test "null" {
