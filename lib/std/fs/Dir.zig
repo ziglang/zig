@@ -9,7 +9,14 @@ pub const Entry = struct {
     pub const Kind = File.Kind;
 };
 
-const IteratorError = error{ AccessDenied, SystemResources } || posix.UnexpectedError;
+const IteratorError = error{
+    AccessDenied,
+    SystemResources,
+    /// WASI-only. The path of an entry could not be encoded as valid UTF-8.
+    /// WASI is unable to handle paths that cannot be encoded as well-formed UTF-8.
+    /// https://github.com/WebAssembly/wasi-filesystem/issues/17#issuecomment-1430639353
+    InvalidUtf8,
+} || posix.UnexpectedError;
 
 pub const Iterator = switch (builtin.os.tag) {
     .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
@@ -445,13 +452,12 @@ pub const Iterator = switch (builtin.os.tag) {
                     self.index = self.buf.len;
                 }
 
-                const name_utf16le = @as([*]u16, @ptrCast(&dir_info.FileName))[0 .. dir_info.FileNameLength / 2];
+                const name_wtf16le = @as([*]u16, @ptrCast(&dir_info.FileName))[0 .. dir_info.FileNameLength / 2];
 
-                if (mem.eql(u16, name_utf16le, &[_]u16{'.'}) or mem.eql(u16, name_utf16le, &[_]u16{ '.', '.' }))
+                if (mem.eql(u16, name_wtf16le, &[_]u16{'.'}) or mem.eql(u16, name_wtf16le, &[_]u16{ '.', '.' }))
                     continue;
-                // Trust that Windows gives us valid UTF-16LE
-                const name_utf8_len = std.unicode.utf16leToUtf8(self.name_data[0..], name_utf16le) catch unreachable;
-                const name_utf8 = self.name_data[0..name_utf8_len];
+                const name_wtf8_len = std.unicode.wtf16LeToWtf8(self.name_data[0..], name_wtf16le);
+                const name_wtf8 = self.name_data[0..name_wtf8_len];
                 const kind: Entry.Kind = blk: {
                     const attrs = dir_info.FileAttributes;
                     if (attrs & w.FILE_ATTRIBUTE_DIRECTORY != 0) break :blk .directory;
@@ -459,7 +465,7 @@ pub const Iterator = switch (builtin.os.tag) {
                     break :blk .file;
                 };
                 return Entry{
-                    .name = name_utf8,
+                    .name = name_wtf8,
                     .kind = kind,
                 };
             }
@@ -516,6 +522,7 @@ pub const Iterator = switch (builtin.os.tag) {
                         .INVAL => unreachable,
                         .NOENT => return error.DirNotFound, // The directory being iterated was deleted during iteration.
                         .NOTCAPABLE => return error.AccessDenied,
+                        .ILSEQ => return error.InvalidUtf8, // An entry's name cannot be encoded as UTF-8.
                         else => |err| return posix.unexpectedErrno(err),
                     }
                     if (bufused == 0) return null;
@@ -743,7 +750,11 @@ pub const OpenError = error{
     SystemFdQuotaExceeded,
     NoDevice,
     SystemResources,
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
     BadPathName,
     DeviceBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
@@ -759,6 +770,9 @@ pub fn close(self: *Dir) void {
 /// To create a new file, see `createFile`.
 /// Call `File.close` to release the resource.
 /// Asserts that the path parameter has no null bytes.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File {
     if (builtin.os.tag == .windows) {
         const path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sub_path);
@@ -911,6 +925,9 @@ pub fn openFileW(self: Dir, sub_path_w: []const u16, flags: File.OpenFlags) File
 /// Creates, opens, or overwrites a file with write access.
 /// Call `File.close` on the result when done.
 /// Asserts that the path parameter has no null bytes.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File {
     if (builtin.os.tag == .windows) {
         const path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sub_path);
@@ -1060,18 +1077,21 @@ pub fn createFileW(self: Dir, sub_path_w: []const u16, flags: File.CreateFlags) 
 /// Creates a single directory with a relative or absolute path.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsolute`.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn makeDir(self: Dir, sub_path: []const u8) !void {
     try posix.mkdirat(self.fd, sub_path, default_mode);
 }
 
-/// Creates a single directory with a relative or absolute null-terminated UTF-8-encoded path.
+/// Same as `makeDir`, but `sub_path` is null-terminated.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsoluteZ`.
 pub fn makeDirZ(self: Dir, sub_path: [*:0]const u8) !void {
     try posix.mkdiratZ(self.fd, sub_path, default_mode);
 }
 
-/// Creates a single directory with a relative or absolute null-terminated WTF-16-encoded path.
+/// Creates a single directory with a relative or absolute null-terminated WTF-16 LE-encoded path.
 /// To create multiple directories to make an entire path, see `makePath`.
 /// To operate on only absolute paths, see `makeDirAbsoluteW`.
 pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
@@ -1083,6 +1103,9 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) !void {
 /// Returns success if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 ///
 /// Paths containing `..` components are handled differently depending on the platform:
 /// - On Windows, `..` are resolved before the path is passed to NtCreateFile, meaning
@@ -1119,16 +1142,17 @@ pub fn makePath(self: Dir, sub_path: []const u8) !void {
     }
 }
 
-/// Calls makeOpenDirAccessMaskW iteratively to make an entire path
+/// Windows only. Calls makeOpenDirAccessMaskW iteratively to make an entire path
 /// (i.e. creating any parent directories that do not exist).
 /// Opens the dir if the path already exists and is a directory.
 /// This function is not atomic, and if it returns an error, the file system may
 /// have been modified regardless.
+/// `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no_follow: bool) OpenError!Dir {
     const w = std.os.windows;
     var it = try fs.path.componentIterator(sub_path);
     // If there are no components in the path, then create a dummy component with the full path.
-    var component = it.last() orelse fs.path.NativeUtf8ComponentIterator.Component{
+    var component = it.last() orelse fs.path.NativeComponentIterator.Component{
         .name = "",
         .path = sub_path,
     };
@@ -1156,7 +1180,9 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
 /// This function performs `makePath`, followed by `openDir`.
 /// If supported by the OS, this operation is atomic. It is not atomic on
 /// all operating systems.
-/// On Windows, this function performs `makeOpenPathAccessMaskW`.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) !Dir {
     return switch (builtin.os.tag) {
         .windows => {
@@ -1185,6 +1211,10 @@ pub const RealPathError = posix.RealPathError;
 /// `pathname` relative to this `Dir`. If `pathname` is absolute, ignores this
 /// `Dir` handle and returns the canonicalized absolute pathname of `pathname`
 /// argument.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// This function is not universally supported by all platforms.
 /// Currently supported hosts are: Linux, macOS, and Windows.
 /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
@@ -1224,6 +1254,7 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
         error.FileLocksNotSupported => return error.Unexpected,
         error.FileBusy => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
+        error.InvalidUtf8 => unreachable, // WASI-only
         else => |e| return e,
     };
     defer posix.close(fd);
@@ -1246,7 +1277,8 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
     return result;
 }
 
-/// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 encoded.
+/// Windows-only. Same as `Dir.realpath` except `pathname` is WTF16 LE encoded.
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// See also `Dir.realpath`, `realpathW`.
 pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathError![]u8 {
     const w = std.os.windows;
@@ -1272,16 +1304,7 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
     const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
     var big_out_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-    const end_index = std.unicode.utf16leToUtf8(&big_out_buf, wide_slice) catch |e| switch (e) {
-        // TODO: Windows file paths can be arbitrary arrays of u16 values and
-        // must not fail with InvalidUtf8.
-        error.DanglingSurrogateHalf,
-        error.ExpectedSecondSurrogateHalf,
-        error.UnexpectedSecondSurrogateHalf,
-        error.CodepointTooLarge,
-        error.Utf8CannotEncodeSurrogateHalf,
-        => return error.InvalidUtf8,
-    };
+    const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
     if (end_index > out_buffer.len)
         return error.NameTooLong;
     const result = out_buffer[0..end_index];
@@ -1344,6 +1367,9 @@ pub const OpenDirOptions = struct {
 /// open until `close` is called on the result.
 /// The directory cannot be iterated unless the `iterate` option is set to `true`.
 ///
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
 pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
     switch (builtin.os.tag) {
@@ -1428,7 +1454,7 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) Open
     }
 }
 
-/// Same as `openDir` except the path parameter is WTF-16 encoded, NT-prefixed.
+/// Same as `openDir` except the path parameter is WTF-16 LE encoded, NT-prefixed.
 /// This function asserts the target OS is Windows.
 pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) OpenError!Dir {
     const w = std.os.windows;
@@ -1518,6 +1544,9 @@ fn makeOpenDirAccessMaskW(self: Dir, sub_path_w: [*:0]const u16, access_mask: u3
 pub const DeleteFileError = posix.UnlinkError;
 
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
 pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
     if (builtin.os.tag == .windows) {
@@ -1553,7 +1582,7 @@ pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
     };
 }
 
-/// Same as `deleteFile` except the parameter is WTF-16 encoded.
+/// Same as `deleteFile` except the parameter is WTF-16 LE encoded.
 pub fn deleteFileW(self: Dir, sub_path_w: []const u16) DeleteFileError!void {
     posix.unlinkatW(self.fd, sub_path_w, 0) catch |err| switch (err) {
         error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
@@ -1572,7 +1601,11 @@ pub const DeleteDirError = error{
     NotDir,
     SystemResources,
     ReadOnlyFileSystem,
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
@@ -1581,6 +1614,9 @@ pub const DeleteDirError = error{
 
 /// Returns `error.DirNotEmpty` if the directory is not empty.
 /// To delete a directory recursively, see `deleteTree`.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
 pub fn deleteDir(self: Dir, sub_path: []const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
@@ -1605,7 +1641,7 @@ pub fn deleteDirZ(self: Dir, sub_path_c: [*:0]const u8) DeleteDirError!void {
     };
 }
 
-/// Same as `deleteDir` except the parameter is UTF16LE, NT prefixed.
+/// Same as `deleteDir` except the parameter is WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn deleteDirW(self: Dir, sub_path_w: []const u16) DeleteDirError!void {
     posix.unlinkatW(self.fd, sub_path_w, posix.AT.REMOVEDIR) catch |err| switch (err) {
@@ -1620,6 +1656,9 @@ pub const RenameError = posix.RenameError;
 /// If new_sub_path already exists, it will be replaced.
 /// Renaming a file over an existing directory or a directory
 /// over an existing file will fail with `error.IsDir` or `error.NotDir`
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn rename(self: Dir, old_sub_path: []const u8, new_sub_path: []const u8) RenameError!void {
     return posix.renameat(self.fd, old_sub_path, self.fd, new_sub_path);
 }
@@ -1629,7 +1668,7 @@ pub fn renameZ(self: Dir, old_sub_path_z: [*:0]const u8, new_sub_path_z: [*:0]co
     return posix.renameatZ(self.fd, old_sub_path_z, self.fd, new_sub_path_z);
 }
 
-/// Same as `rename` except the parameters are UTF16LE, NT prefixed.
+/// Same as `rename` except the parameters are WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u16) RenameError!void {
     return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w);
@@ -1647,6 +1686,9 @@ pub const SymLinkFlags = struct {
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
 /// If `sym_link_path` exists, it will not be overwritten.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn symLink(
     self: Dir,
     target_path: []const u8,
@@ -1662,7 +1704,7 @@ pub fn symLink(
         // when converting to an NT namespaced path. CreateSymbolicLink in
         // symLinkW will handle the necessary conversion.
         var target_path_w: std.os.windows.PathSpace = undefined;
-        target_path_w.len = try std.unicode.utf8ToUtf16Le(&target_path_w.data, target_path);
+        target_path_w.len = try std.unicode.wtf8ToWtf16Le(&target_path_w.data, target_path);
         target_path_w.data[target_path_w.len] = 0;
         const sym_link_path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sym_link_path);
         return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
@@ -1698,7 +1740,7 @@ pub fn symLinkZ(
 }
 
 /// Windows-only. Same as `symLink` except the pathname parameters
-/// are null-terminated, WTF16 encoded.
+/// are WTF16 LE encoded.
 pub fn symLinkW(
     self: Dir,
     /// WTF-16, does not need to be NT-prefixed. The NT-prefixing
@@ -1716,6 +1758,9 @@ pub const ReadLinkError = posix.ReadLinkError;
 /// Read value of a symbolic link.
 /// The return value is a slice of `buffer`, from index `0`.
 /// Asserts that the path parameter has no null bytes.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readLink(self: Dir, sub_path: []const u8, buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return self.readLinkWasi(sub_path, buffer);
@@ -1733,7 +1778,7 @@ pub fn readLinkWasi(self: Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
     return posix.readlinkat(self.fd, sub_path, buffer);
 }
 
-/// Same as `readLink`, except the `pathname` parameter is null-terminated.
+/// Same as `readLink`, except the `sub_path_c` parameter is null-terminated.
 pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
     if (builtin.os.tag == .windows) {
         const sub_path_w = try std.os.windows.cStrToPrefixedFileW(self.fd, sub_path_c);
@@ -1743,7 +1788,7 @@ pub fn readLinkZ(self: Dir, sub_path_c: [*:0]const u8, buffer: []u8) ![]u8 {
 }
 
 /// Windows-only. Same as `readLink` except the pathname parameter
-/// is null-terminated, WTF16 encoded.
+/// is WTF16 LE encoded.
 pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
     return std.os.windows.ReadLink(self.fd, sub_path_w, buffer);
 }
@@ -1753,6 +1798,9 @@ pub fn readLinkW(self: Dir, sub_path_w: []const u16, buffer: []u8) ![]u8 {
 /// the situation is ambiguous. It could either mean that the entire file was read, and
 /// it exactly fits the buffer, or it could mean the buffer was not big enough for the
 /// entire file.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     var file = try self.openFile(file_path, .{});
     defer file.close();
@@ -1763,6 +1811,9 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
 
 /// On success, caller owns returned buffer.
 /// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
     return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
 }
@@ -1772,6 +1823,9 @@ pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8,
 /// If `size_hint` is specified the initial buffer size is calculated using
 /// that value, otherwise the effective file size is used instead.
 /// Allows specifying alignment and a sentinel value.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFileAllocOptions(
     self: Dir,
     allocator: mem.Allocator,
@@ -1811,8 +1865,12 @@ pub const DeleteTreeError = error{
     /// This error is unreachable if `sub_path` does not contain a path separator.
     NotDir,
 
-    /// On Windows, file paths must be valid Unicode.
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
 
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
@@ -1826,6 +1884,9 @@ pub const DeleteTreeError = error{
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 /// This operation is not atomic on most file systems.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
     var initial_iterable_dir = (try self.deleteTreeOpenInitialSubpath(sub_path, .file)) orelse return;
 
@@ -1879,6 +1940,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.SystemResources,
                             error.Unexpected,
                             error.InvalidUtf8,
+                            error.InvalidWtf8,
                             error.BadPathName,
                             error.NetworkNotFound,
                             error.DeviceBusy,
@@ -1910,6 +1972,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
 
                         error.AccessDenied,
                         error.InvalidUtf8,
+                        error.InvalidWtf8,
                         error.SymLinkLoop,
                         error.NameTooLong,
                         error.SystemResources,
@@ -1973,6 +2036,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             error.SystemResources,
                             error.Unexpected,
                             error.InvalidUtf8,
+                            error.InvalidWtf8,
                             error.BadPathName,
                             error.NetworkNotFound,
                             error.DeviceBusy,
@@ -1994,6 +2058,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
 
                             error.AccessDenied,
                             error.InvalidUtf8,
+                            error.InvalidWtf8,
                             error.SymLinkLoop,
                             error.NameTooLong,
                             error.SystemResources,
@@ -2022,6 +2087,9 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
 
 /// Like `deleteTree`, but only keeps one `Iterator` active at a time to minimize the function's stack size.
 /// This is slower than `deleteTree` but uses less stack space.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn deleteTreeMinStackSize(self: Dir, sub_path: []const u8) DeleteTreeError!void {
     return self.deleteTreeMinStackSizeWithKindHint(sub_path, .file);
 }
@@ -2074,6 +2142,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             error.SystemResources,
                             error.Unexpected,
                             error.InvalidUtf8,
+                            error.InvalidWtf8,
                             error.BadPathName,
                             error.NetworkNotFound,
                             error.DeviceBusy,
@@ -2102,6 +2171,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
 
                             error.AccessDenied,
                             error.InvalidUtf8,
+                            error.InvalidWtf8,
                             error.SymLinkLoop,
                             error.NameTooLong,
                             error.SystemResources,
@@ -2171,6 +2241,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     error.SystemResources,
                     error.Unexpected,
                     error.InvalidUtf8,
+                    error.InvalidWtf8,
                     error.BadPathName,
                     error.DeviceBusy,
                     error.NetworkNotFound,
@@ -2189,6 +2260,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
 
                     error.AccessDenied,
                     error.InvalidUtf8,
+                    error.InvalidWtf8,
                     error.SymLinkLoop,
                     error.NameTooLong,
                     error.SystemResources,
@@ -2209,6 +2281,9 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
 pub const WriteFileError = File.WriteError || File.OpenError;
 
 /// Deprecated: use `writeFile2`.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) WriteFileError!void {
     return writeFile2(self, .{
         .sub_path = sub_path,
@@ -2218,6 +2293,9 @@ pub fn writeFile(self: Dir, sub_path: []const u8, data: []const u8) WriteFileErr
 }
 
 pub const WriteFileOptions = struct {
+    /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On WASI, `sub_path` should be encoded as valid UTF-8.
+    /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
     sub_path: []const u8,
     data: []const u8,
     flags: File.CreateFlags = .{},
@@ -2232,8 +2310,10 @@ pub fn writeFile2(self: Dir, options: WriteFileOptions) WriteFileError!void {
 
 pub const AccessError = posix.AccessError;
 
-/// Test accessing `path`.
-/// `path` is UTF-8-encoded.
+/// Test accessing `sub_path`.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Be careful of Time-Of-Check-Time-Of-Use race conditions when using this function.
 /// For example, instead of testing if a file exists and then opening it, just
 /// open it and handle the error for file not found.
@@ -2268,9 +2348,9 @@ pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) Access
 }
 
 /// Same as `access` except asserts the target OS is Windows and the path parameter is
-/// * WTF-16 encoded
+/// * WTF-16 LE encoded
 /// * null-terminated
-/// * NtDll prefixed
+/// * relative or has the NT namespace prefix
 /// TODO currently this ignores `flags`.
 pub fn accessW(self: Dir, sub_path_w: [*:0]const u16, flags: File.OpenFlags) AccessError!void {
     _ = flags;
@@ -2292,6 +2372,9 @@ pub const PrevStatus = enum {
 /// atime, and mode of the source file so that the next call to `updateFile` will not need a copy.
 /// Returns the previous status of the file before updating.
 /// If any of the directories do not exist for dest_path, they are created.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn updateFile(
     source_dir: Dir,
     source_path: []const u8,
@@ -2343,6 +2426,9 @@ pub const CopyFileError = File.OpenError || File.StatError ||
 /// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
 /// there is a possibility of power loss or application termination leaving temporary files present
 /// in the same directory as dest_path.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn copyFile(
     source_dir: Dir,
     source_path: []const u8,
@@ -2430,6 +2516,9 @@ pub const AtomicFileOptions = struct {
 /// Always call `AtomicFile.deinit` to clean up, regardless of whether
 /// `AtomicFile.finish` succeeded. `dest_path` must remain valid until
 /// `AtomicFile.deinit` is called.
+/// On Windows, `dest_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `dest_path` should be encoded as valid UTF-8.
+/// On other platforms, `dest_path` is an opaque sequence of bytes with no particular encoding.
 pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) !AtomicFile {
     if (fs.path.dirname(dest_path)) |dirname| {
         const dir = if (options.make_path)
@@ -2461,6 +2550,9 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// Symlinks are followed.
 ///
 /// `sub_path` may be absolute, in which case `self` is ignored.
+/// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (builtin.os.tag == .windows) {
         var file = try self.openFile(sub_path, .{});

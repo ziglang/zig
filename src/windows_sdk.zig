@@ -84,26 +84,26 @@ fn iterateAndFilterBySemVer(
     return dirs_filtered_slice;
 }
 
-const RegistryUtf8 = struct {
+const RegistryWtf8 = struct {
     key: windows.HKEY,
 
-    /// Assert that `key` is valid UTF-8 string
-    pub fn openKey(hkey: windows.HKEY, key: []const u8) error{KeyNotFound}!RegistryUtf8 {
-        const key_utf16le: [:0]const u16 = key_utf16le: {
-            var key_utf16le_buf: [RegistryUtf16Le.key_name_max_len]u16 = undefined;
-            const key_utf16le_len: usize = std.unicode.utf8ToUtf16Le(key_utf16le_buf[0..], key) catch |err| switch (err) {
-                error.InvalidUtf8 => unreachable,
+    /// Assert that `key` is valid WTF-8 string
+    pub fn openKey(hkey: windows.HKEY, key: []const u8) error{KeyNotFound}!RegistryWtf8 {
+        const key_wtf16le: [:0]const u16 = key_wtf16le: {
+            var key_wtf16le_buf: [RegistryWtf16Le.key_name_max_len]u16 = undefined;
+            const key_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(key_wtf16le_buf[0..], key) catch |err| switch (err) {
+                error.InvalidWtf8 => unreachable,
             };
-            key_utf16le_buf[key_utf16le_len] = 0;
-            break :key_utf16le key_utf16le_buf[0..key_utf16le_len :0];
+            key_wtf16le_buf[key_wtf16le_len] = 0;
+            break :key_wtf16le key_wtf16le_buf[0..key_wtf16le_len :0];
         };
 
-        const registry_utf16le = try RegistryUtf16Le.openKey(hkey, key_utf16le);
-        return RegistryUtf8{ .key = registry_utf16le.key };
+        const registry_wtf16le = try RegistryWtf16Le.openKey(hkey, key_wtf16le);
+        return RegistryWtf8{ .key = registry_wtf16le.key };
     }
 
     /// Closes key, after that usage is invalid
-    pub fn closeKey(self: *const RegistryUtf8) void {
+    pub fn closeKey(self: *const RegistryWtf8) void {
         const return_code_int: windows.HRESULT = windows.advapi32.RegCloseKey(self.key);
         const return_code: windows.Win32Error = @enumFromInt(return_code_int);
         switch (return_code) {
@@ -114,71 +114,68 @@ const RegistryUtf8 = struct {
 
     /// Get string from registry.
     /// Caller owns result.
-    pub fn getString(self: *const RegistryUtf8, allocator: std.mem.Allocator, subkey: []const u8, value_name: []const u8) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]u8 {
-        const subkey_utf16le: [:0]const u16 = subkey_utf16le: {
-            var subkey_utf16le_buf: [RegistryUtf16Le.key_name_max_len]u16 = undefined;
-            const subkey_utf16le_len: usize = std.unicode.utf8ToUtf16Le(subkey_utf16le_buf[0..], subkey) catch unreachable;
-            subkey_utf16le_buf[subkey_utf16le_len] = 0;
-            break :subkey_utf16le subkey_utf16le_buf[0..subkey_utf16le_len :0];
+    pub fn getString(self: *const RegistryWtf8, allocator: std.mem.Allocator, subkey: []const u8, value_name: []const u8) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]u8 {
+        const subkey_wtf16le: [:0]const u16 = subkey_wtf16le: {
+            var subkey_wtf16le_buf: [RegistryWtf16Le.key_name_max_len]u16 = undefined;
+            const subkey_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(subkey_wtf16le_buf[0..], subkey) catch unreachable;
+            subkey_wtf16le_buf[subkey_wtf16le_len] = 0;
+            break :subkey_wtf16le subkey_wtf16le_buf[0..subkey_wtf16le_len :0];
         };
 
-        const value_name_utf16le: [:0]const u16 = value_name_utf16le: {
-            var value_name_utf16le_buf: [RegistryUtf16Le.value_name_max_len]u16 = undefined;
-            const value_name_utf16le_len: usize = std.unicode.utf8ToUtf16Le(value_name_utf16le_buf[0..], value_name) catch unreachable;
-            value_name_utf16le_buf[value_name_utf16le_len] = 0;
-            break :value_name_utf16le value_name_utf16le_buf[0..value_name_utf16le_len :0];
+        const value_name_wtf16le: [:0]const u16 = value_name_wtf16le: {
+            var value_name_wtf16le_buf: [RegistryWtf16Le.value_name_max_len]u16 = undefined;
+            const value_name_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(value_name_wtf16le_buf[0..], value_name) catch unreachable;
+            value_name_wtf16le_buf[value_name_wtf16le_len] = 0;
+            break :value_name_wtf16le value_name_wtf16le_buf[0..value_name_wtf16le_len :0];
         };
 
-        const registry_utf16le = RegistryUtf16Le{ .key = self.key };
-        const value_utf16le = try registry_utf16le.getString(allocator, subkey_utf16le, value_name_utf16le);
-        defer allocator.free(value_utf16le);
+        const registry_wtf16le = RegistryWtf16Le{ .key = self.key };
+        const value_wtf16le = try registry_wtf16le.getString(allocator, subkey_wtf16le, value_name_wtf16le);
+        defer allocator.free(value_wtf16le);
 
-        const value_utf8: []u8 = std.unicode.utf16leToUtf8Alloc(allocator, value_utf16le) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => return error.StringNotFound,
-        };
-        errdefer allocator.free(value_utf8);
+        const value_wtf8: []u8 = try std.unicode.wtf16LeToWtf8Alloc(allocator, value_wtf16le);
+        errdefer allocator.free(value_wtf8);
 
-        return value_utf8;
+        return value_wtf8;
     }
 
     /// Get DWORD (u32) from registry.
-    pub fn getDword(self: *const RegistryUtf8, subkey: []const u8, value_name: []const u8) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
-        const subkey_utf16le: [:0]const u16 = subkey_utf16le: {
-            var subkey_utf16le_buf: [RegistryUtf16Le.key_name_max_len]u16 = undefined;
-            const subkey_utf16le_len: usize = std.unicode.utf8ToUtf16Le(subkey_utf16le_buf[0..], subkey) catch unreachable;
-            subkey_utf16le_buf[subkey_utf16le_len] = 0;
-            break :subkey_utf16le subkey_utf16le_buf[0..subkey_utf16le_len :0];
+    pub fn getDword(self: *const RegistryWtf8, subkey: []const u8, value_name: []const u8) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
+        const subkey_wtf16le: [:0]const u16 = subkey_wtf16le: {
+            var subkey_wtf16le_buf: [RegistryWtf16Le.key_name_max_len]u16 = undefined;
+            const subkey_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(subkey_wtf16le_buf[0..], subkey) catch unreachable;
+            subkey_wtf16le_buf[subkey_wtf16le_len] = 0;
+            break :subkey_wtf16le subkey_wtf16le_buf[0..subkey_wtf16le_len :0];
         };
 
-        const value_name_utf16le: [:0]const u16 = value_name_utf16le: {
-            var value_name_utf16le_buf: [RegistryUtf16Le.value_name_max_len]u16 = undefined;
-            const value_name_utf16le_len: usize = std.unicode.utf8ToUtf16Le(value_name_utf16le_buf[0..], value_name) catch unreachable;
-            value_name_utf16le_buf[value_name_utf16le_len] = 0;
-            break :value_name_utf16le value_name_utf16le_buf[0..value_name_utf16le_len :0];
+        const value_name_wtf16le: [:0]const u16 = value_name_wtf16le: {
+            var value_name_wtf16le_buf: [RegistryWtf16Le.value_name_max_len]u16 = undefined;
+            const value_name_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(value_name_wtf16le_buf[0..], value_name) catch unreachable;
+            value_name_wtf16le_buf[value_name_wtf16le_len] = 0;
+            break :value_name_wtf16le value_name_wtf16le_buf[0..value_name_wtf16le_len :0];
         };
 
-        const registry_utf16le = RegistryUtf16Le{ .key = self.key };
-        return try registry_utf16le.getDword(subkey_utf16le, value_name_utf16le);
+        const registry_wtf16le = RegistryWtf16Le{ .key = self.key };
+        return try registry_wtf16le.getDword(subkey_wtf16le, value_name_wtf16le);
     }
 
     /// Under private space with flags:
     /// KEY_QUERY_VALUE and KEY_ENUMERATE_SUB_KEYS.
     /// After finishing work, call `closeKey`.
-    pub fn loadFromPath(absolute_path: []const u8) error{KeyNotFound}!RegistryUtf8 {
-        const absolute_path_utf16le: [:0]const u16 = absolute_path_utf16le: {
-            var absolute_path_utf16le_buf: [RegistryUtf16Le.value_name_max_len]u16 = undefined;
-            const absolute_path_utf16le_len: usize = std.unicode.utf8ToUtf16Le(absolute_path_utf16le_buf[0..], absolute_path) catch unreachable;
-            absolute_path_utf16le_buf[absolute_path_utf16le_len] = 0;
-            break :absolute_path_utf16le absolute_path_utf16le_buf[0..absolute_path_utf16le_len :0];
+    pub fn loadFromPath(absolute_path: []const u8) error{KeyNotFound}!RegistryWtf8 {
+        const absolute_path_wtf16le: [:0]const u16 = absolute_path_wtf16le: {
+            var absolute_path_wtf16le_buf: [RegistryWtf16Le.value_name_max_len]u16 = undefined;
+            const absolute_path_wtf16le_len: usize = std.unicode.wtf8ToWtf16Le(absolute_path_wtf16le_buf[0..], absolute_path) catch unreachable;
+            absolute_path_wtf16le_buf[absolute_path_wtf16le_len] = 0;
+            break :absolute_path_wtf16le absolute_path_wtf16le_buf[0..absolute_path_wtf16le_len :0];
         };
 
-        const registry_utf16le = try RegistryUtf16Le.loadFromPath(absolute_path_utf16le);
-        return RegistryUtf8{ .key = registry_utf16le.key };
+        const registry_wtf16le = try RegistryWtf16Le.loadFromPath(absolute_path_wtf16le);
+        return RegistryWtf8{ .key = registry_wtf16le.key };
     }
 };
 
-const RegistryUtf16Le = struct {
+const RegistryWtf16Le = struct {
     key: windows.HKEY,
 
     /// Includes root key (f.e. HKEY_LOCAL_MACHINE).
@@ -191,11 +188,11 @@ const RegistryUtf16Le = struct {
     /// Under HKEY_LOCAL_MACHINE with flags:
     /// KEY_QUERY_VALUE, KEY_WOW64_32KEY, and KEY_ENUMERATE_SUB_KEYS.
     /// After finishing work, call `closeKey`.
-    fn openKey(hkey: windows.HKEY, key_utf16le: [:0]const u16) error{KeyNotFound}!RegistryUtf16Le {
+    fn openKey(hkey: windows.HKEY, key_wtf16le: [:0]const u16) error{KeyNotFound}!RegistryWtf16Le {
         var key: windows.HKEY = undefined;
         const return_code_int: windows.HRESULT = windows.advapi32.RegOpenKeyExW(
             hkey,
-            key_utf16le,
+            key_wtf16le,
             0,
             windows.KEY_QUERY_VALUE | windows.KEY_WOW64_32KEY | windows.KEY_ENUMERATE_SUB_KEYS,
             &key,
@@ -207,11 +204,11 @@ const RegistryUtf16Le = struct {
 
             else => return error.KeyNotFound,
         }
-        return RegistryUtf16Le{ .key = key };
+        return RegistryWtf16Le{ .key = key };
     }
 
     /// Closes key, after that usage is invalid
-    fn closeKey(self: *const RegistryUtf16Le) void {
+    fn closeKey(self: *const RegistryWtf16Le) void {
         const return_code_int: windows.HRESULT = windows.advapi32.RegCloseKey(self.key);
         const return_code: windows.Win32Error = @enumFromInt(return_code_int);
         switch (return_code) {
@@ -221,25 +218,25 @@ const RegistryUtf16Le = struct {
     }
 
     /// Get string ([:0]const u16) from registry.
-    fn getString(self: *const RegistryUtf16Le, allocator: std.mem.Allocator, subkey_utf16le: [:0]const u16, value_name_utf16le: [:0]const u16) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]const u16 {
+    fn getString(self: *const RegistryWtf16Le, allocator: std.mem.Allocator, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ OutOfMemory, ValueNameNotFound, NotAString, StringNotFound }![]const u16 {
         var actual_type: windows.ULONG = undefined;
 
         // Calculating length to allocate
-        var value_utf16le_buf_size: u32 = 0; // in bytes, including any terminating NUL character or characters.
+        var value_wtf16le_buf_size: u32 = 0; // in bytes, including any terminating NUL character or characters.
         var return_code_int: windows.HRESULT = windows.advapi32.RegGetValueW(
             self.key,
-            subkey_utf16le,
-            value_name_utf16le,
+            subkey_wtf16le,
+            value_name_wtf16le,
             RRF.RT_REG_SZ,
             &actual_type,
             null,
-            &value_utf16le_buf_size,
+            &value_wtf16le_buf_size,
         );
 
         // Check returned code and type
         var return_code: windows.Win32Error = @enumFromInt(return_code_int);
         switch (return_code) {
-            .SUCCESS => std.debug.assert(value_utf16le_buf_size != 0),
+            .SUCCESS => std.debug.assert(value_wtf16le_buf_size != 0),
             .MORE_DATA => unreachable, // We are only reading length
             .FILE_NOT_FOUND => return error.ValueNameNotFound,
             .INVALID_PARAMETER => unreachable, // We didn't combine RRF.SUBKEY_WOW6464KEY and RRF.SUBKEY_WOW6432KEY
@@ -250,17 +247,17 @@ const RegistryUtf16Le = struct {
             else => return error.NotAString,
         }
 
-        const value_utf16le_buf: []u16 = try allocator.alloc(u16, std.math.divCeil(u32, value_utf16le_buf_size, 2) catch unreachable);
-        errdefer allocator.free(value_utf16le_buf);
+        const value_wtf16le_buf: []u16 = try allocator.alloc(u16, std.math.divCeil(u32, value_wtf16le_buf_size, 2) catch unreachable);
+        errdefer allocator.free(value_wtf16le_buf);
 
         return_code_int = windows.advapi32.RegGetValueW(
             self.key,
-            subkey_utf16le,
-            value_name_utf16le,
+            subkey_wtf16le,
+            value_name_wtf16le,
             RRF.RT_REG_SZ,
             &actual_type,
-            value_utf16le_buf.ptr,
-            &value_utf16le_buf_size,
+            value_wtf16le_buf.ptr,
+            &value_wtf16le_buf_size,
         );
 
         // Check returned code and (just in case) type again.
@@ -277,28 +274,28 @@ const RegistryUtf16Le = struct {
             else => return error.NotAString,
         }
 
-        const value_utf16le: []const u16 = value_utf16le: {
+        const value_wtf16le: []const u16 = value_wtf16le: {
             // note(bratishkaerik): somehow returned value in `buf_len` is overestimated by Windows and contains extra space
             // we will just search for zero termination and forget length
             // Windows sure is strange
-            const value_utf16le_overestimated: [*:0]const u16 = @ptrCast(value_utf16le_buf.ptr);
-            break :value_utf16le std.mem.span(value_utf16le_overestimated);
+            const value_wtf16le_overestimated: [*:0]const u16 = @ptrCast(value_wtf16le_buf.ptr);
+            break :value_wtf16le std.mem.span(value_wtf16le_overestimated);
         };
 
-        _ = allocator.resize(value_utf16le_buf, value_utf16le.len);
-        return value_utf16le;
+        _ = allocator.resize(value_wtf16le_buf, value_wtf16le.len);
+        return value_wtf16le;
     }
 
     /// Get DWORD (u32) from registry.
-    fn getDword(self: *const RegistryUtf16Le, subkey_utf16le: [:0]const u16, value_name_utf16le: [:0]const u16) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
+    fn getDword(self: *const RegistryWtf16Le, subkey_wtf16le: [:0]const u16, value_name_wtf16le: [:0]const u16) error{ ValueNameNotFound, NotADword, DwordTooLong, DwordNotFound }!u32 {
         var actual_type: windows.ULONG = undefined;
         var reg_size: u32 = @sizeOf(u32);
         var reg_value: u32 = 0;
 
         const return_code_int: windows.HRESULT = windows.advapi32.RegGetValueW(
             self.key,
-            subkey_utf16le,
-            value_name_utf16le,
+            subkey_wtf16le,
+            value_name_wtf16le,
             RRF.RT_REG_DWORD,
             &actual_type,
             &reg_value,
@@ -324,11 +321,11 @@ const RegistryUtf16Le = struct {
     /// Under private space with flags:
     /// KEY_QUERY_VALUE and KEY_ENUMERATE_SUB_KEYS.
     /// After finishing work, call `closeKey`.
-    fn loadFromPath(absolute_path_as_utf16le: [:0]const u16) error{KeyNotFound}!RegistryUtf16Le {
+    fn loadFromPath(absolute_path_as_wtf16le: [:0]const u16) error{KeyNotFound}!RegistryWtf16Le {
         var key: windows.HKEY = undefined;
 
         const return_code_int: windows.HRESULT = std.os.windows.advapi32.RegLoadAppKeyW(
-            absolute_path_as_utf16le,
+            absolute_path_as_wtf16le,
             &key,
             windows.KEY_QUERY_VALUE | windows.KEY_ENUMERATE_SUB_KEYS,
             0,
@@ -340,7 +337,7 @@ const RegistryUtf16Le = struct {
             else => return error.KeyNotFound,
         }
 
-        return RegistryUtf16Le{ .key = key };
+        return RegistryWtf16Le{ .key = key };
     }
 };
 
@@ -352,7 +349,7 @@ pub const Windows10Sdk = struct {
     /// Caller owns the result's fields.
     /// After finishing work, call `free(allocator)`.
     fn find(allocator: std.mem.Allocator) error{ OutOfMemory, Windows10SdkNotFound, PathTooLong, VersionTooLong }!Windows10Sdk {
-        const v10_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows\\v10.0") catch |err| switch (err) {
+        const v10_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows\\v10.0") catch |err| switch (err) {
             error.KeyNotFound => return error.Windows10SdkNotFound,
         };
         defer v10_key.closeKey();
@@ -413,11 +410,11 @@ pub const Windows10Sdk = struct {
     /// Check whether this version is enumerated in registry.
     fn isValidVersion(windows10sdk: *const Windows10Sdk) bool {
         var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const reg_query_as_utf8 = std.fmt.bufPrint(buf[0..], "{s}\\{s}\\Installed Options", .{ WINDOWS_KIT_REG_KEY, windows10sdk.version }) catch |err| switch (err) {
+        const reg_query_as_wtf8 = std.fmt.bufPrint(buf[0..], "{s}\\{s}\\Installed Options", .{ WINDOWS_KIT_REG_KEY, windows10sdk.version }) catch |err| switch (err) {
             error.NoSpaceLeft => return false,
         };
 
-        const options_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, reg_query_as_utf8) catch |err| switch (err) {
+        const options_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, reg_query_as_wtf8) catch |err| switch (err) {
             error.KeyNotFound => return false,
         };
         defer options_key.closeKey();
@@ -447,7 +444,7 @@ pub const Windows81Sdk = struct {
     /// Find path and version of Windows 8.1 SDK.
     /// Caller owns the result's fields.
     /// After finishing work, call `free(allocator)`.
-    fn find(allocator: std.mem.Allocator, roots_key: *const RegistryUtf8) error{ OutOfMemory, Windows81SdkNotFound, PathTooLong, VersionTooLong }!Windows81Sdk {
+    fn find(allocator: std.mem.Allocator, roots_key: *const RegistryWtf8) error{ OutOfMemory, Windows81SdkNotFound, PathTooLong, VersionTooLong }!Windows81Sdk {
         const path: []const u8 = path81: {
             const path_maybe_with_trailing_slash = roots_key.getString(allocator, "", "KitsRoot81") catch |err| switch (err) {
                 error.NotAString => return error.Windows81SdkNotFound,
@@ -523,7 +520,7 @@ pub const ZigWindowsSDK = struct {
         if (builtin.os.tag != .windows) return error.NotFound;
 
         //note(dimenus): If this key doesn't exist, neither the Win 8 SDK nor the Win 10 SDK is installed
-        const roots_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, WINDOWS_KIT_REG_KEY) catch |err| switch (err) {
+        const roots_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, WINDOWS_KIT_REG_KEY) catch |err| switch (err) {
             error.KeyNotFound => return error.NotFound,
         };
         defer roots_key.closeKey();
@@ -583,7 +580,7 @@ pub const ZigWindowsSDK = struct {
 const MsvcLibDir = struct {
     fn findInstancesDirViaCLSID(allocator: std.mem.Allocator) error{ OutOfMemory, PathNotFound }!std.fs.Dir {
         const setup_configuration_clsid = "{177f0c4a-1cd3-4de7-a32c-71dbbb9fa36d}";
-        const setup_config_key = RegistryUtf8.openKey(windows.HKEY_CLASSES_ROOT, "CLSID\\" ++ setup_configuration_clsid) catch |err| switch (err) {
+        const setup_config_key = RegistryWtf8.openKey(windows.HKEY_CLASSES_ROOT, "CLSID\\" ++ setup_configuration_clsid) catch |err| switch (err) {
             error.KeyNotFound => return error.PathNotFound,
         };
         defer setup_config_key.closeKey();
@@ -805,13 +802,13 @@ const MsvcLibDir = struct {
             for (vs_versions) |vs_version| allocator.free(vs_version);
             allocator.free(vs_versions);
         }
-        var config_subkey_buf: [RegistryUtf16Le.key_name_max_len * 2]u8 = undefined;
+        var config_subkey_buf: [RegistryWtf16Le.key_name_max_len * 2]u8 = undefined;
         const source_directories: []const u8 = source_directories: for (vs_versions) |vs_version| {
             const privateregistry_absolute_path = std.fs.path.join(allocator, &.{ visualstudio_folder_path, vs_version, "privateregistry.bin" }) catch continue;
             defer allocator.free(privateregistry_absolute_path);
             if (!std.fs.path.isAbsolute(privateregistry_absolute_path)) continue;
 
-            const visualstudio_registry = RegistryUtf8.loadFromPath(privateregistry_absolute_path) catch continue;
+            const visualstudio_registry = RegistryWtf8.loadFromPath(privateregistry_absolute_path) catch continue;
             defer visualstudio_registry.closeKey();
 
             const config_subkey = std.fmt.bufPrint(config_subkey_buf[0..], "Software\\Microsoft\\VisualStudio\\{s}_Config", .{vs_version}) catch unreachable;
@@ -894,7 +891,7 @@ const MsvcLibDir = struct {
                 }
             }
 
-            const vs7_key = RegistryUtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7") catch return error.PathNotFound;
+            const vs7_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7") catch return error.PathNotFound;
             defer vs7_key.closeKey();
             try_vs7_key: {
                 const path_maybe_with_trailing_slash = vs7_key.getString(allocator, "", "14.0") catch |err| switch (err) {

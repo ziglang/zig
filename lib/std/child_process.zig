@@ -129,10 +129,9 @@ pub const ChildProcess = struct {
         /// POSIX-only. `StdIo.Ignore` was selected and opening `/dev/null` returned ENODEV.
         NoDevice,
 
-        /// Windows-only. One of:
-        /// * `cwd` was provided and it could not be re-encoded into UTF16LE, or
-        /// * The `PATH` or `PATHEXT` environment variable contained invalid UTF-8.
-        InvalidUtf8,
+        /// Windows-only. `cwd` or `argv` was provided and it was invalid WTF-8.
+        /// https://simonsapin.github.io/wtf-8/
+        InvalidWtf8,
 
         /// Windows-only. `cwd` was provided, but the path did not exist when spawning the child process.
         CurrentWorkingDirectoryUnlinked,
@@ -767,7 +766,7 @@ pub const ChildProcess = struct {
         };
         var piProcInfo: windows.PROCESS_INFORMATION = undefined;
 
-        const cwd_w = if (self.cwd) |cwd| try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd) else null;
+        const cwd_w = if (self.cwd) |cwd| try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd) else null;
         defer if (cwd_w) |cwd| self.allocator.free(cwd);
         const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
@@ -775,8 +774,8 @@ pub const ChildProcess = struct {
         defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
         const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
 
-        const app_name_utf8 = self.argv[0];
-        const app_name_is_absolute = fs.path.isAbsolute(app_name_utf8);
+        const app_name_wtf8 = self.argv[0];
+        const app_name_is_absolute = fs.path.isAbsolute(app_name_wtf8);
 
         // the cwd set in ChildProcess is in effect when choosing the executable path
         // to match posix semantics
@@ -785,11 +784,11 @@ pub const ChildProcess = struct {
             // If the app name is absolute, then we need to use its dirname as the cwd
             if (app_name_is_absolute) {
                 cwd_path_w_needs_free = true;
-                const dir = fs.path.dirname(app_name_utf8).?;
-                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, dir);
+                const dir = fs.path.dirname(app_name_wtf8).?;
+                break :x try unicode.wtf8ToWtf16LeAllocZ(self.allocator, dir);
             } else if (self.cwd) |cwd| {
                 cwd_path_w_needs_free = true;
-                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, cwd);
+                break :x try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd);
             } else {
                 break :x &[_:0]u16{}; // empty for cwd
             }
@@ -800,19 +799,19 @@ pub const ChildProcess = struct {
         // into the basename and dirname and use the dirname as an addition to the cwd
         // path. This is because NtQueryDirectoryFile cannot accept FileName params with
         // path separators.
-        const app_basename_utf8 = fs.path.basename(app_name_utf8);
+        const app_basename_wtf8 = fs.path.basename(app_name_wtf8);
         // If the app name is absolute, then the cwd will already have the app's dirname in it,
         // so only populate app_dirname if app name is a relative path with > 0 path separators.
-        const maybe_app_dirname_utf8 = if (!app_name_is_absolute) fs.path.dirname(app_name_utf8) else null;
+        const maybe_app_dirname_wtf8 = if (!app_name_is_absolute) fs.path.dirname(app_name_wtf8) else null;
         const app_dirname_w: ?[:0]u16 = x: {
-            if (maybe_app_dirname_utf8) |app_dirname_utf8| {
-                break :x try unicode.utf8ToUtf16LeWithNull(self.allocator, app_dirname_utf8);
+            if (maybe_app_dirname_wtf8) |app_dirname_wtf8| {
+                break :x try unicode.wtf8ToWtf16LeAllocZ(self.allocator, app_dirname_wtf8);
             }
             break :x null;
         };
         defer if (app_dirname_w != null) self.allocator.free(app_dirname_w.?);
 
-        const app_name_w = try unicode.utf8ToUtf16LeWithNull(self.allocator, app_basename_utf8);
+        const app_name_w = try unicode.wtf8ToWtf16LeAllocZ(self.allocator, app_basename_wtf8);
         defer self.allocator.free(app_name_w);
 
         const cmd_line_w = argvToCommandLineWindows(self.allocator, self.argv) catch |err| switch (err) {
@@ -1173,7 +1172,7 @@ const CreateProcessSupportedExtension = enum {
     exe,
 };
 
-/// Case-insensitive UTF-16 lookup
+/// Case-insensitive WTF-16 lookup
 fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupportedExtension {
     if (ext.len != 4) return null;
     const State = enum {
@@ -1237,7 +1236,7 @@ test "windowsCreateProcessSupportsExtension" {
     try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }) == null);
 }
 
-pub const ArgvToCommandLineError = error{ OutOfMemory, InvalidUtf8, InvalidArg0 };
+pub const ArgvToCommandLineError = error{ OutOfMemory, InvalidWtf8, InvalidArg0 };
 
 /// Serializes `argv` to a Windows command-line string suitable for passing to a child process and
 /// parsing by the `CommandLineToArgvW` algorithm. The caller owns the returned slice.
@@ -1320,7 +1319,7 @@ pub fn argvToCommandLineWindows(
         }
     }
 
-    return try unicode.utf8ToUtf16LeWithNull(allocator, buf.items);
+    return try unicode.wtf8ToWtf16LeAllocZ(allocator, buf.items);
 }
 
 test "argvToCommandLineWindows" {
@@ -1386,7 +1385,7 @@ fn testArgvToCommandLineWindows(argv: []const []const u8, expected_cmd_line: []c
     const cmd_line_w = try argvToCommandLineWindows(std.testing.allocator, argv);
     defer std.testing.allocator.free(cmd_line_w);
 
-    const cmd_line = try unicode.utf16leToUtf8Alloc(std.testing.allocator, cmd_line_w);
+    const cmd_line = try unicode.wtf16LeToWtf8Alloc(std.testing.allocator, cmd_line_w);
     defer std.testing.allocator.free(cmd_line);
 
     try std.testing.expectEqualStrings(expected_cmd_line, cmd_line);
@@ -1424,7 +1423,7 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
             "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
             .{ windows.kernel32.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .Monotonic) },
         ) catch unreachable;
-        const len = std.unicode.utf8ToUtf16Le(&tmp_bufw, pipe_path) catch unreachable;
+        const len = std.unicode.wtf8ToWtf16Le(&tmp_bufw, pipe_path) catch unreachable;
         tmp_bufw[len] = 0;
         break :blk tmp_bufw[0..len :0];
     };
@@ -1521,10 +1520,10 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     var it = env_map.iterator();
     var i: usize = 0;
     while (it.next()) |pair| {
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.key_ptr.*);
+        i += try unicode.wtf8ToWtf16Le(result[i..], pair.key_ptr.*);
         result[i] = '=';
         i += 1;
-        i += try unicode.utf8ToUtf16Le(result[i..], pair.value_ptr.*);
+        i += try unicode.wtf8ToWtf16Le(result[i..], pair.value_ptr.*);
         result[i] = 0;
         i += 1;
     }

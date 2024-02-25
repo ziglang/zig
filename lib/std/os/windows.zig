@@ -1,8 +1,8 @@
 //! This file contains thin wrappers around Windows-specific APIs, with these
 //! specific goals in mind:
 //! * Convert "errno"-style error codes into Zig errors.
-//! * When null-terminated or UTF16LE byte buffers are required, provide APIs which accept
-//!   slices as well as APIs which accept null-terminated UTF16LE byte buffers.
+//! * When null-terminated or WTF16LE byte buffers are required, provide APIs which accept
+//!   slices as well as APIs which accept null-terminated WTF16LE byte buffers.
 
 const builtin = @import("builtin");
 const std = @import("../std.zig");
@@ -548,7 +548,6 @@ pub fn WriteFile(
 
 pub const SetCurrentDirectoryError = error{
     NameTooLong,
-    InvalidUtf8,
     FileNotFound,
     NotDir,
     AccessDenied,
@@ -587,24 +586,24 @@ pub const GetCurrentDirectoryError = error{
 };
 
 /// The result is a slice of `buffer`, indexed from 0.
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
-    var utf16le_buf: [PATH_MAX_WIDE]u16 = undefined;
-    const result = kernel32.GetCurrentDirectoryW(utf16le_buf.len, &utf16le_buf);
+    var wtf16le_buf: [PATH_MAX_WIDE]u16 = undefined;
+    const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len, &wtf16le_buf);
     if (result == 0) {
         switch (kernel32.GetLastError()) {
             else => |err| return unexpectedError(err),
         }
     }
-    assert(result <= utf16le_buf.len);
-    const utf16le_slice = utf16le_buf[0..result];
-    // Trust that Windows gives us valid UTF-16LE.
+    assert(result <= wtf16le_buf.len);
+    const wtf16le_slice = wtf16le_buf[0..result];
     var end_index: usize = 0;
-    var it = std.unicode.Utf16LeIterator.init(utf16le_slice);
-    while (it.nextCodepoint() catch unreachable) |codepoint| {
+    var it = std.unicode.Wtf16LeIterator.init(wtf16le_slice);
+    while (it.nextCodepoint()) |codepoint| {
         const seq_len = std.unicode.utf8CodepointSequenceLength(codepoint) catch unreachable;
         if (end_index + seq_len >= buffer.len)
             return error.NameTooLong;
-        end_index += std.unicode.utf8Encode(codepoint, buffer[end_index..]) catch unreachable;
+        end_index += std.unicode.wtf8Encode(codepoint, buffer[end_index..]) catch unreachable;
     }
     return buffer[0..end_index];
 }
@@ -812,6 +811,8 @@ pub fn ReadLink(dir: ?HANDLE, sub_path_w: []const u16, out_buffer: []u8) ReadLin
     }
 }
 
+/// Asserts that there is enough space is `out_buffer`.
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u8 {
     const win32_namespace_path = path: {
         if (is_relative) break :path path;
@@ -821,7 +822,7 @@ fn parseReadlinkPath(path: []const u16, is_relative: bool, out_buffer: []u8) []u
         };
         break :path win32_path.span();
     };
-    const out_len = std.unicode.utf16leToUtf8(out_buffer, win32_namespace_path) catch unreachable;
+    const out_len = std.unicode.wtf16LeToWtf8(out_buffer, win32_namespace_path);
     return out_buffer[0..out_len];
 }
 
@@ -1942,13 +1943,13 @@ pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
     if (@inComptime() or builtin.os.tag != .windows) {
         // This function compares the strings code unit by code unit (aka u16-to-u16),
         // so any length difference implies inequality. In other words, there's no possible
-        // conversion that changes the number of UTF-16 code units needed for the uppercase/lowercase
+        // conversion that changes the number of WTF-16 code units needed for the uppercase/lowercase
         // version in the conversion table since only codepoints <= max(u16) are eligible
         // for conversion at all.
         if (a.len != b.len) return false;
 
         for (a, b) |a_c, b_c| {
-            // The slices are always UTF-16 LE, so need to convert the elements to native
+            // The slices are always WTF-16 LE, so need to convert the elements to native
             // endianness for the uppercasing
             const a_c_native = std.mem.littleToNative(u16, a_c);
             const b_c_native = std.mem.littleToNative(u16, b_c);
@@ -1975,18 +1976,18 @@ pub fn eqlIgnoreCaseWTF16(a: []const u16, b: []const u16) bool {
     return ntdll.RtlEqualUnicodeString(&a_string, &b_string, TRUE) == TRUE;
 }
 
-/// Compares two UTF-8 strings using the equivalent functionality of
+/// Compares two WTF-8 strings using the equivalent functionality of
 /// `RtlEqualUnicodeString` (with case insensitive comparison enabled).
 /// This function can be called on any target.
-/// Assumes `a` and `b` are valid UTF-8.
-pub fn eqlIgnoreCaseUtf8(a: []const u8, b: []const u8) bool {
+/// Assumes `a` and `b` are valid WTF-8.
+pub fn eqlIgnoreCaseWtf8(a: []const u8, b: []const u8) bool {
     // A length equality check is not possible here because there are
     // some codepoints that have a different length uppercase UTF-8 representations
     // than their lowercase counterparts, e.g. U+0250 (2 bytes) <-> U+2C6F (3 bytes).
     // There are 7 such codepoints in the uppercase data used by Windows.
 
-    var a_utf8_it = std.unicode.Utf8View.initUnchecked(a).iterator();
-    var b_utf8_it = std.unicode.Utf8View.initUnchecked(b).iterator();
+    var a_wtf8_it = std.unicode.Wtf8View.initUnchecked(a).iterator();
+    var b_wtf8_it = std.unicode.Wtf8View.initUnchecked(b).iterator();
 
     // Use RtlUpcaseUnicodeChar on Windows when not in comptime to avoid including a
     // redundant copy of the uppercase data.
@@ -1996,8 +1997,8 @@ pub fn eqlIgnoreCaseUtf8(a: []const u8, b: []const u8) bool {
     };
 
     while (true) {
-        const a_cp = a_utf8_it.nextCodepoint() orelse break;
-        const b_cp = b_utf8_it.nextCodepoint() orelse return false;
+        const a_cp = a_wtf8_it.nextCodepoint() orelse break;
+        const b_cp = b_wtf8_it.nextCodepoint() orelse return false;
 
         if (a_cp <= std.math.maxInt(u16) and b_cp <= std.math.maxInt(u16)) {
             if (a_cp != b_cp and upcaseImpl(@intCast(a_cp)) != upcaseImpl(@intCast(b_cp))) {
@@ -2008,26 +2009,26 @@ pub fn eqlIgnoreCaseUtf8(a: []const u8, b: []const u8) bool {
         }
     }
     // Make sure there are no leftover codepoints in b
-    if (b_utf8_it.nextCodepoint() != null) return false;
+    if (b_wtf8_it.nextCodepoint() != null) return false;
 
     return true;
 }
 
 fn testEqlIgnoreCase(comptime expect_eql: bool, comptime a: []const u8, comptime b: []const u8) !void {
-    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseUtf8(a, b));
+    try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWtf8(a, b));
     try std.testing.expectEqual(expect_eql, eqlIgnoreCaseWTF16(
         std.unicode.utf8ToUtf16LeStringLiteral(a),
         std.unicode.utf8ToUtf16LeStringLiteral(b),
     ));
 
-    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseUtf8(a, b));
+    try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWtf8(a, b));
     try comptime std.testing.expect(expect_eql == eqlIgnoreCaseWTF16(
         std.unicode.utf8ToUtf16LeStringLiteral(a),
         std.unicode.utf8ToUtf16LeStringLiteral(b),
     ));
 }
 
-test "eqlIgnoreCaseWTF16/Utf8" {
+test "eqlIgnoreCaseWTF16/Wtf8" {
     try testEqlIgnoreCase(true, "\x01 a B Λ ɐ", "\x01 A b λ Ɐ");
     // does not do case-insensitive comparison for codepoints >= U+10000
     try testEqlIgnoreCase(false, "𐓏", "𐓷");
@@ -2117,19 +2118,31 @@ pub fn normalizePath(comptime T: type, path: []T) RemoveDotDirsError!usize {
     return prefix_len + try removeDotDirsSanitized(T, path[prefix_len..new_len]);
 }
 
+pub const Wtf8ToPrefixedFileWError = error{InvalidWtf8} || Wtf16ToPrefixedFileWError;
+
 /// Same as `sliceToPrefixedFileW` but accepts a pointer
-/// to a null-terminated path.
-pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) !PathSpace {
+/// to a null-terminated WTF-8 encoded path.
+/// https://simonsapin.github.io/wtf-8/
+pub fn cStrToPrefixedFileW(dir: ?HANDLE, s: [*:0]const u8) Wtf8ToPrefixedFileWError!PathSpace {
     return sliceToPrefixedFileW(dir, mem.sliceTo(s, 0));
 }
 
-/// Same as `wToPrefixedFileW` but accepts a UTF-8 encoded path.
-pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) !PathSpace {
+/// Same as `wToPrefixedFileW` but accepts a WTF-8 encoded path.
+/// https://simonsapin.github.io/wtf-8/
+pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) Wtf8ToPrefixedFileWError!PathSpace {
     var temp_path: PathSpace = undefined;
-    temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, path);
+    temp_path.len = try std.unicode.wtf8ToWtf16Le(&temp_path.data, path);
     temp_path.data[temp_path.len] = 0;
     return wToPrefixedFileW(dir, temp_path.span());
 }
+
+pub const Wtf16ToPrefixedFileWError = error{
+    AccessDenied,
+    BadPathName,
+    FileNotFound,
+    NameTooLong,
+    Unexpected,
+};
 
 /// Converts the `path` to WTF16, null-terminated. If the path contains any
 /// namespace prefix, or is anything but a relative path (rooted, drive relative,
@@ -2142,7 +2155,7 @@ pub fn sliceToPrefixedFileW(dir: ?HANDLE, path: []const u8) !PathSpace {
 ///   is non-null, or the CWD if it is null.
 /// - Special case device names like COM1, NUL, etc are not handled specially (TODO)
 /// - . and space are not stripped from the end of relative paths (potential TODO)
-pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) !PathSpace {
+pub fn wToPrefixedFileW(dir: ?HANDLE, path: [:0]const u16) Wtf16ToPrefixedFileWError!PathSpace {
     const nt_prefix = [_]u16{ '\\', '?', '?', '\\' };
     switch (getNamespacePrefix(u16, path)) {
         // TODO: Figure out a way to design an API that can avoid the copy for .nt,
@@ -2312,7 +2325,7 @@ pub const NamespacePrefix = enum {
     nt,
 };
 
-/// If `T` is `u16`, then `path` should be encoded as UTF-16LE.
+/// If `T` is `u16`, then `path` should be encoded as WTF-16LE.
 pub fn getNamespacePrefix(comptime T: type, path: []const T) NamespacePrefix {
     if (path.len < 4) return .none;
     var all_backslash = switch (mem.littleToNative(T, path[0])) {
@@ -2366,7 +2379,7 @@ pub const UnprefixedPathType = enum {
 
 /// Get the path type of a path that is known to not have any namespace prefixes
 /// (`\\?\`, `\\.\`, `\??\`).
-/// If `T` is `u16`, then `path` should be encoded as UTF-16LE.
+/// If `T` is `u16`, then `path` should be encoded as WTF-16LE.
 pub fn getUnprefixedPathType(comptime T: type, path: []const T) UnprefixedPathType {
     if (path.len < 1) return .relative;
 
@@ -2420,7 +2433,7 @@ test getUnprefixedPathType {
 /// Functionality is based on the ReactOS test cases found here:
 /// https://github.com/reactos/reactos/blob/master/modules/rostests/apitests/ntdll/RtlNtPathNameToDosPathName.c
 ///
-/// `path` should be encoded as UTF-16LE.
+/// `path` should be encoded as WTF-16LE.
 pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
     if (path.len > PATH_MAX_WIDE) return error.NameTooLong;
 
@@ -2530,7 +2543,6 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     if (std.os.unexpected_error_tracing) {
         // 614 is the length of the longest windows error description
         var buf_wstr: [614]WCHAR = undefined;
-        var buf_utf8: [614]u8 = undefined;
         const len = kernel32.FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
             null,
@@ -2540,8 +2552,10 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
             buf_wstr.len,
             null,
         );
-        _ = std.unicode.utf16leToUtf8(&buf_utf8, buf_wstr[0..len]) catch unreachable;
-        std.debug.print("error.Unexpected: GetLastError({}): {s}\n", .{ @intFromEnum(err), buf_utf8[0..len] });
+        std.debug.print("error.Unexpected: GetLastError({}): {}\n", .{
+            @intFromEnum(err),
+            std.unicode.fmtUtf16Le(buf_wstr[0..len]),
+        });
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
     return error.Unexpected;

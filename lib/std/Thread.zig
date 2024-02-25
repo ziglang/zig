@@ -91,7 +91,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         },
         .windows => {
             var buf: [max_name_len]u16 = undefined;
-            const len = try std.unicode.utf8ToUtf16Le(&buf, name);
+            const len = try std.unicode.wtf8ToWtf16Le(&buf, name);
             const byte_len = math.cast(c_ushort, len * 2) orelse return error.NameTooLong;
 
             // Note: NT allocates its own copy, no use-after-free here.
@@ -157,17 +157,12 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 }
 
 pub const GetNameError = error{
-    // For Windows, the name is converted from UTF16 to UTF8
-    CodepointTooLarge,
-    Utf8CannotEncodeSurrogateHalf,
-    DanglingSurrogateHalf,
-    ExpectedSecondSurrogateHalf,
-    UnexpectedSecondSurrogateHalf,
-
     Unsupported,
     Unexpected,
 } || os.PrctlError || os.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
     var buffer: [:0]u8 = buffer_ptr;
@@ -213,7 +208,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             )) {
                 .SUCCESS => {
                     const string = @as(*const os.windows.UNICODE_STRING, @ptrCast(&buf));
-                    const len = try std.unicode.utf16leToUtf8(buffer, string.Buffer[0 .. string.Length / 2]);
+                    const len = std.unicode.wtf16LeToWtf8(buffer, string.Buffer[0 .. string.Length / 2]);
                     return if (len > 0) buffer[0..len] else null;
                 },
                 .NOT_IMPLEMENTED => return error.Unsupported,

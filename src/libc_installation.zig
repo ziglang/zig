@@ -246,7 +246,10 @@ pub const LibCInstallation = struct {
         const allocator = args.allocator;
 
         // Detect infinite loops.
-        var env_map = try std.process.getEnvMap(allocator);
+        var env_map = std.process.getEnvMap(allocator) catch |err| switch (err) {
+            error.Unexpected => unreachable, // WASI-only
+            else => |e| return e,
+        };
         defer env_map.deinit();
         const skip_cc_env_var = if (env_map.get(inf_loop_env_key)) |phase| blk: {
             if (std.mem.eql(u8, phase, "1")) {
@@ -572,7 +575,10 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     const allocator = args.allocator;
 
     // Detect infinite loops.
-    var env_map = try std.process.getEnvMap(allocator);
+    var env_map = std.process.getEnvMap(allocator) catch |err| switch (err) {
+        error.Unexpected => unreachable, // WASI-only
+        else => |e| return e,
+    };
     defer env_map.deinit();
     const skip_cc_env_var = if (env_map.get(inf_loop_env_key)) |phase| blk: {
         if (std.mem.eql(u8, phase, "1")) {

@@ -3,7 +3,7 @@
 //! * Convert "errno"-style error codes into Zig errors.
 //! * When null-terminated byte buffers are required, provide APIs which accept
 //!   slices as well as APIs which accept null-terminated byte buffers. Same goes
-//!   for UTF-16LE encoding.
+//!   for WTF-16LE encoding.
 //! * Where operating systems share APIs, e.g. POSIX, these thin wrappers provide
 //!   cross platform abstracting.
 //! * When there exists a corresponding libc function and linking libc, the libc
@@ -498,6 +498,7 @@ fn fchmodat2(dirfd: fd_t, path: []const u8, mode: mode_t, flags: u32) FChmodAtEr
     const stat = fstatatZ(pathfd, "", AT.EMPTY_PATH) catch |err| switch (err) {
         error.NameTooLong => unreachable,
         error.FileNotFound => unreachable,
+        error.InvalidUtf8 => unreachable,
         else => |e| return e,
     };
     if ((stat.mode & S.IFMT) == S.IFLNK)
@@ -1614,8 +1615,15 @@ pub const OpenError = error{
     /// The underlying filesystem does not support file locks
     FileLocksNotSupported,
 
+    /// Path contains characters that are disallowed by the underlying filesystem.
     BadPathName,
+
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
 
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
@@ -1634,6 +1642,9 @@ pub const OpenError = error{
 } || UnexpectedError;
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// See also `openZ`.
 pub fn open(file_path: []const u8, flags: O, perm: mode_t) OpenError!fd_t {
     if (builtin.os.tag == .windows) {
@@ -1646,6 +1657,9 @@ pub fn open(file_path: []const u8, flags: O, perm: mode_t) OpenError!fd_t {
 }
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// See also `open`.
 pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
     if (builtin.os.tag == .windows) {
@@ -1687,6 +1701,9 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// See also `openatZ`.
 pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenError!fd_t {
     if (builtin.os.tag == .windows) {
@@ -1829,6 +1846,7 @@ pub fn openatWasi(
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
             .NOTCAPABLE => return error.AccessDenied,
+            .ILSEQ => return error.InvalidUtf8,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1836,6 +1854,9 @@ pub fn openatWasi(
 
 /// Open and possibly create a file. Keeps trying if it gets interrupted.
 /// `file_path` is relative to the open directory handle `dir_fd`.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// See also `openat`.
 pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) OpenError!fd_t {
     if (builtin.os.tag == .windows) {
@@ -2156,13 +2177,23 @@ pub const SymLinkError = error{
     ReadOnlyFileSystem,
     NotDir,
     NameTooLong,
+
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
+
     BadPathName,
 } || UnexpectedError;
 
 /// Creates a symbolic link named `sym_link_path` which contains the string `target_path`.
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkZ.
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
@@ -2200,6 +2231,10 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
         .NOMEM => return error.SystemResources,
         .NOSPC => return error.NoSpaceLeft,
         .ROFS => return error.ReadOnlyFileSystem,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2208,6 +2243,9 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
 /// `target_path` **relative** to `newdirfd` directory handle.
 /// A symbolic link (also known as a soft link) may point to an existing file or to a nonexistent
 /// one; the latter case is known as a dangling link.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 /// If `sym_link_path` exists, it will not be overwritten.
 /// See also `symlinkatWasi`, `symlinkatZ` and `symlinkatW`.
 pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkError!void {
@@ -2242,6 +2280,7 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
         .NOSPC => return error.NoSpaceLeft,
         .ROFS => return error.ReadOnlyFileSystem,
         .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2270,6 +2309,10 @@ pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:
         .NOMEM => return error.SystemResources,
         .NOSPC => return error.NoSpaceLeft,
         .ROFS => return error.ReadOnlyFileSystem,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2287,8 +2330,13 @@ pub const LinkError = UnexpectedError || error{
     NoSpaceLeft,
     ReadOnlyFileSystem,
     NotSameFileSystem,
+
+    /// WASI-only; file paths must be valid UTF-8.
+    InvalidUtf8,
 };
 
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0), flags);
@@ -2310,10 +2358,16 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkErr
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.NotSameFileSystem,
         .INVAL => unreachable,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, flags) catch |err| switch (err) {
@@ -2328,6 +2382,8 @@ pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void
 
 pub const LinkatError = LinkError || error{NotDir};
 
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn linkatZ(
     olddir: fd_t,
     oldpath: [*:0]const u8,
@@ -2356,10 +2412,16 @@ pub fn linkatZ(
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.NotSameFileSystem,
         .INVAL => unreachable,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn linkat(
     olddir: fd_t,
     oldpath: []const u8,
@@ -2399,6 +2461,7 @@ pub fn linkat(
             .ROFS => return error.ReadOnlyFileSystem,
             .XDEV => return error.NotSameFileSystem,
             .INVAL => unreachable,
+            .ILSEQ => return error.InvalidUtf8,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -2422,8 +2485,12 @@ pub const UnlinkError = error{
     SystemResources,
     ReadOnlyFileSystem,
 
-    /// On Windows, file paths must be valid Unicode.
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
 
     /// On Windows, file paths cannot contain these characters:
     /// '/', '*', '?', '"', '<', '>', '|'
@@ -2434,6 +2501,9 @@ pub const UnlinkError = error{
 } || UnexpectedError;
 
 /// Delete a name and possibly the file it refers to.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// See also `unlinkZ`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -2450,7 +2520,7 @@ pub fn unlink(file_path: []const u8) UnlinkError!void {
     }
 }
 
-/// Same as `unlink` except the parameter is a null terminated UTF8-encoded string.
+/// Same as `unlink` except the parameter is null terminated.
 pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     if (builtin.os.tag == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
@@ -2473,11 +2543,15 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
         .NOTDIR => return error.NotDir,
         .NOMEM => return error.SystemResources,
         .ROFS => return error.ReadOnlyFileSystem,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Windows-only. Same as `unlink` except the parameter is null-terminated, WTF16 encoded.
+/// Windows-only. Same as `unlink` except the parameter is null-terminated, WTF16 LE encoded.
 pub fn unlinkW(file_path_w: []const u16) UnlinkError!void {
     windows.DeleteFile(file_path_w, .{ .dir = std.fs.cwd().fd }) catch |err| switch (err) {
         error.DirNotEmpty => unreachable, // we're not passing .remove_dir = true
@@ -2491,6 +2565,9 @@ pub const UnlinkatError = UnlinkError || error{
 };
 
 /// Delete a file name and possibly the file it refers to, based on an open directory handle.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
 pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!void {
     if (builtin.os.tag == .windows) {
@@ -2528,6 +2605,7 @@ pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatErro
         .ROFS => return error.ReadOnlyFileSystem,
         .NOTEMPTY => return error.DirNotEmpty,
         .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
 
         .INVAL => unreachable, // invalid flags, or pathname has . as last component
         .BADF => unreachable, // always a race condition
@@ -2560,6 +2638,10 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
         .ROFS => return error.ReadOnlyFileSystem,
         .EXIST => return error.DirNotEmpty,
         .NOTEMPTY => return error.DirNotEmpty,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
 
         .INVAL => unreachable, // invalid flags, or pathname has . as last component
         .BADF => unreachable, // always a race condition
@@ -2568,7 +2650,7 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
     }
 }
 
-/// Same as `unlinkat` but `sub_path_w` is UTF16LE, NT prefixed. Windows only.
+/// Same as `unlinkat` but `sub_path_w` is WTF16LE, NT prefixed. Windows only.
 pub fn unlinkatW(dirfd: fd_t, sub_path_w: []const u16, flags: u32) UnlinkatError!void {
     const remove_dir = (flags & AT.REMOVEDIR) != 0;
     return windows.DeleteFile(sub_path_w, .{ .dir = dirfd, .remove_dir = remove_dir });
@@ -2594,7 +2676,11 @@ pub const RenameError = error{
     PathAlreadyExists,
     ReadOnlyFileSystem,
     RenameAcrossMountPoints,
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
     BadPathName,
     NoDevice,
     SharingViolation,
@@ -2610,6 +2696,9 @@ pub const RenameError = error{
 } || UnexpectedError;
 
 /// Change the name or location of a file.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return renameat(wasi.AT.FDCWD, old_path, wasi.AT.FDCWD, new_path);
@@ -2624,7 +2713,7 @@ pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     }
 }
 
-/// Same as `rename` except the parameters are null-terminated byte arrays.
+/// Same as `rename` except the parameters are null-terminated.
 pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!void {
     if (builtin.os.tag == .windows) {
         const old_path_w = try windows.cStrToPrefixedFileW(null, old_path);
@@ -2653,11 +2742,15 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
         .NOTEMPTY => return error.PathAlreadyExists,
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.RenameAcrossMountPoints,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Same as `rename` except the parameters are null-terminated UTF16LE encoded byte arrays.
+/// Same as `rename` except the parameters are null-terminated and WTF16LE encoded.
 /// Assumes target is Windows.
 pub fn renameW(old_path: [*:0]const u16, new_path: [*:0]const u16) RenameError!void {
     const flags = windows.MOVEFILE_REPLACE_EXISTING | windows.MOVEFILE_WRITE_THROUGH;
@@ -2665,6 +2758,9 @@ pub fn renameW(old_path: [*:0]const u16, new_path: [*:0]const u16) RenameError!v
 }
 
 /// Change the name or location of a file based on an open directory handle.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn renameat(
     old_dir_fd: fd_t,
     old_path: []const u8,
@@ -2710,11 +2806,12 @@ pub fn renameatWasi(old: RelativePathWasi, new: RelativePathWasi) RenameError!vo
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.RenameAcrossMountPoints,
         .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Same as `renameat` except the parameters are null-terminated byte arrays.
+/// Same as `renameat` except the parameters are null-terminated.
 pub fn renameatZ(
     old_dir_fd: fd_t,
     old_path: [*:0]const u8,
@@ -2749,6 +2846,10 @@ pub fn renameatZ(
         .NOTEMPTY => return error.PathAlreadyExists,
         .ROFS => return error.ReadOnlyFileSystem,
         .XDEV => return error.RenameAcrossMountPoints,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -2860,6 +2961,9 @@ pub fn renameatW(
     }
 }
 
+/// On Windows, `sub_dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `sub_dir_path` should be encoded as valid UTF-8.
+/// On other platforms, `sub_dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(dir_fd, sub_dir_path);
@@ -2891,14 +2995,16 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirErr
         .NOTDIR => return error.NotDir,
         .ROFS => return error.ReadOnlyFileSystem,
         .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
     }
 }
 
+/// Same as `mkdirat` except the parameters are null-terminated.
 pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(dir_fd, sub_dir_path);
-        return mkdiratW(dir_fd, sub_dir_path_w.span().ptr, mode);
+        return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return mkdirat(dir_fd, mem.sliceTo(sub_dir_path, 0), mode);
     }
@@ -2920,10 +3026,15 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
         .ROFS => return error.ReadOnlyFileSystem,
         // dragonfly: when dir_fd is unlinked from filesystem
         .NOTCONN => return error.FileNotFound,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
+/// Windows-only. Same as `mkdirat` except the parameter WTF16 LE encoded.
 pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(sub_path_w, .{
@@ -2955,7 +3066,11 @@ pub const MakeDirError = error{
     NoSpaceLeft,
     NotDir,
     ReadOnlyFileSystem,
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
     BadPathName,
     NoDevice,
     /// On Windows, `\\server` or `\\server\share` was not found.
@@ -2964,6 +3079,9 @@ pub const MakeDirError = error{
 
 /// Create a directory.
 /// `mode` is ignored on Windows and WASI.
+/// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `dir_path` should be encoded as valid UTF-8.
+/// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return mkdirat(wasi.AT.FDCWD, dir_path, mode);
@@ -2976,7 +3094,10 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
     }
 }
 
-/// Same as `mkdir` but the parameter is a null-terminated UTF8-encoded string.
+/// Same as `mkdir` but the parameter is null-terminated.
+/// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `dir_path` should be encoded as valid UTF-8.
+/// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
@@ -2999,11 +3120,15 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
         .NOSPC => return error.NoSpaceLeft,
         .NOTDIR => return error.NotDir,
         .ROFS => return error.ReadOnlyFileSystem,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Windows-only. Same as `mkdir` but the parameters is  WTF16 encoded.
+/// Windows-only. Same as `mkdir` but the parameters is WTF16LE encoded.
 pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(dir_path_w, .{
@@ -3031,13 +3156,20 @@ pub const DeleteDirError = error{
     NotDir,
     DirNotEmpty,
     ReadOnlyFileSystem,
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
 } || UnexpectedError;
 
 /// Deletes an empty directory.
+/// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `dir_path` should be encoded as valid UTF-8.
+/// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return unlinkat(wasi.AT.FDCWD, dir_path, AT.REMOVEDIR) catch |err| switch (err) {
@@ -3055,6 +3187,9 @@ pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
 }
 
 /// Same as `rmdir` except the parameter is null-terminated.
+/// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `dir_path` should be encoded as valid UTF-8.
+/// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     if (builtin.os.tag == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
@@ -3077,11 +3212,15 @@ pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
         .EXIST => return error.DirNotEmpty,
         .NOTEMPTY => return error.DirNotEmpty,
         .ROFS => return error.ReadOnlyFileSystem,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Windows-only. Same as `rmdir` except the parameter is WTF16 encoded.
+/// Windows-only. Same as `rmdir` except the parameter is WTF-16 LE encoded.
 pub fn rmdirW(dir_path_w: []const u16) DeleteDirError!void {
     return windows.DeleteFile(dir_path_w, .{ .dir = std.fs.cwd().fd, .remove_dir = true }) catch |err| switch (err) {
         error.IsDir => unreachable,
@@ -3098,21 +3237,25 @@ pub const ChangeCurDirError = error{
     SystemResources,
     NotDir,
     BadPathName,
-
-    /// On Windows, file paths must be valid Unicode.
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
 } || UnexpectedError;
 
 /// Changes the current working directory of the calling process.
-/// `dir_path` is recommended to be a UTF-8 encoded string.
+/// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `dir_path` should be encoded as valid UTF-8.
+/// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         @compileError("WASI does not support os.chdir");
     } else if (builtin.os.tag == .windows) {
-        var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], dir_path);
-        if (len > utf16_dir_path.len) return error.NameTooLong;
-        return chdirW(utf16_dir_path[0..len]);
+        var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
+        const len = try std.unicode.wtf8ToWtf16Le(wtf16_dir_path[0..], dir_path);
+        if (len > wtf16_dir_path.len) return error.NameTooLong;
+        return chdirW(wtf16_dir_path[0..len]);
     } else {
         const dir_path_c = try toPosixPath(dir_path);
         return chdirZ(&dir_path_c);
@@ -3120,12 +3263,15 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
 }
 
 /// Same as `chdir` except the parameter is null-terminated.
+/// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `dir_path` should be encoded as valid UTF-8.
+/// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (builtin.os.tag == .windows) {
-        var utf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const len = try std.unicode.utf8ToUtf16Le(utf16_dir_path[0..], mem.span(dir_path));
-        if (len > utf16_dir_path.len) return error.NameTooLong;
-        return chdirW(utf16_dir_path[0..len]);
+        var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
+        const len = try std.unicode.wtf8ToWtf16Le(wtf16_dir_path[0..], mem.span(dir_path));
+        if (len > wtf16_dir_path.len) return error.NameTooLong;
+        return chdirW(wtf16_dir_path[0..len]);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return chdir(mem.span(dir_path));
     }
@@ -3139,11 +3285,15 @@ pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Windows-only. Same as `chdir` except the parameter is WTF16 encoded.
+/// Windows-only. Same as `chdir` except the parameter is WTF16 LE encoded.
 pub fn chdirW(dir_path: []const u16) ChangeCurDirError!void {
     windows.SetCurrentDirectory(dir_path) catch |err| switch (err) {
         error.NoDevice => return error.FileSystem,
@@ -3183,7 +3333,11 @@ pub const ReadLinkError = error{
     SystemResources,
     NotLink,
     NotDir,
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
     BadPathName,
     /// Windows-only. This error may occur if the opened reparse point is
     /// of unsupported type.
@@ -3193,7 +3347,13 @@ pub const ReadLinkError = error{
 } || UnexpectedError;
 
 /// Read value of a symbolic link.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// The return value is a slice of `out_buffer` from index 0.
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, the result is encoded as UTF-8.
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return readlinkat(wasi.AT.FDCWD, file_path, out_buffer);
@@ -3206,7 +3366,8 @@ pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     }
 }
 
-/// Windows-only. Same as `readlink` except `file_path` is WTF16 encoded.
+/// Windows-only. Same as `readlink` except `file_path` is WTF16 LE encoded.
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// See also `readlinkZ`.
 pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
     return windows.ReadLink(std.fs.cwd().fd, file_path, out_buffer);
@@ -3215,7 +3376,7 @@ pub fn readlinkW(file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
 /// Same as `readlink` except `file_path` is null-terminated.
 pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .windows) {
-        const file_path_w = try windows.cStrToWin32PrefixedFileW(file_path);
+        const file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
         return readlinkW(file_path_w.span(), out_buffer);
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
         return readlink(mem.sliceTo(file_path, 0), out_buffer);
@@ -3232,12 +3393,22 @@ pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
 /// Similar to `readlink` except reads value of a symbolink link **relative** to `dirfd` directory handle.
+/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `file_path` should be encoded as valid UTF-8.
+/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// The return value is a slice of `out_buffer` from index 0.
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, the result is encoded as UTF-8.
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// See also `readlinkatWasi`, `realinkatZ` and `realinkatW`.
 pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -3267,11 +3438,13 @@ pub fn readlinkatWasi(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) Read
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
         .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 encoded.
+/// Windows-only. Same as `readlinkat` except `file_path` is null-terminated, WTF16 LE encoded.
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// See also `readlinkat`.
 pub fn readlinkatW(dirfd: fd_t, file_path: []const u16, out_buffer: []u8) ReadLinkError![]u8 {
     return windows.ReadLink(dirfd, file_path, out_buffer);
@@ -3298,6 +3471,10 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOTDIR => return error.NotDir,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -4274,10 +4451,18 @@ pub fn fstat_wasi(fd: fd_t) FStatError!wasi.filestat_t {
     }
 }
 
-pub const FStatAtError = FStatError || error{ NameTooLong, FileNotFound, SymLinkLoop };
+pub const FStatAtError = FStatError || error{
+    NameTooLong,
+    FileNotFound,
+    SymLinkLoop,
+    /// WASI-only; file paths must be valid UTF-8.
+    InvalidUtf8,
+};
 
 /// Similar to `fstat`, but returns stat of a resource pointed to by `pathname`
 /// which is relative to `dirfd` handle.
+/// On WASI, `pathname` should be encoded as valid UTF-8.
+/// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
 /// See also `fstatatZ` and `fstatat_wasi`.
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -4294,6 +4479,7 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
 }
 
 /// WASI-only. Same as `fstatat` but targeting WASI.
+/// `pathname` should be encoded as valid UTF-8.
 /// See also `fstatat`.
 pub fn fstatat_wasi(dirfd: fd_t, pathname: []const u8, flags: wasi.lookupflags_t) FStatAtError!wasi.filestat_t {
     var stat: wasi.filestat_t = undefined;
@@ -4308,6 +4494,7 @@ pub fn fstatat_wasi(dirfd: fd_t, pathname: []const u8, flags: wasi.lookupflags_t
         .NOENT => return error.FileNotFound,
         .NOTDIR => return error.FileNotFound,
         .NOTCAPABLE => return error.AccessDenied,
+        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -4337,6 +4524,10 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
         .LOOP => return error.SymLinkLoop,
         .NOENT => return error.FileNotFound,
         .NOTDIR => return error.FileNotFound,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -4693,12 +4884,17 @@ pub const AccessError = error{
     FileBusy,
     SymLinkLoop,
     ReadOnlyFileSystem,
-
-    /// On Windows, file paths must be valid Unicode.
+    /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
 } || UnexpectedError;
 
 /// check user's permissions for a file
+/// On Windows, `path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `path` should be encoded as valid UTF-8.
+/// On other platforms, `path` is an opaque sequence of bytes with no particular encoding.
 /// TODO currently this assumes `mode` is `F.OK` on Windows.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
@@ -4740,12 +4936,16 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
         .FAULT => unreachable,
         .IO => return error.InputOutput,
         .NOMEM => return error.SystemResources,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
 
-/// Call from Windows-specific code if you already have a UTF-16LE encoded, null terminated string.
-/// Otherwise use `access` or `accessC`.
+/// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
+/// Otherwise use `access` or `accessZ`.
 /// TODO currently this ignores `mode`.
 pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!void {
     _ = mode;
@@ -4762,6 +4962,9 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
 }
 
 /// Check user's permissions for a file, based on an open directory handle.
+/// On Windows, `path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, `path` should be encoded as valid UTF-8.
+/// On other platforms, `path` is an opaque sequence of bytes with no particular encoding.
 /// TODO currently this ignores `mode` and `flags` on Windows.
 pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
@@ -4832,6 +5035,10 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
         .FAULT => unreachable,
         .IO => return error.InputOutput,
         .NOMEM => return error.SystemResources,
+        .ILSEQ => |err| if (builtin.os.tag == .wasi)
+            return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -5339,8 +5546,9 @@ pub const RealPathError = error{
     /// On WASI, the current CWD may not be associated with an absolute path.
     InvalidHandle,
 
-    /// On Windows, file paths must be valid Unicode.
-    InvalidUtf8,
+    /// Windows-only; file paths provided by the user must be valid WTF-8.
+    /// https://simonsapin.github.io/wtf-8/
+    InvalidWtf8,
 
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
@@ -5362,8 +5570,12 @@ pub const RealPathError = error{
 /// Return the canonicalized absolute pathname.
 /// Expands all symbolic links and resolves references to `.`, `..`, and
 /// extra `/` characters in `pathname`.
+/// On Windows, `pathname` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
 /// The return value is a slice of `out_buffer`, but not necessarily from the beginning.
 /// See also `realpathZ` and `realpathW`.
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// Calling this function is usually a bug.
 pub fn realpath(pathname: []const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (builtin.os.tag == .windows) {
@@ -5402,6 +5614,7 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
             error.WouldBlock => unreachable,
             error.FileBusy => unreachable, // not asking for write permissions
             error.InvalidHandle => unreachable, // WASI-only
+            error.InvalidUtf8 => unreachable, // WASI-only
             else => |e| return e,
         };
         defer close(fd);
@@ -5425,7 +5638,8 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
     return mem.sliceTo(result_path, 0);
 }
 
-/// Same as `realpath` except `pathname` is UTF16LE-encoded.
+/// Same as `realpath` except `pathname` is WTF16LE-encoded.
+/// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// Calling this function is usually a bug.
 pub fn realpathW(pathname: []const u16, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     const w = windows;
@@ -5475,6 +5689,8 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
 /// This function is very host-specific and is not universally supported by all hosts.
 /// For example, while it generally works on Linux, macOS, FreeBSD or Windows, it is
 /// unsupported on WASI.
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 /// Calling this function is usually a bug.
 pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
     if (!comptime isGetFdPathSupportedOnTarget(builtin.os)) {
@@ -5485,10 +5701,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
             var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
             const wide_slice = try windows.GetFinalPathNameByHandle(fd, .{}, wide_buf[0..]);
 
-            // TODO: Windows file paths can be arbitrary arrays of u16 values
-            // and must not fail with InvalidUtf8.
-            const end_index = std.unicode.utf16leToUtf8(out_buffer, wide_slice) catch
-                return error.InvalidUtf8;
+            const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
             return out_buffer[0..end_index];
         },
         .macos, .ios, .watchos, .tvos => {
@@ -5512,8 +5725,12 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
 
             const target = readlinkZ(proc_path, out_buffer) catch |err| {
                 switch (err) {
-                    error.UnsupportedReparsePointType => unreachable, // Windows only,
                     error.NotLink => unreachable,
+                    error.BadPathName => unreachable,
+                    error.InvalidUtf8 => unreachable, // WASI-only
+                    error.InvalidWtf8 => unreachable, // Windows-only
+                    error.UnsupportedReparsePointType => unreachable, // Windows-only
+                    error.NetworkNotFound => unreachable, // Windows-only
                     else => |e| return e,
                 }
             };

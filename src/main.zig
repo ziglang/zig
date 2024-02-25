@@ -5756,7 +5756,7 @@ fn readSourceFileToEndAlloc(
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (mem.startsWith(u8, source_code, "\xff\xfe")) {
         const source_code_utf16_le = mem.bytesAsSlice(u16, source_code);
-        const source_code_utf8 = std.unicode.utf16leToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
+        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,

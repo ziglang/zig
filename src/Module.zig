@@ -2662,6 +2662,7 @@ pub fn astGenFile(mod: *Module, file: *File) !void {
         }) catch |err| switch (err) {
             error.NotDir => unreachable, // no dir components
             error.InvalidUtf8 => unreachable, // it's a hex encoded name
+            error.InvalidWtf8 => unreachable, // it's a hex encoded name
             error.BadPathName => unreachable, // it's a hex encoded name
             error.NameTooLong => unreachable, // it's a fixed size name
             error.PipeBusy => unreachable, // it's not a pipe
