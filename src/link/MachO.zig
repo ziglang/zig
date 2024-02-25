@@ -2479,6 +2479,9 @@ fn initDyldInfoSections(self: *MachO) !void {
         nbinds += ctx.bind_relocs;
         nweak_binds += ctx.weak_bind_relocs;
     }
+    if (self.getInternalObject()) |int| {
+        nrebases += int.num_rebase_relocs;
+    }
     try self.rebase.entries.ensureUnusedCapacity(gpa, nrebases);
     try self.bind.entries.ensureUnusedCapacity(gpa, nbinds);
     try self.weak_bind.entries.ensureUnusedCapacity(gpa, nweak_binds);
