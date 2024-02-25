@@ -1163,7 +1163,7 @@ pub const Object = struct {
                         const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
 
                         const namespace = self.module.namespacePtr(namespace_index);
-                        const debug_type = try self.lowerDebugType(namespace.ty);
+                        const debug_type = try self.lowerDebugType(namespace.getType(self.module));
 
                         self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
                     }
@@ -1797,7 +1797,7 @@ pub const Object = struct {
             return updateExportedGlobal(self, mod, global_index, exports);
         } else {
             const fqn = try self.builder.string(
-                mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod)),
+                mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod)),
             );
             try global_index.rename(fqn, &self.builder);
             global_index.setLinkage(.internal, &self.builder);
@@ -2835,15 +2835,13 @@ pub const Object = struct {
 
         const builtin_str = try mod.intern_pool.getOrPutString(mod.gpa, "builtin");
         const std_namespace = mod.namespacePtr(mod.declPtr(std_file.root_decl.unwrap().?).src_namespace);
-        const builtin_decl = std_namespace.decls
-            .getKeyAdapted(builtin_str, Module.DeclAdapter{ .mod = mod }).?;
+        const builtin_decl = std_namespace.decls.getKeyAdapted(builtin_str, Module.DeclAdapter{ .zcu = mod }).?;
 
         const stack_trace_str = try mod.intern_pool.getOrPutString(mod.gpa, "StackTrace");
         // buffer is only used for int_type, `builtin` is a struct.
         const builtin_ty = mod.declPtr(builtin_decl).val.toType();
         const builtin_namespace = builtin_ty.getNamespace(mod).?;
-        const stack_trace_decl_index = builtin_namespace.decls
-            .getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .mod = mod }).?;
+        const stack_trace_decl_index = builtin_namespace.decls.getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .zcu = mod }).?;
         const stack_trace_decl = mod.declPtr(stack_trace_decl_index);
 
         // Sema should have ensured that StackTrace was analyzed.
@@ -2886,7 +2884,7 @@ pub const Object = struct {
             try o.builder.string(ip.stringToSlice(if (is_extern)
                 decl.name
             else
-                try decl.getFullyQualifiedName(zcu))),
+                try decl.fullyQualifiedName(zcu))),
             toLlvmAddressSpace(decl.@"addrspace", target),
         );
         gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
@@ -3100,7 +3098,7 @@ pub const Object = struct {
 
         const variable_index = try o.builder.addVariable(
             try o.builder.string(mod.intern_pool.stringToSlice(
-                if (is_extern) decl.name else try decl.getFullyQualifiedName(mod),
+                if (is_extern) decl.name else try decl.fullyQualifiedName(mod),
             )),
             try o.lowerType(decl.ty),
             toLlvmGlobalAddressSpace(decl.@"addrspace", mod.getTarget()),
@@ -3325,7 +3323,7 @@ pub const Object = struct {
                     }
 
                     const name = try o.builder.string(ip.stringToSlice(
-                        try mod.declPtr(struct_type.decl.unwrap().?).getFullyQualifiedName(mod),
+                        try mod.declPtr(struct_type.decl.unwrap().?).fullyQualifiedName(mod),
                     ));
 
                     var llvm_field_types = std.ArrayListUnmanaged(Builder.Type){};
@@ -3481,7 +3479,7 @@ pub const Object = struct {
                     }
 
                     const name = try o.builder.string(ip.stringToSlice(
-                        try mod.declPtr(union_obj.decl).getFullyQualifiedName(mod),
+                        try mod.declPtr(union_obj.decl).fullyQualifiedName(mod),
                     ));
 
                     const aligned_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[layout.most_aligned_field]);
@@ -4599,7 +4597,7 @@ pub const Object = struct {
 
         const usize_ty = try o.lowerType(Type.usize);
         const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
-        const fqn = try zcu.declPtr(enum_type.decl).getFullyQualifiedName(zcu);
+        const fqn = try zcu.declPtr(enum_type.decl).fullyQualifiedName(zcu);
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
@@ -6613,7 +6611,7 @@ pub const FuncGen = struct {
             .base_line = self.base_line,
         });
 
-        const fqn = try decl.getFullyQualifiedName(zcu);
+        const fqn = try decl.fullyQualifiedName(zcu);
 
         const is_internal_linkage = !zcu.decl_exports.contains(decl_index);
         const fn_ty = try zcu.funcType(.{
@@ -9643,7 +9641,7 @@ pub const FuncGen = struct {
         if (gop.found_existing) return gop.value_ptr.*;
         errdefer assert(o.named_enum_map.remove(enum_type.decl));
 
-        const fqn = try zcu.declPtr(enum_type.decl).getFullyQualifiedName(zcu);
+        const fqn = try zcu.declPtr(enum_type.decl).fullyQualifiedName(zcu);
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),

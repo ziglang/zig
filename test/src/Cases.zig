@@ -537,7 +537,7 @@ pub fn lowerToBuildSteps(
     self: *Cases,
     b: *std.Build,
     parent_step: *std.Build.Step,
-    opt_test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     cases_dir_path: []const u8,
     incremental_exe: *std.Build.Step.Compile,
 ) void {
@@ -552,9 +552,9 @@ pub fn lowerToBuildSteps(
             // compilation is in a happier state.
             continue;
         }
-        if (opt_test_filter) |test_filter| {
-            if (std.mem.indexOf(u8, incr_case.base_path, test_filter) == null) continue;
-        }
+        for (test_filters) |test_filter| {
+            if (std.mem.indexOf(u8, incr_case.base_path, test_filter)) |_| break;
+        } else if (test_filters.len > 0) continue;
         const case_base_path_with_dir = std.fs.path.join(b.allocator, &.{
             cases_dir_path, incr_case.base_path,
         }) catch @panic("OOM");
@@ -573,9 +573,9 @@ pub fn lowerToBuildSteps(
         assert(case.updates.items.len == 1);
         const update = case.updates.items[0];
 
-        if (opt_test_filter) |test_filter| {
-            if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
-        }
+        for (test_filters) |test_filter| {
+            if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
+        } else if (test_filters.len > 0) continue;
 
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
@@ -685,9 +685,9 @@ pub fn lowerToBuildSteps(
     for (self.translate.items) |case| switch (case.kind) {
         .run => |output| {
             const annotated_case_name = b.fmt("run-translated-c  {s}", .{case.name});
-            if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
+            for (test_filters) |test_filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
+            } else if (test_filters.len > 0) continue;
             if (!std.process.can_spawn) {
                 std.debug.print("Unable to spawn child processes on {s}, skipping test.\n", .{@tagName(builtin.os.tag)});
                 continue; // Pass test.
@@ -721,9 +721,9 @@ pub fn lowerToBuildSteps(
         },
         .translate => |output| {
             const annotated_case_name = b.fmt("zig translate-c {s}", .{case.name});
-            if (opt_test_filter) |filter| {
-                if (std.mem.indexOf(u8, annotated_case_name, filter) == null) continue;
-            }
+            for (test_filters) |test_filter| {
+                if (std.mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
+            } else if (test_filters.len > 0) continue;
 
             const write_src = b.addWriteFiles();
             const file_source = write_src.add("tmp.c", case.input);
@@ -1440,9 +1440,9 @@ fn runCases(self: *Cases, zig_exe_path: []const u8) !void {
 
             assert(case.backend != .stage1);
 
-            if (build_options.test_filter) |test_filter| {
-                if (std.mem.indexOf(u8, case.name, test_filter) == null) continue;
-            }
+            for (build_options.test_filters) |test_filter| {
+                if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
+            } else if (build_options.test_filters.len > 0) continue;
 
             var prg_node = root_node.start(case.name, case.updates.items.len);
             prg_node.activate();

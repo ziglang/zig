@@ -596,7 +596,7 @@ const usage_build_generic =
     \\  --export=[value]               (WebAssembly) Force a symbol to be exported
     \\
     \\Test Options:
-    \\  --test-filter [text]           Skip tests that do not match filter
+    \\  --test-filter [text]           Skip tests that do not match any filter
     \\  --test-name-prefix [text]      Add prefix to all tests
     \\  --test-cmd [arg]               Specify test execution command one arg at a time
     \\  --test-cmd-bin                 Appends test binary path to test cmd args
@@ -869,7 +869,7 @@ fn buildOutputType(
     var link_emit_relocs = false;
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
-    var test_filter: ?[]const u8 = null;
+    var test_filters: std.ArrayListUnmanaged([]const u8) = .{};
     var test_name_prefix: ?[]const u8 = null;
     var test_runner_path: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
@@ -909,7 +909,7 @@ fn buildOutputType(
     var rc_source_files_owner_index: usize = 0;
 
     // null means replace with the test executable binary
-    var test_exec_args = std.ArrayList(?[]const u8).init(arena);
+    var test_exec_args: std.ArrayListUnmanaged(?[]const u8) = .{};
 
     // These get set by CLI flags and then snapshotted when a `--mod` flag is
     // encountered.
@@ -1278,13 +1278,13 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--libc")) {
                         create_module.libc_paths_file = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-filter")) {
-                        test_filter = args_iter.nextOrFatal();
+                        try test_filters.append(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--test-name-prefix")) {
                         test_name_prefix = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-runner")) {
                         test_runner_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
-                        try test_exec_args.append(args_iter.nextOrFatal());
+                        try test_exec_args.append(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
                         override_local_cache_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
@@ -1334,7 +1334,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
                         create_module.each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
-                        try test_exec_args.append(null);
+                        try test_exec_args.append(arena, null);
                     } else if (mem.eql(u8, arg, "--test-no-exec")) {
                         test_no_exec = true;
                     } else if (mem.eql(u8, arg, "-ftime-report")) {
@@ -3246,7 +3246,7 @@ fn buildOutputType(
         .time_report = time_report,
         .stack_report = stack_report,
         .build_id = build_id,
-        .test_filter = test_filter,
+        .test_filters = test_filters.items,
         .test_name_prefix = test_name_prefix,
         .test_runner_path = test_runner_path,
         .disable_lld_caching = disable_lld_caching,
@@ -3369,16 +3369,15 @@ fn buildOutputType(
         const c_code_path = try fs.path.join(arena, &[_][]const u8{
             c_code_directory.path orelse ".", c_code_loc.basename,
         });
-        try test_exec_args.append(self_exe_path);
-        try test_exec_args.append("run");
+        try test_exec_args.appendSlice(arena, &.{ self_exe_path, "run" });
         if (zig_lib_directory.path) |p| {
-            try test_exec_args.appendSlice(&.{ "-I", p });
+            try test_exec_args.appendSlice(arena, &.{ "-I", p });
         }
 
         if (create_module.resolved_options.link_libc) {
-            try test_exec_args.append("-lc");
+            try test_exec_args.append(arena, "-lc");
         } else if (target.os.tag == .windows) {
-            try test_exec_args.appendSlice(&.{
+            try test_exec_args.appendSlice(arena, &.{
                 "--subsystem", "console",
                 "-lkernel32",  "-lntdll",
             });
@@ -3386,17 +3385,15 @@ fn buildOutputType(
 
         const first_cli_mod = create_module.modules.values()[0];
         if (first_cli_mod.target_arch_os_abi) |triple| {
-            try test_exec_args.append("-target");
-            try test_exec_args.append(triple);
+            try test_exec_args.appendSlice(arena, &.{ "-target", triple });
         }
         if (first_cli_mod.target_mcpu) |mcpu| {
-            try test_exec_args.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{mcpu}));
+            try test_exec_args.append(arena, try std.fmt.allocPrint(arena, "-mcpu={s}", .{mcpu}));
         }
         if (create_module.dynamic_linker) |dl| {
-            try test_exec_args.append("--dynamic-linker");
-            try test_exec_args.append(dl);
+            try test_exec_args.appendSlice(arena, &.{ "--dynamic-linker", dl });
         }
-        try test_exec_args.append(c_code_path);
+        try test_exec_args.append(arena, c_code_path);
     }
 
     const run_or_test = switch (arg_mode) {

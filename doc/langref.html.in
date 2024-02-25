@@ -988,13 +988,13 @@ fn addOne(number: i32) i32 {
         printed to standard error by the default test runner:
       </p>
       <dl>
-        <dt><samp>Test [1/2] test.expect addOne adds one to 41...</samp></dt>
+        <dt><samp>1/2 testing_introduction.test.expect addOne adds one to 41...</samp></dt>
         <dd>Lines like this indicate which test, out of the total number of tests, is being run.
-          In this case, <samp>[1/2]</samp> indicates that the first test, out of a total of
-          two test, is being run. Note that, when the test runner program's standard error is output
+          In this case, <samp>1/2</samp> indicates that the first test, out of a total of two tests,
+          is being run. Note that, when the test runner program's standard error is output
           to the terminal, these lines are cleared when a test succeeds.
         </dd>
-        <dt><samp>Test [2/2] decltest.addOne...</samp></dt>
+        <dt><samp>2/2 testing_introduction.decltest.addOne...</samp></dt>
         <dd>When the test name is an identifier, the default test runner uses the text
           decltest instead of test.
         </dd>

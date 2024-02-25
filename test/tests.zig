@@ -15,8 +15,8 @@ const run_translated_c = @import("run_translated_c.zig");
 const link = @import("link.zig");
 
 // Implementations
-pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
-pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
+pub const TranslateCContext = @import("src/TranslateC.zig");
+pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 
@@ -619,7 +619,7 @@ const c_abi_targets = [_]CAbiTarget{
 
 pub fn addCompareOutputTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     optimize_modes: []const OptimizeMode,
 ) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch @panic("OOM");
@@ -627,7 +627,7 @@ pub fn addCompareOutputTests(
         .b = b,
         .step = b.step("test-compare-output", "Run the compare output tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .optimize_modes = optimize_modes,
     };
 
@@ -638,7 +638,7 @@ pub fn addCompareOutputTests(
 
 pub fn addStackTraceTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     optimize_modes: []const OptimizeMode,
 ) *Step {
     const check_exe = b.addExecutable(.{
@@ -653,7 +653,7 @@ pub fn addStackTraceTests(
         .b = b,
         .step = b.step("test-stack-traces", "Run the stack trace tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .optimize_modes = optimize_modes,
         .check_exe = check_exe,
     };
@@ -983,13 +983,13 @@ pub fn addCliTests(b: *std.Build) *Step {
     return step;
 }
 
-pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
+pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch @panic("OOM");
     cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-asm-link", "Run the assemble and link tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .optimize_modes = optimize_modes,
     };
 
@@ -998,13 +998,13 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
+pub fn addTranslateCTests(b: *std.Build, test_filters: []const []const u8) *Step {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
         .step = b.step("test-translate-c", "Run the C translation tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
     };
 
     translate_c.addCases(cases);
@@ -1014,7 +1014,7 @@ pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
 
 pub fn addRunTranslatedCTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
 ) *Step {
     const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
@@ -1022,7 +1022,7 @@ pub fn addRunTranslatedCTests(
         .b = b,
         .step = b.step("test-run-translated-c", "Run the Run-Translated-C tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .target = target,
     };
 
@@ -1032,7 +1032,7 @@ pub fn addRunTranslatedCTests(
 }
 
 const ModuleTestOptions = struct {
-    test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
@@ -1115,7 +1115,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .optimize = test_target.optimize_mode,
             .target = resolved_target,
             .max_rss = max_rss,
-            .filter = options.test_filter,
+            .filters = options.test_filters,
             .link_libc = test_target.link_libc,
             .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
@@ -1291,7 +1291,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
-    opt_test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     check_case_exe: *std.Build.Step.Compile,
     build_options: @import("cases.zig").BuildOptions,
 ) !void {
@@ -1310,7 +1310,7 @@ pub fn addCases(
     cases.lowerToBuildSteps(
         b,
         parent_step,
-        opt_test_filter,
+        test_filters,
         cases_dir_path,
         check_case_exe,
     );

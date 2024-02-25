@@ -217,7 +217,7 @@ libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
 /// This mutex guards all `Compilation` mutable state.
 mutex: std.Thread.Mutex = .{},
 
-test_filter: ?[]const u8,
+test_filters: []const []const u8,
 test_name_prefix: ?[]const u8,
 
 emit_asm: ?EmitLoc,
@@ -1097,7 +1097,7 @@ pub const CreateOptions = struct {
     native_system_include_paths: []const []const u8 = &.{},
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     reference_trace: ?u32 = null,
-    test_filter: ?[]const u8 = null,
+    test_filters: []const []const u8 = &.{},
     test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
@@ -1506,7 +1506,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .formatted_panics = formatted_panics,
             .time_report = options.time_report,
             .stack_report = options.stack_report,
-            .test_filter = options.test_filter,
+            .test_filters = options.test_filters,
             .test_name_prefix = options.test_name_prefix,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
@@ -1613,7 +1613,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 hash.add(options.config.use_lib_llvm);
                 hash.add(options.config.dll_export_fns);
                 hash.add(options.config.is_test);
-                hash.addOptionalBytes(options.test_filter);
+                hash.addListOfBytes(options.test_filters);
                 hash.addOptionalBytes(options.test_name_prefix);
                 hash.add(options.skip_linker_dependencies);
                 hash.add(formatted_panics);
@@ -2475,7 +2475,7 @@ fn addNonIncrementalStuffToCacheManifest(
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
-        man.hash.addOptionalBytes(comp.test_filter);
+        man.hash.addListOfBytes(comp.test_filters);
         man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.skip_linker_dependencies);
         man.hash.add(comp.formatted_panics);
