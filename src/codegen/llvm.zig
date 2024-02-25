@@ -1183,6 +1183,10 @@ pub const Object = struct {
             }
         }
 
+        const target_triple_sentinel =
+            try self.gpa.dupeZ(u8, self.builder.target_triple.slice(&self.builder).?);
+        defer self.gpa.free(target_triple_sentinel);
+
         const emit_asm_msg = options.asm_path orelse "(none)";
         const emit_bin_msg = options.bin_path orelse "(none)";
         const post_llvm_ir_msg = options.post_ir_path orelse "(none)";
@@ -1202,6 +1206,7 @@ pub const Object = struct {
 
             const bitcode = try self.builder.toBitcode(self.gpa);
             defer self.gpa.free(bitcode);
+            self.builder.clearAndFree();
 
             if (options.pre_bc_path) |path| {
                 var file = try std.fs.cwd().createFile(path, .{});
@@ -1249,16 +1254,13 @@ pub const Object = struct {
         };
         defer context.dispose();
 
-        const target_triple_sentinel =
-            try self.gpa.dupeZ(u8, self.builder.target_triple.slice(&self.builder).?);
-        defer self.gpa.free(target_triple_sentinel);
         var target: *llvm.Target = undefined;
         var error_message: [*:0]const u8 = undefined;
         if (llvm.Target.getFromTriple(target_triple_sentinel, &target, &error_message).toBool()) {
             defer llvm.disposeMessage(error_message);
 
             log.err("LLVM failed to parse '{s}': {s}", .{
-                self.builder.target_triple.slice(&self.builder).?,
+                target_triple_sentinel,
                 error_message,
             });
             @panic("Invalid LLVM triple");

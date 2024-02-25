@@ -8396,6 +8396,50 @@ pub fn init(options: Options) Allocator.Error!Builder {
     return self;
 }
 
+pub fn clearAndFree(self: *Builder) void {
+    self.module_asm.clearAndFree(self.gpa);
+
+    self.string_map.clearAndFree(self.gpa);
+    self.string_indices.clearAndFree(self.gpa);
+    self.string_bytes.clearAndFree(self.gpa);
+
+    self.types.clearAndFree(self.gpa);
+    self.next_unique_type_id.clearAndFree(self.gpa);
+    self.type_map.clearAndFree(self.gpa);
+    self.type_items.clearAndFree(self.gpa);
+    self.type_extra.clearAndFree(self.gpa);
+
+    self.attributes.clearAndFree(self.gpa);
+    self.attributes_map.clearAndFree(self.gpa);
+    self.attributes_indices.clearAndFree(self.gpa);
+    self.attributes_extra.clearAndFree(self.gpa);
+
+    self.function_attributes_set.clearAndFree(self.gpa);
+
+    self.globals.clearAndFree(self.gpa);
+    self.next_unique_global_id.clearAndFree(self.gpa);
+    self.aliases.clearAndFree(self.gpa);
+    self.variables.clearAndFree(self.gpa);
+    for (self.functions.items) |*function| function.deinit(self.gpa);
+    self.functions.clearAndFree(self.gpa);
+
+    self.constant_map.clearAndFree(self.gpa);
+    self.constant_items.shrinkAndFree(self.gpa, 0);
+    self.constant_extra.clearAndFree(self.gpa);
+    self.constant_limbs.clearAndFree(self.gpa);
+
+    self.metadata_map.clearAndFree(self.gpa);
+    self.metadata_items.shrinkAndFree(self.gpa, 0);
+    self.metadata_extra.clearAndFree(self.gpa);
+    self.metadata_limbs.clearAndFree(self.gpa);
+    self.metadata_forward_references.clearAndFree(self.gpa);
+    self.metadata_named.clearAndFree(self.gpa);
+
+    self.metadata_string_map.clearAndFree(self.gpa);
+    self.metadata_string_indices.clearAndFree(self.gpa);
+    self.metadata_string_bytes.clearAndFree(self.gpa);
+}
+
 pub fn deinit(self: *Builder) void {
     self.module_asm.deinit(self.gpa);
 
