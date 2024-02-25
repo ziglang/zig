@@ -6415,8 +6415,6 @@ fn zirDbgVar(
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
 ) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip) return;
-
     const str_op = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_op;
     const operand = try sema.resolveInst(str_op.operand);
     const name = str_op.getStr(sema.code);
@@ -6430,6 +6428,8 @@ fn addDbgVar(
     air_tag: Air.Inst.Tag,
     name: []const u8,
 ) CompileError!void {
+    if (block.is_comptime or block.ownerModule().strip) return;
+
     const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
     const val_ty = switch (air_tag) {
