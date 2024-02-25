@@ -8026,7 +8026,10 @@ pub const Metadata = enum(u32) {
     const Formatter = struct {
         builder: *Builder,
         need_comma: bool,
-        map: std.AutoArrayHashMapUnmanaged(Metadata, void) = .{},
+        map: std.AutoArrayHashMapUnmanaged(union(enum) {
+            metadata: Metadata,
+            debug_location: DebugLocation.Location,
+        }, void) = .{},
 
         const FormatData = struct {
             formatter: *Formatter,
@@ -8214,7 +8217,7 @@ pub const Metadata = enum(u32) {
                 .expression, .constant => return .{ .@"inline" = unwrapped_metadata },
                 else => {
                     assert(!tag.isInline());
-                    const gop = try formatter.map.getOrPutValue(builder.gpa, unwrapped_metadata, {});
+                    const gop = try formatter.map.getOrPut(builder.gpa, .{ .metadata = unwrapped_metadata });
                     return .{ .index = @intCast(gop.index) };
                 },
             }
@@ -9433,12 +9436,19 @@ pub fn printUnbuffered(
         if (function.instructions.len > 0) {
             var block_incoming_len: u32 = undefined;
             try writer.writeAll(" {\n");
-            var dbg: Metadata = .none;
+            var maybe_dbg_index: ?u32 = null;
             for (params_len..function.instructions.len) |instruction_i| {
                 const instruction_index: Function.Instruction.Index = @enumFromInt(instruction_i);
                 const instruction = function.instructions.get(@intFromEnum(instruction_index));
-                if (function.debug_locations.get(instruction_index)) |debug_location|
-                    dbg = debug_location;
+                if (function.debug_locations.get(instruction_index)) |debug_location| switch (debug_location) {
+                    .no_location => maybe_dbg_index = null,
+                    .location => |location| {
+                        const gop = try metadata_formatter.map.getOrPut(self.gpa, .{
+                            .debug_location = location,
+                        });
+                        maybe_dbg_index = @intCast(gop.index);
+                    },
+                };
                 switch (instruction.tag) {
                     .add,
                     .@"add nsw",
@@ -9870,9 +9880,10 @@ pub fn printUnbuffered(
                         });
                     },
                 }
-                metadata_formatter.need_comma = true;
-                defer metadata_formatter.need_comma = undefined;
-                try writer.print("{}\n", .{try metadata_formatter.fmt("!dbg ", dbg)});
+
+                if (maybe_dbg_index) |dbg_index| {
+                    try writer.print(", !dbg !{}\n", .{dbg_index});
+                } else try writer.writeByte('\n');
             }
             try writer.writeByte('}');
         }
@@ -9908,11 +9919,25 @@ pub fn printUnbuffered(
         var metadata_index: usize = 0;
         while (metadata_index < metadata_formatter.map.count()) : (metadata_index += 1) {
             @setEvalBranchQuota(10_000);
-            const metadata_item =
-                self.metadata_items.get(@intFromEnum(metadata_formatter.map.keys()[metadata_index]));
             try writer.print("!{} = ", .{metadata_index});
             metadata_formatter.need_comma = false;
             defer metadata_formatter.need_comma = undefined;
+
+            const key = metadata_formatter.map.keys()[metadata_index];
+            const metadata_item = switch (key) {
+                .debug_location => |location| {
+                    try metadata_formatter.specialized(.@"!", .DILocation, .{
+                        .line = location.line,
+                        .column = location.column,
+                        .scope = location.scope,
+                        .inlinedAt = location.inlined_at,
+                        .isImplicitCode = false,
+                    }, writer);
+                    continue;
+                },
+                .metadata => |metadata| self.metadata_items.get(@intFromEnum(metadata)),
+            };
+
             switch (metadata_item.tag) {
                 .none, .expression, .constant => unreachable,
                 .file => {
