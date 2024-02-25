@@ -402,7 +402,7 @@ pub fn run(f: *Fetch) RunError!void {
                 return error.FetchFailed;
             },
         }
-    } else {
+    } else if (f.job_queue.read_only) {
         try eb.addRootErrorMessage(.{
             .msg = try eb.addString("dependency is missing hash field"),
             .src_loc = try f.srcLoc(f.location_tok),
