@@ -69,7 +69,7 @@ fn HuffmanDecoder(
 
         /// Generates symbols and lookup tables from list of code lens for each symbol.
         pub fn generate(self: *Self, lens: []const u4) !void {
-            try checkCompletnes(lens);
+            try checkCompleteness(lens);
 
             // init alphabet with code_bits
             for (self.symbols, 0..) |_, i| {
@@ -123,7 +123,7 @@ fn HuffmanDecoder(
         /// Huffman code for n symbols.
         ///
         /// Reference: https://github.com/madler/zlib/blob/5c42a230b7b468dff011f444161c0145b5efae59/contrib/puff/puff.c#L340
-        fn checkCompletnes(lens: []const u4) !void {
+        fn checkCompleteness(lens: []const u4) !void {
             if (alphabet_size == 286)
                 if (lens[256] == 0) return error.MissingEndOfBlockCode;
 
