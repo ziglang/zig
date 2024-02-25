@@ -4754,7 +4754,7 @@ pub const FuncGen = struct {
 
     inlined: std.ArrayListUnmanaged(struct {
         base_line: u32,
-        location: Builder.Metadata,
+        location: Builder.DebugLocation,
         scope: Builder.Metadata,
     }) = .{},
 
@@ -6574,17 +6574,20 @@ pub const FuncGen = struct {
         const dbg_stmt = self.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
         self.prev_dbg_line = @intCast(self.base_line + dbg_stmt.line + 1);
         self.prev_dbg_column = @intCast(dbg_stmt.column + 1);
-        const inlined_at = if (self.inlined.items.len > 0)
-            self.inlined.items[self.inlined.items.len - 1].location
+
+        const inlined_at_location = if (self.inlined.getLastOrNull()) |inlined|
+            try inlined.location.toMetadata(self.wip.builder)
         else
             .none;
 
-        self.wip.current_debug_location = try self.wip.builder.debugLocation(
-            self.prev_dbg_line,
-            self.prev_dbg_column,
-            self.scope,
-            inlined_at,
-        );
+        self.wip.debug_location = .{
+            .location = .{
+                .line = self.prev_dbg_line,
+                .column = self.prev_dbg_column,
+                .scope = self.scope,
+                .inlined_at = inlined_at_location,
+            },
+        };
 
         return .none;
     }
@@ -6605,7 +6608,7 @@ pub const FuncGen = struct {
 
         const line_number = decl.src_line + 1;
         try self.inlined.append(self.gpa, .{
-            .location = self.wip.current_debug_location,
+            .location = self.wip.debug_location,
             .scope = self.scope,
             .base_line = self.base_line,
         });
@@ -6644,13 +6647,15 @@ pub const FuncGen = struct {
         );
         self.scope = lexical_block;
         self.base_line = decl.src_line;
-        const inlined_at = self.wip.current_debug_location;
-        self.wip.current_debug_location = try o.builder.debugLocation(
-            line_number,
-            0,
-            self.scope,
-            inlined_at,
-        );
+        const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
+        self.wip.debug_location = .{
+            .location = .{
+                .line = line_number,
+                .column = 0,
+                .scope = self.scope,
+                .inlined_at = inlined_at_location,
+            },
+        };
         return .none;
     }
 
@@ -6667,7 +6672,7 @@ pub const FuncGen = struct {
         const old = self.inlined.pop();
         self.scope = old.scope;
         self.base_line = old.base_line;
-        self.wip.current_debug_location = old.location;
+        self.wip.debug_location = old.location;
         return .none;
     }
 
@@ -8828,13 +8833,15 @@ pub const FuncGen = struct {
             @intCast(self.arg_index),
         );
 
-        const old_location = self.wip.current_debug_location;
-        self.wip.current_debug_location = try o.builder.debugLocation(
-            lbrace_line,
-            lbrace_col,
-            self.scope,
-            .none,
-        );
+        const old_location = self.wip.debug_location;
+        self.wip.debug_location = .{
+            .location = .{
+                .line = lbrace_line,
+                .column = lbrace_col,
+                .scope = self.scope,
+                .inlined_at = .none,
+            },
+        };
 
         const owner_mod = self.dg.ownerModule();
         if (isByRef(inst_ty, mod)) {
@@ -8881,7 +8888,7 @@ pub const FuncGen = struct {
             );
         }
 
-        self.wip.current_debug_location = old_location;
+        self.wip.debug_location = old_location;
         return arg_val;
     }
 
@@ -11727,15 +11734,15 @@ fn buildAllocaInner(
 
     const alloca = blk: {
         const prev_cursor = wip.cursor;
-        const prev_debug_location = wip.current_debug_location;
+        const prev_debug_location = wip.debug_location;
         defer {
             wip.cursor = prev_cursor;
             if (wip.cursor.block == .entry) wip.cursor.instruction += 1;
-            wip.current_debug_location = prev_debug_location;
+            wip.debug_location = prev_debug_location;
         }
 
         wip.cursor = .{ .block = .entry };
-        wip.current_debug_location = .none;
+        wip.debug_location = .no_location;
         break :blk try wip.alloca(.normal, llvm_ty, .none, alignment, address_space, "");
     };
 
