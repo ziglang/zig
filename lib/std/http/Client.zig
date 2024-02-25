@@ -488,7 +488,7 @@ pub const Response = struct {
             var line_it = mem.splitSequence(u8, line, ": ");
             const header_name = line_it.next().?;
             const header_value = line_it.rest();
-            if (header_value.len == 0) return error.HttpHeadersInvalid;
+            if (header_name.len == 0) return error.HttpHeadersInvalid;
 
             if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
                 res.keep_alive = !std.ascii.eqlIgnoreCase(header_value, "close");
@@ -774,7 +774,7 @@ pub const Request = struct {
         }
 
         for (req.extra_headers) |header| {
-            assert(header.value.len != 0);
+            assert(header.name.len != 0);
 
             try w.writeAll(header.name);
             try w.writeAll(": ");
@@ -1515,11 +1515,13 @@ pub fn open(
 ) RequestError!Request {
     if (std.debug.runtime_safety) {
         for (options.extra_headers) |header| {
+            assert(header.name.len != 0);
             assert(std.mem.indexOfScalar(u8, header.name, ':') == null);
             assert(std.mem.indexOfPosLinear(u8, header.name, 0, "\r\n") == null);
             assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
         }
         for (options.privileged_headers) |header| {
+            assert(header.name.len != 0);
             assert(std.mem.indexOfPosLinear(u8, header.name, 0, "\r\n") == null);
             assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
         }

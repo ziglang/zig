@@ -211,7 +211,7 @@ pub const Request = struct {
                 var line_it = mem.splitSequence(u8, line, ": ");
                 const header_name = line_it.next().?;
                 const header_value = line_it.rest();
-                if (header_value.len == 0) return error.HttpHeadersInvalid;
+                if (header_name.len == 0) return error.HttpHeadersInvalid;
 
                 if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
                     head.keep_alive = !std.ascii.eqlIgnoreCase(header_value, "close");
@@ -311,6 +311,7 @@ pub const Request = struct {
         assert(options.extra_headers.len <= max_extra_headers);
         if (std.debug.runtime_safety) {
             for (options.extra_headers) |header| {
+                assert(header.name.len != 0);
                 assert(std.mem.indexOfScalar(u8, header.name, ':') == null);
                 assert(std.mem.indexOfPosLinear(u8, header.name, 0, "\r\n") == null);
                 assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
@@ -370,11 +371,13 @@ pub const Request = struct {
             };
             iovecs_len += 1;
 
-            iovecs[iovecs_len] = .{
-                .iov_base = header.value.ptr,
-                .iov_len = header.value.len,
-            };
-            iovecs_len += 1;
+            if (header.value.len != 0) {
+                iovecs[iovecs_len] = .{
+                    .iov_base = header.value.ptr,
+                    .iov_len = header.value.len,
+                };
+                iovecs_len += 1;
+            }
 
             iovecs[iovecs_len] = .{
                 .iov_base = "\r\n",
@@ -496,6 +499,7 @@ pub const Request = struct {
             }
 
             for (o.extra_headers) |header| {
+                assert(header.name.len != 0);
                 h.appendSliceAssumeCapacity(header.name);
                 h.appendSliceAssumeCapacity(": ");
                 h.appendSliceAssumeCapacity(header.value);
@@ -986,11 +990,13 @@ pub const Response = struct {
                 };
                 iovecs_len += 1;
 
-                iovecs[iovecs_len] = .{
-                    .iov_base = trailer.value.ptr,
-                    .iov_len = trailer.value.len,
-                };
-                iovecs_len += 1;
+                if (trailer.value.len != 0) {
+                    iovecs[iovecs_len] = .{
+                        .iov_base = trailer.value.ptr,
+                        .iov_len = trailer.value.len,
+                    };
+                    iovecs_len += 1;
+                }
 
                 iovecs[iovecs_len] = .{
                     .iov_base = "\r\n",
