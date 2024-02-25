@@ -2019,7 +2019,7 @@ const DeclGen = struct {
             // Append the actual code into the functions section.
             try self.spv.addFunction(spv_decl_index, self.func);
 
-            const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
+            const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
             try self.spv.debugName(decl_id, fqn);
 
             // Temporarily generate a test kernel declaration if this is a test function.
@@ -2055,7 +2055,7 @@ const DeclGen = struct {
                 .id_result = decl_id,
                 .storage_class = actual_storage_class,
             });
-            const fqn = ip.stringToSlice(try decl.getFullyQualifiedName(self.module));
+            const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
             try self.spv.debugName(decl_id, fqn);
 
             if (opt_init_val) |init_val| {

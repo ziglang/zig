@@ -54,7 +54,7 @@ global_base: ?u64 = null,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
-filter: ?[]const u8,
+filters: []const []const u8,
 test_runner: ?[]const u8,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -223,7 +223,7 @@ pub const Options = struct {
     linkage: ?Linkage = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    filter: ?[]const u8 = null,
+    filters: []const []const u8 = &.{},
     test_runner: ?[]const u8 = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
@@ -310,7 +310,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
-        .filter = options.filter,
+        .filters = options.filters,
         .test_runner = options.test_runner,
         .test_server_mode = options.test_runner == null,
         .rdynamic = false,
@@ -1297,7 +1297,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(b.fmt("0x{x}", .{image_base}));
     }
 
-    if (self.filter) |filter| {
+    for (self.filters) |filter| {
         try zig_args.append("--test-filter");
         try zig_args.append(filter);
     }

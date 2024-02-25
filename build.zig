@@ -390,7 +390,7 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const test_cases_options = b.addOptions();
     check_case_exe.root_module.addOptions("build_options", test_cases_options);
@@ -418,7 +418,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(?[]const u8, "glibc_runtimes_dir", b.glibc_runtimes_dir);
     test_cases_options.addOption([:0]const u8, "version", version);
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
-    test_cases_options.addOption(?[]const u8, "test_filter", test_filter);
+    test_cases_options.addOption([]const []const u8, "test_filters", test_filters);
 
     var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
@@ -454,7 +454,7 @@ pub fn build(b: *std.Build) !void {
     }).step);
 
     const test_cases_step = b.step("test-cases", "Run the main compiler test cases");
-    try tests.addCases(b, test_cases_step, test_filter, check_case_exe, .{
+    try tests.addCases(b, test_cases_step, test_filters, check_case_exe, .{
         .enable_llvm = enable_llvm,
         .llvm_has_m68k = llvm_has_m68k,
         .llvm_has_csky = llvm_has_csky,
@@ -464,7 +464,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(test_cases_step);
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "test/behavior.zig",
         .name = "behavior",
         .desc = "Run the behavior tests",
@@ -477,7 +477,7 @@ pub fn build(b: *std.Build) !void {
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "test/c_import.zig",
         .name = "c-import",
         .desc = "Run the @cImport tests",
@@ -489,7 +489,7 @@ pub fn build(b: *std.Build) !void {
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
@@ -501,7 +501,7 @@ pub fn build(b: *std.Build) !void {
     }));
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "lib/c.zig",
         .name = "universal-libc",
         .desc = "Run the universal libc tests",
@@ -512,7 +512,7 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = true,
     }));
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
         b,
         optimization_modes,
@@ -523,16 +523,16 @@ pub fn build(b: *std.Build) !void {
     ));
     test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
     test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, false, enable_symlinks_windows));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filter, optimization_modes));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, optimization_modes));
-    test_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
+    test_step.dependOn(tests.addTranslateCTests(b, test_filters));
     if (!skip_run_translated_c) {
-        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
+        test_step.dependOn(tests.addRunTranslatedCTests(b, test_filters, target));
     }
 
     test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .root_src = "lib/std/std.zig",
         .name = "std",
         .desc = "Run the standard library tests",

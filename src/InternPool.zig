@@ -7904,7 +7904,7 @@ pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: NamespaceIndex) 
     ip.namespacePtr(index).* = .{
         .parent = undefined,
         .file_scope = undefined,
-        .ty = undefined,
+        .decl_index = undefined,
     };
     ip.namespaces_free_list.append(gpa, index) catch {
         // In order to keep `destroyNamespace` a non-fallible function, we ignore memory

@@ -411,15 +411,15 @@ pub const Decl = struct {
         /// This state detects dependency loops.
         in_progress,
         /// The file corresponding to this Decl had a parse error or ZIR error.
-        /// There will be a corresponding ErrorMsg in Module.failed_files.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_files.
         file_failure,
         /// This Decl might be OK but it depends on another one which did not
         /// successfully complete semantic analysis.
         dependency_failure,
         /// Semantic analysis failure.
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
         sema_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
         codegen_failure,
         /// Sematic analysis and constant value codegen of this Decl has
         /// succeeded. However, the Decl may be outdated due to an in-progress
@@ -494,77 +494,45 @@ pub const Decl = struct {
         return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
     }
 
-    pub fn srcLoc(decl: Decl, mod: *Module) SrcLoc {
-        return decl.nodeOffsetSrcLoc(0, mod);
+    pub fn srcLoc(decl: Decl, zcu: *Zcu) SrcLoc {
+        return decl.nodeOffsetSrcLoc(0, zcu);
     }
 
-    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32, mod: *Module) SrcLoc {
+    pub fn nodeOffsetSrcLoc(decl: Decl, node_offset: i32, zcu: *Zcu) SrcLoc {
         return .{
-            .file_scope = decl.getFileScope(mod),
+            .file_scope = decl.getFileScope(zcu),
             .parent_decl_node = decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
     }
 
-    pub fn srcToken(decl: Decl, mod: *Module) Ast.TokenIndex {
-        const tree = &decl.getFileScope(mod).tree;
+    pub fn srcToken(decl: Decl, zcu: *Zcu) Ast.TokenIndex {
+        const tree = &decl.getFileScope(zcu).tree;
         return tree.firstToken(decl.src_node);
     }
 
-    pub fn srcByteOffset(decl: Decl, mod: *Module) u32 {
-        const tree = &decl.getFileScope(mod).tree;
+    pub fn srcByteOffset(decl: Decl, zcu: *Zcu) u32 {
+        const tree = &decl.getFileScope(zcu).tree;
         return tree.tokens.items(.start)[decl.srcToken()];
     }
 
-    pub fn renderFullyQualifiedName(decl: Decl, mod: *Module, writer: anytype) !void {
+    pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
         if (decl.name_fully_qualified) {
-            try writer.print("{}", .{decl.name.fmt(&mod.intern_pool)});
+            try writer.print("{}", .{decl.name.fmt(&zcu.intern_pool)});
         } else {
-            try mod.namespacePtr(decl.src_namespace).renderFullyQualifiedName(mod, decl.name, writer);
+            try zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedName(zcu, decl.name, writer);
         }
     }
 
-    pub fn renderFullyQualifiedDebugName(decl: Decl, mod: *Module, writer: anytype) !void {
-        return mod.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(mod, decl.name, writer);
+    pub fn renderFullyQualifiedDebugName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
+        return zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(zcu, decl.name, writer);
     }
 
-    pub fn getFullyQualifiedName(decl: Decl, mod: *Module) !InternPool.NullTerminatedString {
-        if (decl.name_fully_qualified) return decl.name;
-
-        const ip = &mod.intern_pool;
-        const count = count: {
-            var count: usize = ip.stringToSlice(decl.name).len + 1;
-            var ns: Namespace.Index = decl.src_namespace;
-            while (true) {
-                const namespace = mod.namespacePtr(ns);
-                const ns_decl = mod.declPtr(namespace.getDeclIndex(mod));
-                count += ip.stringToSlice(ns_decl.name).len + 1;
-                ns = namespace.parent.unwrap() orelse {
-                    count += namespace.file_scope.sub_file_path.len;
-                    break :count count;
-                };
-            }
-        };
-
-        const gpa = mod.gpa;
-        const start = ip.string_bytes.items.len;
-        // Protects reads of interned strings from being reallocated during the call to
-        // renderFullyQualifiedName.
-        try ip.string_bytes.ensureUnusedCapacity(gpa, count);
-        decl.renderFullyQualifiedName(mod, ip.string_bytes.writer(gpa)) catch unreachable;
-
-        // Sanitize the name for nvptx which is more restrictive.
-        // TODO This should be handled by the backend, not the frontend. Have a
-        // look at how the C backend does it for inspiration.
-        const cpu_arch = mod.root_mod.resolved_target.result.cpu.arch;
-        if (cpu_arch.isNvptx()) {
-            for (ip.string_bytes.items[start..]) |*byte| switch (byte.*) {
-                '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
-                else => {},
-            };
-        }
-
-        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
+    pub fn fullyQualifiedName(decl: Decl, zcu: *Zcu) !InternPool.NullTerminatedString {
+        return if (decl.name_fully_qualified)
+            decl.name
+        else
+            zcu.namespacePtr(decl.src_namespace).fullyQualifiedName(zcu, decl.name);
     }
 
     pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
@@ -572,38 +540,38 @@ pub const Decl = struct {
         return TypedValue{ .ty = decl.ty, .val = decl.val };
     }
 
-    pub fn internValue(decl: *Decl, mod: *Module) Allocator.Error!InternPool.Index {
+    pub fn internValue(decl: *Decl, zcu: *Zcu) Allocator.Error!InternPool.Index {
         assert(decl.has_tv);
-        const ip_index = try decl.val.intern(decl.ty, mod);
+        const ip_index = try decl.val.intern(decl.ty, zcu);
         decl.val = Value.fromInterned(ip_index);
         return ip_index;
     }
 
-    pub fn isFunction(decl: Decl, mod: *const Module) !bool {
+    pub fn isFunction(decl: Decl, zcu: *const Zcu) !bool {
         const tv = try decl.typedValue();
-        return tv.ty.zigTypeTag(mod) == .Fn;
+        return tv.ty.zigTypeTag(zcu) == .Fn;
     }
 
     /// If the Decl owns its value and it is a struct, return it,
     /// otherwise null.
-    pub fn getOwnedStruct(decl: Decl, mod: *Module) ?InternPool.Key.StructType {
+    pub fn getOwnedStruct(decl: Decl, zcu: *Zcu) ?InternPool.Key.StructType {
         if (!decl.owns_tv) return null;
         if (decl.val.ip_index == .none) return null;
-        return mod.typeToStruct(decl.val.toType());
+        return zcu.typeToStruct(decl.val.toType());
     }
 
     /// If the Decl owns its value and it is a union, return it,
     /// otherwise null.
-    pub fn getOwnedUnion(decl: Decl, mod: *Module) ?InternPool.UnionType {
+    pub fn getOwnedUnion(decl: Decl, zcu: *Zcu) ?InternPool.UnionType {
         if (!decl.owns_tv) return null;
         if (decl.val.ip_index == .none) return null;
-        return mod.typeToUnion(decl.val.toType());
+        return zcu.typeToUnion(decl.val.toType());
     }
 
-    pub fn getOwnedFunction(decl: Decl, mod: *Module) ?InternPool.Key.Func {
+    pub fn getOwnedFunction(decl: Decl, zcu: *Zcu) ?InternPool.Key.Func {
         const i = decl.getOwnedFunctionIndex();
         if (i == .none) return null;
-        return switch (mod.intern_pool.indexToKey(i)) {
+        return switch (zcu.intern_pool.indexToKey(i)) {
             .func => |func| func,
             else => null,
         };
@@ -616,24 +584,24 @@ pub const Decl = struct {
 
     /// If the Decl owns its value and it is an extern function, returns it,
     /// otherwise null.
-    pub fn getOwnedExternFunc(decl: Decl, mod: *Module) ?InternPool.Key.ExternFunc {
-        return if (decl.owns_tv) decl.val.getExternFunc(mod) else null;
+    pub fn getOwnedExternFunc(decl: Decl, zcu: *Zcu) ?InternPool.Key.ExternFunc {
+        return if (decl.owns_tv) decl.val.getExternFunc(zcu) else null;
     }
 
     /// If the Decl owns its value and it is a variable, returns it,
     /// otherwise null.
-    pub fn getOwnedVariable(decl: Decl, mod: *Module) ?InternPool.Key.Variable {
-        return if (decl.owns_tv) decl.val.getVariable(mod) else null;
+    pub fn getOwnedVariable(decl: Decl, zcu: *Zcu) ?InternPool.Key.Variable {
+        return if (decl.owns_tv) decl.val.getVariable(zcu) else null;
     }
 
     /// Gets the namespace that this Decl creates by being a struct, union,
     /// enum, or opaque.
-    pub fn getInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+    pub fn getInnerNamespaceIndex(decl: Decl, zcu: *Zcu) Namespace.OptionalIndex {
         if (!decl.has_tv) return .none;
         return switch (decl.val.ip_index) {
             .empty_struct_type => .none,
             .none => .none,
-            else => switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
+            else => switch (zcu.intern_pool.indexToKey(decl.val.toIntern())) {
                 .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
                 .struct_type => |struct_type| struct_type.namespace,
                 .union_type => |union_type| union_type.namespace.toOptional(),
@@ -644,19 +612,19 @@ pub const Decl = struct {
     }
 
     /// Like `getInnerNamespaceIndex`, but only returns it if the Decl is the owner.
-    pub fn getOwnedInnerNamespaceIndex(decl: Decl, mod: *Module) Namespace.OptionalIndex {
+    pub fn getOwnedInnerNamespaceIndex(decl: Decl, zcu: *Zcu) Namespace.OptionalIndex {
         if (!decl.owns_tv) return .none;
-        return decl.getInnerNamespaceIndex(mod);
+        return decl.getInnerNamespaceIndex(zcu);
     }
 
     /// Same as `getOwnedInnerNamespaceIndex` but additionally obtains the pointer.
-    pub fn getOwnedInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
-        return mod.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(mod));
+    pub fn getOwnedInnerNamespace(decl: Decl, zcu: *Zcu) ?*Namespace {
+        return zcu.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(zcu));
     }
 
     /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
-    pub fn getInnerNamespace(decl: Decl, mod: *Module) ?*Namespace {
-        return mod.namespacePtrUnwrap(decl.getInnerNamespaceIndex(mod));
+    pub fn getInnerNamespace(decl: Decl, zcu: *Zcu) ?*Namespace {
+        return zcu.namespacePtrUnwrap(decl.getInnerNamespaceIndex(zcu));
     }
 
     pub fn dump(decl: *Decl) void {
@@ -674,27 +642,27 @@ pub const Decl = struct {
         std.debug.print("\n", .{});
     }
 
-    pub fn getFileScope(decl: Decl, mod: *Module) *File {
-        return mod.namespacePtr(decl.src_namespace).file_scope;
+    pub fn getFileScope(decl: Decl, zcu: *Zcu) *File {
+        return zcu.namespacePtr(decl.src_namespace).file_scope;
     }
 
-    pub fn getExternDecl(decl: Decl, mod: *Module) OptionalIndex {
+    pub fn getExternDecl(decl: Decl, zcu: *Zcu) OptionalIndex {
         assert(decl.has_tv);
-        return switch (mod.intern_pool.indexToKey(decl.val.toIntern())) {
+        return switch (zcu.intern_pool.indexToKey(decl.val.toIntern())) {
             .variable => |variable| if (variable.is_extern) variable.decl.toOptional() else .none,
             .extern_func => |extern_func| extern_func.decl.toOptional(),
             else => .none,
         };
     }
 
-    pub fn isExtern(decl: Decl, mod: *Module) bool {
-        return decl.getExternDecl(mod) != .none;
+    pub fn isExtern(decl: Decl, zcu: *Zcu) bool {
+        return decl.getExternDecl(zcu) != .none;
     }
 
-    pub fn getAlignment(decl: Decl, mod: *Module) Alignment {
+    pub fn getAlignment(decl: Decl, zcu: *Zcu) Alignment {
         assert(decl.has_tv);
         if (decl.alignment != .none) return decl.alignment;
-        return decl.ty.abiAlignment(mod);
+        return decl.ty.abiAlignment(zcu);
     }
 };
 
@@ -704,7 +672,7 @@ pub const EmitH = struct {
 };
 
 pub const DeclAdapter = struct {
-    mod: *Module,
+    zcu: *Zcu,
 
     pub fn hash(self: @This(), s: InternPool.NullTerminatedString) u32 {
         _ = self;
@@ -713,8 +681,7 @@ pub const DeclAdapter = struct {
 
     pub fn eql(self: @This(), a: InternPool.NullTerminatedString, b_decl_index: Decl.Index, b_index: usize) bool {
         _ = b_index;
-        const b_decl = self.mod.declPtr(b_decl_index);
-        return a == b_decl.name;
+        return a == self.zcu.declPtr(b_decl_index).name;
     }
 };
 
@@ -723,7 +690,7 @@ pub const Namespace = struct {
     parent: OptionalIndex,
     file_scope: *File,
     /// Will be a struct, enum, union, or opaque.
-    ty: Type,
+    decl_index: Decl.Index,
     /// Direct children of the namespace.
     /// Declaration order is preserved via entry order.
     /// These are only declarations named directly by the AST; anonymous
@@ -739,7 +706,7 @@ pub const Namespace = struct {
     const OptionalIndex = InternPool.OptionalNamespaceIndex;
 
     const DeclContext = struct {
-        module: *Module,
+        zcu: *Zcu,
 
         pub fn hash(ctx: @This(), decl_index: Decl.Index) u32 {
             const decl = ctx.module.declPtr(decl_index);
@@ -757,39 +724,87 @@ pub const Namespace = struct {
     // This renders e.g. "std.fs.Dir.OpenOptions"
     pub fn renderFullyQualifiedName(
         ns: Namespace,
-        mod: *Module,
+        zcu: *Zcu,
         name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (ns.parent.unwrap()) |parent| {
-            const decl = mod.declPtr(ns.getDeclIndex(mod));
-            try mod.namespacePtr(parent).renderFullyQualifiedName(mod, decl.name, writer);
+            try zcu.namespacePtr(parent).renderFullyQualifiedName(
+                zcu,
+                zcu.declPtr(ns.decl_index).name,
+                writer,
+            );
         } else {
             try ns.file_scope.renderFullyQualifiedName(writer);
         }
-        if (name != .empty) try writer.print(".{}", .{name.fmt(&mod.intern_pool)});
+        if (name != .empty) try writer.print(".{}", .{name.fmt(&zcu.intern_pool)});
     }
 
     /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
     pub fn renderFullyQualifiedDebugName(
         ns: Namespace,
-        mod: *Module,
+        zcu: *Zcu,
         name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
-        const separator_char: u8 = if (ns.parent.unwrap()) |parent| sep: {
-            const decl = mod.declPtr(ns.getDeclIndex(mod));
-            try mod.namespacePtr(parent).renderFullyQualifiedDebugName(mod, decl.name, writer);
+        const sep: u8 = if (ns.parent.unwrap()) |parent| sep: {
+            try zcu.namespacePtr(parent).renderFullyQualifiedDebugName(
+                zcu,
+                zcu.declPtr(ns.decl_index).name,
+                writer,
+            );
             break :sep '.';
         } else sep: {
             try ns.file_scope.renderFullyQualifiedDebugName(writer);
             break :sep ':';
         };
-        if (name != .empty) try writer.print("{c}{}", .{ separator_char, name.fmt(&mod.intern_pool) });
+        if (name != .empty) try writer.print("{c}{}", .{ sep, name.fmt(&zcu.intern_pool) });
     }
 
-    pub fn getDeclIndex(ns: Namespace, mod: *Module) Decl.Index {
-        return ns.ty.getOwnerDecl(mod);
+    pub fn fullyQualifiedName(
+        ns: Namespace,
+        zcu: *Zcu,
+        name: InternPool.NullTerminatedString,
+    ) !InternPool.NullTerminatedString {
+        const ip = &zcu.intern_pool;
+        const count = count: {
+            var count: usize = ip.stringToSlice(name).len + 1;
+            var cur_ns = &ns;
+            while (true) {
+                const decl = zcu.declPtr(cur_ns.decl_index);
+                count += ip.stringToSlice(decl.name).len + 1;
+                cur_ns = zcu.namespacePtr(cur_ns.parent.unwrap() orelse {
+                    count += ns.file_scope.sub_file_path.len;
+                    break :count count;
+                });
+            }
+        };
+
+        const gpa = zcu.gpa;
+        const start = ip.string_bytes.items.len;
+        // Protects reads of interned strings from being reallocated during the call to
+        // renderFullyQualifiedName.
+        try ip.string_bytes.ensureUnusedCapacity(gpa, count);
+        ns.renderFullyQualifiedName(zcu, name, ip.string_bytes.writer(gpa)) catch unreachable;
+
+        // Sanitize the name for nvptx which is more restrictive.
+        // TODO This should be handled by the backend, not the frontend. Have a
+        // look at how the C backend does it for inspiration.
+        const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
+        if (cpu_arch.isNvptx()) {
+            for (ip.string_bytes.items[start..]) |*byte| switch (byte.*) {
+                '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
+                else => {},
+            };
+        }
+
+        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
+    }
+
+    pub fn getType(ns: Namespace, zcu: *Zcu) Type {
+        const decl = zcu.declPtr(ns.decl_index);
+        assert(decl.has_tv);
+        return decl.val.toType();
     }
 };
 
@@ -2559,9 +2574,8 @@ pub fn namespacePtrUnwrap(mod: *Module, index: Namespace.OptionalIndex) ?*Namesp
 pub fn declIsRoot(mod: *Module, decl_index: Decl.Index) bool {
     const decl = mod.declPtr(decl_index);
     const namespace = mod.namespacePtr(decl.src_namespace);
-    if (namespace.parent != .none)
-        return false;
-    return decl_index == namespace.getDeclIndex(mod);
+    if (namespace.parent != .none) return false;
+    return decl_index == namespace.decl_index;
 }
 
 fn freeExportList(gpa: Allocator, export_list: *ArrayListUnmanaged(*Export)) void {
@@ -3592,7 +3606,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
     defer liveness.deinit(gpa);
 
     if (dump_air) {
-        const fqn = try decl.getFullyQualifiedName(zcu);
+        const fqn = try decl.fullyQualifiedName(zcu);
         std.debug.print("# Begin Function AIR: {}:\n", .{fqn.fmt(ip)});
         @import("print_air.zig").dump(zcu, air, liveness);
         std.debug.print("# End Function AIR: {}\n\n", .{fqn.fmt(ip)});
@@ -3738,7 +3752,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     // InternPool index.
     const new_namespace_index = try mod.createNamespace(.{
         .parent = .none,
-        .ty = undefined,
+        .decl_index = undefined,
         .file_scope = file,
     });
     const new_namespace = mod.namespacePtr(new_namespace_index);
@@ -3749,6 +3763,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     errdefer @panic("TODO error handling");
 
     file.root_decl = new_decl_index.toOptional();
+    new_namespace.decl_index = new_decl_index;
 
     new_decl.name = try file.fullyQualifiedName(mod);
     new_decl.name_fully_qualified = true;
@@ -3808,7 +3823,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         _ = try decl.internValue(mod);
     }
 
-    new_namespace.ty = Type.fromInterned(struct_ty);
     new_decl.val = Value.fromInterned(struct_ty);
     new_decl.has_tv = true;
     new_decl.owns_tv = true;
@@ -3881,7 +3895,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         const std_decl = mod.declPtr(std_file.root_decl.unwrap().?);
         const std_namespace = std_decl.getInnerNamespace(mod).?;
         const builtin_str = try ip.getOrPutString(gpa, "builtin");
-        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .mod = mod }) orelse break :blk .none);
+        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .zcu = mod }) orelse break :blk .none);
         const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :blk .none;
         if (decl.src_namespace != builtin_namespace) break :blk .none;
         // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
@@ -4576,8 +4590,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     const gop = try namespace.decls.getOrPutContextAdapted(
         gpa,
         decl_name,
-        DeclAdapter{ .mod = zcu },
-        Namespace.DeclContext{ .module = zcu },
+        DeclAdapter{ .zcu = zcu },
+        Namespace.DeclContext{ .zcu = zcu },
     );
     const comp = zcu.comp;
     if (!gop.found_existing) {
@@ -4600,12 +4614,11 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
             .@"test" => a: {
                 if (!comp.config.is_test) break :a false;
                 if (decl_mod != zcu.main_mod) break :a false;
-                if (is_named_test) {
-                    if (comp.test_filter) |test_filter| {
-                        if (mem.indexOf(u8, ip.stringToSlice(decl_name), test_filter) == null) {
-                            break :a false;
-                        }
-                    }
+                if (is_named_test and comp.test_filters.len > 0) {
+                    const decl_fqn = ip.stringToSlice(try namespace.fullyQualifiedName(zcu, decl_name));
+                    for (comp.test_filters) |test_filter| {
+                        if (mem.indexOf(u8, decl_fqn, test_filter)) |_| break;
+                    } else break :a false;
                 }
                 try zcu.test_functions.put(gpa, new_decl_index, {});
                 break :a true;
@@ -5622,7 +5635,7 @@ pub fn populateTestFunctions(
     const test_functions_str = try ip.getOrPutString(gpa, "test_functions");
     const decl_index = builtin_namespace.decls.getKeyAdapted(
         test_functions_str,
-        DeclAdapter{ .mod = mod },
+        DeclAdapter{ .zcu = mod },
     ).?;
     {
         // We have to call `ensureDeclAnalyzed` here in case `builtin.test_functions`
@@ -5646,8 +5659,7 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
-            // TODO: write something like getCoercedInts to avoid needing to dupe
-            const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(test_decl.name));
+            const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(try test_decl.fullyQualifiedName(mod)));
             defer gpa.free(test_decl_name);
             const test_name_decl_index = n: {
                 const test_name_decl_ty = try mod.arrayType(.{
@@ -6359,15 +6371,11 @@ pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc
 }
 
 pub fn opaqueFullyQualifiedName(mod: *Module, opaque_type: InternPool.Key.OpaqueType) !InternPool.NullTerminatedString {
-    return mod.declPtr(opaque_type.decl).getFullyQualifiedName(mod);
+    return mod.declPtr(opaque_type.decl).fullyQualifiedName(mod);
 }
 
 pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
     return mod.declPtr(decl_index).getFileScope(mod);
-}
-
-pub fn namespaceDeclIndex(mod: *Module, namespace_index: Namespace.Index) Decl.Index {
-    return mod.namespacePtr(namespace_index).getDeclIndex(mod);
 }
 
 /// Returns null in the following cases:

@@ -662,7 +662,7 @@ pub fn getOrCreateAtomForDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) !At
         const symbol = atom.symbolLoc().getSymbol(wasm);
         const mod = wasm.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
-        const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        const full_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
         symbol.name = try wasm.string_table.put(gpa, full_name);
     }
     return gop.value_ptr.*;
@@ -1598,7 +1598,7 @@ pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: InternPool.De
         defer tracy.end();
 
         const decl = mod.declPtr(decl_index);
-        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
         try dw.updateDeclLineNumber(mod, decl_index);
@@ -1612,7 +1612,7 @@ fn finishUpdateDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex, code: []const
     const atom_index = wasm.decls.get(decl_index).?;
     const atom = wasm.getAtomPtr(atom_index);
     const symbol = &wasm.symbols.items[atom.sym_index];
-    const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const full_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
     symbol.name = try wasm.string_table.put(gpa, full_name);
     symbol.tag = symbol_tag;
     try atom.code.appendSlice(gpa, code);
@@ -1678,7 +1678,7 @@ pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.Dec
     const parent_atom_index = try wasm.getOrCreateAtomForDecl(decl_index);
     const parent_atom = wasm.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const fqn = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
     const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{s}_{d}", .{
         fqn, local_index,
     });

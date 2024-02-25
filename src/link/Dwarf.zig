@@ -1082,7 +1082,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    const decl_linkage_name = try decl.getFullyQualifiedName(mod);
+    const decl_linkage_name = try decl.fullyQualifiedName(mod);
 
     log.debug("initDeclState {}{*}", .{ decl_linkage_name.fmt(&mod.intern_pool), decl });
 

@@ -855,7 +855,9 @@ pub const TestOptions = struct {
     optimize: std.builtin.OptimizeMode = .Debug,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
+    /// deprecated: use `.filters = &.{filter}` instead of `.filter = filter`.
     filter: ?[]const u8 = null,
+    filters: []const []const u8 = &.{},
     test_runner: ?[]const u8 = null,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
@@ -888,7 +890,12 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
             .error_tracing = options.error_tracing,
         },
         .max_rss = options.max_rss,
-        .filter = options.filter,
+        .filters = if (options.filter != null and options.filters.len > 0) filters: {
+            const filters = b.allocator.alloc([]const u8, 1 + options.filters.len) catch @panic("OOM");
+            filters[0] = b.dupe(options.filter.?);
+            for (filters[1..], options.filters) |*dest, source| dest.* = b.dupe(source);
+            break :filters filters;
+        } else b.dupeStrings(if (options.filter) |filter| &.{filter} else options.filters),
         .test_runner = options.test_runner,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
@@ -993,9 +1000,7 @@ pub fn dupe(self: *Build, bytes: []const u8) []u8 {
 /// Duplicates an array of strings without the need to handle out of memory.
 pub fn dupeStrings(self: *Build, strings: []const []const u8) [][]u8 {
     const array = self.allocator.alloc([]u8, strings.len) catch @panic("OOM");
-    for (strings, 0..) |s, i| {
-        array[i] = self.dupe(s);
-    }
+    for (array, strings) |*dest, source| dest.* = self.dupe(source);
     return array;
 }
 

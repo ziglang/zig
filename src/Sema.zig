@@ -2801,10 +2801,9 @@ fn zirStructDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const struct_ty = ty: {
@@ -2821,7 +2820,6 @@ fn zirStructDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(struct_ty);
-    new_namespace.ty = Type.fromInterned(struct_ty);
 
     const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
     try mod.finalizeAnonDecl(new_decl_index);
@@ -2990,10 +2988,9 @@ fn zirEnumDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer if (!done) mod.destroyNamespace(new_namespace_index);
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -3036,7 +3033,6 @@ fn zirEnumDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(incomplete_enum.index);
-    new_namespace.ty = Type.fromInterned(incomplete_enum.index);
 
     const decl_val = try sema.analyzeDeclVal(block, src, new_decl_index);
     try mod.finalizeAnonDecl(new_decl_index);
@@ -3248,10 +3244,9 @@ fn zirUnionDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const union_ty = ty: {
@@ -3292,7 +3287,6 @@ fn zirUnionDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(union_ty);
-    new_namespace.ty = Type.fromInterned(union_ty);
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
     try mod.scanNamespace(new_namespace_index, decls, new_decl);
@@ -3346,10 +3340,9 @@ fn zirOpaqueDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const opaque_ty = try mod.intern(.{ .opaque_type = .{
@@ -3362,7 +3355,6 @@ fn zirOpaqueDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(opaque_ty);
-    new_namespace.ty = Type.fromInterned(opaque_ty);
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
     try mod.scanNamespace(new_namespace_index, decls, new_decl);
@@ -4834,7 +4826,7 @@ fn validateStructInit(
         if (root_msg) |msg| {
             if (mod.typeToStruct(struct_ty)) |struct_type| {
                 const decl = mod.declPtr(struct_type.decl.unwrap().?);
-                const fqn = try decl.getFullyQualifiedName(mod);
+                const fqn = try decl.fullyQualifiedName(mod);
                 try mod.errNoteNonLazy(
                     decl.srcLoc(mod),
                     msg,
@@ -4961,7 +4953,7 @@ fn validateStructInit(
     if (root_msg) |msg| {
         if (mod.typeToStruct(struct_ty)) |struct_type| {
             const decl = mod.declPtr(struct_type.decl.unwrap().?);
-            const fqn = try decl.getFullyQualifiedName(mod);
+            const fqn = try decl.fullyQualifiedName(mod);
             try mod.errNoteNonLazy(
                 decl.srcLoc(mod),
                 msg,
@@ -5355,7 +5347,7 @@ fn failWithBadStructFieldAccess(
     const mod = sema.mod;
     const gpa = sema.gpa;
     const decl = mod.declPtr(struct_type.decl.unwrap().?);
-    const fqn = try decl.getFullyQualifiedName(mod);
+    const fqn = try decl.fullyQualifiedName(mod);
 
     const msg = msg: {
         const msg = try sema.errMsg(
@@ -5382,7 +5374,7 @@ fn failWithBadUnionFieldAccess(
     const gpa = sema.gpa;
 
     const decl = mod.declPtr(union_obj.decl);
-    const fqn = try decl.getFullyQualifiedName(mod);
+    const fqn = try decl.fullyQualifiedName(mod);
 
     const msg = msg: {
         const msg = try sema.errMsg(
@@ -6504,8 +6496,7 @@ fn lookupInNamespace(
     const mod = sema.mod;
 
     const namespace = mod.namespacePtr(namespace_index);
-    const namespace_decl_index = namespace.getDeclIndex(mod);
-    const namespace_decl = mod.declPtr(namespace_decl_index);
+    const namespace_decl = mod.declPtr(namespace.decl_index);
     if (namespace_decl.analysis == .file_failure) {
         return error.AnalysisFail;
     }
@@ -6526,7 +6517,7 @@ fn lookupInNamespace(
 
         while (check_i < checked_namespaces.count()) : (check_i += 1) {
             const check_ns = checked_namespaces.keys()[check_i];
-            if (check_ns.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .mod = mod })) |decl_index| {
+            if (check_ns.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .zcu = mod })) |decl_index| {
                 // Skip decls which are not marked pub, which are in a different
                 // file than the `a.b`/`@hasDecl` syntax.
                 const decl = mod.declPtr(decl_index);
@@ -6584,7 +6575,7 @@ fn lookupInNamespace(
                 return sema.failWithOwnedErrorMsg(block, msg);
             },
         }
-    } else if (namespace.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .mod = mod })) |decl_index| {
+    } else if (namespace.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .zcu = mod })) |decl_index| {
         return decl_index;
     }
 
@@ -17210,7 +17201,7 @@ fn zirThis(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const this_decl_index = mod.namespaceDeclIndex(block.namespace);
+    const this_decl_index = mod.namespacePtr(block.namespace).decl_index;
     const src = LazySrcLoc.nodeOffset(@bitCast(extended.operand));
     return sema.analyzeDeclVal(block, src, this_decl_index);
 }
@@ -20075,7 +20066,7 @@ fn finishStructInit(
     if (root_msg) |msg| {
         if (mod.typeToStruct(struct_ty)) |struct_type| {
             const decl = mod.declPtr(struct_type.decl.unwrap().?);
-            const fqn = try decl.getFullyQualifiedName(mod);
+            const fqn = try decl.fullyQualifiedName(mod);
             try mod.errNoteNonLazy(
                 decl.srcLoc(mod),
                 msg,
@@ -21404,10 +21395,9 @@ fn zirReify(
 
             const new_namespace_index = try mod.createNamespace(.{
                 .parent = block.namespace.toOptional(),
-                .ty = undefined,
+                .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
             });
-            const new_namespace = mod.namespacePtr(new_namespace_index);
             errdefer mod.destroyNamespace(new_namespace_index);
 
             const opaque_ty = try mod.intern(.{ .opaque_type = .{
@@ -21420,7 +21410,6 @@ fn zirReify(
 
             new_decl.ty = Type.type;
             new_decl.val = Value.fromInterned(opaque_ty);
-            new_namespace.ty = Type.fromInterned(opaque_ty);
 
             const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
             try mod.finalizeAnonDecl(new_decl_index);
@@ -21614,10 +21603,9 @@ fn zirReify(
 
             const new_namespace_index = try mod.createNamespace(.{
                 .parent = block.namespace.toOptional(),
-                .ty = undefined,
+                .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
             });
-            const new_namespace = mod.namespacePtr(new_namespace_index);
             errdefer mod.destroyNamespace(new_namespace_index);
 
             const union_ty = try ip.getUnionType(gpa, .{
@@ -21649,7 +21637,6 @@ fn zirReify(
 
             new_decl.ty = Type.type;
             new_decl.val = Value.fromInterned(union_ty);
-            new_namespace.ty = Type.fromInterned(union_ty);
 
             const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
             try mod.finalizeAnonDecl(new_decl_index);
@@ -37260,7 +37247,7 @@ fn generateUnionTagTypeNumbered(
     const src_decl = mod.declPtr(block.src_decl);
     const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
     errdefer mod.destroyDecl(new_decl_index);
-    const fqn = try decl.getFullyQualifiedName(mod);
+    const fqn = try decl.fullyQualifiedName(mod);
     const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
         .ty = Type.noreturn,
@@ -37269,7 +37256,6 @@ fn generateUnionTagTypeNumbered(
     errdefer mod.abortAnonDecl(new_decl_index);
 
     const new_decl = mod.declPtr(new_decl_index);
-    new_decl.name_fully_qualified = true;
     new_decl.owns_tv = true;
     new_decl.name_fully_qualified = true;
 
@@ -37310,7 +37296,7 @@ fn generateUnionTagTypeSimple(
                 .val = Value.@"unreachable",
             });
         };
-        const fqn = try mod.declPtr(decl_index).getFullyQualifiedName(mod);
+        const fqn = try mod.declPtr(decl_index).fullyQualifiedName(mod);
         const src_decl = mod.declPtr(block.src_decl);
         const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
         errdefer mod.destroyDecl(new_decl_index);
