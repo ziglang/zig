@@ -426,3 +426,29 @@ test "tar should not overwrite existing file" {
     try tar.pipeToFileSystem(root2.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 0 });
 }
 
+test "tar case sensitivity" {
+    // Mimicking issue #18089, this tar contains, same file name in two case
+    // sensitive name version. Should fail on case insensitive file systems.
+    //
+    // $ tar tvf 18089.tar
+    //     18089/
+    //     18089/alacritty/
+    //     18089/alacritty/darkermatrix.yml
+    //     18089/alacritty/Darkermatrix.yml
+    //
+    const data = @embedFile("testdata/18089.tar");
+    var fsb = std.io.fixedBufferStream(data);
+
+    var root = std.testing.tmpDir(.{});
+    defer root.cleanup();
+
+    tar.pipeToFileSystem(root.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 1 }) catch |err| {
+        // on case insensitive fs we fail on overwrite existing file
+        try testing.expectEqual(error.PathAlreadyExists, err);
+        return;
+    };
+
+    // on case sensitive os both files are created
+    try testing.expect((try root.dir.statFile("alacritty/darkermatrix.yml")).kind == .file);
+    try testing.expect((try root.dir.statFile("alacritty/Darkermatrix.yml")).kind == .file);
+}
