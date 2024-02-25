@@ -867,9 +867,9 @@ const FileType = enum {
         try std.testing.expectEqual(@as(?FileType, .@"tar.xz"), fromContentDisposition("ATTACHMENT; filename=\"stuff.tar.xz\""));
         try std.testing.expectEqual(@as(?FileType, .@"tar.xz"), fromContentDisposition("attachment; FileName=\"stuff.tar.xz\""));
         try std.testing.expectEqual(@as(?FileType, .@"tar.gz"), fromContentDisposition("attachment; FileName*=UTF-8\'\'xyz%2Fstuff.tar.gz"));
+        try std.testing.expectEqual(@as(?FileType, .tar), fromContentDisposition("attachment; FileName=\"stuff.tar\""));
 
         try std.testing.expect(fromContentDisposition("attachment FileName=\"stuff.tar.gz\"") == null);
-        try std.testing.expect(fromContentDisposition("attachment; FileName=\"stuff.tar\"") == null);
         try std.testing.expect(fromContentDisposition("attachment; FileName\"stuff.gz\"") == null);
         try std.testing.expect(fromContentDisposition("attachment; size=42") == null);
         try std.testing.expect(fromContentDisposition("inline; size=42") == null);
