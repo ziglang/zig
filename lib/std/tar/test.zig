@@ -467,11 +467,15 @@ test "tar pipeToFileSystem" {
     var root = std.testing.tmpDir(.{ .no_follow = true });
     defer root.cleanup();
 
-    try tar.pipeToFileSystem(root.dir, fsb.reader(), .{
+    tar.pipeToFileSystem(root.dir, fsb.reader(), .{
         .mode_mode = .ignore,
         .strip_components = 1,
         .exclude_empty_directories = true,
-    });
+    }) catch |err| {
+        // Skip on platform which don't support symlinks
+        if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+        return err;
+    };
 
     try testing.expectError(error.FileNotFound, root.dir.statFile("empty"));
     try testing.expect((try root.dir.statFile("a/file")).kind == .file);

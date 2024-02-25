@@ -564,7 +564,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 const link_name = file.link_name;
 
                 createDirAndSymlink(dir, link_name, file_name) catch |err| {
-                    const d = options.diagnostics orelse return err;
+                    const d = options.diagnostics orelse return error.UnableToCreateSymLink;
                     try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
                         .code = err,
                         .file_name = try d.allocator.dupe(u8, file_name),
