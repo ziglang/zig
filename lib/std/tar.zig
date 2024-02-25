@@ -598,6 +598,7 @@ fn createDirAndSymlink(dir: std.fs.Dir, link_name: []const u8, file_name: []cons
                 try dir.symLink(link_name, file_name, .{});
             }
         }
+        return err;
     };
 }
 
