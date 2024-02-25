@@ -78,6 +78,13 @@ test "fmt.parseFloat nan and inf" {
     }
 }
 
+test "fmt.parseFloat largest normals" {
+    try expectEqual(@as(u16, @bitCast(try parseFloat(f16, "65504"))), 0x7bff);
+    try expectEqual(@as(u32, @bitCast(try parseFloat(f32, "3.4028234664E38"))), 0x7f7f_ffff);
+    try expectEqual(@as(u64, @bitCast(try parseFloat(f64, "1.7976931348623157E308"))), 0x7fef_ffff_ffff_ffff);
+    try expectEqual(@as(u128, @bitCast(try parseFloat(f128, "1.1897314953572317650857593266280070162E4932"))), 0x7ffe_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+}
+
 test "fmt.parseFloat #11169" {
     try expectEqual(try parseFloat(f128, "9007199254740993.0"), 9007199254740993.0);
 }
