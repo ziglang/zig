@@ -196,7 +196,16 @@ fn rawCResize(
 ) bool {
     _ = log2_old_align;
     _ = ret_addr;
-    return new_len <= buf.len;
+
+    if (new_len <= buf.len)
+        return true;
+
+    if (CAllocator.supports_malloc_size) {
+        const full_len = CAllocator.malloc_size(buf.ptr);
+        if (new_len <= full_len) return true;
+    }
+
+    return false;
 }
 
 fn rawCFree(
