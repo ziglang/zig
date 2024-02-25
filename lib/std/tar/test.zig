@@ -452,3 +452,31 @@ test "tar case sensitivity" {
     try testing.expect((try root.dir.statFile("alacritty/darkermatrix.yml")).kind == .file);
     try testing.expect((try root.dir.statFile("alacritty/Darkermatrix.yml")).kind == .file);
 }
+
+test "tar pipeToFileSystem" {
+    // $ tar tvf
+    //    pipe_to_file_system_test/
+    //    pipe_to_file_system_test/b/
+    //    pipe_to_file_system_test/b/symlink -> ../a/file
+    //    pipe_to_file_system_test/a/
+    //    pipe_to_file_system_test/a/file
+    //    pipe_to_file_system_test/empty/
+    const data = @embedFile("testdata/pipe_to_file_system_test.tar");
+    var fsb = std.io.fixedBufferStream(data);
+
+    var root = std.testing.tmpDir(.{ .no_follow = true });
+    defer root.cleanup();
+
+    try tar.pipeToFileSystem(root.dir, fsb.reader(), .{
+        .mode_mode = .ignore,
+        .strip_components = 1,
+        .exclude_empty_directories = true,
+    });
+
+    try testing.expectError(error.FileNotFound, root.dir.statFile("empty"));
+    try testing.expect((try root.dir.statFile("a/file")).kind == .file);
+    // TODO is there better way to test symlink
+    try testing.expect((try root.dir.statFile("b/symlink")).kind == .file); // statFile follows symlink
+    var buf: [8]u8 = undefined;
+    _ = try root.dir.readLink("b/symlink", &buf);
+}
