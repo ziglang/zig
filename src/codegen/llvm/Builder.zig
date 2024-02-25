@@ -3797,7 +3797,7 @@ pub const Function = struct {
     instructions: std.MultiArrayList(Instruction) = .{},
     names: [*]const String = &[0]String{},
     value_indices: [*]const u32 = &[0]u32{},
-    debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, Metadata) = .{},
+    debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .{},
     debug_values: []const Instruction.Index = &.{},
     extra: []const u32 = &.{},
 
@@ -4857,16 +4857,40 @@ pub const Function = struct {
     }
 };
 
+pub const DebugLocation = union(enum) {
+    no_location: void,
+    location: Location,
+
+    pub const Location = struct {
+        line: u32,
+        column: u32,
+        scope: Builder.Metadata,
+        inlined_at: Builder.Metadata,
+    };
+
+    pub fn toMetadata(self: DebugLocation, builder: *Builder) Allocator.Error!Metadata {
+        return switch (self) {
+            .no_location => .none,
+            .location => |location| try builder.debugLocation(
+                location.line,
+                location.column,
+                location.scope,
+                location.inlined_at,
+            ),
+        };
+    }
+};
+
 pub const WipFunction = struct {
     builder: *Builder,
     function: Function.Index,
-    last_debug_location: Metadata,
-    current_debug_location: Metadata,
+    prev_debug_location: DebugLocation,
+    debug_location: DebugLocation,
     cursor: Cursor,
     blocks: std.ArrayListUnmanaged(Block),
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayListUnmanaged(String),
-    debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, Metadata),
+    debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, DebugLocation),
     debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
     extra: std.ArrayListUnmanaged(u32),
 
@@ -4902,8 +4926,8 @@ pub const WipFunction = struct {
         var self: WipFunction = .{
             .builder = builder,
             .function = function,
-            .last_debug_location = .none,
-            .current_debug_location = .none,
+            .prev_debug_location = .no_location,
+            .debug_location = .no_location,
             .cursor = undefined,
             .blocks = .{},
             .instructions = .{},
@@ -5850,7 +5874,7 @@ pub const WipFunction = struct {
         const value_indices = try gpa.alloc(u32, final_instructions_len);
         errdefer gpa.free(value_indices);
 
-        var debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, Metadata) = .{};
+        var debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .{};
         errdefer debug_locations.deinit(gpa);
         try debug_locations.ensureUnusedCapacity(gpa, @intCast(self.debug_locations.count()));
 
@@ -6494,10 +6518,10 @@ pub const WipFunction = struct {
         if (!self.builder.strip) {
             self.names.appendAssumeCapacity(final_name);
             if (block_instructions.items.len == 0 or
-                self.current_debug_location != self.last_debug_location)
+                !std.meta.eql(self.debug_location, self.prev_debug_location))
             {
-                self.debug_locations.putAssumeCapacity(index, self.current_debug_location);
-                self.last_debug_location = self.current_debug_location;
+                self.debug_locations.putAssumeCapacity(index, self.debug_location);
+                self.prev_debug_location = self.debug_location;
             }
         }
         block_instructions.insertAssumeCapacity(self.cursor.instruction, index);
@@ -14866,20 +14890,18 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                     if (!self.strip) {
                         if (func.debug_locations.get(@enumFromInt(instr_index))) |debug_location| {
-                            if (debug_location != .none) {
-                                const location = self.metadata_items.get(@intFromEnum(debug_location));
-                                assert(location.tag == .location);
-                                const extra = self.metadataExtraData(Metadata.Location, location.data);
-                                try function_block.writeAbbrev(FunctionBlock.DebugLoc{
-                                    .line = extra.line,
-                                    .column = extra.column,
-                                    .scope = @enumFromInt(metadata_adapter.getMetadataIndex(extra.scope)),
-                                    .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(extra.inlined_at)),
-                                    .is_implicit = false,
-                                });
-                                has_location = true;
-                            } else {
-                                has_location = false;
+                            switch (debug_location) {
+                                .no_location => has_location = false,
+                                .location => |location| {
+                                    try function_block.writeAbbrev(FunctionBlock.DebugLoc{
+                                        .line = location.line,
+                                        .column = location.column,
+                                        .scope = @enumFromInt(metadata_adapter.getMetadataIndex(location.scope)),
+                                        .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(location.inlined_at)),
+                                        .is_implicit = false,
+                                    });
+                                    has_location = true;
+                                },
                             }
                         } else if (has_location) {
                             try function_block.writeAbbrev(FunctionBlock.DebugLocAgain{});
