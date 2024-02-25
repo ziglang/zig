@@ -479,6 +479,12 @@ test "general client/server API coverage" {
                         .{ .name = "location", .value = location },
                     },
                 });
+            } else if (mem.eql(u8, request.head.target, "/empty")) {
+                try request.respond("", .{
+                    .extra_headers = &.{
+                        .{ .name = "empty", .value = "" },
+                    },
+                });
             } else {
                 try request.respond("", .{ .status = .not_found });
             }
@@ -491,7 +497,10 @@ test "general client/server API coverage" {
             return s.listen_address.in.getPort();
         }
     });
-    defer test_server.destroy();
+    defer {
+        global.handle_new_requests = false;
+        test_server.destroy();
+    }
 
     const log = std.log.scoped(.client);
 
@@ -653,6 +662,56 @@ test "general client/server API coverage" {
 
     // connection has been closed
     try expect(client.connection_pool.free_len == 0);
+
+    { // handle empty header field value
+        const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/empty", .{port});
+        defer gpa.free(location);
+        const uri = try std.Uri.parse(location);
+
+        log.info("{s}", .{location});
+        var server_header_buffer: [1024]u8 = undefined;
+        var req = try client.open(.GET, uri, .{
+            .server_header_buffer = &server_header_buffer,
+            .extra_headers = &.{
+                .{ .name = "empty", .value = "" },
+            },
+        });
+        defer req.deinit();
+
+        try req.send(.{});
+        try req.wait();
+
+        try std.testing.expectEqual(.ok, req.response.status);
+
+        const body = try req.reader().readAllAlloc(gpa, 8192);
+        defer gpa.free(body);
+
+        try expectEqualStrings("", body);
+
+        var it = req.response.iterateHeaders();
+        {
+            const header = it.next().?;
+            try expect(!it.is_trailer);
+            try expectEqualStrings("connection", header.name);
+            try expectEqualStrings("keep-alive", header.value);
+        }
+        {
+            const header = it.next().?;
+            try expect(!it.is_trailer);
+            try expectEqualStrings("content-length", header.name);
+            try expectEqualStrings("0", header.value);
+        }
+        {
+            const header = it.next().?;
+            try expect(!it.is_trailer);
+            try expectEqualStrings("empty", header.name);
+            try expectEqualStrings("", header.value);
+        }
+        try expectEqual(null, it.next());
+    }
+
+    // connection has been kept alive
+    try expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
     { // relative redirect
         const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/redirect/1", .{port});
