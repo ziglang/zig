@@ -857,9 +857,12 @@ pub const Request = struct {
     /// Must be called after `send` and, if any data was written to the request
     /// body, then also after `finish`.
     pub fn wait(req: *Request) WaitError!void {
-        const connection = req.connection.?;
+        while (true) {
+            // This while loop is for handling redirects, which means the request's
+            // connection may be different than the previous iteration. However, it
+            // is still guaranteed to be non-null with each iteration of this loop.
+            const connection = req.connection.?;
 
-        while (true) { // handle redirects
             while (true) { // read headers
                 try connection.fill();
 

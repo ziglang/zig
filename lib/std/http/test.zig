@@ -1063,3 +1063,77 @@ fn createTestServer(S: type) !*TestServer {
     test_server.server_thread = try std.Thread.spawn(.{}, S.run, .{&test_server.net_server});
     return test_server;
 }
+
+test "redirect to different connection" {
+    const test_server_new = try createTestServer(struct {
+        fn run(net_server: *std.net.Server) anyerror!void {
+            var header_buffer: [888]u8 = undefined;
+
+            const conn = try net_server.accept();
+            defer conn.stream.close();
+
+            var server = http.Server.init(conn, &header_buffer);
+            var request = try server.receiveHead();
+            try expectEqualStrings(request.head.target, "/ok");
+            try request.respond("good job, you pass", .{});
+        }
+    });
+    defer test_server_new.destroy();
+
+    const global = struct {
+        var other_port: ?u16 = null;
+    };
+    global.other_port = test_server_new.port();
+
+    const test_server_orig = try createTestServer(struct {
+        fn run(net_server: *std.net.Server) anyerror!void {
+            var header_buffer: [999]u8 = undefined;
+            var send_buffer: [100]u8 = undefined;
+
+            const conn = try net_server.accept();
+            defer conn.stream.close();
+
+            const new_loc = try std.fmt.bufPrint(&send_buffer, "http://127.0.0.1:{d}/ok", .{
+                global.other_port.?,
+            });
+
+            var server = http.Server.init(conn, &header_buffer);
+            var request = try server.receiveHead();
+            try expectEqualStrings(request.head.target, "/help");
+            try request.respond("", .{
+                .status = .found,
+                .extra_headers = &.{
+                    .{ .name = "location", .value = new_loc },
+                },
+            });
+        }
+    });
+    defer test_server_orig.destroy();
+
+    const gpa = std.testing.allocator;
+
+    var client: http.Client = .{ .allocator = gpa };
+    defer client.deinit();
+
+    var loc_buf: [100]u8 = undefined;
+    const location = try std.fmt.bufPrint(&loc_buf, "http://127.0.0.1:{d}/help", .{
+        test_server_orig.port(),
+    });
+    const uri = try std.Uri.parse(location);
+
+    {
+        var server_header_buffer: [666]u8 = undefined;
+        var req = try client.open(.GET, uri, .{
+            .server_header_buffer = &server_header_buffer,
+        });
+        defer req.deinit();
+
+        try req.send(.{});
+        try req.wait();
+
+        const body = try req.reader().readAllAlloc(gpa, 8192);
+        defer gpa.free(body);
+
+        try expectEqualStrings("good job, you pass", body);
+    }
+}
