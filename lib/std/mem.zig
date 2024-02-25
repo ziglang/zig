@@ -1346,12 +1346,33 @@ pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const 
 /// Consider using `indexOfPos` instead of this, which will automatically use a
 /// more sophisticated algorithm on larger inputs.
 pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
         if (eql(T, haystack[i..][0..needle.len], needle)) return i;
     }
     return null;
+}
+
+test indexOfPosLinear {
+    try testing.expectEqual(0, indexOfPosLinear(u8, "", 0, ""));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "123", 0, ""));
+
+    try testing.expectEqual(null, indexOfPosLinear(u8, "", 0, "1"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "1", 0, "1"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "2", 0, "1"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "21", 0, "1"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "222", 0, "1"));
+
+    try testing.expectEqual(null, indexOfPosLinear(u8, "", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "1", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "2", 0, "12"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "12", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "21", 0, "12"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "212", 0, "12"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "122", 0, "12"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "212112", 0, "12"));
 }
 
 fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {
