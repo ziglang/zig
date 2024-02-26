@@ -3703,7 +3703,7 @@ test "switch using enum literals" {
       </p>
       <p>
       A switch on a non-exhaustive enum can include a {#syntax#}_{#endsyntax#} prong as an alternative to an {#syntax#}else{#endsyntax#} prong.
-      With a {#syntax#}_{#endsyntax#} prong the compiler errors if all the known tag names are not handled by the switch.
+      With a {#syntax#}_{#endsyntax#} prong the compiler errors if any of the known tag names are not handled by the switch.
       </p>
       {#code_begin|test|test_switch_non-exhaustive#}
 const std = @import("std");
