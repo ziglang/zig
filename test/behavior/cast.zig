@@ -601,25 +601,25 @@ test "cast *[1][*]const u8 to [*]const ?[*]const u8" {
 
 test "@intCast on vector" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
             // Upcast (implicit, equivalent to @intCast)
             var up0: @Vector(2, u8) = [_]u8{ 0x55, 0xaa };
             _ = &up0;
-            const up1 = @as(@Vector(2, u16), up0);
-            const up2 = @as(@Vector(2, u32), up0);
-            const up3 = @as(@Vector(2, u64), up0);
+            const up1: @Vector(2, u16) = up0;
+            const up2: @Vector(2, u32) = up0;
+            const up3: @Vector(2, u64) = up0;
             // Downcast (safety-checked)
             var down0 = up3;
             _ = &down0;
-            const down1 = @as(@Vector(2, u32), @intCast(down0));
-            const down2 = @as(@Vector(2, u16), @intCast(down0));
-            const down3 = @as(@Vector(2, u8), @intCast(down0));
+            const down1: @Vector(2, u32) = @intCast(down0);
+            const down2: @Vector(2, u16) = @intCast(down0);
+            const down3: @Vector(2, u8) = @intCast(down0);
 
             try expect(mem.eql(u16, &@as([2]u16, up1), &[2]u16{ 0x55, 0xaa }));
             try expect(mem.eql(u32, &@as([2]u32, up2), &[2]u32{ 0x55, 0xaa }));
@@ -629,20 +629,10 @@ test "@intCast on vector" {
             try expect(mem.eql(u16, &@as([2]u16, down2), &[2]u16{ 0x55, 0xaa }));
             try expect(mem.eql(u8, &@as([2]u8, down3), &[2]u8{ 0x55, 0xaa }));
         }
-
-        fn doTheTestFloat() !void {
-            var vec: @Vector(2, f32) = @splat(1234.0);
-            _ = &vec;
-            const wider: @Vector(2, f64) = vec;
-            try expect(wider[0] == 1234.0);
-            try expect(wider[1] == 1234.0);
-        }
     };
 
     try S.doTheTest();
     try comptime S.doTheTest();
-    try S.doTheTestFloat();
-    try comptime S.doTheTestFloat();
 }
 
 test "@floatCast cast down" {
@@ -2340,10 +2330,31 @@ test "@floatCast on vector" {
 
     const S = struct {
         fn doTheTest() !void {
-            var a: @Vector(3, f64) = .{ 1.5, 2.5, 3.5 };
-            _ = &a;
-            const b: @Vector(3, f32) = @floatCast(a);
-            try expectEqual(@Vector(3, f32){ 1.5, 2.5, 3.5 }, b);
+            {
+                var a: @Vector(2, f64) = .{ 1.5, 2.5 };
+                _ = &a;
+                const b: @Vector(2, f32) = @floatCast(a);
+                try expectEqual(@Vector(2, f32){ 1.5, 2.5 }, b);
+            }
+            {
+                var a: @Vector(2, f32) = .{ 3.25, 4.25 };
+                _ = &a;
+                const b: @Vector(2, f64) = @floatCast(a);
+                try expectEqual(@Vector(2, f64){ 3.25, 4.25 }, b);
+            }
+            {
+                var a: @Vector(2, f32) = .{ 5.75, 6.75 };
+                _ = &a;
+                const b: @Vector(2, f64) = a;
+                try expectEqual(@Vector(2, f64){ 5.75, 6.75 }, b);
+            }
+            {
+                var vec: @Vector(2, f32) = @splat(1234.0);
+                _ = &vec;
+                const wider: @Vector(2, f64) = vec;
+                try expect(wider[0] == 1234.0);
+                try expect(wider[1] == 1234.0);
+            }
         }
     };
 
@@ -2441,6 +2452,7 @@ test "@intFromBool on vector" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

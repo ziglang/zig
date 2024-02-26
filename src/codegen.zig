@@ -405,7 +405,7 @@ pub fn generateSymbol(
             .vector_type => |vector_type| {
                 const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
                     return error.Overflow;
-                if (Type.fromInterned(vector_type.child).bitSize(mod) == 1) {
+                if (vector_type.child == .bool_type) {
                     const bytes = try code.addManyAsSlice(abi_size);
                     @memset(bytes, 0xaa);
                     var index: usize = 0;
@@ -443,37 +443,34 @@ pub fn generateSymbol(
                             },
                         }) byte.* |= mask else byte.* &= ~mask;
                     }
-                } else switch (aggregate.storage) {
-                    .bytes => |bytes| try code.appendSlice(bytes),
-                    .elems, .repeated_elem => {
-                        var index: u64 = 0;
-                        while (index < vector_type.len) : (index += 1) {
-                            switch (try generateSymbol(bin_file, src_loc, .{
-                                .ty = Type.fromInterned(vector_type.child),
-                                .val = Value.fromInterned(switch (aggregate.storage) {
-                                    .bytes => unreachable,
-                                    .elems => |elems| elems[
-                                        math.cast(usize, index) orelse return error.Overflow
-                                    ],
-                                    .repeated_elem => |elem| elem,
-                                }),
-                            }, code, debug_output, reloc_info)) {
-                                .ok => {},
-                                .fail => |em| return .{ .fail = em },
+                } else {
+                    switch (aggregate.storage) {
+                        .bytes => |bytes| try code.appendSlice(bytes),
+                        .elems, .repeated_elem => {
+                            var index: u64 = 0;
+                            while (index < vector_type.len) : (index += 1) {
+                                switch (try generateSymbol(bin_file, src_loc, .{
+                                    .ty = Type.fromInterned(vector_type.child),
+                                    .val = Value.fromInterned(switch (aggregate.storage) {
+                                        .bytes => unreachable,
+                                        .elems => |elems| elems[
+                                            math.cast(usize, index) orelse return error.Overflow
+                                        ],
+                                        .repeated_elem => |elem| elem,
+                                    }),
+                                }, code, debug_output, reloc_info)) {
+                                    .ok => {},
+                                    .fail => |em| return .{ .fail = em },
+                                }
                             }
-                        }
-                    },
-                }
+                        },
+                    }
 
-                const padding = abi_size - (math.cast(usize, math.divCeil(
-                    u64,
-                    Type.fromInterned(vector_type.child).bitSize(mod) * vector_type.len,
-                    8,
-                ) catch |err| switch (err) {
-                    error.DivisionByZero => unreachable,
-                    else => |e| return e,
-                }) orelse return error.Overflow);
-                if (padding > 0) try code.appendNTimes(0, padding);
+                    const padding = abi_size -
+                        (math.cast(usize, Type.fromInterned(vector_type.child).abiSize(mod) * vector_type.len) orelse
+                        return error.Overflow);
+                    if (padding > 0) try code.appendNTimes(0, padding);
+                }
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;

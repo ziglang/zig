@@ -905,11 +905,32 @@ pub const Type = struct {
                     return Type.fromInterned(array_type.child).abiAlignmentAdvanced(mod, strat);
                 },
                 .vector_type => |vector_type| {
-                    const bits_u64 = try bitSizeAdvanced(Type.fromInterned(vector_type.child), mod, opt_sema);
-                    const bits: u32 = @intCast(bits_u64);
-                    const bytes = ((bits * vector_type.len) + 7) / 8;
-                    const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
-                    return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                    if (vector_type.len == 0) return .{ .scalar = .@"1" };
+                    switch (mod.comp.getZigBackend()) {
+                        else => {
+                            const elem_bits: u32 = @intCast(try Type.fromInterned(vector_type.child).bitSizeAdvanced(mod, opt_sema));
+                            if (elem_bits == 0) return .{ .scalar = .@"1" };
+                            const bytes = ((elem_bits * vector_type.len) + 7) / 8;
+                            const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
+                            return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                        },
+                        .stage2_x86_64 => {
+                            if (vector_type.child == .bool_type) {
+                                if (vector_type.len > 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
+                                if (vector_type.len > 128 and std.Target.x86.featureSetHas(target.cpu.features, .avx2)) return .{ .scalar = .@"32" };
+                                if (vector_type.len > 64) return .{ .scalar = .@"16" };
+                                const bytes = std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
+                                const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
+                                return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                            }
+                            const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeAdvanced(mod, strat)).scalar);
+                            if (elem_bytes == 0) return .{ .scalar = .@"1" };
+                            const bytes = elem_bytes * vector_type.len;
+                            if (bytes > 32 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
+                            if (bytes > 16 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
+                            return .{ .scalar = .@"16" };
+                        },
+                    }
                 },
 
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
@@ -1237,15 +1258,24 @@ pub const Type = struct {
                             .storage = .{ .lazy_size = ty.toIntern() },
                         } }))) },
                     };
-                    const elem_bits = try Type.fromInterned(vector_type.child).bitSizeAdvanced(mod, opt_sema);
-                    const total_bits = elem_bits * vector_type.len;
-                    const total_bytes = (total_bits + 7) / 8;
                     const alignment = switch (try ty.abiAlignmentAdvanced(mod, strat)) {
                         .scalar => |x| x,
                         .val => return .{ .val = Value.fromInterned((try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_size = ty.toIntern() },
                         } }))) },
+                    };
+                    const total_bytes = switch (mod.comp.getZigBackend()) {
+                        else => total_bytes: {
+                            const elem_bits = try Type.fromInterned(vector_type.child).bitSizeAdvanced(mod, opt_sema);
+                            const total_bits = elem_bits * vector_type.len;
+                            break :total_bytes (total_bits + 7) / 8;
+                        },
+                        .stage2_x86_64 => total_bytes: {
+                            if (vector_type.child == .bool_type) break :total_bytes std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
+                            const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeAdvanced(mod, strat)).scalar);
+                            break :total_bytes elem_bytes * vector_type.len;
+                        },
                     };
                     return AbiSizeAdvanced{ .scalar = alignment.forward(total_bytes) };
                 },
@@ -2108,7 +2138,8 @@ pub const Type = struct {
 
     /// Returns true if and only if the type is a fixed-width integer.
     pub fn isInt(self: Type, mod: *const Module) bool {
-        return self.isSignedInt(mod) or self.isUnsignedInt(mod);
+        return self.toIntern() != .comptime_int_type and
+            mod.intern_pool.isIntegerType(self.toIntern());
     }
 
     /// Returns true if and only if the type is a fixed-width, signed integer.

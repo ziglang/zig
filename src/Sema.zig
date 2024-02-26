@@ -23315,7 +23315,8 @@ fn checkVectorElemType(
     const mod = sema.mod;
     switch (ty.zigTypeTag(mod)) {
         .Int, .Float, .Bool => return,
-        else => if (ty.isPtrAtRuntime(mod)) return,
+        .Optional, .Pointer => if (ty.isPtrAtRuntime(mod)) return,
+        else => {},
     }
     return sema.fail(block, ty_src, "expected integer, float, bool, or pointer for the vector element type; found '{}'", .{ty.fmt(mod)});
 }
@@ -28442,7 +28443,7 @@ const CoerceOpts = struct {
     report_err: bool = true,
     /// Ignored if `report_err == false`.
     is_ret: bool = false,
-    /// Should coercion to comptime_int ermit an error message.
+    /// Should coercion to comptime_int emit an error message.
     no_cast_to_comptime_int: bool = false,
 
     param_src: struct {
@@ -31845,6 +31846,34 @@ fn coerceArrayLike(
     }
 
     const dest_elem_ty = dest_ty.childType(mod);
+    if (dest_ty.isVector(mod) and inst_ty.isVector(mod) and (try sema.resolveValue(inst)) == null) {
+        const inst_elem_ty = inst_ty.childType(mod);
+        switch (dest_elem_ty.zigTypeTag(mod)) {
+            .Int => if (inst_elem_ty.isInt(mod)) {
+                // integer widening
+                const dst_info = dest_elem_ty.intInfo(mod);
+                const src_info = inst_elem_ty.intInfo(mod);
+                if ((src_info.signedness == dst_info.signedness and dst_info.bits >= src_info.bits) or
+                    // small enough unsigned ints can get casted to large enough signed ints
+                    (dst_info.signedness == .signed and dst_info.bits > src_info.bits))
+                {
+                    try sema.requireRuntimeBlock(block, inst_src, null);
+                    return block.addTyOp(.intcast, dest_ty, inst);
+                }
+            },
+            .Float => if (inst_elem_ty.isRuntimeFloat()) {
+                // float widening
+                const src_bits = inst_elem_ty.floatBits(target);
+                const dst_bits = dest_elem_ty.floatBits(target);
+                if (dst_bits >= src_bits) {
+                    try sema.requireRuntimeBlock(block, inst_src, null);
+                    return block.addTyOp(.fpext, dest_ty, inst);
+                }
+            },
+            else => {},
+        }
+    }
+
     const element_vals = try sema.arena.alloc(InternPool.Index, dest_len);
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, dest_len);
     var runtime_src: ?LazySrcLoc = null;

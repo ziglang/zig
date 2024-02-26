@@ -8646,8 +8646,6 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(ty_op.operand);
         const dest_ty = self.typeOfIndex(inst);
         const target = mod.getTarget();
-        const dest_bits = dest_ty.floatBits(target);
-        const src_bits = operand_ty.floatBits(target);
 
         if (intrinsicsAllowed(dest_ty, target) and intrinsicsAllowed(operand_ty, target)) {
             return self.wip.cast(.fpext, operand, try o.lowerType(dest_ty), "");
@@ -8655,11 +8653,19 @@ pub const FuncGen = struct {
             const operand_llvm_ty = try o.lowerType(operand_ty);
             const dest_llvm_ty = try o.lowerType(dest_ty);
 
+            const dest_bits = dest_ty.scalarType(mod).floatBits(target);
+            const src_bits = operand_ty.scalarType(mod).floatBits(target);
             const fn_name = try o.builder.fmt("__extend{s}f{s}f2", .{
                 compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
             });
 
             const libc_fn = try self.getLibcFunction(fn_name, &.{operand_llvm_ty}, dest_llvm_ty);
+            if (dest_ty.isVector(mod)) return self.buildElementwiseCall(
+                libc_fn,
+                &.{operand},
+                try o.builder.poisonValue(dest_llvm_ty),
+                dest_ty.vectorLen(mod),
+            );
             return self.wip.call(
                 .normal,
                 .ccc,

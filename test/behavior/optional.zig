@@ -110,44 +110,89 @@ test "nested optional field in struct" {
     try expect(s.x.?.y == 127);
 }
 
-test "equality compare optional with non-optional" {
+test "equality compare optionals and non-optionals" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    try test_cmp_optional_non_optional();
-    try comptime test_cmp_optional_non_optional();
+    const S = struct {
+        fn doTheTest() !void {
+            var five: isize = 5;
+            var ten: isize = 10;
+            var opt_null: ?isize = null;
+            var opt_ten: ?isize = 10;
+            _ = .{ &five, &ten, &opt_null, &opt_ten };
+            try expect(opt_null != five);
+            try expect(opt_null != ten);
+            try expect(opt_ten != five);
+            try expect(opt_ten == ten);
+
+            var opt_int: ?isize = null;
+            try expect(opt_int != five);
+            try expect(opt_int != ten);
+            try expect(opt_int == opt_null);
+            try expect(opt_int != opt_ten);
+
+            opt_int = 10;
+            try expect(opt_int != five);
+            try expect(opt_int == ten);
+            try expect(opt_int != opt_null);
+            try expect(opt_int == opt_ten);
+
+            opt_int = five;
+            try expect(opt_int == five);
+            try expect(opt_int != ten);
+            try expect(opt_int != opt_null);
+            try expect(opt_int != opt_ten);
+
+            // test evaluation is always lexical
+            // ensure that the optional isn't always computed before the non-optional
+            var mutable_state: i32 = 0;
+            _ = blk1: {
+                mutable_state += 1;
+                break :blk1 @as(?f64, 10.0);
+            } != blk2: {
+                try expect(mutable_state == 1);
+                break :blk2 @as(f64, 5.0);
+            };
+            _ = blk1: {
+                mutable_state += 1;
+                break :blk1 @as(f64, 10.0);
+            } != blk2: {
+                try expect(mutable_state == 2);
+                break :blk2 @as(?f64, 5.0);
+            };
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
-fn test_cmp_optional_non_optional() !void {
-    var ten: i32 = 10;
-    var opt_ten: ?i32 = 10;
-    var five: i32 = 5;
-    var int_n: ?i32 = null;
+test "compare optionals with modified payloads" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
-    _ = .{ &ten, &opt_ten, &five, &int_n };
+    var lhs: ?bool = false;
+    const lhs_payload = &lhs.?;
+    var rhs: ?bool = true;
+    const rhs_payload = &rhs.?;
+    try expect(lhs != rhs and !(lhs == rhs));
 
-    try expect(int_n != ten);
-    try expect(opt_ten == ten);
-    try expect(opt_ten != five);
+    lhs = null;
+    lhs_payload.* = false;
+    rhs = false;
+    try expect(lhs != rhs and !(lhs == rhs));
 
-    // test evaluation is always lexical
-    // ensure that the optional isn't always computed before the non-optional
-    var mutable_state: i32 = 0;
-    _ = blk1: {
-        mutable_state += 1;
-        break :blk1 @as(?f64, 10.0);
-    } != blk2: {
-        try expect(mutable_state == 1);
-        break :blk2 @as(f64, 5.0);
-    };
-    _ = blk1: {
-        mutable_state += 1;
-        break :blk1 @as(f64, 10.0);
-    } != blk2: {
-        try expect(mutable_state == 2);
-        break :blk2 @as(?f64, 5.0);
-    };
+    lhs = true;
+    rhs = null;
+    rhs_payload.* = true;
+    try expect(lhs != rhs and !(lhs == rhs));
+
+    lhs = null;
+    lhs_payload.* = false;
+    rhs = null;
+    rhs_payload.* = true;
+    try expect(lhs == rhs and !(lhs != rhs));
 }
 
 test "unwrap function call with optional pointer return value" {

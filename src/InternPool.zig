@@ -3587,6 +3587,7 @@ pub const Alignment = enum(u6) {
     @"8" = 3,
     @"16" = 4,
     @"32" = 5,
+    @"64" = 6,
     none = std.math.maxInt(u6),
     _,
 
@@ -7403,10 +7404,14 @@ pub fn isIntegerType(ip: *const InternPool, ty: Index) bool {
         .c_ulong_type,
         .c_longlong_type,
         .c_ulonglong_type,
-        .c_longdouble_type,
         .comptime_int_type,
         => true,
-        else => ip.indexToKey(ty) == .int_type,
+        else => switch (ip.items.items(.tag)[@intFromEnum(ty)]) {
+            .type_int_signed,
+            .type_int_unsigned,
+            => true,
+            else => false,
+        },
     };
 }
 
