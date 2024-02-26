@@ -146,7 +146,7 @@ fn bufferedReader(reader: anytype) BufferedReader(4096, @TypeOf(reader)) {
     };
 }
 
-test "io.BufferedTee io.BufferedReader OneByte" {
+test "OneByte" {
     const OneByteReadReader = struct {
         str: []const u8,
         curr: usize,
@@ -186,7 +186,7 @@ test "io.BufferedTee io.BufferedReader OneByte" {
     try testing.expectEqualSlices(u8, str, res);
 }
 
-test "io.BufferedTee io.BufferedReader Block" {
+test "Block" {
     const BlockReader = struct {
         block: []const u8,
         reads_allowed: usize,
@@ -289,7 +289,7 @@ test "io.BufferedTee io.BufferedReader Block" {
     }
 }
 
-test "io.BufferedTee with zero lookahead" {
+test "with zero lookahead" {
     // output has same bytes as consumer
     const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } ** 12;
     var in = io.fixedBufferStream(&data);
@@ -308,7 +308,7 @@ test "io.BufferedTee with zero lookahead" {
     }
 }
 
-test "io.BufferedTee with lookahead" {
+test "with lookahead" {
     // output is lookahead bytes behind consumer
     inline for (1..8) |lookahead| {
         const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } ** 12;
@@ -333,7 +333,7 @@ test "io.BufferedTee with lookahead" {
     }
 }
 
-test "io.BufferedTee internal state" {
+test "internal state" {
     const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } ** 2;
     var in = io.fixedBufferStream(&data);
     var out = std.ArrayList(u8).init(testing.allocator);

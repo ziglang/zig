@@ -1298,7 +1298,7 @@ pub fn log2_int_ceil(comptime T: type, x: T) Log2IntCeil(T) {
     return log2_val + 1;
 }
 
-test "std.math.log2_int_ceil" {
+test log2_int_ceil {
     try testing.expect(log2_int_ceil(u32, 1) == 0);
     try testing.expect(log2_int_ceil(u32, 2) == 1);
     try testing.expect(log2_int_ceil(u32, 3) == 2);

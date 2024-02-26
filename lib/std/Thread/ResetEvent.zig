@@ -157,7 +157,7 @@ const FutexImpl = struct {
     }
 };
 
-test "ResetEvent - smoke test" {
+test "smoke test" {
     // make sure the event is unset
     var event = ResetEvent{};
     try testing.expectEqual(false, event.isSet());
@@ -181,7 +181,7 @@ test "ResetEvent - smoke test" {
     try testing.expectEqual(true, event.isSet());
 }
 
-test "ResetEvent - signaling" {
+test "signaling" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -242,7 +242,7 @@ test "ResetEvent - signaling" {
     try ctx.input();
 }
 
-test "ResetEvent - broadcast" {
+test "broadcast" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;

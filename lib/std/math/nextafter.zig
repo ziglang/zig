@@ -101,7 +101,7 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
     }
 }
 
-test "math.nextAfter.int" {
+test "int" {
     try expect(nextAfter(i0, 0, 0) == 0);
     try expect(nextAfter(u0, 0, 0) == 0);
     try expect(nextAfter(i1, 0, 0) == 0);
@@ -143,7 +143,7 @@ test "math.nextAfter.int" {
     }
 }
 
-test "math.nextAfter.float" {
+test "float" {
     @setEvalBranchQuota(2000);
 
     // normal -> normal

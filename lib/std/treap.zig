@@ -349,7 +349,7 @@ fn SliceIterRandomOrder(comptime T: type) type {
 const TestTreap = Treap(u64, std.math.order);
 const TestNode = TestTreap.Node;
 
-test "std.Treap: insert, find, replace, remove" {
+test "insert, find, replace, remove" {
     var treap = TestTreap{};
     var nodes: [10]TestNode = undefined;
 

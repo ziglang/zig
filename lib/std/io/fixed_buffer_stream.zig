@@ -132,7 +132,7 @@ fn Slice(comptime T: type) type {
     }
 }
 
-test "FixedBufferStream output" {
+test "output" {
     var buf: [255]u8 = undefined;
     var fbs = fixedBufferStream(&buf);
     const stream = fbs.writer();
@@ -141,7 +141,7 @@ test "FixedBufferStream output" {
     try testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
 }
 
-test "FixedBufferStream output at comptime" {
+test "output at comptime" {
     comptime {
         var buf: [255]u8 = undefined;
         var fbs = fixedBufferStream(&buf);
@@ -152,7 +152,7 @@ test "FixedBufferStream output at comptime" {
     }
 }
 
-test "FixedBufferStream output 2" {
+test "output 2" {
     var buffer: [10]u8 = undefined;
     var fbs = fixedBufferStream(&buffer);
 
@@ -175,7 +175,7 @@ test "FixedBufferStream output 2" {
     try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("H"));
 }
 
-test "FixedBufferStream input" {
+test "input" {
     const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7 };
     var fbs = fixedBufferStream(&bytes);
 

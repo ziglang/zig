@@ -101,7 +101,7 @@ pub const BufSet = struct {
     }
 };
 
-test "BufSet" {
+test BufSet {
     var bufset = BufSet.init(std.testing.allocator);
     defer bufset.deinit();
 
@@ -115,7 +115,7 @@ test "BufSet" {
     try bufset.insert("z");
 }
 
-test "BufSet clone" {
+test "clone" {
     var original = BufSet.init(testing.allocator);
     defer original.deinit();
     try original.insert("x");
@@ -132,7 +132,7 @@ test "BufSet clone" {
     );
 }
 
-test "BufSet.clone with arena" {
+test "clone with arena" {
     const allocator = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();

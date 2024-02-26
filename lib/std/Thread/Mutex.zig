@@ -215,7 +215,7 @@ const FutexImpl = struct {
     }
 };
 
-test "Mutex - smoke test" {
+test "smoke test" {
     var mutex = Mutex{};
 
     try testing.expect(mutex.tryLock());
@@ -243,7 +243,7 @@ const NonAtomicCounter = struct {
     }
 };
 
-test "Mutex - many uncontended" {
+test "many uncontended" {
     // This test requires spawning threads.
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -274,7 +274,7 @@ test "Mutex - many uncontended" {
     for (runners) |r| try testing.expectEqual(r.counter.get(), num_increments);
 }
 
-test "Mutex - many contended" {
+test "many contended" {
     // This test requires spawning threads.
     if (builtin.single_threaded) {
         return error.SkipZigTest;
