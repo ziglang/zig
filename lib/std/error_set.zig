@@ -41,6 +41,7 @@ test contains {
 /// members of BaseErrorSet, but not members of ToExcludeErrorSet.
 /// ToExcludeErrorSet does not have to
 /// be contained in, or even intersect BaseErrorSet.
+/// See also `ExcludingAssertAllContained`.
 pub fn Excluding(comptime BaseErrorSet: type, comptime ToExcludeErrorSet: type) type {
     if (BaseErrorSet == ToExcludeErrorSet) return error{}; //allows excluding anyerror from anyerror
 
@@ -72,6 +73,7 @@ test Excluding {
 /// Returns an error set with all members of BaseErrorSet
 /// except for error_to_exclude.
 /// error_to_exclude does not have to be a member of BaseErrorSet.
+/// See also `WithoutAssertContained`.
 pub fn Without(comptime BaseErrorSet: type, comptime error_to_exclude: anyerror) type {
     const ErrorSetToExclude = @TypeOf(@field(anyerror, @errorName(error_to_exclude)));
     return comptime Excluding(BaseErrorSet, ErrorSetToExclude);
@@ -89,6 +91,7 @@ test Without {
 /// Returns an error set with all errors which are
 /// members of both ErrorSetA and ErrorSetB.
 /// The resulting error set may be empty.
+/// See also `IntersectAssertNonEmpty`.
 pub fn Intersect(comptime ErrorSetA: type, comptime ErrorSetB: type) type {
     if (ErrorSetA == anyerror) return ErrorSetB; //allows intersecting with anyerror
 
@@ -115,4 +118,30 @@ test Intersect {
         assert(Intersect(error{ A, B }, error{G}) == error{});
         assert(Intersect(error{}, error{}) == error{});
     }
+}
+
+/// Returns the set of errors that are
+/// members of BaseErrorSet, but not members of ToExcludeErrorSet.
+/// Asserts that all members of ToExcludeErrorSet are members of BaseErrorSet.
+/// See also `Excluding`.
+pub fn ExcludingAssertAllContained(comptime BaseErrorSet: type, comptime ToExcludeErrorSet: type) type {
+    comptime assert(containsAll(BaseErrorSet, ToExcludeErrorSet));
+    return comptime Excluding(BaseErrorSet, ToExcludeErrorSet);
+}
+/// Returns an error set with all members of BaseErrorSet
+/// except for error_to_exclude.
+/// Asserts that error_to_exclude is a member of BaseErrorSet.
+/// See also `Without`.
+pub fn WithoutAssertContained(comptime BaseErrorSet: type, comptime error_to_exclude: anyerror) type {
+    comptime assert(contains(BaseErrorSet, error_to_exclude));
+    return comptime Without(BaseErrorSet, error_to_exclude);
+}
+/// Returns an error set with all errors which are
+/// members of both ErrorSetA and ErrorSetB.
+/// Asserts that the resulting error set is not empty.
+/// See also `Intersect`.
+pub fn IntersectAssertNonEmpty(comptime ErrorSetA: type, comptime ErrorSetB: type) type {
+    const Result = Intersect(ErrorSetA, ErrorSetB);
+    comptime assert(Result != error{});
+    return Result;
 }
