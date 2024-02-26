@@ -550,31 +550,15 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
 
-                const fs_file = dir.createFile(file_name, .{}) catch |err| switch (err) {
-                    error.FileNotFound => again: {
-                        const code = code: {
-                            if (std.fs.path.dirname(file_name)) |dir_name| {
-                                dir.makePath(dir_name) catch |code| break :code code;
-                                break :again dir.createFile(file_name, .{}) catch |code| {
-                                    break :code code;
-                                };
-                            }
-                            break :code err;
-                        };
-                        const d = options.diagnostics orelse return error.UnableToCreateFile;
-                        try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
-                            .code = code,
-                            .file_name = try d.allocator.dupe(u8, file_name),
-                        } });
-                        break :again null;
-                    },
-                    else => |e| return e,
-                };
-                defer if (fs_file) |f| f.close();
-
-                if (fs_file) |f| {
-                    try file.write(f);
-                } else {
+                if (createDirAndFile(dir, file_name)) |fs_file| {
+                    defer fs_file.close();
+                    try file.write(fs_file);
+                } else |err| {
+                    const d = options.diagnostics orelse return err;
+                    try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
+                        .code = err,
+                        .file_name = try d.allocator.dupe(u8, file_name),
+                    } });
                     try file.skip();
                 }
             },
@@ -585,21 +569,10 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 // The data inside the symbolic link.
                 const link_name = file.link_name;
 
-                dir.symLink(link_name, file_name, .{}) catch |err| again: {
-                    const code = code: {
-                        if (err == error.FileNotFound) {
-                            if (std.fs.path.dirname(file_name)) |dir_name| {
-                                dir.makePath(dir_name) catch |code| break :code code;
-                                break :again dir.symLink(link_name, file_name, .{}) catch |code| {
-                                    break :code code;
-                                };
-                            }
-                        }
-                        break :code err;
-                    };
+                createDirAndSymlink(dir, link_name, file_name) catch |err| {
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
                     try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
-                        .code = code,
+                        .code = err,
                         .file_name = try d.allocator.dupe(u8, file_name),
                         .link_name = try d.allocator.dupe(u8, link_name),
                     } });
@@ -608,6 +581,31 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             else => unreachable,
         }
     }
+}
+
+fn createDirAndFile(dir: std.fs.Dir, file_name: []const u8) !std.fs.File {
+    const fs_file = dir.createFile(file_name, .{ .exclusive = true }) catch |err| {
+        if (err == error.FileNotFound) {
+            if (std.fs.path.dirname(file_name)) |dir_name| {
+                try dir.makePath(dir_name);
+                return try dir.createFile(file_name, .{ .exclusive = true });
+            }
+        }
+        return err;
+    };
+    return fs_file;
+}
+
+fn createDirAndSymlink(dir: std.fs.Dir, link_name: []const u8, file_name: []const u8) !void {
+    dir.symLink(link_name, file_name, .{}) catch |err| {
+        if (err == error.FileNotFound) {
+            if (std.fs.path.dirname(file_name)) |dir_name| {
+                try dir.makePath(dir_name);
+                try dir.symLink(link_name, file_name, .{});
+            }
+        }
+        return err;
+    };
 }
 
 fn stripComponents(path: []const u8, count: u32) []const u8 {
