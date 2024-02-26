@@ -148,7 +148,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
         }
 
         pub fn enterTopBlock(self: *BcWriter, comptime SubBlock: type) Error!BlockWriter(SubBlock) {
-            return BlockWriter(SubBlock).init(self, 2);
+            return BlockWriter(SubBlock).init(self, 2, true);
         }
 
         fn BlockWriter(comptime Block: type) type {
@@ -164,7 +164,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                 start: usize,
                 bitcode: *BcWriter,
 
-                pub fn init(bitcode: *BcWriter, comptime parent_abbrev_len: u6) Error!Self {
+                pub fn init(bitcode: *BcWriter, comptime parent_abbrev_len: u6, comptime define_abbrevs: bool) Error!Self {
                     try bitcode.writeBits(1, parent_abbrev_len);
                     try bitcode.writeVBR(Block.id, 8);
                     try bitcode.writeVBR(abbrev_len, 4);
@@ -174,19 +174,23 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                     const start = bitcode.length();
                     try bitcode.writeBits(0, 32);
 
-                    // Predefine all block abbrevs
-                    inline for (Block.abbrevs) |Abbrev| {
-                        try defineAbbrev(bitcode, &Abbrev.ops);
-                    }
-
-                    return .{
+                    var self = Self{
                         .start = start,
                         .bitcode = bitcode,
                     };
+
+                    // Predefine all block abbrevs
+                    if (define_abbrevs) {
+                        inline for (Block.abbrevs) |Abbrev| {
+                            try self.defineAbbrev(&Abbrev.ops);
+                        }
+                    }
+
+                    return self;
                 }
 
-                pub fn enterSubBlock(self: Self, comptime SubBlock: type) Error!BlockWriter(SubBlock) {
-                    return BlockWriter(SubBlock).init(self.bitcode, abbrev_len);
+                pub fn enterSubBlock(self: Self, comptime SubBlock: type, comptime define_abbrevs: bool) Error!BlockWriter(SubBlock) {
+                    return BlockWriter(SubBlock).init(self.bitcode, abbrev_len, define_abbrevs);
                 }
 
                 pub fn end(self: *Self) Error!void {
@@ -291,7 +295,8 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                     }
                 }
 
-                fn defineAbbrev(bitcode: *BcWriter, comptime ops: []const AbbrevOp) Error!void {
+                pub fn defineAbbrev(self: *Self, comptime ops: []const AbbrevOp) Error!void {
+                    const bitcode = self.bitcode;
                     try bitcode.writeBits(2, abbrev_len);
 
                     // ops.len is not accurate because arrays are actually two ops

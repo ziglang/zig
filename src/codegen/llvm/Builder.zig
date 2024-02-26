@@ -13060,7 +13060,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
         // TYPE_BLOCK
         {
-            var type_block = try module_block.enterSubBlock(ir.Type);
+            var type_block = try module_block.enterSubBlock(ir.Type, true);
 
             try type_block.writeAbbrev(ir.Type.NumEntry{ .num = @intCast(self.type_items.items.len) });
 
@@ -13167,7 +13167,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         {
             const ParamattrGroup = ir.ParamattrGroup;
 
-            var paramattr_group_block = try module_block.enterSubBlock(ParamattrGroup);
+            var paramattr_group_block = try module_block.enterSubBlock(ParamattrGroup, true);
 
             for (self.function_attributes_set.keys()) |func_attributes| {
                 for (func_attributes.slice(self), 0..) |attributes, i| {
@@ -13370,7 +13370,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         // PARAMATTR_BLOCK
         {
             const Paramattr = ir.Paramattr;
-            var paramattr_block = try module_block.enterSubBlock(Paramattr);
+            var paramattr_block = try module_block.enterSubBlock(Paramattr, true);
 
             for (self.function_attributes_set.keys()) |func_attributes| {
                 const func_attributes_slice = func_attributes.slice(self);
@@ -13573,7 +13573,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         // CONSTANTS_BLOCK
         {
             const Constants = ir.Constants;
-            var constants_block = try module_block.enterSubBlock(Constants);
+            var constants_block = try module_block.enterSubBlock(Constants, true);
 
             var current_type: Type = .none;
             const tags = self.constant_items.items(.tag);
@@ -13899,7 +13899,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         // METADATA_KIND_BLOCK
         if (!self.strip) {
             const MetadataKindBlock = ir.MetadataKindBlock;
-            var metadata_kind_block = try module_block.enterSubBlock(MetadataKindBlock);
+            var metadata_kind_block = try module_block.enterSubBlock(MetadataKindBlock, true);
 
             inline for (@typeInfo(ir.MetadataKind).Enum.fields) |field| {
                 try metadata_kind_block.writeAbbrev(MetadataKindBlock.Kind{
@@ -13952,7 +13952,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         // METADATA_BLOCK
         if (!self.strip) {
             const MetadataBlock = ir.MetadataBlock;
-            var metadata_block = try module_block.enterSubBlock(MetadataBlock);
+            var metadata_block = try module_block.enterSubBlock(MetadataBlock, true);
 
             const MetadataBlockWriter = @TypeOf(metadata_block);
 
@@ -14357,6 +14357,34 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             try metadata_block.end();
         }
 
+        // Block info
+        {
+            const BlockInfo = ir.BlockInfo;
+            var block_info_block = try module_block.enterSubBlock(BlockInfo, true);
+
+            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.FunctionBlock.id});
+            inline for (ir.FunctionBlock.abbrevs) |abbrev| {
+                try block_info_block.defineAbbrev(&abbrev.ops);
+            }
+
+            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.FunctionValueSymbolTable.id});
+            inline for (ir.FunctionValueSymbolTable.abbrevs) |abbrev| {
+                try block_info_block.defineAbbrev(&abbrev.ops);
+            }
+
+            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.FunctionMetadataBlock.id});
+            inline for (ir.FunctionMetadataBlock.abbrevs) |abbrev| {
+                try block_info_block.defineAbbrev(&abbrev.ops);
+            }
+
+            try block_info_block.writeUnabbrev(BlockInfo.set_block_id, &.{ir.MetadataAttachmentBlock.id});
+            inline for (ir.MetadataAttachmentBlock.abbrevs) |abbrev| {
+                try block_info_block.defineAbbrev(&abbrev.ops);
+            }
+
+            try block_info_block.end();
+        }
+
         // FUNCTION_BLOCKS
         {
             const FunctionAdapter = struct {
@@ -14445,7 +14473,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                 if (func.instructions.len == 0) continue;
 
-                var function_block = try module_block.enterSubBlock(FunctionBlock);
+                var function_block = try module_block.enterSubBlock(FunctionBlock, false);
 
                 try function_block.writeAbbrev(FunctionBlock.DeclareBlocks{ .num_blocks = func.blocks.len });
 
@@ -14454,7 +14482,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 // Emit function level metadata block
                 if (!self.strip and func.debug_values.len != 0) {
                     const MetadataBlock = ir.FunctionMetadataBlock;
-                    var metadata_block = try function_block.enterSubBlock(MetadataBlock);
+                    var metadata_block = try function_block.enterSubBlock(MetadataBlock, false);
 
                     for (func.debug_values) |value| {
                         try metadata_block.writeAbbrev(MetadataBlock.Value{
@@ -14940,7 +14968,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 if (!self.strip) {
                     const ValueSymbolTable = ir.FunctionValueSymbolTable;
 
-                    var value_symtab_block = try function_block.enterSubBlock(ValueSymbolTable);
+                    var value_symtab_block = try function_block.enterSubBlock(ValueSymbolTable, false);
 
                     for (func.blocks, 0..) |block, block_index| {
                         const name = block.instruction.name(&func);
@@ -14965,7 +14993,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     if (dbg == .none) break :blk;
 
                     const MetadataAttachmentBlock = ir.MetadataAttachmentBlock;
-                    var metadata_attach_block = try function_block.enterSubBlock(MetadataAttachmentBlock);
+                    var metadata_attach_block = try function_block.enterSubBlock(MetadataAttachmentBlock, false);
 
                     try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentSingle{
                         .kind = ir.MetadataKind.dbg,

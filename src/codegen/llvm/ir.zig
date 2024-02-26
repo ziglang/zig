@@ -186,6 +186,14 @@ pub const Module = struct {
     };
 };
 
+pub const BlockInfo = struct {
+    pub const id = 0;
+
+    pub const set_block_id = 1;
+
+    pub const abbrevs = [_]type{};
+};
+
 pub const Type = struct {
     pub const id = 17;
 
