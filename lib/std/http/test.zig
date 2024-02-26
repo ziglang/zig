@@ -884,6 +884,69 @@ test "general client/server API coverage" {
     }
 }
 
+test "Server streams both reading and writing" {
+    const test_server = try createTestServer(struct {
+        fn run(net_server: *std.net.Server) anyerror!void {
+            var header_buffer: [1024]u8 = undefined;
+            const conn = try net_server.accept();
+            defer conn.stream.close();
+
+            var server = http.Server.init(conn, &header_buffer);
+            var request = try server.receiveHead();
+            const reader = try request.reader();
+
+            var send_buffer: [777]u8 = undefined;
+            var response = request.respondStreaming(.{
+                .send_buffer = &send_buffer,
+                .respond_options = .{
+                    .transfer_encoding = .none, // Causes keep_alive=false
+                },
+            });
+            const writer = response.writer();
+
+            while (true) {
+                try response.flush();
+                var buf: [100]u8 = undefined;
+                const n = try reader.read(&buf);
+                if (n == 0) break;
+                const sub_buf = buf[0..n];
+                for (sub_buf) |*b| b.* = std.ascii.toUpper(b.*);
+                try writer.writeAll(sub_buf);
+            }
+            try response.end();
+        }
+    });
+    defer test_server.destroy();
+
+    var client: http.Client = .{ .allocator = std.testing.allocator };
+    defer client.deinit();
+
+    var server_header_buffer: [555]u8 = undefined;
+    var req = try client.open(.POST, .{
+        .scheme = "http",
+        .host = "127.0.0.1",
+        .port = test_server.port(),
+        .path = "/",
+    }, .{
+        .server_header_buffer = &server_header_buffer,
+    });
+    defer req.deinit();
+
+    req.transfer_encoding = .chunked;
+    try req.send(.{});
+    try req.wait();
+
+    try req.writeAll("one ");
+    try req.writeAll("fish");
+
+    try req.finish();
+
+    const body = try req.reader().readAllAlloc(std.testing.allocator, 8192);
+    defer std.testing.allocator.free(body);
+
+    try expectEqualStrings("ONE FISH", body);
+}
+
 fn echoTests(client: *http.Client, port: u16) !void {
     const gpa = std.testing.allocator;
     var location_buffer: [100]u8 = undefined;

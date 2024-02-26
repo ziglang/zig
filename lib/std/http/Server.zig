@@ -716,10 +716,14 @@ pub const Request = struct {
             },
             .receiving_body, .ready => return true,
             else => unreachable,
-        } else {
-            s.state = .closing;
-            return false;
+        };
+
+        // Avoid clobbering the state in case a reading stream already exists.
+        switch (s.state) {
+            .received_head => s.state = .closing,
+            else => {},
         }
+        return false;
     }
 };
 
