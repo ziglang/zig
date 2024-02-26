@@ -76,12 +76,6 @@ test "trailers" {
         {
             const header = it.next().?;
             try expect(!it.is_trailer);
-            try expectEqualStrings("connection", header.name);
-            try expectEqualStrings("keep-alive", header.value);
-        }
-        {
-            const header = it.next().?;
-            try expect(!it.is_trailer);
             try expectEqualStrings("transfer-encoding", header.name);
             try expectEqualStrings("chunked", header.value);
         }
@@ -143,15 +137,15 @@ test "HTTP server handles a chunked transfer coding request" {
     defer stream.close();
     try stream.writeAll(request_bytes);
 
-    const response = try stream.reader().readAllAlloc(gpa, 100);
-    defer gpa.free(response);
-
     const expected_response =
         "HTTP/1.1 200 OK\r\n" ++
+        "connection: close\r\n" ++
         "content-length: 21\r\n" ++
         "content-type: text/plain\r\n" ++
         "\r\n" ++
         "message from server!\n";
+    const response = try stream.reader().readAllAlloc(gpa, expected_response.len);
+    defer gpa.free(response);
     try expectEqualStrings(expected_response, response);
 }
 
@@ -285,7 +279,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     var expected_response = std.ArrayList(u8).init(gpa);
     defer expected_response.deinit();
 
-    try expected_response.appendSlice("HTTP/1.1 200 OK\r\n\r\n");
+    try expected_response.appendSlice("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n");
 
     {
         var total: usize = 0;
@@ -349,6 +343,7 @@ test "receiving arbitrary http headers from the client" {
     defer expected_response.deinit();
 
     try expected_response.appendSlice("HTTP/1.1 200 OK\r\n");
+    try expected_response.appendSlice("connection: close\r\n");
     try expected_response.appendSlice("content-length: 0\r\n\r\n");
     try expectEqualStrings(expected_response.items, response);
 }
@@ -700,12 +695,6 @@ test "general client/server API coverage" {
         try expectEqualStrings("", body);
 
         var it = req.response.iterateHeaders();
-        {
-            const header = it.next().?;
-            try expect(!it.is_trailer);
-            try expectEqualStrings("connection", header.name);
-            try expectEqualStrings("keep-alive", header.value);
-        }
         {
             const header = it.next().?;
             try expect(!it.is_trailer);

@@ -430,7 +430,7 @@ pub const Response = struct {
     /// Points into the user-provided `server_header_buffer`.
     content_disposition: ?[]const u8 = null,
 
-    keep_alive: bool = false,
+    keep_alive: bool,
 
     /// If present, the number of bytes in the response body.
     content_length: ?u64 = null,
@@ -477,6 +477,10 @@ pub const Response = struct {
         res.version = version;
         res.status = status;
         res.reason = reason;
+        res.keep_alive = switch (version) {
+            .@"HTTP/1.0" => false,
+            .@"HTTP/1.1" => true,
+        };
 
         while (it.next()) |line| {
             if (line.len == 0) return;
@@ -684,9 +688,10 @@ pub const Request = struct {
         req.response.parser.reset();
 
         req.response = .{
+            .version = undefined,
             .status = undefined,
             .reason = undefined,
-            .version = undefined,
+            .keep_alive = undefined,
             .parser = req.response.parser,
         };
     }
@@ -1564,9 +1569,10 @@ pub fn open(
         .redirect_behavior = options.redirect_behavior,
         .handle_continue = options.handle_continue,
         .response = .{
+            .version = undefined,
             .status = undefined,
             .reason = undefined,
-            .version = undefined,
+            .keep_alive = undefined,
             .parser = proto.HeadersParser.init(options.server_header_buffer),
         },
         .headers = options.headers,
