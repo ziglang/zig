@@ -211,9 +211,9 @@ pub const Request = struct {
                     else => {},
                 }
 
-                var line_it = mem.splitSequence(u8, line, ": ");
+                var line_it = mem.splitScalar(u8, line, ':');
                 const header_name = line_it.next().?;
-                const header_value = line_it.rest();
+                const header_value = mem.trim(u8, line_it.rest(), " \t");
                 if (header_name.len == 0) return error.HttpHeadersInvalid;
 
                 if (std.ascii.eqlIgnoreCase(header_name, "connection")) {

@@ -48,7 +48,7 @@ pub fn next(it: *HeaderIterator) ?std.http.Header {
 }
 
 test next {
-    var it = HeaderIterator.init("200 OK\r\na: b\r\nc: \r\nd: e\r\n\r\nf: g\r\n\r\n");
+    var it = HeaderIterator.init("200 OK\r\na: b\r\nc:  \r\nd:e\r\n\r\nf: g\r\n\r\n");
     try std.testing.expect(!it.is_trailer);
     {
         const header = it.next().?;
@@ -80,7 +80,7 @@ test next {
     try std.testing.expect(!it.is_trailer);
     try std.testing.expectEqual(null, it.next());
 
-    it = HeaderIterator.init("200 OK\r\na: b\r\n\r\n: ss\r\n\r\n");
+    it = HeaderIterator.init("200 OK\r\na:b\r\n\r\n: ss\r\n\r\n");
     try std.testing.expect(!it.is_trailer);
     {
         const header = it.next().?;
