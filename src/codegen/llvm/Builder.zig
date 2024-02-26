@@ -14951,7 +14951,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                         .column = location.column,
                                         .scope = @enumFromInt(metadata_adapter.getMetadataIndex(location.scope)),
                                         .inlined_at = @enumFromInt(metadata_adapter.getMetadataIndex(location.inlined_at)),
-                                        .is_implicit = false,
                                     });
                                     has_location = true;
                                 },

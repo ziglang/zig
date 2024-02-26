@@ -1591,17 +1591,16 @@ pub const FunctionBlock = struct {
     pub const DebugLoc = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 35 },
-            .{ .fixed = 32 },
-            .{ .fixed = 32 },
-            .{ .fixed = 32 },
-            .{ .fixed = 32 },
-            .{ .fixed = 1 },
+            LineAbbrev,
+            ColumnAbbrev,
+            MetadataAbbrev,
+            MetadataAbbrev,
+            .{ .literal = 0 },
         };
         line: u32,
         column: u32,
         scope: Builder.Metadata,
         inlined_at: Builder.Metadata,
-        is_implicit: bool,
     };
 
     pub const DebugLocAgain = struct {
