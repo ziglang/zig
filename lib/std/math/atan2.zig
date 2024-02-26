@@ -214,7 +214,7 @@ fn atan2_64(y: f64, x: f64) f64 {
     }
 }
 
-test "atan2" {
+test atan2 {
     const y32: f32 = 0.2;
     const x32: f32 = 0.21;
     const y64: f64 = 0.2;
@@ -223,7 +223,7 @@ test "atan2" {
     try expect(atan2(y64, x64) == atan2_64(0.2, 0.21));
 }
 
-test "atan2_32" {
+test atan2_32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, atan2_32(0.0, 0.0), 0.0, epsilon));
@@ -235,7 +235,7 @@ test "atan2_32" {
     try expect(math.approxEqAbs(f32, atan2_32(0.34, 1.243), 0.267001, epsilon));
 }
 
-test "atan2_64" {
+test atan2_64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, atan2_64(0.0, 0.0), 0.0, epsilon));

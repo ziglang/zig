@@ -104,12 +104,12 @@ fn tanh64(x: f64) f64 {
     return if (sign) -t else t;
 }
 
-test "tanh" {
+test tanh {
     try expect(tanh(@as(f32, 1.5)) == tanh32(1.5));
     try expect(tanh(@as(f64, 1.5)) == tanh64(1.5));
 }
 
-test "tanh32" {
+test tanh32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, tanh32(0.0), 0.0, epsilon));
@@ -122,7 +122,7 @@ test "tanh32" {
     try expect(math.approxEqAbs(f32, tanh32(-37.45), -1.0, epsilon));
 }
 
-test "tanh64" {
+test tanh64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, tanh64(0.0), 0.0, epsilon));

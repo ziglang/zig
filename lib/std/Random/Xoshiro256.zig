@@ -122,7 +122,7 @@ test "sequence" {
     }
 }
 
-test "fill" {
+test fill {
     var r = Xoshiro256.init(0);
 
     const seq = [_]u64{

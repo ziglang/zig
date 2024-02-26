@@ -130,7 +130,7 @@ pub fn full(self: *Self) bool {
 }
 
 // example from: https://youtu.be/SJPvNi4HrWQ?t=3558
-test "writeMatch" {
+test writeMatch {
     var cb: Self = .{};
 
     cb.writeAll("a salad; ");
@@ -150,7 +150,7 @@ test "writeMatch overlap" {
     try testing.expectEqualStrings("a b c b c b c d", cb.read());
 }
 
-test "readAtMost" {
+test readAtMost {
     var cb: Self = .{};
 
     cb.writeAll("0123456789");
@@ -165,7 +165,7 @@ test "readAtMost" {
     try testing.expectEqualStrings("", cb.read());
 }
 
-test "CircularBuffer" {
+test Self {
     var cb: Self = .{};
 
     const data = "0123456789abcdef" ** (1024 / 16);

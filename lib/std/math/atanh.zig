@@ -84,12 +84,12 @@ fn atanh_64(x: f64) f64 {
     return if (s != 0) -y else y;
 }
 
-test "atanh" {
+test atanh {
     try expect(atanh(@as(f32, 0.0)) == atanh_32(0.0));
     try expect(atanh(@as(f64, 0.0)) == atanh_64(0.0));
 }
 
-test "atanh_32" {
+test atanh_32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, atanh_32(0.0), 0.0, epsilon));
@@ -97,7 +97,7 @@ test "atanh_32" {
     try expect(math.approxEqAbs(f32, atanh_32(0.8923), 1.433099, epsilon));
 }
 
-test "atanh_64" {
+test atanh_64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, atanh_64(0.0), 0.0, epsilon));

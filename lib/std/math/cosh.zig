@@ -86,12 +86,12 @@ fn cosh64(x: f64) f64 {
     return expo2(ax);
 }
 
-test "cosh" {
+test cosh {
     try expect(cosh(@as(f32, 1.5)) == cosh32(1.5));
     try expect(cosh(@as(f64, 1.5)) == cosh64(1.5));
 }
 
-test "cosh32" {
+test cosh32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, cosh32(0.0), 1.0, epsilon));
@@ -104,7 +104,7 @@ test "cosh32" {
     try expect(math.approxEqAbs(f32, cosh32(-1.5), 2.352410, epsilon));
 }
 
-test "cosh64" {
+test cosh64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, cosh64(0.0), 1.0, epsilon));

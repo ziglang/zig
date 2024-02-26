@@ -80,12 +80,12 @@ fn asinh64(x: f64) f64 {
     return if (s != 0) -rx else rx;
 }
 
-test "asinh" {
+test asinh {
     try expect(asinh(@as(f32, 0.0)) == asinh32(0.0));
     try expect(asinh(@as(f64, 0.0)) == asinh64(0.0));
 }
 
-test "asinh32" {
+test asinh32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, asinh32(0.0), 0.0, epsilon));
@@ -98,7 +98,7 @@ test "asinh32" {
     try expect(math.approxEqAbs(f32, asinh32(123123.234375), 12.414088, epsilon));
 }
 
-test "asinh64" {
+test asinh64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, asinh64(0.0), 0.0, epsilon));

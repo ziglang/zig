@@ -1437,7 +1437,7 @@ fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
     event.set();
 }
 
-test "join" {
+test join {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
@@ -1449,7 +1449,7 @@ test "join" {
     try std.testing.expectEqual(value, 1);
 }
 
-test "detach" {
+test detach {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;

@@ -91,12 +91,12 @@ fn sinh64(x: f64) f64 {
     return 2 * h * expo2(ax);
 }
 
-test "sinh" {
+test sinh {
     try expect(sinh(@as(f32, 1.5)) == sinh32(1.5));
     try expect(sinh(@as(f64, 1.5)) == sinh64(1.5));
 }
 
-test "sinh32" {
+test sinh32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, sinh32(0.0), 0.0, epsilon));
@@ -109,7 +109,7 @@ test "sinh32" {
     try expect(math.approxEqAbs(f32, sinh32(-1.5), -2.129279, epsilon));
 }
 
-test "sinh64" {
+test sinh64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, sinh64(0.0), 0.0, epsilon));

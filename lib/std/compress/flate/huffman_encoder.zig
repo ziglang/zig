@@ -458,7 +458,7 @@ fn bitReverse(comptime T: type, value: T, n: usize) T {
     return r >> @as(math.Log2Int(T), @intCast(@typeInfo(T).Int.bits - n));
 }
 
-test "bitReverse" {
+test bitReverse {
     const ReverseBitsTest = struct {
         in: u16,
         bit_count: u5,

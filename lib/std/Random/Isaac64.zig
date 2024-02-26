@@ -201,7 +201,7 @@ test "sequence" {
     }
 }
 
-test "fill" {
+test fill {
     var r = Isaac64.init(0);
 
     // from reference implementation

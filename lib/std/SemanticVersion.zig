@@ -166,7 +166,7 @@ pub fn format(
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 
-test "format" {
+test format {
     // Many of these test strings are from https://github.com/semver/semver.org/issues/59#issuecomment-390854010.
 
     // Valid version strings should be accepted.

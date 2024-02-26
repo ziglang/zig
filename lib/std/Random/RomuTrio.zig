@@ -94,7 +94,7 @@ test "sequence" {
     }
 }
 
-test "fill" {
+test fill {
     // Unfortunately there does not seem to be an official test sequence.
     var r = RomuTrio.init(0);
 

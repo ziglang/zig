@@ -493,7 +493,7 @@ fn extractLowBits(a: Int, comptime T: type) T {
     }
 }
 
-test "extractLowBits" {
+test extractLowBits {
     var a = try Int.initSet(testing.allocator, 0x11112222333344441234567887654321);
     defer a.deinit();
 

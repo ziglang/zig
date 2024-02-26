@@ -119,12 +119,12 @@ fn cbrt64(x: f64) f64 {
     return t + t * q;
 }
 
-test "cbrt" {
+test cbrt {
     try expect(cbrt(@as(f32, 0.0)) == cbrt32(0.0));
     try expect(cbrt(@as(f64, 0.0)) == cbrt64(0.0));
 }
 
-test "cbrt32" {
+test cbrt32 {
     const epsilon = 0.000001;
 
     try expect(math.isPositiveZero(cbrt32(0.0)));
@@ -135,7 +135,7 @@ test "cbrt32" {
     try expect(math.approxEqAbs(f32, cbrt32(123123.234375), 49.748501, epsilon));
 }
 
-test "cbrt64" {
+test cbrt64 {
     const epsilon = 0.000001;
 
     try expect(math.isPositiveZero(cbrt64(0.0)));

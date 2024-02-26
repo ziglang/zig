@@ -182,12 +182,12 @@ fn log1p_64(x: f64) f64 {
     return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
 
-test "log1p" {
+test log1p {
     try expect(log1p(@as(f32, 0.0)) == log1p_32(0.0));
     try expect(log1p(@as(f64, 0.0)) == log1p_64(0.0));
 }
 
-test "log1p_32" {
+test log1p_32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, log1p_32(0.0), 0.0, epsilon));
@@ -199,7 +199,7 @@ test "log1p_32" {
     try expect(math.approxEqAbs(f32, log1p_32(123123.234375), 11.720949, epsilon));
 }
 
-test "log1p_64" {
+test log1p_64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, log1p_64(0.0), 0.0, epsilon));

@@ -59,12 +59,12 @@ fn acosh64(x: f64) f64 {
     }
 }
 
-test "acosh" {
+test acosh {
     try expect(acosh(@as(f32, 1.5)) == acosh32(1.5));
     try expect(acosh(@as(f64, 1.5)) == acosh64(1.5));
 }
 
-test "acosh32" {
+test acosh32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, acosh32(1.5), 0.962424, epsilon));
@@ -73,7 +73,7 @@ test "acosh32" {
     try expect(math.approxEqAbs(f32, acosh32(123123.234375), 12.414088, epsilon));
 }
 
-test "acosh64" {
+test acosh64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, acosh64(1.5), 0.962424, epsilon));

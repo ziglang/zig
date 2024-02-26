@@ -141,12 +141,12 @@ fn asin64(x: f64) f64 {
     }
 }
 
-test "asin" {
+test asin {
     try expect(asin(@as(f32, 0.0)) == asin32(0.0));
     try expect(asin(@as(f64, 0.0)) == asin64(0.0));
 }
 
-test "asin32" {
+test asin32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, asin32(0.0), 0.0, epsilon));
@@ -157,7 +157,7 @@ test "asin32" {
     try expect(math.approxEqAbs(f32, asin32(0.8923), 1.102415, epsilon));
 }
 
-test "asin64" {
+test asin64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, asin64(0.0), 0.0, epsilon));

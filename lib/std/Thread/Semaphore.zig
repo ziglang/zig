@@ -71,7 +71,7 @@ pub fn post(sem: *Semaphore) void {
     sem.cond.signal();
 }
 
-test "Semaphore" {
+test Semaphore {
     if (builtin.single_threaded) {
         return error.SkipZigTest;
     }
@@ -97,7 +97,7 @@ test "Semaphore" {
     try testing.expect(n == num_threads);
 }
 
-test "timedWait" {
+test timedWait {
     var sem = Semaphore{};
     try testing.expectEqual(0, sem.permits);
 

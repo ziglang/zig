@@ -362,7 +362,7 @@ test "wait and signal" {
     }
 }
 
-test "signal" {
+test signal {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -491,7 +491,7 @@ test "multi signal" {
     }
 }
 
-test "broadcasting" {
+test broadcast {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;

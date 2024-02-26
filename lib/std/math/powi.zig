@@ -91,7 +91,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
     return acc;
 }
 
-test "powi" {
+test powi {
     try testing.expectError(error.Overflow, powi(i8, -66, 6));
     try testing.expectError(error.Overflow, powi(i16, -13, 13));
     try testing.expectError(error.Overflow, powi(i32, -32, 21));

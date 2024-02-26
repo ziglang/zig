@@ -212,12 +212,12 @@ fn atan64(x_: f64) f64 {
     }
 }
 
-test "atan" {
+test atan {
     try expect(@as(u32, @bitCast(atan(@as(f32, 0.2)))) == @as(u32, @bitCast(atan32(0.2))));
     try expect(atan(@as(f64, 0.2)) == atan64(0.2));
 }
 
-test "atan32" {
+test atan32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, atan32(0.2), 0.197396, epsilon));
@@ -227,7 +227,7 @@ test "atan32" {
     try expect(math.approxEqAbs(f32, atan32(1.5), 0.982794, epsilon));
 }
 
-test "atan64" {
+test atan64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, atan64(0.2), 0.197396, epsilon));

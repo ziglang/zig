@@ -122,7 +122,7 @@ test "sequence" {
     }
 }
 
-test "fill" {
+test fill {
     var r = Xoroshiro128.init(0);
     r.s[0] = 0xaeecf86f7878dd75;
     r.s[1] = 0x01cd153642e72622;

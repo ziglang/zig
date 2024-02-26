@@ -123,14 +123,14 @@ fn modf64(x: f64) modf64_result {
     return result;
 }
 
-test "modf" {
+test modf {
     const a = modf(@as(f32, 1.0));
     const b = modf32(1.0);
     // NOTE: No struct comparison on generic return type function? non-named, makes sense, but still.
     try expectEqual(a, b);
 }
 
-test "modf32" {
+test modf32 {
     const epsilon = 0.000001;
     var r: modf32_result = undefined;
 
@@ -155,7 +155,7 @@ test "modf32" {
     try expect(math.approxEqAbs(f32, r.fpart, 0.340820, epsilon));
 }
 
-test "modf64" {
+test modf64 {
     const epsilon = 0.000001;
     var r: modf64_result = undefined;
 

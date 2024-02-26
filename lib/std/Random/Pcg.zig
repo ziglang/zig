@@ -92,7 +92,7 @@ test "sequence" {
     }
 }
 
-test "fill" {
+test fill {
     var r = Pcg.init(0);
     const s0: u64 = 0x9394bf54ce5d79de;
     const s1: u64 = 0x84e9c579ef59bbf7;

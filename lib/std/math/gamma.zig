@@ -240,7 +240,7 @@ const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectApproxEqRel = std.testing.expectApproxEqRel;
 
-test "gamma" {
+test gamma {
     inline for (&.{ f32, f64 }) |T| {
         const eps = @sqrt(std.math.floatEps(T));
         try expectApproxEqRel(@as(T, 120), gamma(T, 6), eps);
@@ -286,7 +286,7 @@ test "gamma.special" {
     }
 }
 
-test "lgamma" {
+test lgamma {
     inline for (&.{ f32, f64 }) |T| {
         const eps = @sqrt(std.math.floatEps(T));
         try expectApproxEqRel(@as(T, @log(24.0)), lgamma(T, 5), eps);

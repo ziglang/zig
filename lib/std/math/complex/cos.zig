@@ -13,7 +13,7 @@ pub fn cos(z: anytype) Complex(@TypeOf(z.re, z.im)) {
 
 const epsilon = 0.0001;
 
-test "cos" {
+test cos {
     const a = Complex(f32).init(5, 3);
     const c = cos(a);
 
