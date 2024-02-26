@@ -14,6 +14,7 @@ pub const Dependency = struct {
     node: Ast.Node.Index,
     name_tok: Ast.TokenIndex,
     lazy: bool,
+    tar_strip_components: u32 = 1,
 
     pub const Location = union(enum) {
         url: []const u8,
@@ -307,6 +308,7 @@ const Parse = struct {
             .node = node,
             .name_tok = 0,
             .lazy = false,
+            .tar_strip_components = 1,
         };
         var has_location = false;
 
@@ -349,6 +351,11 @@ const Parse = struct {
                 dep.hash_tok = main_tokens[field_init];
             } else if (mem.eql(u8, field_name, "lazy")) {
                 dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
+                    error.ParseFailure => continue,
+                    else => |e| return e,
+                };
+            } else if (mem.eql(u8, field_name, "tar_strip_components")) {
+                dep.tar_strip_components = parseInt(u32, p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
@@ -400,6 +407,22 @@ const Parse = struct {
         } else {
             return fail(p, ident_token, "expected boolean", .{});
         }
+    }
+
+    fn parseInt(comptime T: type, p: *Parse, node: Ast.Node.Index) !T {
+        const ast = p.ast;
+        const node_tags = ast.nodes.items(.tag);
+        const main_tokens = ast.nodes.items(.main_token);
+        if (node_tags[node] != .number_literal) {
+            return fail(p, main_tokens[node], "expected identifier", .{});
+        }
+        const ident_token = main_tokens[node];
+        const token_bytes = ast.tokenSlice(ident_token);
+
+        const value: T = std.fmt.parseInt(T, token_bytes, 10) catch {
+            return fail(p, ident_token, "expected integer", .{});
+        };
+        return value;
     }
 
     fn parseString(p: *Parse, node: Ast.Node.Index) ![]const u8 {
@@ -702,4 +725,44 @@ test "minimum_zig_version - invalid version" {
     try testing.expect(manifest.dependencies.count() == 0);
 
     try testing.expect(manifest.minimum_zig_version == null);
+}
+
+test "tar_strip_components" {
+    const gpa = testing.allocator;
+
+    const example =
+        \\.{
+        \\    .name = "foo",
+        \\    .version = "3.2.1",
+        \\    .dependencies = .{
+        \\        .bar = .{
+        \\            .url = "https://example.com/baz.tar.gz",
+        \\            .tar_strip_components = 123,
+        \\        },
+        \\    },
+        \\    .paths = .{""},
+        \\}
+    ;
+
+    var ast = try Ast.parse(gpa, example, .zon);
+    defer ast.deinit(gpa);
+
+    try testing.expect(ast.errors.len == 0);
+
+    var manifest = try Manifest.parse(gpa, ast, .{});
+    defer manifest.deinit(gpa);
+
+    try testing.expect(manifest.errors.len == 0);
+    try testing.expectEqualStrings("foo", manifest.name);
+
+    try testing.expect(manifest.dependencies.count() == 1);
+    try testing.expectEqualStrings("bar", manifest.dependencies.keys()[0]);
+    try testing.expectEqualStrings(
+        "https://example.com/baz.tar.gz",
+        manifest.dependencies.values()[0].location.url,
+    );
+    try testing.expectEqual(
+        123,
+        manifest.dependencies.values()[0].tar_strip_components,
+    );
 }

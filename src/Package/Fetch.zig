@@ -44,6 +44,7 @@ omit_missing_hash_error: bool,
 /// which specifies inclusion rules. This is intended to be true for the first
 /// fetch task and false for the recursive dependencies.
 allow_missing_paths_field: bool,
+tar_strip_components: u32 = 1,
 
 // Above this are fields provided as inputs to `run`.
 // Below this are fields populated by `run`.
@@ -674,6 +675,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
             prog_names[new_fetch_index] = dep_name;
             new_fetch_index += 1;
             f.job_queue.all_fetches.appendAssumeCapacity(new_fetch);
+
             new_fetch.* = .{
                 .arena = std.heap.ArenaAllocator.init(gpa),
                 .location = location,
@@ -687,6 +689,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .job_queue = f.job_queue,
                 .omit_missing_hash_error = false,
                 .allow_missing_paths_field = true,
+                .tar_strip_components = dep.tar_strip_components,
 
                 .package_root = undefined,
                 .error_bundle = undefined,
@@ -1152,7 +1155,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
 
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
-        .strip_components = 1,
+        .strip_components = f.tar_strip_components,
         // TODO: we would like to set this to executable_bit_only, but two
         // things need to happen before that:
         // 1. the tar implementation needs to support it
