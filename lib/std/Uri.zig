@@ -367,7 +367,7 @@ pub const ResolveInplaceError = ParseError || error{OutOfMemory};
 /// If a merge needs to take place, the newly constructed path will be stored
 /// in `aux_buf` just after the copied `new`.
 pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: []u8) ResolveInplaceError!Uri {
-    std.mem.copyBackwards(u8, aux_buf, new);
+    std.mem.copyForwards(u8, aux_buf, new);
     // At this point, new is an invalid pointer.
     const new_mut = aux_buf[0..new.len];
 

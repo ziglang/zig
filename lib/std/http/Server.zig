@@ -25,7 +25,7 @@ pub const State = enum {
     /// The client is uploading something to this Server.
     receiving_body,
     /// The connection is eligible for another HTTP request, however the client
-    /// and server did not negotiate connection: keep-alive.
+    /// and server did not negotiate a persistent connection.
     closing,
 };
 
@@ -197,7 +197,10 @@ pub const Request = struct {
                 .content_length = null,
                 .transfer_encoding = .none,
                 .transfer_compression = .identity,
-                .keep_alive = false,
+                .keep_alive = switch (version) {
+                    .@"HTTP/1.0" => false,
+                    .@"HTTP/1.1" => true,
+                },
                 .compression = .none,
             };
 
@@ -330,7 +333,7 @@ pub const Request = struct {
             // reader() and hence discardBody() above sets expect to null if it
             // is handled. So the fact that it is not null here means unhandled.
             h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
-            if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n");
+            if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
             h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
             try request.server.connection.stream.writeAll(h.items);
             return;
@@ -339,7 +342,10 @@ pub const Request = struct {
             @tagName(options.version), @intFromEnum(options.status), phrase,
         }) catch unreachable;
 
-        if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n");
+        switch (options.version) {
+            .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
+            .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
+        }
 
         if (options.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
             .none => {},
@@ -480,14 +486,18 @@ pub const Request = struct {
             // reader() and hence discardBody() above sets expect to null if it
             // is handled. So the fact that it is not null here means unhandled.
             h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
-            if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n");
+            if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
             h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
             break :eb true;
         } else eb: {
             h.fixedWriter().print("{s} {d} {s}\r\n", .{
                 @tagName(o.version), @intFromEnum(o.status), phrase,
             }) catch unreachable;
-            if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n");
+
+            switch (o.version) {
+                .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
+                .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
+            }
 
             if (o.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
                 .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
@@ -694,7 +704,7 @@ pub const Request = struct {
         }
     }
 
-    /// Returns whether the connection: keep-alive header should be sent to the client.
+    /// Returns whether the connection should remain persistent.
     /// If it would fail, it instead sets the Server state to `receiving_body`
     /// and returns false.
     fn discardBody(request: *Request, keep_alive: bool) bool {
