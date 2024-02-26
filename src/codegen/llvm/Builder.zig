@@ -3797,6 +3797,7 @@ pub const Function = struct {
     instructions: std.MultiArrayList(Instruction) = .{},
     names: [*]const String = &[0]String{},
     value_indices: [*]const u32 = &[0]u32{},
+    strip: bool,
     debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .{},
     debug_values: []const Instruction.Index = &.{},
     extra: []const u32 = &.{},
@@ -4890,6 +4891,7 @@ pub const WipFunction = struct {
     blocks: std.ArrayListUnmanaged(Block),
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayListUnmanaged(String),
+    strip: bool,
     debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, DebugLocation),
     debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
     extra: std.ArrayListUnmanaged(u32),
@@ -4922,31 +4924,35 @@ pub const WipFunction = struct {
 
     pub const Instruction = Function.Instruction;
 
-    pub fn init(builder: *Builder, function: Function.Index) Allocator.Error!WipFunction {
+    pub fn init(builder: *Builder, options: struct {
+        function: Function.Index,
+        strip: bool,
+    }) Allocator.Error!WipFunction {
         var self: WipFunction = .{
             .builder = builder,
-            .function = function,
+            .function = options.function,
             .prev_debug_location = .no_location,
             .debug_location = .no_location,
             .cursor = undefined,
             .blocks = .{},
             .instructions = .{},
             .names = .{},
+            .strip = options.strip,
             .debug_locations = .{},
             .debug_values = .{},
             .extra = .{},
         };
         errdefer self.deinit();
 
-        const params_len = function.typeOf(self.builder).functionParameters(self.builder).len;
+        const params_len = options.function.typeOf(self.builder).functionParameters(self.builder).len;
         try self.ensureUnusedExtraCapacity(params_len, NoExtra, 0);
         try self.instructions.ensureUnusedCapacity(self.builder.gpa, params_len);
-        if (!self.builder.strip) {
+        if (!self.strip) {
             try self.names.ensureUnusedCapacity(self.builder.gpa, params_len);
         }
         for (0..params_len) |param_index| {
             self.instructions.appendAssumeCapacity(.{ .tag = .arg, .data = @intCast(param_index) });
-            if (!self.builder.strip) {
+            if (!self.strip) {
                 self.names.appendAssumeCapacity(.empty); // TODO: param names
             }
         }
@@ -4967,7 +4973,7 @@ pub const WipFunction = struct {
         try self.blocks.ensureUnusedCapacity(self.builder.gpa, 1);
 
         const index: Block.Index = @enumFromInt(self.blocks.items.len);
-        const final_name = if (self.builder.strip) .empty else try self.builder.string(name);
+        const final_name = if (self.strip) .empty else try self.builder.string(name);
         self.blocks.appendAssumeCapacity(.{
             .name = final_name,
             .incoming = incoming,
@@ -5828,7 +5834,7 @@ pub const WipFunction = struct {
     }
 
     pub fn debugValue(self: *WipFunction, value: Value) Allocator.Error!Metadata {
-        if (self.builder.strip) return .none;
+        if (self.strip) return .none;
         return switch (value.unwrap()) {
             .instruction => |instr_index| blk: {
                 const gop = try self.debug_values.getOrPut(self.builder.gpa, instr_index);
@@ -6015,7 +6021,7 @@ pub const WipFunction = struct {
             value_index += 1;
             function.instructions.appendAssumeCapacity(argument);
             names[@intFromEnum(new_argument_index)] = try wip_name.map(
-                if (self.builder.strip) .empty else self.names.items[@intFromEnum(old_argument_index)],
+                if (self.strip) .empty else self.names.items[@intFromEnum(old_argument_index)],
                 ".",
             );
             if (self.debug_locations.get(old_argument_index)) |location| {
@@ -6333,7 +6339,7 @@ pub const WipFunction = struct {
                     },
                 }
                 function.instructions.appendAssumeCapacity(instruction);
-                names[@intFromEnum(new_instruction_index)] = try wip_name.map(if (self.builder.strip)
+                names[@intFromEnum(new_instruction_index)] = try wip_name.map(if (self.strip)
                     if (old_instruction_index.hasResultWip(self)) .empty else .none
                 else
                     self.names.items[@intFromEnum(old_instruction_index)], ".");
@@ -6356,6 +6362,7 @@ pub const WipFunction = struct {
         function.blocks = blocks;
         function.names = names.ptr;
         function.value_indices = value_indices.ptr;
+        function.strip = self.strip;
         function.debug_locations = debug_locations;
         function.debug_values = debug_values;
     }
@@ -6503,19 +6510,19 @@ pub const WipFunction = struct {
     ) Allocator.Error!Instruction.Index {
         const block_instructions = &self.cursor.block.ptr(self).instructions;
         try self.instructions.ensureUnusedCapacity(self.builder.gpa, 1);
-        if (!self.builder.strip) {
+        if (!self.strip) {
             try self.names.ensureUnusedCapacity(self.builder.gpa, 1);
             try self.debug_locations.ensureUnusedCapacity(self.builder.gpa, 1);
         }
         try block_instructions.ensureUnusedCapacity(self.builder.gpa, 1);
         const final_name = if (name) |n|
-            if (self.builder.strip) .empty else try self.builder.string(n)
+            if (self.strip) .empty else try self.builder.string(n)
         else
             .none;
 
         const index: Instruction.Index = @enumFromInt(self.instructions.len);
         self.instructions.appendAssumeCapacity(instruction);
-        if (!self.builder.strip) {
+        if (!self.strip) {
             self.names.appendAssumeCapacity(final_name);
             if (block_instructions.items.len == 0 or
                 !std.meta.eql(self.debug_location, self.prev_debug_location))
@@ -8389,6 +8396,50 @@ pub fn init(options: Options) Allocator.Error!Builder {
     return self;
 }
 
+pub fn clearAndFree(self: *Builder) void {
+    self.module_asm.clearAndFree(self.gpa);
+
+    self.string_map.clearAndFree(self.gpa);
+    self.string_indices.clearAndFree(self.gpa);
+    self.string_bytes.clearAndFree(self.gpa);
+
+    self.types.clearAndFree(self.gpa);
+    self.next_unique_type_id.clearAndFree(self.gpa);
+    self.type_map.clearAndFree(self.gpa);
+    self.type_items.clearAndFree(self.gpa);
+    self.type_extra.clearAndFree(self.gpa);
+
+    self.attributes.clearAndFree(self.gpa);
+    self.attributes_map.clearAndFree(self.gpa);
+    self.attributes_indices.clearAndFree(self.gpa);
+    self.attributes_extra.clearAndFree(self.gpa);
+
+    self.function_attributes_set.clearAndFree(self.gpa);
+
+    self.globals.clearAndFree(self.gpa);
+    self.next_unique_global_id.clearAndFree(self.gpa);
+    self.aliases.clearAndFree(self.gpa);
+    self.variables.clearAndFree(self.gpa);
+    for (self.functions.items) |*function| function.deinit(self.gpa);
+    self.functions.clearAndFree(self.gpa);
+
+    self.constant_map.clearAndFree(self.gpa);
+    self.constant_items.shrinkAndFree(self.gpa, 0);
+    self.constant_extra.clearAndFree(self.gpa);
+    self.constant_limbs.clearAndFree(self.gpa);
+
+    self.metadata_map.clearAndFree(self.gpa);
+    self.metadata_items.shrinkAndFree(self.gpa, 0);
+    self.metadata_extra.clearAndFree(self.gpa);
+    self.metadata_limbs.clearAndFree(self.gpa);
+    self.metadata_forward_references.clearAndFree(self.gpa);
+    self.metadata_named.clearAndFree(self.gpa);
+
+    self.metadata_string_map.clearAndFree(self.gpa);
+    self.metadata_string_indices.clearAndFree(self.gpa);
+    self.metadata_string_bytes.clearAndFree(self.gpa);
+}
+
 pub fn deinit(self: *Builder) void {
     self.module_asm.deinit(self.gpa);
 
@@ -8723,11 +8774,14 @@ pub fn addFunctionAssumeCapacity(
 ) Function.Index {
     assert(ty.isFunction(self));
     const function_index: Function.Index = @enumFromInt(self.functions.items.len);
-    self.functions.appendAssumeCapacity(.{ .global = self.addGlobalAssumeCapacity(name, .{
-        .addr_space = addr_space,
-        .type = ty,
-        .kind = .{ .function = function_index },
-    }) });
+    self.functions.appendAssumeCapacity(.{
+        .global = self.addGlobalAssumeCapacity(name, .{
+            .addr_space = addr_space,
+            .type = ty,
+            .kind = .{ .function = function_index },
+        }),
+        .strip = undefined,
+    });
     return function_index;
 }
 
@@ -14396,16 +14450,17 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     return @intCast(switch (value.unwrap()) {
                         .instruction => |instruction| instruction.valueIndex(adapter.func) + adapter.firstInstr(),
                         .constant => |constant| adapter.constant_adapter.getConstantIndex(constant),
-                        .metadata => |metadata| if (!adapter.metadata_adapter.builder.strip) blk: {
+                        .metadata => |metadata| {
+                            assert(!adapter.func.strip);
                             const real_metadata = metadata.unwrap(adapter.metadata_adapter.builder);
                             if (@intFromEnum(real_metadata) < Metadata.first_local_metadata)
-                                break :blk adapter.metadata_adapter.getMetadataIndex(real_metadata) - 1;
+                                return adapter.metadata_adapter.getMetadataIndex(real_metadata) - 1;
 
                             return @intCast(@intFromEnum(metadata) -
                                 Metadata.first_local_metadata +
                                 adapter.metadata_adapter.builder.metadata_string_map.count() - 1 +
                                 adapter.metadata_adapter.builder.metadata_map.count() - 1);
-                        } else unreachable,
+                        },
                     });
                 }
 
@@ -14452,7 +14507,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 var adapter = FunctionAdapter.init(constant_adapter, metadata_adapter, &func);
 
                 // Emit function level metadata block
-                if (!self.strip and func.debug_values.len != 0) {
+                if (!func.strip and func.debug_values.len > 0) {
                     const MetadataBlock = ir.FunctionMetadataBlock;
                     var metadata_block = try function_block.enterSubBlock(MetadataBlock);
 
@@ -14913,7 +14968,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         },
                     }
 
-                    if (!self.strip) {
+                    if (!func.strip) {
                         if (func.debug_locations.get(@enumFromInt(instr_index))) |debug_location| {
                             switch (debug_location) {
                                 .no_location => has_location = false,
@@ -14937,7 +14992,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 }
 
                 // VALUE_SYMTAB
-                if (!self.strip) {
+                if (!func.strip) {
                     const ValueSymbolTable = ir.FunctionValueSymbolTable;
 
                     var value_symtab_block = try function_block.enterSubBlock(ValueSymbolTable);
@@ -14959,7 +15014,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 }
 
                 // METADATA_ATTACHMENT_BLOCK
-                if (!self.strip) blk: {
+                if (!func.strip) blk: {
                     const dbg = func.global.ptrConst(self).dbg;
 
                     if (dbg == .none) break :blk;
