@@ -90,28 +90,36 @@ fn mainServer() !void {
                 var fail = false;
                 var skip = false;
                 var leak = false;
-                test_fn.func() catch |err| switch (err) {
+                var err_name: []const u8 = "";
+
+                test_fn.func() catch |e| switch (e) {
                     error.SkipZigTest => skip = true,
                     else => {
                         fail = true;
+                        err_name = @errorName(e);
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace.*);
                         }
                     },
                 };
+
                 leak = std.testing.allocator_instance.deinit() == .leak;
-                try server.serveTestResults(.{
-                    .index = index,
-                    .flags = .{
-                        .fail = fail,
-                        .skip = skip,
-                        .leak = leak,
-                        .log_err_count = std.math.lossyCast(std.meta.FieldType(
-                            std.zig.Server.Message.TestResults.Flags,
-                            .log_err_count,
-                        ), log_err_count),
+                try server.serveTestResults(
+                    err_name,
+                    .{
+                        .index = index,
+                        .flags = .{
+                            .fail = fail,
+                            .skip = skip,
+                            .leak = leak,
+                            .log_err_count = std.math.lossyCast(std.meta.FieldType(
+                                std.zig.Server.Message.TestResults.Flags,
+                                .log_err_count,
+                            ), log_err_count),
+                        },
+                        .err_len = err_name.len,
                     },
-                });
+                );
             },
 
             else => {

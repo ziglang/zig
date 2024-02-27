@@ -1173,6 +1173,7 @@ fn evalZigTest(
                 const md = metadata.?;
 
                 const TrHdr = std.zig.Server.Message.TestResults;
+
                 const tr_hdr = @as(*align(1) const TrHdr, @ptrCast(body));
                 fail_count +|= @intFromBool(tr_hdr.flags.fail);
                 skip_count +|= @intFromBool(tr_hdr.flags.skip);
@@ -1181,20 +1182,32 @@ fn evalZigTest(
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
+                    const err = body[@sizeOf(TrHdr)..][0..tr_hdr.err_len];
                     const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
-                    const label = if (tr_hdr.flags.fail)
-                        "failed"
+
+                    const label = if (tr_hdr.flags.fail and tr_hdr.flags.leak)
+                        "leaked and failed"
                     else if (tr_hdr.flags.leak)
                         "leaked"
+                    else if (tr_hdr.flags.fail)
+                        "failed"
                     else if (tr_hdr.flags.log_err_count > 0)
                         "logged errors"
                     else
                         unreachable;
+
                     if (msg.len > 0) {
-                        try self.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
+                        if (err.len > 0)
+                            try self.step.addError("'{s}' {s} with error {s}:\n{s}", .{ name, label, err, msg })
+                        else
+                            try self.step.addError("'{s}' {s}:\n{s}", .{ name, label, msg });
                     } else {
-                        try self.step.addError("'{s}' {s}", .{ name, label });
+                        if (err.len > 0)
+                            try self.step.addError("'{s}' {s} with error {s}", .{ name, label, err })
+                        else
+                            try self.step.addError("'{s}' {s}", .{ name, label });
                     }
+
                     stderr.discard(msg.len);
                 }
 

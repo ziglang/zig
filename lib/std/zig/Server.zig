@@ -40,16 +40,20 @@ pub const Message = struct {
     ///   - null-terminated string_bytes index
     /// * expected_panic_msg: [tests_len]u32,
     ///   - null-terminated string_bytes index
-    ///   - 0 means does not expect pani
+    ///   - 0 means does not expect panic
     /// * string_bytes: [string_bytes_len]u8,
     pub const TestMetadata = extern struct {
         string_bytes_len: u32,
         tests_len: u32,
     };
 
+    /// Trailing:
+    /// * error_name: [err_len]u8
+    ///   - err_len == 0 means there was no error
     pub const TestResults = extern struct {
         index: u32,
         flags: Flags,
+        err_len: usize,
 
         pub const Flags = packed struct(u32) {
             fail: bool,
@@ -177,14 +181,19 @@ pub fn serveEmitBinPath(
 
 pub fn serveTestResults(
     s: *Server,
-    msg: OutMessage.TestResults,
+    error_name: []const u8,
+    results: OutMessage.TestResults,
 ) !void {
-    const msg_le = bswap(msg);
+    assert(results.err_len == error_name.len);
+    const result_le = bswap(results);
+    const bytes_len = @sizeOf(OutMessage.TestResults) + error_name.len;
+
     try s.serveMessage(.{
         .tag = .test_results,
-        .bytes_len = @as(u32, @intCast(@sizeOf(OutMessage.TestResults))),
+        .bytes_len = @intCast(bytes_len),
     }, &.{
-        std.mem.asBytes(&msg_le),
+        std.mem.asBytes(&result_le),
+        error_name,
     });
 }
 
