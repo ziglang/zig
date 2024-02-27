@@ -911,8 +911,4 @@ test {
     _ = primitives;
     _ = string_literal;
     _ = system;
-
-    // This is not standard library API; it is the standalone executable
-    // implementation of `zig fmt`.
-    _ = @import("zig/fmt.zig");
 }
