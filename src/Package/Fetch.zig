@@ -439,7 +439,8 @@ fn runResource(
     const s = fs.path.sep_str;
     const cache_root = f.job_queue.global_cache;
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int); // root of the temporary directory
+    var tmp_package_root_sub_path: ?[]const u8 = null; // package root inside temporary directory
 
     {
         const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
@@ -463,6 +464,34 @@ fn runResource(
 
         try unpackResource(f, resource, uri_path, tmp_directory);
 
+        // Strip leading root directory if needed.
+        if (findPackageRootSubPath(arena, tmp_directory) catch null) |sub_path| {
+            // Position tmp_directory to sub_path.
+            const handle = tmp_directory.handle.openDir(sub_path, .{ .iterate = true }) catch |err| {
+                try eb.addRootErrorMessage(.{
+                    .msg = try eb.printString("fail to open temporary directory '{s}' sub path '{s}': {s}", .{
+                        tmp_directory_path, sub_path, @errorName(err),
+                    }),
+                });
+                return error.FetchFailed;
+            };
+            tmp_package_root_sub_path = try fs.path.join(arena, &[_][]const u8{ tmp_dir_sub_path, sub_path });
+            tmp_directory.handle.close();
+            tmp_directory = .{
+                .path = try cache_root.join(arena, &.{tmp_package_root_sub_path.?}),
+                .handle = handle,
+            };
+        } else {
+            // btrfs workaround; reopen tmp_directory
+            if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
+                // https://github.com/ziglang/zig/issues/17095
+                tmp_directory.handle.close();
+                tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
+                    .iterate = true,
+                }) catch @panic("btrfs workaround failed");
+            }
+        }
+
         // Load, parse, and validate the unpacked build.zig.zon file. It is allowed
         // for the file to be missing, in which case this fetched package is
         // considered to be a "naked" package.
@@ -481,15 +510,6 @@ fn runResource(
 
         // Compute the package hash based on the remaining files in the temporary
         // directory.
-
-        if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
-            // https://github.com/ziglang/zig/issues/17095
-            tmp_directory.handle.close();
-            tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
-                .iterate = true,
-            }) catch @panic("btrfs workaround failed");
-        }
-
         f.actual_hash = try computeHash(f, tmp_directory, filter);
     }
 
@@ -503,7 +523,11 @@ fn runResource(
         .root_dir = cache_root,
         .sub_path = try arena.dupe(u8, "p" ++ s ++ Manifest.hexDigest(f.actual_hash)),
     };
-    renameTmpIntoCache(cache_root.handle, tmp_dir_sub_path, f.package_root.sub_path) catch |err| {
+    renameTmpIntoCache(
+        cache_root.handle,
+        if (tmp_package_root_sub_path) |p| p else tmp_dir_sub_path,
+        f.package_root.sub_path,
+    ) catch |err| {
         const src = try cache_root.join(arena, &.{tmp_dir_sub_path});
         const dest = try cache_root.join(arena, &.{f.package_root.sub_path});
         try eb.addRootErrorMessage(.{ .msg = try eb.printString(
@@ -512,6 +536,10 @@ fn runResource(
         ) });
         return error.FetchFailed;
     };
+    // Remove temporary directory root if that not already done in rename.
+    if (tmp_package_root_sub_path) |_| {
+        cache_root.handle.deleteTree(tmp_dir_sub_path) catch {};
+    }
 
     // Validate the computed hash against the expected hash. If invalid, this
     // job is done.
@@ -606,6 +634,19 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
         try manifest.copyErrorsIntoBundle(ast.*, src_path, eb);
         return error.FetchFailed;
     }
+}
+
+// Finds package root subpath.
+// Skips single root directory, returns null in all other cases.
+fn findPackageRootSubPath(allocator: Allocator, parent: Cache.Directory) !?[]const u8 {
+    var iter = parent.handle.iterate();
+    if (try iter.next()) |entry| {
+        if (try iter.next() != null) return null;
+        if (entry.kind == .directory) {
+            return try allocator.dupe(u8, entry.name);
+        }
+    }
+    return null;
 }
 
 fn queueJobsForDeps(f: *Fetch) RunError!void {
@@ -1699,4 +1740,38 @@ const native_os = builtin.os.tag;
 test {
     _ = Filter;
     _ = FileType;
+}
+
+test "findPackageRootSubPath" {
+    const testing = std.testing;
+
+    var root = std.testing.tmpDir(.{ .iterate = true });
+    defer root.cleanup();
+
+    // folder1
+    //     ├── folder2
+    //     ├── file1
+    //
+    try root.dir.makePath("folder1/folder2");
+    (try root.dir.createFile("folder1/file1", .{})).close();
+
+    // start at root returns folder1 as package root
+    const sub_path = (try findPackageRootSubPath(
+        testing.allocator,
+        Cache.Directory{ .path = null, .handle = root.dir },
+    )).?;
+    try testing.expectEqualStrings("folder1", sub_path);
+    testing.allocator.free(sub_path);
+
+    // start at folder1 returns null
+    try testing.expect(null == (try findPackageRootSubPath(
+        testing.allocator,
+        Cache.Directory{ .path = null, .handle = try root.dir.openDir("folder1", .{ .iterate = true }) },
+    )));
+
+    // start at folder1/folder2 returns null
+    try testing.expect(null == (try findPackageRootSubPath(
+        testing.allocator,
+        Cache.Directory{ .path = null, .handle = try root.dir.openDir("folder1/folder2", .{ .iterate = true }) },
+    )));
 }
