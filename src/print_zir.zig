@@ -510,10 +510,6 @@ const Writer = struct {
 
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try stream.writeAll(")"),
-
             .closure_get => try self.writeInstNode(stream, inst),
 
             .@"defer" => try self.writeDefer(stream, inst),

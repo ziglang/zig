@@ -319,8 +319,6 @@ const Writer = struct {
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
 
-            .dbg_block_begin, .dbg_block_end => {},
-
             .work_item_id,
             .work_group_size,
             .work_group_id,

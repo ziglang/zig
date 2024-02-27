@@ -1913,8 +1913,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // TODO
         .dbg_inline_begin,
         .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         => func.finishAir(inst, .none, &.{}),
 
         .dbg_var_ptr => func.airDbgVar(inst, true),
