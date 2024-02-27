@@ -5735,6 +5735,10 @@ fn jitCmd(
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
 
+    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
+        .Debug
+    else
+        .ReleaseFast;
     const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
 
@@ -5777,7 +5781,7 @@ fn jitCmd(
 
         const config = try Compilation.Config.resolve(.{
             .output_mode = .Exe,
-            .root_optimize_mode = .ReleaseFast,
+            .root_optimize_mode = optimize_mode,
             .resolved_target = resolved_target,
             .have_zcu = true,
             .emit_bin = true,
@@ -5791,7 +5795,7 @@ fn jitCmd(
             .cc_argv = &.{},
             .inherited = .{
                 .resolved_target = resolved_target,
-                .optimize_mode = .ReleaseFast,
+                .optimize_mode = optimize_mode,
             },
             .global = config,
             .parent = null,
