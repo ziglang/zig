@@ -514,44 +514,14 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
     return openFileAbsoluteZ(buf[0..self_exe_path.len :0].ptr, flags);
 }
 
-// This is `posix.ReadLinkError || posix.RealPathError` with impossible errors excluded
-pub const SelfExePathError = error{
-    FileNotFound,
-    AccessDenied,
-    NameTooLong,
-    NotSupported,
-    NotDir,
-    SymLinkLoop,
-    InputOutput,
-    FileTooBig,
-    IsDir,
-    ProcessFdQuotaExceeded,
-    SystemFdQuotaExceeded,
-    NoDevice,
-    SystemResources,
-    NoSpaceLeft,
-    FileSystem,
-    BadPathName,
-    DeviceBusy,
-    SharingViolation,
-    PipeBusy,
-    NotLink,
-    PathAlreadyExists,
-
-    /// On Windows, `\\server` or `\\server\share` was not found.
-    NetworkNotFound,
-
-    /// On Windows, antivirus software is enabled by default. It can be
-    /// disabled, but Windows Update sometimes ignores the user's preference
-    /// and re-enables it. When enabled, antivirus software on Windows
-    /// intercepts file system operations and makes them significantly slower
-    /// in addition to possibly failing with this error code.
-    AntivirusInterference,
-
-    /// On Windows, the volume does not contain a recognized file system. File
-    /// system drivers might not be loaded, or the volume may be corrupt.
-    UnrecognizedVolume,
-} || posix.SysCtlError;
+pub const SelfExePathError = std.error_set.ExcludingAssertAllContained(
+    posix.ReadLinkError || posix.RealPathError || posix.SysCtlError,
+    error{
+        UnsupportedReparsePointType, // Windows-only readlink error; readlink is not called in the Windows implementation
+        InvalidUtf8, // WASI-only error; selfExePath is not supported on WASI
+        InvalidWtf8, // selfExePath only converts from WTF-16 -> WTF-8 which cannot fail
+    },
+);
 
 /// `selfExePath` except allocates the result on the heap.
 /// Caller owns returned memory.
