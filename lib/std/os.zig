@@ -1573,9 +1573,6 @@ pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usiz
 }
 
 pub const OpenError = error{
-    /// In WASI, this error may occur when the provided file handle is invalid.
-    InvalidHandle,
-
     /// In WASI, this error may occur when the file descriptor does
     /// not hold the required rights to open a new resource relative to it.
     AccessDenied,
@@ -5543,9 +5540,6 @@ pub const RealPathError = error{
     SharingViolation,
     PipeBusy,
 
-    /// On WASI, the current CWD may not be associated with an absolute path.
-    InvalidHandle,
-
     /// Windows-only; file paths provided by the user must be valid WTF-8.
     /// https://simonsapin.github.io/wtf-8/
     InvalidWtf8,
@@ -5613,7 +5607,6 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[MAX_PATH_BYTES]u8) RealP
             error.FileLocksNotSupported => unreachable,
             error.WouldBlock => unreachable,
             error.FileBusy => unreachable, // not asking for write permissions
-            error.InvalidHandle => unreachable, // WASI-only
             error.InvalidUtf8 => unreachable, // WASI-only
             else => |e| return e,
         };
@@ -5797,7 +5790,7 @@ pub fn getFdPath(fd: fd_t, out_buffer: *[MAX_PATH_BYTES]u8) RealPathError![]u8 {
                     }
                     i += @as(usize, @intCast(kf.structsize));
                 }
-                return error.InvalidHandle;
+                return error.FileNotFound;
             }
         },
         .dragonfly => {

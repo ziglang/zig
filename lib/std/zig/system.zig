@@ -739,7 +739,6 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
 
         error.FileNotFound,
         error.NotDir,
-        error.InvalidHandle,
         error.AccessDenied,
         error.NoDevice,
         => return error.GLibCNotFound,
@@ -775,7 +774,6 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.PathAlreadyExists => unreachable, // read-only
         error.DeviceBusy => unreachable, // read-only
         error.FileBusy => unreachable, // read-only
-        error.InvalidHandle => unreachable, // should not be in the error set
         error.WouldBlock => unreachable, // not using O_NONBLOCK
         error.NoDevice => unreachable, // not asking for a special device
 
@@ -1012,7 +1010,6 @@ fn detectAbiAndDynamicLinker(
 
                 error.IsDir,
                 error.NotDir,
-                error.InvalidHandle,
                 error.AccessDenied,
                 error.NoDevice,
                 error.FileNotFound,

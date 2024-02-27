@@ -526,7 +526,6 @@ pub const SelfExePathError = error{
     PipeBusy,
     NotLink,
     PathAlreadyExists,
-    InvalidHandle,
 
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
