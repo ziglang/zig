@@ -6,7 +6,7 @@ const fatal = @import("./main.zig").fatal;
 const Ast = std.zig.Ast;
 const Walk = @import("reduce/Walk.zig");
 const AstGen = @import("AstGen.zig");
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 
 const usage =
     \\zig reduce [options] ./checker root_source_file.zig [-- [argv]]

@@ -6655,7 +6655,7 @@ fn cmdAstCheck(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     var color: Color = .auto;
     var want_output_text = false;
@@ -6817,7 +6817,7 @@ fn cmdDumpZir(
     args: []const []const u8,
 ) !void {
     _ = arena;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const cache_file = args[0];
 
@@ -6877,7 +6877,7 @@ fn cmdChangelist(
     args: []const []const u8,
 ) !void {
     const color: Color = .auto;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const old_source_file = args[0];
     const new_source_file = args[1];

@@ -12,6 +12,7 @@ pub const string_literal = @import("zig/string_literal.zig");
 pub const number_literal = @import("zig/number_literal.zig");
 pub const primitives = @import("zig/primitives.zig");
 pub const Ast = @import("zig/Ast.zig");
+pub const Zir = @import("zig/Zir.zig");
 pub const system = @import("zig/system.zig");
 /// Deprecated: use `std.Target.Query`.
 pub const CrossTarget = std.Target.Query;

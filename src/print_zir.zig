@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const InternPool = @import("InternPool.zig");
 
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Module = @import("Module.zig");
 const LazySrcLoc = std.zig.LazySrcLoc;
 

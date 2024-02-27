@@ -338,7 +338,7 @@ const Hash = std.hash.Wyhash;
 const InternPool = @This();
 const Module = @import("Module.zig");
 const Zcu = Module;
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 
 const KeyAdapter = struct {
     intern_pool: *const InternPool,

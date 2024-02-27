@@ -10,7 +10,6 @@ const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
 const LazySrcLoc = std.zig.LazySrcLoc;
 const Air = @import("../Air.zig");
-const Zir = @import("../Zir.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
 
