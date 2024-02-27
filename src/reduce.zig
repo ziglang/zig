@@ -182,9 +182,11 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             rendered.clearRetainingCapacity();
             try tree.renderToArrayList(&rendered, fixups);
 
-            // The transformations we applied may have resulted in unused locals,
+            // The transformations we applied may have resulted in unused locals and similar artifacts,
             // in which case we would like to add the respective discards.
-            {
+            var found_uncorrected_errors = false;
+            var validation_run = false;
+            while (true) {
                 try astgen_input.resize(rendered.items.len);
                 @memcpy(astgen_input.items, rendered.items);
                 try astgen_input.append(0);
@@ -192,41 +194,74 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 var astgen_tree = try Ast.parse(gpa, source_with_null, .zig);
                 defer astgen_tree.deinit(gpa);
                 if (astgen_tree.errors.len != 0) {
+                    std.fs.cwd().writeFile(root_source_file_path, source_with_null) catch
+                        std.debug.print("failed to write source file prior panic\n", .{});
                     @panic("syntax errors occurred");
                 }
                 var zir = try AstGen.generate(gpa, astgen_tree);
                 defer zir.deinit(gpa);
 
-                if (zir.hasCompileErrors()) {
-                    more_fixups.clearRetainingCapacity();
-                    const payload_index = zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
-                    assert(payload_index != 0);
-                    const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
-                    var extra_index = header.end;
-                    for (0..header.data.items_len) |_| {
-                        const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
-                        extra_index = item.end;
-                        const msg = zir.nullTerminatedString(item.data.msg);
-                        if (mem.eql(u8, msg, "unused local constant") or
-                            mem.eql(u8, msg, "unused local variable") or
-                            mem.eql(u8, msg, "unused function parameter") or
-                            mem.eql(u8, msg, "unused capture"))
-                        {
-                            const ident_token = item.data.token;
-                            try more_fixups.unused_var_decls.put(gpa, ident_token, {});
-                        } else {
-                            std.debug.print("found other ZIR error: '{s}'\n", .{msg});
-                        }
-                    }
-                    if (more_fixups.count() != 0) {
-                        rendered.clearRetainingCapacity();
-                        try astgen_tree.renderToArrayList(&rendered, more_fixups);
+                if (!zir.hasCompileErrors())
+                    break;
+
+                more_fixups.clearRetainingCapacity();
+                const payload_index = zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
+                assert(payload_index != 0);
+                const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
+                var extra_index = header.end;
+                for (0..header.data.items_len) |_| {
+                    const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+                    extra_index = item.end;
+                    const msg = zir.nullTerminatedString(item.data.msg);
+                    if (mem.eql(u8, msg, "unused local constant") or
+                        mem.eql(u8, msg, "unused local variable") or
+                        mem.eql(u8, msg, "local variable is never mutated") or
+                        mem.eql(u8, msg, "unused function parameter") or
+                        mem.eql(u8, msg, "unused capture") or
+                        mem.eql(u8, msg, "unused block label") or
+                        mem.eql(u8, msg, "unused while loop label") or
+                        mem.eql(u8, msg, "unused for loop label"))
+                    {
+                        assert(item.data.node == 0);
+                        const ident_token = item.data.token;
+                        try more_fixups.unused_var_decls.put(gpa, ident_token, {});
+                    } else if (mem.eql(u8, msg, "break expression outside loop") or
+                        mem.eql(u8, msg, "continue expression outside loop"))
+                    {
+                        assert(item.data.node != 0);
+                        try more_fixups.replace_nodes_with_string.put(gpa, item.data.node, "unreachable");
+                    } else if (mem.eql(u8, msg, "unreachable code")) {
+                        assert(item.data.node != 0);
+                        try more_fixups.unreachable_code.put(gpa, item.data.node, {});
+                    } else if (mem.startsWith(u8, msg, "label not found: ")) {
+                        assert(item.data.node == 0);
+                        try more_fixups.unknown_labels.put(gpa, item.data.token, {});
+                    } else {
+                        if (!validation_run) std.debug.print("found other ZIR error: {s}\n", .{msg});
+                        found_uncorrected_errors = found_uncorrected_errors or
+                            !mem.startsWith(u8, msg, "use of undeclared identifier");
                     }
                 }
+                if (validation_run) {
+                    found_uncorrected_errors = found_uncorrected_errors or more_fixups.count() != 0;
+                    break;
+                }
+                if (more_fixups.count() != 0) {
+                    rendered.clearRetainingCapacity();
+                    try astgen_tree.renderToArrayList(&rendered, more_fixups);
+                }
+
+                // Deleting unreachable code may result in more unused identifiers so we need another
+                // pass before concluding. Similarly, bad break/continue expressions and unknown labels
+                // terminate analysis, hiding further errors.
+                validation_run =
+                    more_fixups.unreachable_code.count() +
+                    more_fixups.replace_nodes_with_string.count() +
+                    more_fixups.unknown_labels.count() == 0;
             }
 
             try std.fs.cwd().writeFile(root_source_file_path, rendered.items);
-            // std.debug.print("trying this code:\n{s}\n", .{rendered.items});
+            if (found_uncorrected_errors) @panic("found uncorrected errors");
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
             std.debug.print("{d} random transformations: {s}. {d}/{d}\n", .{
