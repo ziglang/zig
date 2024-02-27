@@ -459,6 +459,90 @@ pub const Wip = struct {
         return @intCast(wip.extra.items.len - notes_len);
     }
 
+    pub fn addZirErrorMessages(
+        eb: *ErrorBundle.Wip,
+        zir: std.zig.Zir,
+        tree: std.zig.Ast,
+        source: [:0]const u8,
+        src_path: []const u8,
+    ) !void {
+        const Zir = std.zig.Zir;
+        const payload_index = zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
+        assert(payload_index != 0);
+
+        const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
+        const items_len = header.data.items_len;
+        var extra_index = header.end;
+        for (0..items_len) |_| {
+            const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+            extra_index = item.end;
+            const err_span = blk: {
+                if (item.data.node != 0) {
+                    break :blk tree.nodeToSpan(item.data.node);
+                }
+                const token_starts = tree.tokens.items(.start);
+                const start = token_starts[item.data.token] + item.data.byte_offset;
+                const end = start + @as(u32, @intCast(tree.tokenSlice(item.data.token).len)) - item.data.byte_offset;
+                break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+            };
+            const err_loc = std.zig.findLineColumn(source, err_span.main);
+
+            {
+                const msg = zir.nullTerminatedString(item.data.msg);
+                try eb.addRootErrorMessage(.{
+                    .msg = try eb.addString(msg),
+                    .src_loc = try eb.addSourceLocation(.{
+                        .src_path = try eb.addString(src_path),
+                        .span_start = err_span.start,
+                        .span_main = err_span.main,
+                        .span_end = err_span.end,
+                        .line = @intCast(err_loc.line),
+                        .column = @intCast(err_loc.column),
+                        .source_line = try eb.addString(err_loc.source_line),
+                    }),
+                    .notes_len = item.data.notesLen(zir),
+                });
+            }
+
+            if (item.data.notes != 0) {
+                const notes_start = try eb.reserveNotes(item.data.notes);
+                const block = zir.extraData(Zir.Inst.Block, item.data.notes);
+                const body = zir.extra[block.end..][0..block.data.body_len];
+                for (notes_start.., body) |note_i, body_elem| {
+                    const note_item = zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
+                    const msg = zir.nullTerminatedString(note_item.data.msg);
+                    const span = blk: {
+                        if (note_item.data.node != 0) {
+                            break :blk tree.nodeToSpan(note_item.data.node);
+                        }
+                        const token_starts = tree.tokens.items(.start);
+                        const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
+                        const end = start + @as(u32, @intCast(tree.tokenSlice(note_item.data.token).len)) - item.data.byte_offset;
+                        break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                    };
+                    const loc = std.zig.findLineColumn(source, span.main);
+
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.addString(msg),
+                        .src_loc = try eb.addSourceLocation(.{
+                            .src_path = try eb.addString(src_path),
+                            .span_start = span.start,
+                            .span_main = span.main,
+                            .span_end = span.end,
+                            .line = @intCast(loc.line),
+                            .column = @intCast(loc.column),
+                            .source_line = if (loc.eql(err_loc))
+                                0
+                            else
+                                try eb.addString(loc.source_line),
+                        }),
+                        .notes_len = 0, // TODO rework this function to be recursive
+                    }));
+                }
+            }
+        }
+    }
+
     fn addOtherMessage(wip: *Wip, other: ErrorBundle, msg_index: MessageIndex) !MessageIndex {
         const other_msg = other.getErrorMessage(msg_index);
         const src_loc = try wip.addOtherSourceLocation(other, other_msg.src_loc);

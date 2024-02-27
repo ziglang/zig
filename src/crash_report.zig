@@ -8,7 +8,7 @@ const native_os = builtin.os.tag;
 
 const Module = @import("Module.zig");
 const Sema = @import("Sema.zig");
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Decl = Module.Decl;
 
 pub const is_enabled = builtin.mode == .Debug;

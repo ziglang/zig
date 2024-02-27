@@ -2,11 +2,10 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const fatal = @import("./main.zig").fatal;
 const Ast = std.zig.Ast;
 const Walk = @import("reduce/Walk.zig");
-const AstGen = @import("AstGen.zig");
-const Zir = @import("Zir.zig");
+const AstGen = std.zig.AstGen;
+const Zir = std.zig.Zir;
 
 const usage =
     \\zig reduce [options] ./checker root_source_file.zig [-- [argv]]
@@ -47,7 +46,16 @@ const Interestingness = enum { interesting, unknown, boring };
 // - reduce flags sent to the compiler
 // - integrate with the build system?
 
-pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+pub fn main() !void {
+    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    const gpa = general_purpose_allocator.allocator();
+
+    const args = try std.process.argsAlloc(arena);
+
     var opt_checker_path: ?[]const u8 = null;
     var opt_root_source_file_path: ?[]const u8 = null;
     var argv: []const []const u8 = &.{};
@@ -55,7 +63,7 @@ pub fn main(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var skip_smoke_test = false;
 
     {
-        var i: usize = 2; // skip over "zig" and "reduce"
+        var i: usize = 1;
         while (i < args.len) : (i += 1) {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
@@ -410,4 +418,9 @@ fn parse(gpa: Allocator, file_path: []const u8) !Ast {
     }
 
     return tree;
+}
+
+fn fatal(comptime format: []const u8, args: anytype) noreturn {
+    std.log.err(format, args);
+    std.process.exit(1);
 }

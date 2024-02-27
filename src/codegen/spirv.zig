@@ -8,9 +8,8 @@ const Module = @import("../Module.zig");
 const Decl = Module.Decl;
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 const Air = @import("../Air.zig");
-const Zir = @import("../Zir.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
 
@@ -413,8 +412,7 @@ const DeclGen = struct {
     pub fn fail(self: *DeclGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
         const mod = self.module;
-        const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(self.module.declPtr(self.decl_index), mod);
+        const src_loc = self.module.declPtr(self.decl_index).srcLoc(mod);
         assert(self.error_msg == null);
         self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, format, args);
         return error.CodegenFail;
@@ -5270,8 +5268,7 @@ const DeclGen = struct {
                 // TODO: Translate proper error locations.
                 assert(as.errors.items.len != 0);
                 assert(self.error_msg == null);
-                const loc = LazySrcLoc.nodeOffset(0);
-                const src_loc = loc.toSrcLoc(self.module.declPtr(self.decl_index), mod);
+                const src_loc = self.module.declPtr(self.decl_index).srcLoc(mod);
                 self.error_msg = try Module.ErrorMsg.create(self.module.gpa, src_loc, "failed to assemble SPIR-V inline assembly", .{});
                 const notes = try self.module.gpa.alloc(Module.ErrorMsg, as.errors.items.len);
 

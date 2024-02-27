@@ -148,7 +148,7 @@ const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Air = @import("Air.zig");
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Module = @import("Module.zig");
 const trace = @import("tracy.zig").trace;
 const Namespace = Module.Namespace;
@@ -156,7 +156,7 @@ const CompileError = Module.CompileError;
 const SemaError = Module.SemaError;
 const Decl = Module.Decl;
 const CaptureScope = Module.CaptureScope;
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
@@ -397,7 +397,7 @@ pub const Block = struct {
                         break :blk src_loc;
                     } else blk: {
                         const src_decl = mod.declPtr(rt.block.src_decl);
-                        break :blk rt.func_src.toSrcLoc(src_decl, mod);
+                        break :blk src_decl.toSrcLoc(rt.func_src, mod);
                     };
                     if (rt.return_ty.isGenericPoison()) {
                         return mod.errNoteNonLazy(src_loc, parent, prefix ++ "the generic function was instantiated with a comptime-only return type", .{});
@@ -2421,7 +2421,7 @@ fn errNote(
 ) error{OutOfMemory}!void {
     const mod = sema.mod;
     const src_decl = mod.declPtr(block.src_decl);
-    return mod.errNoteNonLazy(src.toSrcLoc(src_decl, mod), parent, format, args);
+    return mod.errNoteNonLazy(src_decl.toSrcLoc(src, mod), parent, format, args);
 }
 
 fn addFieldErrNote(
@@ -2478,7 +2478,7 @@ fn errMsg(
     const mod = sema.mod;
     if (src == .unneeded) return error.NeededSourceLocation;
     const src_decl = mod.declPtr(block.src_decl);
-    return Module.ErrorMsg.create(sema.gpa, src.toSrcLoc(src_decl, mod), format, args);
+    return Module.ErrorMsg.create(sema.gpa, src_decl.toSrcLoc(src, mod), format, args);
 }
 
 pub fn fail(
@@ -2556,7 +2556,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
                     const decl = mod.declPtr(ref.referencer);
                     try reference_stack.append(.{
                         .decl = decl.name,
-                        .src_loc = ref.src.toSrcLoc(decl, mod),
+                        .src_loc = decl.toSrcLoc(ref.src, mod),
                     });
                 }
                 referenced_by = ref.referencer;
@@ -2599,7 +2599,7 @@ fn reparentOwnedErrorMsg(
 ) !void {
     const mod = sema.mod;
     const src_decl = mod.declPtr(block.src_decl);
-    const resolved_src = src.toSrcLoc(src_decl, mod);
+    const resolved_src = src_decl.toSrcLoc(src, mod);
     const msg_str = try std.fmt.allocPrint(mod.gpa, format, args);
 
     const orig_notes = msg.notes.len;
@@ -5252,7 +5252,7 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, src.toSrcLoc(src_decl, mod), elem_ty);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(src, mod), elem_ty);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -5716,7 +5716,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     var child_block = parent_block.makeSubBlock();
     child_block.label = &label;
     child_block.runtime_cond = null;
-    child_block.runtime_loop = src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    child_block.runtime_loop = mod.declPtr(child_block.src_decl).toSrcLoc(src, mod);
     child_block.runtime_index.increment();
     const merges = &child_block.label.?.merges;
 
@@ -6058,7 +6058,7 @@ fn analyzeBlockBody(
             try mod.errNoteNonLazy(runtime_src, msg, "runtime control flow here", .{});
 
             const child_src_decl = mod.declPtr(child_block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, type_src.toSrcLoc(child_src_decl, mod), resolved_ty);
+            try sema.explainWhyTypeIsComptime(msg, child_src_decl.toSrcLoc(type_src, mod), resolved_ty);
 
             break :msg msg;
         };
@@ -6213,7 +6213,7 @@ pub fn analyzeExport(
             errdefer msg.destroy(gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), exported_decl.ty, .other);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), exported_decl.ty, .other);
 
             try sema.addDeclaredHereNote(msg, exported_decl.ty);
             break :msg msg;
@@ -8082,7 +8082,7 @@ fn instantiateGenericCall(
                     };
                     try child_sema.errNote(&child_block, param_src, msg, "declared here", .{});
                     const src_decl = mod.declPtr(block.src_decl);
-                    try sema.explainWhyTypeIsComptime(msg, arg_src.toSrcLoc(src_decl, mod), arg_ty);
+                    try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(arg_src, mod), arg_ty);
                     break :msg msg;
                 }),
 
@@ -9387,7 +9387,7 @@ fn funcCommon(
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, param_src.toSrcLoc(src_decl, mod), param_ty, .param_ty);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(param_src, mod), param_ty, .param_ty);
 
                 try sema.addDeclaredHereNote(msg, param_ty);
                 break :msg msg;
@@ -9402,7 +9402,7 @@ fn funcCommon(
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsComptime(msg, param_src.toSrcLoc(src_decl, mod), param_ty);
+                try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(param_src, mod), param_ty);
 
                 try sema.addDeclaredHereNote(msg, param_ty);
                 break :msg msg;
@@ -9671,7 +9671,7 @@ fn finishFunc(
             errdefer msg.destroy(gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ret_ty_src.toSrcLoc(src_decl, mod), return_type, .ret_ty);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(ret_ty_src, mod), return_type, .ret_ty);
 
             try sema.addDeclaredHereNote(msg, return_type);
             break :msg msg;
@@ -9692,7 +9692,7 @@ fn finishFunc(
             "function with comptime-only return type '{}' requires all parameters to be comptime",
             .{return_type.fmt(mod)},
         );
-        try sema.explainWhyTypeIsComptime(msg, ret_ty_src.toSrcLoc(sema.owner_decl, mod), return_type);
+        try sema.explainWhyTypeIsComptime(msg, sema.owner_decl.toSrcLoc(ret_ty_src, mod), return_type);
 
         const tags = sema.code.instructions.items(.tag);
         const data = sema.code.instructions.items(.data);
@@ -9965,7 +9965,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             const msg = try sema.errMsg(block, ptr_src, "comptime-only type '{}' has no pointer address", .{pointee_ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, ptr_src.toSrcLoc(src_decl, mod), pointee_ty);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(ptr_src, mod), pointee_ty);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -11492,7 +11492,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     var sub_block = child_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = main_operand_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    sub_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(main_operand_src, mod);
     sub_block.runtime_index.increment();
     defer sub_block.instructions.deinit(gpa);
 
@@ -12227,7 +12227,7 @@ fn analyzeSwitchRuntimeBlock(
 
     var case_block = child_block.makeSubBlock();
     case_block.runtime_loop = null;
-    case_block.runtime_cond = operand_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    case_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(operand_src, mod);
     case_block.runtime_index.increment();
     defer case_block.instructions.deinit(gpa);
 
@@ -13663,7 +13663,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         return sema.fail(block, operand_src, "file path name cannot be empty", .{});
     }
 
-    const src_loc = operand_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+    const src_loc = mod.declPtr(block.src_decl).toSrcLoc(operand_src, mod);
     const val = mod.embedFile(block.getFileScope(mod), name, src_loc) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
@@ -18766,7 +18766,7 @@ fn zirBoolBr(
 
     var child_block = parent_block.makeSubBlock();
     child_block.runtime_loop = null;
-    child_block.runtime_cond = lhs_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    child_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(lhs_src, mod);
     child_block.runtime_index.increment();
     defer child_block.instructions.deinit(gpa);
 
@@ -18963,7 +18963,7 @@ fn zirCondbr(
     // instructions array in between using it for the then block and else block.
     var sub_block = parent_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = cond_src.toSrcLoc(mod.declPtr(parent_block.src_decl), mod);
+    sub_block.runtime_cond = mod.declPtr(parent_block.src_decl).toSrcLoc(cond_src, mod);
     sub_block.runtime_index.increment();
     defer sub_block.instructions.deinit(gpa);
 
@@ -19503,7 +19503,7 @@ fn analyzeRet(
 
             if (sema.fn_ret_ty.isError(mod) and ret_val.getErrorName(mod) != .none) {
                 const src_decl = mod.declPtr(block.src_decl);
-                const src_loc = src.toSrcLoc(src_decl, mod);
+                const src_loc = src_decl.toSrcLoc(src, mod);
                 try sema.comptime_err_ret_trace.append(src_loc);
             }
             return error.ComptimeReturn;
@@ -19660,7 +19660,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, elem_ty_src.toSrcLoc(src_decl, mod), elem_ty, .other);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(elem_ty_src, mod), elem_ty, .other);
 
                 try sema.addDeclaredHereNote(msg, elem_ty);
                 break :msg msg;
@@ -21128,7 +21128,7 @@ fn zirReify(
                         errdefer msg.destroy(gpa);
 
                         const src_decl = mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), elem_ty, .other);
+                        try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), elem_ty, .other);
 
                         try sema.addDeclaredHereNote(msg, elem_ty);
                         break :msg msg;
@@ -21572,7 +21572,7 @@ fn zirReify(
                         errdefer msg.destroy(gpa);
 
                         const src_decl = mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), field_ty, .union_field);
+                        try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), field_ty, .union_field);
 
                         try sema.addDeclaredHereNote(msg, field_ty);
                         break :msg msg;
@@ -21584,7 +21584,7 @@ fn zirReify(
                         errdefer msg.destroy(gpa);
 
                         const src_decl = mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotPacked(msg, src.toSrcLoc(src_decl, mod), field_ty);
+                        try sema.explainWhyTypeIsNotPacked(msg, src_decl.toSrcLoc(src, mod), field_ty);
 
                         try sema.addDeclaredHereNote(msg, field_ty);
                         break :msg msg;
@@ -21939,7 +21939,7 @@ fn reifyStruct(
                 errdefer msg.destroy(gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), field_ty, .struct_field);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), field_ty, .struct_field);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -21951,7 +21951,7 @@ fn reifyStruct(
                 errdefer msg.destroy(gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotPacked(msg, src.toSrcLoc(src_decl, mod), field_ty);
+                try sema.explainWhyTypeIsNotPacked(msg, src_decl.toSrcLoc(src, mod), field_ty);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -22018,7 +22018,7 @@ fn zirCVaArg(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl, mod), arg_ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(ty_src, mod), arg_ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, arg_ty);
             break :msg msg;
@@ -25859,7 +25859,7 @@ fn zirBuiltinExtern(
             const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl, mod), ty, .other);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(ty_src, mod), ty, .other);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -26003,7 +26003,7 @@ fn validateVarType(
                 const msg = try sema.errMsg(block, src, "extern variable cannot have type '{}'", .{var_ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), var_ty, .other);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), var_ty, .other);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
@@ -26026,7 +26026,7 @@ fn validateVarType(
         errdefer msg.destroy(sema.gpa);
 
         const src_decl = mod.declPtr(block.src_decl);
-        try sema.explainWhyTypeIsComptime(msg, src.toSrcLoc(src_decl, mod), var_ty);
+        try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(src, mod), var_ty);
         if (var_ty.zigTypeTag(mod) == .ComptimeInt or var_ty.zigTypeTag(mod) == .ComptimeFloat) {
             try sema.errNote(block, src, msg, "to modify this variable at runtime, it must be given an explicit fixed-size number type", .{});
         }
@@ -28093,7 +28093,7 @@ fn validateRuntimeElemAccess(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, parent_src.toSrcLoc(src_decl, mod), parent_ty);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(parent_src, mod), parent_ty);
 
             break :msg msg;
         };
@@ -28492,7 +28492,7 @@ const CoerceOpts = struct {
                     .lazy = LazySrcLoc.nodeOffset(param_src.node_offset_param),
                 };
             }
-            return param_src.toSrcLoc(fn_decl, mod);
+            return fn_decl.toSrcLoc(param_src, mod);
         }
     } = .{},
 };
@@ -29110,7 +29110,7 @@ fn coerceExtra(
 
             const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
             const src_decl = mod.funcOwnerDeclPtr(sema.func_index);
-            try mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl, mod), msg, "'noreturn' declared here", .{});
+            try mod.errNoteNonLazy(src_decl.toSrcLoc(ret_ty_src, mod), msg, "'noreturn' declared here", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -29145,9 +29145,9 @@ fn coerceExtra(
             const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
             const src_decl = mod.funcOwnerDeclPtr(sema.func_index);
             if (inst_ty.isError(mod) and !dest_ty.isError(mod)) {
-                try mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl, mod), msg, "function cannot return an error", .{});
+                try mod.errNoteNonLazy(src_decl.toSrcLoc(ret_ty_src, mod), msg, "function cannot return an error", .{});
             } else {
-                try mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl, mod), msg, "function return type declared here", .{});
+                try mod.errNoteNonLazy(src_decl.toSrcLoc(ret_ty_src, mod), msg, "function return type declared here", .{});
             }
         }
 
@@ -30165,7 +30165,7 @@ fn coerceVarArgParam(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, inst_src.toSrcLoc(src_decl, mod), coerced_ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(inst_src, mod), coerced_ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, coerced_ty);
             break :msg msg;
@@ -37180,7 +37180,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
                     });
                     errdefer msg.destroy(sema.gpa);
                     const decl_ptr = mod.declPtr(tag_info.decl);
-                    try mod.errNoteNonLazy(enum_field_src.toSrcLoc(decl_ptr, mod), msg, "enum field here", .{});
+                    try mod.errNoteNonLazy(decl_ptr.toSrcLoc(enum_field_src, mod), msg, "enum field here", .{});
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);

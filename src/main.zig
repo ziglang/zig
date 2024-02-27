@@ -8,6 +8,7 @@ const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
+const Color = std.zig.Color;
 const warn = std.log.warn;
 const ThreadPool = std.Thread.Pool;
 const cleanExit = std.process.cleanExit;
@@ -25,7 +26,7 @@ const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Module = @import("Module.zig");
-const AstGen = @import("AstGen.zig");
+const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
 
@@ -66,17 +67,7 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     process.exit(1);
 }
 
-/// There are many assumptions in the entire codebase that Zig source files can
-/// be byte-indexed with a u32 integer.
-const max_src_size = std.math.maxInt(u32);
-
 const debug_extensions_enabled = builtin.mode == .Debug;
-
-const Color = enum {
-    auto,
-    off,
-    on,
-};
 
 const normal_usage =
     \\Usage: zig [command] [options]
@@ -212,14 +203,6 @@ pub fn main() anyerror!void {
         }
     }
 
-    if (build_options.only_reduce) {
-        if (mem.eql(u8, args[1], "reduce")) {
-            return @import("reduce.zig").main(gpa, arena, args);
-        } else {
-            @panic("only reduce is supported in a -Donly-reduce build");
-        }
-    }
-
     return mainArgs(gpa, arena, args);
 }
 
@@ -311,7 +294,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "rc")) {
         return cmdRc(gpa, arena, args[1..]);
     } else if (mem.eql(u8, cmd, "fmt")) {
-        return cmdFmt(gpa, arena, cmd_args);
+        return jitCmd(gpa, arena, cmd_args, "fmt", "fmt.zig");
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fetch")) {
@@ -334,7 +317,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "reduce")) {
-        return @import("reduce.zig").main(gpa, arena, args);
+        return jitCmd(gpa, arena, cmd_args, "reduce", "reduce.zig");
     } else if (mem.eql(u8, cmd, "zen")) {
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
@@ -2756,6 +2739,7 @@ fn buildOutputType(
             .paths = .{
                 .root = .{
                     .root_dir = zig_lib_directory,
+                    .sub_path = "compiler",
                 },
                 .root_src_path = "test_runner.zig",
             },
@@ -4501,7 +4485,7 @@ fn updateModule(comp: *Compilation, color: Color) !void {
     defer errors.deinit(comp.gpa);
 
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(renderOptions(color));
+        errors.renderToStdErr(color.renderOptions());
         return error.SemanticAnalyzeFail;
     }
 }
@@ -4601,7 +4585,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                             p.errors = errors;
                             return;
                         } else {
-                            errors.renderToStdErr(renderOptions(color));
+                            errors.renderToStdErr(color.renderOptions());
                             process.exit(1);
                         }
                     },
@@ -5402,7 +5386,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 },
                 .root_src_path = fs.path.basename(runner),
             } else .{
-                .root = .{ .root_dir = zig_lib_directory },
+                .root = .{
+                    .root_dir = zig_lib_directory,
+                },
                 .root_src_path = "build_runner.zig",
             };
 
@@ -5528,7 +5514,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
                 if (fetch.error_bundle.root_list.items.len > 0) {
                     var errors = try fetch.error_bundle.toOwnedBundle("");
-                    errors.renderToStdErr(renderOptions(color));
+                    errors.renderToStdErr(color.renderOptions());
                     process.exit(1);
                 }
 
@@ -5719,470 +5705,165 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 }
 
-fn readSourceFileToEndAlloc(
-    allocator: Allocator,
-    input: *const fs.File,
-    size_hint: ?usize,
-) ![:0]u8 {
-    const source_code = input.readToEndAllocOptions(
-        allocator,
-        max_src_size,
-        size_hint,
-        @alignOf(u16),
-        0,
-    ) catch |err| switch (err) {
-        error.ConnectionResetByPeer => unreachable,
-        error.ConnectionTimedOut => unreachable,
-        error.NotOpenForReading => unreachable,
-        else => |e| return e,
-    };
-    errdefer allocator.free(source_code);
-
-    // Detect unsupported file types with their Byte Order Mark
-    const unsupported_boms = [_][]const u8{
-        "\xff\xfe\x00\x00", // UTF-32 little endian
-        "\xfe\xff\x00\x00", // UTF-32 big endian
-        "\xfe\xff", // UTF-16 big endian
-    };
-    for (unsupported_boms) |bom| {
-        if (mem.startsWith(u8, source_code, bom)) {
-            return error.UnsupportedEncoding;
-        }
-    }
-
-    // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
-    if (mem.startsWith(u8, source_code, "\xff\xfe")) {
-        const source_code_utf16_le = mem.bytesAsSlice(u16, source_code);
-        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
-            error.DanglingSurrogateHalf => error.UnsupportedEncoding,
-            error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
-            error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
-            else => |e| return e,
-        };
-
-        allocator.free(source_code);
-        return source_code_utf8;
-    }
-
-    return source_code;
-}
-
-const usage_fmt =
-    \\Usage: zig fmt [file]...
-    \\
-    \\   Formats the input files and modifies them in-place.
-    \\   Arguments can be files or directories, which are searched
-    \\   recursively.
-    \\
-    \\Options:
-    \\  -h, --help             Print this help and exit
-    \\  --color [auto|off|on]  Enable or disable colored error messages
-    \\  --stdin                Format code from stdin; output to stdout
-    \\  --check                List non-conforming files and exit with an error
-    \\                         if the list is non-empty
-    \\  --ast-check            Run zig ast-check on every file
-    \\  --exclude [file]       Exclude file or directory from formatting
-    \\
-    \\
-;
-
-const Fmt = struct {
-    seen: SeenMap,
-    any_error: bool,
-    check_ast: bool,
-    color: Color,
+fn jitCmd(
     gpa: Allocator,
     arena: Allocator,
-    out_buffer: std.ArrayList(u8),
+    args: []const []const u8,
+    cmd_name: []const u8,
+    root_src_path: []const u8,
+) !void {
+    const color: Color = .auto;
 
-    const SeenMap = std.AutoHashMap(fs.File.INode, void);
-};
-
-fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    var color: Color = .auto;
-    var stdin_flag: bool = false;
-    var check_flag: bool = false;
-    var check_ast_flag: bool = false;
-    var input_files = ArrayList([]const u8).init(gpa);
-    defer input_files.deinit();
-    var excluded_files = ArrayList([]const u8).init(gpa);
-    defer excluded_files.deinit();
-
-    {
-        var i: usize = 0;
-        while (i < args.len) : (i += 1) {
-            const arg = args[i];
-            if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = io.getStdOut().writer();
-                    try stdout.writeAll(usage_fmt);
-                    return cleanExit();
-                } else if (mem.eql(u8, arg, "--color")) {
-                    if (i + 1 >= args.len) {
-                        fatal("expected [auto|on|off] after --color", .{});
-                    }
-                    i += 1;
-                    const next_arg = args[i];
-                    color = std.meta.stringToEnum(Color, next_arg) orelse {
-                        fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
-                    };
-                } else if (mem.eql(u8, arg, "--stdin")) {
-                    stdin_flag = true;
-                } else if (mem.eql(u8, arg, "--check")) {
-                    check_flag = true;
-                } else if (mem.eql(u8, arg, "--ast-check")) {
-                    check_ast_flag = true;
-                } else if (mem.eql(u8, arg, "--exclude")) {
-                    if (i + 1 >= args.len) {
-                        fatal("expected parameter after --exclude", .{});
-                    }
-                    i += 1;
-                    const next_arg = args[i];
-                    try excluded_files.append(next_arg);
-                } else {
-                    fatal("unrecognized parameter: '{s}'", .{arg});
-                }
-            } else {
-                try input_files.append(arg);
-            }
-        }
-    }
-
-    if (stdin_flag) {
-        if (input_files.items.len != 0) {
-            fatal("cannot use --stdin with positional arguments", .{});
-        }
-
-        const stdin = io.getStdIn();
-        const source_code = readSourceFileToEndAlloc(gpa, &stdin, null) catch |err| {
-            fatal("unable to read stdin: {}", .{err});
-        };
-        defer gpa.free(source_code);
-
-        var tree = Ast.parse(gpa, source_code, .zig) catch |err| {
-            fatal("error parsing stdin: {}", .{err});
-        };
-        defer tree.deinit(gpa);
-
-        if (check_ast_flag) {
-            var file: Module.File = .{
-                .status = .never_loaded,
-                .source_loaded = true,
-                .zir_loaded = false,
-                .sub_file_path = "<stdin>",
-                .source = source_code,
-                .stat = undefined,
-                .tree = tree,
-                .tree_loaded = true,
-                .zir = undefined,
-                .mod = undefined,
-                .root_decl = .none,
-            };
-
-            file.mod = try Package.Module.createLimited(arena, .{
-                .root = Package.Path.cwd(),
-                .root_src_path = file.sub_file_path,
-                .fully_qualified_name = "root",
-            });
-
-            file.zir = try AstGen.generate(gpa, file.tree);
-            file.zir_loaded = true;
-            defer file.zir.deinit(gpa);
-
-            if (file.zir.hasCompileErrors()) {
-                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-                try Compilation.addZirErrorMessages(&wip_errors, &file);
-                var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
-                error_bundle.renderToStdErr(renderOptions(color));
-                process.exit(2);
-            }
-        } else if (tree.errors.len != 0) {
-            try printAstErrorsToStderr(gpa, tree, "<stdin>", color);
-            process.exit(2);
-        }
-        const formatted = try tree.render(gpa);
-        defer gpa.free(formatted);
-
-        if (check_flag) {
-            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
-            process.exit(code);
-        }
-
-        return io.getStdOut().writeAll(formatted);
-    }
-
-    if (input_files.items.len == 0) {
-        fatal("expected at least one source file argument", .{});
-    }
-
-    var fmt = Fmt{
-        .gpa = gpa,
-        .arena = arena,
-        .seen = Fmt.SeenMap.init(gpa),
-        .any_error = false,
-        .check_ast = check_ast_flag,
-        .color = color,
-        .out_buffer = std.ArrayList(u8).init(gpa),
+    const target_query: std.Target.Query = .{};
+    const resolved_target: Package.Module.ResolvedTarget = .{
+        .result = resolveTargetQueryOrFatal(target_query),
+        .is_native_os = true,
+        .is_native_abi = true,
     };
-    defer fmt.seen.deinit();
-    defer fmt.out_buffer.deinit();
 
-    // Mark any excluded files/directories as already seen,
-    // so that they are skipped later during actual processing
-    for (excluded_files.items) |file_path| {
-        const stat = fs.cwd().statFile(file_path) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            // On Windows, statFile does not work for directories
-            error.IsDir => dir: {
-                var dir = try fs.cwd().openDir(file_path, .{});
-                defer dir.close();
-                break :dir try dir.stat();
-            },
-            else => |e| return e,
-        };
-        try fmt.seen.put(stat.inode, {});
-    }
+    const exe_basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = cmd_name,
+        .target = resolved_target.result,
+        .output_mode = .Exe,
+    });
+    const emit_bin: Compilation.EmitLoc = .{
+        .directory = null, // Use the global zig-cache.
+        .basename = exe_basename,
+    };
 
-    for (input_files.items) |file_path| {
-        try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
-    }
-    if (fmt.any_error) {
-        process.exit(1);
-    }
-}
+    const self_exe_path = introspect.findZigExePath(arena) catch |err| {
+        fatal("unable to find self exe path: {s}", .{@errorName(err)});
+    };
 
-const FmtError = error{
-    SystemResources,
-    OperationAborted,
-    IoPending,
-    BrokenPipe,
-    Unexpected,
-    WouldBlock,
-    FileClosed,
-    DestinationAddressRequired,
-    DiskQuota,
-    FileTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    AccessDenied,
-    OutOfMemory,
-    RenameAcrossMountPoints,
-    ReadOnlyFileSystem,
-    LinkQuotaExceeded,
-    FileBusy,
-    EndOfStream,
-    Unseekable,
-    NotOpenForWriting,
-    UnsupportedEncoding,
-    ConnectionResetByPeer,
-    SocketNotConnected,
-    LockViolation,
-    NetNameDeleted,
-    InvalidArgument,
-} || fs.File.OpenError;
+    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
+        .Debug
+    else
+        .ReleaseFast;
+    const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
+    const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
 
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
-    fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
-        error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
-        else => {
-            warn("unable to format '{s}': {s}", .{ file_path, @errorName(err) });
-            fmt.any_error = true;
-            return;
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+        .path = lib_dir,
+        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
         },
+    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
     };
-}
+    defer zig_lib_directory.handle.close();
 
-fn fmtPathDir(
-    fmt: *Fmt,
-    file_path: []const u8,
-    check_mode: bool,
-    parent_dir: fs.Dir,
-    parent_sub_path: []const u8,
-) FmtError!void {
-    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
-    defer dir.close();
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
+        };
+    };
+    defer global_cache_directory.handle.close();
 
-    const stat = try dir.stat();
-    if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
 
-    var dir_it = dir.iterate();
-    while (try dir_it.next()) |entry| {
-        const is_dir = entry.kind == .directory;
+    var child_argv: std.ArrayListUnmanaged([]const u8) = .{};
+    try child_argv.ensureUnusedCapacity(arena, args.len + 1);
 
-        if (is_dir and (mem.eql(u8, entry.name, "zig-cache") or mem.eql(u8, entry.name, "zig-out"))) continue;
-
-        if (is_dir or entry.kind == .file and (mem.endsWith(u8, entry.name, ".zig") or mem.endsWith(u8, entry.name, ".zon"))) {
-            const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
-            defer fmt.gpa.free(full_path);
-
-            if (is_dir) {
-                try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
-            } else {
-                fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
-                    warn("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
-                    fmt.any_error = true;
-                    return;
-                };
-            }
-        }
-    }
-}
-
-fn fmtPathFile(
-    fmt: *Fmt,
-    file_path: []const u8,
-    check_mode: bool,
-    dir: fs.Dir,
-    sub_path: []const u8,
-) FmtError!void {
-    const source_file = try dir.openFile(sub_path, .{});
-    var file_closed = false;
-    errdefer if (!file_closed) source_file.close();
-
-    const stat = try source_file.stat();
-
-    if (stat.kind == .directory)
-        return error.IsDir;
-
-    const gpa = fmt.gpa;
-    const source_code = try readSourceFileToEndAlloc(
-        gpa,
-        &source_file,
-        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
-    );
-    defer gpa.free(source_code);
-
-    source_file.close();
-    file_closed = true;
-
-    // Add to set after no longer possible to get error.IsDir.
-    if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
-
-    var tree = try Ast.parse(gpa, source_code, .zig);
-    defer tree.deinit(gpa);
-
-    if (tree.errors.len != 0) {
-        try printAstErrorsToStderr(gpa, tree, file_path, fmt.color);
-        fmt.any_error = true;
-        return;
-    }
-
-    if (fmt.check_ast) {
-        var file: Module.File = .{
-            .status = .never_loaded,
-            .source_loaded = true,
-            .zir_loaded = false,
-            .sub_file_path = file_path,
-            .source = source_code,
-            .stat = .{
-                .size = stat.size,
-                .inode = stat.inode,
-                .mtime = stat.mtime,
+    // We want to release all the locks before executing the child process, so we make a nice
+    // big block here to ensure the cleanup gets run when we extract out our argv.
+    {
+        const main_mod_paths: Package.Module.CreateOptions.Paths = .{
+            .root = .{
+                .root_dir = zig_lib_directory,
+                .sub_path = "compiler",
             },
-            .tree = tree,
-            .tree_loaded = true,
-            .zir = undefined,
-            .mod = undefined,
-            .root_decl = .none,
+            .root_src_path = root_src_path,
         };
 
-        file.mod = try Package.Module.createLimited(fmt.arena, .{
-            .root = Package.Path.cwd(),
-            .root_src_path = file.sub_file_path,
-            .fully_qualified_name = "root",
+        const config = try Compilation.Config.resolve(.{
+            .output_mode = .Exe,
+            .root_optimize_mode = optimize_mode,
+            .resolved_target = resolved_target,
+            .have_zcu = true,
+            .emit_bin = true,
+            .is_test = false,
         });
 
-        if (stat.size > max_src_size)
-            return error.FileTooBig;
-
-        file.zir = try AstGen.generate(gpa, file.tree);
-        file.zir_loaded = true;
-        defer file.zir.deinit(gpa);
-
-        if (file.zir.hasCompileErrors()) {
-            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-            try wip_errors.init(gpa);
-            defer wip_errors.deinit();
-            try Compilation.addZirErrorMessages(&wip_errors, &file);
-            var error_bundle = try wip_errors.toOwnedBundle("");
-            defer error_bundle.deinit(gpa);
-            error_bundle.renderToStdErr(renderOptions(fmt.color));
-            fmt.any_error = true;
-        }
-    }
-
-    // As a heuristic, we make enough capacity for the same as the input source.
-    fmt.out_buffer.shrinkRetainingCapacity(0);
-    try fmt.out_buffer.ensureTotalCapacity(source_code.len);
-
-    try tree.renderToArrayList(&fmt.out_buffer, .{});
-    if (mem.eql(u8, fmt.out_buffer.items, source_code))
-        return;
-
-    if (check_mode) {
-        const stdout = io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
-        fmt.any_error = true;
-    } else {
-        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
-        defer af.deinit();
-
-        try af.file.writeAll(fmt.out_buffer.items);
-        try af.finish();
-        const stdout = io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
-    }
-}
-
-fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
-    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-    try wip_errors.init(gpa);
-    defer wip_errors.deinit();
-
-    try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
-
-    var error_bundle = try wip_errors.toOwnedBundle("");
-    defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(renderOptions(color));
-}
-
-pub fn putAstErrorsIntoBundle(
-    gpa: Allocator,
-    tree: Ast,
-    path: []const u8,
-    wip_errors: *std.zig.ErrorBundle.Wip,
-) Allocator.Error!void {
-    var file: Module.File = .{
-        .status = .never_loaded,
-        .source_loaded = true,
-        .zir_loaded = false,
-        .sub_file_path = path,
-        .source = tree.source,
-        .stat = .{
-            .size = 0,
-            .inode = 0,
-            .mtime = 0,
-        },
-        .tree = tree,
-        .tree_loaded = true,
-        .zir = undefined,
-        .mod = try Package.Module.createLimited(gpa, .{
-            .root = Package.Path.cwd(),
-            .root_src_path = path,
+        const root_mod = try Package.Module.create(arena, .{
+            .global_cache_directory = global_cache_directory,
+            .paths = main_mod_paths,
             .fully_qualified_name = "root",
-        }),
-        .root_decl = .none,
-    };
-    defer gpa.destroy(file.mod);
+            .cc_argv = &.{},
+            .inherited = .{
+                .resolved_target = resolved_target,
+                .optimize_mode = optimize_mode,
+            },
+            .global = config,
+            .parent = null,
+            .builtin_mod = null,
+        });
 
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    defer file.zir.deinit(gpa);
+        const comp = Compilation.create(gpa, arena, .{
+            .zig_lib_directory = zig_lib_directory,
+            .local_cache_directory = global_cache_directory,
+            .global_cache_directory = global_cache_directory,
+            .root_name = cmd_name,
+            .config = config,
+            .root_mod = root_mod,
+            .main_mod = root_mod,
+            .emit_bin = emit_bin,
+            .emit_h = null,
+            .self_exe_path = self_exe_path,
+            .thread_pool = &thread_pool,
+            .cache_mode = .whole,
+        }) catch |err| {
+            fatal("unable to create compilation: {s}", .{@errorName(err)});
+        };
+        defer comp.destroy();
 
-    try Compilation.addZirErrorMessages(wip_errors, &file);
+        updateModule(comp, color) catch |err| switch (err) {
+            error.SemanticAnalyzeFail => process.exit(2),
+            else => |e| return e,
+        };
+
+        const exe_path = try global_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
+        child_argv.appendAssumeCapacity(exe_path);
+    }
+
+    child_argv.appendSliceAssumeCapacity(args);
+
+    if (process.can_execv) {
+        const err = process.execv(gpa, child_argv.items);
+        const cmd = try std.mem.join(arena, " ", child_argv.items);
+        fatal("the following command failed to execve with '{s}':\n{s}", .{
+            @errorName(err),
+            cmd,
+        });
+    }
+
+    if (!process.can_spawn) {
+        const cmd = try std.mem.join(arena, " ", child_argv.items);
+        fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{
+            @tagName(builtin.os.tag), cmd,
+        });
+    }
+
+    var child = std.ChildProcess.init(child_argv.items, gpa);
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = .Inherit;
+    child.stderr_behavior = .Inherit;
+
+    const term = try child.spawnAndWait();
+    switch (term) {
+        .Exited => |code| {
+            if (code == 0) return cleanExit();
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+        },
+        else => {
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            fatal("the following build command crashed:\n{s}", .{cmd});
+        },
+    }
 }
 
 const info_zen =
@@ -6655,7 +6336,7 @@ fn cmdAstCheck(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     var color: Color = .auto;
     var want_output_text = false;
@@ -6710,7 +6391,7 @@ fn cmdAstCheck(
 
         const stat = try f.stat();
 
-        if (stat.size > max_src_size)
+        if (stat.size > std.zig.max_src_size)
             return error.FileTooBig;
 
         const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
@@ -6728,7 +6409,7 @@ fn cmdAstCheck(
         };
     } else {
         const stdin = io.getStdIn();
-        const source = readSourceFileToEndAlloc(arena, &stdin, null) catch |err| {
+        const source = std.zig.readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         file.sub_file_path = "<stdin>";
@@ -6758,7 +6439,7 @@ fn cmdAstCheck(
         try Compilation.addZirErrorMessages(&wip_errors, &file);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(color));
+        error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
@@ -6817,7 +6498,7 @@ fn cmdDumpZir(
     args: []const []const u8,
 ) !void {
     _ = arena;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const cache_file = args[0];
 
@@ -6877,7 +6558,7 @@ fn cmdChangelist(
     args: []const []const u8,
 ) !void {
     const color: Color = .auto;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const old_source_file = args[0];
     const new_source_file = args[1];
@@ -6889,7 +6570,7 @@ fn cmdChangelist(
 
     const stat = try f.stat();
 
-    if (stat.size > max_src_size)
+    if (stat.size > std.zig.max_src_size)
         return error.FileTooBig;
 
     var file: Module.File = .{
@@ -6938,7 +6619,7 @@ fn cmdChangelist(
         try Compilation.addZirErrorMessages(&wip_errors, &file);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(color));
+        error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
@@ -6949,7 +6630,7 @@ fn cmdChangelist(
 
     const new_stat = try new_f.stat();
 
-    if (new_stat.size > max_src_size)
+    if (new_stat.size > std.zig.max_src_size)
         return error.FileTooBig;
 
     const new_source = try arena.allocSentinel(u8, @as(usize, @intCast(new_stat.size)), 0);
@@ -6973,7 +6654,7 @@ fn cmdChangelist(
         try Compilation.addZirErrorMessages(&wip_errors, &file);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(color));
+        error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
@@ -7241,23 +6922,6 @@ const ClangSearchSanitizer = struct {
     };
 };
 
-fn get_tty_conf(color: Color) std.io.tty.Config {
-    return switch (color) {
-        .auto => std.io.tty.detectConfig(std.io.getStdErr()),
-        .on => .escape_codes,
-        .off => .no_color,
-    };
-}
-
-fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-    const ttyconf = get_tty_conf(color);
-    return .{
-        .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
-    };
-}
-
 fn accessLibPath(
     test_path: *std.ArrayList(u8),
     checked_paths: *std.ArrayList(u8),
@@ -7498,7 +7162,7 @@ fn cmdFetch(
 
     if (fetch.error_bundle.root_list.items.len > 0) {
         var errors = try fetch.error_bundle.toOwnedBundle("");
-        errors.renderToStdErr(renderOptions(color));
+        errors.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
@@ -7790,7 +7454,7 @@ fn loadManifest(
     errdefer ast.deinit(gpa);
 
     if (ast.errors.len > 0) {
-        try printAstErrorsToStderr(gpa, ast, Package.Manifest.basename, options.color);
+        try std.zig.printAstErrorsToStderr(gpa, ast, Package.Manifest.basename, options.color);
         process.exit(2);
     }
 
@@ -7807,7 +7471,7 @@ fn loadManifest(
 
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(options.color));
+        error_bundle.renderToStdErr(options.color.renderOptions());
 
         process.exit(2);
     }

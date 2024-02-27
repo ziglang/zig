@@ -35,7 +35,7 @@ const InternPool = @import("InternPool.zig");
 const Cache = std.Build.Cache;
 const c_codegen = @import("codegen/c.zig");
 const libtsan = @import("libtsan.zig");
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Autodoc = @import("Autodoc.zig");
 const resinator = @import("resinator.zig");
 const Builtin = @import("Builtin.zig");
@@ -3322,85 +3322,10 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Module.File) !void {
     assert(file.zir_loaded);
     assert(file.tree_loaded);
     assert(file.source_loaded);
-    const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
-    assert(payload_index != 0);
     const gpa = eb.gpa;
-
-    const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
-    const items_len = header.data.items_len;
-    var extra_index = header.end;
-    for (0..items_len) |_| {
-        const item = file.zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
-        extra_index = item.end;
-        const err_span = blk: {
-            if (item.data.node != 0) {
-                break :blk Module.SrcLoc.nodeToSpan(&file.tree, item.data.node);
-            }
-            const token_starts = file.tree.tokens.items(.start);
-            const start = token_starts[item.data.token] + item.data.byte_offset;
-            const end = start + @as(u32, @intCast(file.tree.tokenSlice(item.data.token).len)) - item.data.byte_offset;
-            break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
-        };
-        const err_loc = std.zig.findLineColumn(file.source, err_span.main);
-
-        {
-            const msg = file.zir.nullTerminatedString(item.data.msg);
-            const src_path = try file.fullPath(gpa);
-            defer gpa.free(src_path);
-            try eb.addRootErrorMessage(.{
-                .msg = try eb.addString(msg),
-                .src_loc = try eb.addSourceLocation(.{
-                    .src_path = try eb.addString(src_path),
-                    .span_start = err_span.start,
-                    .span_main = err_span.main,
-                    .span_end = err_span.end,
-                    .line = @as(u32, @intCast(err_loc.line)),
-                    .column = @as(u32, @intCast(err_loc.column)),
-                    .source_line = try eb.addString(err_loc.source_line),
-                }),
-                .notes_len = item.data.notesLen(file.zir),
-            });
-        }
-
-        if (item.data.notes != 0) {
-            const notes_start = try eb.reserveNotes(item.data.notes);
-            const block = file.zir.extraData(Zir.Inst.Block, item.data.notes);
-            const body = file.zir.extra[block.end..][0..block.data.body_len];
-            for (notes_start.., body) |note_i, body_elem| {
-                const note_item = file.zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
-                const msg = file.zir.nullTerminatedString(note_item.data.msg);
-                const span = blk: {
-                    if (note_item.data.node != 0) {
-                        break :blk Module.SrcLoc.nodeToSpan(&file.tree, note_item.data.node);
-                    }
-                    const token_starts = file.tree.tokens.items(.start);
-                    const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                    const end = start + @as(u32, @intCast(file.tree.tokenSlice(note_item.data.token).len)) - item.data.byte_offset;
-                    break :blk Module.SrcLoc.Span{ .start = start, .end = end, .main = start };
-                };
-                const loc = std.zig.findLineColumn(file.source, span.main);
-                const src_path = try file.fullPath(gpa);
-                defer gpa.free(src_path);
-
-                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                    .msg = try eb.addString(msg),
-                    .src_loc = try eb.addSourceLocation(.{
-                        .src_path = try eb.addString(src_path),
-                        .span_start = span.start,
-                        .span_main = span.main,
-                        .span_end = span.end,
-                        .line = @as(u32, @intCast(loc.line)),
-                        .column = @as(u32, @intCast(loc.column)),
-                        .source_line = if (loc.eql(err_loc))
-                            0
-                        else
-                            try eb.addString(loc.source_line),
-                    }),
-                    .notes_len = 0, // TODO rework this function to be recursive
-                }));
-            }
-        }
-    }
+    const src_path = try file.fullPath(gpa);
+    defer gpa.free(src_path);
+    return eb.addZirErrorMessages(file.zir, file.tree, file.source, src_path);
 }
 
 pub fn performAllTheWork(

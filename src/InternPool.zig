@@ -338,7 +338,7 @@ const Hash = std.hash.Wyhash;
 const InternPool = @This();
 const Module = @import("Module.zig");
 const Zcu = Module;
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 
 const KeyAdapter = struct {
     intern_pool: *const InternPool,
@@ -383,27 +383,8 @@ pub const RuntimeIndex = enum(u32) {
     }
 };
 
-pub const DeclIndex = enum(u32) {
-    _,
-
-    pub fn toOptional(i: DeclIndex) OptionalDeclIndex {
-        return @enumFromInt(@intFromEnum(i));
-    }
-};
-
-pub const OptionalDeclIndex = enum(u32) {
-    none = std.math.maxInt(u32),
-    _,
-
-    pub fn init(oi: ?DeclIndex) OptionalDeclIndex {
-        return @enumFromInt(@intFromEnum(oi orelse return .none));
-    }
-
-    pub fn unwrap(oi: OptionalDeclIndex) ?DeclIndex {
-        if (oi == .none) return null;
-        return @enumFromInt(@intFromEnum(oi));
-    }
-};
+pub const DeclIndex = std.zig.DeclIndex;
+pub const OptionalDeclIndex = std.zig.OptionalDeclIndex;
 
 pub const NamespaceIndex = enum(u32) {
     _,
@@ -2877,7 +2858,7 @@ pub const static_keys = [_]Key{
 /// This is specified with an integer literal and a corresponding comptime
 /// assert below to break an unfortunate and arguably incorrect dependency loop
 /// when compiling.
-pub const static_len = 84;
+pub const static_len = Zir.Inst.Index.static_len;
 comptime {
     //@compileLog(static_keys.len);
     assert(static_len == static_keys.len);
