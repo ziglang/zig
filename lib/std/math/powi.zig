@@ -91,7 +91,7 @@ pub fn powi(comptime T: type, x: T, y: T) (error{
     return acc;
 }
 
-test "math.powi" {
+test powi {
     try testing.expectError(error.Overflow, powi(i8, -66, 6));
     try testing.expectError(error.Overflow, powi(i16, -13, 13));
     try testing.expectError(error.Overflow, powi(i32, -32, 21));
@@ -141,7 +141,7 @@ test "math.powi" {
     try testing.expectError(error.Underflow, powi(i42, 34, -6));
 }
 
-test "math.powi.special" {
+test "powi.special" {
     try testing.expectError(error.Overflow, powi(i8, -2, 8));
     try testing.expectError(error.Overflow, powi(i16, -2, 16));
     try testing.expectError(error.Overflow, powi(i32, -2, 32));
@@ -186,7 +186,7 @@ test "math.powi.special" {
     try testing.expect((try powi(u42, 34, 0)) == 1);
 }
 
-test "math.powi.narrow" {
+test "powi.narrow" {
     try testing.expectError(error.Overflow, powi(u0, 0, 0));
     try testing.expectError(error.Overflow, powi(i0, 0, 0));
     try testing.expectError(error.Overflow, powi(i1, 0, 0));

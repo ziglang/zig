@@ -1231,7 +1231,7 @@ fn addOrOom(a: usize, b: usize) error{OutOfMemory}!usize {
     return result;
 }
 
-test "std.ArrayList/ArrayListUnmanaged.init" {
+test "init" {
     {
         var list = ArrayList(i32).init(testing.allocator);
         defer list.deinit();
@@ -1248,7 +1248,7 @@ test "std.ArrayList/ArrayListUnmanaged.init" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.initCapacity" {
+test "initCapacity" {
     const a = testing.allocator;
     {
         var list = try ArrayList(i8).initCapacity(a, 200);
@@ -1264,7 +1264,7 @@ test "std.ArrayList/ArrayListUnmanaged.initCapacity" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.clone" {
+test "clone" {
     const a = testing.allocator;
     {
         var array = ArrayList(i32).init(a);
@@ -1305,7 +1305,7 @@ test "std.ArrayList/ArrayListUnmanaged.clone" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.basic" {
+test "basic" {
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1409,7 +1409,7 @@ test "std.ArrayList/ArrayListUnmanaged.basic" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.appendNTimes" {
+test "appendNTimes" {
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1433,7 +1433,7 @@ test "std.ArrayList/ArrayListUnmanaged.appendNTimes" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.appendNTimes with failing allocator" {
+test "appendNTimes with failing allocator" {
     const a = testing.failing_allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1447,7 +1447,7 @@ test "std.ArrayList/ArrayListUnmanaged.appendNTimes with failing allocator" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.orderedRemove" {
+test "orderedRemove" {
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1519,7 +1519,7 @@ test "std.ArrayList/ArrayListUnmanaged.orderedRemove" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.swapRemove" {
+test "swapRemove" {
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1575,7 +1575,7 @@ test "std.ArrayList/ArrayListUnmanaged.swapRemove" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.insert" {
+test "insert" {
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1605,7 +1605,7 @@ test "std.ArrayList/ArrayListUnmanaged.insert" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.insertSlice" {
+test "insertSlice" {
     const a = testing.allocator;
     {
         var list = ArrayList(i32).init(a);
@@ -1651,7 +1651,7 @@ test "std.ArrayList/ArrayListUnmanaged.insertSlice" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.replaceRange" {
+test "replaceRange" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -1773,7 +1773,7 @@ const ItemUnmanaged = struct {
     sub_items: ArrayListUnmanaged(ItemUnmanaged),
 };
 
-test "std.ArrayList/ArrayListUnmanaged: ArrayList(T) of struct T" {
+test "ArrayList(T) of struct T" {
     const a = std.testing.allocator;
     {
         var root = Item{ .integer = 1, .sub_items = ArrayList(Item).init(a) };
@@ -1789,7 +1789,7 @@ test "std.ArrayList/ArrayListUnmanaged: ArrayList(T) of struct T" {
     }
 }
 
-test "std.ArrayList(u8)/ArrayListAligned implements writer" {
+test "ArrayList(u8) implements writer" {
     const a = testing.allocator;
 
     {
@@ -1816,7 +1816,7 @@ test "std.ArrayList(u8)/ArrayListAligned implements writer" {
     }
 }
 
-test "std.ArrayListUnmanaged(u8) implements writer" {
+test "ArrayListUnmanaged(u8) implements writer" {
     const a = testing.allocator;
 
     {
@@ -1883,7 +1883,7 @@ test "shrinkAndFree with a copy" {
     try testing.expect(mem.eql(i32, list.items, &.{ 3, 3, 3, 3 }));
 }
 
-test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
+test "addManyAsArray" {
     const a = std.testing.allocator;
     {
         var list = ArrayList(u8).init(a);
@@ -1907,7 +1907,7 @@ test "std.ArrayList/ArrayListUnmanaged.addManyAsArray" {
     }
 }
 
-test "std.ArrayList/ArrayListUnmanaged growing memory preserves contents" {
+test "growing memory preserves contents" {
     // Shrink the list after every insertion to ensure that a memory growth
     // will be triggered in the next operation.
     const a = std.testing.allocator;
@@ -1941,46 +1941,55 @@ test "std.ArrayList/ArrayListUnmanaged growing memory preserves contents" {
     }
 }
 
-test "std.ArrayList/ArrayList.fromOwnedSliceSentinel" {
+test "fromOwnedSlice" {
     const a = testing.allocator;
+    {
+        var orig_list = ArrayList(u8).init(a);
+        defer orig_list.deinit();
+        try orig_list.appendSlice("foobar");
 
-    var orig_list = ArrayList(u8).init(a);
-    defer orig_list.deinit();
-    try orig_list.appendSlice("foobar");
-    const sentinel_slice = try orig_list.toOwnedSliceSentinel(0);
+        const slice = try orig_list.toOwnedSlice();
+        var list = ArrayList(u8).fromOwnedSlice(a, slice);
+        defer list.deinit();
+        try testing.expectEqualStrings(list.items, "foobar");
+    }
+    {
+        var list = ArrayList(u8).init(a);
+        defer list.deinit();
+        try list.appendSlice("foobar");
 
-    var list = ArrayList(u8).fromOwnedSliceSentinel(a, 0, sentinel_slice);
-    defer list.deinit();
-    try testing.expectEqualStrings(list.items, "foobar");
+        const slice = try list.toOwnedSlice();
+        var unmanaged = ArrayListUnmanaged(u8).fromOwnedSlice(slice);
+        defer unmanaged.deinit(a);
+        try testing.expectEqualStrings(unmanaged.items, "foobar");
+    }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.fromOwnedSlice" {
+test "fromOwnedSliceSentinel" {
     const a = testing.allocator;
+    {
+        var orig_list = ArrayList(u8).init(a);
+        defer orig_list.deinit();
+        try orig_list.appendSlice("foobar");
 
-    var list = ArrayList(u8).init(a);
-    defer list.deinit();
-    try list.appendSlice("foobar");
+        const sentinel_slice = try orig_list.toOwnedSliceSentinel(0);
+        var list = ArrayList(u8).fromOwnedSliceSentinel(a, 0, sentinel_slice);
+        defer list.deinit();
+        try testing.expectEqualStrings(list.items, "foobar");
+    }
+    {
+        var list = ArrayList(u8).init(a);
+        defer list.deinit();
+        try list.appendSlice("foobar");
 
-    const slice = try list.toOwnedSlice();
-    var unmanaged = ArrayListUnmanaged(u8).fromOwnedSlice(slice);
-    defer unmanaged.deinit(a);
-    try testing.expectEqualStrings(unmanaged.items, "foobar");
+        const sentinel_slice = try list.toOwnedSliceSentinel(0);
+        var unmanaged = ArrayListUnmanaged(u8).fromOwnedSliceSentinel(0, sentinel_slice);
+        defer unmanaged.deinit(a);
+        try testing.expectEqualStrings(unmanaged.items, "foobar");
+    }
 }
 
-test "std.ArrayList/ArrayListUnmanaged.fromOwnedSliceSentinel" {
-    const a = testing.allocator;
-
-    var list = ArrayList(u8).init(a);
-    defer list.deinit();
-    try list.appendSlice("foobar");
-
-    const sentinel_slice = try list.toOwnedSliceSentinel(0);
-    var unmanaged = ArrayListUnmanaged(u8).fromOwnedSliceSentinel(0, sentinel_slice);
-    defer unmanaged.deinit(a);
-    try testing.expectEqualStrings(unmanaged.items, "foobar");
-}
-
-test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
+test "toOwnedSliceSentinel" {
     const a = testing.allocator;
     {
         var list = ArrayList(u8).init(a);
@@ -2004,7 +2013,7 @@ test "std.ArrayList/ArrayListUnmanaged.toOwnedSliceSentinel" {
     }
 }
 
-test "ArrayListAligned/ArrayListAlignedUnmanaged accepts unaligned slices" {
+test "accepts unaligned slices" {
     const a = testing.allocator;
     {
         var list = std.ArrayListAligned(u8, 8).init(a);
@@ -2028,7 +2037,7 @@ test "ArrayListAligned/ArrayListAlignedUnmanaged accepts unaligned slices" {
     }
 }
 
-test "std.ArrayList(u0)" {
+test "ArrayList(u0)" {
     // An ArrayList on zero-sized types should not need to allocate
     const a = testing.failing_allocator;
 
@@ -2048,7 +2057,7 @@ test "std.ArrayList(u0)" {
     try testing.expectEqual(count, 3);
 }
 
-test "std.ArrayList(?u32).popOrNull()" {
+test "ArrayList(?u32).popOrNull()" {
     const a = testing.allocator;
 
     var list = ArrayList(?u32).init(a);
@@ -2065,7 +2074,7 @@ test "std.ArrayList(?u32).popOrNull()" {
     try testing.expect(list.popOrNull() == null);
 }
 
-test "std.ArrayList(u32).getLast()" {
+test "ArrayList(u32).getLast()" {
     const a = testing.allocator;
 
     var list = ArrayList(u32).init(a);
@@ -2076,7 +2085,7 @@ test "std.ArrayList(u32).getLast()" {
     try testing.expectEqual(const_list.getLast(), 2);
 }
 
-test "std.ArrayList(u32).getLastOrNull()" {
+test "ArrayList(u32).getLastOrNull()" {
     const a = testing.allocator;
 
     var list = ArrayList(u32).init(a);

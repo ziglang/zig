@@ -46,7 +46,7 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     }
 }
 
-test "std.meta.stringToEnum" {
+test stringToEnum {
     const E1 = enum {
         A,
         B,
@@ -73,7 +73,7 @@ pub fn alignment(comptime T: type) comptime_int {
     };
 }
 
-test "std.meta.alignment" {
+test alignment {
     try testing.expect(alignment(u8) == 1);
     try testing.expect(alignment(*align(1) u8) == 1);
     try testing.expect(alignment(*align(2) u8) == 2);
@@ -94,7 +94,7 @@ pub fn Child(comptime T: type) type {
     };
 }
 
-test "std.meta.Child" {
+test Child {
     try testing.expect(Child([1]u8) == u8);
     try testing.expect(Child(*u8) == u8);
     try testing.expect(Child([]u8) == u8);
@@ -121,7 +121,7 @@ pub fn Elem(comptime T: type) type {
     @compileError("Expected pointer, slice, array or vector type, found '" ++ @typeName(T) ++ "'");
 }
 
-test "std.meta.Elem" {
+test Elem {
     try testing.expect(Elem([1]u8) == u8);
     try testing.expect(Elem([*]u8) == u8);
     try testing.expect(Elem([]u8) == u8);
@@ -255,7 +255,7 @@ pub fn containerLayout(comptime T: type) Type.ContainerLayout {
     };
 }
 
-test "std.meta.containerLayout" {
+test containerLayout {
     const S1 = struct {};
     const S2 = packed struct {};
     const S3 = extern struct {};
@@ -289,7 +289,7 @@ pub fn declarations(comptime T: type) []const Type.Declaration {
     };
 }
 
-test "std.meta.declarations" {
+test declarations {
     const E1 = enum {
         A,
 
@@ -329,7 +329,7 @@ pub fn declarationInfo(comptime T: type, comptime decl_name: []const u8) Type.De
     @compileError("'" ++ @typeName(T) ++ "' has no declaration '" ++ decl_name ++ "'");
 }
 
-test "std.meta.declarationInfo" {
+test declarationInfo {
     const E1 = enum {
         A,
 
@@ -370,7 +370,7 @@ pub fn fields(comptime T: type) switch (@typeInfo(T)) {
     };
 }
 
-test "std.meta.fields" {
+test fields {
     const E1 = enum {
         A,
     };
@@ -409,7 +409,7 @@ pub fn fieldInfo(comptime T: type, comptime field: FieldEnum(T)) switch (@typeIn
     return fields(T)[@intFromEnum(field)];
 }
 
-test "std.meta.fieldInfo" {
+test fieldInfo {
     const E1 = enum {
         A,
     };
@@ -442,7 +442,7 @@ pub fn FieldType(comptime T: type, comptime field: FieldEnum(T)) type {
     return fieldInfo(T, field).type;
 }
 
-test "std.meta.FieldType" {
+test FieldType {
     const S = struct {
         a: u8,
         b: u16,
@@ -470,7 +470,7 @@ pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
     };
 }
 
-test "std.meta.fieldNames" {
+test fieldNames {
     const E1 = enum { A, B };
     const E2 = error{A};
     const S1 = struct {
@@ -511,7 +511,7 @@ pub fn tags(comptime T: type) *const [fields(T).len]T {
     };
 }
 
-test "std.meta.tags" {
+test tags {
     const E1 = enum { A, B };
     const E2 = error{A};
 
@@ -604,7 +604,7 @@ fn expectEqualEnum(expected: anytype, actual: @TypeOf(expected)) !void {
     );
 }
 
-test "std.meta.FieldEnum" {
+test FieldEnum {
     try expectEqualEnum(enum {}, FieldEnum(struct {}));
     try expectEqualEnum(enum { a }, FieldEnum(struct { a: u8 }));
     try expectEqualEnum(enum { a, b, c }, FieldEnum(struct { a: u8, b: void, c: f32 }));
@@ -639,7 +639,7 @@ pub fn DeclEnum(comptime T: type) type {
     });
 }
 
-test "std.meta.DeclEnum" {
+test DeclEnum {
     const A = struct {
         pub const a: u8 = 0;
     };
@@ -670,7 +670,7 @@ pub fn Tag(comptime T: type) type {
     };
 }
 
-test "std.meta.Tag" {
+test Tag {
     const E = enum(u8) {
         C = 33,
         D,
@@ -690,7 +690,7 @@ pub fn activeTag(u: anytype) Tag(@TypeOf(u)) {
     return @as(Tag(T), u);
 }
 
-test "std.meta.activeTag" {
+test activeTag {
     const UE = enum {
         Int,
         Float,
@@ -727,7 +727,7 @@ pub fn TagPayload(comptime U: type, comptime tag: Tag(U)) type {
     return TagPayloadByName(U, @tagName(tag));
 }
 
-test "std.meta.TagPayload" {
+test TagPayload {
     const Event = union(enum) {
         Moved: struct {
             from: i32,
@@ -802,7 +802,7 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
     }
 }
 
-test "std.meta.eql" {
+test eql {
     const S = struct {
         a: u32,
         b: f64,
@@ -863,7 +863,7 @@ test "std.meta.eql" {
     try testing.expect(!eql(v1, v3));
 }
 
-test "intToEnum with error return" {
+test intToEnum {
     const E1 = enum {
         A,
     };
@@ -965,7 +965,7 @@ pub fn Float(comptime bit_count: u8) type {
     });
 }
 
-test "std.meta.Float" {
+test Float {
     try testing.expectEqual(f16, Float(16));
     try testing.expectEqual(f32, Float(32));
     try testing.expectEqual(f64, Float(64));
@@ -1057,7 +1057,7 @@ const TupleTester = struct {
     }
 };
 
-test "ArgsTuple" {
+test ArgsTuple {
     TupleTester.assertTuple(.{}, ArgsTuple(fn () void));
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (a: u32) []const u8));
     TupleTester.assertTuple(.{ u32, f16 }, ArgsTuple(fn (a: u32, b: f16) noreturn));
@@ -1065,7 +1065,7 @@ test "ArgsTuple" {
     TupleTester.assertTuple(.{u32}, ArgsTuple(fn (comptime a: u32) []const u8));
 }
 
-test "Tuple" {
+test Tuple {
     TupleTester.assertTuple(.{}, Tuple(&[_]type{}));
     TupleTester.assertTuple(.{u32}, Tuple(&[_]type{u32}));
     TupleTester.assertTuple(.{ u32, f16 }, Tuple(&[_]type{ u32, f16 }));
@@ -1103,7 +1103,7 @@ pub fn isError(error_union: anytype) bool {
     return if (error_union) |_| false else |_| true;
 }
 
-test "isError" {
+test isError {
     try std.testing.expect(isError(math.divTrunc(u8, 5, 0)));
     try std.testing.expect(!isError(math.divTrunc(u8, 5, 5)));
 }
@@ -1121,7 +1121,7 @@ pub inline fn hasFn(comptime T: type, comptime name: []const u8) bool {
     return @typeInfo(@TypeOf(@field(T, name))) == .Fn;
 }
 
-test "hasFn" {
+test hasFn {
     const S1 = struct {
         pub fn foo() void {}
     };
@@ -1149,7 +1149,7 @@ pub inline fn hasMethod(comptime T: type, comptime name: []const u8) bool {
     };
 }
 
-test "hasMethod" {
+test hasMethod {
     try std.testing.expect(!hasMethod(u32, "foo"));
     try std.testing.expect(!hasMethod([]u32, "len"));
     try std.testing.expect(!hasMethod(struct { u32, u64 }, "len"));
@@ -1218,7 +1218,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
     };
 }
 
-test "hasUniqueRepresentation" {
+test hasUniqueRepresentation {
     const TestStruct1 = struct {
         a: u32,
         b: u32,

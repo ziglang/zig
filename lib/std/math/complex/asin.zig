@@ -19,7 +19,7 @@ pub fn asin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
 
 const epsilon = 0.0001;
 
-test "complex.casin" {
+test asin {
     const a = Complex(f32).init(5, 3);
     const c = asin(a);
 

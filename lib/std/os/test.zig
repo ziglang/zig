@@ -393,7 +393,7 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
     thread_id.* = Thread.getCurrentId();
 }
 
-test "std.Thread.getCurrentId" {
+test "Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var thread_current_id: Thread.Id = undefined;

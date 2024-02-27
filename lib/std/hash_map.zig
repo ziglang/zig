@@ -1612,7 +1612,7 @@ const testing = std.testing;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-test "std.hash_map basic usage" {
+test "basic usage" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1640,7 +1640,7 @@ test "std.hash_map basic usage" {
     try expectEqual(total, sum);
 }
 
-test "std.hash_map ensureTotalCapacity" {
+test "ensureTotalCapacity" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1655,7 +1655,7 @@ test "std.hash_map ensureTotalCapacity" {
     try testing.expect(initial_capacity == map.capacity());
 }
 
-test "std.hash_map ensureUnusedCapacity with tombstones" {
+test "ensureUnusedCapacity with tombstones" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1667,7 +1667,7 @@ test "std.hash_map ensureUnusedCapacity with tombstones" {
     }
 }
 
-test "std.hash_map clearRetainingCapacity" {
+test "clearRetainingCapacity" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1692,7 +1692,7 @@ test "std.hash_map clearRetainingCapacity" {
     try expect(!map.contains(1));
 }
 
-test "std.hash_map grow" {
+test "grow" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1718,7 +1718,7 @@ test "std.hash_map grow" {
     }
 }
 
-test "std.hash_map clone" {
+test "clone" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1756,7 +1756,7 @@ test "std.hash_map clone" {
     }
 }
 
-test "std.hash_map ensureTotalCapacity with existing elements" {
+test "ensureTotalCapacity with existing elements" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1769,7 +1769,7 @@ test "std.hash_map ensureTotalCapacity with existing elements" {
     try expectEqual(map.capacity(), 128);
 }
 
-test "std.hash_map ensureTotalCapacity satisfies max load factor" {
+test "ensureTotalCapacity satisfies max load factor" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1777,7 +1777,7 @@ test "std.hash_map ensureTotalCapacity satisfies max load factor" {
     try expectEqual(map.capacity(), 256);
 }
 
-test "std.hash_map remove" {
+test "remove" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1809,7 +1809,7 @@ test "std.hash_map remove" {
     }
 }
 
-test "std.hash_map reverse removes" {
+test "reverse removes" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1831,7 +1831,7 @@ test "std.hash_map reverse removes" {
     try expectEqual(map.count(), 0);
 }
 
-test "std.hash_map multiple removes on same metadata" {
+test "multiple removes on same metadata" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1868,7 +1868,7 @@ test "std.hash_map multiple removes on same metadata" {
     }
 }
 
-test "std.hash_map put and remove loop in random order" {
+test "put and remove loop in random order" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1900,7 +1900,7 @@ test "std.hash_map put and remove loop in random order" {
     }
 }
 
-test "std.hash_map remove one million elements in random order" {
+test "remove one million elements in random order" {
     const Map = AutoHashMap(u32, u32);
     const n = 1000 * 1000;
     var map = Map.init(std.heap.page_allocator);
@@ -1930,7 +1930,7 @@ test "std.hash_map remove one million elements in random order" {
     }
 }
 
-test "std.hash_map put" {
+test "put" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1955,7 +1955,7 @@ test "std.hash_map put" {
     }
 }
 
-test "std.hash_map putAssumeCapacity" {
+test "putAssumeCapacity" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -1985,7 +1985,7 @@ test "std.hash_map putAssumeCapacity" {
     try expectEqual(sum, 20);
 }
 
-test "std.hash_map repeat putAssumeCapacity/remove" {
+test "repeat putAssumeCapacity/remove" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2017,7 +2017,7 @@ test "std.hash_map repeat putAssumeCapacity/remove" {
     try expectEqual(map.unmanaged.count(), limit);
 }
 
-test "std.hash_map getOrPut" {
+test "getOrPut" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2040,7 +2040,7 @@ test "std.hash_map getOrPut" {
     try expectEqual(sum, 30);
 }
 
-test "std.hash_map basic hash map usage" {
+test "basic hash map usage" {
     var map = AutoHashMap(i32, i32).init(std.testing.allocator);
     defer map.deinit();
 
@@ -2085,7 +2085,7 @@ test "std.hash_map basic hash map usage" {
     try testing.expect(map.remove(3) == true);
 }
 
-test "std.hash_map getOrPutAdapted" {
+test "getOrPutAdapted" {
     const AdaptedContext = struct {
         fn eql(self: @This(), adapted_key: []const u8, test_key: u64) bool {
             _ = self;
@@ -2134,7 +2134,7 @@ test "std.hash_map getOrPutAdapted" {
     }
 }
 
-test "std.hash_map ensureUnusedCapacity" {
+test "ensureUnusedCapacity" {
     var map = AutoHashMap(u64, u64).init(testing.allocator);
     defer map.deinit();
 
@@ -2147,7 +2147,7 @@ test "std.hash_map ensureUnusedCapacity" {
     try testing.expectEqual(capacity, map.capacity());
 }
 
-test "std.hash_map removeByPtr" {
+test "removeByPtr" {
     var map = AutoHashMap(i32, u64).init(testing.allocator);
     defer map.deinit();
 
@@ -2173,7 +2173,7 @@ test "std.hash_map removeByPtr" {
     try testing.expect(map.count() == 0);
 }
 
-test "std.hash_map removeByPtr 0 sized key" {
+test "removeByPtr 0 sized key" {
     var map = AutoHashMap(u0, u64).init(testing.allocator);
     defer map.deinit();
 
@@ -2191,7 +2191,7 @@ test "std.hash_map removeByPtr 0 sized key" {
     try testing.expect(map.count() == 0);
 }
 
-test "std.hash_map repeat fetchRemove" {
+test "repeat fetchRemove" {
     var map = AutoHashMapUnmanaged(u64, void){};
     defer map.deinit(testing.allocator);
 

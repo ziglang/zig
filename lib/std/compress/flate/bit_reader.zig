@@ -218,7 +218,7 @@ pub fn BitReader(comptime ReaderType: type) type {
     };
 }
 
-test "flate.BitReader" {
+test "BitReader" {
     var fbs = std.io.fixedBufferStream(&[_]u8{ 0xf3, 0x48, 0xcd, 0xc9, 0x00, 0x00 });
     var br = bitReader(fbs.reader());
     const F = BitReader(@TypeOf(fbs.reader())).flag;
@@ -253,7 +253,7 @@ test "flate.BitReader" {
     try testing.expectEqual(@as(u16, 0xc), try br.readN(4, 0));
 }
 
-test "flate.BitReader read block type 1 data" {
+test "read block type 1 data" {
     const data = [_]u8{
         0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf, // deflate data block type 1
         0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00,
@@ -277,7 +277,7 @@ test "flate.BitReader read block type 1 data" {
     try testing.expectEqual(@as(u16, 0xddcc), try br.readF(u16, 0));
 }
 
-test "flate.BitReader init" {
+test "init" {
     const data = [_]u8{
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
@@ -302,7 +302,7 @@ test "flate.BitReader init" {
     try testing.expectEqual(@as(u64, 0x00_00_00_00_00_08_07_06), br.bits);
 }
 
-test "flate.BitReader readAll" {
+test "readAll" {
     const data = [_]u8{
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
@@ -320,7 +320,7 @@ test "flate.BitReader readAll" {
     try testing.expectEqualSlices(u8, data[0..16], &out);
 }
 
-test "flate.BitReader readFixedCode" {
+test "readFixedCode" {
     const fixed_codes = @import("huffman_encoder.zig").fixed_codes;
 
     var fbs = std.io.fixedBufferStream(&fixed_codes);

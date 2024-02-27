@@ -173,7 +173,7 @@ pub fn fill(self: *Isaac64, buf: []u8) void {
     }
 }
 
-test "isaac64 sequence" {
+test "sequence" {
     var r = Isaac64.init(0);
 
     // from reference implementation
@@ -201,7 +201,7 @@ test "isaac64 sequence" {
     }
 }
 
-test "isaac64 fill" {
+test fill {
     var r = Isaac64.init(0);
 
     // from reference implementation

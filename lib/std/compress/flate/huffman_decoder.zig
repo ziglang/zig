@@ -93,7 +93,6 @@ fn HuffmanDecoder(
             var code: u16 = 0;
             var idx: u16 = 0;
             for (&self.symbols, 0..) |*sym, pos| {
-                //print("sym: {}\n", .{sym});
                 if (sym.code_bits == 0) continue; // skip unused
                 sym.code = code;
 
@@ -116,7 +115,6 @@ fn HuffmanDecoder(
                 idx = next_idx;
                 code = next_code;
             }
-            //print("decoder generate, code: {d}, idx: {d}\n", .{ code, idx });
         }
 
         /// Given the list of code lengths check that it represents a canonical
@@ -176,7 +174,7 @@ fn HuffmanDecoder(
     };
 }
 
-test "flate.HuffmanDecoder init/find" {
+test "init/find" {
     // example data from: https://youtu.be/SJPvNi4HrWQ?t=8423
     const code_lens = [_]u4{ 4, 3, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 3, 2 };
     var h: CodegenDecoder = .{};
@@ -252,11 +250,7 @@ test "flate.HuffmanDecoder init/find" {
         try testing.expectEqual(16, (try h.find(@intCast(c))).symbol);
 }
 
-const print = std.debug.print;
-const assert = std.debug.assert;
-const expect = std.testing.expect;
-
-test "flate.HuffmanDecoder encode/decode literals" {
+test "encode/decode literals" {
     const LiteralEncoder = @import("huffman_encoder.zig").LiteralEncoder;
 
     for (1..286) |j| { // for all different number of codes
@@ -292,7 +286,7 @@ test "flate.HuffmanDecoder encode/decode literals" {
             };
 
             const c = enc.codes[symbol];
-            try expect(c.code == c_code);
+            try testing.expect(c.code == c_code);
         }
 
         // find each symbol by code
@@ -301,8 +295,8 @@ test "flate.HuffmanDecoder encode/decode literals" {
 
             const s_code: u15 = @bitReverse(@as(u15, @intCast(c.code)));
             const s = try dec.find(s_code);
-            try expect(s.code == s_code);
-            try expect(s.code_bits == c.len);
+            try testing.expect(s.code == s_code);
+            try testing.expect(s.code_bits == c.len);
         }
     }
 }

@@ -222,7 +222,7 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
     try std.testing.expectEqualSlices(u8, expected, buf);
 }
 
-test "zstandard decompression" {
+test "decompression" {
     const uncompressed = @embedFile("testdata/rfc8478.txt");
     const compressed3 = @embedFile("testdata/rfc8478.txt.zst.3");
     const compressed19 = @embedFile("testdata/rfc8478.txt.zst.19");
@@ -239,7 +239,7 @@ test "zstandard decompression" {
     try std.testing.expectEqualSlices(u8, uncompressed, buffer);
 }
 
-test "zstandard streaming decompression" {
+test "streaming decompression" {
     // default stack size for wasm32 is too low for Decompressor - slightly
     // over 1MiB stack space is needed via the --stack CLI flag
     if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;

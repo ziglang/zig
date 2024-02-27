@@ -88,7 +88,7 @@ pub fn fill(self: *Xoroshiro128, buf: []u8) void {
     }
 }
 
-test "xoroshiro sequence" {
+test "sequence" {
     var r = Xoroshiro128.init(0);
     r.s[0] = 0xaeecf86f7878dd75;
     r.s[1] = 0x01cd153642e72622;
@@ -122,7 +122,7 @@ test "xoroshiro sequence" {
     }
 }
 
-test "xoroshiro fill" {
+test fill {
     var r = Xoroshiro128.init(0);
     r.s[0] = 0xaeecf86f7878dd75;
     r.s[1] = 0x01cd153642e72622;

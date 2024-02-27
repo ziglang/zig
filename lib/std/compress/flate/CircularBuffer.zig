@@ -130,7 +130,7 @@ pub fn full(self: *Self) bool {
 }
 
 // example from: https://youtu.be/SJPvNi4HrWQ?t=3558
-test "flate.CircularBuffer writeMatch" {
+test writeMatch {
     var cb: Self = .{};
 
     cb.writeAll("a salad; ");
@@ -140,7 +140,7 @@ test "flate.CircularBuffer writeMatch" {
     try testing.expectEqualStrings("a salad; a salsal", cb.read());
 }
 
-test "flate.CircularBuffer writeMatch overlap" {
+test "writeMatch overlap" {
     var cb: Self = .{};
 
     cb.writeAll("a b c ");
@@ -150,7 +150,7 @@ test "flate.CircularBuffer writeMatch overlap" {
     try testing.expectEqualStrings("a b c b c b c d", cb.read());
 }
 
-test "flate.CircularBuffer readAtMost" {
+test readAtMost {
     var cb: Self = .{};
 
     cb.writeAll("0123456789");
@@ -165,7 +165,7 @@ test "flate.CircularBuffer readAtMost" {
     try testing.expectEqualStrings("", cb.read());
 }
 
-test "flate.CircularBuffer" {
+test Self {
     var cb: Self = .{};
 
     const data = "0123456789abcdef" ** (1024 / 16);
@@ -201,7 +201,7 @@ test "flate.CircularBuffer" {
     try testing.expectEqual(@as(usize, 200), cb.read().len); // read the rest
 }
 
-test "flate.CircularBuffer write overlap" {
+test "write overlap" {
     var cb: Self = .{};
     cb.wp = cb.buffer.len - 15;
     cb.rp = cb.wp;
@@ -218,7 +218,7 @@ test "flate.CircularBuffer write overlap" {
     try testing.expect(cb.wp == cb.rp);
 }
 
-test "flate.CircularBuffer writeMatch/read overlap" {
+test "writeMatch/read overlap" {
     var cb: Self = .{};
     cb.wp = cb.buffer.len - 15;
     cb.rp = cb.wp;

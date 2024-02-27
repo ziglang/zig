@@ -84,7 +84,7 @@ test {
     _ = inflate;
 }
 
-test "flate compress/decompress" {
+test "compress/decompress" {
     if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
 
     var cmp_buf: [64 * 1024]u8 = undefined; // compressed data buffer
@@ -252,7 +252,7 @@ fn testDecompress(comptime container: Container, compressed: []const u8, expecte
     try testing.expectEqualSlices(u8, expected_plain, out.items);
 }
 
-test "flate don't read past deflate stream's end" {
+test "don't read past deflate stream's end" {
     try testDecompress(.zlib, &[_]u8{
         0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
         0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
@@ -264,7 +264,7 @@ test "flate don't read past deflate stream's end" {
     });
 }
 
-test "flate zlib header" {
+test "zlib header" {
     // Truncated header
     try testing.expectError(
         error.EndOfStream,
@@ -292,7 +292,7 @@ test "flate zlib header" {
     );
 }
 
-test "flate gzip header" {
+test "gzip header" {
     // Truncated header
     try testing.expectError(
         error.EndOfStream,
@@ -353,7 +353,7 @@ test "flate gzip header" {
     }, "");
 }
 
-test "flate public interface" {
+test "public interface" {
     if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
 
     const plain_data = [_]u8{ 'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a };

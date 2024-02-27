@@ -72,7 +72,7 @@ pub fn fill(self: *RomuTrio, buf: []u8) void {
     }
 }
 
-test "RomuTrio sequence" {
+test "sequence" {
     // Unfortunately there does not seem to be an official test sequence.
     var r = RomuTrio.init(0);
 
@@ -94,7 +94,7 @@ test "RomuTrio sequence" {
     }
 }
 
-test "RomuTrio fill" {
+test fill {
     // Unfortunately there does not seem to be an official test sequence.
     var r = RomuTrio.init(0);
 
@@ -120,7 +120,7 @@ test "RomuTrio fill" {
     }
 }
 
-test "RomuTrio buf seeding test" {
+test "buf seeding test" {
     const buf0 = @as([24]u8, @bitCast([3]u64{ 16294208416658607535, 13964609475759908645, 4703697494102998476 }));
     const resulting_state = .{ .x = 16294208416658607535, .y = 13964609475759908645, .z = 4703697494102998476 };
     var r = RomuTrio.init(0);

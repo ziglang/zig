@@ -342,7 +342,7 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
     };
 }
 
-test "flate.Inflate decompress" {
+test "decompress" {
     const cases = [_]struct {
         in: []const u8,
         out: []const u8,
@@ -383,7 +383,7 @@ test "flate.Inflate decompress" {
     }
 }
 
-test "flate.Inflate gzip decompress" {
+test "gzip decompress" {
     const cases = [_]struct {
         in: []const u8,
         out: []const u8,
@@ -440,7 +440,7 @@ test "flate.Inflate gzip decompress" {
     }
 }
 
-test "flate.Inflate zlib decompress" {
+test "zlib decompress" {
     const cases = [_]struct {
         in: []const u8,
         out: []const u8,
@@ -466,7 +466,7 @@ test "flate.Inflate zlib decompress" {
     }
 }
 
-test "flate.Inflate fuzzing tests" {
+test "fuzzing tests" {
     const cases = [_]struct {
         input: []const u8,
         out: []const u8 = "",
@@ -529,7 +529,7 @@ test "flate.Inflate fuzzing tests" {
     }
 }
 
-test "flate bug 18966" {
+test "bug 18966" {
     const input = @embedFile("testdata/fuzz/bug_18966.input");
     const expect = @embedFile("testdata/fuzz/bug_18966.expect");
 
