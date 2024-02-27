@@ -2858,7 +2858,7 @@ pub const static_keys = [_]Key{
 /// This is specified with an integer literal and a corresponding comptime
 /// assert below to break an unfortunate and arguably incorrect dependency loop
 /// when compiling.
-pub const static_len = 84;
+pub const static_len = Zir.Inst.Index.static_len;
 comptime {
     //@compileLog(static_keys.len);
     assert(static_len == static_keys.len);
