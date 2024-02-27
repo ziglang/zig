@@ -6637,7 +6637,7 @@ pub const FuncGen = struct {
             .return_type = .void_type,
         });
 
-        const subprogram = try o.builder.debugSubprogram(
+        self.scope = try o.builder.debugSubprogram(
             self.file,
             try o.builder.metadataString(zcu.intern_pool.stringToSlice(decl.name)),
             try o.builder.metadataString(zcu.intern_pool.stringToSlice(fqn)),
@@ -6655,13 +6655,6 @@ pub const FuncGen = struct {
             o.debug_compile_unit,
         );
 
-        const lexical_block = try o.builder.debugLexicalBlock(
-            subprogram,
-            self.file,
-            line_number,
-            1,
-        );
-        self.scope = lexical_block;
         self.base_line = decl.src_line;
         const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
         self.wip.debug_location = .{
