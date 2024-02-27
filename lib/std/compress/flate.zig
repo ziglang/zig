@@ -85,8 +85,6 @@ test {
 }
 
 test "compress/decompress" {
-    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
-
     var cmp_buf: [64 * 1024]u8 = undefined; // compressed data buffer
     var dcm_buf: [64 * 1024]u8 = undefined; // decompressed data buffer
 
@@ -354,8 +352,6 @@ test "gzip header" {
 }
 
 test "public interface" {
-    if (builtin.target.cpu.arch == .wasm32) return error.SkipZigTest;
-
     const plain_data = [_]u8{ 'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a };
 
     // deflate final stored block, header + plain (stored) data
