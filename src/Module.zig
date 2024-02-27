@@ -13,6 +13,7 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
+const LazySrcLoc = std.zig.LazySrcLoc;
 
 /// Deprecated, use `Zcu`.
 const Module = Zcu;
@@ -663,6 +664,101 @@ pub const Decl = struct {
         assert(decl.has_tv);
         if (decl.alignment != .none) return decl.alignment;
         return decl.ty.abiAlignment(zcu);
+    }
+
+    /// Upgrade a `LazySrcLoc` to a `SrcLoc` based on the `Decl` provided.
+    pub fn toSrcLoc(decl: *Decl, lazy: LazySrcLoc, mod: *Module) SrcLoc {
+        return switch (lazy) {
+            .unneeded,
+            .entire_file,
+            .byte_abs,
+            .token_abs,
+            .node_abs,
+            => .{
+                .file_scope = decl.getFileScope(mod),
+                .parent_decl_node = 0,
+                .lazy = lazy,
+            },
+
+            .byte_offset,
+            .token_offset,
+            .node_offset,
+            .node_offset_main_token,
+            .node_offset_initializer,
+            .node_offset_var_decl_ty,
+            .node_offset_var_decl_align,
+            .node_offset_var_decl_section,
+            .node_offset_var_decl_addrspace,
+            .node_offset_var_decl_init,
+            .node_offset_builtin_call_arg0,
+            .node_offset_builtin_call_arg1,
+            .node_offset_builtin_call_arg2,
+            .node_offset_builtin_call_arg3,
+            .node_offset_builtin_call_arg4,
+            .node_offset_builtin_call_arg5,
+            .node_offset_ptrcast_operand,
+            .node_offset_array_access_index,
+            .node_offset_slice_ptr,
+            .node_offset_slice_start,
+            .node_offset_slice_end,
+            .node_offset_slice_sentinel,
+            .node_offset_call_func,
+            .node_offset_field_name,
+            .node_offset_field_name_init,
+            .node_offset_deref_ptr,
+            .node_offset_asm_source,
+            .node_offset_asm_ret_ty,
+            .node_offset_if_cond,
+            .node_offset_bin_op,
+            .node_offset_bin_lhs,
+            .node_offset_bin_rhs,
+            .node_offset_switch_operand,
+            .node_offset_switch_special_prong,
+            .node_offset_switch_range,
+            .node_offset_switch_prong_capture,
+            .node_offset_switch_prong_tag_capture,
+            .node_offset_fn_type_align,
+            .node_offset_fn_type_addrspace,
+            .node_offset_fn_type_section,
+            .node_offset_fn_type_cc,
+            .node_offset_fn_type_ret_ty,
+            .node_offset_param,
+            .token_offset_param,
+            .node_offset_anyframe_type,
+            .node_offset_lib_name,
+            .node_offset_array_type_len,
+            .node_offset_array_type_sentinel,
+            .node_offset_array_type_elem,
+            .node_offset_un_op,
+            .node_offset_ptr_elem,
+            .node_offset_ptr_sentinel,
+            .node_offset_ptr_align,
+            .node_offset_ptr_addrspace,
+            .node_offset_ptr_bitoffset,
+            .node_offset_ptr_hostsize,
+            .node_offset_container_tag,
+            .node_offset_field_default,
+            .node_offset_init_ty,
+            .node_offset_store_ptr,
+            .node_offset_store_operand,
+            .node_offset_return_operand,
+            .for_input,
+            .for_capture_from_input,
+            .array_cat_lhs,
+            .array_cat_rhs,
+            => .{
+                .file_scope = decl.getFileScope(mod),
+                .parent_decl_node = decl.src_node,
+                .lazy = lazy,
+            },
+            inline .call_arg,
+            .fn_proto_param,
+            => |x| .{
+                .file_scope = decl.getFileScope(mod),
+                .parent_decl_node = mod.declPtr(x.decl).src_node,
+                .lazy = lazy,
+            },
+        };
     }
 };
 
@@ -1948,452 +2044,6 @@ pub const SrcLoc = struct {
         const start_off = token_starts[start_tok];
         const end_off = token_starts[end_tok] + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
         return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
-    }
-};
-
-/// This wraps a simple integer in debug builds so that later on we can find out
-/// where in semantic analysis the value got set.
-const TracedOffset = struct {
-    x: i32,
-    trace: std.debug.Trace = .{},
-
-    const want_tracing = build_options.value_tracing;
-};
-
-/// Resolving a source location into a byte offset may require doing work
-/// that we would rather not do unless the error actually occurs.
-/// Therefore we need a data structure that contains the information necessary
-/// to lazily produce a `SrcLoc` as required.
-/// Most of the offsets in this data structure are relative to the containing Decl.
-/// This makes the source location resolve properly even when a Decl gets
-/// shifted up or down in the file, as long as the Decl's contents itself
-/// do not change.
-pub const LazySrcLoc = union(enum) {
-    /// When this tag is set, the code that constructed this `LazySrcLoc` is asserting
-    /// that all code paths which would need to resolve the source location are
-    /// unreachable. If you are debugging this tag incorrectly being this value,
-    /// look into using reverse-continue with a memory watchpoint to see where the
-    /// value is being set to this tag.
-    unneeded,
-    /// Means the source location points to an entire file; not any particular
-    /// location within the file. `file_scope` union field will be active.
-    entire_file,
-    /// The source location points to a byte offset within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    byte_abs: u32,
-    /// The source location points to a token within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    token_abs: u32,
-    /// The source location points to an AST node within a source file,
-    /// offset from 0. The source file is determined contextually.
-    /// Inside a `SrcLoc`, the `file_scope` union field will be active.
-    node_abs: u32,
-    /// The source location points to a byte offset within a source file,
-    /// offset from the byte offset of the Decl within the file.
-    /// The Decl is determined contextually.
-    byte_offset: u32,
-    /// This data is the offset into the token list from the Decl token.
-    /// The Decl is determined contextually.
-    token_offset: u32,
-    /// The source location points to an AST node, which is this value offset
-    /// from its containing Decl node AST index.
-    /// The Decl is determined contextually.
-    node_offset: TracedOffset,
-    /// The source location points to the main token of an AST node, found
-    /// by taking this AST node index offset from the containing Decl AST node.
-    /// The Decl is determined contextually.
-    node_offset_main_token: i32,
-    /// The source location points to the beginning of a struct initializer.
-    /// The Decl is determined contextually.
-    node_offset_initializer: i32,
-    /// The source location points to a variable declaration type expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a variable declaration AST node. Next, navigate
-    /// to the type expression.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_ty: i32,
-    /// The source location points to the alignment expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_align: i32,
-    /// The source location points to the linksection expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_section: i32,
-    /// The source location points to the addrspace expression of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_addrspace: i32,
-    /// The source location points to the initializer of a var decl.
-    /// The Decl is determined contextually.
-    node_offset_var_decl_init: i32,
-    /// The source location points to the first parameter of a builtin
-    /// function call, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a builtin call AST node. Next, navigate
-    /// to the first parameter.
-    /// The Decl is determined contextually.
-    node_offset_builtin_call_arg0: i32,
-    /// Same as `node_offset_builtin_call_arg0` except arg index 1.
-    node_offset_builtin_call_arg1: i32,
-    node_offset_builtin_call_arg2: i32,
-    node_offset_builtin_call_arg3: i32,
-    node_offset_builtin_call_arg4: i32,
-    node_offset_builtin_call_arg5: i32,
-    /// Like `node_offset_builtin_call_arg0` but recurses through arbitrarily many calls
-    /// to pointer cast builtins.
-    node_offset_ptrcast_operand: i32,
-    /// The source location points to the index expression of an array access
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an array access AST node. Next, navigate
-    /// to the index expression.
-    /// The Decl is determined contextually.
-    node_offset_array_access_index: i32,
-    /// The source location points to the LHS of a slice expression
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_ptr: i32,
-    /// The source location points to start expression of a slice expression
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_start: i32,
-    /// The source location points to the end expression of a slice
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_end: i32,
-    /// The source location points to the sentinel expression of a slice
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a slice AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_slice_sentinel: i32,
-    /// The source location points to the callee expression of a function
-    /// call expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function call AST node. Next, navigate
-    /// to the callee expression.
-    /// The Decl is determined contextually.
-    node_offset_call_func: i32,
-    /// The payload is offset from the containing Decl AST node.
-    /// The source location points to the field name of:
-    ///  * a field access expression (`a.b`), or
-    ///  * the callee of a method call (`a.b()`)
-    /// The Decl is determined contextually.
-    node_offset_field_name: i32,
-    /// The payload is offset from the containing Decl AST node.
-    /// The source location points to the field name of the operand ("b" node)
-    /// of a field initialization expression (`.a = b`)
-    /// The Decl is determined contextually.
-    node_offset_field_name_init: i32,
-    /// The source location points to the pointer of a pointer deref expression,
-    /// found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a pointer deref AST node. Next, navigate
-    /// to the pointer expression.
-    /// The Decl is determined contextually.
-    node_offset_deref_ptr: i32,
-    /// The source location points to the assembly source code of an inline assembly
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to inline assembly AST node. Next, navigate
-    /// to the asm template source code.
-    /// The Decl is determined contextually.
-    node_offset_asm_source: i32,
-    /// The source location points to the return type of an inline assembly
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to inline assembly AST node. Next, navigate
-    /// to the return type expression.
-    /// The Decl is determined contextually.
-    node_offset_asm_ret_ty: i32,
-    /// The source location points to the condition expression of an if
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an if expression AST node. Next, navigate
-    /// to the condition expression.
-    /// The Decl is determined contextually.
-    node_offset_if_cond: i32,
-    /// The source location points to a binary expression, such as `a + b`, found
-    /// by taking this AST node index offset from the containing Decl AST node.
-    /// The Decl is determined contextually.
-    node_offset_bin_op: i32,
-    /// The source location points to the LHS of a binary expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, navigate to the LHS.
-    /// The Decl is determined contextually.
-    node_offset_bin_lhs: i32,
-    /// The source location points to the RHS of a binary expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a binary expression AST node. Next, navigate to the RHS.
-    /// The Decl is determined contextually.
-    node_offset_bin_rhs: i32,
-    /// The source location points to the operand of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to the operand.
-    /// The Decl is determined contextually.
-    node_offset_switch_operand: i32,
-    /// The source location points to the else/`_` prong of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to the else/`_` prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_special_prong: i32,
-    /// The source location points to all the ranges of a switch expression, found
-    /// by taking this AST node index offset from the containing Decl AST node,
-    /// which points to a switch expression AST node. Next, navigate to any of the
-    /// range nodes. The error applies to all of them.
-    /// The Decl is determined contextually.
-    node_offset_switch_range: i32,
-    /// The source location points to the capture of a switch_prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_prong_capture: i32,
-    /// The source location points to the tag capture of a switch_prong.
-    /// The Decl is determined contextually.
-    node_offset_switch_prong_tag_capture: i32,
-    /// The source location points to the align expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_align: i32,
-    /// The source location points to the addrspace expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_addrspace: i32,
-    /// The source location points to the linksection expr of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_section: i32,
-    /// The source location points to the calling convention of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the calling convention node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_cc: i32,
-    /// The source location points to the return type of a function type
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function type AST node. Next, navigate to
-    /// the return type node.
-    /// The Decl is determined contextually.
-    node_offset_fn_type_ret_ty: i32,
-    node_offset_param: i32,
-    token_offset_param: i32,
-    /// The source location points to the type expression of an `anyframe->T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a `anyframe->T` expression AST node. Next, navigate
-    /// to the type expression.
-    /// The Decl is determined contextually.
-    node_offset_anyframe_type: i32,
-    /// The source location points to the string literal of `extern "foo"`, found
-    /// by taking this AST node index offset from the containing
-    /// Decl AST node, which points to a function prototype or variable declaration
-    /// expression AST node. Next, navigate to the string literal of the `extern "foo"`.
-    /// The Decl is determined contextually.
-    node_offset_lib_name: i32,
-    /// The source location points to the len expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the len expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_len: i32,
-    /// The source location points to the sentinel expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the sentinel expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_sentinel: i32,
-    /// The source location points to the elem expression of an `[N:S]T`
-    /// expression, found by taking this AST node index offset from the containing
-    /// Decl AST node, which points to an `[N:S]T` expression AST node. Next, navigate
-    /// to the elem expression.
-    /// The Decl is determined contextually.
-    node_offset_array_type_elem: i32,
-    /// The source location points to the operand of an unary expression.
-    /// The Decl is determined contextually.
-    node_offset_un_op: i32,
-    /// The source location points to the elem type of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_elem: i32,
-    /// The source location points to the sentinel of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_sentinel: i32,
-    /// The source location points to the align expr of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_align: i32,
-    /// The source location points to the addrspace expr of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_addrspace: i32,
-    /// The source location points to the bit-offset of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_bitoffset: i32,
-    /// The source location points to the host size of a pointer.
-    /// The Decl is determined contextually.
-    node_offset_ptr_hostsize: i32,
-    /// The source location points to the tag type of an union or an enum.
-    /// The Decl is determined contextually.
-    node_offset_container_tag: i32,
-    /// The source location points to the default value of a field.
-    /// The Decl is determined contextually.
-    node_offset_field_default: i32,
-    /// The source location points to the type of an array or struct initializer.
-    /// The Decl is determined contextually.
-    node_offset_init_ty: i32,
-    /// The source location points to the LHS of an assignment.
-    /// The Decl is determined contextually.
-    node_offset_store_ptr: i32,
-    /// The source location points to the RHS of an assignment.
-    /// The Decl is determined contextually.
-    node_offset_store_operand: i32,
-    /// The source location points to the operand of a `return` statement, or
-    /// the `return` itself if there is no explicit operand.
-    /// The Decl is determined contextually.
-    node_offset_return_operand: i32,
-    /// The source location points to a for loop input.
-    /// The Decl is determined contextually.
-    for_input: struct {
-        /// Points to the for loop AST node.
-        for_node_offset: i32,
-        /// Picks one of the inputs from the condition.
-        input_index: u32,
-    },
-    /// The source location points to one of the captures of a for loop, found
-    /// by taking this AST node index offset from the containing
-    /// Decl AST node, which points to one of the input nodes of a for loop.
-    /// Next, navigate to the corresponding capture.
-    /// The Decl is determined contextually.
-    for_capture_from_input: i32,
-    /// The source location points to the argument node of a function call.
-    call_arg: struct {
-        decl: Decl.Index,
-        /// Points to the function call AST node.
-        call_node_offset: i32,
-        /// The index of the argument the source location points to.
-        arg_index: u32,
-    },
-    fn_proto_param: struct {
-        decl: Decl.Index,
-        /// Points to the function prototype AST node.
-        fn_proto_node_offset: i32,
-        /// The index of the parameter the source location points to.
-        param_index: u32,
-    },
-    array_cat_lhs: ArrayCat,
-    array_cat_rhs: ArrayCat,
-
-    const ArrayCat = struct {
-        /// Points to the array concat AST node.
-        array_cat_offset: i32,
-        /// The index of the element the source location points to.
-        elem_index: u32,
-    };
-
-    pub const nodeOffset = if (TracedOffset.want_tracing) nodeOffsetDebug else nodeOffsetRelease;
-
-    noinline fn nodeOffsetDebug(node_offset: i32) LazySrcLoc {
-        var result: LazySrcLoc = .{ .node_offset = .{ .x = node_offset } };
-        result.node_offset.trace.addAddr(@returnAddress(), "init");
-        return result;
-    }
-
-    fn nodeOffsetRelease(node_offset: i32) LazySrcLoc {
-        return .{ .node_offset = .{ .x = node_offset } };
-    }
-
-    /// Upgrade to a `SrcLoc` based on the `Decl` provided.
-    pub fn toSrcLoc(lazy: LazySrcLoc, decl: *Decl, mod: *Module) SrcLoc {
-        return switch (lazy) {
-            .unneeded,
-            .entire_file,
-            .byte_abs,
-            .token_abs,
-            .node_abs,
-            => .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = 0,
-                .lazy = lazy,
-            },
-
-            .byte_offset,
-            .token_offset,
-            .node_offset,
-            .node_offset_main_token,
-            .node_offset_initializer,
-            .node_offset_var_decl_ty,
-            .node_offset_var_decl_align,
-            .node_offset_var_decl_section,
-            .node_offset_var_decl_addrspace,
-            .node_offset_var_decl_init,
-            .node_offset_builtin_call_arg0,
-            .node_offset_builtin_call_arg1,
-            .node_offset_builtin_call_arg2,
-            .node_offset_builtin_call_arg3,
-            .node_offset_builtin_call_arg4,
-            .node_offset_builtin_call_arg5,
-            .node_offset_ptrcast_operand,
-            .node_offset_array_access_index,
-            .node_offset_slice_ptr,
-            .node_offset_slice_start,
-            .node_offset_slice_end,
-            .node_offset_slice_sentinel,
-            .node_offset_call_func,
-            .node_offset_field_name,
-            .node_offset_field_name_init,
-            .node_offset_deref_ptr,
-            .node_offset_asm_source,
-            .node_offset_asm_ret_ty,
-            .node_offset_if_cond,
-            .node_offset_bin_op,
-            .node_offset_bin_lhs,
-            .node_offset_bin_rhs,
-            .node_offset_switch_operand,
-            .node_offset_switch_special_prong,
-            .node_offset_switch_range,
-            .node_offset_switch_prong_capture,
-            .node_offset_switch_prong_tag_capture,
-            .node_offset_fn_type_align,
-            .node_offset_fn_type_addrspace,
-            .node_offset_fn_type_section,
-            .node_offset_fn_type_cc,
-            .node_offset_fn_type_ret_ty,
-            .node_offset_param,
-            .token_offset_param,
-            .node_offset_anyframe_type,
-            .node_offset_lib_name,
-            .node_offset_array_type_len,
-            .node_offset_array_type_sentinel,
-            .node_offset_array_type_elem,
-            .node_offset_un_op,
-            .node_offset_ptr_elem,
-            .node_offset_ptr_sentinel,
-            .node_offset_ptr_align,
-            .node_offset_ptr_addrspace,
-            .node_offset_ptr_bitoffset,
-            .node_offset_ptr_hostsize,
-            .node_offset_container_tag,
-            .node_offset_field_default,
-            .node_offset_init_ty,
-            .node_offset_store_ptr,
-            .node_offset_store_operand,
-            .node_offset_return_operand,
-            .for_input,
-            .for_capture_from_input,
-            .array_cat_lhs,
-            .array_cat_rhs,
-            => .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = decl.src_node,
-                .lazy = lazy,
-            },
-            inline .call_arg,
-            .fn_proto_param,
-            => |x| .{
-                .file_scope = decl.getFileScope(mod),
-                .parent_decl_node = mod.declPtr(x.decl).src_node,
-                .lazy = lazy,
-            },
-        };
     }
 };
 

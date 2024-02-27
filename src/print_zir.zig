@@ -7,7 +7,7 @@ const InternPool = @import("InternPool.zig");
 
 const Zir = @import("Zir.zig");
 const Module = @import("Module.zig");
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 
 /// Write human-readable, debug formatted ZIR code to a file.
 pub fn renderAsTextToFile(

@@ -13,7 +13,7 @@ const TypedValue = @import("../TypedValue.zig");
 const C = link.File.C;
 const Decl = Module.Decl;
 const trace = @import("../tracy.zig").trace;
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const InternPool = @import("../InternPool.zig");
@@ -570,8 +570,7 @@ pub const DeclGen = struct {
         const mod = dg.module;
         const decl_index = dg.pass.decl;
         const decl = mod.declPtr(decl_index);
-        const src = LazySrcLoc.nodeOffset(0);
-        const src_loc = src.toSrcLoc(decl, mod);
+        const src_loc = decl.srcLoc(mod);
         dg.error_msg = try Module.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }

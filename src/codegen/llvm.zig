@@ -23,7 +23,7 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../type.zig").Type;
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
@@ -4686,7 +4686,7 @@ pub const DeclGen = struct {
         const o = dg.object;
         const gpa = o.gpa;
         const mod = o.module;
-        const src_loc = LazySrcLoc.nodeOffset(0).toSrcLoc(dg.decl, mod);
+        const src_loc = dg.decl.srcLoc(mod);
         dg.err_msg = try Module.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }

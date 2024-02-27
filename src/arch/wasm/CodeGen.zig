@@ -16,7 +16,7 @@ const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 const link = @import("../../link.zig");
 const TypedValue = @import("../../TypedValue.zig");
 const Air = @import("../../Air.zig");
@@ -767,8 +767,7 @@ pub fn deinit(func: *CodeGen) void {
 /// Sets `err_msg` on `CodeGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
 fn fail(func: *CodeGen, comptime fmt: []const u8, args: anytype) InnerError {
     const mod = func.bin_file.base.comp.module.?;
-    const src = LazySrcLoc.nodeOffset(0);
-    const src_loc = src.toSrcLoc(func.decl, mod);
+    const src_loc = func.decl.srcLoc(mod);
     func.err_msg = try Module.ErrorMsg.create(func.gpa, src_loc, fmt, args);
     return error.CodegenFail;
 }
