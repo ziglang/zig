@@ -14045,17 +14045,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     try bitcode.writeVBR(@as(u32, @intCast(slice.len)), 6);
                 }
 
-                try bitcode.alignTo32();
-
-                for (1..self.metadata_string_map.count()) |metadata_string_index| {
-                    const metadata_string: MetadataString = @enumFromInt(metadata_string_index);
-                    const slice = metadata_string.slice(self);
-                    for (slice) |c| {
-                        try bitcode.writeBits(c, 8);
-                    }
-                }
-
-                try bitcode.alignTo32();
+                try bitcode.writeBlob(self.metadata_string_bytes.items);
             }
 
             for (
