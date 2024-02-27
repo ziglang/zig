@@ -967,6 +967,34 @@ test "big simd vector" {
     try expect(x[7] == 16);
 }
 
+const Vector2Float = @Vector(2, f32);
+const Vector4Float = @Vector(4, f32);
+
+extern fn c_vector_2_float(Vector2Float) void;
+extern fn c_vector_4_float(Vector4Float) void;
+
+extern fn c_ret_vector_2_float() Vector2Float;
+extern fn c_ret_vector_4_float() Vector4Float;
+
+test "float simd vectors" {
+    if (builtin.cpu.arch == .powerpc or builtin.cpu.arch == .powerpc64le) return error.SkipZigTest;
+
+    {
+        c_vector_2_float(.{ 1.0, 2.0 });
+        const vec = c_ret_vector_2_float();
+        try expect(vec[0] == 1.0);
+        try expect(vec[1] == 2.0);
+    }
+    {
+        c_vector_4_float(.{ 1.0, 2.0, 3.0, 4.0 });
+        const vec = c_ret_vector_4_float();
+        try expect(vec[0] == 1.0);
+        try expect(vec[1] == 2.0);
+        try expect(vec[2] == 3.0);
+        try expect(vec[3] == 4.0);
+    }
+}
+
 const Vector2Bool = @Vector(2, bool);
 const Vector4Bool = @Vector(4, bool);
 const Vector8Bool = @Vector(8, bool);
@@ -998,7 +1026,7 @@ extern fn c_ret_vector_256_bool() Vector256Bool;
 extern fn c_ret_vector_512_bool() Vector512Bool;
 
 test "bool simd vector" {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch != .powerpc) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and (builtin.cpu.arch != .powerpc and builtin.cpu.arch != .wasm32)) return error.SkipZigTest;
 
     {
         c_vector_2_bool(.{
@@ -1550,8 +1578,9 @@ test "bool simd vector" {
         try expect(vec[126] == false);
         try expect(vec[127] == true);
     }
+
     {
-        c_vector_256_bool(.{
+        if (builtin.target.cpu.arch != .wasm32) c_vector_256_bool(.{
             false,
             true,
             true,
@@ -2069,7 +2098,7 @@ test "bool simd vector" {
         try expect(vec[255] == false);
     }
     {
-        c_vector_512_bool(.{
+        if (builtin.target.cpu.arch != .wasm32) c_vector_512_bool(.{
             true,
             true,
             true,
@@ -3102,7 +3131,6 @@ test "bool simd vector" {
 
 comptime {
     skip: {
-        if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) break :skip;
         if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .x86_64) break :skip;
 
         _ = struct {

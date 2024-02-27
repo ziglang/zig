@@ -45,7 +45,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             }
             return classifyType(field_ty, mod);
         },
-        .Int, .Enum, .ErrorSet, .Vector => {
+        .Int, .Enum, .ErrorSet => {
             const int_bits = ty.intInfo(mod).bits;
             if (int_bits <= 64) return direct;
             if (int_bits <= 128) return .{ .direct, .direct };
@@ -58,6 +58,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             return memory;
         },
         .Bool => return direct,
+        .Vector => return direct,
         .Array => return memory,
         .Optional => {
             assert(ty.isPtrLikeOptional(mod));

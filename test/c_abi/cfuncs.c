@@ -294,7 +294,37 @@ struct SplitStructMixed zig_ret_split_struct_mixed();
 
 struct BigStruct zig_big_struct_both(struct BigStruct);
 
-#if defined(ZIG_BACKEND_STAGE2_X86_64) || defined(ZIG_PPC32)
+typedef float Vector2Float __attribute__((ext_vector_type(2)));
+typedef float Vector4Float __attribute__((ext_vector_type(4)));
+
+void c_vector_2_float(Vector2Float vec) {
+    assert_or_panic(vec[0] == 1.0);
+    assert_or_panic(vec[1] == 2.0);
+}
+
+void c_vector_4_float(Vector4Float vec) {
+    assert_or_panic(vec[0] == 1.0);
+    assert_or_panic(vec[1] == 2.0);
+    assert_or_panic(vec[2] == 3.0);
+    assert_or_panic(vec[3] == 4.0);
+}
+
+Vector2Float c_ret_vector_2_float(void) {
+    return (Vector2Float){
+        1.0,
+        2.0,
+    };
+}
+Vector4Float c_ret_vector_4_float(void) {
+    return (Vector4Float){
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+    };
+}
+
+#if defined(ZIG_BACKEND_STAGE2_X86_64) || defined(ZIG_PPC32) || defined(__wasm__)
 
 typedef bool Vector2Bool __attribute__((ext_vector_type(2)));
 typedef bool Vector4Bool __attribute__((ext_vector_type(4)));
@@ -580,6 +610,9 @@ void c_vector_128_bool(Vector128Bool vec) {
     assert_or_panic(vec[126] == true);
     assert_or_panic(vec[127] == true);
 }
+
+// WASM: The following vector functions define too many Wasm locals for wasmtime in debug mode and are therefore disabled for the wasm target.
+#if !defined(__wasm__)
 
 void c_vector_256_bool(Vector256Bool vec) {
     assert_or_panic(vec[0] == false);
@@ -1354,6 +1387,8 @@ void c_vector_512_bool(Vector512Bool vec) {
     assert_or_panic(vec[510] == false);
     assert_or_panic(vec[511] == true);
 }
+
+#endif
 
 Vector2Bool c_ret_vector_2_bool(void) {
     return (Vector2Bool){
