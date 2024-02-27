@@ -460,13 +460,12 @@ test "std.meta.FieldType" {
     try testing.expect(FieldType(U, .d) == *const u8);
 }
 
-pub fn fieldNames(comptime T: type) *const [fields(T).len][]const u8 {
+pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
     return comptime blk: {
         const fieldInfos = fields(T);
-        var names: [fieldInfos.len][]const u8 = undefined;
-        for (fieldInfos, 0..) |field, i| {
-            names[i] = field.name;
-        }
+        var names: [fieldInfos.len][:0]const u8 = undefined;
+        // This concat can be removed with the next zig1 update.
+        for (&names, fieldInfos) |*name, field| name.* = field.name ++ "";
         break :blk &names;
     };
 }
@@ -1122,13 +1121,64 @@ pub inline fn hasFn(comptime T: type, comptime name: []const u8) bool {
     return @typeInfo(@TypeOf(@field(T, name))) == .Fn;
 }
 
+test "hasFn" {
+    const S1 = struct {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasFn(S1, "foo"));
+    try std.testing.expect(!hasFn(S1, "bar"));
+    try std.testing.expect(!hasFn(*S1, "foo"));
+
+    const S2 = struct {
+        foo: fn () void,
+    };
+
+    try std.testing.expect(!hasFn(S2, "foo"));
+}
+
 /// Returns true if a type has a `name` method; `false` otherwise.
 /// Result is always comptime-known.
 pub inline fn hasMethod(comptime T: type, comptime name: []const u8) bool {
     return switch (@typeInfo(T)) {
-        .Pointer => |P| hasFn(P.child, name),
+        .Pointer => |P| switch (P.size) {
+            .One => hasFn(P.child, name),
+            .Many, .Slice, .C => false,
+        },
         else => hasFn(T, name),
     };
+}
+
+test "hasMethod" {
+    try std.testing.expect(!hasMethod(u32, "foo"));
+    try std.testing.expect(!hasMethod([]u32, "len"));
+    try std.testing.expect(!hasMethod(struct { u32, u64 }, "len"));
+
+    const S1 = struct {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasMethod(S1, "foo"));
+    try std.testing.expect(hasMethod(*S1, "foo"));
+
+    try std.testing.expect(!hasMethod(S1, "bar"));
+    try std.testing.expect(!hasMethod(*[1]S1, "foo"));
+    try std.testing.expect(!hasMethod(*[10]S1, "foo"));
+    try std.testing.expect(!hasMethod([]S1, "foo"));
+
+    const S2 = struct {
+        foo: fn () void,
+    };
+
+    try std.testing.expect(!hasMethod(S2, "foo"));
+
+    const U = union {
+        pub fn foo() void {}
+    };
+
+    try std.testing.expect(hasMethod(U, "foo"));
+    try std.testing.expect(hasMethod(*U, "foo"));
+    try std.testing.expect(!hasMethod(U, "bar"));
 }
 
 /// True if every value of the type `T` has a unique bit pattern representing it.
@@ -1236,5 +1286,6 @@ test "hasUniqueRepresentation" {
     try testing.expect(!hasUniqueRepresentation([]u8));
     try testing.expect(!hasUniqueRepresentation([]const u8));
 
-    try testing.expect(hasUniqueRepresentation(@Vector(4, u16)));
+    try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
+    try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
 }

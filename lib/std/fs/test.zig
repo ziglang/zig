@@ -26,39 +26,39 @@ const PathType = enum {
     }
 
     pub const TransformError = std.os.RealPathError || error{OutOfMemory};
-    pub const TransformFn = fn (allocator: mem.Allocator, dir: Dir, relative_path: []const u8) TransformError![]const u8;
+    pub const TransformFn = fn (allocator: mem.Allocator, dir: Dir, relative_path: [:0]const u8) TransformError![:0]const u8;
 
     pub fn getTransformFn(comptime path_type: PathType) TransformFn {
         switch (path_type) {
             .relative => return struct {
-                fn transform(allocator: mem.Allocator, dir: Dir, relative_path: []const u8) TransformError![]const u8 {
+                fn transform(allocator: mem.Allocator, dir: Dir, relative_path: [:0]const u8) TransformError![:0]const u8 {
                     _ = allocator;
                     _ = dir;
                     return relative_path;
                 }
             }.transform,
             .absolute => return struct {
-                fn transform(allocator: mem.Allocator, dir: Dir, relative_path: []const u8) TransformError![]const u8 {
+                fn transform(allocator: mem.Allocator, dir: Dir, relative_path: [:0]const u8) TransformError![:0]const u8 {
                     // The final path may not actually exist which would cause realpath to fail.
                     // So instead, we get the path of the dir and join it with the relative path.
                     var fd_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
                     const dir_path = try os.getFdPath(dir.fd, &fd_path_buf);
-                    return fs.path.join(allocator, &.{ dir_path, relative_path });
+                    return fs.path.joinZ(allocator, &.{ dir_path, relative_path });
                 }
             }.transform,
             .unc => return struct {
-                fn transform(allocator: mem.Allocator, dir: Dir, relative_path: []const u8) TransformError![]const u8 {
+                fn transform(allocator: mem.Allocator, dir: Dir, relative_path: [:0]const u8) TransformError![:0]const u8 {
                     // Any drive absolute path (C:\foo) can be converted into a UNC path by
                     // using '127.0.0.1' as the server name and '<drive letter>$' as the share name.
                     var fd_path_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
                     const dir_path = try os.getFdPath(dir.fd, &fd_path_buf);
                     const windows_path_type = std.os.windows.getUnprefixedPathType(u8, dir_path);
                     switch (windows_path_type) {
-                        .unc_absolute => return fs.path.join(allocator, &.{ dir_path, relative_path }),
+                        .unc_absolute => return fs.path.joinZ(allocator, &.{ dir_path, relative_path }),
                         .drive_absolute => {
                             // `C:\<...>` -> `\\127.0.0.1\C$\<...>`
                             const prepended = "\\\\127.0.0.1\\";
-                            var path = try fs.path.join(allocator, &.{ prepended, dir_path, relative_path });
+                            var path = try fs.path.joinZ(allocator, &.{ prepended, dir_path, relative_path });
                             path[prepended.len + 1] = '$';
                             return path;
                         },
@@ -96,7 +96,7 @@ const TestContext = struct {
     /// Returns the `relative_path` transformed into the TestContext's `path_type`.
     /// The result is allocated by the TestContext's arena and will be free'd during
     /// `TestContext.deinit`.
-    pub fn transformPath(self: *TestContext, relative_path: []const u8) ![]const u8 {
+    pub fn transformPath(self: *TestContext, relative_path: [:0]const u8) ![:0]const u8 {
         return self.transform_fn(self.arena.allocator(), self.dir, relative_path);
     }
 };
@@ -106,18 +106,18 @@ const TestContext = struct {
 /// and will be passed a TestContext that can transform a relative path into the path type under test.
 /// The TestContext will also create a tmp directory for you (and will clean it up for you too).
 fn testWithAllSupportedPathTypes(test_func: anytype) !void {
-    inline for (@typeInfo(PathType).Enum.fields) |enum_field| {
-        const path_type = @field(PathType, enum_field.name);
-        if (!(comptime path_type.isSupported(builtin.os))) continue;
+    try testWithPathTypeIfSupported(.relative, test_func);
+    try testWithPathTypeIfSupported(.absolute, test_func);
+    try testWithPathTypeIfSupported(.unc, test_func);
+}
 
-        var ctx = TestContext.init(path_type, testing.allocator, path_type.getTransformFn());
-        defer ctx.deinit();
+fn testWithPathTypeIfSupported(comptime path_type: PathType, test_func: anytype) !void {
+    if (!(comptime path_type.isSupported(builtin.os))) return;
 
-        test_func(&ctx) catch |err| {
-            std.debug.print("{s}, path type: {s}\n", .{ @errorName(err), enum_field.name });
-            return err;
-        };
-    }
+    var ctx = TestContext.init(path_type, testing.allocator, path_type.getTransformFn());
+    defer ctx.deinit();
+
+    try test_func(&ctx);
 }
 
 // For use in test setup.  If the symlink creation fails on Windows with
@@ -242,7 +242,12 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
                     const sub_path_c = try os.toPosixPath("symlink");
                     // the O_NOFOLLOW | O_PATH combination can obtain a fd to a symlink
                     // note that if O_DIRECTORY is set, then this will error with ENOTDIR
-                    const flags = os.O.NOFOLLOW | os.O.PATH | os.O.RDONLY | os.O.CLOEXEC;
+                    const flags: os.O = .{
+                        .NOFOLLOW = true,
+                        .PATH = true,
+                        .ACCMODE = .RDONLY,
+                        .CLOEXEC = true,
+                    };
                     const fd = try os.openatZ(ctx.dir.fd, &sub_path_c, flags, 0);
                     break :linux_symlink Dir{ .fd = fd };
                 },
@@ -996,6 +1001,16 @@ test "openSelfExe" {
     self_exe_file.close();
 }
 
+test "selfExePath" {
+    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+
+    var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    const buf_self_exe_path = try std.fs.selfExePath(&buf);
+    const alloc_self_exe_path = try std.fs.selfExePathAlloc(testing.allocator);
+    defer testing.allocator.free(alloc_self_exe_path);
+    try testing.expectEqualSlices(u8, buf_self_exe_path, alloc_self_exe_path);
+}
+
 test "deleteTree does not follow symlinks" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1508,11 +1523,6 @@ test "open file with exclusive and shared nonblocking lock" {
 test "open file with exclusive lock twice, make sure second lock waits" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
-    if (std.io.is_async) {
-        // This test starts its own threads and is not compatible with async I/O.
-        return error.SkipZigTest;
-    }
-
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const filename = try ctx.transformPath("file_lock_test.txt");
@@ -1906,4 +1916,112 @@ test "delete a setAsCwd directory on Windows" {
     try tmp.parent_dir.deleteTree(&tmp.sub_path);
     // Close the parent "tmp" so we don't leak the HANDLE.
     tmp.parent_dir.close();
+}
+
+test "invalid UTF-8/WTF-8 paths" {
+    const expected_err = switch (builtin.os.tag) {
+        .wasi => error.InvalidUtf8,
+        .windows => error.InvalidWtf8,
+        else => return error.SkipZigTest,
+    };
+
+    try testWithAllSupportedPathTypes(struct {
+        fn impl(ctx: *TestContext) !void {
+            // This is both invalid UTF-8 and WTF-8, since \xFF is an invalid start byte
+            const invalid_path = try ctx.transformPath("\xFF");
+
+            try testing.expectError(expected_err, ctx.dir.openFile(invalid_path, .{}));
+            try testing.expectError(expected_err, ctx.dir.openFileZ(invalid_path, .{}));
+
+            try testing.expectError(expected_err, ctx.dir.createFile(invalid_path, .{}));
+            try testing.expectError(expected_err, ctx.dir.createFileZ(invalid_path, .{}));
+
+            try testing.expectError(expected_err, ctx.dir.makeDir(invalid_path));
+            try testing.expectError(expected_err, ctx.dir.makeDirZ(invalid_path));
+
+            try testing.expectError(expected_err, ctx.dir.makePath(invalid_path));
+            try testing.expectError(expected_err, ctx.dir.makeOpenPath(invalid_path, .{}));
+
+            try testing.expectError(expected_err, ctx.dir.openDir(invalid_path, .{}));
+            try testing.expectError(expected_err, ctx.dir.openDirZ(invalid_path, .{}));
+
+            try testing.expectError(expected_err, ctx.dir.deleteFile(invalid_path));
+            try testing.expectError(expected_err, ctx.dir.deleteFileZ(invalid_path));
+
+            try testing.expectError(expected_err, ctx.dir.deleteDir(invalid_path));
+            try testing.expectError(expected_err, ctx.dir.deleteDirZ(invalid_path));
+
+            try testing.expectError(expected_err, ctx.dir.rename(invalid_path, invalid_path));
+            try testing.expectError(expected_err, ctx.dir.renameZ(invalid_path, invalid_path));
+
+            try testing.expectError(expected_err, ctx.dir.symLink(invalid_path, invalid_path, .{}));
+            try testing.expectError(expected_err, ctx.dir.symLinkZ(invalid_path, invalid_path, .{}));
+            if (builtin.os.tag == .wasi) {
+                try testing.expectError(expected_err, ctx.dir.symLinkWasi(invalid_path, invalid_path, .{}));
+            }
+
+            try testing.expectError(expected_err, ctx.dir.readLink(invalid_path, &[_]u8{}));
+            try testing.expectError(expected_err, ctx.dir.readLinkZ(invalid_path, &[_]u8{}));
+            if (builtin.os.tag == .wasi) {
+                try testing.expectError(expected_err, ctx.dir.readLinkWasi(invalid_path, &[_]u8{}));
+            }
+
+            try testing.expectError(expected_err, ctx.dir.readFile(invalid_path, &[_]u8{}));
+            try testing.expectError(expected_err, ctx.dir.readFileAlloc(testing.allocator, invalid_path, 0));
+
+            try testing.expectError(expected_err, ctx.dir.deleteTree(invalid_path));
+            try testing.expectError(expected_err, ctx.dir.deleteTreeMinStackSize(invalid_path));
+
+            try testing.expectError(expected_err, ctx.dir.writeFile(invalid_path, ""));
+            try testing.expectError(expected_err, ctx.dir.writeFile2(.{
+                .sub_path = invalid_path,
+                .data = "",
+            }));
+
+            try testing.expectError(expected_err, ctx.dir.access(invalid_path, .{}));
+            try testing.expectError(expected_err, ctx.dir.accessZ(invalid_path, .{}));
+
+            try testing.expectError(expected_err, ctx.dir.updateFile(invalid_path, ctx.dir, invalid_path, .{}));
+            try testing.expectError(expected_err, ctx.dir.copyFile(invalid_path, ctx.dir, invalid_path, .{}));
+
+            try testing.expectError(expected_err, ctx.dir.statFile(invalid_path));
+
+            if (builtin.os.tag != .wasi) {
+                try testing.expectError(expected_err, ctx.dir.realpath(invalid_path, &[_]u8{}));
+                try testing.expectError(expected_err, ctx.dir.realpathZ(invalid_path, &[_]u8{}));
+                try testing.expectError(expected_err, ctx.dir.realpathAlloc(testing.allocator, invalid_path));
+            }
+
+            try testing.expectError(expected_err, fs.rename(ctx.dir, invalid_path, ctx.dir, invalid_path));
+            try testing.expectError(expected_err, fs.renameZ(ctx.dir, invalid_path, ctx.dir, invalid_path));
+
+            if (builtin.os.tag != .wasi and ctx.path_type != .relative) {
+                try testing.expectError(expected_err, fs.updateFileAbsolute(invalid_path, invalid_path, .{}));
+                try testing.expectError(expected_err, fs.copyFileAbsolute(invalid_path, invalid_path, .{}));
+                try testing.expectError(expected_err, fs.makeDirAbsolute(invalid_path));
+                try testing.expectError(expected_err, fs.makeDirAbsoluteZ(invalid_path));
+                try testing.expectError(expected_err, fs.deleteDirAbsolute(invalid_path));
+                try testing.expectError(expected_err, fs.deleteDirAbsoluteZ(invalid_path));
+                try testing.expectError(expected_err, fs.renameAbsolute(invalid_path, invalid_path));
+                try testing.expectError(expected_err, fs.renameAbsoluteZ(invalid_path, invalid_path));
+                try testing.expectError(expected_err, fs.openDirAbsolute(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.openDirAbsoluteZ(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.openFileAbsolute(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.openFileAbsoluteZ(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.accessAbsolute(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.accessAbsoluteZ(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.createFileAbsolute(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.createFileAbsoluteZ(invalid_path, .{}));
+                try testing.expectError(expected_err, fs.deleteFileAbsolute(invalid_path));
+                try testing.expectError(expected_err, fs.deleteFileAbsoluteZ(invalid_path));
+                try testing.expectError(expected_err, fs.deleteTreeAbsolute(invalid_path));
+                var readlink_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                try testing.expectError(expected_err, fs.readLinkAbsolute(invalid_path, &readlink_buf));
+                try testing.expectError(expected_err, fs.readLinkAbsoluteZ(invalid_path, &readlink_buf));
+                try testing.expectError(expected_err, fs.symLinkAbsolute(invalid_path, invalid_path, .{}));
+                try testing.expectError(expected_err, fs.symLinkAbsoluteZ(invalid_path, invalid_path, .{}));
+                try testing.expectError(expected_err, fs.realpathAlloc(testing.allocator, invalid_path));
+            }
+        }
+    }.impl);
 }

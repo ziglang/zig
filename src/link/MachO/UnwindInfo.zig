@@ -271,8 +271,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     const header = macho_file.sections.items(.header)[macho_file.unwind_info_sect_index.?];
 
     var stream = std.io.fixedBufferStream(buffer);
-    var cwriter = std.io.countingWriter(stream.writer());
-    const writer = cwriter.writer();
+    const writer = stream.writer();
 
     const common_encodings_offset: u32 = @sizeOf(macho.unwind_info_section_header);
     const common_encodings_count: u32 = info.common_encodings_count;
@@ -329,20 +328,16 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     }
 
     for (info.pages.items) |page| {
-        const start = cwriter.bytes_written;
+        const start = stream.pos;
         try page.write(info, macho_file, writer);
-        const nwritten = cwriter.bytes_written - start;
+        const nwritten = stream.pos - start;
         if (nwritten < second_level_page_bytes) {
             const padding = math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow;
             try writer.writeByteNTimes(0, padding);
         }
     }
 
-    const padding = buffer.len - cwriter.bytes_written;
-    if (padding > 0) {
-        const off = math.cast(usize, cwriter.bytes_written) orelse return error.Overflow;
-        @memset(buffer[off..], 0);
-    }
+    @memset(buffer[stream.pos..], 0);
 }
 
 fn getOrPutPersonalityFunction(info: *UnwindInfo, sym_index: Symbol.Index) error{TooManyPersonalities}!u2 {
@@ -490,12 +485,12 @@ pub const Record = struct {
 
     pub fn getAtomAddress(rec: Record, macho_file: *MachO) u64 {
         const atom = rec.getAtom(macho_file);
-        return atom.value + rec.atom_offset;
+        return atom.getAddress(macho_file) + rec.atom_offset;
     }
 
     pub fn getLsdaAddress(rec: Record, macho_file: *MachO) u64 {
         const lsda = rec.getLsdaAtom(macho_file) orelse return 0;
-        return lsda.value + rec.lsda_offset;
+        return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
     pub fn format(

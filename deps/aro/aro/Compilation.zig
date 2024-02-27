@@ -69,7 +69,7 @@ pub const Environment = struct {
             const val: ?[]const u8 = std.process.getEnvVarOwned(allocator, env_var_name) catch |err| switch (err) {
                 error.OutOfMemory => |e| return e,
                 error.EnvironmentVariableNotFound => null,
-                error.InvalidUtf8 => null,
+                error.InvalidWtf8 => null,
             };
             @field(env, field.name) = val;
         }

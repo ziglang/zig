@@ -38,25 +38,14 @@ const CAllocator = struct {
         }
     }
 
-    usingnamespace if (@hasDecl(c, "malloc_size"))
-        struct {
-            pub const supports_malloc_size = true;
-            pub const malloc_size = c.malloc_size;
-        }
+    pub const supports_malloc_size = @TypeOf(malloc_size) != void;
+    pub const malloc_size = if (@hasDecl(c, "malloc_size"))
+        c.malloc_size
     else if (@hasDecl(c, "malloc_usable_size"))
-        struct {
-            pub const supports_malloc_size = true;
-            pub const malloc_size = c.malloc_usable_size;
-        }
+        c.malloc_usable_size
     else if (@hasDecl(c, "_msize"))
-        struct {
-            pub const supports_malloc_size = true;
-            pub const malloc_size = c._msize;
-        }
-    else
-        struct {
-            pub const supports_malloc_size = false;
-        };
+        c._msize
+    else {};
 
     pub const supports_posix_memalign = @hasDecl(c, "posix_memalign");
 
@@ -207,7 +196,16 @@ fn rawCResize(
 ) bool {
     _ = log2_old_align;
     _ = ret_addr;
-    return new_len <= buf.len;
+
+    if (new_len <= buf.len)
+        return true;
+
+    if (CAllocator.supports_malloc_size) {
+        const full_len = CAllocator.malloc_size(buf.ptr);
+        if (new_len <= full_len) return true;
+    }
+
+    return false;
 }
 
 fn rawCFree(

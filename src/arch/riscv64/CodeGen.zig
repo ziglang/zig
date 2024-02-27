@@ -8,7 +8,7 @@ const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
 const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");
 const TypedValue = @import("../../TypedValue.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
@@ -585,6 +585,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .not             => try self.airNot(inst),
             .int_from_ptr        => try self.airIntFromPtr(inst),
             .ret             => try self.airRet(inst),
+            .ret_safe        => try self.airRet(inst), // TODO
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
             .store_safe      => try self.airStore(inst, true),
@@ -630,10 +631,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_begin,
             .dbg_inline_end,
             => try self.airDbgInline(inst),
-
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try self.airDbgBlock(inst),
 
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
@@ -1893,11 +1890,6 @@ fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
-fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
-    // TODO emit debug info lexical block
-    return self.finishAir(inst, .dead, .{ .none, .none, .none });
-}
-
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const name = self.air.nullTerminatedString(pl_op.payload);
@@ -2083,6 +2075,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+    // TODO emit debug info lexical block
     try self.genBody(body);
 
     for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);

@@ -1,9 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const assert = std.debug.assert;
 const Target = std.Target;
 const Module = @import("Module.zig");
+const Zcu = Module;
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
 const TypedValue = @import("TypedValue.zig");
@@ -129,7 +130,9 @@ pub const Type = struct {
         @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
     }
 
-    pub fn fmt(ty: Type, module: *Module) std.fmt.Formatter(format2) {
+    pub const Formatter = std.fmt.Formatter(format2);
+
+    pub fn fmt(ty: Type, module: *Module) Formatter {
         return .{ .data = .{
             .ty = ty,
             .module = module,
@@ -426,6 +429,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -651,6 +655,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -758,6 +763,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -899,11 +905,32 @@ pub const Type = struct {
                     return Type.fromInterned(array_type.child).abiAlignmentAdvanced(mod, strat);
                 },
                 .vector_type => |vector_type| {
-                    const bits_u64 = try bitSizeAdvanced(Type.fromInterned(vector_type.child), mod, opt_sema);
-                    const bits: u32 = @intCast(bits_u64);
-                    const bytes = ((bits * vector_type.len) + 7) / 8;
-                    const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
-                    return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                    if (vector_type.len == 0) return .{ .scalar = .@"1" };
+                    switch (mod.comp.getZigBackend()) {
+                        else => {
+                            const elem_bits: u32 = @intCast(try Type.fromInterned(vector_type.child).bitSizeAdvanced(mod, opt_sema));
+                            if (elem_bits == 0) return .{ .scalar = .@"1" };
+                            const bytes = ((elem_bits * vector_type.len) + 7) / 8;
+                            const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
+                            return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                        },
+                        .stage2_x86_64 => {
+                            if (vector_type.child == .bool_type) {
+                                if (vector_type.len > 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
+                                if (vector_type.len > 128 and std.Target.x86.featureSetHas(target.cpu.features, .avx2)) return .{ .scalar = .@"32" };
+                                if (vector_type.len > 64) return .{ .scalar = .@"16" };
+                                const bytes = std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
+                                const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
+                                return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                            }
+                            const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeAdvanced(mod, strat)).scalar);
+                            if (elem_bytes == 0) return .{ .scalar = .@"1" };
+                            const bytes = elem_bytes * vector_type.len;
+                            if (bytes > 32 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
+                            if (bytes > 16 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
+                            return .{ .scalar = .@"16" };
+                        },
+                    }
                 },
 
                 .opt_type => return abiAlignmentAdvancedOptional(ty, mod, strat),
@@ -1073,6 +1100,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -1230,15 +1258,24 @@ pub const Type = struct {
                             .storage = .{ .lazy_size = ty.toIntern() },
                         } }))) },
                     };
-                    const elem_bits = try Type.fromInterned(vector_type.child).bitSizeAdvanced(mod, opt_sema);
-                    const total_bits = elem_bits * vector_type.len;
-                    const total_bytes = (total_bits + 7) / 8;
                     const alignment = switch (try ty.abiAlignmentAdvanced(mod, strat)) {
                         .scalar => |x| x,
                         .val => return .{ .val = Value.fromInterned((try mod.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_size = ty.toIntern() },
                         } }))) },
+                    };
+                    const total_bytes = switch (mod.comp.getZigBackend()) {
+                        else => total_bytes: {
+                            const elem_bits = try Type.fromInterned(vector_type.child).bitSizeAdvanced(mod, opt_sema);
+                            const total_bits = elem_bits * vector_type.len;
+                            break :total_bytes (total_bits + 7) / 8;
+                        },
+                        .stage2_x86_64 => total_bytes: {
+                            if (vector_type.child == .bool_type) break :total_bytes std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
+                            const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeAdvanced(mod, strat)).scalar);
+                            break :total_bytes elem_bytes * vector_type.len;
+                        },
                     };
                     return AbiSizeAdvanced{ .scalar = alignment.forward(total_bytes) };
                 },
@@ -1434,6 +1471,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -1607,8 +1645,12 @@ pub const Type = struct {
                 .type_info => unreachable,
             },
             .struct_type => |struct_type| {
-                if (struct_type.layout == .Packed) {
-                    if (opt_sema) |sema| try sema.resolveTypeLayout(ty);
+                const is_packed = struct_type.layout == .Packed;
+                if (opt_sema) |sema| {
+                    try sema.resolveTypeFields(ty);
+                    if (is_packed) try sema.resolveTypeLayout(ty);
+                }
+                if (is_packed) {
                     return try Type.fromInterned(struct_type.backingIntType(ip).*).bitSizeAdvanced(mod, opt_sema);
                 }
                 return (try ty.abiSizeAdvanced(mod, strat)).scalar * 8;
@@ -1656,6 +1698,7 @@ pub const Type = struct {
             .empty_enum_value,
             .float,
             .ptr,
+            .slice,
             .opt,
             .aggregate,
             .un,
@@ -2095,7 +2138,8 @@ pub const Type = struct {
 
     /// Returns true if and only if the type is a fixed-width integer.
     pub fn isInt(self: Type, mod: *const Module) bool {
-        return self.isSignedInt(mod) or self.isUnsignedInt(mod);
+        return self.toIntern() != .comptime_int_type and
+            mod.intern_pool.isIntegerType(self.toIntern());
     }
 
     /// Returns true if and only if the type is a fixed-width, signed integer.
@@ -2191,6 +2235,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2534,6 +2579,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2727,6 +2773,7 @@ pub const Type = struct {
                 .empty_enum_value,
                 .float,
                 .ptr,
+                .slice,
                 .opt,
                 .aggregate,
                 .un,
@@ -2892,22 +2939,21 @@ pub const Type = struct {
 
     // Asserts that `ty` is an error set and not `anyerror`.
     // Asserts that `ty` is resolved if it is an inferred error set.
-    pub fn errorSetNames(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
+    pub fn errorSetNames(ty: Type, mod: *Module) InternPool.NullTerminatedString.Slice {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .error_set_type => |x| x.names.get(ip),
+            .error_set_type => |x| x.names,
             .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
                 .none => unreachable, // unresolved inferred error set
                 .anyerror_type => unreachable,
-                else => |t| ip.indexToKey(t).error_set_type.names.get(ip),
+                else => |t| ip.indexToKey(t).error_set_type.names,
             },
             else => unreachable,
         };
     }
 
-    pub fn enumFields(ty: Type, mod: *Module) []const InternPool.NullTerminatedString {
-        const ip = &mod.intern_pool;
-        return ip.indexToKey(ty.toIntern()).enum_type.names.get(ip);
+    pub fn enumFields(ty: Type, mod: *Module) InternPool.NullTerminatedString.Slice {
+        return mod.intern_pool.indexToKey(ty.toIntern()).enum_type.names;
     }
 
     pub fn enumFieldCount(ty: Type, mod: *Module) usize {
@@ -3027,8 +3073,8 @@ pub const Type = struct {
         const ip = &mod.intern_pool;
         switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => |struct_type| {
-                assert(struct_type.haveFieldInits(ip));
                 if (struct_type.fieldIsComptime(ip, index)) {
+                    assert(struct_type.haveFieldInits(ip));
                     return Value.fromInterned(struct_type.field_inits.get(ip)[index]);
                 } else {
                     return Type.fromInterned(struct_type.field_types.get(ip)[index]).onePossibleValue(mod);
@@ -3212,6 +3258,17 @@ pub const Type = struct {
                 .child = (try ty.childType(mod).toUnsigned(mod)).toIntern(),
             }),
             else => unreachable,
+        };
+    }
+
+    pub fn typeDeclInst(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
+        return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
+            inline .struct_type,
+            .union_type,
+            .enum_type,
+            .opaque_type,
+            => |info| info.zir_index.unwrap(),
+            else => null,
         };
     }
 

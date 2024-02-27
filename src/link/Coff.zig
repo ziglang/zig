@@ -1154,7 +1154,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
-            decl.analysis = .codegen_failure;
+            func.analysis(&mod.intern_pool).state = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
@@ -1176,7 +1176,7 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.Dec
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
     const index = unnamed_consts.items.len;
     const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(sym_name);
@@ -1427,7 +1427,7 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
 
     log.debug("updateDeclCode {s}{*}", .{ decl_name, decl });
     const required_alignment: u32 = @intCast(decl.getAlignment(mod).toByteUnits(0));
@@ -2753,7 +2753,7 @@ const Relocation = @import("Coff/Relocation.zig");
 const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 const TypedValue = @import("../TypedValue.zig");
 
 pub const base_tag: link.File.Tag = .coff;

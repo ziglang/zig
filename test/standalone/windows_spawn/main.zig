@@ -17,7 +17,7 @@ pub fn main() anyerror!void {
 
     const tmp_absolute_path = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(tmp_absolute_path);
-    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, tmp_absolute_path);
+    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, tmp_absolute_path);
     defer allocator.free(tmp_absolute_path_w);
     const cwd_absolute_path = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd_absolute_path);

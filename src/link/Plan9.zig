@@ -14,7 +14,7 @@ const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 const TypedValue = @import("../TypedValue.zig");
 
 const std = @import("std");
@@ -444,7 +444,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
-            decl.analysis = .codegen_failure;
+            func.analysis(&mod.intern_pool).state = .codegen_failure;
             try mod.failed_decls.put(mod.gpa, decl_index, em);
             return;
         },
@@ -478,7 +478,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: InternPool.De
     }
     const unnamed_consts = gop.value_ptr;
 
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
 
     const index = unnamed_consts.items.len;
     // name is freed when the unnamed const is freed

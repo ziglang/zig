@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const Module = @import("Module.zig");
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const Air = @import("Air.zig");
 const Liveness = @import("Liveness.zig");
@@ -175,6 +175,7 @@ const Writer = struct {
             .int_from_ptr,
             .int_from_bool,
             .ret,
+            .ret_safe,
             .ret_load,
             .is_named_enum_value,
             .tag_name,
@@ -317,8 +318,6 @@ const Writer = struct {
             .reduce, .reduce_optimized => try w.writeReduce(s, inst),
             .cmp_vector, .cmp_vector_optimized => try w.writeCmpVector(s, inst),
             .vector_store_elem => try w.writeVectorStoreElem(s, inst),
-
-            .dbg_block_begin, .dbg_block_end => {},
 
             .work_item_id,
             .work_group_size,

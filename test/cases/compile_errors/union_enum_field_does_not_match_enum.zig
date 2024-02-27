@@ -18,5 +18,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :10:8: error: no field named 'D' in enum 'tmp.Letter'
+// :10:5: error: no field named 'D' in enum 'tmp.Letter'
 // :1:16: note: enum declared here

@@ -329,8 +329,6 @@ pub fn categorizeOperand(
         .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         .unreach,
         .ret_addr,
         .frame_addr,
@@ -435,6 +433,7 @@ pub fn categorizeOperand(
         },
 
         .ret,
+        .ret_safe,
         .ret_load,
         => {
             const o = air_datas[@intFromEnum(inst)].un_op;
@@ -966,8 +965,6 @@ fn analyzeInst(
         .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         .fence,
         .ret_addr,
         .frame_addr,
@@ -1070,6 +1067,7 @@ fn analyzeInst(
         },
 
         .ret,
+        .ret_safe,
         .ret_load,
         => {
             const operand = inst_datas[@intFromEnum(inst)].un_op;

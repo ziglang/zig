@@ -1298,8 +1298,7 @@ const ElfFileHelper = struct {
         try compressed_stream.writer().writeAll(prefix);
 
         {
-            var compressor = try std.compress.zlib.compressStream(allocator, compressed_stream.writer(), .{});
-            defer compressor.deinit();
+            var compressor = try std.compress.zlib.compressor(compressed_stream.writer(), .{});
 
             var buf: [8000]u8 = undefined;
             while (true) {

@@ -1,11 +1,11 @@
 const std = @import("std.zig");
 
-pub const deflate = @import("compress/deflate.zig");
+pub const flate = @import("compress/flate.zig");
 pub const gzip = @import("compress/gzip.zig");
+pub const zlib = @import("compress/zlib.zig");
 pub const lzma = @import("compress/lzma.zig");
 pub const lzma2 = @import("compress/lzma2.zig");
 pub const xz = @import("compress/xz.zig");
-pub const zlib = @import("compress/zlib.zig");
 pub const zstd = @import("compress/zstandard.zig");
 
 pub fn HashedReader(
@@ -21,7 +21,7 @@ pub fn HashedReader(
 
         pub fn read(self: *@This(), buf: []u8) Error!usize {
             const amt = try self.child_reader.read(buf);
-            self.hasher.update(buf);
+            self.hasher.update(buf[0..amt]);
             return amt;
         }
 
@@ -38,12 +38,42 @@ pub fn hashedReader(
     return .{ .child_reader = reader, .hasher = hasher };
 }
 
+pub fn HashedWriter(
+    comptime WriterType: anytype,
+    comptime HasherType: anytype,
+) type {
+    return struct {
+        child_writer: WriterType,
+        hasher: HasherType,
+
+        pub const Error = WriterType.Error;
+        pub const Writer = std.io.Writer(*@This(), Error, write);
+
+        pub fn write(self: *@This(), buf: []const u8) Error!usize {
+            const amt = try self.child_writer.write(buf);
+            self.hasher.update(buf[0..amt]);
+            return amt;
+        }
+
+        pub fn writer(self: *@This()) Writer {
+            return .{ .context = self };
+        }
+    };
+}
+
+pub fn hashedWriter(
+    writer: anytype,
+    hasher: anytype,
+) HashedWriter(@TypeOf(writer), @TypeOf(hasher)) {
+    return .{ .child_writer = writer, .hasher = hasher };
+}
+
 test {
-    _ = deflate;
-    _ = gzip;
     _ = lzma;
     _ = lzma2;
     _ = xz;
-    _ = zlib;
     _ = zstd;
+    _ = flate;
+    _ = gzip;
+    _ = zlib;
 }

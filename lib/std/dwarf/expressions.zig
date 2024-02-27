@@ -12,8 +12,8 @@ const native_endian = builtin.cpu.arch.endian();
 /// Callers should specify all the fields relevant to their context. If a field is required
 /// by the expression and it isn't in the context, error.IncompleteExpressionContext is returned.
 pub const ExpressionContext = struct {
-    /// This expression is from a DWARF64 section
-    is_64: bool = false,
+    /// The dwarf format of the section this expression is in
+    format: dwarf.Format = .@"32",
 
     /// If specified, any addresses will pass through this function before being acccessed
     isValidMemory: ?*const fn (address: usize) bool = null,
@@ -190,10 +190,10 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             const reader = stream.reader();
             return switch (opcode) {
                 OP.addr => generic(try reader.readInt(addr_type, options.endian)),
-                OP.call_ref => if (context.is_64)
-                    generic(try reader.readInt(u64, options.endian))
-                else
-                    generic(try reader.readInt(u32, options.endian)),
+                OP.call_ref => switch (context.format) {
+                    .@"32" => generic(try reader.readInt(u32, options.endian)),
+                    .@"64" => generic(try reader.readInt(u64, options.endian)),
+                },
                 OP.const1u,
                 OP.pick,
                 => generic(try reader.readByte()),
@@ -366,15 +366,15 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     _ = offset;
 
                     switch (context.compile_unit.?.frame_base.?.*) {
-                        .ExprLoc => {
+                        .exprloc => {
                             // TODO: Run this expression in a nested stack machine
                             return error.UnimplementedOpcode;
                         },
-                        .LocListOffset => {
+                        .loclistx => {
                             // TODO: Read value from .debug_loclists
                             return error.UnimplementedOpcode;
                         },
-                        .SecOffset => {
+                        .sec_offset => {
                             // TODO: Read value from .debug_loclists
                             return error.UnimplementedOpcode;
                         },

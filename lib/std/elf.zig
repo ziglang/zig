@@ -1806,91 +1806,430 @@ pub const COMPRESS = enum(u32) {
 };
 
 /// AMD x86-64 relocations.
-/// No reloc
-pub const R_X86_64_NONE = 0;
-/// Direct 64 bit
-pub const R_X86_64_64 = 1;
-/// PC relative 32 bit signed
-pub const R_X86_64_PC32 = 2;
-/// 32 bit GOT entry
-pub const R_X86_64_GOT32 = 3;
-/// 32 bit PLT address
-pub const R_X86_64_PLT32 = 4;
-/// Copy symbol at runtime
-pub const R_X86_64_COPY = 5;
-/// Create GOT entry
-pub const R_X86_64_GLOB_DAT = 6;
-/// Create PLT entry
-pub const R_X86_64_JUMP_SLOT = 7;
-/// Adjust by program base
-pub const R_X86_64_RELATIVE = 8;
-/// 32 bit signed PC relative offset to GOT
-pub const R_X86_64_GOTPCREL = 9;
-/// Direct 32 bit zero extended
-pub const R_X86_64_32 = 10;
-/// Direct 32 bit sign extended
-pub const R_X86_64_32S = 11;
-/// Direct 16 bit zero extended
-pub const R_X86_64_16 = 12;
-/// 16 bit sign extended pc relative
-pub const R_X86_64_PC16 = 13;
-/// Direct 8 bit sign extended
-pub const R_X86_64_8 = 14;
-/// 8 bit sign extended pc relative
-pub const R_X86_64_PC8 = 15;
-/// ID of module containing symbol
-pub const R_X86_64_DTPMOD64 = 16;
-/// Offset in module's TLS block
-pub const R_X86_64_DTPOFF64 = 17;
-/// Offset in initial TLS block
-pub const R_X86_64_TPOFF64 = 18;
-/// 32 bit signed PC relative offset to two GOT entries for GD symbol
-pub const R_X86_64_TLSGD = 19;
-/// 32 bit signed PC relative offset to two GOT entries for LD symbol
-pub const R_X86_64_TLSLD = 20;
-/// Offset in TLS block
-pub const R_X86_64_DTPOFF32 = 21;
-/// 32 bit signed PC relative offset to GOT entry for IE symbol
-pub const R_X86_64_GOTTPOFF = 22;
-/// Offset in initial TLS block
-pub const R_X86_64_TPOFF32 = 23;
-/// PC relative 64 bit
-pub const R_X86_64_PC64 = 24;
-/// 64 bit offset to GOT
-pub const R_X86_64_GOTOFF64 = 25;
-/// 32 bit signed pc relative offset to GOT
-pub const R_X86_64_GOTPC32 = 26;
-/// 64 bit GOT entry offset
-pub const R_X86_64_GOT64 = 27;
-/// 64 bit PC relative offset to GOT entry
-pub const R_X86_64_GOTPCREL64 = 28;
-/// 64 bit PC relative offset to GOT
-pub const R_X86_64_GOTPC64 = 29;
-/// Like GOT64, says PLT entry needed
-pub const R_X86_64_GOTPLT64 = 30;
-/// 64-bit GOT relative offset to PLT entry
-pub const R_X86_64_PLTOFF64 = 31;
-/// Size of symbol plus 32-bit addend
-pub const R_X86_64_SIZE32 = 32;
-/// Size of symbol plus 64-bit addend
-pub const R_X86_64_SIZE64 = 33;
-/// GOT offset for TLS descriptor
-pub const R_X86_64_GOTPC32_TLSDESC = 34;
-/// Marker for call through TLS descriptor
-pub const R_X86_64_TLSDESC_CALL = 35;
-/// TLS descriptor
-pub const R_X86_64_TLSDESC = 36;
-/// Adjust indirectly by program base
-pub const R_X86_64_IRELATIVE = 37;
-/// 64-bit adjust by program base
-pub const R_X86_64_RELATIVE64 = 38;
-/// 39 Reserved was R_X86_64_PC32_BND
-/// 40 Reserved was R_X86_64_PLT32_BND
-/// Load from 32 bit signed pc relative offset to GOT entry without REX prefix, relaxable
-pub const R_X86_64_GOTPCRELX = 41;
-/// Load from 32 bit signed PC relative offset to GOT entry with REX prefix, relaxable
-pub const R_X86_64_REX_GOTPCRELX = 42;
-pub const R_X86_64_NUM = 43;
+pub const R_X86_64 = enum(u32) {
+    /// No reloc
+    NONE = 0,
+    /// Direct 64 bit
+    @"64" = 1,
+    /// PC relative 32 bit signed
+    PC32 = 2,
+    /// 32 bit GOT entry
+    GOT32 = 3,
+    /// 32 bit PLT address
+    PLT32 = 4,
+    /// Copy symbol at runtime
+    COPY = 5,
+    /// Create GOT entry
+    GLOB_DAT = 6,
+    /// Create PLT entry
+    JUMP_SLOT = 7,
+    /// Adjust by program base
+    RELATIVE = 8,
+    /// 32 bit signed PC relative offset to GOT
+    GOTPCREL = 9,
+    /// Direct 32 bit zero extended
+    @"32" = 10,
+    /// Direct 32 bit sign extended
+    @"32S" = 11,
+    /// Direct 16 bit zero extended
+    @"16" = 12,
+    /// 16 bit sign extended pc relative
+    PC16 = 13,
+    /// Direct 8 bit sign extended
+    @"8" = 14,
+    /// 8 bit sign extended pc relative
+    PC8 = 15,
+    /// ID of module containing symbol
+    DTPMOD64 = 16,
+    /// Offset in module's TLS block
+    DTPOFF64 = 17,
+    /// Offset in initial TLS block
+    TPOFF64 = 18,
+    /// 32 bit signed PC relative offset to two GOT entries for GD symbol
+    TLSGD = 19,
+    /// 32 bit signed PC relative offset to two GOT entries for LD symbol
+    TLSLD = 20,
+    /// Offset in TLS block
+    DTPOFF32 = 21,
+    /// 32 bit signed PC relative offset to GOT entry for IE symbol
+    GOTTPOFF = 22,
+    /// Offset in initial TLS block
+    TPOFF32 = 23,
+    /// PC relative 64 bit
+    PC64 = 24,
+    /// 64 bit offset to GOT
+    GOTOFF64 = 25,
+    /// 32 bit signed pc relative offset to GOT
+    GOTPC32 = 26,
+    /// 64 bit GOT entry offset
+    GOT64 = 27,
+    /// 64 bit PC relative offset to GOT entry
+    GOTPCREL64 = 28,
+    /// 64 bit PC relative offset to GOT
+    GOTPC64 = 29,
+    /// Like GOT64, says PLT entry needed
+    GOTPLT64 = 30,
+    /// 64-bit GOT relative offset to PLT entry
+    PLTOFF64 = 31,
+    /// Size of symbol plus 32-bit addend
+    SIZE32 = 32,
+    /// Size of symbol plus 64-bit addend
+    SIZE64 = 33,
+    /// GOT offset for TLS descriptor
+    GOTPC32_TLSDESC = 34,
+    /// Marker for call through TLS descriptor
+    TLSDESC_CALL = 35,
+    /// TLS descriptor
+    TLSDESC = 36,
+    /// Adjust indirectly by program base
+    IRELATIVE = 37,
+    /// 64-bit adjust by program base
+    RELATIVE64 = 38,
+    /// 39 Reserved was PC32_BND
+    /// 40 Reserved was PLT32_BND
+    /// Load from 32 bit signed pc relative offset to GOT entry without REX prefix, relaxable
+    GOTPCRELX = 41,
+    /// Load from 32 bit signed PC relative offset to GOT entry with REX prefix, relaxable
+    REX_GOTPCRELX = 42,
+    _,
+};
+
+/// AArch64 relocs.
+pub const R_AARCH64 = enum(u32) {
+    /// No relocation.
+    NONE = 0,
+    /// ILP32 AArch64 relocs.
+    /// Direct 32 bit.
+    P32_ABS32 = 1,
+    /// Copy symbol at runtime.
+    P32_COPY = 180,
+    /// Create GOT entry.
+    P32_GLOB_DAT = 181,
+    /// Create PLT entry.
+    P32_JUMP_SLOT = 182,
+    /// Adjust by program base.
+    P32_RELATIVE = 183,
+    /// Module number, 32 bit.
+    P32_TLS_DTPMOD = 184,
+    /// Module-relative offset, 32 bit.
+    P32_TLS_DTPREL = 185,
+    /// TP-relative offset, 32 bit.
+    P32_TLS_TPREL = 186,
+    /// TLS Descriptor.
+    P32_TLSDESC = 187,
+    /// STT_GNU_IFUNC relocation.
+    P32_IRELATIVE = 188,
+    /// LP64 AArch64 relocs.
+    /// Direct 64 bit.
+    ABS64 = 257,
+    /// Direct 32 bit.
+    ABS32 = 258,
+    /// Direct 16-bit.
+    ABS16 = 259,
+    /// PC-relative 64-bit.
+    PREL64 = 260,
+    /// PC-relative 32-bit.
+    PREL32 = 261,
+    /// PC-relative 16-bit.
+    PREL16 = 262,
+    /// Dir. MOVZ imm. from bits 15:0.
+    MOVW_UABS_G0 = 263,
+    /// Likewise for MOVK; no check.
+    MOVW_UABS_G0_NC = 264,
+    /// Dir. MOVZ imm. from bits 31:16.
+    MOVW_UABS_G1 = 265,
+    /// Likewise for MOVK; no check.
+    MOVW_UABS_G1_NC = 266,
+    /// Dir. MOVZ imm. from bits 47:32.
+    MOVW_UABS_G2 = 267,
+    /// Likewise for MOVK; no check.
+    MOVW_UABS_G2_NC = 268,
+    /// Dir. MOV{K,Z} imm. from 63:48.
+    MOVW_UABS_G3 = 269,
+    /// Dir. MOV{N,Z} imm. from 15:0.
+    MOVW_SABS_G0 = 270,
+    /// Dir. MOV{N,Z} imm. from 31:16.
+    MOVW_SABS_G1 = 271,
+    /// Dir. MOV{N,Z} imm. from 47:32.
+    MOVW_SABS_G2 = 272,
+    /// PC-rel. LD imm. from bits 20:2.
+    LD_PREL_LO19 = 273,
+    /// PC-rel. ADR imm. from bits 20:0.
+    ADR_PREL_LO21 = 274,
+    /// Page-rel. ADRP imm. from 32:12.
+    ADR_PREL_PG_HI21 = 275,
+    /// Likewise; no overflow check.
+    ADR_PREL_PG_HI21_NC = 276,
+    /// Dir. ADD imm. from bits 11:0.
+    ADD_ABS_LO12_NC = 277,
+    /// Likewise for LD/ST; no check.
+    LDST8_ABS_LO12_NC = 278,
+    /// PC-rel. TBZ/TBNZ imm. from 15:2.
+    TSTBR14 = 279,
+    /// PC-rel. cond. br. imm. from 20:2.
+    CONDBR19 = 280,
+    /// PC-rel. B imm. from bits 27:2.
+    JUMP26 = 282,
+    /// Likewise for CALL.
+    CALL26 = 283,
+    /// Dir. ADD imm. from bits 11:1.
+    LDST16_ABS_LO12_NC = 284,
+    /// Likewise for bits 11:2.
+    LDST32_ABS_LO12_NC = 285,
+    /// Likewise for bits 11:3.
+    LDST64_ABS_LO12_NC = 286,
+    /// PC-rel. MOV{N,Z} imm. from 15:0.
+    MOVW_PREL_G0 = 287,
+    /// Likewise for MOVK; no check.
+    MOVW_PREL_G0_NC = 288,
+    /// PC-rel. MOV{N,Z} imm. from 31:16.
+    MOVW_PREL_G1 = 289,
+    /// Likewise for MOVK; no check.
+    MOVW_PREL_G1_NC = 290,
+    /// PC-rel. MOV{N,Z} imm. from 47:32.
+    MOVW_PREL_G2 = 291,
+    /// Likewise for MOVK; no check.
+    MOVW_PREL_G2_NC = 292,
+    /// PC-rel. MOV{N,Z} imm. from 63:48.
+    MOVW_PREL_G3 = 293,
+    /// Dir. ADD imm. from bits 11:4.
+    LDST128_ABS_LO12_NC = 299,
+    /// GOT-rel. off. MOV{N,Z} imm. 15:0.
+    MOVW_GOTOFF_G0 = 300,
+    /// Likewise for MOVK; no check.
+    MOVW_GOTOFF_G0_NC = 301,
+    /// GOT-rel. o. MOV{N,Z} imm. 31:16.
+    MOVW_GOTOFF_G1 = 302,
+    /// Likewise for MOVK; no check.
+    MOVW_GOTOFF_G1_NC = 303,
+    /// GOT-rel. o. MOV{N,Z} imm. 47:32.
+    MOVW_GOTOFF_G2 = 304,
+    /// Likewise for MOVK; no check.
+    MOVW_GOTOFF_G2_NC = 305,
+    /// GOT-rel. o. MOV{N,Z} imm. 63:48.
+    MOVW_GOTOFF_G3 = 306,
+    /// GOT-relative 64-bit.
+    GOTREL64 = 307,
+    /// GOT-relative 32-bit.
+    GOTREL32 = 308,
+    /// PC-rel. GOT off. load imm. 20:2.
+    GOT_LD_PREL19 = 309,
+    /// GOT-rel. off. LD/ST imm. 14:3.
+    LD64_GOTOFF_LO15 = 310,
+    /// P-page-rel. GOT off. ADRP 32:12.
+    ADR_GOT_PAGE = 311,
+    /// Dir. GOT off. LD/ST imm. 11:3.
+    LD64_GOT_LO12_NC = 312,
+    /// GOT-page-rel. GOT off. LD/ST 14:3
+    LD64_GOTPAGE_LO15 = 313,
+    /// PC-relative ADR imm. 20:0.
+    TLSGD_ADR_PREL21 = 512,
+    /// page-rel. ADRP imm. 32:12.
+    TLSGD_ADR_PAGE21 = 513,
+    /// direct ADD imm. from 11:0.
+    TLSGD_ADD_LO12_NC = 514,
+    /// GOT-rel. MOV{N,Z} 31:16.
+    TLSGD_MOVW_G1 = 515,
+    /// GOT-rel. MOVK imm. 15:0.
+    TLSGD_MOVW_G0_NC = 516,
+    /// Like 512; local dynamic model.
+    TLSLD_ADR_PREL21 = 517,
+    /// Like 513; local dynamic model.
+    TLSLD_ADR_PAGE21 = 518,
+    /// Like 514; local dynamic model.
+    TLSLD_ADD_LO12_NC = 519,
+    /// Like 515; local dynamic model.
+    TLSLD_MOVW_G1 = 520,
+    /// Like 516; local dynamic model.
+    TLSLD_MOVW_G0_NC = 521,
+    /// TLS PC-rel. load imm. 20:2.
+    TLSLD_LD_PREL19 = 522,
+    /// TLS DTP-rel. MOV{N,Z} 47:32.
+    TLSLD_MOVW_DTPREL_G2 = 523,
+    /// TLS DTP-rel. MOV{N,Z} 31:16.
+    TLSLD_MOVW_DTPREL_G1 = 524,
+    /// Likewise; MOVK; no check.
+    TLSLD_MOVW_DTPREL_G1_NC = 525,
+    /// TLS DTP-rel. MOV{N,Z} 15:0.
+    TLSLD_MOVW_DTPREL_G0 = 526,
+    /// Likewise; MOVK; no check.
+    TLSLD_MOVW_DTPREL_G0_NC = 527,
+    /// DTP-rel. ADD imm. from 23:12.
+    TLSLD_ADD_DTPREL_HI12 = 528,
+    /// DTP-rel. ADD imm. from 11:0.
+    TLSLD_ADD_DTPREL_LO12 = 529,
+    /// Likewise; no ovfl. check.
+    TLSLD_ADD_DTPREL_LO12_NC = 530,
+    /// DTP-rel. LD/ST imm. 11:0.
+    TLSLD_LDST8_DTPREL_LO12 = 531,
+    /// Likewise; no check.
+    TLSLD_LDST8_DTPREL_LO12_NC = 532,
+    /// DTP-rel. LD/ST imm. 11:1.
+    TLSLD_LDST16_DTPREL_LO12 = 533,
+    /// Likewise; no check.
+    TLSLD_LDST16_DTPREL_LO12_NC = 534,
+    /// DTP-rel. LD/ST imm. 11:2.
+    TLSLD_LDST32_DTPREL_LO12 = 535,
+    /// Likewise; no check.
+    TLSLD_LDST32_DTPREL_LO12_NC = 536,
+    /// DTP-rel. LD/ST imm. 11:3.
+    TLSLD_LDST64_DTPREL_LO12 = 537,
+    /// Likewise; no check.
+    TLSLD_LDST64_DTPREL_LO12_NC = 538,
+    /// GOT-rel. MOV{N,Z} 31:16.
+    TLSIE_MOVW_GOTTPREL_G1 = 539,
+    /// GOT-rel. MOVK 15:0.
+    TLSIE_MOVW_GOTTPREL_G0_NC = 540,
+    /// Page-rel. ADRP 32:12.
+    TLSIE_ADR_GOTTPREL_PAGE21 = 541,
+    /// Direct LD off. 11:3.
+    TLSIE_LD64_GOTTPREL_LO12_NC = 542,
+    /// PC-rel. load imm. 20:2.
+    TLSIE_LD_GOTTPREL_PREL19 = 543,
+    /// TLS TP-rel. MOV{N,Z} 47:32.
+    TLSLE_MOVW_TPREL_G2 = 544,
+    /// TLS TP-rel. MOV{N,Z} 31:16.
+    TLSLE_MOVW_TPREL_G1 = 545,
+    /// Likewise; MOVK; no check.
+    TLSLE_MOVW_TPREL_G1_NC = 546,
+    /// TLS TP-rel. MOV{N,Z} 15:0.
+    TLSLE_MOVW_TPREL_G0 = 547,
+    /// Likewise; MOVK; no check.
+    TLSLE_MOVW_TPREL_G0_NC = 548,
+    /// TP-rel. ADD imm. 23:12.
+    TLSLE_ADD_TPREL_HI12 = 549,
+    /// TP-rel. ADD imm. 11:0.
+    TLSLE_ADD_TPREL_LO12 = 550,
+    /// Likewise; no ovfl. check.
+    TLSLE_ADD_TPREL_LO12_NC = 551,
+    /// TP-rel. LD/ST off. 11:0.
+    TLSLE_LDST8_TPREL_LO12 = 552,
+    /// Likewise; no ovfl. check.
+    TLSLE_LDST8_TPREL_LO12_NC = 553,
+    /// TP-rel. LD/ST off. 11:1.
+    TLSLE_LDST16_TPREL_LO12 = 554,
+    /// Likewise; no check.
+    TLSLE_LDST16_TPREL_LO12_NC = 555,
+    /// TP-rel. LD/ST off. 11:2.
+    TLSLE_LDST32_TPREL_LO12 = 556,
+    /// Likewise; no check.
+    TLSLE_LDST32_TPREL_LO12_NC = 557,
+    /// TP-rel. LD/ST off. 11:3.
+    TLSLE_LDST64_TPREL_LO12 = 558,
+    /// Likewise; no check.
+    TLSLE_LDST64_TPREL_LO12_NC = 559,
+    ///  PC-rel. load immediate 20:2.
+    TLSDESC_LD_PREL19 = 560,
+    /// PC-rel. ADR immediate 20:0.
+    TLSDESC_ADR_PREL21 = 561,
+    /// Page-rel. ADRP imm. 32:12.
+    TLSDESC_ADR_PAGE21 = 562,
+    /// Direct LD off. from 11:3.
+    TLSDESC_LD64_LO12 = 563,
+    /// Direct ADD imm. from 11:0.
+    TLSDESC_ADD_LO12 = 564,
+    /// GOT-rel. MOV{N,Z} imm. 31:16.
+    TLSDESC_OFF_G1 = 565,
+    /// GOT-rel. MOVK imm. 15:0; no ck.
+    TLSDESC_OFF_G0_NC = 566,
+    /// Relax LDR.
+    TLSDESC_LDR = 567,
+    /// Relax ADD.
+    TLSDESC_ADD = 568,
+    /// Relax BLR.
+    TLSDESC_CALL = 569,
+    /// TP-rel. LD/ST off. 11:4.
+    TLSLE_LDST128_TPREL_LO12 = 570,
+    /// Likewise; no check.
+    TLSLE_LDST128_TPREL_LO12_NC = 571,
+    /// DTP-rel. LD/ST imm. 11:4.
+    TLSLD_LDST128_DTPREL_LO12 = 572,
+    /// Likewise; no check.
+    TLSLD_LDST128_DTPREL_LO12_NC = 573,
+    /// Copy symbol at runtime.
+    COPY = 1024,
+    /// Create GOT entry.
+    GLOB_DAT = 1025,
+    /// Create PLT entry.
+    JUMP_SLOT = 1026,
+    /// Adjust by program base.
+    RELATIVE = 1027,
+    /// Module number, 64 bit.
+    TLS_DTPMOD = 1028,
+    /// Module-relative offset, 64 bit.
+    TLS_DTPREL = 1029,
+    /// TP-relative offset, 64 bit.
+    TLS_TPREL = 1030,
+    /// TLS Descriptor.
+    TLSDESC = 1031,
+    /// STT_GNU_IFUNC relocation.
+    IRELATIVE = 1032,
+    _,
+};
+
+/// RISC-V relocations.
+pub const R_RISCV = enum(u32) {
+    NONE = 0,
+    @"32" = 1,
+    @"64" = 2,
+    RELATIVE = 3,
+    COPY = 4,
+    JUMP_SLOT = 5,
+    TLS_DTPMOD32 = 6,
+    TLS_DTPMOD64 = 7,
+    TLS_DTPREL32 = 8,
+    TLS_DTPREL64 = 9,
+    TLS_TPREL32 = 10,
+    TLS_TPREL64 = 11,
+    TLSDESC = 12,
+    BRANCH = 16,
+    JAL = 17,
+    CALL = 18,
+    CALL_PLT = 19,
+    GOT_HI20 = 20,
+    TLS_GOT_HI20 = 21,
+    TLS_GD_HI20 = 22,
+    PCREL_HI20 = 23,
+    PCREL_LO12_I = 24,
+    PCREL_LO12_S = 25,
+    HI20 = 26,
+    LO12_I = 27,
+    LO12_S = 28,
+    TPREL_HI20 = 29,
+    TPREL_LO12_I = 30,
+    TPREL_LO12_S = 31,
+    TPREL_ADD = 32,
+    ADD8 = 33,
+    ADD16 = 34,
+    ADD32 = 35,
+    ADD64 = 36,
+    SUB8 = 37,
+    SUB16 = 38,
+    SUB32 = 39,
+    SUB64 = 40,
+    GNU_VTINHERIT = 41,
+    GNU_VTENTRY = 42,
+    ALIGN = 43,
+    RVC_BRANCH = 44,
+    RVC_JUMP = 45,
+    RVC_LUI = 46,
+    GPREL_I = 47,
+    GPREL_S = 48,
+    TPREL_I = 49,
+    TPREL_S = 50,
+    RELAX = 51,
+    SUB6 = 52,
+    SET6 = 53,
+    SET8 = 54,
+    SET16 = 55,
+    SET32 = 56,
+    @"32_PCREL" = 57,
+    IRELATIVE = 58,
+    PLT32 = 59,
+    SET_ULEB128 = 60,
+    SUB_ULEB128 = 61,
+    _,
+};
 
 pub const STV = enum(u2) {
     DEFAULT = 0,

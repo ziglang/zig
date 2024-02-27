@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const maxInt = std.math.maxInt;
 const native_abi = builtin.abi;
 const native_arch = builtin.cpu.arch;
 const linux = std.os.linux;
@@ -10,7 +9,6 @@ const FILE = std.c.FILE;
 
 pub const AF = linux.AF;
 pub const ARCH = linux.ARCH;
-pub const AT = linux.AT;
 pub const CLOCK = linux.CLOCK;
 pub const CPU_COUNT = linux.CPU_COUNT;
 pub const E = linux.E;
@@ -25,16 +23,10 @@ pub const IOV_MAX = linux.IOV_MAX;
 pub const IPPROTO = linux.IPPROTO;
 pub const LOCK = linux.LOCK;
 pub const MADV = linux.MADV;
-pub const MAP = struct {
-    pub usingnamespace linux.MAP;
-    /// Only used by libc to communicate failure.
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-};
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
 pub const MSG = linux.MSG;
 pub const NAME_MAX = linux.NAME_MAX;
-pub const O = linux.O;
 pub const PATH_MAX = linux.PATH_MAX;
 pub const POLL = linux.POLL;
 pub const PROT = linux.PROT;
@@ -56,6 +48,7 @@ pub const STDIN_FILENO = linux.STDIN_FILENO;
 pub const STDOUT_FILENO = linux.STDOUT_FILENO;
 pub const SYS = linux.SYS;
 pub const Sigaction = linux.Sigaction;
+pub const T = linux.T;
 pub const TCP = linux.TCP;
 pub const TCSA = linux.TCSA;
 pub const VDSO = linux.VDSO;
@@ -93,8 +86,6 @@ pub const sigset_t = linux.sigset_t;
 pub const sockaddr = linux.sockaddr;
 pub const socklen_t = linux.socklen_t;
 pub const stack_t = linux.stack_t;
-pub const tcflag_t = linux.tcflag_t;
-pub const termios = linux.termios;
 pub const time_t = linux.time_t;
 pub const timespec = linux.timespec;
 pub const timeval = linux.timeval;
@@ -103,6 +94,7 @@ pub const ucontext_t = linux.ucontext_t;
 pub const uid_t = linux.uid_t;
 pub const user_desc = linux.user_desc;
 pub const utsname = linux.utsname;
+pub const winsize = linux.winsize;
 pub const PR = linux.PR;
 
 pub const _errno = switch (native_abi) {
@@ -247,8 +239,8 @@ pub extern "c" fn ftruncate64(fd: c_int, length: off_t) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
 pub extern "c" fn mmap64(addr: ?*align(std.mem.page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
-pub extern "c" fn open64(path: [*:0]const u8, oflag: c_uint, ...) c_int;
-pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: c_uint, ...) c_int;
+pub extern "c" fn open64(path: [*:0]const u8, oflag: linux.O, ...) c_int;
+pub extern "c" fn openat64(fd: c_int, path: [*:0]const u8, oflag: linux.O, ...) c_int;
 pub extern "c" fn pread64(fd: fd_t, buf: [*]u8, nbyte: usize, offset: i64) isize;
 pub extern "c" fn preadv64(fd: c_int, iov: [*]const iovec, iovcnt: c_uint, offset: i64) isize;
 pub extern "c" fn pwrite64(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: i64) isize;
@@ -283,7 +275,7 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*an
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: linux.O) c_int;
 
 pub extern "c" fn fallocate(fd: fd_t, mode: c_int, offset: off_t, len: off_t) c_int;
 
@@ -319,43 +311,11 @@ pub const pthread_attr_t = extern struct {
     __align: c_long,
 };
 
-pub const pthread_mutex_t = extern struct {
-    size: [__SIZEOF_PTHREAD_MUTEX_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_MUTEX_T,
-};
-pub const pthread_cond_t = extern struct {
-    size: [__SIZEOF_PTHREAD_COND_T]u8 align(@alignOf(usize)) = [_]u8{0} ** __SIZEOF_PTHREAD_COND_T,
-};
-pub const pthread_rwlock_t = switch (native_abi) {
-    .android => switch (@sizeOf(usize)) {
-        4 => extern struct {
-            size: [40]u8 align(@alignOf(usize)) = [_]u8{0} ** 40,
-        },
-        8 => extern struct {
-            size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
-        },
-        else => @compileError("impossible pointer size"),
-    },
-    else => extern struct {
-        size: [56]u8 align(@alignOf(usize)) = [_]u8{0} ** 56,
-    },
-};
 pub const pthread_key_t = c_uint;
 pub const sem_t = extern struct {
     __size: [__SIZEOF_SEM_T]u8 align(@alignOf(usize)),
 };
 
-const __SIZEOF_PTHREAD_COND_T = 48;
-const __SIZEOF_PTHREAD_MUTEX_T = switch (native_abi) {
-    .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
-    .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
-        .aarch64 => 48,
-        .x86_64 => if (native_abi == .gnux32) 40 else 32,
-        .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
-        else => if (@sizeOf(usize) == 8) 40 else 24,
-    },
-    .android => if (@sizeOf(usize) == 8) 40 else 4,
-    else => @compileError("unsupported ABI"),
-};
 const __SIZEOF_SEM_T = 4 * @sizeOf(usize);
 
 pub extern "c" fn pthread_setname_np(thread: std.c.pthread_t, name: [*:0]const u8) E;
@@ -371,16 +331,16 @@ pub const RTLD = struct {
 };
 
 pub const dirent = struct {
-    d_ino: c_uint,
-    d_off: c_uint,
-    d_reclen: c_ushort,
-    d_type: u8,
-    d_name: [256]u8,
+    ino: c_uint,
+    off: c_uint,
+    reclen: c_ushort,
+    type: u8,
+    name: [256]u8,
 };
 pub const dirent64 = struct {
-    d_ino: c_ulong,
-    d_off: c_ulong,
-    d_reclen: c_ushort,
-    d_type: u8,
-    d_name: [256]u8,
+    ino: c_ulong,
+    off: c_ulong,
+    reclen: c_ushort,
+    type: u8,
+    name: [256]u8,
 };

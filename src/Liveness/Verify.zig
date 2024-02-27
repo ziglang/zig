@@ -48,8 +48,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .dbg_stmt,
             .dbg_inline_begin,
             .dbg_inline_end,
-            .dbg_block_begin,
-            .dbg_block_end,
             .fence,
             .ret_addr,
             .frame_addr,
@@ -151,6 +149,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 try self.verifyInstOperands(inst, .{ un_op, .none, .none });
             },
             .ret,
+            .ret_safe,
             .ret_load,
             => {
                 const un_op = data[@intFromEnum(inst)].un_op;

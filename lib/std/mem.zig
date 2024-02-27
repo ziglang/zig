@@ -632,10 +632,16 @@ test "lessThan" {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
+const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
+    // The SPIR-V backend does not support the optimized path yet.
+    .stage2_spirv64 => false,
+    else => true,
+};
+
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (@sizeOf(T) == 0) return true;
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T)) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and backend_can_use_eql_bytes) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -648,6 +654,10 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 
 /// std.mem.eql heavily optimized for slices of bytes.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
+    if (!backend_can_use_eql_bytes) {
+        return eql(u8, a, b);
+    }
+
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
 
@@ -1328,7 +1338,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
-        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (mem.eql(T, haystack[i..][0..needle.len], needle)) return i;
         if (i == 0) return null;
     }
 }
@@ -1336,12 +1346,33 @@ pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const 
 /// Consider using `indexOfPos` instead of this, which will automatically use a
 /// more sophisticated algorithm on larger inputs.
 pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (eql(T, haystack[i..][0..needle.len], needle)) return i;
     }
     return null;
+}
+
+test indexOfPosLinear {
+    try testing.expectEqual(0, indexOfPosLinear(u8, "", 0, ""));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "123", 0, ""));
+
+    try testing.expectEqual(null, indexOfPosLinear(u8, "", 0, "1"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "1", 0, "1"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "2", 0, "1"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "21", 0, "1"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "222", 0, "1"));
+
+    try testing.expectEqual(null, indexOfPosLinear(u8, "", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "1", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "2", 0, "12"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "12", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "21", 0, "12"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "212", 0, "12"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "122", 0, "12"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "212112", 0, "12"));
 }
 
 fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {
@@ -4413,7 +4444,7 @@ test "read/write(Var)PackedInt" {
 
     const foreign_endian: Endian = if (native_endian == .big) .little else .big;
     const expect = std.testing.expect;
-    var prng = std.rand.DefaultPrng.init(1234);
+    var prng = std.Random.DefaultPrng.init(1234);
     const random = prng.random();
 
     @setEvalBranchQuota(10_000);

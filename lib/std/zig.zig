@@ -27,11 +27,12 @@ pub const parseNumberLiteral = number_literal.parseNumberLiteral;
 pub const c_builtins = @import("zig/c_builtins.zig");
 pub const c_translation = @import("zig/c_translation.zig");
 
+pub const SrcHasher = std.crypto.hash.Blake3;
 pub const SrcHash = [16]u8;
 
 pub fn hashSrc(src: []const u8) SrcHash {
     var out: SrcHash = undefined;
-    std.crypto.hash.Blake3.hash(src, &out, .{});
+    SrcHasher.hash(src, &out, .{});
     return out;
 }
 
@@ -41,7 +42,7 @@ pub fn srcHashEql(a: SrcHash, b: SrcHash) bool {
 
 pub fn hashName(parent_hash: SrcHash, sep: []const u8, name: []const u8) SrcHash {
     var out: SrcHash = undefined;
-    var hasher = std.crypto.hash.Blake3.init(.{});
+    var hasher = SrcHasher.init(.{});
     hasher.update(&parent_hash);
     hasher.update(sep);
     hasher.update(name);

@@ -1744,8 +1744,6 @@ test "struct init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known struct init" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var side_effects: u4 = 0;
     const S = struct { a: u4, b: u4, c: u4, d: u4 };
     const init = S{
@@ -2056,6 +2054,8 @@ test "struct field default value is a call" {
 }
 
 test "aggregate initializers should allow initializing comptime fields, verifying equality" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var x: u32 = 15;
     _ = &x;
     const T = @TypeOf(.{ @as(i32, -1234), @as(u32, 5678), x });
@@ -2113,4 +2113,17 @@ test "initiate global variable with runtime value" {
         .field = S.couldFail() catch 0,
     };
     try expect(S.some_struct.field == 1);
+}
+
+test "struct containing optional pointer to array of @This()" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        x: ?*const [1]@This(),
+    };
+
+    var s: S = .{ .x = &.{.{ .x = null }} };
+    _ = &s;
+    try expect(s.x.?[0].x == null);
 }

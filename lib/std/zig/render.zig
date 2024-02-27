@@ -1894,9 +1894,6 @@ fn renderSwitchCase(
     // Render everything before the arrow
     if (switch_case.ast.values.len == 0) {
         try renderToken(r, switch_case.ast.arrow_token - 1, .space); // else keyword
-    } else if (switch_case.ast.values.len == 1 and !has_comment_before_arrow) {
-        // render on one line and drop the trailing comma if any
-        try renderExpression(r, switch_case.ast.values[0], .space);
     } else if (trailing_comma or has_comment_before_arrow) {
         // Render each value on a new line
         try renderExpressions(r, switch_case.ast.values, .comma);

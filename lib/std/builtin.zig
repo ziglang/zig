@@ -205,6 +205,9 @@ pub const CallingConvention = enum(u8) {
     Win64,
     /// AMD GPU, NVPTX, or SPIR-V kernel
     Kernel,
+    // Vulkan-only
+    Fragment,
+    Vertex,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -222,6 +225,9 @@ pub const AddressSpace = enum(u5) {
     param,
     shared,
     local,
+    input,
+    output,
+    uniform,
 
     // AVR address spaces.
     flash,
@@ -732,7 +738,6 @@ pub const CompilerBackend = enum(u64) {
 pub const TestFn = struct {
     name: []const u8,
     func: *const fn () anyerror!void,
-    async_frame_size: ?usize,
 };
 
 /// This function type is used by the Zig language code generation and
@@ -759,7 +764,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_arm or
         builtin.zig_backend == .stage2_aarch64 or
         builtin.zig_backend == .stage2_x86 or
-        (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) or
+        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
         builtin.zig_backend == .stage2_riscv64 or
         builtin.zig_backend == .stage2_sparc64 or
         builtin.zig_backend == .stage2_spirv64)

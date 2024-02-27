@@ -934,6 +934,8 @@ const AutodocErrors = error{
     OutOfMemory,
     CurrentWorkingDirectoryUnlinked,
     UnexpectedEndOfFile,
+    ModuleNotFound,
+    ImportOutsideModulePath,
 } || std.fs.File.OpenError || std.fs.File.ReadError;
 
 /// `call` instructions will have loopy references to themselves
@@ -1058,7 +1060,7 @@ fn walkInstruction(
                 );
             }
 
-            const new_file = self.zcu.importFile(file, path) catch unreachable;
+            const new_file = try self.zcu.importFile(file, path);
             const result = try self.files.getOrPut(self.arena, new_file.file);
             if (result.found_existing) {
                 return DocData.WalkResult{
@@ -1151,14 +1153,15 @@ fn walkInstruction(
         },
         .closure_get => {
             const inst_node = data[@intFromEnum(inst)].inst_node;
-            return try self.walkInstruction(
-                file,
-                parent_scope,
-                parent_src,
-                inst_node.inst,
-                need_type,
-                call_ctx,
-            );
+
+            const code = try self.getBlockSource(file, parent_src, inst_node.src_node);
+            const idx = self.comptime_exprs.items.len;
+            try self.exprs.append(self.arena, .{ .comptimeExpr = idx });
+            try self.comptime_exprs.append(self.arena, .{ .code = code });
+
+            return DocData.WalkResult{
+                .expr = .{ .comptimeExpr = idx },
+            };
         },
         .closure_capture => {
             const un_tok = data[@intFromEnum(inst)].un_tok;
@@ -1796,7 +1799,8 @@ fn walkInstruction(
             };
         },
         .bool_br_and, .bool_br_or => {
-            const bool_br = data[@intFromEnum(inst)].bool_br;
+            const pl_node = data[@intFromEnum(inst)].pl_node;
+            const extra = file.zir.extraData(Zir.Inst.BoolBr, pl_node.payload_index);
 
             const bin_index = self.exprs.items.len;
             try self.exprs.append(self.arena, .{ .binOp = .{ .lhs = 0, .rhs = 0 } });
@@ -1805,14 +1809,13 @@ fn walkInstruction(
                 file,
                 parent_scope,
                 parent_src,
-                bool_br.lhs,
+                extra.data.lhs,
                 false,
                 call_ctx,
             );
             const lhs_index = self.exprs.items.len;
             try self.exprs.append(self.arena, lhs.expr);
 
-            const extra = file.zir.extraData(Zir.Inst.Block, bool_br.payload_index);
             const rhs = try self.walkInstruction(
                 file,
                 parent_scope,
@@ -3392,19 +3395,10 @@ fn walkInstruction(
                         .enclosing_type = type_slot_index,
                     };
 
-                    const small = @as(Zir.Inst.OpaqueDecl.Small, @bitCast(extended.small));
-                    var extra_index: usize = extended.operand;
+                    const extra = file.zir.extraData(Zir.Inst.OpaqueDecl, extended.operand);
+                    var extra_index: usize = extra.end;
 
-                    const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
-                        extra_index += 1;
-                        break :blk src_node;
-                    } else null;
-
-                    const src_info = if (src_node) |sn|
-                        try self.srcLocInfo(file, sn, parent_src)
-                    else
-                        parent_src;
+                    const src_info = try self.srcLocInfo(file, extra.data.src_node, parent_src);
 
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -3495,18 +3489,10 @@ fn walkInstruction(
                     };
 
                     const small = @as(Zir.Inst.UnionDecl.Small, @bitCast(extended.small));
-                    var extra_index: usize = extended.operand;
+                    const extra = file.zir.extraData(Zir.Inst.UnionDecl, extended.operand);
+                    var extra_index: usize = extra.end;
 
-                    const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
-                        extra_index += 1;
-                        break :blk src_node;
-                    } else null;
-
-                    const src_info = if (src_node) |sn|
-                        try self.srcLocInfo(file, sn, parent_src)
-                    else
-                        parent_src;
+                    const src_info = try self.srcLocInfo(file, extra.data.src_node, parent_src);
 
                     // We delay analysis because union tags can refer to
                     // decls defined inside the union itself.
@@ -3625,18 +3611,10 @@ fn walkInstruction(
                     };
 
                     const small = @as(Zir.Inst.EnumDecl.Small, @bitCast(extended.small));
-                    var extra_index: usize = extended.operand;
+                    const extra = file.zir.extraData(Zir.Inst.EnumDecl, extended.operand);
+                    var extra_index: usize = extra.end;
 
-                    const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
-                        extra_index += 1;
-                        break :blk src_node;
-                    } else null;
-
-                    const src_info = if (src_node) |sn|
-                        try self.srcLocInfo(file, sn, parent_src)
-                    else
-                        parent_src;
+                    const src_info = try self.srcLocInfo(file, extra.data.src_node, parent_src);
 
                     const tag_type: ?DocData.Expr = if (small.has_tag_type) blk: {
                         const tag_type = file.zir.extra[extra_index];
@@ -3776,18 +3754,10 @@ fn walkInstruction(
                     };
 
                     const small = @as(Zir.Inst.StructDecl.Small, @bitCast(extended.small));
-                    var extra_index: usize = extended.operand;
+                    const extra = file.zir.extraData(Zir.Inst.StructDecl, extended.operand);
+                    var extra_index: usize = extra.end;
 
-                    const src_node: ?i32 = if (small.has_src_node) blk: {
-                        const src_node = @as(i32, @bitCast(file.zir.extra[extra_index]));
-                        extra_index += 1;
-                        break :blk src_node;
-                    } else null;
-
-                    const src_info = if (src_node) |sn|
-                        try self.srcLocInfo(file, sn, parent_src)
-                    else
-                        parent_src;
+                    const src_info = try self.srcLocInfo(file, extra.data.src_node, parent_src);
 
                     const fields_len = if (small.has_fields_len) blk: {
                         const fields_len = file.zir.extra[extra_index];

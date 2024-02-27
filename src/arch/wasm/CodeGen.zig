@@ -14,7 +14,7 @@ const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
 const LazySrcLoc = Module.LazySrcLoc;
 const link = @import("../../link.zig");
@@ -1432,21 +1432,13 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
             }
             assert(ty_classes[0] == .direct);
             const scalar_type = abi.scalarType(ty, mod);
-            const abi_size = scalar_type.abiSize(mod);
-            try func.emitWValue(value);
-
-            // When the value lives in the virtual stack, we must load it onto the actual stack
-            if (value != .imm32 and value != .imm64) {
-                const opcode = buildOpcode(.{
-                    .op = .load,
-                    .width = @as(u8, @intCast(abi_size)),
-                    .signedness = if (scalar_type.isSignedInt(mod)) .signed else .unsigned,
-                    .valtype1 = typeToValtype(scalar_type, mod),
-                });
-                try func.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
-                    .offset = value.offset(),
-                    .alignment = @intCast(scalar_type.abiAlignment(mod).toByteUnitsOptional().?),
-                });
+            switch (value) {
+                .memory,
+                .memory_offset,
+                .stack_offset,
+                => _ = try func.load(value, scalar_type, 0),
+                .dead => unreachable,
+                else => try func.emitWValue(value),
             }
         },
         .Int, .Float => {
@@ -1921,8 +1913,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // TODO
         .dbg_inline_begin,
         .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         => func.finishAir(inst, .none, &.{}),
 
         .dbg_var_ptr => func.airDbgVar(inst, true),
@@ -1957,6 +1947,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ptr_elem_val => func.airPtrElemVal(inst),
         .int_from_ptr => func.airIntFromPtr(inst),
         .ret => func.airRet(inst),
+        .ret_safe => func.airRet(inst), // TODO
         .ret_ptr => func.airRetPtr(inst),
         .ret_load => func.airRetLoad(inst),
         .splat => func.airSplat(inst),
@@ -2521,7 +2512,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
         return WValue{ .stack = {} };
     }
 
-    const abi_size = @as(u8, @intCast(ty.abiSize(mod)));
+    const abi_size: u8 = @intCast(ty.abiSize(mod));
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, mod),
         .width = abi_size * 8,
@@ -3178,9 +3169,6 @@ fn lowerAnonDeclRef(
 
 fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
-    if (tv.ty.isSlice(mod)) {
-        return WValue{ .memory = try func.bin_file.lowerUnnamedConst(tv, decl_index) };
-    }
 
     const decl = mod.declPtr(decl_index);
     // check if decl is an alias to a function, in which case we
@@ -3333,6 +3321,18 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .f32 => |f32_val| return WValue{ .float32 = f32_val },
             .f64 => |f64_val| return WValue{ .float64 = f64_val },
             else => unreachable,
+        },
+        .slice => |slice| {
+            var ptr = ip.indexToKey(slice.ptr).ptr;
+            const owner_decl = while (true) switch (ptr.addr) {
+                .decl => |decl| break decl,
+                .mut_decl => |mut_decl| break mut_decl.decl,
+                .int, .anon_decl => return func.fail("Wasm TODO: lower slice where ptr is not owned by decl", .{}),
+                .opt_payload, .eu_payload => |base| ptr = ip.indexToKey(base).ptr,
+                .elem, .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
+                .comptime_field => unreachable,
+            };
+            return .{ .memory = try func.bin_file.lowerUnnamedConst(.{ .ty = ty, .val = val }, owner_decl) };
         },
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
@@ -7214,13 +7214,14 @@ fn airTagName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     const mod = func.bin_file.base.comp.module.?;
+    const ip = &mod.intern_pool;
     const enum_decl_index = enum_ty.getOwnerDecl(mod);
 
     var arena_allocator = std.heap.ArenaAllocator.init(func.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = mod.intern_pool.stringToSlice(try mod.declPtr(enum_decl_index).getFullyQualifiedName(mod));
+    const fqn = ip.stringToSlice(try mod.declPtr(enum_decl_index).fullyQualifiedName(mod));
     const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
     // check if we already generated code for this.
@@ -7250,9 +7251,9 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
     // TODO: Make switch implementation generic so we can use a jump table for this when the tags are not sparse.
     // generate an if-else chain for each tag value as well as constant.
-    for (enum_ty.enumFields(mod), 0..) |tag_name_ip, field_index_usize| {
-        const field_index = @as(u32, @intCast(field_index_usize));
-        const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
+    const tag_names = enum_ty.enumFields(mod);
+    for (0..tag_names.len) |tag_index| {
+        const tag_name = ip.stringToSlice(tag_names.get(ip)[tag_index]);
         // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
         const name_ty = try mod.arrayType(.{
@@ -7277,7 +7278,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         try writer.writeByte(std.wasm.opcode(.local_get));
         try leb.writeULEB128(writer, @as(u32, 1));
 
-        const tag_val = try mod.enumValueFieldIndex(enum_ty, field_index);
+        const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
         const tag_value = try func.lowerConstant(tag_val, enum_ty);
 
         switch (tag_value) {
@@ -7370,6 +7371,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
 fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.comp.module.?;
+    const ip = &mod.intern_pool;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -7382,8 +7384,8 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     var lowest: ?u32 = null;
     var highest: ?u32 = null;
-    for (names) |name| {
-        const err_int = @as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(name).?));
+    for (0..names.len) |name_index| {
+        const err_int: Module.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[name_index]).?);
         if (lowest) |*l| {
             if (err_int < l.*) {
                 l.* = err_int;

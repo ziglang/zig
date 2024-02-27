@@ -24,24 +24,6 @@
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler.
 
-struct ZigLLVMDIType;
-struct ZigLLVMDIBuilder;
-struct ZigLLVMDICompileUnit;
-struct ZigLLVMDIScope;
-struct ZigLLVMDIFile;
-struct ZigLLVMDILexicalBlock;
-struct ZigLLVMDISubprogram;
-struct ZigLLVMDISubroutineType;
-struct ZigLLVMDILocalVariable;
-struct ZigLLVMDIGlobalVariableExpression;
-struct ZigLLVMDIGlobalVariable;
-struct ZigLLVMDIGlobalExpression;
-struct ZigLLVMDILocation;
-struct ZigLLVMDIEnumerator;
-struct ZigLLVMInsertionPoint;
-struct ZigLLVMDINode;
-struct ZigLLVMMDString;
-
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
         bool is_small, bool time_report, bool tsan, bool lto,
@@ -62,17 +44,12 @@ ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, co
 
 ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit);
 
-ZIG_EXTERN_C LLVMValueRef ZigLLVMAddFunctionInAddressSpace(LLVMModuleRef M, const char *Name,
-        LLVMTypeRef FunctionTy, unsigned AddressSpace);
-
 enum ZigLLVMTailCallKind {
     ZigLLVMTailCallKindNone,
     ZigLLVMTailCallKindTail,
     ZigLLVMTailCallKindMustTail,
     ZigLLVMTailCallKindNoTail,
 };
-
-ZIG_EXTERN_C void ZigLLVMSetTailCallKind(LLVMValueRef Call, enum ZigLLVMTailCallKind TailCallKind);
 
 enum ZigLLVM_CallingConv {
     ZigLLVM_C = 0,
@@ -122,175 +99,11 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_MaxID = 1023,
 };
 
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
-        const char *name);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildNUWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
-        const char *name);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildLShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
-        const char *name);
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
-        const char *name);
-
-ZIG_EXTERN_C LLVMValueRef ZigLLVMBuildAllocaInAddressSpace(LLVMBuilderRef builder, LLVMTypeRef Ty, unsigned AddressSpace,
-        const char *Name);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugPointerType(struct ZigLLVMDIBuilder *dibuilder,
-        struct ZigLLVMDIType *pointee_type, uint64_t size_in_bits, uint64_t align_in_bits, const char *name);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugBasicType(struct ZigLLVMDIBuilder *dibuilder, const char *name,
-        uint64_t size_in_bits, unsigned encoding);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugArrayType(struct ZigLLVMDIBuilder *dibuilder,
-        uint64_t size_in_bits, uint64_t align_in_bits, struct ZigLLVMDIType *elem_type,
-        int64_t elem_count);
-
-ZIG_EXTERN_C struct ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumerator(struct ZigLLVMDIBuilder *dibuilder,
-        const char *name, uint64_t val, bool isUnsigned);
-
-
-ZIG_EXTERN_C struct ZigLLVMDIEnumerator *ZigLLVMCreateDebugEnumeratorOfArbitraryPrecision(struct ZigLLVMDIBuilder *dibuilder,
-        const char *name, unsigned NumWords, const uint64_t Words[], unsigned int bits, bool isUnsigned);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugEnumerationType(struct ZigLLVMDIBuilder *dibuilder,
-        struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line_number,
-        uint64_t size_in_bits, uint64_t align_in_bits, struct ZigLLVMDIEnumerator **enumerator_array,
-        int enumerator_array_len, struct ZigLLVMDIType *underlying_type, const char *unique_id);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugStructType(struct ZigLLVMDIBuilder *dibuilder,
-        struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line_number,
-        uint64_t size_in_bits, uint64_t align_in_bits, unsigned flags, struct ZigLLVMDIType *derived_from,
-        struct ZigLLVMDIType **types_array, int types_array_len, unsigned run_time_lang,
-        struct ZigLLVMDIType *vtable_holder, const char *unique_id);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugUnionType(struct ZigLLVMDIBuilder *dibuilder,
-        struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line_number,
-        uint64_t size_in_bits, uint64_t align_in_bits, unsigned flags, struct ZigLLVMDIType **types_array,
-        int types_array_len, unsigned run_time_lang, const char *unique_id);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugMemberType(struct ZigLLVMDIBuilder *dibuilder,
-        struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line,
-        uint64_t size_in_bits, uint64_t align_in_bits, uint64_t offset_in_bits, unsigned flags,
-        struct ZigLLVMDIType *type);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateReplaceableCompositeType(struct ZigLLVMDIBuilder *dibuilder,
-        unsigned tag, const char *name, struct ZigLLVMDIScope *scope, struct ZigLLVMDIFile *file, unsigned line);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateDebugForwardDeclType(struct ZigLLVMDIBuilder *dibuilder, unsigned tag,
-        const char *name, struct ZigLLVMDIScope *scope, struct ZigLLVMDIFile *file, unsigned line);
-
-ZIG_EXTERN_C void ZigLLVMReplaceTemporary(struct ZigLLVMDIBuilder *dibuilder, struct ZigLLVMDIType *type,
-        struct ZigLLVMDIType *replacement);
-
-ZIG_EXTERN_C void ZigLLVMReplaceDebugArrays(struct ZigLLVMDIBuilder *dibuilder, struct ZigLLVMDIType *type,
-        struct ZigLLVMDIType **types_array, int types_array_len);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMCreateSubroutineType(struct ZigLLVMDIBuilder *dibuilder_wrapped,
-        struct ZigLLVMDIType **types_array, int types_array_len, unsigned flags);
-
-ZIG_EXTERN_C unsigned ZigLLVMEncoding_DW_ATE_unsigned(void);
-ZIG_EXTERN_C unsigned ZigLLVMEncoding_DW_ATE_signed(void);
-ZIG_EXTERN_C unsigned ZigLLVMEncoding_DW_ATE_float(void);
-ZIG_EXTERN_C unsigned ZigLLVMEncoding_DW_ATE_boolean(void);
-ZIG_EXTERN_C unsigned ZigLLVMEncoding_DW_ATE_unsigned_char(void);
-ZIG_EXTERN_C unsigned ZigLLVMEncoding_DW_ATE_signed_char(void);
-ZIG_EXTERN_C unsigned ZigLLVMLang_DW_LANG_C99(void);
-ZIG_EXTERN_C unsigned ZigLLVMTag_DW_variable(void);
-ZIG_EXTERN_C unsigned ZigLLVMTag_DW_structure_type(void);
-ZIG_EXTERN_C unsigned ZigLLVMTag_DW_enumeration_type(void);
-ZIG_EXTERN_C unsigned ZigLLVMTag_DW_union_type(void);
-
-ZIG_EXTERN_C struct ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
-ZIG_EXTERN_C void ZigLLVMDisposeDIBuilder(struct ZigLLVMDIBuilder *dbuilder);
-ZIG_EXTERN_C void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module, bool produce_dwarf64);
-ZIG_EXTERN_C void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMSetModulePICLevel(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMSetModulePIELevel(LLVMModuleRef module);
 ZIG_EXTERN_C void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model);
 
-ZIG_EXTERN_C void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder,
-        unsigned int line, unsigned int column, struct ZigLLVMDIScope *scope);
-ZIG_EXTERN_C void ZigLLVMSetCurrentDebugLocation2(LLVMBuilderRef builder, unsigned int line,
-        unsigned int column, struct ZigLLVMDIScope *scope, struct ZigLLVMDILocation *inlined_at);
-ZIG_EXTERN_C void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder);
-
-ZIG_EXTERN_C struct ZigLLVMDIScope *ZigLLVMLexicalBlockToScope(struct ZigLLVMDILexicalBlock *lexical_block);
-ZIG_EXTERN_C struct ZigLLVMDIScope *ZigLLVMCompileUnitToScope(struct ZigLLVMDICompileUnit *compile_unit);
-ZIG_EXTERN_C struct ZigLLVMDIScope *ZigLLVMFileToScope(struct ZigLLVMDIFile *difile);
-ZIG_EXTERN_C struct ZigLLVMDIScope *ZigLLVMSubprogramToScope(struct ZigLLVMDISubprogram *subprogram);
-ZIG_EXTERN_C struct ZigLLVMDIScope *ZigLLVMTypeToScope(struct ZigLLVMDIType *type);
-
-ZIG_EXTERN_C struct ZigLLVMDINode *ZigLLVMLexicalBlockToNode(struct ZigLLVMDILexicalBlock *lexical_block);
-ZIG_EXTERN_C struct ZigLLVMDINode *ZigLLVMCompileUnitToNode(struct ZigLLVMDICompileUnit *compile_unit);
-ZIG_EXTERN_C struct ZigLLVMDINode *ZigLLVMFileToNode(struct ZigLLVMDIFile *difile);
-ZIG_EXTERN_C struct ZigLLVMDINode *ZigLLVMSubprogramToNode(struct ZigLLVMDISubprogram *subprogram);
-ZIG_EXTERN_C struct ZigLLVMDINode *ZigLLVMTypeToNode(struct ZigLLVMDIType *type);
-ZIG_EXTERN_C struct ZigLLVMDINode *ZigLLVMScopeToNode(struct ZigLLVMDIScope *scope);
-ZIG_EXTERN_C struct ZigLLVMDINode *ZigLLVMGlobalVariableToNode(struct ZigLLVMDIGlobalVariable *global_variable);
-
-ZIG_EXTERN_C void ZigLLVMSubprogramReplaceLinkageName(struct ZigLLVMDISubprogram *subprogram,
-        struct ZigLLVMMDString *linkage_name);
-ZIG_EXTERN_C void ZigLLVMGlobalVariableReplaceLinkageName(struct ZigLLVMDIGlobalVariable *global_variable,
-        struct ZigLLVMMDString *linkage_name);
-
-ZIG_EXTERN_C struct ZigLLVMDILocalVariable *ZigLLVMCreateAutoVariable(struct ZigLLVMDIBuilder *dbuilder,
-        struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line_no,
-        struct ZigLLVMDIType *type, bool always_preserve, unsigned flags);
-
-ZIG_EXTERN_C struct ZigLLVMDIGlobalVariableExpression *ZigLLVMCreateGlobalVariableExpression(struct ZigLLVMDIBuilder *dbuilder,
-    struct ZigLLVMDIScope *scope, const char *name, const char *linkage_name, struct ZigLLVMDIFile *file,
-    unsigned line_no, struct ZigLLVMDIType *di_type, bool is_local_to_unit);
-
-ZIG_EXTERN_C struct ZigLLVMDILocalVariable *ZigLLVMCreateParameterVariable(struct ZigLLVMDIBuilder *dbuilder,
-        struct ZigLLVMDIScope *scope, const char *name, struct ZigLLVMDIFile *file, unsigned line_no,
-        struct ZigLLVMDIType *type, bool always_preserve, unsigned flags, unsigned arg_no);
-
-ZIG_EXTERN_C struct ZigLLVMDILexicalBlock *ZigLLVMCreateLexicalBlock(struct ZigLLVMDIBuilder *dbuilder,
-        struct ZigLLVMDIScope *scope, struct ZigLLVMDIFile *file, unsigned line, unsigned col);
-
-ZIG_EXTERN_C struct ZigLLVMDICompileUnit *ZigLLVMCreateCompileUnit(struct ZigLLVMDIBuilder *dibuilder,
-        unsigned lang, struct ZigLLVMDIFile *difile, const char *producer,
-        bool is_optimized, const char *flags, unsigned runtime_version, const char *split_name,
-        uint64_t dwo_id, bool emit_debug_info);
-
-ZIG_EXTERN_C struct ZigLLVMDIFile *ZigLLVMCreateFile(struct ZigLLVMDIBuilder *dibuilder, const char *filename,
-        const char *directory);
-
-ZIG_EXTERN_C struct ZigLLVMDISubprogram *ZigLLVMCreateFunction(struct ZigLLVMDIBuilder *dibuilder,
-        struct ZigLLVMDIScope *scope, const char *name, const char *linkage_name, struct ZigLLVMDIFile *file,
-        unsigned lineno, struct ZigLLVMDIType *fn_di_type, bool is_local_to_unit, bool is_definition,
-        unsigned scope_line, unsigned flags, bool is_optimized, struct ZigLLVMDISubprogram *decl_subprogram);
-
-ZIG_EXTERN_C struct ZigLLVMDIType *ZigLLVMDIBuilderCreateVectorType(struct ZigLLVMDIBuilder *dibuilder,
-        uint64_t SizeInBits, uint32_t AlignInBits, struct ZigLLVMDIType *Ty, uint32_t elem_count);
-
-ZIG_EXTERN_C void ZigLLVMFnSetSubprogram(LLVMValueRef fn, struct ZigLLVMDISubprogram *subprogram);
-
-ZIG_EXTERN_C void ZigLLVMDIBuilderFinalize(struct ZigLLVMDIBuilder *dibuilder);
-
-ZIG_EXTERN_C struct ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col,
-        struct ZigLLVMDIScope *scope);
-ZIG_EXTERN_C struct ZigLLVMDILocation *ZigLLVMGetDebugLoc2(unsigned line, unsigned col,
-        struct ZigLLVMDIScope *scope, struct ZigLLVMDILocation *inlined_at);
-
-ZIG_EXTERN_C LLVMValueRef ZigLLVMInsertDeclareAtEnd(struct ZigLLVMDIBuilder *dib,
-        LLVMValueRef storage, struct ZigLLVMDILocalVariable *var_info,
-        struct ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref);
-
-ZIG_EXTERN_C LLVMValueRef ZigLLVMInsertDeclare(struct ZigLLVMDIBuilder *dib,
-        LLVMValueRef storage, struct ZigLLVMDILocalVariable *var_info,
-        struct ZigLLVMDILocation *debug_loc, LLVMValueRef insert_before_instr);
-
-ZIG_EXTERN_C LLVMValueRef ZigLLVMInsertDbgValueIntrinsicAtEnd(struct ZigLLVMDIBuilder *dib,
-        LLVMValueRef val, struct ZigLLVMDILocalVariable *var_info,
-        struct ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref);
-
-ZIG_EXTERN_C void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
-
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
-
-ZIG_EXTERN_C ZigLLVMDIGlobalVariable* ZigLLVMGlobalGetVariable(ZigLLVMDIGlobalVariableExpression *global_variable_expression);
-ZIG_EXTERN_C void ZigLLVMAttachMetaData(LLVMValueRef Val, ZigLLVMDIGlobalVariableExpression *global_variable_expression);
-
 
 // synchronize with llvm/include/ADT/Triple.h::ArchType
 // synchronize with std.Target.Cpu.Arch
@@ -493,12 +306,6 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_Wasm,
     ZigLLVM_XCOFF,
 };
-
-ZIG_EXTERN_C void ZigLLVMTakeName(LLVMValueRef new_owner, LLVMValueRef victim);
-ZIG_EXTERN_C void ZigLLVMRemoveGlobalValue(LLVMValueRef GlobalVal);
-ZIG_EXTERN_C void ZigLLVMEraseGlobalValue(LLVMValueRef GlobalVal);
-ZIG_EXTERN_C void ZigLLVMDeleteGlobalValue(LLVMValueRef GlobalVal);
-ZIG_EXTERN_C void ZigLLVMSetInitializer(LLVMValueRef GlobalVar, LLVMValueRef ConstantVal);
 
 #define ZigLLVM_DIFlags_Zero 0U
 #define ZigLLVM_DIFlags_Private 1U

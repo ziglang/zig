@@ -136,30 +136,36 @@ pub const File = struct {
         framework_dirs: []const []const u8,
         rpath_list: []const []const u8,
 
-        /// (Zig compiler development) Enable dumping of linker's state as JSON.
+        /// Zig compiler development linker flags.
+        /// Enable dumping of linker's state as JSON.
         enable_link_snapshots: bool,
 
-        /// (Darwin) Install name for the dylib
+        /// Darwin-specific linker flags:
+        /// Install name for the dylib
         install_name: ?[]const u8,
-        /// (Darwin) Path to entitlements file
+        /// Path to entitlements file
         entitlements: ?[]const u8,
-        /// (Darwin) size of the __PAGEZERO segment
+        /// size of the __PAGEZERO segment
         pagezero_size: ?u64,
-        /// (Darwin) set minimum space for future expansion of the load commands
+        /// Set minimum space for future expansion of the load commands
         headerpad_size: ?u32,
-        /// (Darwin) set enough space as if all paths were MATPATHLEN
+        /// Set enough space as if all paths were MATPATHLEN
         headerpad_max_install_names: bool,
-        /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+        /// Remove dylibs that are unreachable by the entry point or exported symbols
         dead_strip_dylibs: bool,
         frameworks: []const MachO.Framework,
         darwin_sdk_layout: ?MachO.SdkLayout,
+        /// Force load all members of static archives that implement an
+        /// Objective-C class or category
+        force_load_objc: bool,
 
-        /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
+        /// Windows-specific linker flags:
+        /// PDB source path prefix to instruct the linker how to resolve relative
         /// paths when consolidating CodeView streams into a single PDB file.
         pdb_source_path: ?[]const u8,
-        /// (Windows) PDB output path
+        /// PDB output path
         pdb_out_path: ?[]const u8,
-        /// (Windows) .def file to specify when linking
+        /// .def file to specify when linking
         module_definition_file: ?[]const u8,
 
         pub const Entry = union(enum) {
@@ -537,6 +543,7 @@ pub const File = struct {
         UnexpectedTable,
         UnexpectedValue,
         UnknownFeature,
+        UnrecognizedVolume,
         Unseekable,
         UnsupportedCpuArchitecture,
         UnsupportedVersion,
@@ -832,10 +839,9 @@ pub const File = struct {
         }
 
         const llvm_bindings = @import("codegen/llvm/bindings.zig");
-        const Builder = @import("codegen/llvm/Builder.zig");
         const llvm = @import("codegen/llvm.zig");
         const target = comp.root_mod.resolved_target.result;
-        Builder.initializeLLVMTarget(target.cpu.arch);
+        llvm.initializeLLVMTarget(target.cpu.arch);
         const os_tag = llvm.targetOs(target.os.tag);
         const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
         if (bad) return error.UnableToWriteArchive;

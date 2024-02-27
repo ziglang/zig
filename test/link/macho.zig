@@ -3,9 +3,6 @@
 pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
 
-    const default_target = b.resolveTargetQuery(.{
-        .os_tag = .macos,
-    });
     const x86_64_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .macos,
@@ -15,6 +12,21 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .os_tag = .macos,
     });
 
+    const default_target = switch (builtin.cpu.arch) {
+        .x86_64, .aarch64 => b.resolveTargetQuery(.{
+            .os_tag = .macos,
+        }),
+        else => aarch64_target,
+    };
+
+    // Exercise linker with self-hosted backend (no LLVM)
+    macho_step.dependOn(testEmptyZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testHelloZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testReexportsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+
+    // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyObject(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyZig(b, .{ .target = default_target }));
@@ -24,6 +36,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testHelloZig(b, .{ .target = default_target }));
     macho_step.dependOn(testLargeBss(b, .{ .target = default_target }));
     macho_step.dependOn(testLayout(b, .{ .target = default_target }));
+    macho_step.dependOn(testLinkingStaticLib(b, .{ .target = default_target }));
     macho_step.dependOn(testLinksection(b, .{ .target = default_target }));
     macho_step.dependOn(testMhExecuteHeader(b, .{ .target = default_target }));
     macho_step.dependOn(testNoDeadStrip(b, .{ .target = default_target }));
@@ -43,12 +56,18 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testUnwindInfoNoSubsectionsX64(b, .{ .target = x86_64_target }));
     macho_step.dependOn(testUnwindInfoNoSubsectionsArm64(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testWeakBind(b, .{ .target = x86_64_target }));
+    macho_step.dependOn(testWeakRef(b, .{ .target = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .macos,
+        .os_version_min = .{ .semver = .{ .major = 10, .minor = 13, .patch = 0 } },
+    }) }));
 
     // Tests requiring symlinks when tested on Windows
     if (build_opts.has_symlinks_windows) {
         macho_step.dependOn(testEntryPointArchive(b, .{ .target = default_target }));
         macho_step.dependOn(testEntryPointDylib(b, .{ .target = default_target }));
         macho_step.dependOn(testDylib(b, .{ .target = default_target }));
+        macho_step.dependOn(testDylibVersionTbd(b, .{ .target = default_target }));
         macho_step.dependOn(testNeededLibrary(b, .{ .target = default_target }));
         macho_step.dependOn(testSearchStrategy(b, .{ .target = default_target }));
         macho_step.dependOn(testTbdv3(b, .{ .target = default_target }));
@@ -234,6 +253,42 @@ fn testDylib(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testDylibVersionTbd(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-dylib-version-tbd", opts);
+
+    const tbd = tbd: {
+        const wf = WriteFile.create(b);
+        break :tbd wf.add("liba.tbd",
+            \\--- !tapi-tbd
+            \\tbd-version:     4
+            \\targets:         [ x86_64-macos, arm64-macos ]
+            \\uuids:
+            \\  - target:          x86_64-macos
+            \\    value:           DEADBEEF
+            \\  - target:          arm64-macos
+            \\    value:           BEEFDEAD
+            \\install-name:    '@rpath/liba.dylib'
+            \\current-version: 1.2
+            \\exports:
+            \\  - targets:     [ x86_64-macos, arm64-macos ]
+            \\    symbols:     [ _foo ]
+        );
+    };
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() {}" });
+    exe.root_module.linkSystemLibrary("a", .{});
+    exe.root_module.addLibraryPath(tbd.dirname());
+
+    const check = exe.checkObject();
+    check.checkInHeaders();
+    check.checkExact("cmd LOAD_DYLIB");
+    check.checkExact("name @rpath/liba.dylib");
+    check.checkExact("current version 10200");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
@@ -792,6 +847,45 @@ fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "linking-static-lib", opts);
+
+    const obj = addObject(b, opts, .{
+        .name = "bobj",
+        .zig_source_bytes = "export var bar: i32 = -42;",
+        .strip = true, // TODO for self-hosted, we don't really emit any valid DWARF yet since we only export a global
+    });
+
+    const lib = addStaticLibrary(b, opts, .{
+        .name = "alib",
+        .zig_source_bytes =
+        \\export fn foo() i32 {
+        \\    return 42;
+        \\}
+        ,
+    });
+    lib.addObject(obj);
+
+    const exe = addExecutable(b, opts, .{
+        .name = "testlib",
+        .zig_source_bytes =
+        \\const std = @import("std");
+        \\extern fn foo() i32;
+        \\extern var bar: i32;
+        \\pub fn main() void {
+        \\    std.debug.print("{d}\n", .{foo() + bar});
+        \\}
+        ,
+    });
+    exe.linkLibrary(lib);
+
+    const run = addRunArtifact(exe);
+    run.expectStdErrEqual("0\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
 fn testLinksection(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "macho-linksection", opts);
 
@@ -927,19 +1021,38 @@ fn testObjc(b: *Build, opts: Options) *Step {
     \\@end
     });
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
-    exe.root_module.linkSystemLibrary("a", .{});
-    exe.root_module.linkFramework("Foundation", .{});
-    exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
+        exe.root_module.linkSystemLibrary("a", .{});
+        exe.root_module.linkFramework("Foundation", .{});
+        exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
 
-    const check = exe.checkObject();
-    check.checkInSymtab();
-    check.checkContains("_OBJC_");
-    test_step.dependOn(&check.step);
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkNotPresent("_OBJC_");
+        test_step.dependOn(&check.step);
 
-    const run = addRunArtifact(exe);
-    run.expectExitCode(0);
-    test_step.dependOn(&run.step);
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2", .c_source_bytes = "int main() { return 0; }" });
+        exe.root_module.linkSystemLibrary("a", .{});
+        exe.root_module.linkFramework("Foundation", .{});
+        exe.root_module.addLibraryPath(lib.getEmittedBinDirectory());
+        exe.force_load_objc = true;
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        check.checkContains("_OBJC_");
+        test_step.dependOn(&check.step);
+
+        const run = addRunArtifact(exe);
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
@@ -2223,10 +2336,30 @@ fn testWeakLibrary(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testWeakRef(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "macho-weak-ref", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\#include <sys/_types/_fd_def.h>
+    \\int main(int argc, char** argv) {
+    \\    printf("__darwin_check_fd_set_overflow: %p\n", __darwin_check_fd_set_overflow);
+    \\}
+    });
+
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkExact("(undefined) weakref external ___darwin_check_fd_set_overflow (from libSystem.B)");
+    test_step.dependOn(&check.step);
+
+    return test_step;
+}
+
 fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
     return link.addTestStep(b, "macho-" ++ prefix, opts);
 }
 
+const builtin = @import("builtin");
 const addAsmSourceBytes = link.addAsmSourceBytes;
 const addCSourceBytes = link.addCSourceBytes;
 const addRunArtifact = link.addRunArtifact;

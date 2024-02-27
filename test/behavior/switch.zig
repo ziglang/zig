@@ -410,8 +410,8 @@ test "switch on integer with else capturing expr" {
             var x: i32 = 5;
             _ = &x;
             switch (x + 10) {
-                14 => @panic("fail"),
-                16 => @panic("fail"),
+                14 => return error.TestFailed,
+                16 => return error.TestFailed,
                 else => |e| try expect(e == 15),
             }
         }
@@ -522,7 +522,7 @@ test "switch with null and T peer types and inferred result location type" {
                 else => null,
             }) |v| {
                 _ = v;
-                @panic("fail");
+                return error.TestFailed;
             }
         }
     };
@@ -548,12 +548,12 @@ test "switch prongs with cases with identical payload types" {
         fn doTheSwitch1(u: Union) !void {
             switch (u) {
                 .A, .C => |e| {
-                    try expect(@TypeOf(e) == usize);
+                    comptime assert(@TypeOf(e) == usize);
                     try expect(e == 8);
                 },
                 .B => |e| {
                     _ = e;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
         }
@@ -561,10 +561,10 @@ test "switch prongs with cases with identical payload types" {
             switch (u) {
                 .A, .C => |e| {
                     _ = e;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
                 .B => |e| {
-                    try expect(@TypeOf(e) == isize);
+                    comptime assert(@TypeOf(e) == isize);
                     try expect(e == -8);
                 },
             }
@@ -572,6 +572,69 @@ test "switch prongs with cases with identical payload types" {
     };
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "switch prong pointer capture alignment" {
+    const U = union(enum) {
+        a: u8 align(8),
+        b: u8 align(4),
+        c: u8,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            const u = U{ .a = 1 };
+            switch (u) {
+                .a => |*a| comptime assert(@TypeOf(a) == *align(8) const u8),
+                .b, .c => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+
+            switch (u) {
+                .a, .b => |*p| comptime assert(@TypeOf(p) == *align(4) const u8),
+                .c => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+
+            switch (u) {
+                .a, .c => |*p| comptime assert(@TypeOf(p) == *const u8),
+                .b => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+        }
+
+        fn doTheTest2() !void {
+            const un1 = U{ .b = 1 };
+            switch (un1) {
+                .b => |*b| comptime assert(@TypeOf(b) == *align(4) const u8),
+                .a, .c => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+
+            const un2 = U{ .c = 1 };
+            switch (un2) {
+                .c => |*c| comptime assert(@TypeOf(c) == *const u8),
+                .a, .b => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+
+    try S.doTheTest2();
+    try comptime S.doTheTest2();
 }
 
 test "switch on pointer type" {

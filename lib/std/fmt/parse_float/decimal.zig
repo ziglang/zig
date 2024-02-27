@@ -63,7 +63,7 @@ pub fn Decimal(comptime T: type) type {
         pub const max_digits_without_overflow = if (MantissaT == u64) 19 else 38;
         pub const decimal_point_range = if (MantissaT == u64) 2047 else 32767;
         pub const min_exponent = if (MantissaT == u64) -324 else -4966;
-        pub const max_exponent = if (MantissaT == u64) 310 else 4933;
+        pub const max_exponent = if (MantissaT == u64) 310 else 4934;
         pub const max_decimal_digits = if (MantissaT == u64) 18 else 37;
 
         /// The number of significant digits in the decimal.

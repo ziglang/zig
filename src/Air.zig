@@ -8,7 +8,7 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 
 const Air = @This();
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const InternPool = @import("InternPool.zig");
 const Module = @import("Module.zig");
@@ -443,10 +443,6 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
-        /// Marks the beginning of a semantic scope for debug info variables.
-        dbg_block_begin,
-        /// Marks the end of a semantic scope for debug info variables.
-        dbg_block_end,
         /// Marks the start of an inline call.
         /// Uses the `ty_fn` field.
         dbg_inline_begin,
@@ -516,6 +512,11 @@ pub const Inst = struct {
         /// Uses the `un_op` field.
         /// Triggers `resolveTypeLayout` on the return type.
         ret,
+        /// Same as `ret`, except if the operand is undefined, the
+        /// returned value is 0xaa bytes, and any other safety metadata
+        /// such as Valgrind integrations should be notified of
+        /// this value being undefined.
+        ret_safe,
         /// This instruction communicates that the function's result value is pointed to by
         /// the operand. If the function will pass the result by-ref, the operand is a
         /// `ret_ptr` instruction. Otherwise, this instruction is equivalent to a `load`
@@ -1439,6 +1440,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .cond_br,
         .switch_br,
         .ret,
+        .ret_safe,
         .ret_load,
         .unreach,
         .trap,
@@ -1448,8 +1450,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .dbg_stmt,
         .dbg_inline_begin,
         .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
         .dbg_var_ptr,
         .dbg_var_val,
         .store,
@@ -1606,13 +1606,12 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .@"try",
         .try_ptr,
         .dbg_stmt,
-        .dbg_block_begin,
-        .dbg_block_end,
         .dbg_inline_begin,
         .dbg_inline_end,
         .dbg_var_ptr,
         .dbg_var_val,
         .ret,
+        .ret_safe,
         .ret_load,
         .store,
         .store_safe,
@@ -1639,20 +1638,20 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .c_va_copy,
         .c_va_end,
         .c_va_start,
+        .add_safe,
+        .sub_safe,
+        .mul_safe,
         => true,
 
         .add,
-        .add_safe,
         .add_optimized,
         .add_wrap,
         .add_sat,
         .sub,
-        .sub_safe,
         .sub_optimized,
         .sub_wrap,
         .sub_sat,
         .mul,
-        .mul_safe,
         .mul_optimized,
         .mul_wrap,
         .mul_sat,

@@ -10,7 +10,7 @@ const KiB = 1024;
 const MiB = 1024 * KiB;
 const GiB = 1024 * MiB;
 
-var prng = std.rand.DefaultPrng.init(0);
+var prng = std.Random.DefaultPrng.init(0);
 const random = prng.random();
 
 const Hash = struct {

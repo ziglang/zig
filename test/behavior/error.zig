@@ -124,6 +124,7 @@ test "debug info for optional error set" {
 
 test "implicit cast to optional to error union to return result loc" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -950,6 +951,7 @@ test "returning an error union containing a type with no runtime bits" {
 test "try used in recursive function with inferred error set" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
     const Value = union(enum) {
         values: []const @This(),
@@ -1026,4 +1028,16 @@ test "generic type constructed from inferred error set of unresolved function" {
         }
     };
     _ = std.io.multiWriter(.{S.writer()});
+}
+
+test "errorCast to adhoc inferred error set" {
+    const S = struct {
+        inline fn baz() !i32 {
+            return @errorCast(err());
+        }
+        fn err() anyerror!i32 {
+            return 1234;
+        }
+    };
+    try std.testing.expect((try S.baz()) == 1234);
 }

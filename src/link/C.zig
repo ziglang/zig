@@ -14,7 +14,7 @@ const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
@@ -114,7 +114,6 @@ pub fn createEmpty(
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
     const output_mode = comp.config.output_mode;
-    const link_mode = comp.config.link_mode;
 
     // These are caught by `Compilation.Config.resolve`.
     assert(!use_lld);
@@ -123,7 +122,6 @@ pub fn createEmpty(
     const file = try emit.directory.handle.createFile(emit.sub_path, .{
         // Truncation is done on `flush`.
         .truncate = false,
-        .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
     errdefer file.close();
 

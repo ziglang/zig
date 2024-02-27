@@ -688,7 +688,7 @@ pub const StackIterator = struct {
             }
 
             return true;
-        } else if (@hasDecl(os.system, "msync") and native_os != .wasi) {
+        } else if (@hasDecl(os.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
                 switch (err) {
                     os.MSyncError.UnmappedMemory => {
@@ -1141,8 +1141,8 @@ pub fn readElfDebugInfo(
 ) !ModuleDebugInfo {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
-        } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
+            break :blk fs.cwd().openFile(filename, .{});
+        } else fs.openSelfExe(.{})) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
         };
@@ -1212,8 +1212,7 @@ pub fn readElfDebugInfo(
                 const chdr = section_reader.readStruct(elf.Chdr) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
-                defer zlib_stream.deinit();
+                var zlib_stream = std.compress.zlib.decompressor(section_stream.reader());
 
                 const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);
@@ -1452,7 +1451,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
 fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
+    var f = try fs.cwd().openFile(line_info.file_name, .{});
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -1640,7 +1639,6 @@ const MachoSymbol = struct {
     }
 };
 
-/// `file` is expected to have been opened with .intended_io_mode == .blocking.
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
 fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
@@ -1652,7 +1650,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
             null,
             file_len,
             os.PROT.READ,
-            os.MAP.SHARED,
+            .{ .TYPE = .SHARED },
             file.handle,
             0,
         );
@@ -1824,9 +1822,7 @@ pub const DebugInfo = struct {
                         errdefer self.allocator.destroy(obj_di);
 
                         const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
-                        const macho_file = fs.cwd().openFile(macho_path, .{
-                            .intended_io_mode = .blocking,
-                        }) catch |err| switch (err) {
+                        const macho_file = fs.cwd().openFile(macho_path, .{}) catch |err| switch (err) {
                             error.FileNotFound => return error.MissingDebugInfo,
                             else => return err,
                         };
@@ -2162,7 +2158,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !*OFileInfo {
-            const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
+            const o_file = try fs.cwd().openFile(o_file_path, .{});
             const mapped_mem = try mapWholeFile(o_file);
 
             const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
@@ -2448,7 +2444,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return &self.dwarf;
         }
     },
-    .wasi => struct {
+    .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
             _ = allocator;

@@ -1,13 +1,13 @@
-archive: ?[]const u8 = null,
+archive: ?InArchive = null,
 path: []const u8,
+file_handle: File.HandleIndex,
 mtime: u64,
-data: []const u8,
 index: File.Index,
 
 header: ?macho.mach_header_64 = null,
 sections: std.MultiArrayList(Section) = .{},
 symtab: std.MultiArrayList(Nlist) = .{},
-strtab: []const u8 = &[0]u8{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
 
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
@@ -22,12 +22,19 @@ cies: std.ArrayListUnmanaged(Cie) = .{},
 fdes: std.ArrayListUnmanaged(Fde) = .{},
 eh_frame_data: std.ArrayListUnmanaged(u8) = .{},
 unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .{},
+data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
 
 alive: bool = true,
 hidden: bool = false,
 
 dynamic_relocs: MachO.DynamicRelocs = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
+output_ar_state: Archive.ArState = .{},
+
+const InArchive = struct {
+    path: []const u8,
+    offset: u64,
+};
 
 pub fn isObject(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -37,12 +44,15 @@ pub fn isObject(path: []const u8) !bool {
 }
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
+    if (self.archive) |*ar| allocator.free(ar.path);
+    allocator.free(self.path);
     for (self.sections.items(.relocs), self.sections.items(.subsections)) |*relocs, *sub| {
         relocs.deinit(allocator);
         sub.deinit(allocator);
     }
     self.sections.deinit(allocator);
     self.symtab.deinit(allocator);
+    self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
     self.atoms.deinit(allocator);
     self.cies.deinit(allocator);
@@ -54,7 +64,7 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
         sf.stabs.deinit(allocator);
     }
     self.stab_files.deinit(allocator);
-    allocator.free(self.data);
+    self.data_in_code.deinit(allocator);
 }
 
 pub fn parse(self: *Object, macho_file: *MachO) !void {
@@ -62,10 +72,15 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
-    var stream = std.io.fixedBufferStream(self.data);
-    const reader = stream.reader();
+    const offset = if (self.archive) |ar| ar.offset else 0;
+    const handle = macho_file.getFileHandle(self.file_handle);
 
-    self.header = try reader.readStruct(macho.mach_header_64);
+    var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
+    {
+        const amt = try handle.preadAll(&header_buffer, offset);
+        if (amt != @sizeOf(macho.mach_header_64)) return error.InputOutput;
+    }
+    self.header = @as(*align(1) const macho.mach_header_64, @ptrCast(&header_buffer)).*;
 
     const this_cpu_arch: std.Target.Cpu.Arch = switch (self.header.?.cputype) {
         macho.CPU_TYPE_ARM64 => .aarch64,
@@ -80,34 +95,78 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         return error.InvalidCpuArch;
     }
 
-    if (self.getLoadCommand(.SEGMENT_64)) |lc| {
-        const sections = lc.getSections();
-        try self.sections.ensureUnusedCapacity(gpa, sections.len);
-        for (sections) |sect| {
-            const index = try self.sections.addOne(gpa);
-            self.sections.set(index, .{ .header = sect });
+    const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
+    defer gpa.free(lc_buffer);
+    {
+        const amt = try handle.preadAll(lc_buffer, offset + @sizeOf(macho.mach_header_64));
+        if (amt != self.header.?.sizeofcmds) return error.InputOutput;
+    }
 
-            if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
-                self.eh_frame_sect_index = @intCast(index);
-            } else if (mem.eql(u8, sect.sectName(), "__compact_unwind")) {
-                self.compact_unwind_sect_index = @intCast(index);
+    var it = LoadCommandIterator{
+        .ncmds = self.header.?.ncmds,
+        .buffer = lc_buffer,
+    };
+    while (it.next()) |lc| switch (lc.cmd()) {
+        .SEGMENT_64 => {
+            const sections = lc.getSections();
+            try self.sections.ensureUnusedCapacity(gpa, sections.len);
+            for (sections) |sect| {
+                const index = try self.sections.addOne(gpa);
+                self.sections.set(index, .{ .header = sect });
+
+                if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
+                    self.eh_frame_sect_index = @intCast(index);
+                } else if (mem.eql(u8, sect.sectName(), "__compact_unwind")) {
+                    self.compact_unwind_sect_index = @intCast(index);
+                }
             }
-        }
-    }
-    if (self.getLoadCommand(.SYMTAB)) |lc| {
-        const cmd = lc.cast(macho.symtab_command).?;
-        self.strtab = self.data[cmd.stroff..][0..cmd.strsize];
+        },
+        .SYMTAB => {
+            const cmd = lc.cast(macho.symtab_command).?;
+            try self.strtab.resize(gpa, cmd.strsize);
+            {
+                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + offset);
+                if (amt != self.strtab.items.len) return error.InputOutput;
+            }
 
-        const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(self.data.ptr + cmd.symoff))[0..cmd.nsyms];
-        try self.symtab.ensureUnusedCapacity(gpa, symtab.len);
-        for (symtab) |nlist| {
-            self.symtab.appendAssumeCapacity(.{
-                .nlist = nlist,
-                .atom = 0,
-                .size = 0,
-            });
-        }
-    }
+            const symtab_buffer = try gpa.alloc(u8, cmd.nsyms * @sizeOf(macho.nlist_64));
+            defer gpa.free(symtab_buffer);
+            {
+                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + offset);
+                if (amt != symtab_buffer.len) return error.InputOutput;
+            }
+            const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(symtab_buffer.ptr))[0..cmd.nsyms];
+            try self.symtab.ensureUnusedCapacity(gpa, symtab.len);
+            for (symtab) |nlist| {
+                self.symtab.appendAssumeCapacity(.{
+                    .nlist = nlist,
+                    .atom = 0,
+                    .size = 0,
+                });
+            }
+        },
+        .DATA_IN_CODE => {
+            const cmd = lc.cast(macho.linkedit_data_command).?;
+            const buffer = try gpa.alloc(u8, cmd.datasize);
+            defer gpa.free(buffer);
+            {
+                const amt = try handle.preadAll(buffer, offset + cmd.dataoff);
+                if (amt != buffer.len) return error.InputOutput;
+            }
+            const ndice = @divExact(cmd.datasize, @sizeOf(macho.data_in_code_entry));
+            const dice = @as([*]align(1) const macho.data_in_code_entry, @ptrCast(buffer.ptr))[0..ndice];
+            try self.data_in_code.appendUnalignedSlice(gpa, dice);
+        },
+        .BUILD_VERSION,
+        .VERSION_MIN_MACOSX,
+        .VERSION_MIN_IPHONEOS,
+        .VERSION_MIN_TVOS,
+        .VERSION_MIN_WATCHOS,
+        => if (self.platform == null) {
+            self.platform = MachO.Platform.fromLoadCommand(lc);
+        },
+        else => {},
+    };
 
     const NlistIdx = struct {
         nlist: macho.nlist_64,
@@ -169,8 +228,6 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     if (self.hasUnwindRecords() or self.hasEhFrameRecords()) {
         try self.parseUnwindRecords(macho_file);
     }
-
-    self.initPlatform();
 
     if (self.platform) |platform| {
         if (!macho_file.platform.eqlTarget(platform)) {
@@ -237,7 +294,7 @@ fn initSubsections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
             defer gpa.free(name);
             const size = if (nlist_start == nlist_end) sect.size else nlists[nlist_start].nlist.n_value - sect.addr;
             const atom_index = try self.addAtom(.{
-                .name = name,
+                .name = try self.addString(gpa, name),
                 .n_sect = @intCast(n_sect),
                 .off = 0,
                 .size = size,
@@ -267,7 +324,7 @@ fn initSubsections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
             else
                 sect.@"align";
             const atom_index = try self.addAtom(.{
-                .name = self.getString(nlist.nlist.n_strx),
+                .name = nlist.nlist.n_strx,
                 .n_sect = @intCast(n_sect),
                 .off = nlist.nlist.n_value - sect.addr,
                 .size = size,
@@ -300,7 +357,7 @@ fn initSections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
         defer gpa.free(name);
 
         const atom_index = try self.addAtom(.{
-            .name = name,
+            .name = try self.addString(gpa, name),
             .n_sect = @intCast(n_sect),
             .off = 0,
             .size = sect.size,
@@ -336,7 +393,7 @@ fn initSections(self: *Object, nlists: anytype, macho_file: *MachO) !void {
 }
 
 const AddAtomArgs = struct {
-    name: [:0]const u8,
+    name: u32,
     n_sect: u8,
     off: u64,
     size: u64,
@@ -349,7 +406,7 @@ fn addAtom(self: *Object, args: AddAtomArgs, macho_file: *MachO) !Atom.Index {
     const atom = macho_file.getAtom(atom_index).?;
     atom.file = self.index;
     atom.atom_index = atom_index;
-    atom.name = try macho_file.strings.insert(gpa, args.name);
+    atom.name = args.name;
     atom.n_sect = args.n_sect;
     atom.size = args.size;
     atom.alignment = Atom.Alignment.fromLog2Units(args.alignment);
@@ -376,7 +433,7 @@ fn initLiteralSections(self: *Object, macho_file: *MachO) !void {
         defer gpa.free(name);
 
         const atom_index = try self.addAtom(.{
-            .name = name,
+            .name = try self.addString(gpa, name),
             .n_sect = @intCast(n_sect),
             .off = 0,
             .size = sect.size,
@@ -469,16 +526,18 @@ fn initSymbols(self: *Object, macho_file: *MachO) !void {
             const off = try macho_file.strings.insert(gpa, name);
             const gop = try macho_file.getOrCreateGlobal(off);
             self.symbols.addOneAssumeCapacity().* = gop.index;
+            if (nlist.undf() and nlist.weakRef()) {
+                macho_file.getSymbol(gop.index).flags.weak_ref = true;
+            }
             continue;
         }
 
         const index = try macho_file.addSymbol();
         self.symbols.appendAssumeCapacity(index);
         const symbol = macho_file.getSymbol(index);
-        const name = self.getString(nlist.n_strx);
         symbol.* = .{
             .value = nlist.n_value,
-            .name = try macho_file.strings.insert(gpa, name),
+            .name = nlist.n_strx,
             .nlist_idx = @intCast(i),
             .atom = 0,
             .file = self.index,
@@ -638,7 +697,10 @@ fn initEhFrameRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     const sect = slice.items(.header)[sect_id];
     const relocs = slice.items(.relocs)[sect_id];
 
-    const data = try self.getSectionData(sect_id);
+    // TODO: read into buffer directly
+    const data = try self.getSectionData(sect_id, macho_file);
+    defer gpa.free(data);
+
     try self.eh_frame_data.ensureTotalCapacityPrecise(gpa, data.len);
     self.eh_frame_data.appendSliceAssumeCapacity(data);
 
@@ -739,7 +801,8 @@ fn initUnwindRecords(self: *Object, sect_id: u8, macho_file: *MachO) !void {
     };
 
     const gpa = macho_file.base.comp.gpa;
-    const data = try self.getSectionData(sect_id);
+    const data = try self.getSectionData(sect_id, macho_file);
+    defer gpa.free(data);
     const nrecs = @divExact(data.len, @sizeOf(macho.compact_unwind_entry));
     const recs = @as([*]align(1) const macho.compact_unwind_entry, @ptrCast(data.ptr))[0..nrecs];
     const sym_lookup = SymbolLookup{ .ctx = self };
@@ -934,24 +997,6 @@ fn parseUnwindRecords(self: *Object, macho_file: *MachO) !void {
     }
 }
 
-fn initPlatform(self: *Object) void {
-    var it = LoadCommandIterator{
-        .ncmds = self.header.?.ncmds,
-        .buffer = self.data[@sizeOf(macho.mach_header_64)..][0..self.header.?.sizeofcmds],
-    };
-    self.platform = while (it.next()) |cmd| {
-        switch (cmd.cmd()) {
-            .BUILD_VERSION,
-            .VERSION_MIN_MACOSX,
-            .VERSION_MIN_IPHONEOS,
-            .VERSION_MIN_TVOS,
-            .VERSION_MIN_WATCHOS,
-            => break MachO.Platform.fromLoadCommand(cmd),
-            else => {},
-        }
-    } else null;
-}
-
 /// Currently, we only check if a compile unit for this input object file exists
 /// and record that so that we can emit symbol stabs.
 /// TODO in the future, we want parse debug info and debug line sections so that
@@ -975,12 +1020,20 @@ fn initDwarfInfo(self: *Object, macho_file: *MachO) !void {
 
     if (debug_info_index == null or debug_abbrev_index == null) return;
 
-    var dwarf_info = DwarfInfo{
-        .debug_info = try self.getSectionData(@intCast(debug_info_index.?)),
-        .debug_abbrev = try self.getSectionData(@intCast(debug_abbrev_index.?)),
-        .debug_str = if (debug_str_index) |index| try self.getSectionData(@intCast(index)) else "",
-    };
-    dwarf_info.init(gpa) catch {
+    const debug_info = try self.getSectionData(@intCast(debug_info_index.?), macho_file);
+    defer gpa.free(debug_info);
+    const debug_abbrev = try self.getSectionData(@intCast(debug_abbrev_index.?), macho_file);
+    defer gpa.free(debug_abbrev);
+    const debug_str = if (debug_str_index) |index| try self.getSectionData(@intCast(index), macho_file) else &[0]u8{};
+    defer gpa.free(debug_str);
+
+    var dwarf_info = DwarfInfo{};
+    errdefer dwarf_info.deinit(gpa);
+    dwarf_info.init(gpa, .{
+        .debug_info = debug_info,
+        .debug_abbrev = debug_abbrev,
+        .debug_str = debug_str,
+    }) catch {
         try macho_file.reportParseError2(self.index, "invalid __DWARF info found", .{});
         return error.MalformedObject;
     };
@@ -1049,8 +1102,12 @@ pub fn resetGlobals(self: *Object, macho_file: *MachO) void {
         if (!self.symtab.items(.nlist)[nlist_idx].ext()) continue;
         const sym = macho_file.getSymbol(sym_index);
         const name = sym.name;
+        const global = sym.flags.global;
+        const weak_ref = sym.flags.weak_ref;
         sym.* = .{};
         sym.name = name;
+        sym.flags.global = global;
+        sym.flags.weak_ref = weak_ref;
     }
 }
 
@@ -1137,7 +1194,7 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
         defer gpa.free(name);
         const atom = macho_file.getAtom(atom_index).?;
         atom.atom_index = atom_index;
-        atom.name = try macho_file.strings.insert(gpa, name);
+        atom.name = try self.addString(gpa, name);
         atom.file = self.index;
         atom.size = nlist.n_value;
         atom.alignment = Atom.Alignment.fromLog2Units((nlist.n_desc >> 8) & 0x0f);
@@ -1151,6 +1208,7 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
 
         sym.value = 0;
         sym.atom = atom_index;
+        sym.flags.global = true;
         sym.flags.weak = false;
         sym.flags.weak_ref = false;
         sym.flags.tentative = false;
@@ -1173,6 +1231,112 @@ fn addSection(self: *Object, allocator: Allocator, segname: []const u8, sectname
         },
     });
     return n_sect;
+}
+
+pub fn parseAr(self: *Object, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const offset = if (self.archive) |ar| ar.offset else 0;
+    const handle = macho_file.getFileHandle(self.file_handle);
+
+    var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
+    {
+        const amt = try handle.preadAll(&header_buffer, offset);
+        if (amt != @sizeOf(macho.mach_header_64)) return error.InputOutput;
+    }
+    self.header = @as(*align(1) const macho.mach_header_64, @ptrCast(&header_buffer)).*;
+
+    const this_cpu_arch: std.Target.Cpu.Arch = switch (self.header.?.cputype) {
+        macho.CPU_TYPE_ARM64 => .aarch64,
+        macho.CPU_TYPE_X86_64 => .x86_64,
+        else => |x| {
+            try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
+            return error.InvalidCpuArch;
+        },
+    };
+    if (macho_file.getTarget().cpu.arch != this_cpu_arch) {
+        try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
+        return error.InvalidCpuArch;
+    }
+
+    const lc_buffer = try gpa.alloc(u8, self.header.?.sizeofcmds);
+    defer gpa.free(lc_buffer);
+    {
+        const amt = try handle.preadAll(lc_buffer, offset + @sizeOf(macho.mach_header_64));
+        if (amt != self.header.?.sizeofcmds) return error.InputOutput;
+    }
+
+    var it = LoadCommandIterator{
+        .ncmds = self.header.?.ncmds,
+        .buffer = lc_buffer,
+    };
+    while (it.next()) |lc| switch (lc.cmd()) {
+        .SYMTAB => {
+            const cmd = lc.cast(macho.symtab_command).?;
+            try self.strtab.resize(gpa, cmd.strsize);
+            {
+                const amt = try handle.preadAll(self.strtab.items, cmd.stroff + offset);
+                if (amt != self.strtab.items.len) return error.InputOutput;
+            }
+
+            const symtab_buffer = try gpa.alloc(u8, cmd.nsyms * @sizeOf(macho.nlist_64));
+            defer gpa.free(symtab_buffer);
+            {
+                const amt = try handle.preadAll(symtab_buffer, cmd.symoff + offset);
+                if (amt != symtab_buffer.len) return error.InputOutput;
+            }
+            const symtab = @as([*]align(1) const macho.nlist_64, @ptrCast(symtab_buffer.ptr))[0..cmd.nsyms];
+            try self.symtab.ensureUnusedCapacity(gpa, symtab.len);
+            for (symtab) |nlist| {
+                self.symtab.appendAssumeCapacity(.{
+                    .nlist = nlist,
+                    .atom = 0,
+                    .size = 0,
+                });
+            }
+        },
+        .BUILD_VERSION,
+        .VERSION_MIN_MACOSX,
+        .VERSION_MIN_IPHONEOS,
+        .VERSION_MIN_TVOS,
+        .VERSION_MIN_WATCHOS,
+        => if (self.platform == null) {
+            self.platform = MachO.Platform.fromLoadCommand(lc);
+        },
+        else => {},
+    };
+}
+
+pub fn updateArSymtab(self: Object, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
+    const gpa = macho_file.base.comp.gpa;
+    for (self.symtab.items(.nlist)) |nlist| {
+        if (!nlist.ext() or (nlist.undf() and !nlist.tentative())) continue;
+        const off = try ar_symtab.strtab.insert(gpa, self.getString(nlist.n_strx));
+        try ar_symtab.entries.append(gpa, .{ .off = off, .file = self.index });
+    }
+}
+
+pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
+    const file = macho_file.getFileHandle(self.file_handle);
+    const size = (try file.stat()).size;
+    self.output_ar_state.size = size;
+}
+
+pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
+    // Header
+    const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
+    try Archive.writeHeader(self.path, size, ar_format, writer);
+    // Data
+    const file = macho_file.getFileHandle(self.file_handle);
+    // TODO try using copyRangeAll
+    const gpa = macho_file.base.comp.gpa;
+    const data = try gpa.alloc(u8, size);
+    defer gpa.free(data);
+    const amt = try file.preadAll(data, 0);
+    if (amt != size) return error.InputOutput;
+    try writer.writeAll(data);
 }
 
 pub fn calcSymtabSize(self: *Object, macho_file: *MachO) !void {
@@ -1219,8 +1383,8 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
         self.output_symtab_ctx.strsize += @as(u32, @intCast(comp_dir.len + 1)); // comp_dir
         self.output_symtab_ctx.strsize += @as(u32, @intCast(tu_name.len + 1)); // tu_name
 
-        if (self.archive) |path| {
-            self.output_symtab_ctx.strsize += @as(u32, @intCast(path.len + 1 + self.path.len + 1 + 1));
+        if (self.archive) |ar| {
+            self.output_symtab_ctx.strsize += @as(u32, @intCast(ar.path.len + 1 + self.path.len + 1 + 1));
         } else {
             self.output_symtab_ctx.strsize += @as(u32, @intCast(self.path.len + 1));
         }
@@ -1268,7 +1432,7 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
     }
 }
 
-pub fn writeSymtab(self: Object, macho_file: *MachO) error{Overflow}!void {
+pub fn writeSymtab(self: Object, macho_file: *MachO, ctx: anytype) error{Overflow}!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1277,19 +1441,19 @@ pub fn writeSymtab(self: Object, macho_file: *MachO) error{Overflow}!void {
         const file = sym.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
-        const n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        macho_file.strtab.appendSliceAssumeCapacity(sym.getName(macho_file));
-        macho_file.strtab.appendAssumeCapacity(0);
-        const out_sym = &macho_file.symtab.items[idx];
+        const n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        ctx.strtab.appendSliceAssumeCapacity(sym.getName(macho_file));
+        ctx.strtab.appendAssumeCapacity(0);
+        const out_sym = &ctx.symtab.items[idx];
         out_sym.n_strx = n_strx;
         sym.setOutputSym(macho_file, out_sym);
     }
 
     if (macho_file.base.comp.config.debug_format != .strip and self.hasDebugInfo())
-        try self.writeStabs(macho_file);
+        try self.writeStabs(macho_file, ctx);
 }
 
-pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void {
+pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{Overflow}!void {
     const writeFuncStab = struct {
         inline fn writeFuncStab(
             n_strx: u32,
@@ -1297,30 +1461,30 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             n_value: u64,
             size: u64,
             index: u32,
-            ctx: *MachO,
+            context: anytype,
         ) void {
-            ctx.symtab.items[index] = .{
+            context.symtab.items[index] = .{
                 .n_strx = 0,
                 .n_type = macho.N_BNSYM,
                 .n_sect = n_sect,
                 .n_desc = 0,
                 .n_value = n_value,
             };
-            ctx.symtab.items[index + 1] = .{
+            context.symtab.items[index + 1] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_FUN,
                 .n_sect = n_sect,
                 .n_desc = 0,
                 .n_value = n_value,
             };
-            ctx.symtab.items[index + 2] = .{
+            context.symtab.items[index + 2] = .{
                 .n_strx = 0,
                 .n_type = macho.N_FUN,
                 .n_sect = 0,
                 .n_desc = 0,
                 .n_value = size,
             };
-            ctx.symtab.items[index + 3] = .{
+            context.symtab.items[index + 3] = .{
                 .n_strx = 0,
                 .n_type = macho.N_ENSYM,
                 .n_sect = n_sect,
@@ -1340,10 +1504,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
 
         // Open scope
         // N_SO comp_dir
-        var n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        macho_file.strtab.appendSliceAssumeCapacity(comp_dir);
-        macho_file.strtab.appendAssumeCapacity(0);
-        macho_file.symtab.items[index] = .{
+        var n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        ctx.strtab.appendSliceAssumeCapacity(comp_dir);
+        ctx.strtab.appendAssumeCapacity(0);
+        ctx.symtab.items[index] = .{
             .n_strx = n_strx,
             .n_type = macho.N_SO,
             .n_sect = 0,
@@ -1352,10 +1516,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
         };
         index += 1;
         // N_SO tu_name
-        n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        macho_file.strtab.appendSliceAssumeCapacity(tu_name);
-        macho_file.strtab.appendAssumeCapacity(0);
-        macho_file.symtab.items[index] = .{
+        n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        ctx.strtab.appendSliceAssumeCapacity(tu_name);
+        ctx.strtab.appendAssumeCapacity(0);
+        ctx.symtab.items[index] = .{
             .n_strx = n_strx,
             .n_type = macho.N_SO,
             .n_sect = 0,
@@ -1364,18 +1528,18 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
         };
         index += 1;
         // N_OSO path
-        n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        if (self.archive) |path| {
-            macho_file.strtab.appendSliceAssumeCapacity(path);
-            macho_file.strtab.appendAssumeCapacity('(');
-            macho_file.strtab.appendSliceAssumeCapacity(self.path);
-            macho_file.strtab.appendAssumeCapacity(')');
-            macho_file.strtab.appendAssumeCapacity(0);
+        n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        if (self.archive) |ar| {
+            ctx.strtab.appendSliceAssumeCapacity(ar.path);
+            ctx.strtab.appendAssumeCapacity('(');
+            ctx.strtab.appendSliceAssumeCapacity(self.path);
+            ctx.strtab.appendAssumeCapacity(')');
+            ctx.strtab.appendAssumeCapacity(0);
         } else {
-            macho_file.strtab.appendSliceAssumeCapacity(self.path);
-            macho_file.strtab.appendAssumeCapacity(0);
+            ctx.strtab.appendSliceAssumeCapacity(self.path);
+            ctx.strtab.appendAssumeCapacity(0);
         }
-        macho_file.symtab.items[index] = .{
+        ctx.symtab.items[index] = .{
             .n_strx = n_strx,
             .n_type = macho.N_OSO,
             .n_sect = 0,
@@ -1396,17 +1560,17 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             const sect = macho_file.sections.items(.header)[sym.out_n_sect];
             const sym_n_strx = n_strx: {
                 const symtab_index = sym.getOutputSymtabIndex(macho_file).?;
-                const osym = macho_file.symtab.items[symtab_index];
+                const osym = ctx.symtab.items[symtab_index];
                 break :n_strx osym.n_strx;
             };
             const sym_n_sect: u8 = if (!sym.flags.abs) @intCast(sym.out_n_sect + 1) else 0;
             const sym_n_value = sym.getAddress(.{}, macho_file);
             const sym_size = sym.getSize(macho_file);
             if (sect.isCode()) {
-                writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, macho_file);
+                writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, ctx);
                 index += 4;
             } else if (sym.visibility == .global) {
-                macho_file.symtab.items[index] = .{
+                ctx.symtab.items[index] = .{
                     .n_strx = sym_n_strx,
                     .n_type = macho.N_GSYM,
                     .n_sect = sym_n_sect,
@@ -1415,7 +1579,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                 };
                 index += 1;
             } else {
-                macho_file.symtab.items[index] = .{
+                ctx.symtab.items[index] = .{
                     .n_strx = sym_n_strx,
                     .n_type = macho.N_STSYM,
                     .n_sect = sym_n_sect,
@@ -1428,7 +1592,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
 
         // Close scope
         // N_SO
-        macho_file.symtab.items[index] = .{
+        ctx.symtab.items[index] = .{
             .n_strx = 0,
             .n_type = macho.N_SO,
             .n_sect = 0,
@@ -1441,10 +1605,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
         for (self.stab_files.items) |sf| {
             // Open scope
             // N_SO comp_dir
-            var n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-            macho_file.strtab.appendSliceAssumeCapacity(sf.getCompDir(self));
-            macho_file.strtab.appendAssumeCapacity(0);
-            macho_file.symtab.items[index] = .{
+            var n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+            ctx.strtab.appendSliceAssumeCapacity(sf.getCompDir(self));
+            ctx.strtab.appendAssumeCapacity(0);
+            ctx.symtab.items[index] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_SO,
                 .n_sect = 0,
@@ -1453,10 +1617,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             };
             index += 1;
             // N_SO tu_name
-            n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-            macho_file.strtab.appendSliceAssumeCapacity(sf.getTuName(self));
-            macho_file.strtab.appendAssumeCapacity(0);
-            macho_file.symtab.items[index] = .{
+            n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+            ctx.strtab.appendSliceAssumeCapacity(sf.getTuName(self));
+            ctx.strtab.appendAssumeCapacity(0);
+            ctx.symtab.items[index] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_SO,
                 .n_sect = 0,
@@ -1465,10 +1629,10 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
             };
             index += 1;
             // N_OSO path
-            n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-            macho_file.strtab.appendSliceAssumeCapacity(sf.getOsoPath(self));
-            macho_file.strtab.appendAssumeCapacity(0);
-            macho_file.symtab.items[index] = .{
+            n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+            ctx.strtab.appendSliceAssumeCapacity(sf.getOsoPath(self));
+            ctx.strtab.appendAssumeCapacity(0);
+            ctx.symtab.items[index] = .{
                 .n_strx = n_strx,
                 .n_type = macho.N_OSO,
                 .n_sect = 0,
@@ -1484,7 +1648,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                 if (!sym.flags.output_symtab) continue;
                 const sym_n_strx = n_strx: {
                     const symtab_index = sym.getOutputSymtabIndex(macho_file).?;
-                    const osym = macho_file.symtab.items[symtab_index];
+                    const osym = ctx.symtab.items[symtab_index];
                     break :n_strx osym.n_strx;
                 };
                 const sym_n_sect: u8 = if (!sym.flags.abs) @intCast(sym.out_n_sect + 1) else 0;
@@ -1492,11 +1656,11 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                 const sym_size = sym.getSize(macho_file);
                 switch (stab.tag) {
                     .func => {
-                        writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, macho_file);
+                        writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, ctx);
                         index += 4;
                     },
                     .global => {
-                        macho_file.symtab.items[index] = .{
+                        ctx.symtab.items[index] = .{
                             .n_strx = sym_n_strx,
                             .n_type = macho.N_GSYM,
                             .n_sect = sym_n_sect,
@@ -1506,7 +1670,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
                         index += 1;
                     },
                     .static => {
-                        macho_file.symtab.items[index] = .{
+                        ctx.symtab.items[index] = .{
                             .n_strx = sym_n_strx,
                             .n_type = macho.N_STSYM,
                             .n_sect = sym_n_sect,
@@ -1520,7 +1684,7 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
 
             // Close scope
             // N_SO
-            macho_file.symtab.items[index] = .{
+            ctx.symtab.items[index] = .{
                 .n_strx = 0,
                 .n_type = macho.N_SO,
                 .n_sect = 0,
@@ -1532,30 +1696,29 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO) error{Overflow}!void 
     }
 }
 
-fn getLoadCommand(self: Object, lc: macho.LC) ?LoadCommandIterator.LoadCommand {
-    var it = LoadCommandIterator{
-        .ncmds = self.header.?.ncmds,
-        .buffer = self.data[@sizeOf(macho.mach_header_64)..][0..self.header.?.sizeofcmds],
-    };
-    while (it.next()) |cmd| {
-        if (cmd.cmd() == lc) return cmd;
-    } else return null;
-}
-
-pub fn getSectionData(self: *const Object, index: u32) error{Overflow}![]const u8 {
+fn getSectionData(self: *const Object, index: u32, macho_file: *MachO) ![]u8 {
+    const gpa = macho_file.base.comp.gpa;
     const slice = self.sections.slice();
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];
-    const off = math.cast(usize, sect.offset) orelse return error.Overflow;
+    const handle = macho_file.getFileHandle(self.file_handle);
+    const offset = if (self.archive) |ar| ar.offset else 0;
     const size = math.cast(usize, sect.size) orelse return error.Overflow;
-    return self.data[off..][0..size];
+    const buffer = try gpa.alloc(u8, size);
+    errdefer gpa.free(buffer);
+    const amt = try handle.preadAll(buffer, sect.offset + offset);
+    if (amt != buffer.len) return error.InputOutput;
+    return buffer;
 }
 
-pub fn getAtomData(self: *const Object, atom: Atom) error{Overflow}![]const u8 {
-    const data = try self.getSectionData(atom.n_sect);
-    const off = math.cast(usize, atom.off) orelse return error.Overflow;
-    const size = math.cast(usize, atom.size) orelse return error.Overflow;
-    return data[off..][0..size];
+pub fn getAtomData(self: *const Object, macho_file: *MachO, atom: Atom, buffer: []u8) !void {
+    assert(buffer.len == atom.size);
+    const slice = self.sections.slice();
+    const handle = macho_file.getFileHandle(self.file_handle);
+    const offset = if (self.archive) |ar| ar.offset else 0;
+    const sect = slice.items(.header)[atom.n_sect];
+    const amt = try handle.preadAll(buffer, sect.offset + offset + atom.off);
+    if (amt != buffer.len) return error.InputOutput;
 }
 
 pub fn getAtomRelocs(self: *const Object, atom: Atom) []const Relocation {
@@ -1563,9 +1726,17 @@ pub fn getAtomRelocs(self: *const Object, atom: Atom) []const Relocation {
     return relocs.items[atom.relocs.pos..][0..atom.relocs.len];
 }
 
-fn getString(self: Object, off: u32) [:0]const u8 {
-    assert(off < self.strtab.len);
-    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.ptr + off)), 0);
+fn addString(self: *Object, allocator: Allocator, name: [:0]const u8) error{OutOfMemory}!u32 {
+    const off: u32 = @intCast(self.strtab.items.len);
+    try self.strtab.ensureUnusedCapacity(allocator, name.len + 1);
+    self.strtab.appendSliceAssumeCapacity(name);
+    self.strtab.appendAssumeCapacity(0);
+    return off;
+}
+
+pub fn getString(self: Object, off: u32) [:0]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
 }
 
 pub fn hasUnwindRecords(self: Object) bool {
@@ -1600,15 +1771,8 @@ pub fn hasObjc(self: Object) bool {
     return false;
 }
 
-pub fn getDataInCode(self: Object) []align(1) const macho.data_in_code_entry {
-    const lc = self.getLoadCommand(.DATA_IN_CODE) orelse return &[0]macho.data_in_code_entry{};
-    const cmd = lc.cast(macho.linkedit_data_command).?;
-    const ndice = @divExact(cmd.datasize, @sizeOf(macho.data_in_code_entry));
-    const dice = @as(
-        [*]align(1) const macho.data_in_code_entry,
-        @ptrCast(self.data.ptr + cmd.dataoff),
-    )[0..ndice];
-    return dice;
+pub fn getDataInCode(self: Object) []const macho.data_in_code_entry {
+    return self.data_in_code.items;
 }
 
 pub inline fn hasSubsections(self: Object) bool {
@@ -1762,8 +1926,8 @@ fn formatPath(
 ) !void {
     _ = unused_fmt_string;
     _ = options;
-    if (object.archive) |path| {
-        try writer.writeAll(path);
+    if (object.archive) |ar| {
+        try writer.writeAll(ar.path);
         try writer.writeByte('(');
         try writer.writeAll(object.path);
         try writer.writeByte(')');
@@ -1831,11 +1995,18 @@ const x86_64 = struct {
     ) !void {
         const gpa = macho_file.base.comp.gpa;
 
-        const relocs = @as(
-            [*]align(1) const macho.relocation_info,
-            @ptrCast(self.data.ptr + sect.reloff),
-        )[0..sect.nreloc];
-        const code = try self.getSectionData(@intCast(n_sect));
+        const handle = macho_file.getFileHandle(self.file_handle);
+        const offset = if (self.archive) |ar| ar.offset else 0;
+        const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
+        defer gpa.free(relocs_buffer);
+        {
+            const amt = try handle.preadAll(relocs_buffer, sect.reloff + offset);
+            if (amt != relocs_buffer.len) return error.InputOutput;
+        }
+        const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
+
+        const code = try self.getSectionData(@intCast(n_sect), macho_file);
+        defer gpa.free(code);
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 
@@ -1987,11 +2158,18 @@ const aarch64 = struct {
     ) !void {
         const gpa = macho_file.base.comp.gpa;
 
-        const relocs = @as(
-            [*]align(1) const macho.relocation_info,
-            @ptrCast(self.data.ptr + sect.reloff),
-        )[0..sect.nreloc];
-        const code = try self.getSectionData(@intCast(n_sect));
+        const handle = macho_file.getFileHandle(self.file_handle);
+        const offset = if (self.archive) |ar| ar.offset else 0;
+        const relocs_buffer = try gpa.alloc(u8, sect.nreloc * @sizeOf(macho.relocation_info));
+        defer gpa.free(relocs_buffer);
+        {
+            const amt = try handle.preadAll(relocs_buffer, sect.reloff + offset);
+            if (amt != relocs_buffer.len) return error.InputOutput;
+        }
+        const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
+
+        const code = try self.getSectionData(@intCast(n_sect), macho_file);
+        defer gpa.free(code);
 
         try out.ensureTotalCapacityPrecise(gpa, relocs.len);
 
@@ -2170,6 +2348,7 @@ const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
 
 const Allocator = mem.Allocator;
+const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
 const Cie = eh_frame.Cie;
 const DwarfInfo = @import("DwarfInfo.zig");

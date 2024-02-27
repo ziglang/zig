@@ -181,10 +181,8 @@ test "listen on a port, send bytes, receive bytes" {
     // configured.
     const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
-    var server = net.StreamServer.init(.{});
+    var server = try localhost.listen(.{});
     defer server.deinit();
-
-    try server.listen(localhost);
 
     const S = struct {
         fn clientFn(server_address: net.Address) !void {
@@ -207,54 +205,6 @@ test "listen on a port, send bytes, receive bytes" {
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
 
-test "listen on a port, send bytes, receive bytes, async-only" {
-    if (!std.io.is_async) return error.SkipZigTest;
-
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
-        // TODO build abstractions for other operating systems
-        return error.SkipZigTest;
-    }
-
-    // TODO doing this at comptime crashed the compiler
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
-
-    var server = net.StreamServer.init(net.StreamServer.Options{});
-    defer server.deinit();
-    try server.listen(localhost);
-
-    var server_frame = async testServer(&server);
-    var client_frame = async testClient(server.listen_address);
-
-    try await server_frame;
-    try await client_frame;
-}
-
-test "listen on ipv4 try connect on ipv6 then ipv4" {
-    if (!std.io.is_async) return error.SkipZigTest;
-
-    if (builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) {
-        // TODO build abstractions for other operating systems
-        return error.SkipZigTest;
-    }
-
-    // TODO doing this at comptime crashed the compiler
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
-
-    var server = net.StreamServer.init(net.StreamServer.Options{});
-    defer server.deinit();
-    try server.listen(localhost);
-
-    var server_frame = async testServer(&server);
-    var client_frame = async testClientToHost(
-        testing.allocator,
-        "localhost",
-        server.listen_address.getPort(),
-    );
-
-    try await server_frame;
-    try await client_frame;
-}
-
 test "listen on an in use port" {
     if (builtin.os.tag != .linux and comptime !builtin.os.tag.isDarwin()) {
         // TODO build abstractions for other operating systems
@@ -263,17 +213,11 @@ test "listen on an in use port" {
 
     const localhost = try net.Address.parseIp("127.0.0.1", 0);
 
-    var server1 = net.StreamServer.init(net.StreamServer.Options{
-        .reuse_port = true,
-    });
+    var server1 = try localhost.listen(.{ .reuse_port = true });
     defer server1.deinit();
-    try server1.listen(localhost);
 
-    var server2 = net.StreamServer.init(net.StreamServer.Options{
-        .reuse_port = true,
-    });
+    var server2 = try server1.listen_address.listen(.{ .reuse_port = true });
     defer server2.deinit();
-    try server2.listen(server1.listen_address);
 }
 
 fn testClientToHost(allocator: mem.Allocator, name: []const u8, port: u16) anyerror!void {
@@ -300,7 +244,7 @@ fn testClient(addr: net.Address) anyerror!void {
     try testing.expect(mem.eql(u8, msg, "hello from server\n"));
 }
 
-fn testServer(server: *net.StreamServer) anyerror!void {
+fn testServer(server: *net.Server) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     var client = try server.accept();
@@ -322,15 +266,14 @@ test "listen on a unix socket, send bytes, receive bytes" {
         }
     }
 
-    var server = net.StreamServer.init(.{});
-    defer server.deinit();
-
     const socket_path = try generateFileName("socket.unix");
     defer testing.allocator.free(socket_path);
 
     const socket_addr = try net.Address.initUnix(socket_path);
     defer std.fs.cwd().deleteFile(socket_path) catch {};
-    try server.listen(socket_addr);
+
+    var server = try socket_addr.listen(.{});
+    defer server.deinit();
 
     const S = struct {
         fn clientFn(path: []const u8) !void {
@@ -371,9 +314,8 @@ test "non-blocking tcp server" {
     }
 
     const localhost = try net.Address.parseIp("127.0.0.1", 0);
-    var server = net.StreamServer.init(.{ .force_nonblocking = true });
+    var server = localhost.listen(.{ .force_nonblocking = true });
     defer server.deinit();
-    try server.listen(localhost);
 
     const accept_err = server.accept();
     try testing.expectError(error.WouldBlock, accept_err);
