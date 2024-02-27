@@ -2106,10 +2106,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_end,
             => try self.airDbgInline(inst),
 
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try self.airDbgBlock(inst),
-
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
             .call_never_tail   => try self.airCall(inst, .never_tail),
@@ -12976,12 +12972,6 @@ fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
     self.finishAirBookkeeping();
 }
 
-fn airDbgBlock(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    // TODO emit debug info lexical block
-    self.finishAirBookkeeping();
-}
-
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const operand = pl_op.operand;
@@ -13428,6 +13418,7 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Block, ty_pl.payload);
     const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+    // TODO emit debug info lexical block
     try self.genBody(body);
 
     var block_data = self.blocks.fetchRemove(inst).?;

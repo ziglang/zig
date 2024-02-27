@@ -4768,8 +4768,6 @@ pub const FuncGen = struct {
         scope: Builder.Metadata,
     }) = .{},
 
-    scope_stack: std.ArrayListUnmanaged(Builder.Metadata) = .{},
-
     base_line: u32,
     prev_dbg_line: c_uint,
     prev_dbg_column: c_uint,
@@ -4813,7 +4811,6 @@ pub const FuncGen = struct {
 
     fn deinit(self: *FuncGen) void {
         self.wip.deinit();
-        self.scope_stack.deinit(self.gpa);
         self.inlined.deinit(self.gpa);
         self.func_inst_table.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
@@ -5112,8 +5109,6 @@ pub const FuncGen = struct {
                 .dbg_stmt => try self.airDbgStmt(inst),
                 .dbg_inline_begin => try self.airDbgInlineBegin(inst),
                 .dbg_inline_end => try self.airDbgInlineEnd(inst),
-                .dbg_block_begin => try self.airDbgBlockBegin(),
-                .dbg_block_end => try self.airDbgBlockEnd(),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
 
@@ -5129,6 +5124,19 @@ pub const FuncGen = struct {
             };
             if (val != .none) try self.func_inst_table.putNoClobber(self.gpa, inst.toRef(), val);
         }
+    }
+
+    fn genBodyDebugScope(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
+        if (self.wip.strip) return self.genBody(body);
+        const old_scope = self.scope;
+        self.scope = try self.dg.object.builder.debugLexicalBlock(
+            old_scope,
+            self.file,
+            self.prev_dbg_line,
+            self.prev_dbg_column,
+        );
+        try self.genBody(body);
+        self.scope = old_scope;
     }
 
     pub const CallAttr = enum {
@@ -5820,7 +5828,7 @@ pub const FuncGen = struct {
         const inst_ty = self.typeOfIndex(inst);
 
         if (inst_ty.isNoReturn(mod)) {
-            try self.genBody(body);
+            try self.genBodyDebugScope(body);
             return .none;
         }
 
@@ -5836,7 +5844,7 @@ pub const FuncGen = struct {
         });
         defer assert(self.blocks.remove(inst));
 
-        try self.genBody(body);
+        try self.genBodyDebugScope(body);
 
         self.wip.cursor = .{ .block = parent_bb };
 
@@ -6683,26 +6691,6 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn airDbgBlockBegin(self: *FuncGen) Allocator.Error!Builder.Value {
-        const o = self.dg.object;
-
-        try self.scope_stack.append(self.gpa, self.scope);
-
-        const old = self.scope;
-        self.scope = try o.builder.debugLexicalBlock(
-            old,
-            self.file,
-            self.prev_dbg_line,
-            self.prev_dbg_column,
-        );
-        return .none;
-    }
-
-    fn airDbgBlockEnd(self: *FuncGen) !Builder.Value {
-        self.scope = self.scope_stack.pop();
-        return .none;
-    }
-
     fn airDbgVarPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
@@ -7488,7 +7476,7 @@ pub const FuncGen = struct {
         for (body_tail[1..]) |body_inst| {
             switch (air_tags[@intFromEnum(body_inst)]) {
                 .ret => return true,
-                .dbg_stmt, .dbg_block_end => continue,
+                .dbg_stmt => continue,
                 else => return false,
             }
         }

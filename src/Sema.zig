@@ -364,6 +364,12 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
+    /// If not `null`, this boolean is set when a `dbg_var_ptr` or `dbg_var_val`
+    /// instruction is emitted. It signals that the innermost lexically
+    /// enclosing `block`/`block_inline` should be translated into a real AIR
+    /// `block` in order for codegen to match lexical scoping for debug vars.
+    need_debug_scope: ?*bool = null,
+
     const ComptimeReason = union(enum) {
         c_import: struct {
             block: *Block,
@@ -482,6 +488,7 @@ pub const Block = struct {
             .float_mode = parent.float_mode,
             .c_import_buf = parent.c_import_buf,
             .error_return_trace_index = parent.error_return_trace_index,
+            .need_debug_scope = parent.need_debug_scope,
         };
     }
 
@@ -986,8 +993,6 @@ fn analyzeBodyInner(
     crash_info.push();
     defer crash_info.pop();
 
-    var dbg_block_begins: u32 = 0;
-
     // We use a while (true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
     // instruction.
@@ -1332,18 +1337,6 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
-            .dbg_block_begin => {
-                dbg_block_begins += 1;
-                try zirDbgBlockBegin(block);
-                i += 1;
-                continue;
-            },
-            .dbg_block_end => {
-                dbg_block_begins -= 1;
-                try zirDbgBlockEnd(block);
-                i += 1;
-                continue;
-            },
             .ensure_err_union_payload_void => {
                 try sema.zirEnsureErrUnionPayloadVoid(block, inst);
                 i += 1;
@@ -1641,10 +1634,12 @@ fn analyzeBodyInner(
                 const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
                 const gpa = sema.gpa;
 
-                const opt_break_data = b: {
+                const opt_break_data, const need_debug_scope = b: {
                     // Create a temporary child block so that this inline block is properly
                     // labeled for any .restore_err_ret_index instructions
                     var child_block = block.makeSubBlock();
+                    var need_debug_scope = false;
+                    child_block.need_debug_scope = &need_debug_scope;
 
                     // If this block contains a function prototype, we need to reset the
                     // current list of parameters and restore it later.
@@ -1665,7 +1660,11 @@ fn analyzeBodyInner(
                     child_block.instructions = block.instructions;
                     defer block.instructions = child_block.instructions;
 
-                    break :b try sema.analyzeBodyBreak(&child_block, inline_body);
+                    const result = try sema.analyzeBodyBreak(&child_block, inline_body);
+                    if (need_debug_scope) {
+                        _ = try sema.ensurePostHoc(block, inst);
+                    }
+                    break :b .{ result, need_debug_scope };
                 };
 
                 // A runtime conditional branch that needs a post-hoc block to be
@@ -1686,28 +1685,22 @@ fn analyzeBodyInner(
                         // since it crosses a runtime branch.
                         // It may pass through our currently being analyzed block_inline or it
                         // may point directly to it. In the latter case, this modifies the
-                        // block that we are about to look up in the post_hoc_blocks map below.
+                        // block that we looked up in the post_hoc_blocks map above.
                         try sema.addRuntimeBreak(block, break_data);
-                    } else {
-                        // Here the comptime control flow ends with noreturn; however
-                        // we have runtime control flow continuing after this block.
-                        // This branch is therefore handled by the `i += 1; continue;`
-                        // logic below.
                     }
 
                     try labeled_block.block.instructions.appendSlice(gpa, block.instructions.items[block_index..]);
                     block.instructions.items.len = block_index;
 
-                    const block_result = try sema.analyzeBlockBody(block, inst_data.src(), &labeled_block.block, &labeled_block.label.merges);
+                    const block_result = try sema.analyzeBlockBody(block, inst_data.src(), &labeled_block.block, &labeled_block.label.merges, need_debug_scope);
                     {
                         // Destroy the ad-hoc block entry so that it does not interfere with
                         // the next iteration of comptime control flow, if any.
                         labeled_block.destroy(gpa);
                         assert(sema.post_hoc_blocks.remove(new_block_inst));
                     }
-                    map.putAssumeCapacity(inst, block_result);
-                    i += 1;
-                    continue;
+
+                    break :blk block_result;
                 }
 
                 const break_data = opt_break_data orelse break always_noreturn;
@@ -1859,19 +1852,6 @@ fn analyzeBodyInner(
         map.putAssumeCapacity(inst, air_inst);
         i += 1;
     };
-
-    // balance out dbg_block_begins in case of early noreturn
-    if (!block.is_comptime and !block.ownerModule().strip) {
-        const noreturn_inst = block.instructions.popOrNull();
-        while (dbg_block_begins > 0) {
-            dbg_block_begins -= 1;
-            _ = try block.addInst(.{
-                .tag = .dbg_block_end,
-                .data = undefined,
-            });
-        }
-        if (noreturn_inst) |some| try block.instructions.append(sema.gpa, some);
-    }
 
     // We may have overwritten the capture scope due to a `repeat` instruction where
     // the body had a capture; restore it now.
@@ -5762,7 +5742,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
         );
         sema.air_extra.appendSliceAssumeCapacity(@ptrCast(loop_block.instructions.items));
     }
-    return sema.analyzeBlockBody(parent_block, src, &child_block, merges);
+    return sema.analyzeBlockBody(parent_block, src, &child_block, merges, false);
 }
 
 fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -5950,13 +5930,31 @@ fn resolveBlockBody(
     if (child_block.is_comptime) {
         return sema.resolveBody(child_block, body, body_inst);
     } else {
+        var need_debug_scope = false;
+        child_block.need_debug_scope = &need_debug_scope;
         if (sema.analyzeBodyInner(child_block, body)) |_| {
-            return sema.analyzeBlockBody(parent_block, src, child_block, merges);
+            return sema.analyzeBlockBody(parent_block, src, child_block, merges, need_debug_scope);
         } else |err| switch (err) {
             error.ComptimeBreak => {
                 // Comptime control flow is happening, however child_block may still contain
                 // runtime instructions which need to be copied to the parent block.
-                try parent_block.instructions.appendSlice(sema.gpa, child_block.instructions.items);
+                if (need_debug_scope and child_block.instructions.items.len > 0) {
+                    // We need a runtime block for scoping reasons.
+                    _ = try child_block.addBr(merges.block_inst, .void_value);
+                    try parent_block.instructions.append(sema.gpa, merges.block_inst);
+                    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Block).Struct.fields.len +
+                        child_block.instructions.items.len);
+                    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                        .ty = .void_type,
+                        .payload = sema.addExtraAssumeCapacity(Air.Block{
+                            .body_len = @intCast(child_block.instructions.items.len),
+                        }),
+                    } };
+                    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
+                } else {
+                    // We can copy instructions directly to the parent block.
+                    try parent_block.instructions.appendSlice(sema.gpa, child_block.instructions.items);
+                }
 
                 const break_inst = sema.comptime_break_inst;
                 const break_data = sema.code.instructions.items(.data)[@intFromEnum(break_inst)].@"break";
@@ -5978,6 +5976,7 @@ fn analyzeBlockBody(
     src: LazySrcLoc,
     child_block: *Block,
     merges: *Block.Merges,
+    need_debug_scope: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5992,24 +5991,56 @@ fn analyzeBlockBody(
     if (merges.results.items.len == 0) {
         // No need for a block instruction. We can put the new instructions
         // directly into the parent block.
+        if (need_debug_scope) {
+            // The code following this block is unreachable, as the block has no
+            // merges, so we don't necessarily need to emit this as an AIR block.
+            // However, we need a block *somewhere* to make the scoping correct,
+            // so forward this request to the parent block.
+            if (parent_block.need_debug_scope) |ptr| ptr.* = true;
+        }
         try parent_block.instructions.appendSlice(gpa, child_block.instructions.items);
         return child_block.instructions.items[child_block.instructions.items.len - 1].toRef();
     }
     if (merges.results.items.len == 1) {
-        const last_inst_index = child_block.instructions.items.len - 1;
-        const last_inst = child_block.instructions.items[last_inst_index];
-        if (sema.getBreakBlock(last_inst)) |br_block| {
-            if (br_block == merges.block_inst) {
-                // No need for a block instruction. We can put the new instructions directly
-                // into the parent block. Here we omit the break instruction.
-                const without_break = child_block.instructions.items[0..last_inst_index];
-                try parent_block.instructions.appendSlice(gpa, without_break);
-                return merges.results.items[0];
+        // If the `break` is trailing, we may be able to elide the AIR block here
+        // by appending the new instructions directly to the parent block.
+        if (!need_debug_scope) {
+            const last_inst_index = child_block.instructions.items.len - 1;
+            const last_inst = child_block.instructions.items[last_inst_index];
+            if (sema.getBreakBlock(last_inst)) |br_block| {
+                if (br_block == merges.block_inst) {
+                    // Great, the last instruction is the break! Put the instructions
+                    // directly into the parent block.
+                    try parent_block.instructions.appendSlice(gpa, child_block.instructions.items[0..last_inst_index]);
+                    return merges.results.items[0];
+                }
             }
+        }
+        // Okay, we need a runtime block. If the value is comptime-known, the
+        // block should just return void, and we return the merge result
+        // directly. Otherwise, we can defer to the logic below.
+        if (try sema.resolveValue(merges.results.items[0])) |result_val| {
+            // Create a block containing all instruction from the body.
+            try parent_block.instructions.append(gpa, merges.block_inst);
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+                child_block.instructions.items.len);
+            sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                .ty = .void_type,
+                .payload = sema.addExtraAssumeCapacity(Air.Block{
+                    .body_len = @intCast(child_block.instructions.items.len),
+                }),
+            } };
+            sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
+            // Rewrite the break to just give value {}; the value is
+            // comptime-known and will be returned directly.
+            sema.air_instructions.items(.data)[@intFromEnum(merges.br_list.items[0])].br.operand = .void_value;
+            return Air.internedToRef(result_val.toIntern());
         }
     }
     // It is impossible to have the number of results be > 1 in a comptime scope.
     assert(!child_block.is_comptime); // Should already got a compile error in the condbr condition.
+
+    // Note that we'll always create an AIR block here, so `need_debug_scope` is irrelevant.
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
@@ -6388,24 +6419,6 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
     });
 }
 
-fn zirDbgBlockBegin(block: *Block) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip) return;
-
-    _ = try block.addInst(.{
-        .tag = .dbg_block_begin,
-        .data = undefined,
-    });
-}
-
-fn zirDbgBlockEnd(block: *Block) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip) return;
-
-    _ = try block.addInst(.{
-        .tag = .dbg_block_end,
-        .data = undefined,
-    });
-}
-
 fn zirDbgVar(
     sema: *Sema,
     block: *Block,
@@ -6436,6 +6449,15 @@ fn addDbgVar(
     };
     if (try sema.typeRequiresComptime(val_ty)) return;
     if (!(try sema.typeHasRuntimeBits(val_ty))) return;
+
+    // To ensure the lexical scoping is known to backends, this alloc must be
+    // within a real runtime block. We set a flag which communicates information
+    // to the closest lexically enclosing block:
+    // * If it is a `block_inline`, communicates to logic in `analyzeBodyInner`
+    //   to create a post-hoc block.
+    // * Otherwise, communicates to logic in `resolveBlockBody` to create a
+    //   real `block` instruction.
+    if (block.need_debug_scope) |ptr| ptr.* = true;
 
     try sema.queueFullTypeResolution(operand_ty);
 
@@ -7590,7 +7612,7 @@ fn analyzeCall(
                     error.ComptimeReturn => break :result inlining.comptime_result,
                     else => |e| return e,
                 };
-                break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
+                break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges, false);
             };
 
             if (!is_comptime_call and !block.is_typeof and
@@ -11534,7 +11556,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
 
-    return sema.analyzeBlockBody(block, main_src, &child_block, merges);
+    return sema.analyzeBlockBody(block, main_src, &child_block, merges, false);
 }
 
 fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {
@@ -12156,7 +12178,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         false,
     );
 
-    return sema.analyzeBlockBody(block, src, &child_block, merges);
+    return sema.analyzeBlockBody(block, src, &child_block, merges, false);
 }
 
 const SpecialProng = struct {
@@ -13169,8 +13191,6 @@ fn validateErrSetSwitch(
                 const tags = sema.code.instructions.items(.tag);
                 const datas = sema.code.instructions.items(.data);
                 for (else_case.body) |else_inst| switch (tags[@intFromEnum(else_inst)]) {
-                    .dbg_block_begin,
-                    .dbg_block_end,
                     .dbg_stmt,
                     .dbg_var_val,
                     .ret_type,
@@ -13422,8 +13442,6 @@ fn maybeErrorUnwrap(
             .@"unreachable" => if (!block.wantSafety()) return false,
             .err_union_code => if (!allow_err_code_inst) return false,
             .save_err_ret_index,
-            .dbg_block_begin,
-            .dbg_block_end,
             .dbg_stmt,
             .str,
             .as_node,
@@ -13436,10 +13454,7 @@ fn maybeErrorUnwrap(
 
     for (body) |inst| {
         const air_inst = switch (tags[@intFromEnum(inst)]) {
-            .dbg_block_begin,
-            .dbg_block_end,
-            .err_union_code,
-            => continue,
+            .err_union_code => continue,
             .dbg_stmt => {
                 try sema.zirDbgStmt(block, inst);
                 continue;
@@ -13505,8 +13520,6 @@ fn maybeErrorUnwrapComptime(sema: *Sema, block: *Block, body: []const Zir.Inst.I
     const tags = sema.code.instructions.items(.tag);
     const inst = for (body) |inst| {
         switch (tags[@intFromEnum(inst)]) {
-            .dbg_block_begin,
-            .dbg_block_end,
             .dbg_stmt,
             .save_err_ret_index,
             => {},
@@ -19098,55 +19111,64 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     return try_inst;
 }
 
+fn ensurePostHoc(sema: *Sema, block: *Block, dest_block: Zir.Inst.Index) !*LabeledBlock {
+    const gop = sema.inst_map.getOrPutAssumeCapacity(dest_block);
+    if (gop.found_existing) existing: {
+        // This may be a *result* from an earlier iteration of an inline loop.
+        // In this case, there will not be a post-hoc block entry, and we can
+        // continue with the logic below.
+        const new_block_inst = gop.value_ptr.*.toIndex() orelse break :existing;
+        return sema.post_hoc_blocks.get(new_block_inst) orelse break :existing;
+    }
+
+    try sema.post_hoc_blocks.ensureUnusedCapacity(sema.gpa, 1);
+
+    const new_block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
+    gop.value_ptr.* = new_block_inst.toRef();
+    try sema.air_instructions.append(sema.gpa, .{
+        .tag = .block,
+        .data = undefined,
+    });
+    const labeled_block = try sema.gpa.create(LabeledBlock);
+    labeled_block.* = .{
+        .label = .{
+            .zir_block = dest_block,
+            .merges = .{
+                .src_locs = .{},
+                .results = .{},
+                .br_list = .{},
+                .block_inst = new_block_inst,
+            },
+        },
+        .block = .{
+            .parent = block,
+            .sema = sema,
+            .src_decl = block.src_decl,
+            .namespace = block.namespace,
+            .wip_capture_scope = block.wip_capture_scope,
+            .instructions = .{},
+            .label = &labeled_block.label,
+            .inlining = block.inlining,
+            .is_comptime = block.is_comptime,
+        },
+    };
+    sema.post_hoc_blocks.putAssumeCapacityNoClobber(new_block_inst, labeled_block);
+    return labeled_block;
+}
+
 // A `break` statement is inside a runtime condition, but trying to
 // break from an inline loop. In such case we must convert it to
 // a runtime break.
 fn addRuntimeBreak(sema: *Sema, child_block: *Block, break_data: BreakData) !void {
-    const gop = sema.inst_map.getOrPutAssumeCapacity(break_data.block_inst);
-    const labeled_block = if (!gop.found_existing) blk: {
-        try sema.post_hoc_blocks.ensureUnusedCapacity(sema.gpa, 1);
-
-        const new_block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
-        gop.value_ptr.* = new_block_inst.toRef();
-        try sema.air_instructions.append(sema.gpa, .{
-            .tag = .block,
-            .data = undefined,
-        });
-        const labeled_block = try sema.gpa.create(LabeledBlock);
-        labeled_block.* = .{
-            .label = .{
-                .zir_block = break_data.block_inst,
-                .merges = .{
-                    .src_locs = .{},
-                    .results = .{},
-                    .br_list = .{},
-                    .block_inst = new_block_inst,
-                },
-            },
-            .block = .{
-                .parent = child_block,
-                .sema = sema,
-                .src_decl = child_block.src_decl,
-                .namespace = child_block.namespace,
-                .wip_capture_scope = child_block.wip_capture_scope,
-                .instructions = .{},
-                .label = &labeled_block.label,
-                .inlining = child_block.inlining,
-                .is_comptime = child_block.is_comptime,
-            },
-        };
-        sema.post_hoc_blocks.putAssumeCapacityNoClobber(new_block_inst, labeled_block);
-        break :blk labeled_block;
-    } else blk: {
-        const new_block_inst = gop.value_ptr.*.toIndex().?;
-        const labeled_block = sema.post_hoc_blocks.get(new_block_inst).?;
-        break :blk labeled_block;
-    };
+    const labeled_block = try sema.ensurePostHoc(child_block, break_data.block_inst);
 
     const operand = try sema.resolveInst(break_data.operand);
     const br_ref = try child_block.addBr(labeled_block.label.merges.block_inst, operand);
+
     try labeled_block.label.merges.results.append(sema.gpa, operand);
     try labeled_block.label.merges.br_list.append(sema.gpa, br_ref.toIndex().?);
+    try labeled_block.label.merges.src_locs.append(sema.gpa, null);
+
     labeled_block.block.runtime_index.increment();
     if (labeled_block.block.runtime_cond == null and labeled_block.block.runtime_loop == null) {
         labeled_block.block.runtime_cond = child_block.runtime_cond orelse child_block.runtime_loop;
@@ -19487,8 +19509,10 @@ fn analyzeRet(
             return error.ComptimeReturn;
         }
         // We are inlining a function call; rewrite the `ret` as a `break`.
+        const br_inst = try block.addBr(inlining.merges.block_inst, operand);
         try inlining.merges.results.append(sema.gpa, operand);
-        _ = try block.addBr(inlining.merges.block_inst, operand);
+        try inlining.merges.br_list.append(sema.gpa, br_inst.toIndex().?);
+        try inlining.merges.src_locs.append(sema.gpa, operand_src);
         return always_noreturn;
     } else if (block.is_comptime) {
         return sema.fail(block, src, "function called at runtime cannot return value at comptime", .{});
