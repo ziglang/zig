@@ -2739,6 +2739,7 @@ fn buildOutputType(
             .paths = .{
                 .root = .{
                     .root_dir = zig_lib_directory,
+                    .sub_path = "compiler",
                 },
                 .root_src_path = "test_runner.zig",
             },
@@ -5385,7 +5386,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 },
                 .root_src_path = fs.path.basename(runner),
             } else .{
-                .root = .{ .root_dir = zig_lib_directory },
+                .root = .{
+                    .root_dir = zig_lib_directory,
+                    .sub_path = "compiler",
+                },
                 .root_src_path = "build_runner.zig",
             };
 
@@ -5767,7 +5771,7 @@ fn jitCmd(
         const main_mod_paths: Package.Module.CreateOptions.Paths = .{
             .root = .{
                 .root_dir = zig_lib_directory,
-                .sub_path = "std/zig",
+                .sub_path = "compiler",
             },
             .root_src_path = root_src_path,
         };
