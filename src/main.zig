@@ -203,14 +203,6 @@ pub fn main() anyerror!void {
         }
     }
 
-    if (build_options.only_reduce) {
-        if (mem.eql(u8, args[1], "reduce")) {
-            return @import("reduce.zig").main(gpa, arena, args);
-        } else {
-            @panic("only reduce is supported in a -Donly-reduce build");
-        }
-    }
-
     return mainArgs(gpa, arena, args);
 }
 
@@ -302,7 +294,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "rc")) {
         return cmdRc(gpa, arena, args[1..]);
     } else if (mem.eql(u8, cmd, "fmt")) {
-        return cmdFmt(gpa, arena, cmd_args);
+        return jitCmd(gpa, arena, cmd_args, "fmt", "fmt.zig");
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fetch")) {
@@ -325,7 +317,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "reduce")) {
-        return @import("reduce.zig").main(gpa, arena, args);
+        return jitCmd(gpa, arena, cmd_args, "reduce", "reduce.zig");
     } else if (mem.eql(u8, cmd, "zen")) {
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
@@ -5710,7 +5702,13 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 }
 
-fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn jitCmd(
+    gpa: Allocator,
+    arena: Allocator,
+    args: []const []const u8,
+    cmd_name: []const u8,
+    root_src_path: []const u8,
+) !void {
     const color: Color = .auto;
 
     const target_query: std.Target.Query = .{};
@@ -5721,7 +5719,7 @@ fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     };
 
     const exe_basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = "fmt",
+        .root_name = cmd_name,
         .target = resolved_target.result,
         .output_mode = .Exe,
     });
@@ -5771,7 +5769,7 @@ fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .root_dir = zig_lib_directory,
                 .sub_path = "std/zig",
             },
-            .root_src_path = "fmt.zig",
+            .root_src_path = root_src_path,
         };
 
         const config = try Compilation.Config.resolve(.{
@@ -5801,7 +5799,7 @@ fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = global_cache_directory,
             .global_cache_directory = global_cache_directory,
-            .root_name = "fmt",
+            .root_name = cmd_name,
             .config = config,
             .root_mod = root_mod,
             .main_mod = root_mod,
@@ -5820,8 +5818,8 @@ fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             else => |e| return e,
         };
 
-        const fmt_exe = try global_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
-        child_argv.appendAssumeCapacity(fmt_exe);
+        const exe_path = try global_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
+        child_argv.appendAssumeCapacity(exe_path);
     }
 
     child_argv.appendSliceAssumeCapacity(args);
