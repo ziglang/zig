@@ -234,19 +234,10 @@ test "decompression" {
     try std.testing.expectEqual(uncompressed.len, res3);
     try std.testing.expectEqualSlices(u8, uncompressed, buffer);
 
+    @memset(buffer, undefined);
     const res19 = try decompress.decode(buffer, compressed19, true);
     try std.testing.expectEqual(uncompressed.len, res19);
     try std.testing.expectEqualSlices(u8, uncompressed, buffer);
-}
-
-test "streaming decompression" {
-    // default stack size for wasm32 is too low for Decompressor - slightly
-    // over 1MiB stack space is needed via the --stack CLI flag
-    if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
-
-    const uncompressed = @embedFile("testdata/rfc8478.txt");
-    const compressed3 = @embedFile("testdata/rfc8478.txt.zst.3");
-    const compressed19 = @embedFile("testdata/rfc8478.txt.zst.19");
 
     try testReader(compressed3, uncompressed);
     try testReader(compressed19, uncompressed);
@@ -295,24 +286,6 @@ test "zero sized block" {
 
     try expectEqualDecoded("", input_raw);
     try expectEqualDecoded("", input_rle);
-}
-
-test "zero sized block streaming" {
-    // default stack size for wasm32 is too low for Decompressor - slightly
-    // over 1MiB stack space is needed via the --stack CLI flag
-    if (@import("builtin").target.cpu.arch == .wasm32) return error.SkipZigTest;
-
-    const input_raw =
-        "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
-        "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
-        "\x01\x00\x00"; // block header with: last_block set, block_type raw, block_size zero
-
-    const input_rle =
-        "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
-        "\x20\x00" ++ // frame header: only single_segment_flag set, frame_content_size zero
-        "\x03\x00\x00" ++ // block header with: last_block set, block_type rle, block_size zero
-        "\xaa"; // block_content
-
     try expectEqualDecodedStreaming("", input_raw);
     try expectEqualDecodedStreaming("", input_rle);
 }
