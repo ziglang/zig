@@ -1,3 +1,4 @@
+/// Implementation of `zig fmt`.
 pub const fmt = @import("zig/fmt.zig");
 
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
@@ -5,9 +6,6 @@ pub const Server = @import("zig/Server.zig");
 pub const Client = @import("zig/Client.zig");
 pub const Token = tokenizer.Token;
 pub const Tokenizer = tokenizer.Tokenizer;
-pub const fmtId = fmt.fmtId;
-pub const fmtEscapes = fmt.fmtEscapes;
-pub const isValidId = fmt.isValidId;
 pub const string_literal = @import("zig/string_literal.zig");
 pub const number_literal = @import("zig/number_literal.zig");
 pub const primitives = @import("zig/primitives.zig");
@@ -694,6 +692,124 @@ const tokenizer = @import("zig/tokenizer.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 
+/// Return a Formatter for a Zig identifier
+pub fn fmtId(bytes: []const u8) std.fmt.Formatter(formatId) {
+    return .{ .data = bytes };
+}
+
+/// Print the string as a Zig identifier escaping it with @"" syntax if needed.
+fn formatId(
+    bytes: []const u8,
+    comptime unused_format_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = unused_format_string;
+    if (isValidId(bytes)) {
+        return writer.writeAll(bytes);
+    }
+    try writer.writeAll("@\"");
+    try stringEscape(bytes, "", options, writer);
+    try writer.writeByte('"');
+}
+
+/// Return a Formatter for Zig Escapes of a double quoted string.
+/// The format specifier must be one of:
+///  * `{}` treats contents as a double-quoted string.
+///  * `{'}` treats contents as a single-quoted string.
+pub fn fmtEscapes(bytes: []const u8) std.fmt.Formatter(stringEscape) {
+    return .{ .data = bytes };
+}
+
+test "escape invalid identifiers" {
+    const expectFmt = std.testing.expectFmt;
+    try expectFmt("@\"while\"", "{}", .{fmtId("while")});
+    try expectFmt("hello", "{}", .{fmtId("hello")});
+    try expectFmt("@\"11\\\"23\"", "{}", .{fmtId("11\"23")});
+    try expectFmt("@\"11\\x0f23\"", "{}", .{fmtId("11\x0F23")});
+    try expectFmt("\\x0f", "{}", .{fmtEscapes("\x0f")});
+    try expectFmt(
+        \\" \\ hi \x07 \x11 " derp \'"
+    , "\"{'}\"", .{fmtEscapes(" \\ hi \x07 \x11 \" derp '")});
+    try expectFmt(
+        \\" \\ hi \x07 \x11 \" derp '"
+    , "\"{}\"", .{fmtEscapes(" \\ hi \x07 \x11 \" derp '")});
+}
+
+/// Print the string as escaped contents of a double quoted or single-quoted string.
+/// Format `{}` treats contents as a double-quoted string.
+/// Format `{'}` treats contents as a single-quoted string.
+pub fn stringEscape(
+    bytes: []const u8,
+    comptime f: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = options;
+    for (bytes) |byte| switch (byte) {
+        '\n' => try writer.writeAll("\\n"),
+        '\r' => try writer.writeAll("\\r"),
+        '\t' => try writer.writeAll("\\t"),
+        '\\' => try writer.writeAll("\\\\"),
+        '"' => {
+            if (f.len == 1 and f[0] == '\'') {
+                try writer.writeByte('"');
+            } else if (f.len == 0) {
+                try writer.writeAll("\\\"");
+            } else {
+                @compileError("expected {} or {'}, found {" ++ f ++ "}");
+            }
+        },
+        '\'' => {
+            if (f.len == 1 and f[0] == '\'') {
+                try writer.writeAll("\\'");
+            } else if (f.len == 0) {
+                try writer.writeByte('\'');
+            } else {
+                @compileError("expected {} or {'}, found {" ++ f ++ "}");
+            }
+        },
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try writer.writeByte(byte),
+        // Use hex escapes for rest any unprintable characters.
+        else => {
+            try writer.writeAll("\\x");
+            try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, writer);
+        },
+    };
+}
+
+pub fn isValidId(bytes: []const u8) bool {
+    if (bytes.len == 0) return false;
+    if (std.mem.eql(u8, bytes, "_")) return false;
+    for (bytes, 0..) |c, i| {
+        switch (c) {
+            '_', 'a'...'z', 'A'...'Z' => {},
+            '0'...'9' => if (i == 0) return false,
+            else => return false,
+        }
+    }
+    return std.zig.Token.getKeyword(bytes) == null;
+}
+
+test isValidId {
+    try std.testing.expect(!isValidId(""));
+    try std.testing.expect(isValidId("foobar"));
+    try std.testing.expect(!isValidId("a b c"));
+    try std.testing.expect(!isValidId("3d"));
+    try std.testing.expect(!isValidId("enum"));
+    try std.testing.expect(isValidId("i386"));
+}
+
 test {
-    @import("std").testing.refAllDecls(@This());
+    _ = Ast;
+    _ = AstRlAnnotate;
+    _ = BuiltinFn;
+    _ = Client;
+    _ = ErrorBundle;
+    _ = Server;
+    _ = fmt;
+    _ = number_literal;
+    _ = primitives;
+    _ = string_literal;
+    _ = system;
 }

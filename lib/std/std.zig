@@ -193,7 +193,9 @@ pub const valgrind = @import("valgrind.zig");
 /// Constants and types representing the Wasm binary format.
 pub const wasm = @import("wasm.zig");
 
-/// Tokenizing and parsing of Zig code and other Zig-specific language tooling.
+/// Builds of the Zig compiler are distributed partly in source form. That
+/// source lives here. These APIs are provided as-is and have absolutely no API
+/// guarantees whatsoever.
 pub const zig = @import("zig.zig");
 
 pub const start = @import("start.zig");
