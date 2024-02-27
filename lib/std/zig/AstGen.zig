@@ -2563,7 +2563,9 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
         }
     }
 
-    try genDefers(gz, parent_scope, scope, .normal_only);
+    if (noreturn_src_node == 0) {
+        try genDefers(gz, parent_scope, scope, .normal_only);
+    }
     try checkUsed(gz, parent_scope, scope);
 }
 
