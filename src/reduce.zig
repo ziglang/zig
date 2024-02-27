@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const fatal = @import("./main.zig").fatal;
 const Ast = std.zig.Ast;
 const Walk = @import("reduce/Walk.zig");
-const AstGen = @import("AstGen.zig");
+const AstGen = std.zig.AstGen;
 const Zir = std.zig.Zir;
 
 const usage =
