@@ -3492,6 +3492,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         @panic("TODO: update owner Decl");
     }
 
+    const decl_inst = decl.zir_decl_index.unwrap().?;
+
     const gpa = mod.gpa;
     const zir = decl.getFileScope(mod).zir;
 
@@ -3563,7 +3565,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     try sema.declareDependency(.{ .src_hash = try ip.trackZir(
         sema.gpa,
         decl.getFileScope(mod),
-        decl.zir_decl_index.unwrap().?,
+        decl_inst,
     ) });
 
     var block_scope: Sema.Block = .{
@@ -3580,7 +3582,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     const decl_bodies = decl.zirBodies(mod);
 
-    const result_ref = (try sema.analyzeBodyBreak(&block_scope, decl_bodies.value_body)).?.operand;
+    const result_ref = try sema.resolveInlineBody(&block_scope, decl_bodies.value_body, decl_inst);
     // We'll do some other bits with the Sema. Clear the type target index just
     // in case they analyze any type.
     sema.builtin_type_target_index = .none;
@@ -3593,7 +3595,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveInstValueAllowVariables(&block_scope, init_src, result_ref, .{
+    const decl_tv = try sema.resolveConstValueAllowVariables(&block_scope, init_src, result_ref, .{
         .needed_comptime_reason = "global variable initializer must be comptime-known",
     });
 
@@ -3709,13 +3711,13 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
     decl.alignment = blk: {
         const align_body = decl_bodies.align_body orelse break :blk .none;
-        const align_ref = (try sema.analyzeBodyBreak(&block_scope, align_body)).?.operand;
-        break :blk try sema.resolveAlign(&block_scope, align_src, align_ref);
+        const align_ref = try sema.resolveInlineBody(&block_scope, align_body, decl_inst);
+        break :blk try sema.analyzeAsAlign(&block_scope, align_src, align_ref);
     };
     decl.@"linksection" = blk: {
         const linksection_body = decl_bodies.linksection_body orelse break :blk .none;
-        const linksection_ref = (try sema.analyzeBodyBreak(&block_scope, linksection_body)).?.operand;
-        const bytes = try sema.resolveConstString(&block_scope, section_src, linksection_ref, .{
+        const linksection_ref = try sema.resolveInlineBody(&block_scope, linksection_body, decl_inst);
+        const bytes = try sema.toConstString(&block_scope, section_src, linksection_ref, .{
             .needed_comptime_reason = "linksection must be comptime-known",
         });
         if (mem.indexOfScalar(u8, bytes, 0) != null) {
@@ -3741,8 +3743,8 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
             .constant => target_util.defaultAddressSpace(target, .global_constant),
             else => unreachable,
         };
-        const addrspace_ref = (try sema.analyzeBodyBreak(&block_scope, addrspace_body)).?.operand;
-        break :blk try sema.analyzeAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx);
+        const addrspace_ref = try sema.resolveInlineBody(&block_scope, addrspace_body, decl_inst);
+        break :blk try sema.analyzeAsAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx);
     };
     decl.has_tv = true;
     decl.analysis = .complete;
@@ -4513,7 +4515,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
     inner_block.error_return_trace_index = error_return_trace_index;
 
-    sema.analyzeBody(&inner_block, fn_info.body) catch |err| switch (err) {
+    sema.analyzeFnBody(&inner_block, fn_info.body) catch |err| switch (err) {
         // TODO make these unreachable instead of @panic
         error.NeededSourceLocation => @panic("zig compiler bug: NeededSourceLocation"),
         error.GenericPoison => @panic("zig compiler bug: GenericPoison"),
