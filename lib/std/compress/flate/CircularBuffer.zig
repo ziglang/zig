@@ -50,19 +50,25 @@ pub fn writeMatch(self: *Self, length: u16, distance: u16) !void {
     }
     assert(self.wp - self.rp < mask);
 
-    var from: usize = self.wp - distance;
+    var from: usize = self.wp - distance & mask;
     const from_end: usize = from + length;
-    var to: usize = self.wp;
+    var to: usize = self.wp & mask;
     const to_end: usize = to + length;
 
     self.wp += length;
 
     // Fast path using memcpy
-    if (length <= distance and // no overlapping buffers
-        (from >> 16 == from_end >> 16) and // start and and at the same circle
-        (to >> 16 == to_end >> 16))
+    if (from_end < buffer_len and to_end < buffer_len) // start and end at the same circle
     {
-        @memcpy(self.buffer[to & mask .. to_end & mask], self.buffer[from & mask .. from_end & mask]);
+        var cur_len = distance;
+        var remaining_len = length;
+        while (cur_len < remaining_len) {
+            @memcpy(self.buffer[to..][0..cur_len], self.buffer[from..][0..cur_len]);
+            to += cur_len;
+            remaining_len -= cur_len;
+            cur_len = cur_len * 2;
+        }
+        @memcpy(self.buffer[to..][0..remaining_len], self.buffer[from..][0..remaining_len]);
         return;
     }
 
