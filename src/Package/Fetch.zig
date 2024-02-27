@@ -592,7 +592,7 @@ fn loadManifest(f: *Fetch, pkg_root: Package.Path) RunError!void {
 
     if (ast.errors.len > 0) {
         const file_path = try std.fmt.allocPrint(arena, "{}" ++ Manifest.basename, .{pkg_root});
-        try main.putAstErrorsIntoBundle(arena, ast.*, file_path, eb);
+        try std.zig.putAstErrorsIntoBundle(arena, ast.*, file_path, eb);
         return error.FetchFailed;
     }
 
@@ -1690,7 +1690,6 @@ const Cache = std.Build.Cache;
 const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const Fetch = @This();
-const main = @import("../main.zig");
 const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;

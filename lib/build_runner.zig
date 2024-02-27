@@ -13,7 +13,7 @@ const Step = std.Build.Step;
 pub const dependencies = @import("@dependencies");
 
 pub fn main() !void {
-    // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
+    // Here we use an ArenaAllocator backed by a page allocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
     // bytes into. So we free everything all at once at the very end.
     var single_threaded_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);

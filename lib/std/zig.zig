@@ -1,6 +1,3 @@
-/// Implementation of `zig fmt`.
-pub const fmt = @import("zig/fmt.zig");
-
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
 pub const Server = @import("zig/Server.zig");
 pub const Client = @import("zig/Client.zig");
@@ -29,6 +26,36 @@ pub const c_translation = @import("zig/c_translation.zig");
 
 pub const SrcHasher = std.crypto.hash.Blake3;
 pub const SrcHash = [16]u8;
+
+pub const Color = enum {
+    /// Determine whether stderr is a terminal or not automatically.
+    auto,
+    /// Assume stderr is not a terminal.
+    off,
+    /// Assume stderr is a terminal.
+    on,
+
+    pub fn get_tty_conf(color: Color) std.io.tty.Config {
+        return switch (color) {
+            .auto => std.io.tty.detectConfig(std.io.getStdErr()),
+            .on => .escape_codes,
+            .off => .no_color,
+        };
+    }
+
+    pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
+        const ttyconf = get_tty_conf(color);
+        return .{
+            .ttyconf = ttyconf,
+            .include_source_line = ttyconf != .no_color,
+            .include_reference_trace = ttyconf != .no_color,
+        };
+    }
+};
+
+/// There are many assumptions in the entire codebase that Zig source files can
+/// be byte-indexed with a u32 integer.
+pub const max_src_size = std.math.maxInt(u32);
 
 pub fn hashSrc(src: []const u8) SrcHash {
     var out: SrcHash = undefined;
@@ -801,6 +828,78 @@ test isValidId {
     try std.testing.expect(isValidId("i386"));
 }
 
+pub fn readSourceFileToEndAlloc(
+    allocator: Allocator,
+    input: std.fs.File,
+    size_hint: ?usize,
+) ![:0]u8 {
+    const source_code = input.readToEndAllocOptions(
+        allocator,
+        max_src_size,
+        size_hint,
+        @alignOf(u16),
+        0,
+    ) catch |err| switch (err) {
+        error.ConnectionResetByPeer => unreachable,
+        error.ConnectionTimedOut => unreachable,
+        error.NotOpenForReading => unreachable,
+        else => |e| return e,
+    };
+    errdefer allocator.free(source_code);
+
+    // Detect unsupported file types with their Byte Order Mark
+    const unsupported_boms = [_][]const u8{
+        "\xff\xfe\x00\x00", // UTF-32 little endian
+        "\xfe\xff\x00\x00", // UTF-32 big endian
+        "\xfe\xff", // UTF-16 big endian
+    };
+    for (unsupported_boms) |bom| {
+        if (std.mem.startsWith(u8, source_code, bom)) {
+            return error.UnsupportedEncoding;
+        }
+    }
+
+    // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
+    if (std.mem.startsWith(u8, source_code, "\xff\xfe")) {
+        const source_code_utf16_le = std.mem.bytesAsSlice(u16, source_code);
+        const source_code_utf8 = std.unicode.utf16LeToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
+            error.DanglingSurrogateHalf => error.UnsupportedEncoding,
+            error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
+            error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
+            else => |e| return e,
+        };
+
+        allocator.free(source_code);
+        return source_code_utf8;
+    }
+
+    return source_code;
+}
+
+pub fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
+    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+    try wip_errors.init(gpa);
+    defer wip_errors.deinit();
+
+    try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
+
+    var error_bundle = try wip_errors.toOwnedBundle("");
+    defer error_bundle.deinit(gpa);
+    error_bundle.renderToStdErr(color.renderOptions());
+}
+
+pub fn putAstErrorsIntoBundle(
+    gpa: Allocator,
+    tree: Ast,
+    path: []const u8,
+    wip_errors: *std.zig.ErrorBundle.Wip,
+) Allocator.Error!void {
+    var zir = try AstGen.generate(gpa, tree);
+    defer zir.deinit(gpa);
+
+    try wip_errors.addZirErrorMessages(zir, tree, tree.source, path);
+}
+
 test {
     _ = Ast;
     _ = AstRlAnnotate;
@@ -808,9 +907,12 @@ test {
     _ = Client;
     _ = ErrorBundle;
     _ = Server;
-    _ = fmt;
     _ = number_literal;
     _ = primitives;
     _ = string_literal;
     _ = system;
+
+    // This is not standard library API; it is the standalone executable
+    // implementation of `zig fmt`.
+    _ = @import("zig/fmt.zig");
 }

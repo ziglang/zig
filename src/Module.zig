@@ -1255,11 +1255,7 @@ pub const SrcLoc = struct {
         return @bitCast(offset + @as(i32, @bitCast(src_loc.parent_decl_node)));
     }
 
-    pub const Span = struct {
-        start: u32,
-        end: u32,
-        main: u32,
-    };
+    pub const Span = Ast.Span;
 
     pub fn span(src_loc: SrcLoc, gpa: Allocator) !Span {
         switch (src_loc.lazy) {
@@ -1276,7 +1272,7 @@ pub const SrcLoc = struct {
             },
             .node_abs => |node| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .byte_offset => |byte_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1297,25 +1293,24 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_main_token => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const main_token = tree.nodes.items(.main_token)[node];
-                return tokensToSpan(tree, main_token, main_token, main_token);
+                return tree.tokensToSpan(main_token, main_token, main_token);
             },
             .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 assert(src_loc.file_scope.tree_loaded);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_initializer => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                return tokensToSpan(
-                    tree,
+                return tree.tokensToSpan(
                     tree.firstToken(node) - 3,
                     tree.lastToken(node),
                     tree.nodes.items(.main_token)[node] - 2,
@@ -1333,12 +1328,12 @@ pub const SrcLoc = struct {
                     => tree.fullVarDecl(node).?,
                     .@"usingnamespace" => {
                         const node_data = tree.nodes.items(.data);
-                        return nodeToSpan(tree, node_data[node].lhs);
+                        return tree.nodeToSpan(node_data[node].lhs);
                     },
                     else => unreachable,
                 };
                 if (full.ast.type_node != 0) {
-                    return nodeToSpan(tree, full.ast.type_node);
+                    return tree.nodeToSpan(full.ast.type_node);
                 }
                 const tok_index = full.ast.mut_token + 1; // the name token
                 const start = tree.tokens.items(.start)[tok_index];
@@ -1349,25 +1344,25 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.align_node);
+                return tree.nodeToSpan(full.ast.align_node);
             },
             .node_offset_var_decl_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.section_node);
+                return tree.nodeToSpan(full.ast.section_node);
             },
             .node_offset_var_decl_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.addrspace_node);
+                return tree.nodeToSpan(full.ast.addrspace_node);
             },
             .node_offset_var_decl_init => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullVarDecl(node).?;
-                return nodeToSpan(tree, full.ast.init_node);
+                return tree.nodeToSpan(full.ast.init_node);
             },
             .node_offset_builtin_call_arg0 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 0),
             .node_offset_builtin_call_arg1 => |n| return src_loc.byteOffsetBuiltinCallArg(gpa, n, 1),
@@ -1408,13 +1403,13 @@ pub const SrcLoc = struct {
                     node = node_datas[node].lhs;
                 }
 
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_array_access_index => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                return nodeToSpan(tree, node_datas[node].rhs);
+                return tree.nodeToSpan(node_datas[node].rhs);
             },
             .node_offset_slice_ptr,
             .node_offset_slice_start,
@@ -1431,14 +1426,14 @@ pub const SrcLoc = struct {
                     .node_offset_slice_sentinel => full.ast.sentinel,
                     else => unreachable,
                 };
-                return nodeToSpan(tree, part_node);
+                return tree.nodeToSpan(part_node);
             },
             .node_offset_call_func => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullCall(&buf, node).?;
-                return nodeToSpan(tree, full.ast.fn_expr);
+                return tree.nodeToSpan(full.ast.fn_expr);
             },
             .node_offset_field_name => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1477,13 +1472,13 @@ pub const SrcLoc = struct {
             .node_offset_deref_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
             .node_offset_asm_source => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const full = tree.fullAsm(node).?;
-                return nodeToSpan(tree, full.ast.template);
+                return tree.nodeToSpan(full.ast.template);
             },
             .node_offset_asm_ret_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1491,7 +1486,7 @@ pub const SrcLoc = struct {
                 const full = tree.fullAsm(node).?;
                 const asm_output = full.outputs[0];
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[asm_output].lhs);
+                return tree.nodeToSpan(node_datas[asm_output].lhs);
             },
 
             .node_offset_if_cond => |node_off| {
@@ -1514,21 +1509,21 @@ pub const SrcLoc = struct {
                         const inputs = tree.fullFor(node).?.ast.inputs;
                         const start = tree.firstToken(inputs[0]);
                         const end = tree.lastToken(inputs[inputs.len - 1]);
-                        return tokensToSpan(tree, start, end, start);
+                        return tree.tokensToSpan(start, end, start);
                     },
 
                     .@"orelse" => node,
                     .@"catch" => node,
                     else => unreachable,
                 };
-                return nodeToSpan(tree, src_node);
+                return tree.nodeToSpan(src_node);
             },
             .for_input => |for_input| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(for_input.for_node_offset);
                 const for_full = tree.fullFor(node).?;
                 const src_node = for_full.ast.inputs[for_input.input_index];
-                return nodeToSpan(tree, src_node);
+                return tree.nodeToSpan(src_node);
             },
             .for_capture_from_input => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1554,12 +1549,12 @@ pub const SrcLoc = struct {
                                             },
                                             .identifier => {
                                                 if (count == 0)
-                                                    return tokensToSpan(tree, tok, tok + 1, tok);
+                                                    return tree.tokensToSpan(tok, tok + 1, tok);
                                                 tok += 1;
                                             },
                                             .asterisk => {
                                                 if (count == 0)
-                                                    return tokensToSpan(tree, tok, tok + 2, tok);
+                                                    return tree.tokensToSpan(tok, tok + 2, tok);
                                                 tok += 1;
                                             },
                                             else => unreachable,
@@ -1591,7 +1586,7 @@ pub const SrcLoc = struct {
                         .array_init_comma,
                         => {
                             const full = tree.fullArrayInit(&buf, call_args_node).?.ast.elements;
-                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                            return tree.nodeToSpan(full[call_arg.arg_index]);
                         },
                         .struct_init_one,
                         .struct_init_one_comma,
@@ -1603,12 +1598,12 @@ pub const SrcLoc = struct {
                         .struct_init_comma,
                         => {
                             const full = tree.fullStructInit(&buf, call_args_node).?.ast.fields;
-                            return nodeToSpan(tree, full[call_arg.arg_index]);
+                            return tree.nodeToSpan(full[call_arg.arg_index]);
                         },
-                        else => return nodeToSpan(tree, call_args_node),
+                        else => return tree.nodeToSpan(call_args_node),
                     }
                 };
-                return nodeToSpan(tree, call_full.ast.params[call_arg.arg_index]);
+                return tree.nodeToSpan(call_full.ast.params[call_arg.arg_index]);
             },
             .fn_proto_param => |fn_proto_param| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1619,12 +1614,11 @@ pub const SrcLoc = struct {
                 var i: usize = 0;
                 while (it.next()) |param| : (i += 1) {
                     if (i == fn_proto_param.param_index) {
-                        if (param.anytype_ellipsis3) |token| return tokenToSpan(tree, token);
+                        if (param.anytype_ellipsis3) |token| return tree.tokenToSpan(token);
                         const first_token = param.comptime_noalias orelse
                             param.name_token orelse
                             tree.firstToken(param.type_expr);
-                        return tokensToSpan(
-                            tree,
+                        return tree.tokensToSpan(
                             first_token,
                             tree.lastToken(param.type_expr),
                             first_token,
@@ -1637,13 +1631,13 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[node].lhs);
+                return tree.nodeToSpan(node_datas[node].lhs);
             },
             .node_offset_bin_rhs => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[node].rhs);
+                return tree.nodeToSpan(node_datas[node].rhs);
             },
             .array_cat_lhs, .array_cat_rhs => |cat| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1667,9 +1661,9 @@ pub const SrcLoc = struct {
                     .array_init_comma,
                     => {
                         const full = tree.fullArrayInit(&buf, arr_node).?.ast.elements;
-                        return nodeToSpan(tree, full[cat.elem_index]);
+                        return tree.nodeToSpan(full[cat.elem_index]);
                     },
-                    else => return nodeToSpan(tree, arr_node),
+                    else => return tree.nodeToSpan(arr_node),
                 }
             },
 
@@ -1677,7 +1671,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 const node_datas = tree.nodes.items(.data);
-                return nodeToSpan(tree, node_datas[node].lhs);
+                return tree.nodeToSpan(node_datas[node].lhs);
             },
 
             .node_offset_switch_special_prong => |node_off| {
@@ -1696,7 +1690,7 @@ pub const SrcLoc = struct {
                         mem.eql(u8, tree.tokenSlice(main_tokens[case.ast.values[0]]), "_"));
                     if (!is_special) continue;
 
-                    return nodeToSpan(tree, case_node);
+                    return tree.nodeToSpan(case_node);
                 } else unreachable;
             },
 
@@ -1718,7 +1712,7 @@ pub const SrcLoc = struct {
 
                     for (case.ast.values) |item_node| {
                         if (node_tags[item_node] == .switch_range) {
-                            return nodeToSpan(tree, item_node);
+                            return tree.nodeToSpan(item_node);
                         }
                     }
                 } else unreachable;
@@ -1754,28 +1748,28 @@ pub const SrcLoc = struct {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.align_expr);
+                return tree.nodeToSpan(full.ast.align_expr);
             },
             .node_offset_fn_type_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.addrspace_expr);
+                return tree.nodeToSpan(full.ast.addrspace_expr);
             },
             .node_offset_fn_type_section => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.section_expr);
+                return tree.nodeToSpan(full.ast.section_expr);
             },
             .node_offset_fn_type_cc => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.callconv_expr);
+                return tree.nodeToSpan(full.ast.callconv_expr);
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
@@ -1783,7 +1777,7 @@ pub const SrcLoc = struct {
                 const node = src_loc.declRelativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return nodeToSpan(tree, full.ast.return_type);
+                return tree.nodeToSpan(full.ast.return_type);
             },
             .node_offset_param => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1795,8 +1789,7 @@ pub const SrcLoc = struct {
                     .colon, .identifier, .keyword_comptime, .keyword_noalias => first_tok -= 1,
                     else => break,
                 };
-                return tokensToSpan(
-                    tree,
+                return tree.tokensToSpan(
                     first_tok,
                     tree.lastToken(node),
                     first_tok,
@@ -1813,8 +1806,7 @@ pub const SrcLoc = struct {
                     .colon, .identifier, .keyword_comptime, .keyword_noalias => first_tok -= 1,
                     else => break,
                 };
-                return tokensToSpan(
-                    tree,
+                return tree.tokensToSpan(
                     first_tok,
                     tok_index,
                     first_tok,
@@ -1825,7 +1817,7 @@ pub const SrcLoc = struct {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
-                return nodeToSpan(tree, node_datas[parent_node].rhs);
+                return tree.nodeToSpan(node_datas[parent_node].rhs);
             },
 
             .node_offset_lib_name => |node_off| {
@@ -1844,70 +1836,70 @@ pub const SrcLoc = struct {
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
-                return nodeToSpan(tree, full.ast.elem_count);
+                return tree.nodeToSpan(full.ast.elem_count);
             },
             .node_offset_array_type_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
-                return nodeToSpan(tree, full.ast.sentinel);
+                return tree.nodeToSpan(full.ast.sentinel);
             },
             .node_offset_array_type_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullArrayType(parent_node).?;
-                return nodeToSpan(tree, full.ast.elem_type);
+                return tree.nodeToSpan(full.ast.elem_type);
             },
             .node_offset_un_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node_datas = tree.nodes.items(.data);
                 const node = src_loc.declRelativeToNodeIndex(node_off);
 
-                return nodeToSpan(tree, node_datas[node].lhs);
+                return tree.nodeToSpan(node_datas[node].lhs);
             },
             .node_offset_ptr_elem => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.child_type);
+                return tree.nodeToSpan(full.ast.child_type);
             },
             .node_offset_ptr_sentinel => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.sentinel);
+                return tree.nodeToSpan(full.ast.sentinel);
             },
             .node_offset_ptr_align => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.align_node);
+                return tree.nodeToSpan(full.ast.align_node);
             },
             .node_offset_ptr_addrspace => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.addrspace_node);
+                return tree.nodeToSpan(full.ast.addrspace_node);
             },
             .node_offset_ptr_bitoffset => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.bit_range_start);
+                return tree.nodeToSpan(full.ast.bit_range_start);
             },
             .node_offset_ptr_hostsize => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 const full = tree.fullPtrType(parent_node).?;
-                return nodeToSpan(tree, full.ast.bit_range_end);
+                return tree.nodeToSpan(full.ast.bit_range_end);
             },
             .node_offset_container_tag => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1917,13 +1909,12 @@ pub const SrcLoc = struct {
                 switch (node_tags[parent_node]) {
                     .container_decl_arg, .container_decl_arg_trailing => {
                         const full = tree.containerDeclArg(parent_node);
-                        return nodeToSpan(tree, full.ast.arg);
+                        return tree.nodeToSpan(full.ast.arg);
                     },
                     .tagged_union_enum_tag, .tagged_union_enum_tag_trailing => {
                         const full = tree.taggedUnionEnumTag(parent_node);
 
-                        return tokensToSpan(
-                            tree,
+                        return tree.tokensToSpan(
                             tree.firstToken(full.ast.arg) - 2,
                             tree.lastToken(full.ast.arg) + 1,
                             tree.nodes.items(.main_token)[full.ast.arg],
@@ -1942,7 +1933,7 @@ pub const SrcLoc = struct {
                     .container_field_init => tree.containerFieldInit(parent_node),
                     else => unreachable,
                 };
-                return nodeToSpan(tree, full.ast.value_expr);
+                return tree.nodeToSpan(full.ast.value_expr);
             },
             .node_offset_init_ty => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1950,7 +1941,7 @@ pub const SrcLoc = struct {
 
                 var buf: [2]Ast.Node.Index = undefined;
                 const full = tree.fullArrayInit(&buf, parent_node).?;
-                return nodeToSpan(tree, full.ast.type_expr);
+                return tree.nodeToSpan(full.ast.type_expr);
             },
             .node_offset_store_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1960,9 +1951,9 @@ pub const SrcLoc = struct {
 
                 switch (node_tags[node]) {
                     .assign => {
-                        return nodeToSpan(tree, node_datas[node].lhs);
+                        return tree.nodeToSpan(node_datas[node].lhs);
                     },
-                    else => return nodeToSpan(tree, node),
+                    else => return tree.nodeToSpan(node),
                 }
             },
             .node_offset_store_operand => |node_off| {
@@ -1973,9 +1964,9 @@ pub const SrcLoc = struct {
 
                 switch (node_tags[node]) {
                     .assign => {
-                        return nodeToSpan(tree, node_datas[node].rhs);
+                        return tree.nodeToSpan(node_datas[node].rhs);
                     },
-                    else => return nodeToSpan(tree, node),
+                    else => return tree.nodeToSpan(node),
                 }
             },
             .node_offset_return_operand => |node_off| {
@@ -1984,9 +1975,9 @@ pub const SrcLoc = struct {
                 const node_tags = tree.nodes.items(.tag);
                 const node_datas = tree.nodes.items(.data);
                 if (node_tags[node] == .@"return" and node_datas[node].lhs != 0) {
-                    return nodeToSpan(tree, node_datas[node].lhs);
+                    return tree.nodeToSpan(node_datas[node].lhs);
                 }
-                return nodeToSpan(tree, node);
+                return tree.nodeToSpan(node);
             },
         }
     }
@@ -2010,40 +2001,7 @@ pub const SrcLoc = struct {
             .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + arg_index],
             else => unreachable,
         };
-        return nodeToSpan(tree, param);
-    }
-
-    pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
-        return tokensToSpan(
-            tree,
-            tree.firstToken(node),
-            tree.lastToken(node),
-            tree.nodes.items(.main_token)[node],
-        );
-    }
-
-    fn tokenToSpan(tree: *const Ast, token: Ast.TokenIndex) Span {
-        return tokensToSpan(tree, token, token, token);
-    }
-
-    fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
-        const token_starts = tree.tokens.items(.start);
-        var start_tok = start;
-        var end_tok = end;
-
-        if (tree.tokensOnSameLine(start, end)) {
-            // do nothing
-        } else if (tree.tokensOnSameLine(start, main)) {
-            end_tok = main;
-        } else if (tree.tokensOnSameLine(main, end)) {
-            start_tok = main;
-        } else {
-            start_tok = main;
-            end_tok = main;
-        }
-        const start_off = token_starts[start_tok];
-        const end_off = token_starts[end_tok] + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
-        return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
+        return tree.nodeToSpan(param);
     }
 };
 
