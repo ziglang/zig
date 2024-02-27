@@ -742,7 +742,6 @@ pub fn walk(self: Dir, allocator: Allocator) !Walker {
 pub const OpenError = error{
     FileNotFound,
     NotDir,
-    InvalidHandle,
     AccessDenied,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
@@ -1847,7 +1846,6 @@ pub fn readFileAllocOptions(
 }
 
 pub const DeleteTreeError = error{
-    InvalidHandle,
     AccessDenied,
     FileTooBig,
     SymLinkLoop,
@@ -1930,7 +1928,6 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                                 break :handle_entry;
                             },
 
-                            error.InvalidHandle,
                             error.AccessDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
@@ -2026,7 +2023,6 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                                 continue :process_stack;
                             },
 
-                            error.InvalidHandle,
                             error.AccessDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
@@ -2132,7 +2128,6 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                                 continue :dir_it;
                             },
 
-                            error.InvalidHandle,
                             error.AccessDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
@@ -2231,7 +2226,6 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                         return null;
                     },
 
-                    error.InvalidHandle,
                     error.AccessDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,

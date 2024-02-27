@@ -519,7 +519,6 @@ pub const ChildProcess = struct {
                 error.DeviceBusy => unreachable,
                 error.FileLocksNotSupported => unreachable,
                 error.BadPathName => unreachable, // Windows-only
-                error.InvalidHandle => unreachable, // WASI-only
                 error.WouldBlock => unreachable,
                 error.NetworkNotFound => unreachable, // Windows-only
                 else => |e| return e,
