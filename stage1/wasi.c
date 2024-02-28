@@ -662,13 +662,15 @@ uint32_t wasi_snapshot_preview1_fd_filestat_set_times(uint32_t fd, uint64_t atim
 }
 
 uint32_t wasi_snapshot_preview1_environ_sizes_get(uint32_t environ_size, uint32_t environ_buf_size) {
-    (void)environ_size;
-    (void)environ_buf_size;
+    uint8_t *const m = *wasm_memory;
+    uint32_t *environ_size_ptr = (uint32_t *)&m[environ_size];
+    uint32_t *environ_buf_size_ptr = (uint32_t *)&m[environ_buf_size];
 #if LOG_TRACE
     fprintf(stderr, "wasi_snapshot_preview1_environ_sizes_get()\n");
 #endif
 
-    panic("unimplemented");
+    *environ_size_ptr = 0;
+    *environ_buf_size_ptr = 0;
     return wasi_errno_success;
 }
 
