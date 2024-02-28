@@ -36,7 +36,6 @@ const Cache = std.Build.Cache;
 const c_codegen = @import("codegen/c.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = std.zig.Zir;
-const Autodoc = @import("Autodoc.zig");
 const resinator = @import("resinator.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
@@ -2347,10 +2346,6 @@ fn flush(comp: *Compilation, arena: Allocator, prog_node: *std.Progress.Node) !v
             try emitLlvmObject(comp, arena, default_emit, null, llvm_object, prog_node);
         }
     }
-
-    if (comp.totalErrorCount() == 0) {
-        try maybeGenerateAutodocs(comp, prog_node);
-    }
 }
 
 /// This function is called by the frontend before flush(). It communicates that
@@ -2398,26 +2393,6 @@ fn renameTmpIntoCache(
             else => |e| return e,
         };
         break;
-    }
-}
-
-fn maybeGenerateAutodocs(comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    const mod = comp.module orelse return;
-    // TODO: do this in a separate job during performAllTheWork(). The
-    // file copies at the end of generate() can also be extracted to
-    // separate jobs
-    if (!build_options.only_c and !build_options.only_core_functionality) {
-        if (comp.docs_emit) |emit| {
-            var dir = try emit.directory.handle.makeOpenPath(emit.sub_path, .{});
-            defer dir.close();
-
-            var sub_prog_node = prog_node.start("Generating documentation", 0);
-            sub_prog_node.activate();
-            sub_prog_node.context.refresh();
-            defer sub_prog_node.end();
-
-            try Autodoc.generate(mod, dir);
-        }
     }
 }
 
