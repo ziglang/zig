@@ -1,7 +1,7 @@
 const std = @import("std");
 const mem = std.mem;
 const ZigType = std.builtin.Type;
-const CallingConvention = @import("backend").CallingConvention;
+const CallingConvention = @import("../backend.zig").CallingConvention;
 const Compilation = @import("Compilation.zig");
 const Diagnostics = @import("Diagnostics.zig");
 const Parser = @import("Parser.zig");
@@ -687,7 +687,7 @@ pub fn fromString(kind: Kind, namespace: ?[]const u8, name: []const u8) ?Tag {
         declspec: bool = false,
         c23: bool = false,
     };
-    const attribute_names = @import("Attribute/names.def").with(Properties);
+    const attribute_names = @import("Attribute/names.zig").with(Properties);
 
     const normalized = normalize(name);
     const actual_kind: Kind = if (namespace) |ns| blk: {

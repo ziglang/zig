@@ -294,13 +294,20 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "rc")) {
         return cmdRc(gpa, arena, args[1..]);
     } else if (mem.eql(u8, cmd, "fmt")) {
-        return jitCmd(gpa, arena, cmd_args, "fmt", "fmt.zig", false);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "fmt",
+            .root_src_path = "fmt.zig",
+        });
     } else if (mem.eql(u8, cmd, "objcopy")) {
         return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "fetch")) {
         return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
-        return jitCmd(gpa, arena, cmd_args, "libc", "libc.zig", true);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "libc",
+            .root_src_path = "libc.zig",
+            .prepend_zig_lib_dir_path = true,
+        });
     } else if (mem.eql(u8, cmd, "init")) {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
@@ -317,7 +324,10 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "reduce")) {
-        return jitCmd(gpa, arena, cmd_args, "reduce", "reduce.zig", false);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "reduce",
+            .root_src_path = "reduce.zig",
+        });
     } else if (mem.eql(u8, cmd, "zen")) {
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
@@ -4459,7 +4469,13 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     const digest = if (try man.hit()) man.final() else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
-        try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
+        switch (comp.config.c_frontend) {
+            .aro => {},
+            .clang => {
+                // argv[0] is program name, actual args start at [1]
+                try argv.append(@tagName(comp.config.c_frontend));
+            },
+        }
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
@@ -4484,24 +4500,18 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
             Compilation.dump_argv(argv.items);
         }
 
-        var tree = switch (comp.config.c_frontend) {
-            .aro => tree: {
-                const aro = @import("aro");
-                const translate_c = @import("aro_translate_c.zig");
-                var aro_comp = aro.Compilation.init(comp.gpa);
-                defer aro_comp.deinit();
-
-                break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
-                    error.SemanticAnalyzeFail, error.FatalError => {
-                        // TODO convert these to zig errors
-                        aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
-                        process.exit(1);
-                    },
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.StreamTooLong => fatal("StreamTooLong?", .{}),
-                };
+        const formatted = switch (comp.config.c_frontend) {
+            .aro => f: {
+                var stdout: []u8 = undefined;
+                try jitCmd(comp.gpa, arena, argv.items, .{
+                    .cmd_name = "aro_translate_c",
+                    .root_src_path = "aro_translate_c.zig",
+                    .depend_on_aro = true,
+                    .capture = &stdout,
+                });
+                break :f stdout;
             },
-            .clang => tree: {
+            .clang => f: {
                 if (!build_options.have_llvm) unreachable;
                 const translate_c = @import("translate_c.zig");
 
@@ -4519,7 +4529,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
                 const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
                 var errors = std.zig.ErrorBundle.empty;
-                break :tree translate_c.translate(
+                var tree = translate_c.translate(
                     comp.gpa,
                     new_argv.ptr,
                     new_argv.ptr + new_argv.len,
@@ -4537,9 +4547,10 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                         }
                     },
                 };
+                defer tree.deinit(comp.gpa);
+                break :f try tree.render(arena);
             },
         };
-        defer tree.deinit(comp.gpa);
 
         if (out_dep_path) |dep_file_path| {
             const dep_basename = fs.path.basename(dep_file_path);
@@ -4559,9 +4570,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
         var zig_file = try o_dir.createFile(translated_zig_basename, .{});
         defer zig_file.close();
-
-        const formatted = try tree.render(comp.gpa);
-        defer comp.gpa.free(formatted);
 
         try zig_file.writeAll(formatted);
 
@@ -5522,13 +5530,19 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 }
 
+const JitCmdOptions = struct {
+    cmd_name: []const u8,
+    root_src_path: []const u8,
+    prepend_zig_lib_dir_path: bool = false,
+    depend_on_aro: bool = false,
+    capture: ?*[]u8 = null,
+};
+
 fn jitCmd(
     gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
-    cmd_name: []const u8,
-    root_src_path: []const u8,
-    prepend_zig_lib_dir_path: bool,
+    options: JitCmdOptions,
 ) !void {
     const color: Color = .auto;
 
@@ -5540,7 +5554,7 @@ fn jitCmd(
     };
 
     const exe_basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = cmd_name,
+        .root_name = options.cmd_name,
         .target = resolved_target.result,
         .output_mode = .Exe,
     });
@@ -5595,7 +5609,7 @@ fn jitCmd(
                 .root_dir = zig_lib_directory,
                 .sub_path = "compiler",
             },
-            .root_src_path = root_src_path,
+            .root_src_path = options.root_src_path,
         };
 
         const config = try Compilation.Config.resolve(.{
@@ -5623,11 +5637,35 @@ fn jitCmd(
             .builtin_mod = null,
         });
 
+        if (options.depend_on_aro) {
+            const aro_mod = try Package.Module.create(arena, .{
+                .global_cache_directory = global_cache_directory,
+                .paths = .{
+                    .root = .{
+                        .root_dir = zig_lib_directory,
+                        .sub_path = "compiler/aro",
+                    },
+                    .root_src_path = "aro.zig",
+                },
+                .fully_qualified_name = "aro",
+                .cc_argv = &.{},
+                .inherited = .{
+                    .resolved_target = resolved_target,
+                    .optimize_mode = optimize_mode,
+                    .strip = strip,
+                },
+                .global = config,
+                .parent = null,
+                .builtin_mod = root_mod.getBuiltinDependency(),
+            });
+            try root_mod.deps.put(arena, "aro", aro_mod);
+        }
+
         const comp = Compilation.create(gpa, arena, .{
             .zig_lib_directory = zig_lib_directory,
             .local_cache_directory = global_cache_directory,
             .global_cache_directory = global_cache_directory,
-            .root_name = cmd_name,
+            .root_name = options.cmd_name,
             .config = config,
             .root_mod = root_mod,
             .main_mod = root_mod,
@@ -5650,12 +5688,12 @@ fn jitCmd(
         child_argv.appendAssumeCapacity(exe_path);
     }
 
-    if (prepend_zig_lib_dir_path)
+    if (options.prepend_zig_lib_dir_path)
         child_argv.appendAssumeCapacity(zig_lib_directory.path.?);
 
     child_argv.appendSliceAssumeCapacity(args);
 
-    if (process.can_execv) {
+    if (process.can_execv and options.capture == null) {
         const err = process.execv(gpa, child_argv.items);
         const cmd = try std.mem.join(arena, " ", child_argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{
@@ -5673,13 +5711,22 @@ fn jitCmd(
 
     var child = std.ChildProcess.init(child_argv.items, gpa);
     child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
+    child.stdout_behavior = if (options.capture == null) .Inherit else .Pipe;
     child.stderr_behavior = .Inherit;
 
-    const term = try child.spawnAndWait();
+    try child.spawn();
+
+    if (options.capture) |ptr| {
+        ptr.* = try child.stdout.?.readToEndAlloc(arena, std.math.maxInt(u32));
+    }
+
+    const term = try child.wait();
     switch (term) {
         .Exited => |code| {
-            if (code == 0) return cleanExit();
+            if (code == 0) {
+                if (options.capture != null) return;
+                return cleanExit();
+            }
             const cmd = try std.mem.join(arena, " ", child_argv.items);
             fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
         },

@@ -1,5 +1,5 @@
 const std = @import("std");
-const Interner = @import("backend").Interner;
+const Interner = @import("../backend.zig").Interner;
 const Attribute = @import("Attribute.zig");
 const CodeGen = @import("CodeGen.zig");
 const Compilation = @import("Compilation.zig");

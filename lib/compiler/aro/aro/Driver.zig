@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const process = std.process;
-const backend = @import("backend");
+const backend = @import("../backend.zig");
 const Ir = backend.Ir;
 const Object = backend.Object;
 const Compilation = @import("Compilation.zig");
@@ -189,7 +189,7 @@ pub fn parseArgs(
                 };
                 return true;
             } else if (mem.eql(u8, arg, "-v") or mem.eql(u8, arg, "--version")) {
-                std_out.writeAll(@import("backend").version_str ++ "\n") catch |er| {
+                std_out.writeAll(@import("../backend.zig").version_str ++ "\n") catch |er| {
                     return d.fatal("unable to print version: {s}", .{errorDescription(er)});
                 };
                 return true;
