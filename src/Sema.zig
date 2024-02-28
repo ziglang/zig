@@ -11508,6 +11508,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     sub_block.runtime_loop = null;
     sub_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(main_operand_src, mod);
     sub_block.runtime_index.increment();
+    sub_block.need_debug_scope = null; // this body is emitted regardless
     defer sub_block.instructions.deinit(gpa);
 
     try sema.analyzeBodyRuntimeBreak(&sub_block, non_error_case.body);
@@ -12243,6 +12244,7 @@ fn analyzeSwitchRuntimeBlock(
     case_block.runtime_loop = null;
     case_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(operand_src, mod);
     case_block.runtime_index.increment();
+    case_block.need_debug_scope = null; // this body is emitted regardless
     defer case_block.instructions.deinit(gpa);
 
     var extra_index: usize = special.end;
@@ -18967,8 +18969,7 @@ fn zirCondbr(
         const body = if (cond_val.toBool()) then_body else else_body;
 
         try sema.maybeErrorUnwrapCondbr(parent_block, body, extra.data.condition, cond_src);
-        // We use `analyzeBodyInner` since we want to propagate any possible
-        // `error.ComptimeBreak` to the caller.
+        // We use `analyzeBodyInner` since we want to propagate any comptime control flow to the caller.
         return sema.analyzeBodyInner(parent_block, body);
     }
 
@@ -18980,6 +18981,7 @@ fn zirCondbr(
     sub_block.runtime_loop = null;
     sub_block.runtime_cond = mod.declPtr(parent_block.src_decl).toSrcLoc(cond_src, mod);
     sub_block.runtime_index.increment();
+    sub_block.need_debug_scope = null; // this body is emitted regardless
     defer sub_block.instructions.deinit(gpa);
 
     try sema.analyzeBodyRuntimeBreak(&sub_block, then_body);

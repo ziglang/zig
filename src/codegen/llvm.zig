@@ -5903,10 +5903,10 @@ pub const FuncGen = struct {
         _ = try self.wip.brCond(cond, then_block, else_block);
 
         self.wip.cursor = .{ .block = then_block };
-        try self.genBody(then_body);
+        try self.genBodyDebugScope(then_body);
 
         self.wip.cursor = .{ .block = else_block };
-        try self.genBody(else_body);
+        try self.genBodyDebugScope(else_body);
 
         // No need to reset the insert cursor since this instruction is noreturn.
         return .none;
@@ -5987,7 +5987,7 @@ pub const FuncGen = struct {
             _ = try fg.wip.brCond(is_err, return_block, continue_block);
 
             fg.wip.cursor = .{ .block = return_block };
-            try fg.genBody(body);
+            try fg.genBodyDebugScope(body);
 
             fg.wip.cursor = .{ .block = continue_block };
         }
@@ -6060,13 +6060,13 @@ pub const FuncGen = struct {
             }
 
             self.wip.cursor = .{ .block = case_block };
-            try self.genBody(case_body);
+            try self.genBodyDebugScope(case_body);
         }
 
         self.wip.cursor = .{ .block = else_block };
         const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
         if (else_body.len != 0) {
-            try self.genBody(else_body);
+            try self.genBodyDebugScope(else_body);
         } else {
             _ = try self.wip.@"unreachable"();
         }
@@ -6085,7 +6085,7 @@ pub const FuncGen = struct {
         _ = try self.wip.br(loop_block);
 
         self.wip.cursor = .{ .block = loop_block };
-        try self.genBody(body);
+        try self.genBodyDebugScope(body);
 
         // TODO instead of this logic, change AIR to have the property that
         // every block is guaranteed to end with a noreturn instruction.
