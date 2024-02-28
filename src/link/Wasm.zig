@@ -11,6 +11,7 @@ const leb = std.leb;
 const link = @import("../link.zig");
 const lldMain = @import("../main.zig").lldMain;
 const log = std.log.scoped(.link);
+const gc_log = std.log.scoped(.gc);
 const mem = std.mem;
 const trace = @import("../tracy.zig").trace;
 const types = @import("Wasm/types.zig");
@@ -525,6 +526,7 @@ pub fn createEmpty(
             const symbol = loc.getSymbol(wasm);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
+            symbol.mark();
             try wasm.wasm_globals.append(gpa, .{
                 .global_type = .{ .valtype = .i32, .mutable = true },
                 .init = .{ .i32_const = undefined },
@@ -535,6 +537,7 @@ pub fn createEmpty(
             const symbol = loc.getSymbol(wasm);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
+            symbol.mark();
             try wasm.wasm_globals.append(gpa, .{
                 .global_type = .{ .valtype = .i32, .mutable = false },
                 .init = .{ .i32_const = undefined },
@@ -545,6 +548,7 @@ pub fn createEmpty(
             const symbol = loc.getSymbol(wasm);
             symbol.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
             symbol.index = @intCast(wasm.imported_globals_count + wasm.wasm_globals.items.len);
+            symbol.mark();
             try wasm.wasm_globals.append(gpa, .{
                 .global_type = .{ .valtype = .i32, .mutable = false },
                 .init = .{ .i32_const = undefined },
@@ -968,6 +972,8 @@ fn setupInitMemoryFunction(wasm: *Wasm) !void {
     if (!wasm.hasPassiveInitializationSegments()) {
         return;
     }
+    const sym_loc = try wasm.createSyntheticSymbol("__wasm_init_memory", .function);
+    sym_loc.getSymbol(wasm).mark();
 
     const flag_address: u32 = if (shared_memory) address: {
         // when we have passive initialization segments and shared memory
@@ -1130,7 +1136,8 @@ fn setupTLSRelocationsFunction(wasm: *Wasm) !void {
         return;
     }
 
-    // const loc = try wasm.createSyntheticSymbol("__wasm_apply_global_tls_relocs");
+    const loc = try wasm.createSyntheticSymbol("__wasm_apply_global_tls_relocs", .function);
+    loc.getSymbol(wasm).mark();
     var function_body = std.ArrayList(u8).init(gpa);
     defer function_body.deinit();
     const writer = function_body.writer();
@@ -1833,8 +1840,7 @@ fn createSyntheticFunction(
     function_body: *std.ArrayList(u8),
 ) !void {
     const gpa = wasm.base.comp.gpa;
-    const loc = wasm.findGlobalSymbol(symbol_name) orelse
-        try wasm.createSyntheticSymbol(symbol_name, .function);
+    const loc = wasm.findGlobalSymbol(symbol_name).?; // forgot to create symbol?
     const symbol = loc.getSymbol(wasm);
     if (symbol.isDead()) {
         return;
@@ -1884,6 +1890,9 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
 
     if (!shared_memory) return;
 
+    // ensure function is marked as we must emit it
+    wasm.findGlobalSymbol("__wasm_init_tls").?.getSymbol(wasm).mark();
+
     var function_body = std.ArrayList(u8).init(gpa);
     defer function_body.deinit();
     const writer = function_body.writer();
@@ -1932,6 +1941,7 @@ fn initializeTLSFunction(wasm: *Wasm) !void {
     if (wasm.findGlobalSymbol("__wasm_apply_global_tls_relocs")) |loc| {
         try writer.writeByte(std.wasm.opcode(.call));
         try leb.writeULEB128(writer, loc.getSymbol(wasm).index);
+        loc.getSymbol(wasm).mark();
     }
 
     try writer.writeByte(std.wasm.opcode(.end));
@@ -2039,14 +2049,19 @@ fn mergeSections(wasm: *Wasm) !void {
                     // We found an alias to the same function, discard this symbol in favor of
                     // the original symbol and point the discard function to it. This ensures
                     // we only emit a single function, instead of duplicates.
-                    symbol.unmark();
-                    try wasm.discarded.putNoClobber(
-                        gpa,
-                        sym_loc,
-                        .{ .file = gop.key_ptr.*.file, .index = gop.value_ptr.*.sym_index },
-                    );
-                    try removed_duplicates.append(sym_loc);
-                    continue;
+                    // we favor keeping the global over a local.
+                    const original_loc: SymbolLoc = .{ .file = gop.key_ptr.file, .index = gop.value_ptr.sym_index };
+                    const original_sym = original_loc.getSymbol(wasm);
+                    if (original_sym.isLocal() and symbol.isGlobal()) {
+                        original_sym.unmark();
+                        try wasm.discarded.put(gpa, original_loc, sym_loc);
+                        try removed_duplicates.append(original_loc);
+                    } else {
+                        symbol.unmark();
+                        try wasm.discarded.putNoClobber(gpa, sym_loc, original_loc);
+                        try removed_duplicates.append(sym_loc);
+                        continue;
+                    }
                 }
                 gop.value_ptr.* = .{ .func = obj_file.function(sym_loc.index), .sym_index = sym_loc.index };
                 symbol.index = @as(u32, @intCast(gop.index)) + wasm.imported_functions_count;
@@ -2073,6 +2088,7 @@ fn mergeSections(wasm: *Wasm) !void {
     // For any removed duplicates, remove them from the resolved symbols list
     for (removed_duplicates.items) |sym_loc| {
         assert(wasm.resolved_symbols.swapRemove(sym_loc));
+        gc_log.debug("Removed duplicate for function '{s}'", .{sym_loc.getName(wasm)});
     }
 
     log.debug("Merged ({d}) functions", .{wasm.functions.count()});
@@ -2119,12 +2135,7 @@ fn mergeTypes(wasm: *Wasm) !void {
     log.debug("Completed merging and deduplicating types. Total count: ({d})", .{wasm.func_types.items.len});
 }
 
-fn setupExports(wasm: *Wasm) !void {
-    const comp = wasm.base.comp;
-    const gpa = comp.gpa;
-    if (comp.config.output_mode == .Obj) return;
-    log.debug("Building exports from symbols", .{});
-
+fn checkExportNames(wasm: *Wasm) !void {
     const force_exp_names = wasm.export_symbol_names;
     if (force_exp_names.len > 0) {
         var failed_exports = false;
@@ -2144,6 +2155,13 @@ fn setupExports(wasm: *Wasm) !void {
             return error.FlushFailure;
         }
     }
+}
+
+fn setupExports(wasm: *Wasm) !void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    if (comp.config.output_mode == .Obj) return;
+    log.debug("Building exports from symbols", .{});
 
     for (wasm.resolved_symbols.keys()) |sym_loc| {
         const symbol = sym_loc.getSymbol(wasm);
@@ -2272,6 +2290,7 @@ fn setupMemory(wasm: *Wasm) !void {
         memory_ptr = mem.alignForward(u64, memory_ptr, 4);
         const loc = try wasm.createSyntheticSymbol("__wasm_init_memory_flag", .data);
         const sym = loc.getSymbol(wasm);
+        sym.mark();
         sym.virtual_address = @as(u32, @intCast(memory_ptr));
         memory_ptr += 4;
     }
@@ -2561,6 +2580,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
     try wasm.resolveLazySymbols();
     try wasm.checkUndefinedSymbols();
+    try wasm.checkExportNames();
 
     try wasm.setupInitFunctions();
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
@@ -4044,6 +4064,7 @@ fn mark(wasm: *Wasm, loc: SymbolLoc) !void {
         return;
     }
     symbol.mark();
+    gc_log.debug("Marked symbol '{s}'", .{loc.getName(wasm)});
     if (symbol.isUndefined()) {
         // undefined symbols do not have an associated `Atom` and therefore also
         // do not contain relocations.

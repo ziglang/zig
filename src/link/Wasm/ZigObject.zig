@@ -315,7 +315,7 @@ fn finishUpdateDecl(
     const atom_index = decl_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
     const sym = zig_object.symbol(atom.sym_index);
-    const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const full_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
     sym.name = try zig_object.string_table.insert(gpa, full_name);
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
@@ -401,7 +401,7 @@ pub fn getOrCreateAtomForDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_ind
         gop.value_ptr.* = .{ .atom = try wasm_file.createAtom(sym_index, zig_object.index) };
         const mod = wasm_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
-        const full_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        const full_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
         const sym = zig_object.symbol(sym_index);
         sym.name = try zig_object.string_table.insert(gpa, full_name);
     }
@@ -455,7 +455,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, tv: TypedValu
     const parent_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
     const parent_atom = wasm_file.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    const fqn = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const fqn = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
     const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{s}_{d}", .{
         fqn, local_index,
     });
@@ -838,6 +838,7 @@ pub fn updateExports(
     const atom = wasm_file.getAtom(atom_index);
     const atom_sym = atom.symbolLoc().getSymbol(wasm_file).*;
     const gpa = mod.gpa;
+    log.debug("Updating exports for decl '{s}'", .{mod.intern_pool.stringToSlice(decl.name)});
 
     for (exports) |exp| {
         if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section| {
@@ -888,6 +889,7 @@ pub fn updateExports(
         if (exp.opts.visibility == .hidden) {
             sym.setFlag(.WASM_SYM_VISIBILITY_HIDDEN);
         }
+        log.debug("  with name '{s}' - {}", .{ export_string, sym });
         try zig_object.global_syms.put(gpa, export_name, sym_index);
         try wasm_file.symbol_atom.put(gpa, .{ .file = zig_object.index, .index = sym_index }, atom_index);
     }
@@ -1061,7 +1063,7 @@ pub fn createDebugSectionForIndex(zig_object: *ZigObject, wasm_file: *Wasm, inde
 pub fn updateDeclLineNumber(zig_object: *ZigObject, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     if (zig_object.dwarf) |*dw| {
         const decl = mod.declPtr(decl_index);
-        const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+        const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
 
         log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
         try dw.updateDeclLineNumber(mod, decl_index);

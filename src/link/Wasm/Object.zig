@@ -15,7 +15,7 @@ const Allocator = std.mem.Allocator;
 const leb = std.leb;
 const meta = std.meta;
 
-const log = std.log.scoped(.link);
+const log = std.log.scoped(.object);
 
 /// Index into the list of relocatable object files within the linker driver.
 index: File.Index = .null,
