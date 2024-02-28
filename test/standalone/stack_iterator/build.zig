@@ -93,6 +93,21 @@ pub fn build(b: *std.Build) void {
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
+
+        // Separate debug info ELF file
+        if (target.result.ofmt == .elf) {
+            const filename = b.fmt("{s}_stripped", .{exe.out_filename});
+            const stripped_exe = b.addObjCopy(exe.getEmittedBin(), .{
+                .basename = filename, // set the name for the debuglink
+                .compress_debug = true,
+                .strip = .debug,
+                .extract_to_separate_file = true,
+            });
+
+            const run_stripped = std.Build.Step.Run.create(b, b.fmt("run {s}", .{filename}));
+            run_stripped.addFileArg(stripped_exe.getOutput());
+            test_step.dependOn(&run_stripped.step);
+        }
     }
 
     // Unwinding without libc/posix
