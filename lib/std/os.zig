@@ -3697,6 +3697,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
     switch (errno(rc)) {
         .SUCCESS => {
             const fd = @as(fd_t, @intCast(rc));
+            errdefer close(fd);
             if (!have_sock_flags) {
                 try setSockFlags(fd, socket_type);
             }
@@ -4035,6 +4036,10 @@ pub fn accept(
         }
     };
 
+    errdefer switch (builtin.os.tag) {
+        .windows => windows.closesocket(accepted_sock) catch unreachable,
+        else => close(accepted_sock),
+    };
     if (!have_accept4) {
         try setSockFlags(accepted_sock, flags);
     }
