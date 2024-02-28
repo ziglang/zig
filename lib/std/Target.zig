@@ -392,7 +392,10 @@ pub const Os = struct {
 
     /// Checks if system is guaranteed to be at least `version` or older than `version`.
     /// Returns `null` if a runtime check is required.
-    pub inline fn isAtLeast(self: Os, comptime tag: Tag, version: anytype) ?bool {
+    pub inline fn isAtLeast(self: Os, comptime tag: Tag, version: switch (tag) {
+        else => std.SemanticVersion,
+        .windows => WindowsVersion,
+    }) ?bool {
         if (self.tag != tag) return false;
 
         return switch (tag) {
