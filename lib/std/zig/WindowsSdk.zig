@@ -1,3 +1,8 @@
+windows10sdk: ?Windows10Sdk,
+windows81sdk: ?Windows81Sdk,
+msvc_lib_dir: ?[]const u8,
+
+const WindowsSdk = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -10,6 +15,69 @@ const WINDOWS_KIT_REG_KEY = "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots"
 const version_major_minor_max_length = "255.255".len;
 // note(bratishkaerik): i think ProductVersion in registry (created by Visual Studio installer) also follows this rule
 const product_version_max_length = version_major_minor_max_length + ".65535".len;
+
+/// Find path and version of Windows 10 SDK and Windows 8.1 SDK, and find path to MSVC's `lib/` directory.
+/// Caller owns the result's fields.
+/// After finishing work, call `free(allocator)`.
+pub fn find(allocator: std.mem.Allocator) error{ OutOfMemory, NotFound, PathTooLong }!WindowsSdk {
+    if (builtin.os.tag != .windows) return error.NotFound;
+
+    //note(dimenus): If this key doesn't exist, neither the Win 8 SDK nor the Win 10 SDK is installed
+    const roots_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, WINDOWS_KIT_REG_KEY) catch |err| switch (err) {
+        error.KeyNotFound => return error.NotFound,
+    };
+    defer roots_key.closeKey();
+
+    const windows10sdk: ?Windows10Sdk = blk: {
+        const windows10sdk = Windows10Sdk.find(allocator) catch |err| switch (err) {
+            error.Windows10SdkNotFound,
+            error.PathTooLong,
+            error.VersionTooLong,
+            => break :blk null,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        const is_valid_version = windows10sdk.isValidVersion();
+        if (!is_valid_version) break :blk null;
+        break :blk windows10sdk;
+    };
+    errdefer if (windows10sdk) |*w| w.free(allocator);
+
+    const windows81sdk: ?Windows81Sdk = blk: {
+        const windows81sdk = Windows81Sdk.find(allocator, &roots_key) catch |err| switch (err) {
+            error.Windows81SdkNotFound => break :blk null,
+            error.PathTooLong => break :blk null,
+            error.VersionTooLong => break :blk null,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        // no check
+        break :blk windows81sdk;
+    };
+    errdefer if (windows81sdk) |*w| w.free(allocator);
+
+    const msvc_lib_dir: ?[]const u8 = MsvcLibDir.find(allocator) catch |err| switch (err) {
+        error.MsvcLibDirNotFound => null,
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    errdefer allocator.free(msvc_lib_dir);
+
+    return WindowsSdk{
+        .windows10sdk = windows10sdk,
+        .windows81sdk = windows81sdk,
+        .msvc_lib_dir = msvc_lib_dir,
+    };
+}
+
+pub fn free(self: *const WindowsSdk, allocator: std.mem.Allocator) void {
+    if (self.windows10sdk) |*w10sdk| {
+        w10sdk.free(allocator);
+    }
+    if (self.windows81sdk) |*w81sdk| {
+        w81sdk.free(allocator);
+    }
+    if (self.msvc_lib_dir) |msvc_lib_dir| {
+        allocator.free(msvc_lib_dir);
+    }
+}
 
 /// Iterates via `iterator` and collects all folders with names starting with `optional_prefix`
 /// and similar to SemVer. Returns slice of folder names sorted in descending order.
@@ -505,75 +573,6 @@ pub const Windows81Sdk = struct {
     fn free(self: *const Windows81Sdk, allocator: std.mem.Allocator) void {
         allocator.free(self.path);
         allocator.free(self.version);
-    }
-};
-
-pub const ZigWindowsSDK = struct {
-    windows10sdk: ?Windows10Sdk,
-    windows81sdk: ?Windows81Sdk,
-    msvc_lib_dir: ?[]const u8,
-
-    /// Find path and version of Windows 10 SDK and Windows 8.1 SDK, and find path to MSVC's `lib/` directory.
-    /// Caller owns the result's fields.
-    /// After finishing work, call `free(allocator)`.
-    pub fn find(allocator: std.mem.Allocator) error{ OutOfMemory, NotFound, PathTooLong }!ZigWindowsSDK {
-        if (builtin.os.tag != .windows) return error.NotFound;
-
-        //note(dimenus): If this key doesn't exist, neither the Win 8 SDK nor the Win 10 SDK is installed
-        const roots_key = RegistryWtf8.openKey(windows.HKEY_LOCAL_MACHINE, WINDOWS_KIT_REG_KEY) catch |err| switch (err) {
-            error.KeyNotFound => return error.NotFound,
-        };
-        defer roots_key.closeKey();
-
-        const windows10sdk: ?Windows10Sdk = blk: {
-            const windows10sdk = Windows10Sdk.find(allocator) catch |err| switch (err) {
-                error.Windows10SdkNotFound,
-                error.PathTooLong,
-                error.VersionTooLong,
-                => break :blk null,
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            const is_valid_version = windows10sdk.isValidVersion();
-            if (!is_valid_version) break :blk null;
-            break :blk windows10sdk;
-        };
-        errdefer if (windows10sdk) |*w| w.free(allocator);
-
-        const windows81sdk: ?Windows81Sdk = blk: {
-            const windows81sdk = Windows81Sdk.find(allocator, &roots_key) catch |err| switch (err) {
-                error.Windows81SdkNotFound => break :blk null,
-                error.PathTooLong => break :blk null,
-                error.VersionTooLong => break :blk null,
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            // no check
-            break :blk windows81sdk;
-        };
-        errdefer if (windows81sdk) |*w| w.free(allocator);
-
-        const msvc_lib_dir: ?[]const u8 = MsvcLibDir.find(allocator) catch |err| switch (err) {
-            error.MsvcLibDirNotFound => null,
-            error.OutOfMemory => return error.OutOfMemory,
-        };
-        errdefer allocator.free(msvc_lib_dir);
-
-        return ZigWindowsSDK{
-            .windows10sdk = windows10sdk,
-            .windows81sdk = windows81sdk,
-            .msvc_lib_dir = msvc_lib_dir,
-        };
-    }
-
-    pub fn free(self: *const ZigWindowsSDK, allocator: std.mem.Allocator) void {
-        if (self.windows10sdk) |*w10sdk| {
-            w10sdk.free(allocator);
-        }
-        if (self.windows81sdk) |*w81sdk| {
-            w81sdk.free(allocator);
-        }
-        if (self.msvc_lib_dir) |msvc_lib_dir| {
-            allocator.free(msvc_lib_dir);
-        }
     }
 };
 

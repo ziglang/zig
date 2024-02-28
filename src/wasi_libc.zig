@@ -5,8 +5,6 @@ const path = std.fs.path;
 const Allocator = std.mem.Allocator;
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
-const target_util = @import("target.zig");
-const musl = @import("musl.zig");
 
 pub const CRTFile = enum {
     crt1_reactor_o,
@@ -273,7 +271,7 @@ fn addCCArgs(
     options: CCOptions,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
-    const arch_name = musl.archNameHeaders(target.cpu.arch);
+    const arch_name = std.zig.target.muslArchNameHeaders(target.cpu.arch);
     const os_name = @tagName(target.os.tag);
     const triple = try std.fmt.allocPrint(arena, "{s}-{s}-musl", .{ arch_name, os_name });
     const o_arg = if (options.want_O3) "-O3" else "-Os";

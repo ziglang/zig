@@ -4616,13 +4616,7 @@ const SystemLib = struct {
     must_link: bool = false,
 };
 
-/// The filesystem layout of darwin SDK elements.
-pub const SdkLayout = enum {
-    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
-    sdk,
-    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
-    vendored,
-};
+pub const SdkLayout = std.zig.LibCDirs.DarwinSdkLayout;
 
 const UndefinedTreatment = enum {
     @"error",
