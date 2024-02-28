@@ -67,7 +67,7 @@ pub fn cmdTargets(
 
     try jws.objectField("libc");
     try jws.beginArray();
-    for (target.available_libcs) |libc| {
+    for (std.zig.target.available_libcs) |libc| {
         const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
             @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
         });

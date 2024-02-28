@@ -2755,6 +2755,22 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
     }
 }
 
+pub fn osArchName(target: std.Target) [:0]const u8 {
+    return switch (target.os.tag) {
+        .linux => switch (target.cpu.arch) {
+            .arm, .armeb, .thumb, .thumbeb => "arm",
+            .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
+            .mips, .mipsel, .mips64, .mips64el => "mips",
+            .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
+            .riscv32, .riscv64 => "riscv",
+            .sparc, .sparcel, .sparc64 => "sparc",
+            .x86, .x86_64 => "x86",
+            else => @tagName(target.cpu.arch),
+        },
+        else => @tagName(target.cpu.arch),
+    };
+}
+
 const Target = @This();
 const std = @import("std.zig");
 const builtin = @import("builtin");
