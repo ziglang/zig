@@ -231,12 +231,27 @@ fn nullStr(str: []const u8) []const u8 {
     return str;
 }
 
+pub const IteratorOptions = struct {
+    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    file_name_buffer: []u8,
+    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    link_name_buffer: []u8,
+    diagnostics: ?*Diagnostics = null,
+
+    pub const Diagnostics = Options.Diagnostics;
+};
+
 /// Iterates over files in tar archive.
 /// `next` returns each file in `reader` tar archive.
-pub fn iterator(reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(@TypeOf(reader)) {
+pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
     return .{
         .reader = reader,
-        .diagnostics = diagnostics,
+        .diagnostics = options.diagnostics,
+        .header_buffer = undefined,
+        .file_name_buffer = options.file_name_buffer,
+        .link_name_buffer = options.link_name_buffer,
+        .padding = 0,
+        .file = undefined,
     };
 }
 
@@ -246,14 +261,14 @@ fn Iterator(comptime ReaderType: type) type {
         diagnostics: ?*Options.Diagnostics,
 
         // buffers for heeader and file attributes
-        header_buffer: [Header.SIZE]u8 = undefined,
-        file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
-        link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
+        header_buffer: [Header.SIZE]u8,
+        file_name_buffer: []u8,
+        link_name_buffer: []u8,
 
         // bytes of padding to the end of the block
-        padding: usize = 0,
+        padding: usize,
         // current tar file
-        file: File = undefined,
+        file: File,
 
         pub const File = struct {
             name: []const u8, // name of file, symlink or directory
@@ -305,7 +320,7 @@ fn Iterator(comptime ReaderType: type) type {
         }
 
         fn initFile(self: *Self) void {
-            self.file = File{
+            self.file = .{
                 .name = self.file_name_buffer[0..0],
                 .link_name = self.link_name_buffer[0..0],
                 .size = 0,
@@ -357,10 +372,10 @@ fn Iterator(comptime ReaderType: type) type {
                     },
                     // Prefix header types
                     .gnu_long_name => {
-                        self.file.name = try self.readString(@intCast(size), &self.file_name_buffer);
+                        self.file.name = try self.readString(@intCast(size), self.file_name_buffer);
                     },
                     .gnu_long_link => {
-                        self.file.link_name = try self.readString(@intCast(size), &self.link_name_buffer);
+                        self.file.link_name = try self.readString(@intCast(size), self.link_name_buffer);
                     },
                     .extended_header => {
                         // Use just attributes from last extended header.
@@ -370,10 +385,10 @@ fn Iterator(comptime ReaderType: type) type {
                         while (try rdr.next()) |attr| {
                             switch (attr.kind) {
                                 .path => {
-                                    self.file.name = try attr.value(&self.file_name_buffer);
+                                    self.file.name = try attr.value(self.file_name_buffer);
                                 },
                                 .linkpath => {
-                                    self.file.link_name = try attr.value(&self.link_name_buffer);
+                                    self.file.link_name = try attr.value(self.link_name_buffer);
                                 },
                                 .size => {
                                     var buf: [pax_max_size_attr_len]u8 = undefined;
@@ -536,7 +551,13 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         },
     }
 
-    var iter = iterator(reader, options.diagnostics);
+    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var iter = iterator(reader, .{
+        .file_name_buffer = &file_name_buffer,
+        .link_name_buffer = &link_name_buffer,
+        .diagnostics = options.diagnostics,
+    });
     while (try iter.next()) |file| {
         switch (file.kind) {
             .directory => {
