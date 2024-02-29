@@ -574,3 +574,16 @@ test "call generic function that uses capture from function declaration's scope"
     const s = S.foo(123);
     try expectEqual(123.0, s[0]);
 }
+
+fn genericReturnType() fn (comptime T: anytype) void {
+    unreachable;
+}
+
+fn genericReturnTypeFancy() callconv(.Unspecified) fn (comptime T: anytype) callconv(.Unspecified) void {
+    unreachable;
+}
+
+test "generic function as return type does not propagate genericness" {
+    comptime try expectEqual(fn () fn (comptime T: anytype) void, @TypeOf(genericReturnType));
+    comptime try expectEqual(fn () callconv(.Unspecified) fn (comptime T: anytype) callconv(.Unspecified) void, @TypeOf(genericReturnTypeFancy));
+}

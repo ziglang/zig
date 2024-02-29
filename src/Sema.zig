@@ -9103,7 +9103,7 @@ fn zirFunc(
             const ret_ty_body = sema.code.bodySlice(extra_index, extra.data.ret_body_len);
             extra_index += ret_ty_body.len;
 
-            const ret_ty_val = try sema.resolveGenericBody(block, ret_ty_src, ret_ty_body, inst, Type.type, .{
+            const ret_ty_val = try sema.resolveGenericBody(block, ret_ty_src, ret_ty_body, inst, Type.type, false, .{
                 .needed_comptime_reason = "return type must be comptime-known",
             });
             break :blk ret_ty_val.toType();
@@ -9152,6 +9152,7 @@ fn resolveGenericBody(
     body: []const Zir.Inst.Index,
     func_inst: Zir.Inst.Index,
     dest_ty: Type,
+    no_partial_func_ty: bool,
     reason: NeededComptimeReason,
 ) !Value {
     assert(body.len != 0);
@@ -9164,7 +9165,7 @@ fn resolveGenericBody(
         const prev_generic_call_src = sema.generic_call_src;
         const prev_generic_call_decl = sema.generic_call_decl;
         block.params = .{};
-        sema.no_partial_func_ty = true;
+        sema.no_partial_func_ty = no_partial_func_ty;
         sema.generic_owner = .none;
         sema.generic_call_src = .unneeded;
         sema.generic_call_decl = .none;
@@ -25392,7 +25393,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
-        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u29, .{
+        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u29, true, .{
             .needed_comptime_reason = "alignment must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25430,7 +25431,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += body.len;
 
         const addrspace_ty = Type.fromInterned(.address_space_type);
-        const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, .{
+        const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, true, .{
             .needed_comptime_reason = "addrspace must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25465,7 +25466,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += body.len;
 
         const ty = Type.slice_const_u8;
-        const val = try sema.resolveGenericBody(block, section_src, body, inst, ty, .{
+        const val = try sema.resolveGenericBody(block, section_src, body, inst, ty, true, .{
             .needed_comptime_reason = "linksection must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25493,7 +25494,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += body.len;
 
         const cc_ty = try sema.getBuiltinType("CallingConvention");
-        const val = try sema.resolveGenericBody(block, cc_src, body, inst, cc_ty, .{
+        const val = try sema.resolveGenericBody(block, cc_src, body, inst, cc_ty, true, .{
             .needed_comptime_reason = "calling convention must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25530,7 +25531,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
-        const val = try sema.resolveGenericBody(block, ret_src, body, inst, Type.type, .{
+        const val = try sema.resolveGenericBody(block, ret_src, body, inst, Type.type, false, .{
             .needed_comptime_reason = "return type must be comptime-known",
         });
         const ty = val.toType();
