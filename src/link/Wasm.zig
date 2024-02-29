@@ -3535,11 +3535,8 @@ fn linkWithZld(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) lin
         man.hash.addOptional(wasm.initial_memory);
         man.hash.addOptional(wasm.max_memory);
         man.hash.addOptional(wasm.global_base);
-        man.hash.add(wasm.export_symbol_names.len);
+        man.hash.addListOfBytes(wasm.export_symbol_names);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        for (wasm.export_symbol_names) |symbol_name| {
-            man.hash.addBytes(symbol_name);
-        }
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
@@ -4605,11 +4602,8 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
         man.hash.addOptional(wasm.max_memory);
         man.hash.add(shared_memory);
         man.hash.addOptional(wasm.global_base);
-        man.hash.add(wasm.export_symbol_names.len);
+        man.hash.addListOfBytes(wasm.export_symbol_names);
         // strip does not need to go into the linker hash because it is part of the hash namespace
-        for (wasm.export_symbol_names) |symbol_name| {
-            man.hash.addBytes(symbol_name);
-        }
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
         _ = try man.hit();
