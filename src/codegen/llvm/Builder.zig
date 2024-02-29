@@ -24,13 +24,17 @@ attributes_extra: std.ArrayListUnmanaged(u32),
 
 function_attributes_set: std.AutoArrayHashMapUnmanaged(FunctionAttributes, void),
 
-globals: std.AutoArrayHashMapUnmanaged(String, Global),
-next_unnamed_global: String,
-next_replaced_global: String,
-next_unique_global_id: std.AutoHashMapUnmanaged(String, u32),
+globals: std.AutoArrayHashMapUnmanaged(StrtabString, Global),
+next_unnamed_global: StrtabString,
+next_replaced_global: StrtabString,
+next_unique_global_id: std.AutoHashMapUnmanaged(StrtabString, u32),
 aliases: std.ArrayListUnmanaged(Alias),
 variables: std.ArrayListUnmanaged(Variable),
 functions: std.ArrayListUnmanaged(Function),
+
+strtab_string_map: std.AutoArrayHashMapUnmanaged(void, void),
+strtab_string_indices: std.ArrayListUnmanaged(u32),
+strtab_string_bytes: std.ArrayListUnmanaged(u8),
 
 constant_map: std.AutoArrayHashMapUnmanaged(void, void),
 constant_items: std.MultiArrayList(Constant.Item),
@@ -192,11 +196,6 @@ pub const CmpPredicate = enum(u6) {
     icmp_sge = 39,
     icmp_slt = 40,
     icmp_sle = 41,
-};
-
-pub const StrtabString = struct {
-    offset: usize,
-    size: usize,
 };
 
 pub const Type = enum(u32) {
@@ -2136,6 +2135,122 @@ pub const CallConv = enum(u10) {
     }
 };
 
+pub const StrtabString = enum(u32) {
+    none = std.math.maxInt(u31),
+    empty,
+    _,
+
+    pub fn isAnon(self: StrtabString) bool {
+        assert(self != .none);
+        return self.toIndex() == null;
+    }
+
+    pub fn slice(self: StrtabString, builder: *const Builder) ?[]const u8 {
+        const index = self.toIndex() orelse return null;
+        const start = builder.strtab_string_indices.items[index];
+        const end = builder.strtab_string_indices.items[index + 1];
+        return builder.strtab_string_bytes.items[start..end];
+    }
+
+    const FormatData = struct {
+        string: StrtabString,
+        builder: *const Builder,
+    };
+    fn format(
+        data: FormatData,
+        comptime fmt_str: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        if (comptime std.mem.indexOfNone(u8, fmt_str, "\"r")) |_|
+            @compileError("invalid format string: '" ++ fmt_str ++ "'");
+        assert(data.string != .none);
+        const string_slice = data.string.slice(data.builder) orelse
+            return writer.print("{d}", .{@intFromEnum(data.string)});
+        if (comptime std.mem.indexOfScalar(u8, fmt_str, 'r')) |_|
+            return writer.writeAll(string_slice);
+        try printEscapedString(
+            string_slice,
+            if (comptime std.mem.indexOfScalar(u8, fmt_str, '"')) |_|
+                .always_quote
+            else
+                .quote_unless_valid_identifier,
+            writer,
+        );
+    }
+    pub fn fmt(self: StrtabString, builder: *const Builder) std.fmt.Formatter(format) {
+        return .{ .data = .{ .string = self, .builder = builder } };
+    }
+
+    fn fromIndex(index: ?usize) StrtabString {
+        return @enumFromInt(@as(u32, @intCast((index orelse return .none) +
+            @intFromEnum(StrtabString.empty))));
+    }
+
+    fn toIndex(self: StrtabString) ?usize {
+        return std.math.sub(u32, @intFromEnum(self), @intFromEnum(StrtabString.empty)) catch null;
+    }
+
+    const Adapter = struct {
+        builder: *const Builder,
+        pub fn hash(_: Adapter, key: []const u8) u32 {
+            return @truncate(std.hash.Wyhash.hash(0, key));
+        }
+        pub fn eql(ctx: Adapter, lhs_key: []const u8, _: void, rhs_index: usize) bool {
+            return std.mem.eql(u8, lhs_key, StrtabString.fromIndex(rhs_index).slice(ctx.builder).?);
+        }
+    };
+};
+
+pub fn strtabString(self: *Builder, bytes: []const u8) Allocator.Error!StrtabString {
+    try self.strtab_string_bytes.ensureUnusedCapacity(self.gpa, bytes.len);
+    try self.strtab_string_indices.ensureUnusedCapacity(self.gpa, 1);
+    try self.strtab_string_map.ensureUnusedCapacity(self.gpa, 1);
+
+    const gop = self.strtab_string_map.getOrPutAssumeCapacityAdapted(bytes, StrtabString.Adapter{ .builder = self });
+    if (!gop.found_existing) {
+        self.strtab_string_bytes.appendSliceAssumeCapacity(bytes);
+        self.strtab_string_indices.appendAssumeCapacity(@intCast(self.strtab_string_bytes.items.len));
+    }
+    return StrtabString.fromIndex(gop.index);
+}
+
+pub fn strtabStringIfExists(self: *const Builder, bytes: []const u8) ?StrtabString {
+    return StrtabString.fromIndex(
+        self.strtab_string_map.getIndexAdapted(bytes, StrtabString.Adapter{ .builder = self }) orelse return null,
+    );
+}
+
+pub fn strtabStringFmt(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) Allocator.Error!StrtabString {
+    try self.strtab_string_map.ensureUnusedCapacity(self.gpa, 1);
+    try self.strtab_string_bytes.ensureUnusedCapacity(self.gpa, @intCast(std.fmt.count(fmt_str, fmt_args)));
+    try self.strtab_string_indices.ensureUnusedCapacity(self.gpa, 1);
+    return self.strtabStringFmtAssumeCapacity(fmt_str, fmt_args);
+}
+
+pub fn strtabStringFmtAssumeCapacity(self: *Builder, comptime fmt_str: []const u8, fmt_args: anytype) StrtabString {
+    self.strtab_string_bytes.writer(undefined).print(fmt_str, fmt_args) catch unreachable;
+    return self.trailingStrtabStringAssumeCapacity();
+}
+
+pub fn trailingStrtabString(self: *Builder) Allocator.Error!StrtabString {
+    try self.strtab_string_indices.ensureUnusedCapacity(self.gpa, 1);
+    try self.strtab_string_map.ensureUnusedCapacity(self.gpa, 1);
+    return self.trailingStrtabStringAssumeCapacity();
+}
+
+pub fn trailingStrtabStringAssumeCapacity(self: *Builder) StrtabString {
+    const start = self.strtab_string_indices.getLast();
+    const bytes: []const u8 = self.strtab_string_bytes.items[start..];
+    const gop = self.strtab_string_map.getOrPutAssumeCapacityAdapted(bytes, StrtabString.Adapter{ .builder = self });
+    if (gop.found_existing) {
+        self.strtab_string_bytes.shrinkRetainingCapacity(start);
+    } else {
+        self.strtab_string_indices.appendAssumeCapacity(@intCast(self.strtab_string_bytes.items.len));
+    }
+    return StrtabString.fromIndex(gop.index);
+}
+
 pub const Global = struct {
     linkage: Linkage = .external,
     preemption: Preemption = .dso_preemptable,
@@ -2179,19 +2294,23 @@ pub const Global = struct {
             return &builder.globals.values()[@intFromEnum(self.unwrap(builder))];
         }
 
-        pub fn name(self: Index, builder: *const Builder) String {
+        pub fn name(self: Index, builder: *const Builder) StrtabString {
             return builder.globals.keys()[@intFromEnum(self.unwrap(builder))];
         }
 
-        pub fn strtab(self: Index, builder: *const Builder) StrtabString {
+        pub fn strtab(self: Index, builder: *const Builder) struct {
+            offset: u32,
+            size: u32,
+        } {
             const name_index = self.name(builder).toIndex() orelse return .{
                 .offset = 0,
                 .size = 0,
             };
 
             return .{
-                .offset = builder.string_indices.items[name_index],
-                .size = builder.string_indices.items[name_index + 1] - builder.string_indices.items[name_index],
+                .offset = builder.strtab_string_indices.items[name_index],
+                .size = builder.strtab_string_indices.items[name_index + 1] -
+                    builder.strtab_string_indices.items[name_index],
             };
         }
 
@@ -2243,7 +2362,7 @@ pub const Global = struct {
             return .{ .data = .{ .global = self, .builder = builder } };
         }
 
-        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+        pub fn rename(self: Index, new_name: StrtabString, builder: *Builder) Allocator.Error!void {
             try builder.ensureUnusedGlobalCapacity(new_name);
             self.renameAssumeCapacity(new_name, builder);
         }
@@ -2282,7 +2401,7 @@ pub const Global = struct {
             }
         }
 
-        fn renameAssumeCapacity(self: Index, new_name: String, builder: *Builder) void {
+        fn renameAssumeCapacity(self: Index, new_name: StrtabString, builder: *Builder) void {
             const old_name = self.name(builder);
             if (new_name == old_name) return;
             const index = @intFromEnum(self.unwrap(builder));
@@ -2333,11 +2452,11 @@ pub const Alias = struct {
             return &builder.aliases.items[@intFromEnum(self)];
         }
 
-        pub fn name(self: Index, builder: *const Builder) String {
+        pub fn name(self: Index, builder: *const Builder) StrtabString {
             return self.ptrConst(builder).global.name(builder);
         }
 
-        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+        pub fn rename(self: Index, new_name: StrtabString, builder: *Builder) Allocator.Error!void {
             return self.ptrConst(builder).global.rename(new_name, builder);
         }
 
@@ -2385,11 +2504,11 @@ pub const Variable = struct {
             return &builder.variables.items[@intFromEnum(self)];
         }
 
-        pub fn name(self: Index, builder: *const Builder) String {
+        pub fn name(self: Index, builder: *const Builder) StrtabString {
             return self.ptrConst(builder).global.name(builder);
         }
 
-        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+        pub fn rename(self: Index, new_name: StrtabString, builder: *Builder) Allocator.Error!void {
             return self.ptrConst(builder).global.rename(new_name, builder);
         }
 
@@ -3814,11 +3933,11 @@ pub const Function = struct {
             return &builder.functions.items[@intFromEnum(self)];
         }
 
-        pub fn name(self: Index, builder: *const Builder) String {
+        pub fn name(self: Index, builder: *const Builder) StrtabString {
             return self.ptrConst(builder).global.name(builder);
         }
 
-        pub fn rename(self: Index, new_name: String, builder: *Builder) Allocator.Error!void {
+        pub fn rename(self: Index, new_name: StrtabString, builder: *Builder) Allocator.Error!void {
             return self.ptrConst(builder).global.rename(new_name, builder);
         }
 
@@ -8331,6 +8450,10 @@ pub fn init(options: Options) Allocator.Error!Builder {
         .variables = .{},
         .functions = .{},
 
+        .strtab_string_map = .{},
+        .strtab_string_indices = .{},
+        .strtab_string_bytes = .{},
+
         .constant_map = .{},
         .constant_items = .{},
         .constant_extra = .{},
@@ -8350,6 +8473,9 @@ pub fn init(options: Options) Allocator.Error!Builder {
 
     try self.string_indices.append(self.gpa, 0);
     assert(try self.string("") == .empty);
+
+    try self.strtab_string_indices.append(self.gpa, 0);
+    assert(try self.strtabString("") == .empty);
 
     if (options.name.len > 0) self.source_filename = try self.string(options.name);
 
@@ -8423,6 +8549,10 @@ pub fn clearAndFree(self: *Builder) void {
     for (self.functions.items) |*function| function.deinit(self.gpa);
     self.functions.clearAndFree(self.gpa);
 
+    self.strtab_string_map.clearAndFree(self.gpa);
+    self.strtab_string_indices.clearAndFree(self.gpa);
+    self.strtab_string_bytes.clearAndFree(self.gpa);
+
     self.constant_map.clearAndFree(self.gpa);
     self.constant_items.shrinkAndFree(self.gpa, 0);
     self.constant_extra.clearAndFree(self.gpa);
@@ -8466,6 +8596,10 @@ pub fn deinit(self: *Builder) void {
     self.variables.deinit(self.gpa);
     for (self.functions.items) |*function| function.deinit(self.gpa);
     self.functions.deinit(self.gpa);
+
+    self.strtab_string_map.deinit(self.gpa);
+    self.strtab_string_indices.deinit(self.gpa);
+    self.strtab_string_bytes.deinit(self.gpa);
 
     self.constant_map.deinit(self.gpa);
     self.constant_items.deinit(self.gpa);
@@ -8660,14 +8794,14 @@ pub fn fnAttrs(self: *Builder, fn_attributes: []const Attributes) Allocator.Erro
     return function_attributes;
 }
 
-pub fn addGlobal(self: *Builder, name: String, global: Global) Allocator.Error!Global.Index {
+pub fn addGlobal(self: *Builder, name: StrtabString, global: Global) Allocator.Error!Global.Index {
     assert(!name.isAnon());
     try self.ensureUnusedTypeCapacity(1, NoExtra, 0);
     try self.ensureUnusedGlobalCapacity(name);
     return self.addGlobalAssumeCapacity(name, global);
 }
 
-pub fn addGlobalAssumeCapacity(self: *Builder, name: String, global: Global) Global.Index {
+pub fn addGlobalAssumeCapacity(self: *Builder, name: StrtabString, global: Global) Global.Index {
     _ = self.ptrTypeAssumeCapacity(global.addr_space);
     var id = name;
     if (name == .empty) {
@@ -8686,18 +8820,18 @@ pub fn addGlobalAssumeCapacity(self: *Builder, name: String, global: Global) Glo
 
         const unique_gop = self.next_unique_global_id.getOrPutAssumeCapacity(name);
         if (!unique_gop.found_existing) unique_gop.value_ptr.* = 2;
-        id = self.fmtAssumeCapacity("{s}.{d}", .{ name.slice(self).?, unique_gop.value_ptr.* });
+        id = self.strtabStringFmtAssumeCapacity("{s}.{d}", .{ name.slice(self).?, unique_gop.value_ptr.* });
         unique_gop.value_ptr.* += 1;
     }
 }
 
-pub fn getGlobal(self: *const Builder, name: String) ?Global.Index {
+pub fn getGlobal(self: *const Builder, name: StrtabString) ?Global.Index {
     return @enumFromInt(self.globals.getIndex(name) orelse return null);
 }
 
 pub fn addAlias(
     self: *Builder,
-    name: String,
+    name: StrtabString,
     ty: Type,
     addr_space: AddrSpace,
     aliasee: Constant,
@@ -8711,7 +8845,7 @@ pub fn addAlias(
 
 pub fn addAliasAssumeCapacity(
     self: *Builder,
-    name: String,
+    name: StrtabString,
     ty: Type,
     addr_space: AddrSpace,
     aliasee: Constant,
@@ -8727,7 +8861,7 @@ pub fn addAliasAssumeCapacity(
 
 pub fn addVariable(
     self: *Builder,
-    name: String,
+    name: StrtabString,
     ty: Type,
     addr_space: AddrSpace,
 ) Allocator.Error!Variable.Index {
@@ -8741,7 +8875,7 @@ pub fn addVariable(
 pub fn addVariableAssumeCapacity(
     self: *Builder,
     ty: Type,
-    name: String,
+    name: StrtabString,
     addr_space: AddrSpace,
 ) Variable.Index {
     const variable_index: Variable.Index = @enumFromInt(self.variables.items.len);
@@ -8756,7 +8890,7 @@ pub fn addVariableAssumeCapacity(
 pub fn addFunction(
     self: *Builder,
     ty: Type,
-    name: String,
+    name: StrtabString,
     addr_space: AddrSpace,
 ) Allocator.Error!Function.Index {
     assert(!name.isAnon());
@@ -8769,7 +8903,7 @@ pub fn addFunction(
 pub fn addFunctionAssumeCapacity(
     self: *Builder,
     ty: Type,
-    name: String,
+    name: StrtabString,
     addr_space: AddrSpace,
 ) Function.Index {
     assert(ty.isFunction(self));
@@ -8803,10 +8937,10 @@ pub fn getIntrinsic(
     const allocator = stack.get();
 
     const name = name: {
-        const writer = self.string_bytes.writer(self.gpa);
+        const writer = self.strtab_string_bytes.writer(self.gpa);
         try writer.print("llvm.{s}", .{@tagName(id)});
         for (overload) |ty| try writer.print(".{m}", .{ty.fmt(self)});
-        break :name try self.trailingString();
+        break :name try self.trailingStrtabString();
     };
     if (self.getGlobal(name)) |global| return global.ptrConst(self).kind.function;
 
@@ -10366,13 +10500,13 @@ fn printEscapedString(
     if (need_quotes) try writer.writeByte('"');
 }
 
-fn ensureUnusedGlobalCapacity(self: *Builder, name: String) Allocator.Error!void {
-    try self.string_map.ensureUnusedCapacity(self.gpa, 1);
+fn ensureUnusedGlobalCapacity(self: *Builder, name: StrtabString) Allocator.Error!void {
+    try self.strtab_string_map.ensureUnusedCapacity(self.gpa, 1);
     if (name.slice(self)) |id| {
         const count: usize = comptime std.fmt.count("{d}", .{std.math.maxInt(u32)});
-        try self.string_bytes.ensureUnusedCapacity(self.gpa, id.len + count);
+        try self.strtab_string_bytes.ensureUnusedCapacity(self.gpa, id.len + count);
     }
-    try self.string_indices.ensureUnusedCapacity(self.gpa, 1);
+    try self.strtab_string_indices.ensureUnusedCapacity(self.gpa, 1);
     try self.globals.ensureUnusedCapacity(self.gpa, 1);
     try self.next_unique_global_id.ensureUnusedCapacity(self.gpa, 1);
 }
@@ -11893,7 +12027,7 @@ pub fn metadataString(self: *Builder, bytes: []const u8) Allocator.Error!Metadat
     return @enumFromInt(gop.index);
 }
 
-pub fn metadataStringFromString(self: *Builder, str: String) Allocator.Error!MetadataString {
+pub fn metadataStringFromStrtabString(self: *Builder, str: StrtabString) Allocator.Error!MetadataString {
     if (str == .none or str == .empty) return MetadataString.none;
     return try self.metadataString(str.slice(self).?);
 }
@@ -14045,17 +14179,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     try bitcode.writeVBR(@as(u32, @intCast(slice.len)), 6);
                 }
 
-                try bitcode.alignTo32();
-
-                for (1..self.metadata_string_map.count()) |metadata_string_index| {
-                    const metadata_string: MetadataString = @enumFromInt(metadata_string_index);
-                    const slice = metadata_string.slice(self);
-                    for (slice) |c| {
-                        try bitcode.writeBits(c, 8);
-                    }
-                }
-
-                try bitcode.alignTo32();
+                try bitcode.writeBlob(self.metadata_string_bytes.items);
             }
 
             for (
@@ -15069,7 +15193,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
         const Strtab = ir.Strtab;
         var strtab_block = try bitcode.enterTopBlock(Strtab);
 
-        try strtab_block.writeAbbrev(Strtab.Blob{ .blob = self.string_bytes.items });
+        try strtab_block.writeAbbrev(Strtab.Blob{ .blob = self.strtab_string_bytes.items });
 
         try strtab_block.end();
     }

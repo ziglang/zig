@@ -1046,7 +1046,7 @@ pub const Object = struct {
 
     fn genCmpLtErrorsLenFunction(o: *Object) !void {
         // If there is no such function in the module, it means the source code does not need it.
-        const name = o.builder.stringIfExists(lt_errors_fn_name) orelse return;
+        const name = o.builder.strtabStringIfExists(lt_errors_fn_name) orelse return;
         const llvm_fn = o.builder.getGlobal(name) orelse return;
         const mod = o.module;
         const errors_len = mod.global_error_set.count();
@@ -1087,7 +1087,7 @@ pub const Object = struct {
         for (object.extern_collisions.keys()) |decl_index| {
             const global = object.decl_map.get(decl_index) orelse continue;
             // Same logic as below but for externs instead of exports.
-            const decl_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(mod.declPtr(decl_index).name)) orelse continue;
+            const decl_name = object.builder.strtabStringIfExists(mod.intern_pool.stringToSlice(mod.declPtr(decl_index).name)) orelse continue;
             const other_global = object.builder.getGlobal(decl_name) orelse continue;
             if (other_global.toConst().getBase(&object.builder) ==
                 global.toConst().getBase(&object.builder)) continue;
@@ -1117,7 +1117,7 @@ pub const Object = struct {
         for (export_list) |exp| {
             // Detect if the LLVM global has already been created as an extern. In such
             // case, we need to replace all uses of it with this exported global.
-            const exp_name = object.builder.stringIfExists(mod.intern_pool.stringToSlice(exp.opts.name)) orelse continue;
+            const exp_name = object.builder.strtabStringIfExists(mod.intern_pool.stringToSlice(exp.opts.name)) orelse continue;
 
             const other_global = object.builder.getGlobal(exp_name) orelse continue;
             if (other_global.toConst().getBase(&object.builder) == global_base) continue;
@@ -1662,7 +1662,7 @@ pub const Object = struct {
             const subprogram = try o.builder.debugSubprogram(
                 file,
                 try o.builder.metadataString(ip.stringToSlice(decl.name)),
-                try o.builder.metadataStringFromString(function_index.name(&o.builder)),
+                try o.builder.metadataStringFromStrtabString(function_index.name(&o.builder)),
                 line_number,
                 line_number + func.lbrace_line,
                 debug_decl_type,
@@ -1763,12 +1763,12 @@ pub const Object = struct {
                 if (mod.getTarget().isWasm() and try decl.isFunction(mod)) {
                     if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                         if (!std.mem.eql(u8, lib_name, "c")) {
-                            break :decl_name try self.builder.fmt("{s}|{s}", .{ decl_name, lib_name });
+                            break :decl_name try self.builder.strtabStringFmt("{s}|{s}", .{ decl_name, lib_name });
                         }
                     }
                 }
 
-                break :decl_name try self.builder.string(decl_name);
+                break :decl_name try self.builder.strtabString(decl_name);
             };
 
             if (self.builder.getGlobal(decl_name)) |other_global| {
@@ -1791,7 +1791,7 @@ pub const Object = struct {
                 if (decl_var.is_weak_linkage) global_index.setLinkage(.extern_weak, &self.builder);
             }
         } else if (exports.len != 0) {
-            const main_exp_name = try self.builder.string(
+            const main_exp_name = try self.builder.strtabString(
                 mod.intern_pool.stringToSlice(exports[0].opts.name),
             );
             try global_index.rename(main_exp_name, &self.builder);
@@ -1802,7 +1802,7 @@ pub const Object = struct {
 
             return updateExportedGlobal(self, mod, global_index, exports);
         } else {
-            const fqn = try self.builder.string(
+            const fqn = try self.builder.strtabString(
                 mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod)),
             );
             try global_index.rename(fqn, &self.builder);
@@ -1831,7 +1831,7 @@ pub const Object = struct {
         exports: []const *Module.Export,
     ) link.File.UpdateExportsError!void {
         const gpa = mod.gpa;
-        const main_exp_name = try o.builder.string(
+        const main_exp_name = try o.builder.strtabString(
             mod.intern_pool.stringToSlice(exports[0].opts.name),
         );
         const global_index = i: {
@@ -1899,7 +1899,7 @@ pub const Object = struct {
         // Until then we iterate over existing aliases and make them point
         // to the correct decl, or otherwise add a new alias. Old aliases are leaked.
         for (exports[1..]) |exp| {
-            const exp_name = try o.builder.string(mod.intern_pool.stringToSlice(exp.opts.name));
+            const exp_name = try o.builder.strtabString(mod.intern_pool.stringToSlice(exp.opts.name));
             if (o.builder.getGlobal(exp_name)) |global| {
                 switch (global.ptrConst(&o.builder).kind) {
                     .alias => |alias| {
@@ -2887,7 +2887,7 @@ pub const Object = struct {
         const is_extern = decl.isExtern(zcu);
         const function_index = try o.builder.addFunction(
             try o.lowerType(zig_fn_type),
-            try o.builder.string(ip.stringToSlice(if (is_extern)
+            try o.builder.strtabString(ip.stringToSlice(if (is_extern)
                 decl.name
             else
                 try decl.fullyQualifiedName(zcu))),
@@ -3077,7 +3077,7 @@ pub const Object = struct {
         const decl_ty = mod.intern_pool.typeOf(decl_val);
 
         const variable_index = try o.builder.addVariable(
-            try o.builder.fmt("__anon_{d}", .{@intFromEnum(decl_val)}),
+            try o.builder.strtabStringFmt("__anon_{d}", .{@intFromEnum(decl_val)}),
             try o.lowerType(Type.fromInterned(decl_ty)),
             llvm_addr_space,
         );
@@ -3103,7 +3103,7 @@ pub const Object = struct {
         const is_extern = decl.isExtern(mod);
 
         const variable_index = try o.builder.addVariable(
-            try o.builder.string(mod.intern_pool.stringToSlice(
+            try o.builder.strtabString(mod.intern_pool.stringToSlice(
                 if (is_extern) decl.name else try decl.fullyQualifiedName(mod),
             )),
             try o.lowerType(decl.ty),
@@ -4570,7 +4570,7 @@ pub const Object = struct {
     }
 
     fn getCmpLtErrorsLenFunction(o: *Object) !Builder.Function.Index {
-        const name = try o.builder.string(lt_errors_fn_name);
+        const name = try o.builder.strtabString(lt_errors_fn_name);
         if (o.builder.getGlobal(name)) |llvm_fn| return llvm_fn.ptrConst(&o.builder).kind.function;
 
         const zcu = o.module;
@@ -4607,7 +4607,7 @@ pub const Object = struct {
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.fmt("__zig_tag_name_{}", .{fqn.fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_tag_name_{}", .{fqn.fmt(ip)}),
             toLlvmAddressSpace(.generic, target),
         );
 
@@ -4730,7 +4730,7 @@ pub const DeclGen = struct {
 
             const debug_global_var = try o.builder.debugGlobalVar(
                 try o.builder.metadataString(zcu.intern_pool.stringToSlice(decl.name)), // Name
-                try o.builder.metadataStringFromString(variable_index.name(&o.builder)), // Linkage name
+                try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder)), // Linkage name
                 debug_file, // File
                 debug_file, // Scope
                 line_number,
@@ -6169,7 +6169,7 @@ pub const FuncGen = struct {
         const compiler_rt_operand_abbrev = compilerRtIntAbbrev(rt_int_bits);
         const compiler_rt_dest_abbrev = compilerRtFloatAbbrev(dest_bits);
         const sign_prefix = if (is_signed_int) "" else "un";
-        const fn_name = try o.builder.fmt("__float{s}{s}i{s}f", .{
+        const fn_name = try o.builder.strtabStringFmt("__float{s}{s}i{s}f", .{
             sign_prefix,
             compiler_rt_operand_abbrev,
             compiler_rt_dest_abbrev,
@@ -6239,7 +6239,7 @@ pub const FuncGen = struct {
         const compiler_rt_dest_abbrev = compilerRtIntAbbrev(rt_int_bits);
         const sign_prefix = if (dest_scalar_ty.isSignedInt(mod)) "" else "uns";
 
-        const fn_name = try o.builder.fmt("__fix{s}{s}f{s}i", .{
+        const fn_name = try o.builder.strtabStringFmt("__fix{s}{s}f{s}i", .{
             sign_prefix,
             compiler_rt_operand_abbrev,
             compiler_rt_dest_abbrev,
@@ -6637,7 +6637,7 @@ pub const FuncGen = struct {
             .return_type = .void_type,
         });
 
-        const subprogram = try o.builder.debugSubprogram(
+        self.scope = try o.builder.debugSubprogram(
             self.file,
             try o.builder.metadataString(zcu.intern_pool.stringToSlice(decl.name)),
             try o.builder.metadataString(zcu.intern_pool.stringToSlice(fqn)),
@@ -6655,13 +6655,6 @@ pub const FuncGen = struct {
             o.debug_compile_unit,
         );
 
-        const lexical_block = try o.builder.debugLexicalBlock(
-            subprogram,
-            self.file,
-            line_number,
-            1,
-        );
-        self.scope = lexical_block;
         self.base_line = decl.src_line;
         const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
         self.wip.debug_location = .{
@@ -8117,7 +8110,7 @@ pub const FuncGen = struct {
 
     fn getLibcFunction(
         self: *FuncGen,
-        fn_name: Builder.String,
+        fn_name: Builder.StrtabString,
         param_types: []const Builder.Type,
         return_type: Builder.Type,
     ) Allocator.Error!Builder.Function.Index {
@@ -8171,7 +8164,7 @@ pub const FuncGen = struct {
             .gt => "gt",
             .gte => "ge",
         };
-        const fn_name = try o.builder.fmt("__{s}{s}f2", .{ fn_base_name, compiler_rt_float_abbrev });
+        const fn_name = try o.builder.strtabStringFmt("__{s}{s}f2", .{ fn_base_name, compiler_rt_float_abbrev });
 
         const libc_fn = try self.getLibcFunction(fn_name, &.{ scalar_llvm_ty, scalar_llvm_ty }, .i32);
 
@@ -8329,7 +8322,7 @@ pub const FuncGen = struct {
                 const result = try self.wip.bin(.xor, bitcasted_operand, sign_mask, "");
                 return self.wip.cast(.bitcast, result, llvm_ty, "");
             },
-            .add, .sub, .div, .mul => try o.builder.fmt("__{s}{s}f3", .{
+            .add, .sub, .div, .mul => try o.builder.strtabStringFmt("__{s}{s}f3", .{
                 @tagName(op), compilerRtFloatAbbrev(float_bits),
             }),
             .ceil,
@@ -8350,7 +8343,7 @@ pub const FuncGen = struct {
             .sqrt,
             .tan,
             .trunc,
-            => try o.builder.fmt("{s}{s}{s}", .{
+            => try o.builder.strtabStringFmt("{s}{s}{s}", .{
                 libcFloatPrefix(float_bits), @tagName(op), libcFloatSuffix(float_bits),
             }),
         };
@@ -8614,7 +8607,7 @@ pub const FuncGen = struct {
             const operand_llvm_ty = try o.lowerType(operand_ty);
             const dest_llvm_ty = try o.lowerType(dest_ty);
 
-            const fn_name = try o.builder.fmt("__trunc{s}f{s}f2", .{
+            const fn_name = try o.builder.strtabStringFmt("__trunc{s}f{s}f2", .{
                 compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
             });
 
@@ -8648,7 +8641,7 @@ pub const FuncGen = struct {
 
             const dest_bits = dest_ty.scalarType(mod).floatBits(target);
             const src_bits = operand_ty.scalarType(mod).floatBits(target);
-            const fn_name = try o.builder.fmt("__extend{s}f{s}f2", .{
+            const fn_name = try o.builder.strtabStringFmt("__extend{s}f{s}f2", .{
                 compilerRtFloatAbbrev(src_bits), compilerRtFloatAbbrev(dest_bits),
             });
 
@@ -9644,7 +9637,7 @@ pub const FuncGen = struct {
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.fmt("__zig_is_named_enum_value_{}", .{fqn.fmt(&zcu.intern_pool)}),
+            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{}", .{fqn.fmt(&zcu.intern_pool)}),
             toLlvmAddressSpace(.generic, target),
         );
 
@@ -9909,16 +9902,16 @@ pub const FuncGen = struct {
         // Use a manual loop over a softfloat call instead.
         const float_bits = scalar_ty.floatBits(target);
         const fn_name = switch (reduce.operation) {
-            .Min => try o.builder.fmt("{s}fmin{s}", .{
+            .Min => try o.builder.strtabStringFmt("{s}fmin{s}", .{
                 libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
             }),
-            .Max => try o.builder.fmt("{s}fmax{s}", .{
+            .Max => try o.builder.strtabStringFmt("{s}fmax{s}", .{
                 libcFloatPrefix(float_bits), libcFloatSuffix(float_bits),
             }),
-            .Add => try o.builder.fmt("__add{s}f3", .{
+            .Add => try o.builder.strtabStringFmt("__add{s}f3", .{
                 compilerRtFloatAbbrev(float_bits),
             }),
-            .Mul => try o.builder.fmt("__mul{s}f3", .{
+            .Mul => try o.builder.strtabStringFmt("__mul{s}f3", .{
                 compilerRtFloatAbbrev(float_bits),
             }),
             else => unreachable,
@@ -10323,7 +10316,7 @@ pub const FuncGen = struct {
 
         // TODO: Address space
         const variable_index =
-            try o.builder.addVariable(try o.builder.string("__zig_err_name_table"), .ptr, .default);
+            try o.builder.addVariable(try o.builder.strtabString("__zig_err_name_table"), .ptr, .default);
         variable_index.setLinkage(.private, &o.builder);
         variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);

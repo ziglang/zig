@@ -139,6 +139,17 @@ pub fn BitcodeWriter(comptime types: []const type) type {
             try self.writeBits(charTo6Bit(c), 6);
         }
 
+        pub fn writeBlob(self: *BcWriter, blob: []const u8) Error!void {
+            const blob_word_size = std.mem.alignForward(usize, blob.len, 4);
+            try self.buffer.ensureUnusedCapacity(blob_word_size + 1);
+            self.alignTo32() catch unreachable;
+
+            const slice = self.buffer.addManyAsSliceAssumeCapacity(blob_word_size / 4);
+            const slice_bytes = std.mem.sliceAsBytes(slice);
+            @memcpy(slice_bytes[0..blob.len], blob);
+            @memset(slice_bytes[blob.len..], 0);
+        }
+
         pub fn alignTo32(self: *BcWriter) Error!void {
             if (self.bit_count == 0) return;
 
@@ -256,11 +267,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
                             .char6 => try self.bitcode.write6BitChar(adapter.get(param, field_name)),
                             .blob => {
                                 try self.bitcode.writeVBR(param.len, 6);
-                                try self.bitcode.alignTo32();
-                                for (param) |x| {
-                                    try self.bitcode.writeBits(x, 8);
-                                }
-                                try self.bitcode.alignTo32();
+                                try self.bitcode.writeBlob(param);
                             },
                             .array_fixed => |len| {
                                 try self.bitcode.writeVBR(param.len, 6);
