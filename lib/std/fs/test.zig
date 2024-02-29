@@ -178,6 +178,19 @@ fn testReadLinkAbsolute(target_path: []const u8, symlink_path: []const u8) !void
     try testing.expectEqualStrings(target_path, given);
 }
 
+test "Dir.symLink with relative target that has a / path separator" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.makePath("a");
+    try tmp.dir.writeFile("a/file", "");
+    try tmp.dir.symLink("a/file", "symlink", .{});
+
+    const stat = try tmp.dir.statFile("symlink");
+    // statFile follows symlinks
+    try testing.expectEqual(File.Kind.file, stat.kind);
+}
+
 test "File.stat on a File that is a symlink returns Kind.sym_link" {
     // This test requires getting a file descriptor of a symlink which
     // is not possible on all targets

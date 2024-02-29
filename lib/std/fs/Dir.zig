@@ -1705,6 +1705,15 @@ pub fn symLink(
         var target_path_w: std.os.windows.PathSpace = undefined;
         target_path_w.len = try std.unicode.wtf8ToWtf16Le(&target_path_w.data, target_path);
         target_path_w.data[target_path_w.len] = 0;
+        // However, we need to canonicalize any path separators to `\`, since if
+        // the target path is relative, then it must use `\` as the path separator.
+        mem.replaceScalar(
+            u16,
+            target_path_w.data[0..target_path_w.len],
+            mem.nativeToLittle(u16, '/'),
+            mem.nativeToLittle(u16, '\\'),
+        );
+
         const sym_link_path_w = try std.os.windows.sliceToPrefixedFileW(self.fd, sym_link_path);
         return self.symLinkW(target_path_w.span(), sym_link_path_w.span(), flags);
     }
@@ -1744,6 +1753,7 @@ pub fn symLinkW(
     self: Dir,
     /// WTF-16, does not need to be NT-prefixed. The NT-prefixing
     /// of this path is handled by CreateSymbolicLink.
+    /// Any path separators must be `\`, not `/`.
     target_path_w: [:0]const u16,
     /// WTF-16, must be NT-prefixed or relative
     sym_link_path_w: []const u16,
