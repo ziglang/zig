@@ -622,7 +622,7 @@ fn createDirAndSymlink(dir: std.fs.Dir, link_name: []const u8, file_name: []cons
         if (err == error.FileNotFound) {
             if (std.fs.path.dirname(file_name)) |dir_name| {
                 try dir.makePath(dir_name);
-                try dir.symLink(link_name, file_name, .{});
+                return try dir.symLink(link_name, file_name, .{});
             }
         }
         return err;

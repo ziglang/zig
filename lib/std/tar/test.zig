@@ -464,6 +464,9 @@ test "tar case sensitivity" {
 }
 
 test "tar pipeToFileSystem" {
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     // $ tar tvf
     //    pipe_to_file_system_test/
     //    pipe_to_file_system_test/b/
