@@ -2013,7 +2013,7 @@ pub const Object = struct {
 
                     enumerators[i] = try o.builder.debugEnumerator(
                         try o.builder.metadataString(ip.stringToSlice(field_name_ip)),
-                        int_ty.isUnsignedInt(mod),
+                        int_info.signedness == .unsigned,
                         int_info.bits,
                         bigint,
                     );
