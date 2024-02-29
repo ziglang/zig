@@ -4320,8 +4320,6 @@ const is_hot_update_compatible = switch (builtin.target.os.tag) {
 const default_entry_symbol_name = "_main";
 
 pub const base_tag: link.File.Tag = link.File.Tag.macho;
-pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
-pub const N_BOUNDARY: u16 = @as(u16, @bitCast(@as(i16, -2)));
 
 const Section = struct {
     header: macho.section_64,
