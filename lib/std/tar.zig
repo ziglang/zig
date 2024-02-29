@@ -247,8 +247,8 @@ fn Iterator(comptime ReaderType: type) type {
 
         // buffers for heeader and file attributes
         header_buffer: [Header.SIZE]u8 = undefined,
-        file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
-        link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
+        file_name_buffer: [1024]u8 = undefined,
+        link_name_buffer: [1024]u8 = undefined,
 
         // bytes of padding to the end of the block
         padding: usize = 0,
