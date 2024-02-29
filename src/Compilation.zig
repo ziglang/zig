@@ -2584,10 +2584,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.addOptional(opts.initial_memory);
     man.hash.addOptional(opts.max_memory);
     man.hash.addOptional(opts.global_base);
-    man.hash.add(opts.export_symbol_names.len);
-    for (opts.export_symbol_names) |symbol_name| {
-        man.hash.addBytes(symbol_name);
-    }
+    man.hash.addListOfBytes(opts.export_symbol_names);
 
     // Mach-O specific stuff
     try link.File.MachO.hashAddFrameworks(man, opts.frameworks);
