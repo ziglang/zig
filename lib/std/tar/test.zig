@@ -323,9 +323,15 @@ test "tar run Go test cases" {
         },
     };
 
+    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+
     for (cases) |case| {
         var fsb = std.io.fixedBufferStream(case.data);
-        var iter = tar.iterator(fsb.reader(), null);
+        var iter = tar.iterator(fsb.reader(), .{
+            .file_name_buffer = &file_name_buffer,
+            .link_name_buffer = &link_name_buffer,
+        });
         var i: usize = 0;
         while (iter.next() catch |err| {
             if (case.err) |e| {
