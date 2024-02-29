@@ -896,7 +896,7 @@ pub const MetadataBlock = struct {
         pub const Flags = packed struct(u3) {
             distinct: bool = false,
             unsigned: bool,
-            bigint: bool,
+            bigint: bool = true,
         };
 
         pub const ops = [_]AbbrevOp{
