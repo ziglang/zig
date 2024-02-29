@@ -8,7 +8,7 @@ const LangOpts = @import("LangOpts.zig");
 const Parser = @import("Parser.zig");
 
 const Properties = @import("Builtins/Properties.zig");
-pub const Builtin = @import("Builtins/Builtin.def").with(Properties);
+pub const Builtin = @import("Builtins/Builtin.zig").with(Properties);
 
 const Expanded = struct {
     ty: Type,

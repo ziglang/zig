@@ -643,11 +643,8 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/target.zig"
     "${CMAKE_SOURCE_DIR}/src/tracy.zig"
     "${CMAKE_SOURCE_DIR}/src/translate_c.zig"
-    "${CMAKE_SOURCE_DIR}/src/translate_c/ast.zig"
     "${CMAKE_SOURCE_DIR}/src/type.zig"
     "${CMAKE_SOURCE_DIR}/src/wasi_libc.zig"
-    "${CMAKE_SOURCE_DIR}/src/stubs/aro_builtins.zig"
-    "${CMAKE_SOURCE_DIR}/src/stubs/aro_names.zig"
 )
 
 if(MSVC)
@@ -822,18 +819,7 @@ set(BUILD_ZIG2_ARGS
   --dep "aro"
   --mod "root" "src/main.zig"
   --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro_options" "src/stubs/aro_options.zig"
-  --mod "Builtins/Builtin.def" "src/stubs/aro_builtins.zig"
-  --mod "Attribute/names.def" "src/stubs/aro_names.zig"
-  --mod "Diagnostics/messages.def" "src/stubs/aro_messages.zig"
-  --dep "build_options=aro_options"
-  --mod "aro_backend" "deps/aro/backend.zig"
-  --dep "Builtins/Builtin.def"
-  --dep "Attribute/names.def"
-  --dep "Diagnostics/messages.def"
-  --dep "build_options=aro_options"
-  --dep "backend=aro_backend"
-  --mod "aro" "deps/aro/aro.zig"
+  --mod "aro" "lib/compiler/aro/aro.zig"
 )
 
 add_custom_command(

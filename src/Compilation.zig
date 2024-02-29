@@ -4007,8 +4007,6 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         }
         var tree = switch (comp.config.c_frontend) {
             .aro => tree: {
-                const translate_c = @import("aro_translate_c.zig");
-                _ = translate_c;
                 if (true) @panic("TODO");
                 break :tree undefined;
             },

@@ -92,7 +92,7 @@ const Properties = struct {
     pub const max_bits = Compilation.bit_int_max_bits;
 };
 
-pub const Tag = @import("Diagnostics/messages.def").with(Properties).Tag;
+pub const Tag = @import("Diagnostics/messages.zig").with(Properties).Tag;
 
 pub const Kind = enum { @"fatal error", @"error", note, warning, off, default };
 

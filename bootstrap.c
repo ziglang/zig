@@ -156,22 +156,8 @@ int main(int argc, char **argv) {
             "--dep", "build_options",
             "--dep", "aro",
             "--mod", "root", "src/main.zig",
-
             "--mod", "build_options", "config.zig",
-            "--mod", "aro_options", "src/stubs/aro_options.zig",
-            "--mod", "Builtins/Builtin.def", "src/stubs/aro_builtins.zig",
-            "--mod", "Attribute/names.def", "src/stubs/aro_names.zig",
-            "--mod", "Diagnostics/messages.def", "src/stubs/aro_messages.zig",
-
-            "--dep", "build_options=aro_options",
-            "--mod", "aro_backend", "deps/aro/backend.zig",
-
-            "--dep", "Builtins/Builtin.def",
-            "--dep", "Attribute/names.def",
-            "--dep", "Diagnostics/messages.def",
-            "--dep", "build_options=aro_options",
-            "--dep", "backend=aro_backend",
-            "--mod", "aro", "deps/aro/aro.zig",
+            "--mod", "aro", "lib/compiler/aro/aro.zig",
             NULL,
         };
         print_and_run(child_argv);

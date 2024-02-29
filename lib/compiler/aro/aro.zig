@@ -13,7 +13,7 @@ pub const TypeMapper = @import("aro/StringInterner.zig").TypeMapper;
 pub const target_util = @import("aro/target.zig");
 pub const Value = @import("aro/Value.zig");
 
-const backend = @import("backend");
+const backend = @import("backend.zig");
 pub const Interner = backend.Interner;
 pub const Ir = backend.Ir;
 pub const Object = backend.Object;
