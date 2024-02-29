@@ -590,6 +590,17 @@ fn initSymbolStabs(self: *Object, nlists: anytype, macho_file: *MachO) !void {
     const syms = self.symtab.items(.nlist);
     const sym_lookup = SymbolLookup{ .ctx = self, .entries = nlists };
 
+    // We need to cache nlists by name so that we can properly resolve local N_GSYM stabs.
+    // What happens is `ld -r` will emit an N_GSYM stab for a symbol that may be either an
+    // external or private external.
+    var addr_lookup = std.StringHashMap(u64).init(gpa);
+    defer addr_lookup.deinit();
+    for (syms) |sym| {
+        if (sym.sect() and (sym.ext() or sym.pext())) {
+            try addr_lookup.putNoClobber(self.getString(sym.n_strx), sym.n_value);
+        }
+    }
+
     var i: u32 = start;
     while (i < end) : (i += 1) {
         const open = syms[i];
@@ -611,17 +622,17 @@ fn initSymbolStabs(self: *Object, nlists: anytype, macho_file: *MachO) !void {
             var stab: StabFile.Stab = .{};
             switch (nlist.n_type) {
                 macho.N_BNSYM => {
-                    stab.tag = .func;
+                    stab.is_func = true;
                     stab.symbol = sym_lookup.find(nlist.n_value);
                     // TODO validate
                     i += 3;
                 },
                 macho.N_GSYM => {
-                    stab.tag = .global;
-                    stab.symbol = macho_file.getGlobalByName(self.getString(nlist.n_strx));
+                    stab.is_func = false;
+                    stab.symbol = sym_lookup.find(addr_lookup.get(self.getString(nlist.n_strx)).?);
                 },
                 macho.N_STSYM => {
-                    stab.tag = .static;
+                    stab.is_func = false;
                     stab.symbol = sym_lookup.find(nlist.n_value);
                 },
                 else => {
@@ -1421,11 +1432,7 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) error{Overflow}!void {
                 const file = sym.getFile(macho_file).?;
                 if (file.getIndex() != self.index) continue;
                 if (!sym.flags.output_symtab) continue;
-                const nstabs: u32 = switch (stab.tag) {
-                    .func => 4, // N_BNSYM, N_FUN, N_FUN, N_ENSYM
-                    .global => 1, // N_GSYM
-                    .static => 1, // N_STSYM
-                };
+                const nstabs: u32 = if (stab.is_func) 4 else 1;
                 self.output_symtab_ctx.nstabs += nstabs;
             }
         }
@@ -1654,31 +1661,27 @@ pub fn writeStabs(self: *const Object, macho_file: *MachO, ctx: anytype) error{O
                 const sym_n_sect: u8 = if (!sym.flags.abs) @intCast(sym.out_n_sect + 1) else 0;
                 const sym_n_value = sym.getAddress(.{}, macho_file);
                 const sym_size = sym.getSize(macho_file);
-                switch (stab.tag) {
-                    .func => {
-                        writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, ctx);
-                        index += 4;
-                    },
-                    .global => {
-                        ctx.symtab.items[index] = .{
-                            .n_strx = sym_n_strx,
-                            .n_type = macho.N_GSYM,
-                            .n_sect = sym_n_sect,
-                            .n_desc = 0,
-                            .n_value = 0,
-                        };
-                        index += 1;
-                    },
-                    .static => {
-                        ctx.symtab.items[index] = .{
-                            .n_strx = sym_n_strx,
-                            .n_type = macho.N_STSYM,
-                            .n_sect = sym_n_sect,
-                            .n_desc = 0,
-                            .n_value = sym_n_value,
-                        };
-                        index += 1;
-                    },
+                if (stab.is_func) {
+                    writeFuncStab(sym_n_strx, sym_n_sect, sym_n_value, sym_size, index, ctx);
+                    index += 4;
+                } else if (sym.visibility == .global) {
+                    ctx.symtab.items[index] = .{
+                        .n_strx = sym_n_strx,
+                        .n_type = macho.N_GSYM,
+                        .n_sect = sym_n_sect,
+                        .n_desc = 0,
+                        .n_value = 0,
+                    };
+                    index += 1;
+                } else {
+                    ctx.symtab.items[index] = .{
+                        .n_strx = sym_n_strx,
+                        .n_type = macho.N_STSYM,
+                        .n_sect = sym_n_sect,
+                        .n_desc = 0,
+                        .n_value = sym_n_value,
+                    };
+                    index += 1;
                 }
             }
 
@@ -1976,7 +1979,7 @@ const StabFile = struct {
     }
 
     const Stab = struct {
-        tag: enum { func, global, static } = .func,
+        is_func: bool = true,
         symbol: ?Symbol.Index = null,
 
         fn getSymbol(stab: Stab, macho_file: *MachO) ?*Symbol {
