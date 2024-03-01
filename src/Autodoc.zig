@@ -5669,6 +5669,42 @@ fn walkRef(
                     .expr = .{ .int = .{ .value = 1 } },
                 };
             },
+            .negative_one => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.comptime_int_type) },
+                    .expr = .{ .int = .{ .value = 1, .negated = true } },
+                };
+            },
+            .zero_usize => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
+                    .expr = .{ .int = .{ .value = 0 } },
+                };
+            },
+            .one_usize => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
+                    .expr = .{ .int = .{ .value = 1 } },
+                };
+            },
+            .zero_u8 => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.u8_type) },
+                    .expr = .{ .int = .{ .value = 0 } },
+                };
+            },
+            .one_u8 => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.u8_type) },
+                    .expr = .{ .int = .{ .value = 1 } },
+                };
+            },
+            .four_u8 => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.u8_type) },
+                    .expr = .{ .int = .{ .value = 4 } },
+                };
+            },
 
             .void_value => {
                 return DocData.WalkResult{
@@ -5699,18 +5735,6 @@ fn walkRef(
             },
             .empty_struct => {
                 return DocData.WalkResult{ .expr = .{ .@"struct" = &.{} } };
-            },
-            .zero_usize => {
-                return DocData.WalkResult{
-                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
-                    .expr = .{ .int = .{ .value = 0 } },
-                };
-            },
-            .one_usize => {
-                return DocData.WalkResult{
-                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
-                };
             },
             .calling_convention_type => {
                 return DocData.WalkResult{
