@@ -382,7 +382,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 pub fn installHeader(cs: *Compile, src_path: []const u8, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
     const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
-    b.getInstallStep().dependOn(&install_file.step);
+    cs.step.dependOn(&install_file.step);
     cs.installed_headers.append(&install_file.step) catch @panic("OOM");
 }
 
@@ -404,7 +404,7 @@ pub fn installConfigHeader(
         dest_rel_path,
     );
     install_file.step.dependOn(&config_header.step);
-    b.getInstallStep().dependOn(&install_file.step);
+    cs.step.dependOn(&install_file.step);
     cs.installed_headers.append(&install_file.step) catch @panic("OOM");
 }
 
@@ -426,14 +426,13 @@ pub fn installHeadersDirectoryOptions(
 ) void {
     const b = cs.step.owner;
     const install_dir = b.addInstallDirectory(options);
-    b.getInstallStep().dependOn(&install_dir.step);
+    cs.step.dependOn(&install_dir.step);
     cs.installed_headers.append(&install_dir.step) catch @panic("OOM");
 }
 
 pub fn installLibraryHeaders(cs: *Compile, l: *Compile) void {
     assert(l.kind == .lib);
     const b = cs.step.owner;
-    const install_step = b.getInstallStep();
     // Copy each element from installed_headers, modifying the builder
     // to be the new parent's builder.
     for (l.installed_headers.items) |step| {
@@ -448,7 +447,7 @@ pub fn installLibraryHeaders(cs: *Compile, l: *Compile) void {
             else => unreachable,
         };
         cs.installed_headers.append(step_copy) catch @panic("OOM");
-        install_step.dependOn(step_copy);
+        cs.step.dependOn(step_copy);
     }
     cs.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
 }
@@ -1886,4 +1885,106 @@ fn moduleNeedsCliArg(mod: *const Module) bool {
         .c_source_file, .c_source_files, .assembly_file, .win32_resource_file => break true,
         else => continue,
     } else false;
+}
+
+// https://github.com/ziglang/zig/issues/17204
+test "installed header dependencies" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var graph: std.Build.Graph = .{
+        .arena = arena.allocator(),
+        .cache = .{
+            .gpa = arena.allocator(),
+            .manifest_dir = std.fs.cwd(),
+        },
+        .zig_exe = "test",
+        .env_map = std.process.EnvMap.init(arena.allocator()),
+        .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
+    };
+
+    var builder = try std.Build.create(
+        &graph,
+        .{ .path = "test", .handle = std.fs.cwd() },
+        .{ .path = "test", .handle = std.fs.cwd() },
+        &.{},
+    );
+
+    const config_header = builder.addConfigHeader(.{}, .{});
+
+    const foo = builder.addStaticLibrary(.{
+        .name = "foo",
+        .root_source_file = .{ .path = "foo.zig" },
+        .optimize = .Debug,
+        .target = builder.resolveTargetQuery(.{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .abi = .gnu,
+        }),
+    });
+
+    // Install some headers as part of the foo library and verify that
+    // it declares a dependency on each header installation step.
+    {
+        foo.installHeader("foo.h", "foo.h");
+        foo.installConfigHeader(config_header, .{
+            .dest_rel_path = "config.h",
+        });
+        foo.installHeadersDirectoryOptions(.{
+            .source_dir = .{ .path = "test/include" },
+            .install_dir = .header,
+            .install_subdir = "test",
+        });
+
+        const foo_step = foo.step;
+        for (foo.installed_headers.items) |header_step| {
+            const found = for (foo_step.dependencies.items) |dep| {
+                if (dep == header_step) {
+                    break true;
+                }
+            } else false;
+
+            errdefer std.debug.print("direct: missing dependency: {s}\n", .{header_step.name});
+            try std.testing.expect(found);
+        }
+    }
+
+    // Create another library, install foo's headers into it, and verify that
+    // it declares a dependency on each header installation step.
+    const bar = builder.addStaticLibrary(.{
+        .name = "bar",
+        .root_source_file = .{ .path = "bar.zig" },
+        .optimize = .Debug,
+        .target = builder.resolveTargetQuery(.{
+            .cpu_arch = .aarch64,
+            .os_tag = .linux,
+            .abi = .gnu,
+        }),
+    });
+
+    {
+        bar.installLibraryHeaders(foo);
+
+        const foo_step = foo.step;
+        const bar_step = bar.step;
+
+        // installLibraryHeaders adds new steps for the headers,
+        // but also a copy of those from the original library.
+        //
+        // So each header could be depended on by either foo or bar.
+        var all_dependencies = std.ArrayList(*std.Build.Step).init(arena.allocator());
+        try all_dependencies.appendSlice(foo_step.dependencies.items);
+        try all_dependencies.appendSlice(bar_step.dependencies.items);
+
+        for (bar.installed_headers.items) |header_step| {
+            const found = for (all_dependencies.items) |dep| {
+                if (dep == header_step) {
+                    break true;
+                }
+            } else false;
+
+            errdefer std.debug.print("transitive: missing dependency: {s}\n", .{header_step.name});
+            try std.testing.expect(found);
+        }
+    }
 }
