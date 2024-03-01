@@ -87,8 +87,8 @@ pub const Options = struct {
 
 pub const Header = struct {
     const SIZE = 512;
-    const MAX_NAME_SIZE = 100 + 1 + 155; // name(100) + separator(1) + prefix(155)
-    const LINK_NAME_SIZE = 100;
+    pub const MAX_NAME_SIZE = 100 + 1 + 155; // name(100) + separator(1) + prefix(155)
+    pub const LINK_NAME_SIZE = 100;
 
     bytes: *const [SIZE]u8,
 
@@ -248,7 +248,13 @@ pub const IteratorOptions = struct {
 
 /// Iterates over files in tar archive.
 /// `next` returns each file in `reader` tar archive.
-pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
+/// Provided buffers should be at least 256 bytes for file_name and 100 bytes
+/// for link_name.
+pub fn iterator(reader: anytype, options: IteratorOptions) !Iterator(@TypeOf(reader)) {
+    if (options.file_name_buffer.len < Header.MAX_NAME_SIZE or
+        options.link_name_buffer.len < Header.LINK_NAME_SIZE)
+        return error.TarInsufficientBuffer;
+
     return .{
         .reader = reader,
         .diagnostics = options.diagnostics,
@@ -318,7 +324,7 @@ fn Iterator(comptime ReaderType: type) type {
         }
 
         fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
-            if (size > buffer.len) return error.TarCorruptInput;
+            if (size > buffer.len) return error.TarInsufficientBuffer;
             const buf = buffer[0..size];
             try self.reader.readNoEof(buf);
             return nullStr(buf);
@@ -470,7 +476,8 @@ fn PaxIterator(comptime ReaderType: type) type {
             // Copies pax attribute value into destination buffer.
             // Must be called with destination buffer of size at least Attribute.len.
             pub fn value(self: Attribute, dst: []u8) ![]const u8 {
-                assert(self.len <= dst.len);
+                if (self.len > dst.len) return error.TarInsufficientBuffer;
+                // assert(self.len <= dst.len);
                 const buf = dst[0..self.len];
                 const n = try self.reader.readAll(buf);
                 if (n < self.len) return error.UnexpectedEndOfStream;
@@ -558,7 +565,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
 
     var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var iter = iterator(reader, .{
+    var iter = try iterator(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
         .diagnostics = options.diagnostics,

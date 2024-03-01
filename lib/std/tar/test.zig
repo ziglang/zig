@@ -315,7 +315,7 @@ test "tar run Go test cases" {
         },
         .{
             .data = @embedFile("testdata/fuzz1.tar"),
-            .err = error.TarCorruptInput,
+            .err = error.TarInsufficientBuffer,
         },
         .{
             .data = @embedFile("testdata/fuzz2.tar"),
@@ -328,7 +328,7 @@ test "tar run Go test cases" {
 
     for (cases) |case| {
         var fsb = std.io.fixedBufferStream(case.data);
-        var iter = tar.iterator(fsb.reader(), .{
+        var iter = try tar.iterator(fsb.reader(), .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
         });
@@ -358,6 +358,27 @@ test "tar run Go test cases" {
             }
         }
         try testing.expectEqual(case.files.len, i);
+    }
+
+    var min_file_name_buffer: [tar.Header.MAX_NAME_SIZE]u8 = undefined;
+    var min_link_name_buffer: [tar.Header.LINK_NAME_SIZE]u8 = undefined;
+    const long_name_cases = [_]Case{ cases[11], cases[25], cases[28] };
+
+    for (long_name_cases) |case| {
+        var fsb = std.io.fixedBufferStream(case.data);
+        var iter = try tar.iterator(fsb.reader(), .{
+            .file_name_buffer = &min_file_name_buffer,
+            .link_name_buffer = &min_link_name_buffer,
+        });
+
+        var iter_err: ?anyerror = null;
+        while (iter.next() catch |err| brk: {
+            iter_err = err;
+            break :brk null;
+        }) |_| {}
+
+        try testing.expect(iter_err != null);
+        try testing.expectEqual(error.TarInsufficientBuffer, iter_err.?);
     }
 }
 
@@ -490,6 +511,21 @@ test "tar pipeToFileSystem" {
     try testing.expectError(error.FileNotFound, root.dir.statFile("empty"));
     try testing.expect((try root.dir.statFile("a/file")).kind == .file);
     try testing.expect((try root.dir.statFile("b/symlink")).kind == .file); // statFile follows symlink
+
     var buf: [32]u8 = undefined;
     try testing.expectEqualSlices(u8, "../a/file", try root.dir.readLink("b/symlink", &buf));
+}
+
+test "insufficient buffer for iterator" {
+    var file_name_buffer: [10]u8 = undefined;
+    var link_name_buffer: [10]u8 = undefined;
+
+    var fsb = std.io.fixedBufferStream("");
+    try testing.expectError(
+        error.TarInsufficientBuffer,
+        tar.iterator(fsb.reader(), .{
+            .file_name_buffer = &file_name_buffer,
+            .link_name_buffer = &link_name_buffer,
+        }),
+    );
 }
