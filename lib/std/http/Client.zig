@@ -1134,7 +1134,7 @@ pub fn deinit(client: *Client) void {
     client.* = undefined;
 }
 
-/// Populates `http_proxy` and `http_proxy` via standard proxy environment variables.
+/// Populates `http_proxy` and `https_proxy` via standard proxy environment variables.
 /// Asserts the client has no active connections.
 /// Uses `arena` for a few small allocations that must outlive the client, or
 /// at least until those fields are set to different values.
