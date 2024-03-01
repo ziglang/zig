@@ -656,7 +656,7 @@ fn stripComponents(path: []const u8, count: u32) []const u8 {
     return path[i..];
 }
 
-test "tar stripComponents" {
+test "stripComponents" {
     const expectEqualStrings = std.testing.expectEqualStrings;
     try expectEqualStrings("a/b/c", stripComponents("a/b/c", 0));
     try expectEqualStrings("b/c", stripComponents("a/b/c", 1));
@@ -665,7 +665,7 @@ test "tar stripComponents" {
     try expectEqualStrings("", stripComponents("a/b/c", 4));
 }
 
-test "tar PaxIterator" {
+test "PaxIterator" {
     const Attr = struct {
         kind: PaxAttributeKind,
         value: []const u8 = undefined,
@@ -793,7 +793,7 @@ test {
     _ = @import("tar/test.zig");
 }
 
-test "tar header parse size" {
+test "header parse size" {
     const cases = [_]struct {
         in: []const u8,
         want: u64 = 0,
@@ -828,7 +828,7 @@ test "tar header parse size" {
     }
 }
 
-test "tar header parse mode" {
+test "header parse mode" {
     const cases = [_]struct {
         in: []const u8,
         want: u64 = 0,
@@ -870,4 +870,18 @@ test "create file and symlink" {
     // Danglink symlnik, file created later
     _ = try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
     _ = try createDirAndFile(root.dir, "g/h/i/file4");
+}
+
+test "insufficient buffer for iterator" {
+    var file_name_buffer: [10]u8 = undefined;
+    var link_name_buffer: [10]u8 = undefined;
+
+    var fsb = std.io.fixedBufferStream("");
+    try std.testing.expectError(
+        error.TarInsufficientBuffer,
+        iterator(fsb.reader(), .{
+            .file_name_buffer = &file_name_buffer,
+            .link_name_buffer = &link_name_buffer,
+        }),
+    );
 }

@@ -2,7 +2,7 @@ const std = @import("std");
 const tar = @import("../tar.zig");
 const testing = std.testing;
 
-test "tar run Go test cases" {
+test "run test cases" {
     const Case = struct {
         const File = struct {
             name: []const u8,
@@ -401,7 +401,7 @@ const Md5Writer = struct {
     }
 };
 
-test "tar should not overwrite existing file" {
+test "should not overwrite existing file" {
     // Starting from this folder structure:
     // $ tree root
     //    root
@@ -457,7 +457,7 @@ test "tar should not overwrite existing file" {
     try tar.pipeToFileSystem(root2.dir, fsb.reader(), .{ .mode_mode = .ignore, .strip_components = 0 });
 }
 
-test "tar case sensitivity" {
+test "case sensitivity" {
     // Mimicking issue #18089, this tar contains, same file name in two case
     // sensitive name version. Should fail on case insensitive file systems.
     //
@@ -484,7 +484,7 @@ test "tar case sensitivity" {
     try testing.expect((try root.dir.statFile("alacritty/Darkermatrix.yml")).kind == .file);
 }
 
-test "tar pipeToFileSystem" {
+test "pipeToFileSystem" {
     // $ tar tvf
     //    pipe_to_file_system_test/
     //    pipe_to_file_system_test/b/
@@ -514,18 +514,4 @@ test "tar pipeToFileSystem" {
 
     var buf: [32]u8 = undefined;
     try testing.expectEqualSlices(u8, "../a/file", try root.dir.readLink("b/symlink", &buf));
-}
-
-test "insufficient buffer for iterator" {
-    var file_name_buffer: [10]u8 = undefined;
-    var link_name_buffer: [10]u8 = undefined;
-
-    var fsb = std.io.fixedBufferStream("");
-    try testing.expectError(
-        error.TarInsufficientBuffer,
-        tar.iterator(fsb.reader(), .{
-            .file_name_buffer = &file_name_buffer,
-            .link_name_buffer = &link_name_buffer,
-        }),
-    );
 }
