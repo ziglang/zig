@@ -2540,7 +2540,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
 pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+    if (std.options.unexpected_error_tracing) {
         // 614 is the length of the longest windows error description
         var buf_wstr: [614]WCHAR = undefined;
         const len = kernel32.FormatMessageW(
@@ -2568,7 +2568,7 @@ pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
 pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+    if (std.options.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }

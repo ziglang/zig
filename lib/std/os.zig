@@ -5989,12 +5989,6 @@ pub fn toPosixPath(file_path: []const u8) ![MAX_PATH_BYTES - 1:0]u8 {
     return path_with_null;
 }
 
-/// Whether or not error.Unexpected will print its value and a stack trace.
-/// if this happens the fix is to add the error code to the corresponding
-/// switch expression, possibly introduce a new error in the error set, and
-/// send a patch to Zig.
-pub const unexpected_error_tracing = builtin.zig_backend == .stage2_llvm and builtin.mode == .Debug;
-
 pub const UnexpectedError = error{
     /// The Operating System returned an undocumented error code.
     /// This error is in theory not possible, but it would be better
@@ -6005,7 +5999,7 @@ pub const UnexpectedError = error{
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
 pub fn unexpectedErrno(err: E) UnexpectedError {
-    if (unexpected_error_tracing) {
+    if (std.options.unexpected_error_tracing) {
         std.debug.print("unexpected errno: {d}\n", .{@intFromEnum(err)});
         std.debug.dumpCurrentStackTrace(null);
     }

@@ -3059,7 +3059,7 @@ pub fn getKernError(err: kern_return_t) KernE {
 }
 
 pub fn unexpectedKernError(err: KernE) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+    if (std.options.unexpected_error_tracing) {
         std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
         std.debug.dumpCurrentStackTrace(null);
     }

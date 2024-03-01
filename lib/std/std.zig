@@ -252,6 +252,12 @@ pub const Options = struct {
     http_disable_tls: bool = false,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    /// Whether or not error.Unexpected will print its value and a stack trace.
+    /// if this happens the fix is to add the error code to the corresponding
+    /// switch expression, possibly introduce a new error in the error set, and
+    /// send a patch to Zig.
+    unexpected_error_tracing: bool = @import("builtin").zig_backend == .stage2_llvm and @import("builtin").mode == .Debug,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
