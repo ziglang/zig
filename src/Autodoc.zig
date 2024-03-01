@@ -5137,7 +5137,7 @@ fn analyzeFancyFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[0],
+                    fn_info.body,
                     call_ctx,
                 );
             } else {
@@ -5303,7 +5303,7 @@ fn analyzeFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[0],
+                    fn_info.body,
                     call_ctx,
                 );
             } else {
@@ -5350,17 +5350,10 @@ fn getGenericReturnType(
     file: *File,
     scope: *Scope,
     parent_src: SrcLocInfo, // function decl line
-    body_main_block: Zir.Inst.Index,
+    body: []const Zir.Inst.Index,
     call_ctx: ?*const CallContext,
 ) !DocData.Expr {
     const tags = file.zir.instructions.items(.tag);
-    const data = file.zir.instructions.items(.data);
-
-    // We expect `body_main_block` to be the first instruction
-    // inside the function body, and for it to be a block instruction.
-    const pl_node = data[@intFromEnum(body_main_block)].pl_node;
-    const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-    const body = file.zir.bodySlice(extra.end, extra.data.body_len);
     if (body.len >= 4) {
         const maybe_ret_inst = body[body.len - 4];
         switch (tags[@intFromEnum(maybe_ret_inst)]) {
