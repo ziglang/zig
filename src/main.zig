@@ -67,8 +67,6 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     process.exit(1);
 }
 
-const debug_extensions_enabled = builtin.mode == .Debug;
-
 const normal_usage =
     \\Usage: zig [command] [options]
     \\
@@ -120,7 +118,7 @@ const debug_usage = normal_usage ++
     \\
 ;
 
-const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
+const usage = if (build_options.enable_debug_extensions) debug_usage else normal_usage;
 
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
@@ -334,9 +332,9 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return io.getStdOut().writeAll(usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(gpa, arena, cmd_args);
-    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "changelist")) {
+    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(gpa, arena, cmd_args);
-    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "dump-zir")) {
+    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
         return cmdDumpZir(gpa, arena, cmd_args);
     } else {
         std.log.info("{s}", .{usage});
@@ -1591,10 +1589,10 @@ fn buildOutputType(
                             });
                         };
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                        if (!crash_report.is_enabled) {
-                            warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
-                        } else {
+                        if (build_options.enable_debug_extensions) {
                             debug_compile_errors = true;
+                        } else {
+                            warn("Zig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
                         }
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
                         verbose_link = true;
@@ -5076,10 +5074,10 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     }
                     continue;
                 } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                    if (!crash_report.is_enabled) {
-                        warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
-                    } else {
+                    if (build_options.enable_debug_extensions) {
                         debug_compile_errors = true;
+                    } else {
+                        warn("Zig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
                     }
                 } else if (mem.eql(u8, arg, "--verbose-link")) {
                     verbose_link = true;
@@ -6317,8 +6315,8 @@ fn cmdAstCheck(
     if (!want_output_text) {
         return cleanExit();
     }
-    if (!debug_extensions_enabled) {
-        fatal("-t option only available in debug builds of zig", .{});
+    if (!build_options.enable_debug_extensions) {
+        fatal("-t option only available in builds of zig with debug extensions", .{});
     }
 
     {

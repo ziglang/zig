@@ -1601,7 +1601,7 @@ pub fn HashMapUnmanaged(
         }
 
         comptime {
-            if (builtin.mode == .Debug) {
+            if (!builtin.strip_debug_info) {
                 _ = &dbHelper;
             }
         }

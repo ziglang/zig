@@ -2505,7 +2505,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
     ref: {
         errdefer err_msg.destroy(gpa);
 
-        if (crash_report.is_enabled and mod.comp.debug_compile_errors) {
+        if (build_options.enable_debug_extensions and mod.comp.debug_compile_errors) {
             var wip_errors: std.zig.ErrorBundle.Wip = undefined;
             wip_errors.init(gpa) catch unreachable;
             Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*) catch unreachable;
@@ -5758,7 +5758,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     const body = sema.code.bodySlice(extra.end, extra.data.body_len);
 
     // we check this here to avoid undefined symbols
-    if (!@import("build_options").have_llvm)
+    if (!build_options.have_llvm)
         return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
 
     var c_import_buf = std.ArrayList(u8).init(gpa);

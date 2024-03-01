@@ -250,6 +250,7 @@ pub fn build(b: *std.Build) !void {
     }
 
     const is_debug = optimize == .Debug;
+    const enable_debug_extensions = b.option(bool, "debug-extensions", "Enable commands and options useful for debugging the compiler") orelse is_debug;
     const enable_logging = b.option(bool, "log", "Enable debug logging with --debug-log") orelse is_debug;
     const enable_link_snapshots = b.option(bool, "link-snapshot", "Whether to enable linker state snapshots") orelse false;
 
@@ -357,6 +358,7 @@ pub fn build(b: *std.Build) !void {
     const semver = try std.SemanticVersion.parse(version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
 
+    exe_options.addOption(bool, "enable_debug_extensions", enable_debug_extensions);
     exe_options.addOption(bool, "enable_logging", enable_logging);
     exe_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     exe_options.addOption(bool, "enable_tracy", tracy != null);
@@ -393,6 +395,7 @@ pub fn build(b: *std.Build) !void {
     check_case_exe.root_module.addOptions("build_options", test_cases_options);
 
     test_cases_options.addOption(bool, "enable_tracy", false);
+    test_cases_options.addOption(bool, "enable_debug_extensions", enable_debug_extensions);
     test_cases_options.addOption(bool, "enable_logging", enable_logging);
     test_cases_options.addOption(bool, "enable_link_snapshots", enable_link_snapshots);
     test_cases_options.addOption(bool, "skip_non_native", skip_non_native);
@@ -588,6 +591,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "only_c", true);
     exe_options.addOption([:0]const u8, "version", version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
+    exe_options.addOption(bool, "enable_debug_extensions", false);
     exe_options.addOption(bool, "enable_logging", false);
     exe_options.addOption(bool, "enable_link_snapshots", false);
     exe_options.addOption(bool, "enable_tracy", false);

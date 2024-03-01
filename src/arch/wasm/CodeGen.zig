@@ -735,7 +735,7 @@ free_locals_v128: std.ArrayListUnmanaged(u32) = .{},
 /// stored in our `values` map and therefore cause bugs.
 air_bookkeeping: @TypeOf(bookkeeping_init) = bookkeeping_init,
 
-const bookkeeping_init = if (builtin.mode == .Debug) @as(usize, 0) else {};
+const bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 
 const InnerError = error{
     OutOfMemory,
@@ -830,7 +830,7 @@ fn finishAir(func: *CodeGen, inst: Air.Inst.Index, result: WValue, operands: []c
         branch.values.putAssumeCapacityNoClobber(inst.toRef(), result);
     }
 
-    if (builtin.mode == .Debug) {
+    if (std.debug.runtime_safety) {
         func.air_bookkeeping += 1;
     }
 }
@@ -866,7 +866,7 @@ const BigTomb = struct {
             bt.gen.currentBranch().values.putAssumeCapacityNoClobber(bt.inst.toRef(), result);
         }
 
-        if (builtin.mode == .Debug) {
+        if (std.debug.runtime_safety) {
             bt.gen.air_bookkeeping += 1;
         }
     }
@@ -2079,7 +2079,7 @@ fn genBody(func: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, Liveness.bpi);
         try func.genInst(inst);
 
-        if (builtin.mode == .Debug and func.air_bookkeeping < old_bookkeeping_value + 1) {
+        if (std.debug.runtime_safety and func.air_bookkeeping < old_bookkeeping_value + 1) {
             std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{}')", .{
                 inst,
                 func.air.instructions.items(.tag)[@intFromEnum(inst)],
