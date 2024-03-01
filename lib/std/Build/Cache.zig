@@ -245,6 +245,11 @@ pub const HashHelper = struct {
         for (list_of_bytes) |bytes| hh.addBytes(bytes);
     }
 
+    pub fn addOptionalListOfBytes(hh: *HashHelper, optional_list_of_bytes: ?[]const []const u8) void {
+        hh.add(optional_list_of_bytes != null);
+        hh.addListOfBytes(optional_list_of_bytes orelse return);
+    }
+
     /// Convert the input value into bytes and record it as a dependency of the process being cached.
     pub fn add(hh: *HashHelper, x: anytype) void {
         switch (@TypeOf(x)) {
