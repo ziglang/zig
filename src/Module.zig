@@ -3203,8 +3203,8 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
 
     const comp = zcu.comp;
 
-    const dump_air = builtin.mode == .Debug and comp.verbose_air;
-    const dump_llvm_ir = builtin.mode == .Debug and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
+    const dump_air = build_options.enable_debug_extensions and comp.verbose_air;
+    const dump_llvm_ir = build_options.enable_debug_extensions and (comp.verbose_llvm_ir != null or comp.verbose_llvm_bc != null);
 
     if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
         return;

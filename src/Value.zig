@@ -4069,7 +4069,7 @@ fn dbHelper(self: *Value, tag_to_payload_map: *map: {
 }
 
 comptime {
-    if (builtin.mode == .Debug) {
+    if (!builtin.strip_debug_info) {
         _ = &dbHelper;
     }
 }

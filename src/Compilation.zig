@@ -2191,14 +2191,14 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.module) |module| {
-        if (builtin.mode == .Debug and comp.verbose_intern_pool) {
+        if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
                 comp.root_name,
             });
             module.intern_pool.dump();
         }
 
-        if (builtin.mode == .Debug and comp.verbose_generic_instances) {
+        if (build_options.enable_debug_extensions and comp.verbose_generic_instances) {
             std.debug.print("generic instances for '{s}:0x{x}':\n", .{
                 comp.root_name,
                 @as(usize, @intFromPtr(module)),

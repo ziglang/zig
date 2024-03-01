@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const debug = std.debug;
 const os = std.os;
 const io = std.io;
@@ -11,37 +12,26 @@ const Sema = @import("Sema.zig");
 const Zir = std.zig.Zir;
 const Decl = Module.Decl;
 
-pub const is_enabled = builtin.mode == .Debug;
-
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
-pub const panic = if (is_enabled) compilerPanic else std.builtin.default_panic;
+pub const panic = if (build_options.enable_debug_extensions) compilerPanic else std.builtin.default_panic;
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {
-    if (is_enabled and debug.have_segfault_handling_support) {
+    if (build_options.enable_debug_extensions and debug.have_segfault_handling_support) {
         attachSegfaultHandler();
     }
 }
 
-fn En(comptime T: type) type {
-    return if (is_enabled) T else void;
-}
-
-fn en(val: anytype) En(@TypeOf(val)) {
-    return if (is_enabled) val else {};
-}
-
-pub const AnalyzeBody = struct {
-    parent: if (is_enabled) ?*AnalyzeBody else void,
-    sema: En(*Sema),
-    block: En(*Sema.Block),
-    body: En([]const Zir.Inst.Index),
-    body_index: En(usize),
+pub const AnalyzeBody = if (build_options.enable_debug_extensions) struct {
+    parent: ?*AnalyzeBody,
+    sema: *Sema,
+    block: *Sema.Block,
+    body: []const Zir.Inst.Index,
+    body_index: usize,
 
     pub fn push(self: *@This()) void {
-        if (!is_enabled) return;
         const head = &zir_state;
         debug.assert(self.parent == null);
         self.parent = head.*;
@@ -49,7 +39,6 @@ pub const AnalyzeBody = struct {
     }
 
     pub fn pop(self: *@This()) void {
-        if (!is_enabled) return;
         const head = &zir_state;
         const old = head.*.?;
         debug.assert(old == self);
@@ -57,27 +46,24 @@ pub const AnalyzeBody = struct {
     }
 
     pub fn setBodyIndex(self: *@This(), index: usize) void {
-        if (!is_enabled) return;
         self.body_index = index;
     }
+} else struct {
+    pub inline fn push(_: @This()) void {}
+    pub inline fn pop(_: @This()) void {}
+    pub inline fn setBodyIndex(_: @This(), _: usize) void {}
 };
 
-threadlocal var zir_state: ?*AnalyzeBody = if (is_enabled) null else @compileError("Cannot use zir_state if crash_report is disabled.");
+threadlocal var zir_state: ?*AnalyzeBody = if (build_options.enable_debug_extensions) null else @compileError("Cannot use zir_state without debug extensions.");
 
 pub fn prepAnalyzeBody(sema: *Sema, block: *Sema.Block, body: []const Zir.Inst.Index) AnalyzeBody {
-    if (is_enabled) {
-        return .{
-            .parent = null,
-            .sema = sema,
-            .block = block,
-            .body = body,
-            .body_index = 0,
-        };
-    } else {
-        if (@sizeOf(AnalyzeBody) != 0)
-            @compileError("AnalyzeBody must have zero size when crash reports are disabled");
-        return undefined;
-    }
+    return if (build_options.enable_debug_extensions) .{
+        .parent = null,
+        .sema = sema,
+        .block = block,
+        .body = body,
+        .body_index = 0,
+    } else .{};
 }
 
 fn dumpStatusReport() !void {
