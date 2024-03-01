@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 //! Tar archive is single ordinary file which can contain many files (or
 //! directories, symlinks, ...). It's build by series of blocks each size of 512
 //! bytes. First block of each entry is header which defines type, name, size
@@ -127,6 +128,8 @@ pub const Header = struct {
         return buffer[0 .. p.len + 1 + n.len];
     }
 
+    /// When kind is symbolic_link linked-to name (target_path) is specified in
+    /// the linkname field.
     pub fn linkName(header: Header, buffer: *[LINK_NAME_SIZE]u8) []const u8 {
         const link_name = header.str(157, 100);
         if (link_name.len == 0) {
@@ -619,6 +622,7 @@ fn createDirAndFile(dir: std.fs.Dir, file_name: []const u8) !std.fs.File {
     return fs_file;
 }
 
+// Creates a symbolic link at path `file_name` which points to `link_name`.
 fn createDirAndSymlink(dir: std.fs.Dir, link_name: []const u8, file_name: []const u8) !void {
     dir.symLink(link_name, file_name, .{}) catch |err| {
         if (err == error.FileNotFound) {
@@ -840,4 +844,23 @@ test "tar header parse mode" {
             try std.testing.expectEqual(case.want, try header.mode());
         }
     }
+}
+
+test "create file and symlink" {
+    var root = std.testing.tmpDir(.{});
+    defer root.cleanup();
+
+    _ = try createDirAndFile(root.dir, "file1");
+    _ = try createDirAndFile(root.dir, "a/b/c/file2");
+
+    _ = createDirAndSymlink(root.dir, "a/b/c/file2", "symlink1") catch |err| {
+        // On Windows when developer mode is not enabled
+        if (err == error.AccessDenied) return error.SkipZigTest;
+        return err;
+    };
+    _ = try createDirAndSymlink(root.dir, "../../../file1", "d/e/f/symlink2");
+
+    // Danglink symlnik, file created later
+    _ = try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
+    _ = try createDirAndFile(root.dir, "g/h/i/file4");
 }

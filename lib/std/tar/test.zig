@@ -1,5 +1,5 @@
-const std = @import("../std.zig");
-const tar = std.tar;
+const std = @import("std");
+const tar = @import("../tar.zig");
 const testing = std.testing;
 
 test "tar run Go test cases" {
@@ -489,8 +489,7 @@ test "tar pipeToFileSystem" {
 
     try testing.expectError(error.FileNotFound, root.dir.statFile("empty"));
     try testing.expect((try root.dir.statFile("a/file")).kind == .file);
-    // TODO is there better way to test symlink
     try testing.expect((try root.dir.statFile("b/symlink")).kind == .file); // statFile follows symlink
     var buf: [32]u8 = undefined;
-    _ = try root.dir.readLink("b/symlink", &buf);
+    try testing.expectEqualSlices(u8, "../a/file", try root.dir.readLink("b/symlink", &buf));
 }
