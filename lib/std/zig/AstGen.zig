@@ -8458,7 +8458,14 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
                     try astgen.errNoteTok(num_token, "use '-0.0' for a floating-point signed zero", .{}),
                 },
             ),
-            1 => .one,
+            1 => {
+                // Handle the negation here!
+                const result: Zir.Inst.Ref = switch (sign) {
+                    .positive => .one,
+                    .negative => .negative_one,
+                };
+                return rvalue(gz, ri, result, source_node);
+            },
             else => try gz.addInt(num),
         },
         .big_int => |base| big: {
