@@ -115,9 +115,10 @@ pub const Header = struct {
 
     /// Includes prefix concatenated, if any.
     /// TODO: check against "../" and other nefarious things
-    pub fn fullName(header: Header, buffer: *[MAX_NAME_SIZE]u8) ![]const u8 {
+    pub fn fullName(header: Header, buffer: []u8) ![]const u8 {
         const n = name(header);
         const p = prefix(header);
+        if (buffer.len < n.len + p.len + 1) return error.TarInsufficientBuffer;
         if (!is_ustar(header) or p.len == 0) {
             @memcpy(buffer[0..n.len], n);
             return buffer[0..n.len];
@@ -130,11 +131,12 @@ pub const Header = struct {
 
     /// When kind is symbolic_link linked-to name (target_path) is specified in
     /// the linkname field.
-    pub fn linkName(header: Header, buffer: *[LINK_NAME_SIZE]u8) []const u8 {
+    pub fn linkName(header: Header, buffer: []u8) ![]const u8 {
         const link_name = header.str(157, 100);
         if (link_name.len == 0) {
             return buffer[0..0];
         }
+        if (buffer.len < link_name.len) return error.TarInsufficientBuffer;
         const buf = buffer[0..link_name.len];
         @memcpy(buf, link_name);
         return buf;
@@ -248,13 +250,7 @@ pub const IteratorOptions = struct {
 
 /// Iterates over files in tar archive.
 /// `next` returns each file in `reader` tar archive.
-/// Provided buffers should be at least 256 bytes for file_name and 100 bytes
-/// for link_name.
-pub fn iterator(reader: anytype, options: IteratorOptions) !Iterator(@TypeOf(reader)) {
-    if (options.file_name_buffer.len < Header.MAX_NAME_SIZE or
-        options.link_name_buffer.len < Header.LINK_NAME_SIZE)
-        return error.TarInsufficientBuffer;
-
+pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
     return .{
         .reader = reader,
         .diagnostics = options.diagnostics,
@@ -372,10 +368,10 @@ fn Iterator(comptime ReaderType: type) type {
                             self.file.size = size;
                         }
                         if (self.file.link_name.len == 0) {
-                            self.file.link_name = header.linkName(self.link_name_buffer[0..Header.LINK_NAME_SIZE]);
+                            self.file.link_name = try header.linkName(self.link_name_buffer);
                         }
                         if (self.file.name.len == 0) {
-                            self.file.name = try header.fullName(self.file_name_buffer[0..Header.MAX_NAME_SIZE]);
+                            self.file.name = try header.fullName(self.file_name_buffer);
                         }
 
                         self.padding = blockPadding(self.file.size);
@@ -565,7 +561,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
 
     var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var iter = try iterator(reader, .{
+    var iter = iterator(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
         .diagnostics = options.diagnostics,
@@ -870,18 +866,4 @@ test "create file and symlink" {
     // Danglink symlnik, file created later
     _ = try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
     _ = try createDirAndFile(root.dir, "g/h/i/file4");
-}
-
-test "insufficient buffer for iterator" {
-    var file_name_buffer: [10]u8 = undefined;
-    var link_name_buffer: [10]u8 = undefined;
-
-    var fsb = std.io.fixedBufferStream("");
-    try std.testing.expectError(
-        error.TarInsufficientBuffer,
-        iterator(fsb.reader(), .{
-            .file_name_buffer = &file_name_buffer,
-            .link_name_buffer = &link_name_buffer,
-        }),
-    );
 }
