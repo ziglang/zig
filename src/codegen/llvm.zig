@@ -4762,11 +4762,7 @@ pub const FuncGen = struct {
     file: Builder.Metadata,
     scope: Builder.Metadata,
 
-    inlined: std.ArrayListUnmanaged(struct {
-        base_line: u32,
-        location: Builder.DebugLocation,
-        scope: Builder.Metadata,
-    }) = .{},
+    inlined: Builder.DebugLocation = .no_location,
 
     base_line: u32,
     prev_dbg_line: c_uint,
@@ -4811,7 +4807,6 @@ pub const FuncGen = struct {
 
     fn deinit(self: *FuncGen) void {
         self.wip.deinit();
-        self.inlined.deinit(self.gpa);
         self.func_inst_table.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
     }
@@ -5107,8 +5102,7 @@ pub const FuncGen = struct {
 
                 .unreach  => try self.airUnreach(inst),
                 .dbg_stmt => try self.airDbgStmt(inst),
-                .dbg_inline_begin => try self.airDbgInlineBegin(inst),
-                .dbg_inline_end => try self.airDbgInlineEnd(inst),
+                .dbg_inline_block => try self.airDbgInlineBlock(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
                 .dbg_var_val => try self.airDbgVarVal(inst),
 
@@ -5126,17 +5120,81 @@ pub const FuncGen = struct {
         }
     }
 
-    fn genBodyDebugScope(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
+    fn genBodyDebugScope(self: *FuncGen, maybe_inline_func: ?InternPool.Index, body: []const Air.Inst.Index) Error!void {
         if (self.wip.strip) return self.genBody(body);
+
+        const old_file = self.file;
+        const old_inlined = self.inlined;
+        const old_base_line = self.base_line;
         const old_scope = self.scope;
+        defer if (maybe_inline_func) |_| {
+            self.wip.debug_location = self.inlined;
+            self.file = old_file;
+            self.inlined = old_inlined;
+            self.base_line = old_base_line;
+        };
+        defer self.scope = old_scope;
+
+        if (maybe_inline_func) |inline_func| {
+            const o = self.dg.object;
+            const zcu = o.module;
+
+            const func = zcu.funcInfo(inline_func);
+            const decl_index = func.owner_decl;
+            const decl = zcu.declPtr(decl_index);
+            const namespace = zcu.namespacePtr(decl.src_namespace);
+            const owner_mod = namespace.file_scope.mod;
+
+            self.file = try o.getDebugFile(namespace.file_scope);
+
+            const line_number = decl.src_line + 1;
+            self.inlined = self.wip.debug_location;
+
+            const fqn = try decl.fullyQualifiedName(zcu);
+
+            const is_internal_linkage = !zcu.decl_exports.contains(decl_index);
+            const fn_ty = try zcu.funcType(.{
+                .param_types = &.{},
+                .return_type = .void_type,
+            });
+
+            self.scope = try o.builder.debugSubprogram(
+                self.file,
+                try o.builder.metadataString(zcu.intern_pool.stringToSlice(decl.name)),
+                try o.builder.metadataString(zcu.intern_pool.stringToSlice(fqn)),
+                line_number,
+                line_number + func.lbrace_line,
+                try o.lowerDebugType(fn_ty),
+                .{
+                    .di_flags = .{ .StaticMember = true },
+                    .sp_flags = .{
+                        .Optimized = owner_mod.optimize_mode != .Debug,
+                        .Definition = true,
+                        .LocalToUnit = is_internal_linkage,
+                    },
+                },
+                o.debug_compile_unit,
+            );
+
+            self.base_line = decl.src_line;
+            const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
+            self.wip.debug_location = .{
+                .location = .{
+                    .line = line_number,
+                    .column = 0,
+                    .scope = self.scope,
+                    .inlined_at = inlined_at_location,
+                },
+            };
+        }
+
         self.scope = try self.dg.object.builder.debugLexicalBlock(
-            old_scope,
+            self.scope,
             self.file,
             self.prev_dbg_line,
             self.prev_dbg_column,
         );
         try self.genBody(body);
-        self.scope = old_scope;
     }
 
     pub const CallAttr = enum {
@@ -5820,15 +5878,23 @@ pub const FuncGen = struct {
     }
 
     fn airBlock(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
-        const mod = o.module;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Block, ty_pl.payload);
-        const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
+        return self.lowerBlock(inst, null, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    }
+
+    fn lowerBlock(
+        self: *FuncGen,
+        inst: Air.Inst.Index,
+        maybe_inline_func: ?InternPool.Index,
+        body: []const Air.Inst.Index,
+    ) !Builder.Value {
+        const o = self.dg.object;
+        const mod = o.module;
         const inst_ty = self.typeOfIndex(inst);
 
         if (inst_ty.isNoReturn(mod)) {
-            try self.genBodyDebugScope(body);
+            try self.genBodyDebugScope(maybe_inline_func, body);
             return .none;
         }
 
@@ -5844,7 +5910,7 @@ pub const FuncGen = struct {
         });
         defer assert(self.blocks.remove(inst));
 
-        try self.genBodyDebugScope(body);
+        try self.genBodyDebugScope(maybe_inline_func, body);
 
         self.wip.cursor = .{ .block = parent_bb };
 
@@ -5903,10 +5969,10 @@ pub const FuncGen = struct {
         _ = try self.wip.brCond(cond, then_block, else_block);
 
         self.wip.cursor = .{ .block = then_block };
-        try self.genBodyDebugScope(then_body);
+        try self.genBodyDebugScope(null, then_body);
 
         self.wip.cursor = .{ .block = else_block };
-        try self.genBodyDebugScope(else_body);
+        try self.genBodyDebugScope(null, else_body);
 
         // No need to reset the insert cursor since this instruction is noreturn.
         return .none;
@@ -5987,7 +6053,7 @@ pub const FuncGen = struct {
             _ = try fg.wip.brCond(is_err, return_block, continue_block);
 
             fg.wip.cursor = .{ .block = return_block };
-            try fg.genBodyDebugScope(body);
+            try fg.genBodyDebugScope(null, body);
 
             fg.wip.cursor = .{ .block = continue_block };
         }
@@ -6060,13 +6126,13 @@ pub const FuncGen = struct {
             }
 
             self.wip.cursor = .{ .block = case_block };
-            try self.genBodyDebugScope(case_body);
+            try self.genBodyDebugScope(null, case_body);
         }
 
         self.wip.cursor = .{ .block = else_block };
         const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
         if (else_body.len != 0) {
-            try self.genBodyDebugScope(else_body);
+            try self.genBodyDebugScope(null, else_body);
         } else {
             _ = try self.wip.@"unreachable"();
         }
@@ -6085,7 +6151,7 @@ pub const FuncGen = struct {
         _ = try self.wip.br(loop_block);
 
         self.wip.cursor = .{ .block = loop_block };
-        try self.genBodyDebugScope(body);
+        try self.genBodyDebugScope(null, body);
 
         // TODO instead of this logic, change AIR to have the property that
         // every block is guaranteed to end with a noreturn instruction.
@@ -6592,96 +6658,22 @@ pub const FuncGen = struct {
         self.prev_dbg_line = @intCast(self.base_line + dbg_stmt.line + 1);
         self.prev_dbg_column = @intCast(dbg_stmt.column + 1);
 
-        const inlined_at_location = if (self.inlined.getLastOrNull()) |inlined|
-            try inlined.location.toMetadata(self.wip.builder)
-        else
-            .none;
-
         self.wip.debug_location = .{
             .location = .{
                 .line = self.prev_dbg_line,
                 .column = self.prev_dbg_column,
                 .scope = self.scope,
-                .inlined_at = inlined_at_location,
+                .inlined_at = try self.inlined.toMetadata(self.wip.builder),
             },
         };
 
         return .none;
     }
 
-    fn airDbgInlineBegin(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
-        const zcu = o.module;
-
-        const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
-        const func = zcu.funcInfo(ty_fn.func);
-        const decl_index = func.owner_decl;
-        const decl = zcu.declPtr(decl_index);
-        const namespace = zcu.namespacePtr(decl.src_namespace);
-        const owner_mod = namespace.file_scope.mod;
-
-        self.file = try o.getDebugFile(namespace.file_scope);
-
-        const line_number = decl.src_line + 1;
-        try self.inlined.append(self.gpa, .{
-            .location = self.wip.debug_location,
-            .scope = self.scope,
-            .base_line = self.base_line,
-        });
-
-        const fqn = try decl.fullyQualifiedName(zcu);
-
-        const is_internal_linkage = !zcu.decl_exports.contains(decl_index);
-        const fn_ty = try zcu.funcType(.{
-            .param_types = &.{},
-            .return_type = .void_type,
-        });
-
-        self.scope = try o.builder.debugSubprogram(
-            self.file,
-            try o.builder.metadataString(zcu.intern_pool.stringToSlice(decl.name)),
-            try o.builder.metadataString(zcu.intern_pool.stringToSlice(fqn)),
-            line_number,
-            line_number + func.lbrace_line,
-            try o.lowerDebugType(fn_ty),
-            .{
-                .di_flags = .{ .StaticMember = true },
-                .sp_flags = .{
-                    .Optimized = owner_mod.optimize_mode != .Debug,
-                    .Definition = true,
-                    .LocalToUnit = is_internal_linkage,
-                },
-            },
-            o.debug_compile_unit,
-        );
-
-        self.base_line = decl.src_line;
-        const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
-        self.wip.debug_location = .{
-            .location = .{
-                .line = line_number,
-                .column = 0,
-                .scope = self.scope,
-                .inlined_at = inlined_at_location,
-            },
-        };
-        return .none;
-    }
-
-    fn airDbgInlineEnd(self: *FuncGen, inst: Air.Inst.Index) Allocator.Error!Builder.Value {
-        const o = self.dg.object;
-
-        const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
-
-        const mod = o.module;
-        const decl = mod.funcOwnerDeclPtr(ty_fn.func);
-        self.file = try o.getDebugFile(mod.namespacePtr(decl.src_namespace).file_scope);
-
-        const old = self.inlined.pop();
-        self.scope = old.scope;
-        self.base_line = old.base_line;
-        self.wip.debug_location = old.location;
-        return .none;
+    fn airDbgInlineBlock(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+        const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+        return self.lowerBlock(inst, extra.data.func, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
     }
 
     fn airDbgVarPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

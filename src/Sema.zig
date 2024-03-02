@@ -5939,6 +5939,7 @@ fn resolveBlockBody(
     if (child_block.is_comptime) {
         return sema.resolveInlineBody(child_block, body, body_inst);
     } else {
+        assert(sema.air_instructions.items(.tag)[@intFromEnum(merges.block_inst)] == .block);
         var need_debug_scope = false;
         child_block.need_debug_scope = &need_debug_scope;
         if (sema.analyzeBodyInner(child_block, body)) |_| {
@@ -6002,18 +6003,44 @@ fn resolveAnalyzedBlock(
     assert(child_block.instructions.items.len != 0);
     assert(sema.typeOf(child_block.instructions.items[child_block.instructions.items.len - 1].toRef()).isNoReturn(mod));
 
+    const block_tag = sema.air_instructions.items(.tag)[@intFromEnum(merges.block_inst)];
+    switch (block_tag) {
+        .block => {},
+        .dbg_inline_block => assert(need_debug_scope),
+        else => unreachable,
+    }
     if (merges.results.items.len == 0) {
-        // No need for a block instruction. We can put the new instructions
-        // directly into the parent block.
-        if (need_debug_scope) {
-            // The code following this block is unreachable, as the block has no
-            // merges, so we don't necessarily need to emit this as an AIR block.
-            // However, we need a block *somewhere* to make the scoping correct,
-            // so forward this request to the parent block.
-            if (parent_block.need_debug_scope) |ptr| ptr.* = true;
+        switch (block_tag) {
+            .block => {
+                // No need for a block instruction. We can put the new instructions
+                // directly into the parent block.
+                if (need_debug_scope) {
+                    // The code following this block is unreachable, as the block has no
+                    // merges, so we don't necessarily need to emit this as an AIR block.
+                    // However, we need a block *somewhere* to make the scoping correct,
+                    // so forward this request to the parent block.
+                    if (parent_block.need_debug_scope) |ptr| ptr.* = true;
+                }
+                try parent_block.instructions.appendSlice(gpa, child_block.instructions.items);
+                return child_block.instructions.items[child_block.instructions.items.len - 1].toRef();
+            },
+            .dbg_inline_block => {
+                // Create a block containing all instruction from the body.
+                try parent_block.instructions.append(gpa, merges.block_inst);
+                try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).Struct.fields.len +
+                    child_block.instructions.items.len);
+                sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                    .ty = .noreturn_type,
+                    .payload = sema.addExtraAssumeCapacity(Air.DbgInlineBlock{
+                        .func = child_block.inlining.?.func,
+                        .body_len = @intCast(child_block.instructions.items.len),
+                    }),
+                } };
+                sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
+                return merges.block_inst.toRef();
+            },
+            else => unreachable,
         }
-        try parent_block.instructions.appendSlice(gpa, child_block.instructions.items);
-        return child_block.instructions.items[child_block.instructions.items.len - 1].toRef();
     }
     if (merges.results.items.len == 1) {
         // If the `break` is trailing, we may be able to elide the AIR block here
@@ -6036,14 +6063,30 @@ fn resolveAnalyzedBlock(
         if (try sema.resolveValue(merges.results.items[0])) |result_val| {
             // Create a block containing all instruction from the body.
             try parent_block.instructions.append(gpa, merges.block_inst);
-            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
-                child_block.instructions.items.len);
-            sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
-                .ty = .void_type,
-                .payload = sema.addExtraAssumeCapacity(Air.Block{
-                    .body_len = @intCast(child_block.instructions.items.len),
-                }),
-            } };
+            switch (block_tag) {
+                .block => {
+                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+                        child_block.instructions.items.len);
+                    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                        .ty = .void_type,
+                        .payload = sema.addExtraAssumeCapacity(Air.Block{
+                            .body_len = @intCast(child_block.instructions.items.len),
+                        }),
+                    } };
+                },
+                .dbg_inline_block => {
+                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).Struct.fields.len +
+                        child_block.instructions.items.len);
+                    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                        .ty = .void_type,
+                        .payload = sema.addExtraAssumeCapacity(Air.DbgInlineBlock{
+                            .func = child_block.inlining.?.func,
+                            .body_len = @intCast(child_block.instructions.items.len),
+                        }),
+                    } };
+                },
+                else => unreachable,
+            }
             sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
             // Rewrite the break to just give value {}; the value is
             // comptime-known and will be returned directly.
@@ -6079,14 +6122,30 @@ fn resolveAnalyzedBlock(
         return sema.failWithOwnedErrorMsg(child_block, msg);
     }
     const ty_inst = Air.internedToRef(resolved_ty.toIntern());
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
-        child_block.instructions.items.len);
-    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
-        .ty = ty_inst,
-        .payload = sema.addExtraAssumeCapacity(Air.Block{
-            .body_len = @intCast(child_block.instructions.items.len),
-        }),
-    } };
+    switch (block_tag) {
+        .block => {
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+                child_block.instructions.items.len);
+            sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                .ty = ty_inst,
+                .payload = sema.addExtraAssumeCapacity(Air.Block{
+                    .body_len = @intCast(child_block.instructions.items.len),
+                }),
+            } };
+        },
+        .dbg_inline_block => {
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).Struct.fields.len +
+                child_block.instructions.items.len);
+            sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                .ty = ty_inst,
+                .payload = sema.addExtraAssumeCapacity(Air.DbgInlineBlock{
+                    .func = child_block.inlining.?.func,
+                    .body_len = @intCast(child_block.instructions.items.len),
+                }),
+            } };
+        },
+        else => unreachable,
+    }
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
     // Now that the block has its type resolved, we need to go back into all the break
     // instructions, and insert type coercion on the operands.
@@ -7379,7 +7438,6 @@ fn analyzeCall(
             .needed_comptime_reason = "function being called at comptime must be comptime-known",
             .block_comptime_reason = comptime_reason,
         });
-        const prev_fn_index = sema.func_index;
         const module_fn_index = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
             .extern_func => return sema.fail(block, call_src, "{s} call of extern function", .{
                 @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
@@ -7415,9 +7473,10 @@ fn analyzeCall(
         // set to in the `Block`.
         // This block instruction will be used to capture the return value from the
         // inlined function.
+        const need_debug_scope = !is_comptime_call and !block.is_typeof and !block.ownerModule().strip;
         const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
         try sema.air_instructions.append(gpa, .{
-            .tag = .block,
+            .tag = if (need_debug_scope) .dbg_inline_block else .block,
             .data = undefined,
         });
         // This one is shared among sub-blocks within the same callee, but not
@@ -7584,10 +7643,7 @@ fn analyzeCall(
             }
 
             new_fn_info.return_type = sema.fn_ret_ty.toIntern();
-            const new_func_resolved_ty = try mod.funcType(new_fn_info);
             if (!is_comptime_call and !block.is_typeof) {
-                try emitDbgInline(block, prev_fn_index, module_fn_index, new_func_resolved_ty, .dbg_inline_begin);
-
                 const zir_tags = sema.code.instructions.items(.tag);
                 for (fn_info.param_body) |param| switch (zir_tags[@intFromEnum(param)]) {
                     .param, .param_comptime => {
@@ -7626,20 +7682,8 @@ fn analyzeCall(
                     error.ComptimeReturn => break :result inlining.comptime_result,
                     else => |e| return e,
                 };
-                break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, false);
+                break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, need_debug_scope);
             };
-
-            if (!is_comptime_call and !block.is_typeof and
-                sema.typeOf(result).zigTypeTag(mod) != .NoReturn)
-            {
-                try emitDbgInline(
-                    block,
-                    module_fn_index,
-                    prev_fn_index,
-                    mod.funcOwnerDeclPtr(sema.func_index).ty,
-                    .dbg_inline_end,
-                );
-            }
 
             if (should_memoize and is_comptime_call) {
                 const result_val = try sema.resolveConstValue(block, .unneeded, result, undefined);
@@ -8205,27 +8249,6 @@ fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type)
         // TODO: mutate in intern pool
         _ = try sema.resolveLazyValue(Value.fromInterned(field_val));
     }
-}
-
-fn emitDbgInline(
-    block: *Block,
-    old_func: InternPool.Index,
-    new_func: InternPool.Index,
-    new_func_ty: Type,
-    tag: Air.Inst.Tag,
-) CompileError!void {
-    if (block.ownerModule().strip) return;
-
-    // Recursive inline call; no dbg_inline needed.
-    if (old_func == new_func) return;
-
-    _ = try block.addInst(.{
-        .tag = tag,
-        .data = .{ .ty_fn = .{
-            .ty = Air.internedToRef(new_func_ty.toIntern()),
-            .func = new_func,
-        } },
-    });
 }
 
 fn zirIntType(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {

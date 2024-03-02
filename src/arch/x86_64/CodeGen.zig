@@ -58,6 +58,7 @@ bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 owner: Owner,
+inline_func: InternPool.Index,
 mod: *Package.Module,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
@@ -820,6 +821,7 @@ pub fn generate(
         .bin_file = bin_file,
         .debug_output = debug_output,
         .owner = .{ .func_index = func_index },
+        .inline_func = func_index,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .va_info = undefined, // populated after `resolveCallingConventionValues`
@@ -987,6 +989,7 @@ pub fn generateLazy(
         .bin_file = bin_file,
         .debug_output = debug_output,
         .owner = .{ .lazy_sym = lazy_sym },
+        .inline_func = undefined,
         .err_msg = null,
         .args = undefined,
         .va_info = undefined,
@@ -2042,7 +2045,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .frame_addr      => try self.airFrameAddress(inst),
             .fence           => try self.airFence(inst),
             .cond_br         => try self.airCondBr(inst),
-            .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
@@ -2098,13 +2100,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .@"try"          => try self.airTry(inst),
             .try_ptr         => try self.airTryPtr(inst),
 
+            .dbg_stmt         => try self.airDbgStmt(inst),
+            .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),
-
-            .dbg_inline_begin,
-            .dbg_inline_end,
-            => try self.airDbgInline(inst),
 
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
@@ -12962,14 +12962,23 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     self.finishAirBookkeeping();
 }
 
-fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
+fn airDbgInlineBlock(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    const old_inline_func = self.inline_func;
+    defer self.inline_func = old_inline_func;
+    self.inline_func = extra.data.func;
     _ = try self.addInst(.{
         .tag = .pseudo,
         .ops = .pseudo_dbg_inline_func,
-        .data = .{ .func = ty_fn.func },
+        .data = .{ .func = extra.data.func },
     });
-    self.finishAirBookkeeping();
+    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = .pseudo_dbg_inline_func,
+        .data = .{ .func = old_inline_func },
+    });
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
@@ -13407,6 +13416,12 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
     // A block is a setup to be able to jump to the end.
     const inst_tracking_i = self.inst_tracking.count();
     self.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(.unreach));
@@ -13415,9 +13430,6 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
     try self.blocks.putNoClobber(self.gpa, inst, .{ .state = self.initRetroactiveState() });
     const liveness = self.liveness.getBlock(inst);
 
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
     // TODO emit debug info lexical block
     try self.genBody(body);
 

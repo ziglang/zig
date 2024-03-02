@@ -1910,15 +1910,10 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .@"try" => func.airTry(inst),
         .try_ptr => func.airTryPtr(inst),
 
-        // TODO
-        .dbg_inline_begin,
-        .dbg_inline_end,
-        => func.finishAir(inst, .none, &.{}),
-
+        .dbg_stmt => func.airDbgStmt(inst),
+        .dbg_inline_block => func.airDbgInlineBlock(inst),
         .dbg_var_ptr => func.airDbgVar(inst, true),
         .dbg_var_val => func.airDbgVar(inst, false),
-
-        .dbg_stmt => func.airDbgStmt(inst),
 
         .call => func.airCall(inst, .auto),
         .call_always_tail => func.airCall(inst, .always_tail),
@@ -3476,12 +3471,14 @@ fn intStorageAsI32(storage: InternPool.Key.Int.Storage, mod: *Module) i32 {
 }
 
 fn airBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const block_ty = ty_pl.ty.toType();
-    const wasm_block_ty = genBlockType(block_ty, mod);
     const extra = func.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]);
+    try func.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn lowerBlock(func: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
+    const mod = func.bin_file.base.comp.module.?;
+    const wasm_block_ty = genBlockType(block_ty, mod);
 
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
     const block_result: WValue = if (wasm_block_ty != wasm.block_empty) blk: {
@@ -6472,7 +6469,27 @@ fn airCtz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
+fn airDbgStmt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
+
+    const dbg_stmt = func.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
+    try func.addInst(.{ .tag = .dbg_line, .data = .{
+        .payload = try func.addExtra(Mir.DbgLineColumn{
+            .line = dbg_stmt.line,
+            .column = dbg_stmt.column,
+        }),
+    } });
+    func.finishAir(inst, .none, &.{});
+}
+
+fn airDbgInlineBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = func.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    // TODO
+    try func.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void {
     if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
 
     const mod = func.bin_file.base.comp.module.?;
@@ -6494,19 +6511,6 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
     };
     try func.debug_output.dwarf.genVarDbgInfo(name, ty, mod.funcOwnerDeclIndex(func.func_index), is_ptr, loc);
 
-    func.finishAir(inst, .none, &.{});
-}
-
-fn airDbgStmt(func: *CodeGen, inst: Air.Inst.Index) !void {
-    if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
-
-    const dbg_stmt = func.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
-    try func.addInst(.{ .tag = .dbg_line, .data = .{
-        .payload = try func.addExtra(Mir.DbgLineColumn{
-            .line = dbg_stmt.line,
-            .column = dbg_stmt.column,
-        }),
-    } });
     func.finishAir(inst, .none, &.{});
 }
 

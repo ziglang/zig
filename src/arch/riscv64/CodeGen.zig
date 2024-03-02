@@ -566,7 +566,6 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .frame_addr      => try self.airFrameAddress(inst),
             .fence           => try self.airFence(),
             .cond_br         => try self.airCondBr(inst),
-            .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
@@ -624,13 +623,11 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .@"try"          => @panic("TODO"),
             .try_ptr         => @panic("TODO"),
 
+            .dbg_stmt         => try self.airDbgStmt(inst),
+            .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),
-
-            .dbg_inline_begin,
-            .dbg_inline_end,
-            => try self.airDbgInline(inst),
 
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
@@ -1881,13 +1878,14 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAirBookkeeping();
 }
 
-fn airDbgInline(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_fn = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
+fn airDbgInlineBlock(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.comp.module.?;
-    const func = mod.funcInfo(ty_fn.func);
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    const func = mod.funcInfo(extra.data.func);
     // TODO emit debug info for function change
     _ = func;
-    return self.finishAir(inst, .dead, .{ .none, .none, .none });
+    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
@@ -2060,6 +2058,12 @@ fn jump(self: *Self, index: usize) !void {
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
     try self.blocks.putNoClobber(self.gpa, inst, .{
         // A block is a setup to be able to jump to the end.
         .relocs = .{},
@@ -2071,10 +2075,6 @@ fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
         .mcv = MCValue{ .none = {} },
     });
     defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
-
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
     // TODO emit debug info lexical block
     try self.genBody(body);
 
