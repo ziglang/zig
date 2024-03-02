@@ -328,8 +328,8 @@ test "receiving arbitrary http headers from the client" {
     defer test_server.destroy();
 
     const request_bytes = "GET /bar HTTP/1.1\r\n" ++
-        "CoNneCtIoN: close\r\n" ++
-        "aoeu: asdf\r\n" ++
+        "CoNneCtIoN:close\r\n" ++
+        "aoeu:  asdf \r\n" ++
         "\r\n";
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());

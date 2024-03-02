@@ -211,9 +211,9 @@ pub const Request = struct {
                     else => {},
                 }
 
-                var line_it = mem.splitSequence(u8, line, ": ");
+                var line_it = mem.splitScalar(u8, line, ':');
                 const header_name = line_it.next().?;
-                const header_value = line_it.rest();
+                const header_value = mem.trim(u8, line_it.rest(), " \t");
                 if (header_name.len == 0) return error.HttpHeadersInvalid;
 
                 if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
@@ -271,6 +271,29 @@ pub const Request = struct {
             return error.MissingFinalNewline;
         }
 
+        test parse {
+            const request_bytes = "GET /hi HTTP/1.0\r\n" ++
+                "content-tYpe: text/plain\r\n" ++
+                "content-Length:10\r\n" ++
+                "expeCt:   100-continue \r\n" ++
+                "TRansfer-encoding:\tdeflate, chunked \r\n" ++
+                "connectioN:\t keep-alive \r\n\r\n";
+
+            const req = try parse(request_bytes);
+
+            try testing.expectEqual(.GET, req.method);
+            try testing.expectEqual(.@"HTTP/1.0", req.version);
+            try testing.expectEqualStrings("/hi", req.target);
+
+            try testing.expectEqualStrings("text/plain", req.content_type.?);
+            try testing.expectEqualStrings("100-continue", req.expect.?);
+
+            try testing.expectEqual(true, req.keep_alive);
+            try testing.expectEqual(10, req.content_length.?);
+            try testing.expectEqual(.chunked, req.transfer_encoding);
+            try testing.expectEqual(.deflate, req.transfer_compression);
+        }
+
         inline fn int64(array: *const [8]u8) u64 {
             return @bitCast(array.*);
         }
@@ -278,6 +301,66 @@ pub const Request = struct {
 
     pub fn iterateHeaders(r: *Request) http.HeaderIterator {
         return http.HeaderIterator.init(r.server.read_buffer[0..r.head_end]);
+    }
+
+    test iterateHeaders {
+        const request_bytes = "GET /hi HTTP/1.0\r\n" ++
+            "content-tYpe: text/plain\r\n" ++
+            "content-Length:10\r\n" ++
+            "expeCt:   100-continue \r\n" ++
+            "TRansfer-encoding:\tdeflate, chunked \r\n" ++
+            "connectioN:\t keep-alive \r\n\r\n";
+
+        var read_buffer: [500]u8 = undefined;
+        @memcpy(read_buffer[0..request_bytes.len], request_bytes);
+
+        var server: Server = .{
+            .connection = undefined,
+            .state = .ready,
+            .read_buffer = &read_buffer,
+            .read_buffer_len = request_bytes.len,
+            .next_request_start = 0,
+        };
+
+        var request: Request = .{
+            .server = &server,
+            .head_end = request_bytes.len,
+            .head = undefined,
+            .reader_state = undefined,
+        };
+
+        var it = request.iterateHeaders();
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("content-tYpe", header.name);
+            try testing.expectEqualStrings("text/plain", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("content-Length", header.name);
+            try testing.expectEqualStrings("10", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("expeCt", header.name);
+            try testing.expectEqualStrings("100-continue", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("TRansfer-encoding", header.name);
+            try testing.expectEqualStrings("deflate, chunked", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("connectioN", header.name);
+            try testing.expectEqualStrings("keep-alive", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        try testing.expectEqual(null, it.next());
     }
 
     pub const RespondOptions = struct {
@@ -1060,5 +1143,6 @@ const mem = std.mem;
 const net = std.net;
 const Uri = std.Uri;
 const assert = std.debug.assert;
+const testing = std.testing;
 
 const Server = @This();

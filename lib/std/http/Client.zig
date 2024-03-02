@@ -489,9 +489,9 @@ pub const Response = struct {
                 else => {},
             }
 
-            var line_it = mem.splitSequence(u8, line, ": ");
+            var line_it = mem.splitScalar(u8, line, ':');
             const header_name = line_it.next().?;
-            const header_value = line_it.rest();
+            const header_value = mem.trim(u8, line_it.rest(), " \t");
             if (header_name.len == 0) return error.HttpHeadersInvalid;
 
             if (std.ascii.eqlIgnoreCase(header_name, "connection")) {
@@ -551,6 +551,43 @@ pub const Response = struct {
         return error.HttpHeadersInvalid; // missing empty line
     }
 
+    test parse {
+        const response_bytes = "HTTP/1.1 200 OK\r\n" ++
+            "LOcation:url\r\n" ++
+            "content-tYpe: text/plain\r\n" ++
+            "content-disposition:attachment; filename=example.txt \r\n" ++
+            "content-Length:10\r\n" ++
+            "TRansfer-encoding:\tdeflate, chunked \r\n" ++
+            "connectioN:\t keep-alive \r\n\r\n";
+
+        var header_buffer: [1024]u8 = undefined;
+        var res = Response{
+            .status = undefined,
+            .reason = undefined,
+            .version = undefined,
+            .keep_alive = false,
+            .parser = proto.HeadersParser.init(&header_buffer),
+        };
+
+        @memcpy(header_buffer[0..response_bytes.len], response_bytes);
+        res.parser.header_bytes_len = response_bytes.len;
+
+        try res.parse(response_bytes);
+
+        try testing.expectEqual(.@"HTTP/1.1", res.version);
+        try testing.expectEqualStrings("OK", res.reason);
+        try testing.expectEqual(.ok, res.status);
+
+        try testing.expectEqualStrings("url", res.location.?);
+        try testing.expectEqualStrings("text/plain", res.content_type.?);
+        try testing.expectEqualStrings("attachment; filename=example.txt", res.content_disposition.?);
+
+        try testing.expectEqual(true, res.keep_alive);
+        try testing.expectEqual(10, res.content_length.?);
+        try testing.expectEqual(.chunked, res.transfer_encoding);
+        try testing.expectEqual(.deflate, res.transfer_compression);
+    }
+
     inline fn int64(array: *const [8]u8) u64 {
         return @bitCast(array.*);
     }
@@ -574,6 +611,67 @@ pub const Response = struct {
 
     pub fn iterateHeaders(r: Response) http.HeaderIterator {
         return http.HeaderIterator.init(r.parser.get());
+    }
+
+    test iterateHeaders {
+        const response_bytes = "HTTP/1.1 200 OK\r\n" ++
+            "LOcation:url\r\n" ++
+            "content-tYpe: text/plain\r\n" ++
+            "content-disposition:attachment; filename=example.txt \r\n" ++
+            "content-Length:10\r\n" ++
+            "TRansfer-encoding:\tdeflate, chunked \r\n" ++
+            "connectioN:\t keep-alive \r\n\r\n";
+
+        var header_buffer: [1024]u8 = undefined;
+        var res = Response{
+            .status = undefined,
+            .reason = undefined,
+            .version = undefined,
+            .keep_alive = false,
+            .parser = proto.HeadersParser.init(&header_buffer),
+        };
+
+        @memcpy(header_buffer[0..response_bytes.len], response_bytes);
+        res.parser.header_bytes_len = response_bytes.len;
+
+        var it = res.iterateHeaders();
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("LOcation", header.name);
+            try testing.expectEqualStrings("url", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("content-tYpe", header.name);
+            try testing.expectEqualStrings("text/plain", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("content-disposition", header.name);
+            try testing.expectEqualStrings("attachment; filename=example.txt", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("content-Length", header.name);
+            try testing.expectEqualStrings("10", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("TRansfer-encoding", header.name);
+            try testing.expectEqualStrings("deflate, chunked", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        {
+            const header = it.next().?;
+            try testing.expectEqualStrings("connectioN", header.name);
+            try testing.expectEqualStrings("keep-alive", header.value);
+            try testing.expect(!it.is_trailer);
+        }
+        try testing.expectEqual(null, it.next());
     }
 };
 
