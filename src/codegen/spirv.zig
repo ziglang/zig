@@ -768,18 +768,75 @@ const DeclGen = struct {
         };
     }
 
-    /// Construct a composite value at runtime. If the parameters are in direct
-    /// representation, then the result is also in direct representation. Otherwise,
-    /// if the parameters are in indirect representation, then the result is too.
-    fn constructComposite(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
-        const constituents_id = self.spv.allocId();
-        const type_id = try self.resolveType(ty, .direct);
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = self.typeId(type_id),
-            .id_result = constituents_id,
-            .constituents = constituents,
-        });
-        return constituents_id;
+    /// Construct a struct at runtime.
+    /// ty must be a struct type.
+    /// Constituents should be in `indirect` representation (as the elements of a struct should be).
+    /// Result is in `direct` representation.
+    fn constructStruct(self: *DeclGen, ty: Type, types: []const Type, constituents: []const IdRef) !IdRef {
+        assert(types.len == constituents.len);
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
+        for (constituents, types, 0..) |constitent_id, member_ty, index| {
+            const ptr_member_ty_ref = try self.ptrType(member_ty, .Function);
+            const ptr_id = try self.accessChain(ptr_member_ty_ref, ptr_composite_id, &.{@as(u32, @intCast(index))});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+        return try self.load(ty, ptr_composite_id, .{});
+    }
+
+    /// Construct a vector at runtime.
+    /// ty must be an vector type.
+    /// Constituents should be in `indirect` representation (as the elements of an vector should be).
+    /// Result is in `direct` representation.
+    fn constructVector(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const mod = self.module;
+        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
+        const ptr_elem_ty_ref = try self.ptrType(ty.elemType2(mod), .Function);
+        for (constituents, 0..) |constitent_id, index| {
+            const ptr_id = try self.accessChain(ptr_elem_ty_ref, ptr_composite_id, &.{@as(u32, @intCast(index))});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+
+        return try self.load(ty, ptr_composite_id, .{});
+    }
+
+    /// Construct an array at runtime.
+    /// ty must be an array type.
+    /// Constituents should be in `indirect` representation (as the elements of an array should be).
+    /// Result is in `direct` representation.
+    fn constructArray(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const mod = self.module;
+        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
+        const ptr_elem_ty_ref = try self.ptrType(ty.elemType2(mod), .Function);
+        for (constituents, 0..) |constitent_id, index| {
+            const ptr_id = try self.accessChain(ptr_elem_ty_ref, ptr_composite_id, &.{@as(u32, @intCast(index))});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+
+        return try self.load(ty, ptr_composite_id, .{});
     }
 
     /// This function generates a load for a constant in direct (ie, non-memory) representation.
@@ -887,15 +944,18 @@ const DeclGen = struct {
                 });
 
                 var constituents: [2]IdRef = undefined;
+                var types: [2]Type = undefined;
                 if (eu_layout.error_first) {
                     constituents[0] = try self.constant(err_ty, err_val, .indirect);
                     constituents[1] = try self.constant(payload_ty, payload_val, .indirect);
+                    types = .{ err_ty, payload_ty };
                 } else {
                     constituents[0] = try self.constant(payload_ty, payload_val, .indirect);
                     constituents[1] = try self.constant(err_ty, err_val, .indirect);
+                    types = .{ payload_ty, err_ty };
                 }
 
-                return try self.constructComposite(ty, &constituents);
+                return try self.constructStruct(ty, &types, &constituents);
             },
             .enum_tag => {
                 const int_val = try val.intFromEnum(ty, mod);
@@ -907,7 +967,11 @@ const DeclGen = struct {
                 const ptr_ty = ty.slicePtrFieldType(mod);
                 const ptr_id = try self.constantPtr(ptr_ty, Value.fromInterned(slice.ptr));
                 const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
-                return self.constructComposite(ty, &.{ ptr_id, len_id });
+                return self.constructStruct(
+                    ty,
+                    &.{ ptr_ty, Type.usize },
+                    &.{ ptr_id, len_id },
+                );
             },
             .opt => {
                 const payload_ty = ty.optionalChild(mod);
@@ -934,7 +998,11 @@ const DeclGen = struct {
                 else
                     try self.spv.constUndef(try self.resolveType(payload_ty, .indirect));
 
-                return try self.constructComposite(ty, &.{ payload_id, has_pl_id });
+                return try self.constructStruct(
+                    ty,
+                    &.{ payload_ty, Type.bool },
+                    &.{ payload_id, has_pl_id },
+                );
             },
             .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
                 inline .array_type, .vector_type => |array_type, tag| {
@@ -971,9 +1039,9 @@ const DeclGen = struct {
                                 const sentinel = Value.fromInterned(array_type.sentinel);
                                 constituents[constituents.len - 1] = try self.constant(elem_ty, sentinel, .indirect);
                             }
-                            return self.constructComposite(ty, constituents);
+                            return self.constructArray(ty, constituents);
                         },
-                        inline .vector_type => return self.constructComposite(ty, constituents),
+                        inline .vector_type => return self.constructVector(ty, constituents),
                         else => unreachable,
                     }
                 },
@@ -982,6 +1050,9 @@ const DeclGen = struct {
                     if (struct_type.layout == .@"packed") {
                         return self.todo("packed struct constants", .{});
                     }
+
+                    var types = std.ArrayList(Type).init(self.gpa);
+                    defer types.deinit();
 
                     var constituents = std.ArrayList(IdRef).init(self.gpa);
                     defer constituents.deinit();
@@ -998,10 +1069,11 @@ const DeclGen = struct {
                         const field_val = try val.fieldValue(mod, field_index);
                         const field_id = try self.constant(field_ty, field_val, .indirect);
 
+                        try types.append(field_ty);
                         try constituents.append(field_id);
                     }
 
-                    return try self.constructComposite(ty, constituents.items);
+                    return try self.constructStruct(ty, types.items, constituents.items);
                 },
                 .anon_struct_type => unreachable, // TODO
                 else => unreachable,
@@ -1841,7 +1913,7 @@ const DeclGen = struct {
                 for (wip.results) |*result| {
                     result.* = try wip.dg.convertToIndirect(wip.ty, result.*);
                 }
-                return try wip.dg.constructComposite(wip.result_ty, wip.results);
+                return try wip.dg.constructArray(wip.result_ty, wip.results);
             } else {
                 return wip.results[0];
             }
@@ -2792,8 +2864,9 @@ const DeclGen = struct {
             ov_id.* = try self.intFromBool(wip_ov.ty_ref, overflowed_id);
         }
 
-        return try self.constructComposite(
+        return try self.constructStruct(
             result_ty,
+            &.{ operand_ty, ov_ty },
             &.{ try wip_result.finalize(), try wip_ov.finalize() },
         );
     }
@@ -2885,8 +2958,9 @@ const DeclGen = struct {
             ov_id.* = try self.intFromBool(wip_ov.ty_ref, overflowed_id);
         }
 
-        return try self.constructComposite(
+        return try self.constructStruct(
             result_ty,
+            &.{ operand_ty, ov_ty },
             &.{ try wip_result.finalize(), try wip_ov.finalize() },
         );
     }
@@ -3588,7 +3662,11 @@ const DeclGen = struct {
             // Convert the pointer-to-array to a pointer to the first element.
             try self.accessChain(elem_ptr_ty_ref, array_ptr_id, &.{0});
 
-        return try self.constructComposite(slice_ty, &.{ elem_ptr_id, len_id });
+        return try self.constructStruct(
+            slice_ty,
+            &.{ elem_ptr_ty, Type.usize },
+            &.{ elem_ptr_id, len_id },
+        );
     }
 
     fn airSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -3596,11 +3674,16 @@ const DeclGen = struct {
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
         const len_id = try self.resolve(bin_op.rhs);
+        const ptr_ty = self.typeOf(bin_op.lhs);
         const slice_ty = self.typeOfIndex(inst);
 
         // Note: Types should not need to be converted to direct, these types
         // dont need to be converted.
-        return try self.constructComposite(slice_ty, &.{ ptr_id, len_id });
+        return try self.constructStruct(
+            slice_ty,
+            &.{ ptr_ty, Type.usize },
+            &.{ ptr_id, len_id },
+        );
     }
 
     fn airAggregateInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -3618,6 +3701,8 @@ const DeclGen = struct {
                     unreachable; // TODO
                 }
 
+                const types = try self.gpa.alloc(Type, elements.len);
+                defer self.gpa.free(types);
                 const constituents = try self.gpa.alloc(IdRef, elements.len);
                 defer self.gpa.free(constituents);
                 var index: usize = 0;
@@ -3629,6 +3714,7 @@ const DeclGen = struct {
                             assert(Type.fromInterned(field_ty).hasRuntimeBits(mod));
 
                             const id = try self.resolve(element);
+                            types[index] = Type.fromInterned(field_ty);
                             constituents[index] = try self.convertToIndirect(Type.fromInterned(field_ty), id);
                             index += 1;
                         }
@@ -3643,6 +3729,7 @@ const DeclGen = struct {
                             assert(field_ty.hasRuntimeBitsIgnoreComptime(mod));
 
                             const id = try self.resolve(element);
+                            types[index] = field_ty;
                             constituents[index] = try self.convertToIndirect(field_ty, id);
                             index += 1;
                         }
@@ -3650,7 +3737,11 @@ const DeclGen = struct {
                     else => unreachable,
                 }
 
-                return try self.constructComposite(result_ty, constituents[0..index]);
+                return try self.constructStruct(
+                    result_ty,
+                    types[0..index],
+                    constituents[0..index],
+                );
             },
             .Vector => {
                 const n_elems = result_ty.vectorLen(mod);
@@ -3662,7 +3753,7 @@ const DeclGen = struct {
                     elem_ids[i] = try self.convertToIndirect(result_ty.childType(mod), id);
                 }
 
-                return try self.constructComposite(result_ty, elem_ids);
+                return try self.constructVector(result_ty, elem_ids);
             },
             .Array => {
                 const array_info = result_ty.arrayInfo(mod);
@@ -3679,7 +3770,7 @@ const DeclGen = struct {
                     elem_ids[n_elems - 1] = try self.constant(array_info.elem_type, sentinel_val, .indirect);
                 }
 
-                return try self.constructComposite(result_ty, elem_ids);
+                return try self.constructArray(result_ty, elem_ids);
             },
             else => unreachable,
         }
@@ -4792,7 +4883,11 @@ const DeclGen = struct {
         members[eu_layout.errorFieldIndex()] = operand_id;
         members[eu_layout.payloadFieldIndex()] = try self.spv.constUndef(payload_ty_ref);
 
-        return try self.constructComposite(err_union_ty, &members);
+        var types: [2]Type = undefined;
+        types[eu_layout.errorFieldIndex()] = Type.anyerror;
+        types[eu_layout.payloadFieldIndex()] = payload_ty;
+
+        return try self.constructStruct(err_union_ty, &types, &members);
     }
 
     fn airWrapErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -4811,7 +4906,11 @@ const DeclGen = struct {
         members[eu_layout.errorFieldIndex()] = try self.constInt(err_ty_ref, 0);
         members[eu_layout.payloadFieldIndex()] = try self.convertToIndirect(payload_ty, operand_id);
 
-        return try self.constructComposite(err_union_ty, &members);
+        var types: [2]Type = undefined;
+        types[eu_layout.errorFieldIndex()] = Type.anyerror;
+        types[eu_layout.payloadFieldIndex()] = payload_ty;
+
+        return try self.constructStruct(err_union_ty, &types, &members);
     }
 
     fn airIsNull(self: *DeclGen, inst: Air.Inst.Index, is_pointer: bool, pred: enum { is_null, is_non_null }) !?IdRef {
@@ -4978,7 +5077,8 @@ const DeclGen = struct {
 
         const payload_id = try self.convertToIndirect(payload_ty, operand_id);
         const members = [_]IdRef{ payload_id, try self.constBool(true, .indirect) };
-        return try self.constructComposite(optional_ty, &members);
+        const types = [_]Type{ payload_ty, Type.bool };
+        return try self.constructStruct(optional_ty, &types, &members);
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {

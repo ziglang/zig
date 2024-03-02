@@ -163,7 +163,7 @@ pub fn updateExports(
             .Vertex => spec.ExecutionModel.Vertex,
             .Fragment => spec.ExecutionModel.Fragment,
             .Kernel => spec.ExecutionModel.Kernel,
-            else => return,
+            else => unreachable,
         };
         const is_vulkan = target.os.tag == .vulkan;
 
