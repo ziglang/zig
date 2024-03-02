@@ -56,7 +56,7 @@ pub fn BitReader(T: type, comptime ReaderType: type) type {
         /// that number of bits available. If end of forward stream is reached
         /// it may be some extra zero bits in buffer.
         pub inline fn fill(self: *Self, nice: u6) !void {
-            if (self.nbits >= nice) {
+            if (self.nbits >= nice and nice != 0) {
                 return; // We have enought bits
             }
             // Read more bits from forward reader
@@ -115,7 +115,7 @@ pub fn BitReader(T: type, comptime ReaderType: type) type {
                 assert(how == 0);
                 assert(self.alignBits() == 0);
                 try self.fill(@bitSizeOf(T));
-                assert(self.nbits == @bitSizeOf(T));
+                if (self.nbits != @bitSizeOf(T)) return error.EndOfStream;
                 const v = self.bits;
                 self.nbits = 0;
                 self.bits = 0;
@@ -362,4 +362,61 @@ test "readFixedCode" {
         }
         try testing.expect(rdr.nbits == 0);
     }
+}
+
+test "u32 leaves no bits on u32 reads" {
+    const data = [_]u8{
+        0xff, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    };
+    var fbs = std.io.fixedBufferStream(&data);
+    var br = bitReader(u32, fbs.reader());
+
+    _ = try br.read(u3);
+    try testing.expectEqual(29, br.nbits);
+    br.alignToByte();
+    try testing.expectEqual(24, br.nbits);
+    try testing.expectEqual(0x04_03_02_01, try br.read(u32));
+    try testing.expectEqual(0, br.nbits);
+    try testing.expectEqual(0x08_07_06_05, try br.read(u32));
+    try testing.expectEqual(0, br.nbits);
+
+    _ = try br.read(u9);
+    try testing.expectEqual(23, br.nbits);
+    br.alignToByte();
+    try testing.expectEqual(16, br.nbits);
+    try testing.expectEqual(0x0e_0d_0c_0b, try br.read(u32));
+    try testing.expectEqual(0, br.nbits);
+}
+
+test "u64 need fill after alignToByte" {
+    const data = [_]u8{
+        0xff, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    };
+
+    // without fill
+    var fbs = std.io.fixedBufferStream(&data);
+    var br = bitReader(u64, fbs.reader());
+    _ = try br.read(u23);
+    try testing.expectEqual(41, br.nbits);
+    br.alignToByte();
+    try testing.expectEqual(40, br.nbits);
+    try testing.expectEqual(0x06_05_04_03, try br.read(u32));
+    try testing.expectEqual(8, br.nbits);
+    try testing.expectEqual(0x0a_09_08_07, try br.read(u32));
+    try testing.expectEqual(32, br.nbits);
+
+    // fill after align ensures all bits filled
+    fbs.reset();
+    br = bitReader(u64, fbs.reader());
+    _ = try br.read(u23);
+    try testing.expectEqual(41, br.nbits);
+    br.alignToByte();
+    try br.fill(0);
+    try testing.expectEqual(64, br.nbits);
+    try testing.expectEqual(0x06_05_04_03, try br.read(u32));
+    try testing.expectEqual(32, br.nbits);
+    try testing.expectEqual(0x0a_09_08_07, try br.read(u32));
+    try testing.expectEqual(0, br.nbits);
 }
