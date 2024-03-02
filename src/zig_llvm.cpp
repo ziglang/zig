@@ -380,6 +380,26 @@ void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit) {
     unwrap(context_ref)->setOptPassGate(opt_bisect);
 }
 
+struct ZigDiagnosticHandler : public DiagnosticHandler {
+    bool BrokenDebugInfo;
+    ZigDiagnosticHandler() : BrokenDebugInfo(false) {}
+    bool handleDiagnostics(const DiagnosticInfo &DI) override {
+        if (auto *Remark = dyn_cast<DiagnosticInfoDebugMetadataVersion>(&DI)) {
+            BrokenDebugInfo = true;
+        }
+        return false;
+      }
+};
+
+void ZigLLVMEnableBrokenDebugInfoCheck(LLVMContextRef context_ref) {
+    unwrap(context_ref)->setDiagnosticHandler(std::make_unique<ZigDiagnosticHandler>());
+}
+
+bool ZigLLVMGetBrokenDebugInfo(LLVMContextRef context_ref) {
+    return ((const ZigDiagnosticHandler*)
+        unwrap(context_ref)->getDiagHandlerPtr())->BrokenDebugInfo;
+}
+
 void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     cl::ParseCommandLineOptions(argc, argv);
 }

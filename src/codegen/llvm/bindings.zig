@@ -37,6 +37,12 @@ pub const Context = opaque {
 
     pub const setOptBisectLimit = ZigLLVMSetOptBisectLimit;
     extern fn ZigLLVMSetOptBisectLimit(C: *Context, limit: c_int) void;
+
+    pub const enableBrokenDebugInfoCheck = ZigLLVMEnableBrokenDebugInfoCheck;
+    extern fn ZigLLVMEnableBrokenDebugInfoCheck(C: *Context) void;
+
+    pub const getBrokenDebugInfo = ZigLLVMGetBrokenDebugInfo;
+    extern fn ZigLLVMGetBrokenDebugInfo(C: *Context) bool;
 };
 
 pub const Module = opaque {
