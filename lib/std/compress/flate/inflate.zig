@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 
 const hfd = @import("huffman_decoder.zig");
-const BitReader = @import("bit_reader.zig").BitReader;
+const BitReader = @import("bit_reader.zig").BitReader64;
 const CircularBuffer = @import("CircularBuffer.zig");
 const Container = @import("container.zig").Container;
 const Token = @import("Token.zig");
