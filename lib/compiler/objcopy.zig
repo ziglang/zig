@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const mem = std.mem;
 const fs = std.fs;
@@ -6,12 +7,22 @@ const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 const assert = std.debug.assert;
 
-const main = @import("main.zig");
-const fatal = main.fatal;
+const fatal = std.zig.fatal;
 const Server = std.zig.Server;
-const build_options = @import("build_options");
 
-pub fn cmdObjCopy(
+pub fn main() !void {
+    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
+
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    const gpa = general_purpose_allocator.allocator();
+
+    const args = try std.process.argsAlloc(arena);
+    return cmdObjCopy(gpa, arena, args[1..]);
+}
+
+fn cmdObjCopy(
     gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
@@ -148,7 +159,7 @@ pub fn cmdObjCopy(
             });
         },
         .elf => {
-            if (elf_hdr.endian != @import("builtin").target.cpu.arch.endian())
+            if (elf_hdr.endian != builtin.target.cpu.arch.endian())
                 fatal("zig objcopy: ELF to ELF copying only supports native endian", .{});
             if (elf_hdr.phoff == 0) // no program header
                 fatal("zig objcopy: ELF to ELF copying only supports programs", .{});
@@ -175,7 +186,7 @@ pub fn cmdObjCopy(
             .gpa = gpa,
             .in = std.io.getStdIn(),
             .out = std.io.getStdOut(),
-            .zig_version = build_options.version,
+            .zig_version = builtin.zig_version_string,
         });
         defer server.deinit();
 
