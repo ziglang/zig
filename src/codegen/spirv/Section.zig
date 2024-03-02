@@ -53,6 +53,17 @@ pub fn emitRaw(
     section.writeWord((@as(Word, @intCast(word_count << 16))) | @intFromEnum(opcode));
 }
 
+/// Write an entire instruction, including all operands
+pub fn emitRawInstruction(
+    section: *Section,
+    allocator: Allocator,
+    opcode: Opcode,
+    operands: []const Word,
+) !void {
+    try section.emitRaw(allocator, opcode, operands.len);
+    section.writeWords(operands);
+}
+
 pub fn emit(
     section: *Section,
     allocator: Allocator,

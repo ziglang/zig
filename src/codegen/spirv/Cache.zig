@@ -134,7 +134,10 @@ const Tag = enum {
     /// data is (bool) type
     bool_false,
 
-    const SimpleType = enum { void, bool };
+    const SimpleType = enum {
+        void,
+        bool,
+    };
 
     const VectorType = Key.VectorType;
     const ArrayType = Key.ArrayType;
@@ -287,11 +290,12 @@ pub const Key = union(enum) {
     pub const PointerType = struct {
         storage_class: StorageClass,
         child_type: Ref,
+        /// Ref to a .fwd_ptr_type.
         fwd: Ref,
         // TODO: Decorations:
         // - Alignment
-        // - ArrayStride,
-        // - MaxByteOffset,
+        // - ArrayStride
+        // - MaxByteOffset
     };
 
     pub const ForwardPointerType = struct {
@@ -728,6 +732,9 @@ pub fn resolve(self: *Self, spv: *Module, key: Key) !Ref {
         // },
         .ptr_type => |ptr| Item{
             .tag = .type_ptr_simple,
+            // For this variant we need to steal the ID of the forward-declaration, instead
+            // of allocating one manually. This will make sure that we get a single result-id
+            // any possibly forward declared pointer type.
             .result_id = self.resultId(ptr.fwd),
             .data = try self.addExtra(spv, Tag.SimplePointerType{
                 .storage_class = ptr.storage_class,
@@ -896,24 +903,6 @@ pub fn lookup(self: *const Self, ref: Ref) Key {
                 },
             };
         },
-        // .type_ptr_generic => .{
-        //     .ptr_type = .{
-        //         .storage_class = .Generic,
-        //         .child_type = @enumFromInt(data),
-        //     },
-        // },
-        // .type_ptr_crosswgp => .{
-        //     .ptr_type = .{
-        //         .storage_class = .CrossWorkgroup,
-        //         .child_type = @enumFromInt(data),
-        //     },
-        // },
-        // .type_ptr_function => .{
-        //     .ptr_type = .{
-        //         .storage_class = .Function,
-        //         .child_type = @enumFromInt(data),
-        //     },
-        // },
         .type_ptr_simple => {
             const payload = self.extraData(Tag.SimplePointerType, data);
             return .{

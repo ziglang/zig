@@ -33,6 +33,11 @@ ext_inst_map: std.AutoHashMapUnmanaged(ResultId, InstructionSet),
 /// of Op(Spec)Constant and OpSwitch.
 arith_type_width: std.AutoHashMapUnmanaged(ResultId, u16),
 
+/// The starting offsets of some sections
+sections: struct {
+    functions: usize,
+},
+
 pub fn deinit(self: *BinaryModule, a: Allocator) void {
     self.ext_inst_map.deinit(a);
     self.arith_type_width.deinit(a);
@@ -41,6 +46,10 @@ pub fn deinit(self: *BinaryModule, a: Allocator) void {
 
 pub fn iterateInstructions(self: BinaryModule) Instruction.Iterator {
     return Instruction.Iterator.init(self.instructions);
+}
+
+pub fn iterateInstructionsFrom(self: BinaryModule, offset: usize) Instruction.Iterator {
+    return Instruction.Iterator.init(self.instructions[offset..]);
 }
 
 /// Errors that can be raised when the module is not correct.
@@ -107,97 +116,6 @@ pub const Instruction = struct {
     operands: []const Word,
 };
 
-/// This struct is used to return information about
-/// a module's functions - entry points, functions,
-/// list of callees.
-pub const FunctionInfo = struct {
-    /// Information that is gathered about a particular function.
-    pub const Fn = struct {
-        /// The word-offset of the first word (of the OpFunction instruction)
-        /// of this instruction.
-        begin_offset: usize,
-        /// The past-end offset of the end (including operands) of the last
-        /// instruction of the function.
-        end_offset: usize,
-        /// The index of the first callee in `callee_store`.
-        first_callee: usize,
-        /// The module offset of the OpTypeFunction instruction corresponding
-        /// to this function.
-        /// We use an offset so that we don't need to keep a separate map.
-        type_offset: usize,
-    };
-
-    /// Maps function result-id -> Function information structure.
-    functions: std.AutoArrayHashMapUnmanaged(ResultId, Fn),
-    /// List of entry points in this module. Contains OpFunction result-ids.
-    entry_points: []const ResultId,
-    /// For each function, a list of function result-ids that it calls.
-    callee_store: []const ResultId,
-
-    pub fn deinit(self: *FunctionInfo, a: Allocator) void {
-        self.functions.deinit(a);
-        a.free(self.entry_points);
-        a.free(self.callee_store);
-        self.* = undefined;
-    }
-
-    /// Fetch the list of callees per function. Guaranteed to contain only unique IDs.
-    pub fn callees(self: FunctionInfo, fn_id: ResultId) []const ResultId {
-        const fn_index = self.functions.getIndex(fn_id).?;
-        const values = self.functions.values();
-        const first_callee = values[fn_index].first_callee;
-        if (fn_index == values.len - 1) {
-            return self.callee_store[first_callee..];
-        } else {
-            const next_first_callee = values[fn_index + 1].first_callee;
-            return self.callee_store[first_callee..next_first_callee];
-        }
-    }
-
-    /// Returns a topological ordering of the functions: For each item
-    /// in the returned list of OpFunction result-ids, it is guaranteed that
-    /// the callees have a lower index. Note that SPIR-V does not support
-    /// any recursion, so this always works.
-    pub fn topologicalSort(self: FunctionInfo, a: Allocator) ![]const ResultId {
-        var sort = std.ArrayList(ResultId).init(a);
-        defer sort.deinit();
-
-        var seen = try std.DynamicBitSetUnmanaged.initEmpty(a, self.functions.count());
-        defer seen.deinit(a);
-
-        var stack = std.ArrayList(ResultId).init(a);
-        defer stack.deinit();
-
-        for (self.functions.keys()) |id| {
-            try self.topologicalSortStep(id, &sort, &seen);
-        }
-
-        return try sort.toOwnedSlice();
-    }
-
-    fn topologicalSortStep(
-        self: FunctionInfo,
-        id: ResultId,
-        sort: *std.ArrayList(ResultId),
-        seen: *std.DynamicBitSetUnmanaged,
-    ) !void {
-        const fn_index = self.functions.getIndex(id) orelse {
-            log.err("function calls invalid callee-id {}", .{@intFromEnum(id)});
-            return error.InvalidId;
-        };
-        if (seen.isSet(fn_index)) {
-            return;
-        }
-
-        seen.set(fn_index);
-        for (self.callees(id)) |callee| {
-            try self.topologicalSortStep(callee, sort, seen);
-        }
-
-        try sort.append(id);
-    }
-};
-
 /// This parser contains information (acceleration tables)
 /// that can be persisted across different modules. This is
 /// used to initialize the module, and is also used when
@@ -256,7 +174,10 @@ pub const Parser = struct {
             .instructions = module[header_words..],
             .ext_inst_map = .{},
             .arith_type_width = .{},
+            .sections = undefined,
         };
+
+        var maybe_function_section: ?usize = null;
 
         // First pass through the module to verify basic structure and
         // to gather some initial stuff for more detailed analysis.
@@ -297,6 +218,9 @@ pub const Parser = struct {
                     if (entry.found_existing) return error.DuplicateId;
                     entry.value_ptr.* = std.math.cast(u16, operands[1]) orelse return error.InvalidOperands;
                 },
+                .OpFunction => if (maybe_function_section == null) {
+                    maybe_function_section = offset;
+                },
                 else => {},
             }
 
@@ -317,89 +241,11 @@ pub const Parser = struct {
             }
         }
 
-        return binary;
-    }
-
-    pub fn parseFunctionInfo(self: *Parser, binary: BinaryModule) ParseError!FunctionInfo {
-        var entry_points = std.AutoArrayHashMap(ResultId, void).init(self.a);
-        defer entry_points.deinit();
-
-        var functions = std.AutoArrayHashMap(ResultId, FunctionInfo.Fn).init(self.a);
-        errdefer functions.deinit();
-
-        var fn_ty_decls = std.AutoHashMap(ResultId, usize).init(self.a);
-        defer fn_ty_decls.deinit();
-
-        var calls = std.AutoArrayHashMap(ResultId, void).init(self.a);
-        defer calls.deinit();
-
-        var callee_store = std.ArrayList(ResultId).init(self.a);
-        defer callee_store.deinit();
-
-        var maybe_current_function: ?ResultId = null;
-        var begin: usize = undefined;
-        var fn_ty_id: ResultId = undefined;
-
-        var it = binary.iterateInstructions();
-        while (it.next()) |inst| {
-            switch (inst.opcode) {
-                .OpEntryPoint => {
-                    const entry = try entry_points.getOrPut(@enumFromInt(inst.operands[1]));
-                    if (entry.found_existing) return error.DuplicateId;
-                },
-                .OpTypeFunction => {
-                    const entry = try fn_ty_decls.getOrPut(@enumFromInt(inst.operands[0]));
-                    if (entry.found_existing) return error.DuplicateId;
-                    entry.value_ptr.* = inst.offset;
-                },
-                .OpFunction => {
-                    maybe_current_function = @enumFromInt(inst.operands[1]);
-                    begin = inst.offset;
-                    fn_ty_id = @enumFromInt(inst.operands[3]);
-                },
-                .OpFunctionCall => {
-                    const callee: ResultId = @enumFromInt(inst.operands[2]);
-                    try calls.put(callee, {});
-                },
-                .OpFunctionEnd => {
-                    const current_function = maybe_current_function orelse {
-                        log.err("encountered OpFunctionEnd without corresponding OpFunction", .{});
-                        return error.InvalidPhysicalFormat;
-                    };
-                    const entry = try functions.getOrPut(current_function);
-                    if (entry.found_existing) return error.DuplicateId;
-
-                    const first_callee = callee_store.items.len;
-                    try callee_store.appendSlice(calls.keys());
-
-                    const type_offset = fn_ty_decls.get(fn_ty_id) orelse {
-                        log.err("Invalid OpFunction type", .{});
-                        return error.InvalidId;
-                    };
-
-                    entry.value_ptr.* = .{
-                        .begin_offset = begin,
-                        .end_offset = it.offset, // Use past-end offset
-                        .first_callee = first_callee,
-                        .type_offset = type_offset,
-                    };
-                    maybe_current_function = null;
-                    calls.clearRetainingCapacity();
-                },
-                else => {},
-            }
-        }
-
-        if (maybe_current_function != null) {
-            log.err("final OpFunction does not have an OpFunctionEnd", .{});
-            return error.InvalidPhysicalFormat;
-        }
-
-        return FunctionInfo{
-            .functions = functions.unmanaged,
-            .entry_points = try self.a.dupe(ResultId, entry_points.keys()),
-            .callee_store = try callee_store.toOwnedSlice(),
+        binary.sections = .{
+            .functions = maybe_function_section orelse binary.instructions.len,
         };
+
+        return binary;
     }
 
     /// Parse offsets in the instruction that contain result-ids.
@@ -438,7 +284,7 @@ pub const Parser = struct {
                 if (offset + 1 >= inst.operands.len) return error.InvalidPhysicalFormat;
                 const set_id: ResultId = @enumFromInt(inst.operands[offset]);
                 const set = binary.ext_inst_map.get(set_id) orelse {
-                    log.err("Invalid instruction set {}", .{@intFromEnum(set_id)});
+                    log.err("invalid instruction set {}", .{@intFromEnum(set_id)});
                     return error.InvalidId;
                 };
                 const ext_opcode = std.math.cast(u16, inst.operands[offset + 1]) orelse return error.InvalidPhysicalFormat;
