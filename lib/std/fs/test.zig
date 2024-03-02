@@ -72,15 +72,17 @@ const PathType = enum {
 
 const TestContext = struct {
     path_type: PathType,
+    path_sep: u8,
     arena: ArenaAllocator,
     tmp: testing.TmpDir,
     dir: std.fs.Dir,
     transform_fn: *const PathType.TransformFn,
 
-    pub fn init(path_type: PathType, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
+    pub fn init(path_type: PathType, path_sep: u8, allocator: mem.Allocator, transform_fn: *const PathType.TransformFn) TestContext {
         const tmp = tmpDir(.{ .iterate = true });
         return .{
             .path_type = path_type,
+            .path_sep = path_sep,
             .arena = ArenaAllocator.init(allocator),
             .tmp = tmp,
             .dir = tmp.dir,
@@ -93,11 +95,37 @@ const TestContext = struct {
         self.tmp.cleanup();
     }
 
-    /// Returns the `relative_path` transformed into the TestContext's `path_type`.
+    /// Returns the `relative_path` transformed into the TestContext's `path_type`,
+    /// with any supported path separators replaced by `path_sep`.
     /// The result is allocated by the TestContext's arena and will be free'd during
     /// `TestContext.deinit`.
     pub fn transformPath(self: *TestContext, relative_path: [:0]const u8) ![:0]const u8 {
-        return self.transform_fn(self.arena.allocator(), self.dir, relative_path);
+        const allocator = self.arena.allocator();
+        const transformed_path = try self.transform_fn(allocator, self.dir, relative_path);
+        if (builtin.os.tag == .windows) {
+            const transformed_sep_path = try allocator.dupeZ(u8, transformed_path);
+            std.mem.replaceScalar(u8, transformed_sep_path, switch (self.path_sep) {
+                '/' => '\\',
+                '\\' => '/',
+                else => unreachable,
+            }, self.path_sep);
+            return transformed_sep_path;
+        }
+        return transformed_path;
+    }
+
+    /// Replaces any path separators with the canonical path separator for the platform
+    /// (e.g. all path separators are converted to `\` on Windows).
+    /// If path separators are replaced, then the result is allocated by the
+    /// TestContext's arena and will be free'd during `TestContext.deinit`.
+    pub fn toCanonicalPathSep(self: *TestContext, path: [:0]const u8) ![:0]const u8 {
+        if (builtin.os.tag == .windows) {
+            const allocator = self.arena.allocator();
+            const transformed_sep_path = try allocator.dupeZ(u8, path);
+            std.mem.replaceScalar(u8, transformed_sep_path, '/', '\\');
+            return transformed_sep_path;
+        }
+        return path;
     }
 };
 
@@ -106,15 +134,19 @@ const TestContext = struct {
 /// and will be passed a TestContext that can transform a relative path into the path type under test.
 /// The TestContext will also create a tmp directory for you (and will clean it up for you too).
 fn testWithAllSupportedPathTypes(test_func: anytype) !void {
-    try testWithPathTypeIfSupported(.relative, test_func);
-    try testWithPathTypeIfSupported(.absolute, test_func);
-    try testWithPathTypeIfSupported(.unc, test_func);
+    try testWithPathTypeIfSupported(.relative, '/', test_func);
+    try testWithPathTypeIfSupported(.absolute, '/', test_func);
+    try testWithPathTypeIfSupported(.unc, '/', test_func);
+    try testWithPathTypeIfSupported(.relative, '\\', test_func);
+    try testWithPathTypeIfSupported(.absolute, '\\', test_func);
+    try testWithPathTypeIfSupported(.unc, '\\', test_func);
 }
 
-fn testWithPathTypeIfSupported(comptime path_type: PathType, test_func: anytype) !void {
+fn testWithPathTypeIfSupported(comptime path_type: PathType, comptime path_sep: u8, test_func: anytype) !void {
     if (!(comptime path_type.isSupported(builtin.os))) return;
+    if (!(comptime fs.path.isSep(path_sep))) return;
 
-    var ctx = TestContext.init(path_type, testing.allocator, path_type.getTransformFn());
+    var ctx = TestContext.init(path_type, path_sep, testing.allocator, path_type.getTransformFn());
     defer ctx.deinit();
 
     try test_func(&ctx);
@@ -148,20 +180,25 @@ test "Dir.readLink" {
             const dir_target_path = try ctx.transformPath("subdir");
             try ctx.dir.makeDir(dir_target_path);
 
+            // On Windows, symlink targets always use the canonical path separator
+            const canonical_file_target_path = try ctx.toCanonicalPathSep(file_target_path);
+            const canonical_dir_target_path = try ctx.toCanonicalPathSep(dir_target_path);
+
             // test 1: symlink to a file
             try setupSymlink(ctx.dir, file_target_path, "symlink1", .{});
-            try testReadLink(ctx.dir, file_target_path, "symlink1");
+            try testReadLink(ctx.dir, canonical_file_target_path, "symlink1");
 
             // test 2: symlink to a directory (can be different on Windows)
             try setupSymlink(ctx.dir, dir_target_path, "symlink2", .{ .is_directory = true });
-            try testReadLink(ctx.dir, dir_target_path, "symlink2");
+            try testReadLink(ctx.dir, canonical_dir_target_path, "symlink2");
 
             // test 3: relative path symlink
             const parent_file = ".." ++ fs.path.sep_str ++ "target.txt";
+            const canonical_parent_file = try ctx.toCanonicalPathSep(parent_file);
             var subdir = try ctx.dir.makeOpenPath("subdir", .{});
             defer subdir.close();
-            try setupSymlink(subdir, parent_file, "relative-link.txt", .{});
-            try testReadLink(subdir, parent_file, "relative-link.txt");
+            try setupSymlink(subdir, canonical_parent_file, "relative-link.txt", .{});
+            try testReadLink(subdir, canonical_parent_file, "relative-link.txt");
         }
     }.impl);
 }

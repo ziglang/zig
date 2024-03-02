@@ -464,9 +464,6 @@ test "tar case sensitivity" {
 }
 
 test "tar pipeToFileSystem" {
-    const builtin = @import("builtin");
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     // $ tar tvf
     //    pipe_to_file_system_test/
     //    pipe_to_file_system_test/b/
@@ -494,6 +491,6 @@ test "tar pipeToFileSystem" {
     try testing.expect((try root.dir.statFile("a/file")).kind == .file);
     // TODO is there better way to test symlink
     try testing.expect((try root.dir.statFile("b/symlink")).kind == .file); // statFile follows symlink
-    var buf: [8]u8 = undefined;
+    var buf: [32]u8 = undefined;
     _ = try root.dir.readLink("b/symlink", &buf);
 }
