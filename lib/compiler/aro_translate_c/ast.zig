@@ -225,6 +225,8 @@ pub const Node = extern union {
         /// [1]type{val} ** count
         array_filler,
 
+        labeled_break,
+
         pub const last_no_payload_tag = Tag.@"break";
         pub const no_payload_count = @intFromEnum(last_no_payload_tag) + 1;
 
@@ -347,6 +349,7 @@ pub const Node = extern union {
                 .type,
                 .helpers_macro,
                 .import_c_builtin,
+                .labeled_break,
                 => Payload.Value,
                 .discard => Payload.Discard,
                 .@"if" => Payload.If,
@@ -2080,6 +2083,20 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             };
         },
+        .labeled_break => {
+            const payload = node.castTag(.labeled_break).?.data;
+            const tok = try c.addToken(.keyword_break, "break");
+            _ = try c.addToken(.colon, ":");
+            const break_label = try c.addIdentifier(payload);
+            return c.addNode(.{
+                .tag = .@"break",
+                .main_token = tok,
+                .data = .{
+                    .lhs = break_label,
+                    .rhs = 0,
+                },
+            });
+        },
         .@"anytype" => unreachable, // Handled in renderParams
     }
 }
@@ -2479,6 +2496,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .assign,
         .helpers_macro,
         .import_c_builtin,
+        .labeled_break,
         => {
             // these should never appear in places where grouping might be needed.
             unreachable;
