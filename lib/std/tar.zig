@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 //! Tar archive is single ordinary file which can contain many files (or
 //! directories, symlinks, ...). It's build by series of blocks each size of 512
 //! bytes. First block of each entry is header which defines type, name, size
@@ -16,7 +15,7 @@
 //! GNU tar reference: https://www.gnu.org/software/tar/manual/html_node/Standard.html
 //! pax reference: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13
 
-const std = @import("std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
 
 pub const output = @import("tar/output.zig");
@@ -250,6 +249,33 @@ pub const IteratorOptions = struct {
 
 /// Iterates over files in tar archive.
 /// `next` returns each file in `reader` tar archive.
+///
+/// Init iterator with tar archive reader and provided buffers:
+///
+///      var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+///      var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+///
+///      var iter = std.tar.iterator(archive.reader(), .{
+///          .file_name_buffer = &file_name_buffer,
+///          .link_name_buffer = &link_name_buffer,
+///      });
+///
+/// Iterate on each tar archive file:
+///
+///     while (try iter.next()) |file| {
+///        switch (file.kind) {
+///            .directory => {
+///                // try dir.makePath(file.name);
+///            },
+///            .file => {
+///                // try file.writeAll(writer);
+///            },
+///            .sym_link => {
+///                // try dir.symLink(file.link_name, file.name, .{});
+///            },
+///        }
+///    }
+///
 pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
     return .{
         .reader = reader,
