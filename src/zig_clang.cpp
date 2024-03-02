@@ -4045,6 +4045,20 @@ const struct ZigClangAPSInt *ZigClangEnumConstantDecl_getInitVal(const struct Zi
     return reinterpret_cast<const ZigClangAPSInt *>(result);
 }
 
+struct ZigClangNamedDecl *ZigClangGotoStmt_getLabel(const struct ZigClangGotoStmt *self) {
+    auto casted = reinterpret_cast<const clang::GotoStmt *>(self);
+    return reinterpret_cast<struct ZigClangNamedDecl *>(casted->getLabel());
+}
+
+const char *ZigClangLabelStmt_getName(const struct ZigClangLabelStmt *self) {
+    return reinterpret_cast<const clang::LabelStmt *>(self)->getName();
+}
+
+const struct ZigClangStmt *ZigClangLabelStmt_getSubStmt(const struct ZigClangLabelStmt *self) {
+    auto casted = reinterpret_cast<const clang::LabelStmt *>(self);
+    return reinterpret_cast<const struct ZigClangStmt *>(casted->getSubStmt());
+}
+
 // Get a pointer to a static variable in libc++ from LLVM and make sure that
 // it matches our own.
 //

@@ -56,6 +56,9 @@ pub const Context = struct {
 
     pattern_list: PatternList,
 
+    /// only non-null when evaluation function bodys
+    goto: ?GotoContext = null,
+
     fn getMangle(c: *Context) u32 {
         c.mangle_count += 1;
         return c.mangle_count;
@@ -485,6 +488,24 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         try block_scope.discardVariable(c, mangled_param_name);
 
         param_id += 1;
+    }
+
+    c.goto = try createGotoContext(c, body_stmt, &block_scope);
+    defer c.goto = null;
+
+    for (c.goto.?.label_variable_names.values()) |variable| {
+        try block_scope.statements.append(try Tag.var_decl.create(c.arena, .{
+            .is_pub = false,
+            .is_const = false,
+            .is_extern = false,
+            .is_export = false,
+            .is_threadlocal = false,
+            .linksection_string = null,
+            .alignment = null,
+            .name = variable,
+            .type = try Tag.type.create(c.arena, "bool"),
+            .init = Tag.false_literal.init(),
+        }));
     }
 
     const casted_body = @as(*const clang.CompoundStmt, @ptrCast(body_stmt));
@@ -1147,7 +1168,7 @@ fn transStmt(
         .BinaryOperatorClass => return transBinaryOperator(c, scope, @as(*const clang.BinaryOperator, @ptrCast(stmt)), result_used),
         .CompoundStmtClass => return transCompoundStmt(c, scope, @as(*const clang.CompoundStmt, @ptrCast(stmt))),
         .CStyleCastExprClass => return transCStyleCastExprClass(c, scope, @as(*const clang.CStyleCastExpr, @ptrCast(stmt)), result_used),
-        .DeclStmtClass => return transDeclStmt(c, scope, @as(*const clang.DeclStmt, @ptrCast(stmt))),
+        .DeclStmtClass => return transDeclStmt(c, scope, @as(*const clang.DeclStmt, @ptrCast(stmt)), false),
         .DeclRefExprClass => return transDeclRefExpr(c, scope, @as(*const clang.DeclRefExpr, @ptrCast(stmt))),
         .ImplicitCastExprClass => return transImplicitCastExpr(c, scope, @as(*const clang.ImplicitCastExpr, @ptrCast(stmt)), result_used),
         .IntegerLiteralClass => return transIntegerLiteral(c, scope, @as(*const clang.IntegerLiteral, @ptrCast(stmt)), result_used, .with_as),
@@ -1217,9 +1238,10 @@ fn transStmt(
             const choose_expr = @as(*const clang.ChooseExpr, @ptrCast(stmt));
             return transExpr(c, scope, choose_expr.getChosenSubExpr(), result_used);
         },
+        .GotoStmtClass => return transGotoStmt(c, scope, @ptrCast(stmt)),
+        .LabelStmtClass => return transLabelStmt(c, scope, @ptrCast(stmt)),
         // When adding new cases here, see comment for maybeBlockify()
         .GCCAsmStmtClass,
-        .GotoStmtClass,
         .IndirectGotoStmtClass,
         .AttributedStmtClass,
         .AddrLabelExprClass,
@@ -1228,7 +1250,6 @@ fn transStmt(
         .UserDefinedLiteralClass,
         .BuiltinBitCastExprClass,
         .DesignatedInitExprClass,
-        .LabelStmtClass,
         => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "TODO implement translation of stmt class {s}", .{@tagName(sc)}),
         else => return fail(c, error.UnsupportedTranslation, stmt.getBeginLoc(), "unsupported stmt class {s}", .{@tagName(sc)}),
     }
@@ -1626,6 +1647,171 @@ fn transCompoundStmtInline(
 ) TransError!void {
     var it = stmt.body_begin();
     const end_it = stmt.body_end();
+    if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
+        var inner_stmt_to_variables: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged([]const u8)) = .{};
+        defer inner_stmt_to_variables.deinit(c.gpa);
+
+        var inner_stmt_break_target_transformations: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(*const GotoContext.Transformation)) = .{};
+        defer inner_stmt_break_target_transformations.deinit(c.gpa);
+
+        for (transformations) |*transformation| {
+            const variables = try inner_stmt_to_variables.getOrPut(c.gpa, transformation.inner_stmt);
+            if (!variables.found_existing) {
+                variables.value_ptr.* = .{};
+            }
+            try variables.value_ptr.append(c.gpa, transformation.variable);
+
+            switch (transformation.type) {
+                .simple => {},
+                .break_target => |*break_target| {
+                    const break_target_transformations = try inner_stmt_break_target_transformations.getOrPut(c.gpa, break_target.from);
+                    if (!break_target_transformations.found_existing) {
+                        break_target_transformations.value_ptr.* = .{};
+                    }
+                    try break_target_transformations.value_ptr.append(c.gpa, transformation);
+                },
+            }
+        }
+
+        var require_in_loop: std.AutoHashMapUnmanaged(*const clang.Stmt, void) = .{};
+        var loop_variables: std.ArrayListUnmanaged([]const u8) = .{};
+
+        if (inner_stmt_break_target_transformations.size != 0) {
+            var insert_if = false;
+            var iter = it;
+
+            var upwards_label_to_goto: std.AutoArrayHashMapUnmanaged(*const clang.Stmt, *const clang.Stmt) = .{};
+            defer upwards_label_to_goto.deinit(c.gpa);
+
+            while (iter != end_it) : (iter += 1) {
+                if (insert_if) {
+                    // Insert end of if and new if
+                    const variables = try inner_stmt_to_variables.getOrPut(c.gpa, iter[0]);
+                    if (!variables.found_existing) {
+                        variables.value_ptr.* = .{};
+                    }
+                    insert_if = false;
+                }
+
+                // remove if downwards
+                _ = upwards_label_to_goto.swapRemove(iter[0]);
+
+                if (inner_stmt_break_target_transformations.getPtr(iter[0])) |break_target_transformations| {
+                    for (break_target_transformations.items) |transformation| {
+                        // If two gotos target to same upwards label, only the second is in interest
+                        try upwards_label_to_goto.put(c.gpa, transformation.inner_stmt, iter[0]);
+                    }
+
+                    // Insert an if after this stmt
+                    insert_if = true;
+                }
+            }
+
+            // Require every upwards goto and upwards label to be inside the loop
+            for (0..upwards_label_to_goto.count()) |i| {
+                try require_in_loop.put(c.gpa, upwards_label_to_goto.keys()[i], {});
+                try require_in_loop.put(c.gpa, upwards_label_to_goto.values()[i], {});
+
+                for (inner_stmt_break_target_transformations.getPtr(upwards_label_to_goto.values()[i]).?.items) |transformation| {
+                    try loop_variables.append(c.gpa, transformation.variable);
+                }
+            }
+        }
+
+        var while_block: ?Scope.Block = null;
+        var if_block: ?Scope.Block = null;
+
+        // Either block or &while_block
+        var control_flow_block: *Scope.Block = block;
+
+        while (inner_stmt_to_variables.count() != 0 or inner_stmt_break_target_transformations.count() != 0 or require_in_loop.count() != 0) : (it += 1) {
+            assert(it != end_it);
+
+            if (require_in_loop.contains(it[0]) and while_block == null and if_block == null) {
+                while_block = try Scope.Block.init(c, &block.base, false);
+                control_flow_block = &while_block.?;
+            }
+
+            if (if_block == null) {
+                if_block = try Scope.Block.init(c, &control_flow_block.base, false);
+            }
+
+            if (inner_stmt_to_variables.contains(it[0])) {
+                if (if_block.?.statements.items.len != 0) {
+                    var iter = inner_stmt_to_variables.valueIterator();
+                    var ncond = Tag.false_literal.init();
+                    while (iter.next()) |variables| {
+                        for (variables.items) |variable| {
+                            ncond = try Tag.@"or".create(c.arena, .{
+                                .lhs = try Tag.identifier.create(c.arena, variable),
+                                .rhs = ncond,
+                            });
+                        }
+                    }
+
+                    try control_flow_block.statements.append(
+                        try Tag.@"if".create(
+                            c.arena,
+                            .{
+                                .cond = try Tag.not.create(c.arena, ncond),
+                                .then = try if_block.?.complete(c),
+                                .@"else" = null,
+                            },
+                        ),
+                    );
+                }
+                if_block.?.deinit();
+                if_block = null;
+
+                if (while_block != null and require_in_loop.count() == 0) {
+                    var while_ncond = Tag.false_literal.init();
+
+                    for (loop_variables.items) |variable| {
+                        while_ncond = try Tag.@"or".create(c.arena, .{
+                            .lhs = try Tag.identifier.create(c.arena, variable),
+                            .rhs = while_ncond,
+                        });
+                    }
+
+                    try while_block.?.statements.append(try Tag.if_not_break.create(c.arena, while_ncond));
+
+                    try block.statements.append(try Tag.while_true.create(
+                        c.arena,
+                        try while_block.?.complete(c),
+                    ));
+
+                    while_block.?.deinit();
+                    while_block = null;
+                    control_flow_block = block;
+                }
+
+                inner_stmt_to_variables.getPtr(it[0]).?.deinit(c.gpa);
+                assert(inner_stmt_to_variables.remove(it[0]));
+                it -= 1;
+            } else {
+                _ = require_in_loop.remove(it[0]);
+
+                if (inner_stmt_break_target_transformations.getPtr(it[0])) |break_target_transformations| {
+                    defer assert(inner_stmt_break_target_transformations.remove(it[0]));
+
+                    var labeled_block = try Scope.Block.init(c, &if_block.?.base, true);
+                    defer labeled_block.deinit();
+
+                    for (break_target_transformations.items) |transformation| {
+                        transformation.type.break_target.label.* = labeled_block.label.?;
+                    }
+                    break_target_transformations.deinit(c.gpa);
+
+                    try transStmtToScopeAndExeBlock(c, &block.base, &labeled_block, it[0]);
+
+                    try if_block.?.statements.append(try labeled_block.complete(c));
+                } else {
+                    try transStmtToScopeAndExeBlock(c, &block.base, &if_block.?, it[0]);
+                }
+            }
+        }
+    }
+
     while (it != end_it) : (it += 1) {
         const result = try transStmt(c, &block.base, it[0], .unused);
         switch (result.tag()) {
@@ -1781,6 +1967,7 @@ fn transDeclStmtOne(
     scope: *Scope,
     decl: *const clang.Decl,
     block_scope: *Scope.Block,
+    late_init: bool,
 ) TransError!void {
     switch (decl.getKind()) {
         .Var => {
@@ -1792,7 +1979,6 @@ fn transDeclStmtOne(
                 return transLocalExternStmt(c, scope, var_decl, block_scope);
             }
 
-            const decl_init = var_decl.getInit();
             const loc = decl.getLocation();
 
             const qual_type = var_decl.getTypeSourceInfo_getType();
@@ -1804,7 +1990,13 @@ fn transDeclStmtOne(
             }
 
             const is_static_local = var_decl.isStaticLocal();
-            const is_const = qual_type.isConstQualified();
+            const is_const = !late_init and qual_type.isConstQualified();
+
+            const decl_init = if (!late_init or is_static_local)
+                var_decl.getInit()
+            else
+                null;
+
             const type_node = try transQualTypeMaybeInitialized(c, scope, qual_type, decl_init, loc);
 
             var init_node = if (decl_init) |expr|
@@ -1877,13 +2069,13 @@ fn transDeclStmtOne(
     }
 }
 
-fn transDeclStmt(c: *Context, scope: *Scope, stmt: *const clang.DeclStmt) TransError!Node {
+fn transDeclStmt(c: *Context, scope: *Scope, stmt: *const clang.DeclStmt, late_init: bool) TransError!Node {
     const block_scope = try scope.findBlockScope(c);
 
     var it = stmt.decl_begin();
     const end_it = stmt.decl_end();
     while (it != end_it) : (it += 1) {
-        try transDeclStmtOne(c, scope, it[0], block_scope);
+        try transDeclStmtOne(c, scope, it[0], block_scope, late_init);
     }
     return Tag.declaration.init();
 }
@@ -2891,18 +3083,64 @@ fn transIfStmt(
 ) TransError!Node {
     // if (c) t
     // if (c) t else e
+
+    const then_stmt = stmt.getThen();
+    const else_stmt = stmt.getElse();
+
+    var if_vars: std.ArrayListUnmanaged([]const u8) = .{};
+    defer if_vars.deinit(c.gpa);
+    var else_vars: std.ArrayListUnmanaged([]const u8) = .{};
+    defer else_vars.deinit(c.gpa);
+
+    // while_block: non-null if a loop is required
+    var while_block: ?Scope.Block = null;
+    defer if (while_block) |*b| b.deinit();
+
+    // Either scope or &while_block.?.base
+    var control_flow_scope: *Scope = scope;
+
+    if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
+        for (transformations) |*transformation| {
+            if (transformation.inner_stmt == then_stmt) {
+                try if_vars.append(c.gpa, transformation.variable);
+            } else {
+                assert(transformation.inner_stmt == else_stmt);
+                try else_vars.append(c.gpa, transformation.variable);
+            }
+
+            switch (transformation.type) {
+                .simple => {},
+                .break_target => |*bt| {
+                    if (while_block == null) {
+                        while_block = try Scope.Block.init(c, scope, true);
+                        control_flow_scope = &while_block.?.base;
+                    }
+
+                    bt.label.* = while_block.?.label.?;
+
+                    assert(bt.from == if (transformation.inner_stmt == then_stmt) else_stmt else then_stmt);
+                },
+            }
+        }
+    }
+
     var cond_scope = Scope.Condition{
         .base = .{
-            .parent = scope,
+            .parent = control_flow_scope,
             .id = .condition,
         },
     };
     defer cond_scope.deinit();
     const cond_expr = @as(*const clang.Expr, @ptrCast(stmt.getCond()));
-    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
+    var cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
 
-    const then_stmt = stmt.getThen();
-    const else_stmt = stmt.getElse();
+    for (if_vars.items) |variable| {
+        cond = try Tag.@"or".create(c.arena, .{
+            .lhs = try Tag.identifier.create(c.arena, variable),
+            .rhs = cond,
+        });
+    }
+
     const then_class = then_stmt.getStmtClass();
     // block needed to keep else statement from attaching to inner while
     const must_blockify = (else_stmt != null) and switch (then_class) {
@@ -2911,15 +3149,39 @@ fn transIfStmt(
     };
 
     const then_body = if (must_blockify)
-        try blockify(c, scope, then_stmt)
+        try blockify(c, control_flow_scope, then_stmt)
     else
-        try maybeBlockify(c, scope, then_stmt);
+        try maybeBlockify(c, control_flow_scope, then_stmt);
 
     const else_body = if (else_stmt) |expr|
-        try maybeBlockify(c, scope, expr)
+        try maybeBlockify(c, control_flow_scope, expr)
     else
         null;
-    return Tag.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
+
+    const if_node = try Tag.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
+
+    if (while_block) |*wb| {
+        try wb.statements.append(if_node);
+
+        var ncond = Tag.false_literal.init();
+        for (if_vars.items) |variable| {
+            ncond = try Tag.@"or".create(c.arena, .{
+                .lhs = try Tag.identifier.create(c.arena, variable),
+                .rhs = ncond,
+            });
+        }
+        for (else_vars.items) |variable| {
+            ncond = try Tag.@"or".create(c.arena, .{
+                .lhs = try Tag.identifier.create(c.arena, variable),
+                .rhs = ncond,
+            });
+        }
+        try wb.statements.append(try Tag.if_not_break.create(c.arena, ncond));
+
+        return try Tag.while_true.create(c.arena, try wb.complete(c));
+    } else {
+        return if_node;
+    }
 }
 
 fn transWhileLoop(
@@ -2935,7 +3197,16 @@ fn transWhileLoop(
     };
     defer cond_scope.deinit();
     const cond_expr = @as(*const clang.Expr, @ptrCast(stmt.getCond()));
-    const cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
+    var cond = try transBoolExpr(c, &cond_scope.base, cond_expr, .used);
+
+    if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
+        for (transformations) |*transformation| {
+            cond = try Tag.@"or".create(c.arena, .{
+                .lhs = try Tag.identifier.create(c.arena, transformation.variable),
+                .rhs = cond,
+            });
+        }
+    }
 
     var loop_scope = Scope{
         .parent = scope,
@@ -3023,8 +3294,32 @@ fn transForLoop(
     if (stmt.getInit()) |init| {
         block_scope = try Scope.Block.init(c, scope, false);
         loop_scope.parent = &block_scope.?.base;
-        const init_node = try transStmt(c, &block_scope.?.base, init, .unused);
-        if (init_node.tag() != .declaration) try block_scope.?.statements.append(init_node);
+
+        if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
+            var if_block = try Scope.Block.init(c, &block_scope.?.base, false);
+            defer if_block.deinit();
+            try transStmtToScopeAndExeBlock(c, &block_scope.?.base, &if_block, init);
+
+            var ncond = Tag.false_literal.init();
+            for (transformations) |*transformation| {
+                ncond = try Tag.@"or".create(c.arena, .{
+                    .lhs = try Tag.identifier.create(c.arena, transformation.variable),
+                    .rhs = ncond,
+                });
+            }
+
+            try block_scope.?.statements.append(try Tag.@"if".create(
+                c.arena,
+                .{
+                    .cond = try Tag.not.create(c.arena, ncond),
+                    .then = try if_block.complete(c),
+                    .@"else" = null,
+                },
+            ));
+        } else {
+            const init_node = try transStmt(c, &block_scope.?.base, init, .unused);
+            if (init_node.tag() != .declaration) try block_scope.?.statements.append(init_node);
+        }
     }
     var cond_scope = Scope.Condition{
         .base = .{
@@ -3034,10 +3329,19 @@ fn transForLoop(
     };
     defer cond_scope.deinit();
 
-    const cond = if (stmt.getCond()) |cond|
+    var cond = if (stmt.getCond()) |cond|
         try transBoolExpr(c, &cond_scope.base, cond, .used)
     else
         Tag.true_literal.init();
+
+    if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
+        for (transformations) |*transformation| {
+            cond = try Tag.@"or".create(c.arena, .{
+                .lhs = try Tag.identifier.create(c.arena, transformation.variable),
+                .rhs = cond,
+            });
+        }
+    }
 
     const cont_expr = if (stmt.getInc()) |incr|
         try transExpr(c, &cond_scope.base, incr, .unused)
@@ -4893,6 +5197,82 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
     }
 }
 
+fn transGotoStmt(c: *Context, scope: *Scope, stmt: *const clang.GotoStmt) TransError!Node {
+    var block = try Scope.Block.init(c, scope, false);
+    defer block.deinit();
+
+    const variable = c.goto.?.label_variable_names.get(try c.str(stmt.getLabel().getName_bytes_begin())).?;
+
+    try block.statements.append(try transCreateNodeInfixOp(
+        c,
+        .assign,
+        try Tag.identifier.create(c.arena, variable),
+        Tag.true_literal.init(),
+        .used,
+    ));
+
+    try block.statements.append(try Tag.labeled_break.create(c.arena, c.goto.?.goto_targets.get(stmt).?.*.?));
+
+    return try block.complete(c);
+}
+
+fn transLabelStmt(c: *Context, scope: *Scope, stmt: *const clang.LabelStmt) TransError!Node {
+    var block = try Scope.Block.init(c, scope, false);
+    defer block.deinit();
+
+    const variable = c.goto.?.label_variable_names.get(try c.str(stmt.getName())).?;
+
+    try block.statements.append(try transCreateNodeInfixOp(
+        c,
+        .assign,
+        try Tag.identifier.create(c.arena, variable),
+        Tag.false_literal.init(),
+        .used,
+    ));
+
+    try block.statements.append(try transStmt(c, scope, stmt.getSubStmt(), .unused));
+
+    return try block.complete(c);
+}
+
+fn transStmtToScopeAndExeBlock(c: *Context, scope: *Scope, exe_block: *Scope.Block, stmt: *const clang.Stmt) TransError!void {
+    if (stmt.getStmtClass() == .DeclStmtClass) {
+        const decl_stmt: *const clang.DeclStmt = @ptrCast(stmt);
+        _ = try transDeclStmt(c, scope, decl_stmt, true);
+
+        var it = decl_stmt.decl_begin();
+        const end_it = decl_stmt.decl_end();
+        while (it != end_it) : (it += 1) {
+            if (it[0].getKind() == .Var) {
+                const decl: *const clang.VarDecl = @ptrCast(it[0]);
+                const qual_type = decl.getTypeSourceInfo_getType();
+
+                if (decl.getStorageClass() != .Extern and !decl.isStaticLocal()) {
+                    if (decl.getInit()) |init| {
+                        const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(decl)).getName_bytes_begin());
+
+                        var rhs_node = try transExprCoercing(c, &exe_block.base, init, .used);
+                        if (!qualTypeIsBoolean(qual_type) and isBoolRes(rhs_node)) {
+                            rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
+                        }
+                        try exe_block.statements.append(
+                            try transCreateNodeInfixOp(c, .assign, try Tag.identifier.create(c.arena, scope.getAlias(name)), rhs_node, .used),
+                        );
+                    }
+                }
+            } else {
+                // the last two args of transDeclStmtOne are not used
+                try transDeclStmtOne(c, scope, it[0], undefined, undefined);
+            }
+        }
+    } else {
+        const result = try transStmt(c, &exe_block.base, stmt, .unused);
+        if (result.tag() != .empty_block) {
+            try exe_block.statements.append(result);
+        }
+    }
+}
+
 fn qualTypeWasDemotedToOpaque(c: *Context, qt: clang.QualType) bool {
     const ty = qt.getTypePtr();
     switch (qt.getTypeClass()) {
@@ -6589,4 +6969,330 @@ fn getFnProto(c: *Context, ref: Node) ?*ast.Payload.Func {
         }
     }
     return null;
+}
+
+fn addMacros(c: *Context) !void {
+    var it = c.global_scope.macro_table.iterator();
+    while (it.next()) |entry| {
+        if (getFnProto(c, entry.value_ptr.*)) |proto_node| {
+            // If a macro aliases a global variable which is a function pointer, we conclude that
+            // the macro is intended to represent a function that assumes the function pointer
+            // variable is non-null and calls it.
+            try addTopLevelDecl(c, entry.key_ptr.*, try transCreateNodeMacroFn(c, entry.key_ptr.*, entry.value_ptr.*, proto_node));
+        } else {
+            try addTopLevelDecl(c, entry.key_ptr.*, entry.value_ptr.*);
+        }
+    }
+}
+
+const GotoContext = struct {
+    /// A transformation which allows execution of a goto without using a goto statement.
+    /// Every c-label has a variable of type bool. If it's value is true, the execution is
+    /// between the goto and the c-label.
+    const Transformation = struct {
+        variable: []const u8,
+        inner_stmt: *const clang.Stmt,
+        type: union(enum) {
+            simple: void,
+
+            break_target: struct {
+                /// zig-label for the `from` statement (initialized late)
+                label: *?[]const u8,
+                from: *const clang.Stmt,
+            },
+        },
+    };
+
+    /// the transformations needed for a statement
+    transformations: std.AutoHashMapUnmanaged(*const clang.Stmt, []Transformation) = .{},
+
+    /// Maps c-label names to the names of the bool variables
+    label_variable_names: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+
+    /// Maps a goto statement to a zig-label (same pointer as transformation.type.break_target.label)
+    goto_targets: std.AutoArrayHashMapUnmanaged(*const clang.GotoStmt, *?[]const u8) = .{},
+};
+
+fn createGotoContext(
+    c: *Context,
+    stmt: *const clang.Stmt,
+    block: *Scope.Block,
+) Error!GotoContext {
+    var label_branches: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)) = .{};
+    var goto_branches: std.ArrayListUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)) = .{};
+
+    var transformations: std.AutoArrayHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(GotoContext.Transformation)) = .{};
+
+    var goto: GotoContext = .{};
+
+    try createGotoContextStmt(c, block, stmt, &transformations, &goto.label_variable_names, &goto.goto_targets, &label_branches, &goto_branches);
+
+    var iter = transformations.iterator();
+
+    while (iter.next()) |transformation_entry| {
+        try goto.transformations.put(c.arena, transformation_entry.key_ptr.*, try transformation_entry.value_ptr.toOwnedSlice(c.arena));
+    }
+    return goto;
+}
+
+fn createGotoContextStmt(
+    c: *Context,
+    block: *Scope.Block,
+    stmt: *const clang.Stmt,
+    transformations: *std.AutoArrayHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(GotoContext.Transformation)),
+    label_variable_names: *std.StringArrayHashMapUnmanaged([]const u8),
+    goto_targets: *std.AutoArrayHashMapUnmanaged(*const clang.GotoStmt, *?[]const u8),
+    label_branches: *std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)),
+    goto_branches: *std.ArrayListUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)),
+) Error!void {
+    const sc = stmt.getStmtClass();
+    switch (sc) {
+        .CompoundStmtClass => {
+            const compound_stmt: *const clang.CompoundStmt = @ptrCast(stmt);
+
+            var it = compound_stmt.body_begin();
+            const end_it = compound_stmt.body_end();
+
+            const label_branch_count_before = label_branches.count();
+            const goto_branch_count_before = goto_branches.items.len;
+            if (it + 1 == end_it) {
+                try createGotoContextStmt(
+                    c,
+                    block,
+                    it[0],
+                    transformations,
+                    label_variable_names,
+                    goto_targets,
+                    label_branches,
+                    goto_branches,
+                );
+            } else if (it != end_it) {
+                while (it != end_it) : (it += 1) {
+                    try createGotoContextStmt(
+                        c,
+                        block,
+                        it[0],
+                        transformations,
+                        label_variable_names,
+                        goto_targets,
+                        label_branches,
+                        goto_branches,
+                    );
+                }
+
+                try createGotoContextCombineStmts(
+                    c,
+                    block,
+                    stmt,
+                    transformations,
+                    label_variable_names,
+                    goto_targets,
+                    label_branches,
+                    goto_branches,
+                    label_branch_count_before,
+                    goto_branch_count_before,
+                );
+            }
+            try createGotoContextAppendStmtToBranches(
+                c,
+                stmt,
+                label_branches,
+                goto_branches,
+                label_branch_count_before,
+                goto_branch_count_before,
+            );
+        },
+        .IfStmtClass => {
+            const if_stmt: *const clang.IfStmt = @ptrCast(stmt);
+
+            const label_branch_count_before = label_branches.count();
+            const goto_branch_count_before = goto_branches.items.len;
+
+            try createGotoContextStmt(
+                c,
+                block,
+                if_stmt.getThen(),
+                transformations,
+                label_variable_names,
+                goto_targets,
+                label_branches,
+                goto_branches,
+            );
+
+            if (if_stmt.getElse()) |else_stmt| {
+                try createGotoContextStmt(
+                    c,
+                    block,
+                    else_stmt,
+                    transformations,
+                    label_variable_names,
+                    goto_targets,
+                    label_branches,
+                    goto_branches,
+                );
+
+                try createGotoContextCombineStmts(
+                    c,
+                    block,
+                    stmt,
+                    transformations,
+                    label_variable_names,
+                    goto_targets,
+                    label_branches,
+                    goto_branches,
+                    label_branch_count_before,
+                    goto_branch_count_before,
+                );
+            }
+
+            try createGotoContextAppendStmtToBranches(
+                c,
+                stmt,
+                label_branches,
+                goto_branches,
+                label_branch_count_before,
+                goto_branch_count_before,
+            );
+        },
+        .WhileStmtClass, .DoStmtClass, .ForStmtClass => {
+            const inner_stmt: *const clang.Stmt = switch (sc) {
+                .WhileStmtClass => @as(*const clang.WhileStmt, @ptrCast(stmt)).getBody(),
+                .DoStmtClass => @as(*const clang.DoStmt, @ptrCast(stmt)).getBody(),
+                .ForStmtClass => @as(*const clang.ForStmt, @ptrCast(stmt)).getBody(),
+                else => unreachable,
+            };
+            const label_branch_count_before = label_branches.count();
+            const goto_branch_count_before = goto_branches.items.len;
+
+            try createGotoContextStmt(
+                c,
+                block,
+                inner_stmt,
+                transformations,
+                label_variable_names,
+                goto_targets,
+                label_branches,
+                goto_branches,
+            );
+
+            try createGotoContextAppendStmtToBranches(
+                c,
+                stmt,
+                label_branches,
+                goto_branches,
+                label_branch_count_before,
+                goto_branch_count_before,
+            );
+        },
+        .SwitchStmtClass => {},
+        .GotoStmtClass => {
+            var new_goto_branch: *std.ArrayListUnmanaged(*const clang.Stmt) = try goto_branches.addOne(c.gpa);
+            new_goto_branch.* = .{};
+            try new_goto_branch.append(c.gpa, stmt);
+        },
+        .LabelStmtClass => {
+            const label_str = try c.str(@as(*const clang.LabelStmt, @ptrCast(stmt)).getName());
+            const new_label_branch = try label_branches.getOrPut(c.gpa, label_str);
+            assert(!new_label_branch.found_existing);
+            new_label_branch.value_ptr.* = .{};
+            try new_label_branch.value_ptr.append(c.gpa, stmt);
+        },
+        else => {},
+    }
+}
+
+fn createGotoContextCombineStmts(
+    c: *Context,
+    block: *Scope.Block,
+    stmt: *const clang.Stmt,
+    transformations: *std.AutoArrayHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(GotoContext.Transformation)),
+    label_variable_names: *std.StringArrayHashMapUnmanaged([]const u8),
+    goto_targets: *std.AutoArrayHashMapUnmanaged(*const clang.GotoStmt, *?[]const u8),
+    label_branches: *std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)),
+    goto_branches: *std.ArrayListUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)),
+    label_branch_count_before: usize,
+    goto_branch_count_before: usize,
+) Error!void {
+    var label_to_goto_target: std.StringHashMapUnmanaged(*?[]const u8) = .{};
+    defer label_to_goto_target.deinit(c.gpa);
+
+    var goto_branch_i: usize = goto_branch_count_before;
+    while (goto_branch_i < goto_branches.items.len) {
+        const goto_branch: *std.ArrayListUnmanaged(*const clang.Stmt) = &goto_branches.items[goto_branch_i];
+        goto_branch_i += 1;
+        const goto_stmt: *const clang.GotoStmt = @ptrCast(goto_branch.items[0]);
+        const label_str = try c.str(goto_stmt.getLabel().getName_bytes_begin());
+        if (label_branches.getIndex(label_str)) |label_branch_i| {
+            if (label_branch_i >= label_branch_count_before) {
+                if (label_to_goto_target.get(label_str)) |goto_target| {
+                    try goto_targets.put(c.arena, goto_stmt, goto_target);
+                } else {
+                    const label_branch = &label_branches.values()[label_branch_i];
+
+                    assert(label_branch.items.len > 0);
+
+                    const bare_variable = try std.fmt.allocPrint(c.arena, "goto_{s}", .{label_str});
+                    const variable = try block.makeMangledName(c, bare_variable);
+
+                    try label_variable_names.put(c.arena, label_str, variable);
+
+                    const goto_target = try c.arena.create(?[]const u8);
+                    goto_target.* = null;
+
+                    const loop_transformation: GotoContext.Transformation = .{
+                        .variable = variable,
+                        .inner_stmt = label_branch.getLast(),
+                        .type = .{ .break_target = .{
+                            .label = goto_target,
+                            .from = goto_branch.getLast(),
+                        } },
+                    };
+
+                    try goto_targets.put(c.arena, goto_stmt, goto_target);
+                    try label_to_goto_target.put(c.gpa, label_str, goto_target);
+
+                    const stmt_transformations = try transformations.getOrPut(c.gpa, stmt);
+                    if (!stmt_transformations.found_existing) {
+                        stmt_transformations.value_ptr.* = .{};
+                    }
+                    try stmt_transformations.value_ptr.append(c.arena, loop_transformation);
+
+                    for (0..(label_branch.items.len - 1)) |i| {
+                        const branch_transformations = try transformations.getOrPut(c.gpa, label_branch.items[i + 1]);
+                        if (!branch_transformations.found_existing) {
+                            branch_transformations.value_ptr.* = .{};
+                        }
+                        try branch_transformations.value_ptr.append(c.arena, GotoContext.Transformation{
+                            .variable = variable,
+                            .inner_stmt = label_branch.items[i],
+                            .type = .{ .simple = {} },
+                        });
+                    }
+                    label_branch.clearRetainingCapacity();
+                }
+
+                // remove goto
+                goto_branch.deinit(c.gpa);
+                goto_branch_i -= 1;
+                _ = goto_branches.swapRemove(goto_branch_i);
+            }
+        }
+    }
+}
+
+fn createGotoContextAppendStmtToBranches(
+    c: *Context,
+    stmt: *const clang.Stmt,
+    label_branches: *std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)),
+    goto_branches: *std.ArrayListUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)),
+    label_branch_count_before: usize,
+    goto_branch_count_before: usize,
+) Error!void {
+    for (label_branches.values()[label_branch_count_before..]) |*label_branch| {
+        try label_branch.append(c.gpa, stmt);
+    }
+
+    for (goto_branches.items[goto_branch_count_before..]) |*goto_branch| {
+        try goto_branch.append(c.gpa, stmt);
+    }
 }
