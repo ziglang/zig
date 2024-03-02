@@ -5137,7 +5137,7 @@ fn analyzeFancyFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[0],
+                    fn_info.body,
                     call_ctx,
                 );
             } else {
@@ -5303,7 +5303,7 @@ fn analyzeFunction(
                     file,
                     scope,
                     parent_src,
-                    fn_info.body[0],
+                    fn_info.body,
                     call_ctx,
                 );
             } else {
@@ -5350,17 +5350,10 @@ fn getGenericReturnType(
     file: *File,
     scope: *Scope,
     parent_src: SrcLocInfo, // function decl line
-    body_main_block: Zir.Inst.Index,
+    body: []const Zir.Inst.Index,
     call_ctx: ?*const CallContext,
 ) !DocData.Expr {
     const tags = file.zir.instructions.items(.tag);
-    const data = file.zir.instructions.items(.data);
-
-    // We expect `body_main_block` to be the first instruction
-    // inside the function body, and for it to be a block instruction.
-    const pl_node = data[@intFromEnum(body_main_block)].pl_node;
-    const extra = file.zir.extraData(Zir.Inst.Block, pl_node.payload_index);
-    const body = file.zir.bodySlice(extra.end, extra.data.body_len);
     if (body.len >= 4) {
         const maybe_ret_inst = body[body.len - 4];
         switch (tags[@intFromEnum(maybe_ret_inst)]) {
@@ -5676,6 +5669,42 @@ fn walkRef(
                     .expr = .{ .int = .{ .value = 1 } },
                 };
             },
+            .negative_one => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.comptime_int_type) },
+                    .expr = .{ .int = .{ .value = 1, .negated = true } },
+                };
+            },
+            .zero_usize => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
+                    .expr = .{ .int = .{ .value = 0 } },
+                };
+            },
+            .one_usize => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
+                    .expr = .{ .int = .{ .value = 1 } },
+                };
+            },
+            .zero_u8 => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.u8_type) },
+                    .expr = .{ .int = .{ .value = 0 } },
+                };
+            },
+            .one_u8 => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.u8_type) },
+                    .expr = .{ .int = .{ .value = 1 } },
+                };
+            },
+            .four_u8 => {
+                return DocData.WalkResult{
+                    .typeRef = .{ .type = @intFromEnum(Ref.u8_type) },
+                    .expr = .{ .int = .{ .value = 4 } },
+                };
+            },
 
             .void_value => {
                 return DocData.WalkResult{
@@ -5706,18 +5735,6 @@ fn walkRef(
             },
             .empty_struct => {
                 return DocData.WalkResult{ .expr = .{ .@"struct" = &.{} } };
-            },
-            .zero_usize => {
-                return DocData.WalkResult{
-                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
-                    .expr = .{ .int = .{ .value = 0 } },
-                };
-            },
-            .one_usize => {
-                return DocData.WalkResult{
-                    .typeRef = .{ .type = @intFromEnum(Ref.usize_type) },
-                    .expr = .{ .int = .{ .value = 1 } },
-                };
             },
             .calling_convention_type => {
                 return DocData.WalkResult{
