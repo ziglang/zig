@@ -208,6 +208,7 @@ pub const Object = struct {
                 false => .{ .unstructured = .{} },
             },
             .current_block_label = undefined,
+            .base_line = decl.src_line,
         };
         defer decl_gen.deinit();
 
@@ -321,9 +322,8 @@ const DeclGen = struct {
     /// The code (prologue and body) for the function we are currently generating code for.
     func: SpvModule.Fn = .{},
 
-    /// Stack of the base offsets of the current decl, which is what `dbg_stmt` is relative to.
-    /// This is a stack to keep track of inline functions.
-    base_line_stack: std.ArrayListUnmanaged(u32) = .{},
+    /// The base offset of the current decl, which is what `dbg_stmt` is relative to.
+    base_line: u32,
 
     /// If `gen` returned `Error.CodegenFail`, this contains an explanatory message.
     /// Memory is owned by `module.gpa`.
@@ -401,7 +401,6 @@ const DeclGen = struct {
         self.wip_pointers.deinit(self.gpa);
         self.control_flow.deinit(self.gpa);
         self.func.deinit(self.gpa);
-        self.base_line_stack.deinit(self.gpa);
     }
 
     /// Return the target which we are currently compiling for.
@@ -1959,8 +1958,6 @@ const DeclGen = struct {
 
         const decl_id = self.spv.declPtr(spv_decl_index).result_id;
 
-        try self.base_line_stack.append(self.gpa, decl.src_line);
-
         if (decl.val.getFunction(mod)) |_| {
             assert(decl.ty.zigTypeTag(mod) == .Fn);
             const fn_info = mod.typeToFunc(decl.ty).?;
@@ -2317,8 +2314,7 @@ const DeclGen = struct {
             .unreach, .trap => return self.airUnreach(),
 
             .dbg_stmt                  => return self.airDbgStmt(inst),
-            .dbg_inline_begin          => return self.airDbgInlineBegin(inst),
-            .dbg_inline_end            => return self.airDbgInlineEnd(inst),
+            .dbg_inline_block          => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr, .dbg_var_val => return self.airDbgVar(inst),
 
             .unwrap_errunion_err => try self.airErrUnionErr(inst),
@@ -4311,6 +4307,12 @@ const DeclGen = struct {
     }
 
     fn airBlock(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
+        const inst_datas = self.air.instructions.items(.data);
+        const extra = self.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
+        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    }
+
+    fn lowerBlock(self: *DeclGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) !?IdRef {
         // In AIR, a block doesn't really define an entry point like a block, but
         // more like a scope that breaks can jump out of and "return" a value from.
         // This cannot be directly modelled in SPIR-V, so in a block instruction,
@@ -4320,10 +4322,6 @@ const DeclGen = struct {
 
         const mod = self.module;
         const ty = self.typeOfIndex(inst);
-        const inst_datas = self.air.instructions.items(.data);
-        const extra = self.air.extraData(Air.Block, inst_datas[@intFromEnum(inst)].ty_pl.payload);
-        const body: []const Air.Inst.Index =
-            @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
         const have_block_result = ty.isFnOrHasRuntimeBitsIgnoreComptime(mod);
 
         const cf = switch (self.control_flow) {
@@ -5157,25 +5155,22 @@ const DeclGen = struct {
         const decl = mod.declPtr(self.decl_index);
         const path = decl.getFileScope(mod).sub_file_path;
         const src_fname_id = try self.spv.resolveSourceFileName(path);
-        const base_line = self.base_line_stack.getLast();
         try self.func.body.emit(self.spv.gpa, .OpLine, .{
             .file = src_fname_id,
-            .line = base_line + dbg_stmt.line + 1,
+            .line = self.base_line + dbg_stmt.line + 1,
             .column = dbg_stmt.column + 1,
         });
     }
 
-    fn airDbgInlineBegin(self: *DeclGen, inst: Air.Inst.Index) !void {
+    fn airDbgInlineBlock(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
         const mod = self.module;
-        const fn_ty = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
-        const decl_index = mod.funcInfo(fn_ty.func).owner_decl;
-        const decl = mod.declPtr(decl_index);
-        try self.base_line_stack.append(self.gpa, decl.src_line);
-    }
-
-    fn airDbgInlineEnd(self: *DeclGen, inst: Air.Inst.Index) !void {
-        _ = inst;
-        _ = self.base_line_stack.pop();
+        const inst_datas = self.air.instructions.items(.data);
+        const extra = self.air.extraData(Air.DbgInlineBlock, inst_datas[@intFromEnum(inst)].ty_pl.payload);
+        const decl = mod.funcOwnerDeclPtr(extra.data.func);
+        const old_base_line = self.base_line;
+        defer self.base_line = old_base_line;
+        self.base_line = decl.src_line;
+        return self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
     }
 
     fn airDbgVar(self: *DeclGen, inst: Air.Inst.Index) !void {

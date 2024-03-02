@@ -913,3 +913,20 @@ test "switch prong captures range" {
     S.a(&arr, 5);
     try expect(arr[5] == 5);
 }
+
+test "prong with inline call to unreachable" {
+    const U = union(enum) {
+        void: void,
+        bool: bool,
+
+        inline fn unreach() noreturn {
+            unreachable;
+        }
+    };
+    var u: U = undefined;
+    u = .{ .bool = true };
+    switch (u) {
+        .void => U.unreach(),
+        .bool => |ok| try expect(ok),
+    }
+}

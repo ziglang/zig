@@ -2554,9 +2554,9 @@ pub fn genTypeDecl(
                         .suffix,
                         .{},
                     );
-                    try writer.writeAll("; // ");
+                    try writer.writeAll("; /* ");
                     try mod.declPtr(owner_decl).renderFullyQualifiedName(mod, writer);
-                    try writer.writeByte('\n');
+                    try writer.writeAll(" */\n");
                 },
 
                 .anon_struct,
@@ -3215,7 +3215,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .assembly         => try airAsm(f, inst),
             .block            => try airBlock(f, inst),
             .bitcast          => try airBitcast(f, inst),
-            .dbg_stmt         => try airDbgStmt(f, inst),
             .intcast          => try airIntCast(f, inst),
             .trunc            => try airTrunc(f, inst),
             .int_from_bool      => try airIntFromBool(f, inst),
@@ -3259,13 +3258,9 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .@"try"  => try airTry(f, inst),
             .try_ptr => try airTryPtr(f, inst),
 
-            .dbg_var_ptr,
-            .dbg_var_val,
-            => try airDbgVar(f, inst),
-
-            .dbg_inline_begin,
-            .dbg_inline_end,
-            => try airDbgInline(f, inst),
+            .dbg_stmt => try airDbgStmt(f, inst),
+            .dbg_inline_block => try airDbgInlineBlock(f, inst),
+            .dbg_var_ptr, .dbg_var_val => try airDbgVar(f, inst),
 
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => .none,
@@ -4497,15 +4492,16 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
     return .none;
 }
 
-fn airDbgInline(f: *Function, inst: Air.Inst.Index) !CValue {
-    const ty_fn = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_fn;
+fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const mod = f.object.dg.module;
+    const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = f.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    const owner_decl = mod.funcOwnerDeclPtr(extra.data.func);
     const writer = f.object.writer();
-    const owner_decl = mod.funcOwnerDeclPtr(ty_fn.func);
-    try writer.print("/* dbg func:{s} */\n", .{
-        mod.intern_pool.stringToSlice(owner_decl.name),
-    });
-    return .none;
+    try writer.writeAll("/* ");
+    try owner_decl.renderFullyQualifiedName(mod, writer);
+    try writer.writeAll(" */ ");
+    return lowerBlock(f, inst, @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
@@ -4522,10 +4518,13 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airBlock(f: *Function, inst: Air.Inst.Index) !CValue {
-    const mod = f.object.dg.module;
     const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]);
+    return lowerBlock(f, inst, @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn lowerBlock(f: *Function, inst: Air.Inst.Index, body: []const Air.Inst.Index) !CValue {
+    const mod = f.object.dg.module;
     const liveness_block = f.liveness.getBlock(inst);
 
     const block_id: usize = f.next_block_index;
