@@ -173,6 +173,8 @@ struct ZigClangValueDecl;
 struct ZigClangVarDecl;
 struct ZigClangWhileStmt;
 struct ZigClangInitListExpr;
+struct ZigClangGotoStmt;
+struct ZigClangLabelStmt;
 
 typedef struct ZigClangStmt *const * ZigClangCompoundStmt_const_body_iterator;
 typedef struct ZigClangDecl *const * ZigClangDeclStmt_const_decl_iterator;
@@ -1715,4 +1717,10 @@ ZIG_EXTERN_C unsigned ZigClangFieldDecl_getFieldIndex(const struct ZigClangField
 
 ZIG_EXTERN_C const struct ZigClangAPSInt *ZigClangEnumConstantDecl_getInitVal(const struct ZigClangEnumConstantDecl *);
 ZIG_EXTERN_C bool ZigClangIsLLVMUsingSeparateLibcxx();
+
+ZIG_EXTERN_C struct ZigClangNamedDecl *ZigClangGotoStmt_getLabel(const struct ZigClangGotoStmt *);
+
+ZIG_EXTERN_C const char *ZigClangLabelStmt_getName(const struct ZigClangLabelStmt *);
+ZIG_EXTERN_C const struct ZigClangStmt *ZigClangLabelStmt_getSubStmt(const struct ZigClangLabelStmt *);
+
 #endif
