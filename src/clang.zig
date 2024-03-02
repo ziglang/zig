@@ -612,6 +612,11 @@ pub const GenericSelectionExpr = opaque {
     extern fn ZigClangGenericSelectionExpr_getResultExpr(*const GenericSelectionExpr) *const Expr;
 };
 
+pub const GotoStmt = opaque {
+    pub const getLabel = ZigClangGotoStmt_getLabel;
+    extern fn ZigClangGotoStmt_getLabel(*const GotoStmt) *NamedDecl;
+};
+
 pub const IfStmt = opaque {
     pub const getThen = ZigClangIfStmt_getThen;
     extern fn ZigClangIfStmt_getThen(*const IfStmt) *const Stmt;
@@ -648,6 +653,14 @@ pub const IntegerLiteral = opaque {
 
     pub const getSignum = ZigClangIntegerLiteral_getSignum;
     extern fn ZigClangIntegerLiteral_getSignum(*const IntegerLiteral, *c_int, *const ASTContext) bool;
+};
+
+pub const LabelStmt = opaque {
+    pub const getName = ZigClangLabelStmt_getName;
+    extern fn ZigClangLabelStmt_getName(*const LabelStmt) [*:0]const u8;
+
+    pub const getSubStmt = ZigClangLabelStmt_getSubStmt;
+    extern fn ZigClangLabelStmt_getSubStmt(*const LabelStmt) *const Stmt;
 };
 
 /// This is just used as a namespace for a static method on clang's Lexer class; we don't directly
