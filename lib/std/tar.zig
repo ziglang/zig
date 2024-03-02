@@ -258,9 +258,14 @@ pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(read
         .file_name_buffer = options.file_name_buffer,
         .link_name_buffer = options.link_name_buffer,
         .padding = 0,
-        .file = undefined,
     };
 }
+
+pub const FileKind = enum {
+    directory,
+    sym_link,
+    file,
+};
 
 fn Iterator(comptime ReaderType: type) type {
     return struct {
@@ -274,34 +279,42 @@ fn Iterator(comptime ReaderType: type) type {
 
         // bytes of padding to the end of the block
         padding: usize,
-        // current tar file
-        file: File,
+        // not consumed bytes of file from last next iteration
+        unread_file_bytes: usize = 0,
 
         pub const File = struct {
             name: []const u8, // name of file, symlink or directory
             link_name: []const u8, // target name of symlink
-            size: u64, // size of the file in bytes
-            mode: u32,
-            kind: Header.Kind,
+            size: u64 = 0, // size of the file in bytes
+            mode: u32 = 0,
+            kind: FileKind = .file,
 
+            unread_bytes: *usize,
             reader: ReaderType,
 
-            // Writes file content to writer.
-            pub fn write(self: File, writer: anytype) !void {
-                var buffer: [4096]u8 = undefined;
+            pub const Reader = std.io.Reader(*Self, ReaderType.Error, read);
 
-                var n: u64 = 0;
-                while (n < self.size) {
-                    const buf = buffer[0..@min(buffer.len, self.size - n)];
-                    try self.reader.readNoEof(buf);
-                    try writer.writeAll(buf);
-                    n += buf.len;
-                }
+            pub fn reader(self: *Self) Reader {
+                return .{ .context = self };
             }
 
-            // Skips file content. Advances reader.
-            pub fn skip(self: File) !void {
-                try self.reader.skipBytes(self.size, .{});
+            pub fn read(self: *Self, dest: []u8) ReaderType.Error!usize {
+                const buf = dest[0..@min(dest.len, self.unread_size.*)];
+                const n = try self.reader.read(buf);
+                self.unread_size.* -= n;
+                return n;
+            }
+
+            // Writes file content to writer.
+            pub fn writeAll(self: File, writer: anytype) !void {
+                var buffer: [4096]u8 = undefined;
+
+                while (self.unread_bytes.* > 0) {
+                    const buf = buffer[0..@min(buffer.len, self.unread_bytes.*)];
+                    try self.reader.readNoEof(buf);
+                    try writer.writeAll(buf);
+                    self.unread_bytes.* -= buf.len;
+                }
             }
         };
 
@@ -326,14 +339,12 @@ fn Iterator(comptime ReaderType: type) type {
             return nullStr(buf);
         }
 
-        fn initFile(self: *Self) void {
-            self.file = .{
+        fn newFile(self: *Self) File {
+            return .{
                 .name = self.file_name_buffer[0..0],
                 .link_name = self.link_name_buffer[0..0],
-                .size = 0,
-                .kind = .normal,
-                .mode = 0,
                 .reader = self.reader,
+                .unread_bytes = &self.unread_file_bytes,
             };
         }
 
@@ -350,7 +361,12 @@ fn Iterator(comptime ReaderType: type) type {
         /// loop iterates through one or more entries until it collects a all
         /// file attributes.
         pub fn next(self: *Self) !?File {
-            self.initFile();
+            if (self.unread_file_bytes > 0) {
+                // If file content was not consumed by caller
+                try self.reader.skipBytes(self.unread_file_bytes, .{});
+                self.unread_file_bytes = 0;
+            }
+            var file: File = self.newFile();
 
             while (try self.readHeader()) |header| {
                 const kind = header.kind();
@@ -360,46 +376,52 @@ fn Iterator(comptime ReaderType: type) type {
                 switch (kind) {
                     // File types to retrun upstream
                     .directory, .normal, .symbolic_link => {
-                        self.file.kind = kind;
-                        self.file.mode = try header.mode();
+                        file.kind = switch (kind) {
+                            .directory => .directory,
+                            .normal => .file,
+                            .symbolic_link => .sym_link,
+                            else => unreachable,
+                        };
+                        file.mode = try header.mode();
 
                         // set file attributes if not already set by prefix/extended headers
-                        if (self.file.size == 0) {
-                            self.file.size = size;
+                        if (file.size == 0) {
+                            file.size = size;
                         }
-                        if (self.file.link_name.len == 0) {
-                            self.file.link_name = try header.linkName(self.link_name_buffer);
+                        if (file.link_name.len == 0) {
+                            file.link_name = try header.linkName(self.link_name_buffer);
                         }
-                        if (self.file.name.len == 0) {
-                            self.file.name = try header.fullName(self.file_name_buffer);
+                        if (file.name.len == 0) {
+                            file.name = try header.fullName(self.file_name_buffer);
                         }
 
-                        self.padding = blockPadding(self.file.size);
-                        return self.file;
+                        self.padding = blockPadding(file.size);
+                        self.unread_file_bytes = file.size;
+                        return file;
                     },
                     // Prefix header types
                     .gnu_long_name => {
-                        self.file.name = try self.readString(@intCast(size), self.file_name_buffer);
+                        file.name = try self.readString(@intCast(size), self.file_name_buffer);
                     },
                     .gnu_long_link => {
-                        self.file.link_name = try self.readString(@intCast(size), self.link_name_buffer);
+                        file.link_name = try self.readString(@intCast(size), self.link_name_buffer);
                     },
                     .extended_header => {
                         // Use just attributes from last extended header.
-                        self.initFile();
+                        file = self.newFile();
 
                         var rdr = paxIterator(self.reader, @intCast(size));
                         while (try rdr.next()) |attr| {
                             switch (attr.kind) {
                                 .path => {
-                                    self.file.name = try attr.value(self.file_name_buffer);
+                                    file.name = try attr.value(self.file_name_buffer);
                                 },
                                 .linkpath => {
-                                    self.file.link_name = try attr.value(self.link_name_buffer);
+                                    file.link_name = try attr.value(self.link_name_buffer);
                                 },
                                 .size => {
                                     var buf: [pax_max_size_attr_len]u8 = undefined;
-                                    self.file.size = try std.fmt.parseInt(u64, try attr.value(&buf), 10);
+                                    file.size = try std.fmt.parseInt(u64, try attr.value(&buf), 10);
                                 },
                             }
                         }
@@ -574,24 +596,23 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     try dir.makePath(file_name);
                 }
             },
-            .normal => {
+            .file => {
                 if (file.size == 0 and file.name.len == 0) return;
                 const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
 
                 if (createDirAndFile(dir, file_name)) |fs_file| {
                     defer fs_file.close();
-                    try file.write(fs_file);
+                    try file.writeAll(fs_file);
                 } else |err| {
                     const d = options.diagnostics orelse return err;
                     try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
                         .code = err,
                         .file_name = try d.allocator.dupe(u8, file_name),
                     } });
-                    try file.skip();
                 }
             },
-            .symbolic_link => {
+            .sym_link => {
                 // The file system path of the symbolic link.
                 const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
@@ -607,7 +628,6 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                     } });
                 };
             },
-            else => unreachable,
         }
     }
 }

@@ -8,7 +8,7 @@ const Case = struct {
         size: u64 = 0,
         mode: u32 = 0,
         link_name: []const u8 = &[0]u8{},
-        kind: tar.Header.Kind = .normal,
+        kind: tar.FileKind = .file,
         truncated: bool = false, // when there is no file body, just header, usefull for huge files
     };
 
@@ -91,7 +91,7 @@ const cases = [_]Case{
             .{
                 .name = "a/b",
                 .size = 0,
-                .kind = .symbolic_link,
+                .kind = .sym_link,
                 .mode = 0o777,
                 .link_name = "123456789101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899100",
             },
@@ -112,7 +112,7 @@ const cases = [_]Case{
             .{
                 .name = "foo",
                 .size = 999,
-                .kind = .normal,
+                .kind = .file,
                 .mode = 0o640,
             },
         },
@@ -153,7 +153,7 @@ const cases = [_]Case{
             .{
                 .name = "P1050238.JPG.log",
                 .size = 14,
-                .kind = .normal,
+                .kind = .file,
                 .mode = 0o664,
             },
         },
@@ -168,13 +168,13 @@ const cases = [_]Case{
             .{
                 .name = "small.txt",
                 .size = 5,
-                .kind = .normal,
+                .kind = .file,
                 .mode = 0o644,
             },
             .{
                 .name = "small2.txt",
                 .size = 11,
-                .kind = .normal,
+                .kind = .file,
                 .mode = 0o644,
             },
         },
@@ -189,7 +189,7 @@ const cases = [_]Case{
             .{
                 .name = "GNU2/GNU2/long-path-name",
                 .link_name = "GNU4/GNU4/long-linkpath-name",
-                .kind = .symbolic_link,
+                .kind = .sym_link,
             },
         },
     },
@@ -205,7 +205,7 @@ const cases = [_]Case{
             .{
                 .name = "bar",
                 .link_name = "PAX4/PAX4/long-linkpath-name",
-                .kind = .symbolic_link,
+                .kind = .sym_link,
             },
         },
     },
@@ -369,11 +369,13 @@ test "run test cases" {
 
             if (case.chksums.len > i) {
                 var md5writer = Md5Writer{};
-                try actual.write(&md5writer);
+                try actual.writeAll(&md5writer);
                 const chksum = md5writer.chksum();
                 try testing.expectEqualStrings(case.chksums[i], &chksum);
             } else {
-                if (!expected.truncated) try actual.skip(); // skip file content
+                if (expected.truncated) {
+                    iter.unread_file_bytes = 0;
+                }
             }
         }
         try testing.expectEqual(case.files.len, i);
