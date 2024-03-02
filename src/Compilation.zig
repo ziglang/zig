@@ -5073,7 +5073,7 @@ pub fn addCCArgs(
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
     if (target.os.tag == .windows) switch (ext) {
-        .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc, .assembly, .assembly_with_cpp => {
+        .c, .cpp, .m, .mm, .inc, .h, .hpp, .hm, .hmm, .cu, .rc, .assembly, .assembly_with_cpp => {
             const minver: u16 = @truncate(@intFromEnum(target.os.getVersionRange().windows.min) >> 16);
             try argv.append(
                 try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
@@ -5083,7 +5083,7 @@ pub fn addCCArgs(
     };
 
     switch (ext) {
-        .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc => {
+        .c, .cpp, .m, .mm, .inc, .h, .hpp, .hm, .hmm, .cu, .rc => {
             try argv.appendSlice(&[_][]const u8{
                 "-nostdinc",
                 "-fno-spell-checking",
@@ -5651,6 +5651,7 @@ pub const FileExt = enum {
     cpp,
     cu,
     h,
+    inc,
     hpp,
     hm,
     hmm,
@@ -5672,7 +5673,7 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
+            .c, .cpp, .inc, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
 
             .ll,
             .bc,
@@ -5696,6 +5697,7 @@ pub const FileExt = enum {
             .c => ".c",
             .cpp => ".cpp",
             .cu => ".cu",
+            .inc => ".inc",
             .h => ".h",
             .hpp => ".h",
             .hm => ".h",
@@ -5793,6 +5795,8 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly_with_cpp;
     } else if (mem.endsWith(u8, filename, ".h")) {
         return .h;
+    } else if (mem.endsWith(u8, filename, ".inc")){
+        return .inc;
     } else if (mem.endsWith(u8, filename, ".zig")) {
         return .zig;
     } else if (hasSharedLibraryExt(filename)) {
