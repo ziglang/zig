@@ -59,7 +59,7 @@ test_runner: ?[]const u8,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: ArrayList(*Step),
+installed_headers: ArrayList(InstalledHeader),
 
 // keep in sync with src/Compilation.zig:RcIncludes
 /// Behavior of automatic detection of include directories when compiling .rc files.
@@ -249,6 +249,70 @@ pub const Kind = enum {
     @"test",
 };
 
+pub const InstalledHeader = struct {
+    source: Source,
+    dest_rel_path: []const u8,
+
+    pub const Source = union(enum) {
+        file: LazyPath,
+        directory: Directory,
+
+        pub const Directory = struct {
+            path: LazyPath,
+            options: Directory.Options,
+
+            pub const Options = struct {
+                /// File paths which end in any of these suffixes will be excluded
+                /// from installation.
+                exclude_extensions: []const []const u8 = &.{},
+                /// Only file paths which end in any of these suffixes will be included
+                /// in installation.
+                /// `null` means all suffixes will be included.
+                /// `exclude_extensions` takes precedence over `include_extensions`
+                include_extensions: ?[]const []const u8 = &.{".h"},
+
+                pub fn dupe(self: Directory.Options, b: *std.Build) Directory.Options {
+                    return .{
+                        .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+                        .include_extensions = if (self.include_extensions) |incs|
+                            b.dupeStrings(incs)
+                        else
+                            null,
+                    };
+                }
+            };
+
+            pub fn dupe(self: Directory, b: *std.Build) Directory {
+                return .{
+                    .path = self.path.dupe(b),
+                    .options = self.options.dupe(b),
+                };
+            }
+        };
+
+        pub fn path(self: Source) LazyPath {
+            return switch (self) {
+                .file => |lp| lp,
+                .directory => |dir| dir.path,
+            };
+        }
+
+        pub fn dupe(self: Source, b: *std.Build) Source {
+            return switch (self) {
+                .file => |lp| .{ .file = lp.dupe(b) },
+                .directory => |dir| .{ .directory = dir.dupe(b) },
+            };
+        }
+    };
+
+    pub fn dupe(self: InstalledHeader, b: *std.Build) InstalledHeader {
+        return .{
+            .source = self.source.dupe(b),
+            .dest_rel_path = b.dupePath(self.dest_rel_path),
+        };
+    }
+};
+
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
@@ -308,7 +372,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = ArrayList(*Step).init(owner.allocator),
+        .installed_headers = ArrayList(InstalledHeader).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
@@ -380,78 +444,47 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     return self;
 }
 
-pub fn installHeader(cs: *Compile, src_path: []const u8, dest_rel_path: []const u8) void {
-    const b = cs.step.owner;
-    const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
-}
-
-pub const InstallConfigHeaderOptions = struct {
-    install_dir: InstallDir = .header,
-    dest_rel_path: ?[]const u8 = null,
-};
-
-pub fn installConfigHeader(
+pub fn installHeader(
     cs: *Compile,
-    config_header: *Step.ConfigHeader,
-    options: InstallConfigHeaderOptions,
-) void {
-    const dest_rel_path = options.dest_rel_path orelse config_header.include_path;
-    const b = cs.step.owner;
-    const install_file = b.addInstallFileWithDir(
-        .{ .generated = &config_header.output_file },
-        options.install_dir,
-        dest_rel_path,
-    );
-    install_file.step.dependOn(&config_header.step);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
-}
-
-pub fn installHeadersDirectory(
-    a: *Compile,
-    src_dir_path: []const u8,
+    source: LazyPath,
     dest_rel_path: []const u8,
 ) void {
-    return installHeadersDirectoryOptions(a, .{
-        .source_dir = .{ .path = src_dir_path },
-        .install_dir = .header,
-        .install_subdir = dest_rel_path,
-    });
+    const b = cs.step.owner;
+    cs.installed_headers.append(.{
+        .source = .{ .file = source.dupe(b) },
+        .dest_rel_path = b.dupePath(dest_rel_path),
+    }) catch @panic("OOM");
+    source.addStepDependencies(&cs.step);
 }
 
-pub fn installHeadersDirectoryOptions(
+pub fn installHeaders(
     cs: *Compile,
-    options: std.Build.Step.InstallDir.Options,
+    source: LazyPath,
+    dest_rel_path: []const u8,
+    options: InstalledHeader.Source.Directory.Options,
 ) void {
     const b = cs.step.owner;
-    const install_dir = b.addInstallDirectory(options);
-    b.getInstallStep().dependOn(&install_dir.step);
-    cs.installed_headers.append(&install_dir.step) catch @panic("OOM");
+    cs.installed_headers.append(.{
+        .source = .{ .directory = .{
+            .path = source.dupe(b),
+            .options = options.dupe(b),
+        } },
+        .dest_rel_path = b.dupePath(dest_rel_path),
+    }) catch @panic("OOM");
+    source.addStepDependencies(&cs.step);
 }
 
-pub fn installLibraryHeaders(cs: *Compile, l: *Compile) void {
-    assert(l.kind == .lib);
+pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void {
+    cs.installHeader(.{ .generated = &config_header.output_file }, config_header.include_path);
+}
+
+pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
+    assert(lib.kind == .lib);
     const b = cs.step.owner;
-    const install_step = b.getInstallStep();
-    // Copy each element from installed_headers, modifying the builder
-    // to be the new parent's builder.
-    for (l.installed_headers.items) |step| {
-        const step_copy = switch (step.id) {
-            inline .install_file, .install_dir => |id| blk: {
-                const T = id.Type();
-                const ptr = b.allocator.create(T) catch @panic("OOM");
-                ptr.* = step.cast(T).?.*;
-                ptr.dest_builder = b;
-                break :blk &ptr.step;
-            },
-            else => unreachable,
-        };
-        cs.installed_headers.append(step_copy) catch @panic("OOM");
-        install_step.dependOn(step_copy);
+    for (lib.installed_headers.items) |header| {
+        cs.installed_headers.append(header.dupe(b)) catch @panic("OOM");
+        header.source.path().addStepDependencies(&cs.step);
     }
-    cs.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
 }
 
 pub fn addObjCopy(cs: *Compile, options: Step.ObjCopy.Options) *Step.ObjCopy {
