@@ -306,7 +306,7 @@ fn Iterator(comptime ReaderType: type) type {
         // bytes of padding to the end of the block
         padding: usize,
         // not consumed bytes of file from last next iteration
-        unread_file_bytes: usize = 0,
+        unread_file_bytes: u64 = 0,
 
         pub const File = struct {
             name: []const u8, // name of file, symlink or directory
@@ -315,7 +315,7 @@ fn Iterator(comptime ReaderType: type) type {
             mode: u32 = 0,
             kind: FileKind = .file,
 
-            unread_bytes: *usize,
+            unread_bytes: *u64,
             reader: ReaderType,
 
             pub const Reader = std.io.Reader(*Self, ReaderType.Error, read);
