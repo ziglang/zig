@@ -297,7 +297,10 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .root_src_path = "fmt.zig",
         });
     } else if (mem.eql(u8, cmd, "objcopy")) {
-        return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "objcopy",
+            .root_src_path = "objcopy.zig",
+        });
     } else if (mem.eql(u8, cmd, "fetch")) {
         return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
