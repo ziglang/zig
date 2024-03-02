@@ -300,6 +300,16 @@ test "union field access gives the enum values" {
     try expect(TheUnion.C == TheTag.C);
 }
 
+test "union field access resolves layout" {
+    const U = union(enum) {
+        a: u8,
+        b: f64,
+    };
+
+    const t = U.a;
+    _ = &t;
+}
+
 test "cast tag type of union to union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;

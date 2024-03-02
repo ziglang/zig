@@ -26876,7 +26876,7 @@ fn fieldVal(
                             return inst;
                         }
                     }
-                    try sema.resolveTypeFields(child_type);
+                    try sema.resolveUnionLayout(child_type);
                     if (child_type.unionTagType(mod)) |enum_ty| {
                         if (enum_ty.enumFieldIndex(field_name, mod)) |field_index_usize| {
                             const field_index: u32 = @intCast(field_index_usize);
