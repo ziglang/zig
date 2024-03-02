@@ -174,8 +174,6 @@ pub const Parser = struct {
                             } },
                         });
                     }
-                    // TODO: Wrapping this in a Node.Literal is superfluous but necessary
-                    //       to put it in a SimpleStatement
                     const value_node = try self.state.arena.create(Node.Literal);
                     value_node.* = .{
                         .token = value,
@@ -203,8 +201,6 @@ pub const Parser = struct {
                     const identifier = self.state.token;
                     try self.nextToken(.whitespace_delimiter_only);
                     try self.check(.literal);
-                    // TODO: Wrapping this in a Node.Literal is superfluous but necessary
-                    //       to put it in a SimpleStatement
                     const value_node = try self.state.arena.create(Node.Literal);
                     value_node.* = .{
                         .token = self.state.token,
@@ -539,12 +535,12 @@ pub const Parser = struct {
                     // be able to be written into the relevant field in the .res data.
                     if (controls.items.len >= std.math.maxInt(u16)) {
                         try self.addErrorDetails(.{
-                            .err = .too_many_dialog_controls,
+                            .err = .too_many_dialog_controls_or_toolbar_buttons,
                             .token = id_token,
                             .extra = .{ .resource = resource },
                         });
                         return self.addErrorDetailsAndFail(.{
-                            .err = .too_many_dialog_controls,
+                            .err = .too_many_dialog_controls_or_toolbar_buttons,
                             .type = .note,
                             .token = control_node.getFirstToken(),
                             .token_span_end = control_node.getLastToken(),
@@ -592,8 +588,26 @@ pub const Parser = struct {
                 try self.check(.begin);
 
                 var buttons = std.ArrayListUnmanaged(*Node){};
+                defer buttons.deinit(self.state.allocator);
                 while (try self.parseToolbarButtonStatement()) |button_node| {
-                    try buttons.append(self.state.arena, button_node);
+                    // The number of buttons must fit in a u16 in order for it to
+                    // be able to be written into the relevant field in the .res data.
+                    if (buttons.items.len >= std.math.maxInt(u16)) {
+                        try self.addErrorDetails(.{
+                            .err = .too_many_dialog_controls_or_toolbar_buttons,
+                            .token = id_token,
+                            .extra = .{ .resource = resource },
+                        });
+                        return self.addErrorDetailsAndFail(.{
+                            .err = .too_many_dialog_controls_or_toolbar_buttons,
+                            .type = .note,
+                            .token = button_node.getFirstToken(),
+                            .token_span_end = button_node.getLastToken(),
+                            .extra = .{ .resource = resource },
+                        });
+                    }
+
+                    try buttons.append(self.state.allocator, button_node);
                 }
 
                 try self.nextToken(.normal);
@@ -608,7 +622,7 @@ pub const Parser = struct {
                     .button_width = button_width,
                     .button_height = button_height,
                     .begin_token = begin_token,
-                    .buttons = try buttons.toOwnedSlice(self.state.arena),
+                    .buttons = try self.state.arena.dupe(*Node, buttons.items),
                     .end_token = end_token,
                 };
                 return &node.base;

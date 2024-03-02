@@ -1,8 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const UncheckedSliceWriter = @import("utils.zig").UncheckedSliceWriter;
-const parseQuotedAsciiString = @import("literals.zig").parseQuotedAsciiString;
-const lex = @import("lex.zig");
+const utils = @import("utils.zig");
+const UncheckedSliceWriter = utils.UncheckedSliceWriter;
 
 pub const ParseLineCommandsResult = struct {
     result: []u8,
@@ -79,8 +78,9 @@ pub fn parseAndRemoveLineCommands(allocator: Allocator, source: []const u8, buf:
                 },
                 '\r', '\n' => {
                     const is_crlf = formsLineEndingPair(source, c, index + 1);
-                    try handleLineEnd(allocator, line_number, &parse_result.mappings, &current_mapping);
                     if (!current_mapping.ignore_contents) {
+                        try handleLineEnd(allocator, line_number, &parse_result.mappings, &current_mapping);
+
                         result.write(c);
                         if (is_crlf) result.write(source[index + 1]);
                         line_number += 1;
@@ -115,8 +115,9 @@ pub fn parseAndRemoveLineCommands(allocator: Allocator, source: []const u8, buf:
                     if (std.mem.startsWith(u8, preprocessor_str, "#line")) {
                         try handleLineCommand(allocator, preprocessor_str, &current_mapping);
                     } else {
-                        try handleLineEnd(allocator, line_number, &parse_result.mappings, &current_mapping);
                         if (!current_mapping.ignore_contents) {
+                            try handleLineEnd(allocator, line_number, &parse_result.mappings, &current_mapping);
+
                             const line_ending_len: usize = if (is_crlf) 2 else 1;
                             result.writeSlice(source[pending_start.? .. index + line_ending_len]);
                             line_number += 1;
@@ -131,8 +132,9 @@ pub fn parseAndRemoveLineCommands(allocator: Allocator, source: []const u8, buf:
             .non_preprocessor => switch (c) {
                 '\r', '\n' => {
                     const is_crlf = formsLineEndingPair(source, c, index + 1);
-                    try handleLineEnd(allocator, line_number, &parse_result.mappings, &current_mapping);
                     if (!current_mapping.ignore_contents) {
+                        try handleLineEnd(allocator, line_number, &parse_result.mappings, &current_mapping);
+
                         result.write(c);
                         if (is_crlf) result.write(source[index + 1]);
                         line_number += 1;
@@ -185,7 +187,7 @@ pub fn parseAndRemoveLineCommands(allocator: Allocator, source: []const u8, buf:
     // If there have been no line mappings at all, then we're dealing with an empty file.
     // In this case, we want to fake a line mapping just so that we return something
     // that is useable in the same way that a non-empty mapping would be.
-    if (parse_result.mappings.mapping.items.len == 0) {
+    if (parse_result.mappings.sources.root == null) {
         try handleLineEnd(allocator, line_number, &parse_result.mappings, &current_mapping);
     }
 
@@ -197,22 +199,13 @@ pub fn formsLineEndingPair(source: []const u8, line_ending: u8, next_index: usiz
     if (next_index >= source.len) return false;
 
     const next_ending = source[next_index];
-    if (next_ending != '\r' and next_ending != '\n') return false;
-
-    // can't be \n\n or \r\r
-    if (line_ending == next_ending) return false;
-
-    return true;
+    return utils.isLineEndingPair(line_ending, next_ending);
 }
 
 pub fn handleLineEnd(allocator: Allocator, post_processed_line_number: usize, mapping: *SourceMappings, current_mapping: *CurrentMapping) !void {
     const filename_offset = try mapping.files.put(allocator, current_mapping.filename.items);
 
-    try mapping.set(allocator, post_processed_line_number, .{
-        .start_line = current_mapping.line_num,
-        .end_line = current_mapping.line_num,
-        .filename_offset = filename_offset,
-    });
+    try mapping.set(post_processed_line_number, current_mapping.line_num, filename_offset);
 
     current_mapping.line_num += 1;
     current_mapping.pending = false;
@@ -421,72 +414,192 @@ test parseFilename {
 }
 
 pub const SourceMappings = struct {
-    /// line number -> span where the index is (line number - 1)
-    mapping: std.ArrayListUnmanaged(SourceSpan) = .{},
+    sources: Sources = .{},
     files: StringTable = .{},
     /// The default assumes that the first filename added is the root file.
     /// The value should be set to the correct offset if that assumption does not hold.
     root_filename_offset: u32 = 0,
+    source_node_pool: std.heap.MemoryPool(Sources.Node) = std.heap.MemoryPool(Sources.Node).init(std.heap.page_allocator),
+    end_line: usize = 0,
 
-    pub const SourceSpan = struct {
+    const sourceCompare = struct {
+        fn compare(a: Source, b: Source) std.math.Order {
+            return std.math.order(a.start_line, b.start_line);
+        }
+    }.compare;
+    const Sources = std.Treap(Source, sourceCompare);
+
+    pub const Source = struct {
         start_line: usize,
-        end_line: usize,
+        span: usize = 0,
+        corresponding_start_line: usize,
         filename_offset: u32,
     };
 
     pub fn deinit(self: *SourceMappings, allocator: Allocator) void {
         self.files.deinit(allocator);
-        self.mapping.deinit(allocator);
+        self.source_node_pool.deinit();
     }
 
-    pub fn set(self: *SourceMappings, allocator: Allocator, line_num: usize, span: SourceSpan) !void {
-        const ptr = try self.expandAndGet(allocator, line_num);
-        ptr.* = span;
+    /// Find the node that 'contains' the `line`, i.e. the node's start_line is
+    /// >= `line`
+    fn findNode(self: SourceMappings, line: usize) ?*Sources.Node {
+        var node = self.sources.root;
+        var last_gt: ?*Sources.Node = null;
+
+        var search_key: Source = undefined;
+        search_key.start_line = line;
+        while (node) |current| {
+            const order = sourceCompare(search_key, current.key);
+            if (order == .eq) break;
+            if (order == .gt) last_gt = current;
+
+            node = current.children[@intFromBool(order == .gt)] orelse {
+                // Regardless of the current order, last_gt will contain the
+                // the node we want to return.
+                //
+                // If search key is > current node's key, then last_gt will be
+                // current which we now know is the closest node that is <=
+                // the search key.
+                //
+                //
+                // If the key is < current node's key, we want to jump back to the
+                // node that the search key was most recently greater than.
+                // This is necessary for scenarios like (where the search key is 2):
+                //
+                //   1
+                //    \
+                //     6
+                //    /
+                //   3
+                //
+                // In this example, we'll get down to the '3' node but ultimately want
+                // to return the '1' node.
+                //
+                // Note: If we've never seen a key that the search key is greater than,
+                // then we know that there's no valid node, so last_gt will be null.
+                return last_gt;
+            };
+        }
+
+        return node;
     }
 
-    pub fn has(self: SourceMappings, line_num: usize) bool {
-        return self.mapping.items.len >= line_num;
+    /// Note: `line_num` and `corresponding_line_num` start at 1
+    pub fn set(self: *SourceMappings, line_num: usize, corresponding_line_num: usize, filename_offset: u32) !void {
+        const maybe_node = self.findNode(line_num);
+
+        const need_new_node = need_new_node: {
+            if (maybe_node) |node| {
+                if (node.key.filename_offset != filename_offset) {
+                    break :need_new_node true;
+                }
+                const exist_delta = @as(i64, @intCast(node.key.corresponding_start_line)) - @as(i64, @intCast(node.key.start_line));
+                const cur_delta = @as(i64, @intCast(corresponding_line_num)) - @as(i64, @intCast(line_num));
+                if (exist_delta != cur_delta) {
+                    break :need_new_node true;
+                }
+                break :need_new_node false;
+            }
+            break :need_new_node true;
+        };
+        if (need_new_node) {
+            // spans must not overlap
+            if (maybe_node) |node| {
+                std.debug.assert(node.key.start_line != line_num);
+            }
+
+            const key = Source{
+                .start_line = line_num,
+                .corresponding_start_line = corresponding_line_num,
+                .filename_offset = filename_offset,
+            };
+            var entry = self.sources.getEntryFor(key);
+            var new_node = try self.source_node_pool.create();
+            new_node.key = key;
+            entry.set(new_node);
+        }
+        if (line_num > self.end_line) {
+            self.end_line = line_num;
+        }
     }
 
-    /// Note: `line_num` is 1-indexed
-    pub fn get(self: SourceMappings, line_num: usize) SourceSpan {
-        return self.mapping.items[line_num - 1];
+    /// Note: `line_num` starts at 1
+    pub fn get(self: SourceMappings, line_num: usize) ?Source {
+        const node = self.findNode(line_num) orelse return null;
+        return node.key;
     }
 
-    pub fn getPtr(self: SourceMappings, line_num: usize) *SourceSpan {
-        return &self.mapping.items[line_num - 1];
+    pub const CorrespondingSpan = struct {
+        start_line: usize,
+        end_line: usize,
+        filename_offset: u32,
+    };
+
+    pub fn getCorrespondingSpan(self: SourceMappings, line_num: usize) ?CorrespondingSpan {
+        const source = self.get(line_num) orelse return null;
+        const diff = line_num - source.start_line;
+        const start_line = source.corresponding_start_line + (if (line_num == source.start_line) 0 else source.span + diff);
+        const end_line = start_line + (if (line_num == source.start_line) source.span else 0);
+        return CorrespondingSpan{
+            .start_line = start_line,
+            .end_line = end_line,
+            .filename_offset = source.filename_offset,
+        };
     }
 
-    /// Expands the number of lines in the mapping to include the requested
-    /// line number (if necessary) and returns a pointer to the value at that
-    /// line number.
-    ///
-    /// Note: `line_num` is 1-indexed
-    pub fn expandAndGet(self: *SourceMappings, allocator: Allocator, line_num: usize) !*SourceSpan {
-        try self.mapping.resize(allocator, line_num);
-        return &self.mapping.items[line_num - 1];
-    }
-
-    pub fn collapse(self: *SourceMappings, line_num: usize, num_following_lines_to_collapse: usize) void {
+    pub fn collapse(self: *SourceMappings, line_num: usize, num_following_lines_to_collapse: usize) !void {
         std.debug.assert(num_following_lines_to_collapse > 0);
+        var node = self.findNode(line_num).?;
+        const span_diff = num_following_lines_to_collapse;
+        if (node.key.start_line != line_num) {
+            const offset = line_num - node.key.start_line;
+            const key = Source{
+                .start_line = line_num,
+                .span = num_following_lines_to_collapse,
+                .corresponding_start_line = node.key.corresponding_start_line + node.key.span + offset,
+                .filename_offset = node.key.filename_offset,
+            };
+            var entry = self.sources.getEntryFor(key);
+            var new_node = try self.source_node_pool.create();
+            new_node.key = key;
+            entry.set(new_node);
+            node = new_node;
+        } else {
+            node.key.span += span_diff;
+        }
 
-        var span_to_collapse_into = self.getPtr(line_num);
-        const last_collapsed_span = self.get(line_num + num_following_lines_to_collapse);
-        span_to_collapse_into.end_line = last_collapsed_span.end_line;
+        // now subtract the span diff from the start line number of all of
+        // the following nodes in order
+        var it = Sources.InorderIterator{
+            .current = node,
+            .previous = node.children[0],
+        };
+        // skip past current, but store it
+        var prev = it.next().?;
+        while (it.next()) |inorder_node| {
+            inorder_node.key.start_line -= span_diff;
 
-        const after_collapsed_start = line_num + num_following_lines_to_collapse;
-        const new_num_lines = self.mapping.items.len - num_following_lines_to_collapse;
-        std.mem.copyForwards(SourceSpan, self.mapping.items[line_num..new_num_lines], self.mapping.items[after_collapsed_start..]);
-
-        self.mapping.items.len = new_num_lines;
+            // This can only really happen if there are #line commands within
+            // a multiline comment, which in theory should be skipped over.
+            // However, currently, parseAndRemoveLineCommands is not aware of
+            // comments at all.
+            //
+            // TODO: Make parseAndRemoveLineCommands aware of comments/strings
+            //       and turn this into an assertion
+            if (prev.key.start_line > inorder_node.key.start_line) {
+                return error.InvalidSourceMappingCollapse;
+            }
+            prev = inorder_node;
+        }
+        self.end_line -= span_diff;
     }
 
     /// Returns true if the line is from the main/root file (i.e. not a file that has been
     /// `#include`d).
     pub fn isRootFile(self: *SourceMappings, line_num: usize) bool {
-        const line_mapping = self.get(line_num);
-        if (line_mapping.filename_offset == self.root_filename_offset) return true;
-        return false;
+        const source = self.get(line_num) orelse return false;
+        return source.filename_offset == self.root_filename_offset;
     }
 };
 
@@ -497,16 +610,21 @@ test "SourceMappings collapse" {
     defer mappings.deinit(allocator);
     const filename_offset = try mappings.files.put(allocator, "test.rc");
 
-    try mappings.set(allocator, 1, .{ .start_line = 1, .end_line = 1, .filename_offset = filename_offset });
-    try mappings.set(allocator, 2, .{ .start_line = 2, .end_line = 3, .filename_offset = filename_offset });
-    try mappings.set(allocator, 3, .{ .start_line = 4, .end_line = 4, .filename_offset = filename_offset });
-    try mappings.set(allocator, 4, .{ .start_line = 5, .end_line = 5, .filename_offset = filename_offset });
+    try mappings.set(1, 1, filename_offset);
+    try mappings.set(5, 5, filename_offset);
 
-    mappings.collapse(1, 2);
+    try mappings.collapse(2, 2);
 
-    try std.testing.expectEqual(@as(usize, 2), mappings.mapping.items.len);
-    try std.testing.expectEqual(@as(usize, 4), mappings.mapping.items[0].end_line);
-    try std.testing.expectEqual(@as(usize, 5), mappings.mapping.items[1].end_line);
+    try std.testing.expectEqual(@as(usize, 3), mappings.end_line);
+    const span_1 = mappings.getCorrespondingSpan(1).?;
+    try std.testing.expectEqual(@as(usize, 1), span_1.start_line);
+    try std.testing.expectEqual(@as(usize, 1), span_1.end_line);
+    const span_2 = mappings.getCorrespondingSpan(2).?;
+    try std.testing.expectEqual(@as(usize, 2), span_2.start_line);
+    try std.testing.expectEqual(@as(usize, 4), span_2.end_line);
+    const span_3 = mappings.getCorrespondingSpan(3).?;
+    try std.testing.expectEqual(@as(usize, 5), span_3.start_line);
+    try std.testing.expectEqual(@as(usize, 5), span_3.end_line);
 }
 
 /// Same thing as StringTable in Zig's src/Wasm.zig
@@ -579,10 +697,11 @@ fn testParseAndRemoveLineCommands(
             std.debug.print("{}: {s}:{}-{}\n", .{ line_num, span.filename, span.start_line, span.end_line });
         }
         std.debug.print("\nactual mappings:\n", .{});
-        for (results.mappings.mapping.items, 0..) |span, i| {
-            const line_num = i + 1;
+        var i: usize = 1;
+        while (i <= results.mappings.end_line) : (i += 1) {
+            const span = results.mappings.getCorrespondingSpan(i).?;
             const filename = results.mappings.files.get(span.filename_offset);
-            std.debug.print("{}: {s}:{}-{}\n", .{ line_num, filename, span.start_line, span.end_line });
+            std.debug.print("{}: {s}:{}-{}\n", .{ i, filename, span.start_line, span.end_line });
         }
         std.debug.print("\n", .{});
         return err;
@@ -590,10 +709,10 @@ fn testParseAndRemoveLineCommands(
 }
 
 fn expectEqualMappings(expected_spans: []const ExpectedSourceSpan, mappings: SourceMappings) !void {
-    try std.testing.expectEqual(expected_spans.len, mappings.mapping.items.len);
+    try std.testing.expectEqual(expected_spans.len, mappings.end_line);
     for (expected_spans, 0..) |expected_span, i| {
         const line_num = i + 1;
-        const span = mappings.get(line_num);
+        const span = mappings.getCorrespondingSpan(line_num) orelse return error.MissingLineNum;
         const filename = mappings.files.get(span.filename_offset);
         try std.testing.expectEqual(expected_span.start_line, span.start_line);
         try std.testing.expectEqual(expected_span.end_line, span.end_line);
@@ -684,4 +803,29 @@ test "in place" {
     var result = try parseAndRemoveLineCommands(std.testing.allocator, &mut_source, &mut_source, .{});
     defer result.mappings.deinit(std.testing.allocator);
     try std.testing.expectEqualStrings("", result.result);
+}
+
+test "line command within a multiline comment" {
+    // TODO: Enable once parseAndRemoveLineCommands is comment-aware
+    if (true) return error.SkipZigTest;
+
+    try testParseAndRemoveLineCommands(
+        \\/*
+        \\#line 1 "irrelevant.rc"
+        \\
+        \\
+        \\*/
+    , &[_]ExpectedSourceSpan{
+        .{ .start_line = 1, .end_line = 1, .filename = "blah.rc" },
+        .{ .start_line = 2, .end_line = 2, .filename = "blah.rc" },
+        .{ .start_line = 3, .end_line = 3, .filename = "blah.rc" },
+        .{ .start_line = 4, .end_line = 4, .filename = "blah.rc" },
+        .{ .start_line = 5, .end_line = 5, .filename = "blah.rc" },
+    },
+        \\/*
+        \\#line 1 "irrelevant.rc"
+        \\
+        \\
+        \\*/
+    , .{ .initial_filename = "blah.rc" });
 }

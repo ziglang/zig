@@ -22,7 +22,7 @@ const formsLineEndingPair = @import("source_mapping.zig").formsLineEndingPair;
 
 /// `buf` must be at least as long as `source`
 /// In-place transformation is supported (i.e. `source` and `buf` can be the same slice)
-pub fn removeComments(source: []const u8, buf: []u8, source_mappings: ?*SourceMappings) []u8 {
+pub fn removeComments(source: []const u8, buf: []u8, source_mappings: ?*SourceMappings) ![]u8 {
     std.debug.assert(buf.len >= source.len);
     var result = UncheckedSliceWriter{ .slice = buf };
     const State = enum {
@@ -85,7 +85,7 @@ pub fn removeComments(source: []const u8, buf: []u8, source_mappings: ?*SourceMa
                 else => {},
             },
             .multiline_comment => switch (c) {
-                '\r' => handleMultilineCarriageReturn(source, &line_handler, index, &result, source_mappings),
+                '\r' => try handleMultilineCarriageReturn(source, &line_handler, index, &result, source_mappings),
                 '\n' => {
                     _ = line_handler.incrementLineNumber(index);
                     result.write(c);
@@ -95,7 +95,7 @@ pub fn removeComments(source: []const u8, buf: []u8, source_mappings: ?*SourceMa
             },
             .multiline_comment_end => switch (c) {
                 '\r' => {
-                    handleMultilineCarriageReturn(source, &line_handler, index, &result, source_mappings);
+                    try handleMultilineCarriageReturn(source, &line_handler, index, &result, source_mappings);
                     // We only want to treat this as a newline if it's part of a CRLF pair. If it's
                     // not, then we still want to stay in .multiline_comment_end, so that e.g. `*<\r>/` still
                     // functions as a `*/` comment ending. Kinda crazy, but that's how the Win32 implementation works.
@@ -184,13 +184,21 @@ inline fn handleMultilineCarriageReturn(
     index: usize,
     result: *UncheckedSliceWriter,
     source_mappings: ?*SourceMappings,
-) void {
+) !void {
+    // This is a dumb way to go about this, but basically we want to determine
+    // if this is part of a distinct CRLF or LFCR pair. This function call will detect
+    // LFCR pairs correctly since the function we're in will only be called on CR,
+    // but will not detect CRLF pairs since it only looks at the line ending before the
+    // CR. So, we do a second (forward) check if the first fails to detect CRLF that is
+    // not part of another pair.
+    const is_lfcr_pair = line_handler.currentIndexFormsLineEndingPair(index);
+    const is_crlf_pair = !is_lfcr_pair and formsLineEndingPair(source, '\r', index + 1);
     // Note: Bare \r within a multiline comment should *not* be treated as a line ending for the
     // purposes of removing comments, but *should* be treated as a line ending for the
     // purposes of line counting/source mapping
     _ = line_handler.incrementLineNumber(index);
-    // So only write the \r if it's part of a CRLF pair
-    if (formsLineEndingPair(source, '\r', index + 1)) {
+    // So only write the \r if it's part of a CRLF/LFCR pair
+    if (is_lfcr_pair or is_crlf_pair) {
         result.write('\r');
     }
     // And otherwise, we want to collapse the source mapping so that we can still know which
@@ -200,7 +208,7 @@ inline fn handleMultilineCarriageReturn(
         // the next collapse acts on the first of the collapsed line numbers
         line_handler.line_number -= 1;
         if (source_mappings) |mappings| {
-            mappings.collapse(line_handler.line_number, 1);
+            try mappings.collapse(line_handler.line_number, 1);
         }
     }
 }
@@ -208,7 +216,7 @@ inline fn handleMultilineCarriageReturn(
 pub fn removeCommentsAlloc(allocator: Allocator, source: []const u8, source_mappings: ?*SourceMappings) ![]u8 {
     const buf = try allocator.alloc(u8, source.len);
     errdefer allocator.free(buf);
-    const result = removeComments(source, buf, source_mappings);
+    const result = try removeComments(source, buf, source_mappings);
     return allocator.realloc(buf, result.len);
 }
 
@@ -250,6 +258,16 @@ test "line comments retain newlines" {
     );
 
     try testRemoveComments("\r\n", "//comment\r\n");
+}
+
+test "unfinished multiline comment" {
+    try testRemoveComments(
+        \\unfinished
+        \\
+    ,
+        \\unfinished/*
+        \\
+    );
 }
 
 test "crazy" {
@@ -321,20 +339,20 @@ test "remove comments with mappings" {
     var mut_source = "blah/*\rcommented line*\r/blah".*;
     var mappings = SourceMappings{};
     _ = try mappings.files.put(allocator, "test.rc");
-    try mappings.set(allocator, 1, .{ .start_line = 1, .end_line = 1, .filename_offset = 0 });
-    try mappings.set(allocator, 2, .{ .start_line = 2, .end_line = 2, .filename_offset = 0 });
-    try mappings.set(allocator, 3, .{ .start_line = 3, .end_line = 3, .filename_offset = 0 });
+    try mappings.set(1, 1, 0);
+    try mappings.set(2, 2, 0);
+    try mappings.set(3, 3, 0);
     defer mappings.deinit(allocator);
 
-    const result = removeComments(&mut_source, &mut_source, &mappings);
+    const result = try removeComments(&mut_source, &mut_source, &mappings);
 
     try std.testing.expectEqualStrings("blahblah", result);
-    try std.testing.expectEqual(@as(usize, 1), mappings.mapping.items.len);
-    try std.testing.expectEqual(@as(usize, 3), mappings.mapping.items[0].end_line);
+    try std.testing.expectEqual(@as(usize, 1), mappings.end_line);
+    try std.testing.expectEqual(@as(usize, 3), mappings.getCorrespondingSpan(1).?.end_line);
 }
 
 test "in place" {
     var mut_source = "blah /* comment */ blah".*;
-    const result = removeComments(&mut_source, &mut_source, null);
+    const result = try removeComments(&mut_source, &mut_source, null);
     try std.testing.expectEqualStrings("blah  blah", result);
 }

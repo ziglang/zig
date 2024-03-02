@@ -608,7 +608,7 @@ const AcceleratorKeyCodepointTranslator = struct {
         const parsed = maybe_parsed orelse return null;
         if (parsed.codepoint == Codepoint.invalid) return 0xFFFD;
         if (parsed.from_escaped_integer and self.string_type == .ascii) {
-            return windows1252.toCodepoint(@intCast(parsed.codepoint));
+            return windows1252.toCodepoint(@truncate(parsed.codepoint));
         }
         return parsed.codepoint;
     }

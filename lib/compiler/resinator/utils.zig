@@ -110,3 +110,13 @@ pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, msg_type: 
     try writer.writeByte('\n');
     try config.setColor(writer, .reset);
 }
+
+pub fn isLineEndingPair(first: u8, second: u8) bool {
+    if (first != '\r' and first != '\n') return false;
+    if (second != '\r' and second != '\n') return false;
+
+    // can't be \n\n or \r\r
+    if (first == second) return false;
+
+    return true;
+}

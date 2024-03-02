@@ -71,7 +71,7 @@ pub const Token = struct {
 
     /// Returns 0-based column
     pub fn calculateColumn(token: Token, source: []const u8, tab_columns: usize, maybe_line_start: ?usize) usize {
-        const line_start = maybe_line_start orelse token.getLineStart(source);
+        const line_start = maybe_line_start orelse token.getLineStartForColumnCalc(source);
 
         var i: usize = line_start;
         var column: usize = 0;
@@ -81,13 +81,9 @@ pub const Token = struct {
         return column;
     }
 
-    // TODO: This doesn't necessarily match up with how we count line numbers, but where a line starts
-    //       has a knock-on effect on calculateColumn. More testing is needed to determine what needs
-    //       to be changed to make this both (1) match how line numbers are counted and (2) match how
-    //       the Win32 RC compiler counts tab columns.
-    //
+    // TODO: More testing is needed to determine if this can be merged with getLineStartForErrorDisplay
     //       (the TODO in currentIndexFormsLineEndingPair should be taken into account as well)
-    pub fn getLineStart(token: Token, source: []const u8) usize {
+    pub fn getLineStartForColumnCalc(token: Token, source: []const u8) usize {
         const line_start = line_start: {
             if (token.start != 0) {
                 // start checking at the byte before the token
@@ -102,14 +98,26 @@ pub const Token = struct {
         return line_start;
     }
 
-    pub fn getLine(token: Token, source: []const u8, maybe_line_start: ?usize) []const u8 {
-        const line_start = maybe_line_start orelse token.getLineStart(source);
+    pub fn getLineStartForErrorDisplay(token: Token, source: []const u8) usize {
+        const line_start = line_start: {
+            if (token.start != 0) {
+                // start checking at the byte before the token
+                var index = token.start - 1;
+                while (true) {
+                    if (source[index] == '\r' or source[index] == '\n') break :line_start @min(source.len - 1, index + 1);
+                    if (index != 0) index -= 1 else break;
+                }
+            }
+            break :line_start 0;
+        };
+        return line_start;
+    }
 
-        var line_end = line_start + 1;
-        if (line_end >= source.len or source[line_end] == '\n') return source[line_start..line_start];
-        while (line_end < source.len and source[line_end] != '\n') : (line_end += 1) {}
-        while (line_end > 0 and source[line_end - 1] == '\r') : (line_end -= 1) {}
+    pub fn getLineForErrorDisplay(token: Token, source: []const u8, maybe_line_start: ?usize) []const u8 {
+        const line_start = maybe_line_start orelse token.getLineStartForErrorDisplay(source);
 
+        var line_end = line_start;
+        while (line_end < source.len and source[line_end] != '\r' and source[line_end] != '\n') : (line_end += 1) {}
         return source[line_start..line_end];
     }
 

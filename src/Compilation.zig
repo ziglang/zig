@@ -36,7 +36,6 @@ const Cache = std.Build.Cache;
 const c_codegen = @import("codegen/c.zig");
 const libtsan = @import("libtsan.zig");
 const Zir = std.zig.Zir;
-const resinator = @import("resinator.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 
@@ -174,7 +173,7 @@ local_cache_directory: Directory,
 global_cache_directory: Directory,
 libc_include_dir_list: []const []const u8,
 libc_framework_dir_list: []const []const u8,
-rc_include_dir_list: []const []const u8,
+rc_includes: RcIncludes,
 thread_pool: *ThreadPool,
 
 /// Populated when we build the libc++ static library. A Job to build this is placed in the queue
@@ -1243,68 +1242,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             options.libc_installation,
         );
 
-        // The include directories used when preprocessing .rc files are separate from the
-        // target. Which include directories are used is determined by `options.rc_includes`.
-        //
-        // Note: It should be okay that the include directories used when compiling .rc
-        // files differ from the include directories used when compiling the main
-        // binary, since the .res format is not dependent on anything ABI-related. The
-        // only relevant differences would be things like `#define` constants being
-        // different in the MinGW headers vs the MSVC headers, but any such
-        // differences would likely be a MinGW bug.
-        const rc_dirs: std.zig.LibCDirs = b: {
-            // Set the includes to .none here when there are no rc files to compile
-            var includes = if (options.rc_source_files.len > 0) options.rc_includes else .none;
-            const target = options.root_mod.resolved_target.result;
-            if (!options.root_mod.resolved_target.is_native_os or target.os.tag != .windows) {
-                switch (includes) {
-                    // MSVC can't be found when the host isn't Windows, so short-circuit.
-                    .msvc => return error.WindowsSdkNotFound,
-                    // Skip straight to gnu since we won't be able to detect
-                    // MSVC on non-Windows hosts.
-                    .any => includes = .gnu,
-                    .none, .gnu => {},
-                }
-            }
-            while (true) switch (includes) {
-                .any, .msvc => break :b std.zig.LibCDirs.detect(
-                    arena,
-                    options.zig_lib_directory.path.?,
-                    .{
-                        .cpu = target.cpu,
-                        .os = target.os,
-                        .abi = .msvc,
-                        .ofmt = target.ofmt,
-                    },
-                    options.root_mod.resolved_target.is_native_abi,
-                    // The .rc preprocessor will need to know the libc include dirs even if we
-                    // are not linking libc, so force 'link_libc' to true
-                    true,
-                    options.libc_installation,
-                ) catch |err| {
-                    if (includes == .any) {
-                        // fall back to mingw
-                        includes = .gnu;
-                        continue;
-                    }
-                    return err;
-                },
-                .gnu => break :b try std.zig.LibCDirs.detectFromBuilding(arena, options.zig_lib_directory.path.?, .{
-                    .cpu = target.cpu,
-                    .os = target.os,
-                    .abi = .gnu,
-                    .ofmt = target.ofmt,
-                }),
-                .none => break :b .{
-                    .libc_include_dir_list = &[0][]u8{},
-                    .libc_installation = null,
-                    .libc_framework_dir_list = &.{},
-                    .sysroot = null,
-                    .darwin_sdk_layout = null,
-                },
-            };
-        };
-
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
         const include_compiler_rt = options.want_compiler_rt orelse
@@ -1492,7 +1429,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .self_exe_path = options.self_exe_path,
             .libc_include_dir_list = libc_dirs.libc_include_dir_list,
             .libc_framework_dir_list = libc_dirs.libc_framework_dir_list,
-            .rc_include_dir_list = rc_dirs.libc_include_dir_list,
+            .rc_includes = options.rc_includes,
             .thread_pool = options.thread_pool,
             .clang_passthrough_mode = options.clang_passthrough_mode,
             .clang_preprocessor_mode = options.clang_preprocessor_mode,
@@ -2506,7 +2443,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(comp.link_eh_frame_hdr);
     man.hash.add(comp.skip_linker_dependencies);
     man.hash.add(comp.include_compiler_rt);
-    man.hash.addListOfBytes(comp.rc_include_dir_list);
+    man.hash.add(comp.rc_includes);
     man.hash.addListOfBytes(comp.force_undefined_symbols.keys());
     man.hash.addListOfBytes(comp.framework_dirs);
     try link.hashAddSystemLibs(man, comp.system_libs);
@@ -4172,7 +4109,7 @@ pub fn obtainCObjectCacheManifest(
 pub fn obtainWin32ResourceCacheManifest(comp: *const Compilation) Cache.Manifest {
     var man = comp.cache_parent.obtain();
 
-    man.hash.addListOfBytes(comp.rc_include_dir_list);
+    man.hash.add(comp.rc_includes);
 
     return man;
 }
@@ -4812,11 +4749,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: *std.P
 }
 
 fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32_resource_prog_node: *std.Progress.Node) !void {
-    if (!build_options.have_llvm) {
-        return comp.failWin32Resource(win32_resource, "clang not available: compiler built without LLVM extensions", .{});
+    if (!std.process.can_spawn) {
+        return comp.failWin32Resource(win32_resource, "{s} does not support spawning a child process", .{@tagName(builtin.os.tag)});
     }
+
     const self_exe_path = comp.self_exe_path orelse
-        return comp.failWin32Resource(win32_resource, "clang compilation disabled", .{});
+        return comp.failWin32Resource(win32_resource, "unable to find self exe path", .{});
 
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
@@ -4856,6 +4794,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     if (win32_resource.src == .manifest) {
         _ = try man.addFile(src_path, null);
 
+        const rc_basename = try std.fmt.allocPrint(arena, "{s}.rc", .{src_basename});
         const res_basename = try std.fmt.allocPrint(arena, "{s}.res", .{src_basename});
 
         const digest = if (try man.hit()) man.final() else blk: {
@@ -4867,17 +4806,12 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
             defer o_dir.close();
 
-            var output_file = o_dir.createFile(res_basename, .{}) catch |err| {
-                const output_file_path = try comp.local_cache_directory.join(arena, &.{ o_sub_path, res_basename });
-                return comp.failWin32Resource(win32_resource, "failed to create output file '{s}': {s}", .{ output_file_path, @errorName(err) });
-            };
-            var output_file_closed = false;
-            defer if (!output_file_closed) output_file.close();
-
-            var diagnostics = resinator.errors.Diagnostics.init(arena);
-            defer diagnostics.deinit();
-
-            var output_buffered_stream = std.io.bufferedWriter(output_file.writer());
+            const in_rc_path = try comp.local_cache_directory.join(comp.gpa, &.{
+                o_sub_path, rc_basename,
+            });
+            const out_res_path = try comp.local_cache_directory.join(comp.gpa, &.{
+                o_sub_path, res_basename,
+            });
 
             // In .rc files, a " within a quoted string is escaped as ""
             const fmtRcEscape = struct {
@@ -4899,28 +4833,47 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             // 1 is CREATEPROCESS_MANIFEST_RESOURCE_ID which is the default ID used for RT_MANIFEST resources
             // 24 is RT_MANIFEST
             const input = try std.fmt.allocPrint(arena, "1 24 \"{s}\"", .{fmtRcEscape(src_path)});
+            try o_dir.writeFile(rc_basename, input);
 
-            resinator.compile.compile(arena, input, output_buffered_stream.writer(), .{
-                .cwd = std.fs.cwd(),
-                .diagnostics = &diagnostics,
-                .ignore_include_env_var = true,
-                .default_code_page = .utf8,
-            }) catch |err| switch (err) {
-                error.ParseError, error.CompileError => {
-                    // Delete the output file on error
-                    output_file.close();
-                    output_file_closed = true;
-                    // Failing to delete is not really a big deal, so swallow any errors
-                    o_dir.deleteFile(res_basename) catch {
-                        const output_file_path = try comp.local_cache_directory.join(arena, &.{ o_sub_path, res_basename });
-                        log.warn("failed to delete '{s}': {s}", .{ output_file_path, @errorName(err) });
-                    };
-                    return comp.failWin32ResourceCompile(win32_resource, input, &diagnostics, null);
-                },
-                else => |e| return e,
+            var argv = std.ArrayList([]const u8).init(comp.gpa);
+            defer argv.deinit();
+
+            try argv.appendSlice(&.{
+                self_exe_path,
+                "rc",
+                "/:no-preprocess",
+                "/x", // ignore INCLUDE environment variable
+                "/c65001", // UTF-8 codepage
+                "/:auto-includes",
+                "none",
+            });
+            try argv.appendSlice(&.{ "--", in_rc_path, out_res_path });
+
+            var child = std.ChildProcess.init(argv.items, arena);
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Ignore;
+            child.stderr_behavior = .Pipe;
+
+            try child.spawn();
+
+            const stderr_reader = child.stderr.?.reader();
+            const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+            const term = child.wait() catch |err| {
+                return comp.failWin32Resource(win32_resource, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
             };
 
-            try output_buffered_stream.flush();
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        log.err("zig rc failed with stderr:\n{s}", .{stderr});
+                        return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
+                    }
+                },
+                else => {
+                    log.err("zig rc terminated with stderr:\n{s}", .{stderr});
+                    return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
+                },
+            }
 
             break :blk digest;
         };
@@ -4951,9 +4904,6 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     const rc_basename_noext = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
 
     const digest = if (try man.hit()) man.final() else blk: {
-        const rcpp_filename = try std.fmt.allocPrint(arena, "{s}.rcpp", .{rc_basename_noext});
-
-        const out_rcpp_path = try comp.tmpFilePath(arena, rcpp_filename);
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
@@ -4963,193 +4913,89 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // so we need a temporary filename.
         const out_res_path = try comp.tmpFilePath(arena, res_filename);
 
-        var options = options: {
-            var resinator_args = try std.ArrayListUnmanaged([]const u8).initCapacity(comp.gpa, rc_src.extra_flags.len + 4);
-            defer resinator_args.deinit(comp.gpa);
-
-            resinator_args.appendAssumeCapacity(""); // dummy 'process name' arg
-            resinator_args.appendSliceAssumeCapacity(rc_src.extra_flags);
-            resinator_args.appendSliceAssumeCapacity(&.{ "--", out_rcpp_path, out_res_path });
-
-            var cli_diagnostics = resinator.cli.Diagnostics.init(comp.gpa);
-            defer cli_diagnostics.deinit();
-            const options = resinator.cli.parse(comp.gpa, resinator_args.items, &cli_diagnostics) catch |err| switch (err) {
-                error.ParseError => {
-                    return comp.failWin32ResourceCli(win32_resource, &cli_diagnostics);
-                },
-                else => |e| return e,
-            };
-            break :options options;
-        };
-        defer options.deinit();
-
-        // We never want to read the INCLUDE environment variable, so
-        // unconditionally set `ignore_include_env_var` to true
-        options.ignore_include_env_var = true;
-
-        if (options.preprocess != .yes) {
-            return comp.failWin32Resource(win32_resource, "the '{s}' option is not supported in this context", .{switch (options.preprocess) {
-                .no => "/:no-preprocess",
-                .only => "/p",
-                .yes => unreachable,
-            }});
-        }
-
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
-        try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
-
-        try resinator.preprocess.appendClangArgs(arena, &argv, options, .{
-            .clang_target = null, // handled by addCCArgs
-            .system_include_paths = &.{}, // handled by addCCArgs
-            .needs_gnu_workaround = comp.getTarget().isGnu(),
-            .nostdinc = false, // handled by addCCArgs
+        const depfile_filename = try std.fmt.allocPrint(arena, "{s}.d.json", .{rc_basename_noext});
+        const out_dep_path = try comp.tmpFilePath(arena, depfile_filename);
+        try argv.appendSlice(&.{
+            self_exe_path,
+            "rc",
+            "/:depfile",
+            out_dep_path,
+            "/:depfile-fmt",
+            "json",
+            "/x", // ignore INCLUDE environment variable
+            "/:auto-includes",
+            @tagName(comp.rc_includes),
         });
-
-        try argv.append(rc_src.src_path);
-        try argv.appendSlice(&[_][]const u8{
-            "-o",
-            out_rcpp_path,
-        });
-
-        const out_dep_path = try std.fmt.allocPrint(arena, "{s}.d", .{out_rcpp_path});
-        // Note: addCCArgs will implicitly add _DEBUG/NDEBUG depending on the optimization
-        // mode. While these defines are not normally present when calling rc.exe directly,
+        // While these defines are not normally present when calling rc.exe directly,
         // them being defined matches the behavior of how MSVC calls rc.exe which is the more
         // relevant behavior in this case.
-        try comp.addCCArgs(arena, &argv, .rc, out_dep_path, rc_src.owner);
+        switch (rc_src.owner.optimize_mode) {
+            .Debug => try argv.append("-D_DEBUG"),
+            .ReleaseSafe => {},
+            .ReleaseFast, .ReleaseSmall => try argv.append("-DNDEBUG"),
+        }
+        try argv.appendSlice(rc_src.extra_flags);
+        try argv.appendSlice(&.{ "--", rc_src.src_path, out_res_path });
 
-        if (comp.verbose_cc) {
-            dump_argv(argv.items);
+        var child = std.ChildProcess.init(argv.items, arena);
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Ignore;
+        child.stderr_behavior = .Pipe;
+
+        try child.spawn();
+
+        const stderr_reader = child.stderr.?.reader();
+        const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+        const term = child.wait() catch |err| {
+            return comp.failWin32Resource(win32_resource, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+        };
+
+        switch (term) {
+            .Exited => |code| {
+                if (code != 0) {
+                    log.err("zig rc failed with stderr:\n{s}", .{stderr});
+                    return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
+                }
+            },
+            else => {
+                log.err("zig rc terminated with stderr:\n{s}", .{stderr});
+                return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
+            },
         }
 
-        if (std.process.can_spawn) {
-            var child = std.ChildProcess.init(argv.items, arena);
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Ignore;
-            child.stderr_behavior = .Pipe;
+        // Read depfile and update cache manifest
+        {
+            const dep_basename = std.fs.path.basename(out_dep_path);
+            const dep_file_contents = try zig_cache_tmp_dir.readFileAlloc(arena, dep_basename, 50 * 1024 * 1024);
+            defer arena.free(dep_file_contents);
 
-            try child.spawn();
+            const value = try std.json.parseFromSliceLeaky(std.json.Value, arena, dep_file_contents, .{});
+            if (value != .array) {
+                return comp.failWin32Resource(win32_resource, "depfile from zig rc has unexpected format", .{});
+            }
 
-            const stderr_reader = child.stderr.?.reader();
-
-            const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
-
-            const term = child.wait() catch |err| {
-                return comp.failWin32Resource(win32_resource, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
+            for (value.array.items) |element| {
+                if (element != .string) {
+                    return comp.failWin32Resource(win32_resource, "depfile from zig rc has unexpected format", .{});
+                }
+                const dep_file_path = element.string;
+                try man.addFilePost(dep_file_path);
+                switch (comp.cache_use) {
+                    .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
+                        whole.cache_manifest_mutex.lock();
+                        defer whole.cache_manifest_mutex.unlock();
+                        try whole_cache_manifest.addFilePost(dep_file_path);
+                    },
+                    .incremental => {},
+                }
+            }
+            // Just to save disk space, we delete the file because it is never needed again.
+            zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
+                log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
             };
-
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        // TODO parse clang stderr and turn it into an error message
-                        // and then call failCObjWithOwnedErrorMsg
-                        log.err("clang preprocessor failed with stderr:\n{s}", .{stderr});
-                        return comp.failWin32Resource(win32_resource, "clang preprocessor exited with code {d}", .{code});
-                    }
-                },
-                else => {
-                    log.err("clang preprocessor terminated with stderr:\n{s}", .{stderr});
-                    return comp.failWin32Resource(win32_resource, "clang preprocessor terminated unexpectedly", .{});
-                },
-            }
-        } else {
-            const exit_code = try clangMain(arena, argv.items);
-            if (exit_code != 0) {
-                return comp.failWin32Resource(win32_resource, "clang preprocessor exited with code {d}", .{exit_code});
-            }
-        }
-
-        const dep_basename = std.fs.path.basename(out_dep_path);
-        // Add the files depended on to the cache system.
-        try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-        switch (comp.cache_use) {
-            .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
-                whole.cache_manifest_mutex.lock();
-                defer whole.cache_manifest_mutex.unlock();
-                try whole_cache_manifest.addDepFilePost(zig_cache_tmp_dir, dep_basename);
-            },
-            .incremental => {},
-        }
-        // Just to save disk space, we delete the file because it is never needed again.
-        zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
-            log.warn("failed to delete '{s}': {s}", .{ out_dep_path, @errorName(err) });
-        };
-
-        const full_input = std.fs.cwd().readFileAlloc(arena, out_rcpp_path, std.math.maxInt(usize)) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| {
-                return comp.failWin32Resource(win32_resource, "failed to read preprocessed file '{s}': {s}", .{ out_rcpp_path, @errorName(e) });
-            },
-        };
-
-        var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(arena, full_input, full_input, .{ .initial_filename = rc_src.src_path });
-        defer mapping_results.mappings.deinit(arena);
-
-        const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
-
-        var output_file = zig_cache_tmp_dir.createFile(out_res_path, .{}) catch |err| {
-            return comp.failWin32Resource(win32_resource, "failed to create output file '{s}': {s}", .{ out_res_path, @errorName(err) });
-        };
-        var output_file_closed = false;
-        defer if (!output_file_closed) output_file.close();
-
-        var diagnostics = resinator.errors.Diagnostics.init(arena);
-        defer diagnostics.deinit();
-
-        var dependencies_list = std.ArrayList([]const u8).init(comp.gpa);
-        defer {
-            for (dependencies_list.items) |item| {
-                comp.gpa.free(item);
-            }
-            dependencies_list.deinit();
-        }
-
-        var output_buffered_stream = std.io.bufferedWriter(output_file.writer());
-
-        resinator.compile.compile(arena, final_input, output_buffered_stream.writer(), .{
-            .cwd = std.fs.cwd(),
-            .diagnostics = &diagnostics,
-            .source_mappings = &mapping_results.mappings,
-            .dependencies_list = &dependencies_list,
-            .system_include_paths = comp.rc_include_dir_list,
-            .ignore_include_env_var = true,
-            // options
-            .extra_include_paths = options.extra_include_paths.items,
-            .default_language_id = options.default_language_id,
-            .default_code_page = options.default_code_page orelse .windows1252,
-            .verbose = options.verbose,
-            .null_terminate_string_table_strings = options.null_terminate_string_table_strings,
-            .max_string_literal_codepoints = options.max_string_literal_codepoints,
-            .silent_duplicate_control_ids = options.silent_duplicate_control_ids,
-            .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
-        }) catch |err| switch (err) {
-            error.ParseError, error.CompileError => {
-                // Delete the output file on error
-                output_file.close();
-                output_file_closed = true;
-                // Failing to delete is not really a big deal, so swallow any errors
-                zig_cache_tmp_dir.deleteFile(out_res_path) catch {
-                    log.warn("failed to delete '{s}': {s}", .{ out_res_path, @errorName(err) });
-                };
-                return comp.failWin32ResourceCompile(win32_resource, final_input, &diagnostics, mapping_results.mappings);
-            },
-            else => |e| return e,
-        };
-
-        try output_buffered_stream.flush();
-
-        for (dependencies_list.items) |dep_file_path| {
-            try man.addFilePost(dep_file_path);
-            switch (comp.cache_use) {
-                .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
-                    whole.cache_manifest_mutex.lock();
-                    defer whole.cache_manifest_mutex.unlock();
-                    try whole_cache_manifest.addFilePost(dep_file_path);
-                },
-                .incremental => {},
-            }
         }
 
         // Rename into place.
@@ -5159,8 +5005,6 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         defer o_dir.close();
         const tmp_basename = std.fs.path.basename(out_res_path);
         try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, res_filename);
-        const tmp_rcpp_basename = std.fs.path.basename(out_rcpp_path);
-        try std.fs.rename(zig_cache_tmp_dir, tmp_rcpp_basename, o_dir, rcpp_filename);
         break :blk digest;
     };
 
@@ -5352,16 +5196,9 @@ pub fn addCCArgs(
             try argv.append("-isystem");
             try argv.append(c_headers_dir);
 
-            if (ext == .rc) {
-                for (comp.rc_include_dir_list) |include_dir| {
-                    try argv.append("-isystem");
-                    try argv.append(include_dir);
-                }
-            } else {
-                for (comp.libc_include_dir_list) |include_dir| {
-                    try argv.append("-isystem");
-                    try argv.append(include_dir);
-                }
+            for (comp.libc_include_dir_list) |include_dir| {
+                try argv.append("-isystem");
+                try argv.append(include_dir);
             }
 
             if (target.cpu.model.llvm_name) |llvm_name| {
@@ -5724,167 +5561,6 @@ fn failWin32ResourceWithOwnedBundle(
     }
     win32_resource.status = .failure;
     return error.AnalysisFail;
-}
-
-fn failWin32ResourceCli(
-    comp: *Compilation,
-    win32_resource: *Win32Resource,
-    diagnostics: *resinator.cli.Diagnostics,
-) SemaError {
-    @setCold(true);
-
-    var bundle: ErrorBundle.Wip = undefined;
-    try bundle.init(comp.gpa);
-    errdefer bundle.deinit();
-
-    try bundle.addRootErrorMessage(.{
-        .msg = try bundle.addString("invalid command line option(s)"),
-        .src_loc = try bundle.addSourceLocation(.{
-            .src_path = try bundle.addString(switch (win32_resource.src) {
-                .rc => |rc_src| rc_src.src_path,
-                .manifest => |manifest_src| manifest_src,
-            }),
-            .line = 0,
-            .column = 0,
-            .span_start = 0,
-            .span_main = 0,
-            .span_end = 0,
-        }),
-    });
-
-    var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
-    defer cur_notes.deinit(comp.gpa);
-    for (diagnostics.errors.items) |err_details| {
-        switch (err_details.type) {
-            .err => {
-                if (cur_err) |err| {
-                    try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
-                }
-                cur_err = .{
-                    .msg = try bundle.addString(err_details.msg.items),
-                };
-                cur_notes.clearRetainingCapacity();
-            },
-            .warning => cur_err = null,
-            .note => {
-                if (cur_err == null) continue;
-                cur_err.?.notes_len += 1;
-                try cur_notes.append(comp.gpa, .{
-                    .msg = try bundle.addString(err_details.msg.items),
-                });
-            },
-        }
-    }
-    if (cur_err) |err| {
-        try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
-    }
-
-    const finished_bundle = try bundle.toOwnedBundle("");
-    return comp.failWin32ResourceWithOwnedBundle(win32_resource, finished_bundle);
-}
-
-fn failWin32ResourceCompile(
-    comp: *Compilation,
-    win32_resource: *Win32Resource,
-    source: []const u8,
-    diagnostics: *resinator.errors.Diagnostics,
-    opt_mappings: ?resinator.source_mapping.SourceMappings,
-) SemaError {
-    @setCold(true);
-
-    var bundle: ErrorBundle.Wip = undefined;
-    try bundle.init(comp.gpa);
-    errdefer bundle.deinit();
-
-    var msg_buf: std.ArrayListUnmanaged(u8) = .{};
-    defer msg_buf.deinit(comp.gpa);
-    var cur_err: ?ErrorBundle.ErrorMessage = null;
-    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
-    defer cur_notes.deinit(comp.gpa);
-    for (diagnostics.errors.items) |err_details| {
-        switch (err_details.type) {
-            .hint => continue,
-            // Clear the current error so that notes don't bleed into unassociated errors
-            .warning => {
-                cur_err = null;
-                continue;
-            },
-            .note => if (cur_err == null) continue,
-            .err => {},
-        }
-        const err_line, const err_filename = blk: {
-            if (opt_mappings) |mappings| {
-                const corresponding_span = mappings.get(err_details.token.line_number);
-                const corresponding_file = mappings.files.get(corresponding_span.filename_offset);
-                const err_line = corresponding_span.start_line;
-                break :blk .{ err_line, corresponding_file };
-            } else {
-                break :blk .{ err_details.token.line_number, "<generated rc>" };
-            }
-        };
-
-        const source_line_start = err_details.token.getLineStart(source);
-        const column = err_details.token.calculateColumn(source, 1, source_line_start);
-
-        msg_buf.clearRetainingCapacity();
-        try err_details.render(msg_buf.writer(comp.gpa), source, diagnostics.strings.items);
-
-        const src_loc = src_loc: {
-            var src_loc: ErrorBundle.SourceLocation = .{
-                .src_path = try bundle.addString(err_filename),
-                .line = @intCast(err_line - 1), // 1-based -> 0-based
-                .column = @intCast(column),
-                .span_start = 0,
-                .span_main = 0,
-                .span_end = 0,
-            };
-            if (err_details.print_source_line) {
-                const source_line = err_details.token.getLine(source, source_line_start);
-                const visual_info = err_details.visualTokenInfo(source_line_start, source_line_start + source_line.len);
-                src_loc.span_start = @intCast(visual_info.point_offset - visual_info.before_len);
-                src_loc.span_main = @intCast(visual_info.point_offset);
-                src_loc.span_end = @intCast(visual_info.point_offset + 1 + visual_info.after_len);
-                src_loc.source_line = try bundle.addString(source_line);
-            }
-            break :src_loc try bundle.addSourceLocation(src_loc);
-        };
-
-        switch (err_details.type) {
-            .err => {
-                if (cur_err) |err| {
-                    try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
-                }
-                cur_err = .{
-                    .msg = try bundle.addString(msg_buf.items),
-                    .src_loc = src_loc,
-                };
-                cur_notes.clearRetainingCapacity();
-            },
-            .note => {
-                cur_err.?.notes_len += 1;
-                try cur_notes.append(comp.gpa, .{
-                    .msg = try bundle.addString(msg_buf.items),
-                    .src_loc = src_loc,
-                });
-            },
-            .warning, .hint => unreachable,
-        }
-    }
-    if (cur_err) |err| {
-        try win32ResourceFlushErrorMessage(&bundle, err, cur_notes.items);
-    }
-
-    const finished_bundle = try bundle.toOwnedBundle("");
-    return comp.failWin32ResourceWithOwnedBundle(win32_resource, finished_bundle);
-}
-
-fn win32ResourceFlushErrorMessage(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMessage, notes: []const ErrorBundle.ErrorMessage) !void {
-    try wip.addRootErrorMessage(msg);
-    const notes_start = try wip.reserveNotes(@intCast(notes.len));
-    for (notes_start.., notes) |i, note| {
-        wip.extra.items[i] = @intFromEnum(wip.addErrorMessageAssumeCapacity(note));
-    }
 }
 
 pub const FileExt = enum {
