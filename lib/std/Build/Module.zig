@@ -464,6 +464,16 @@ pub const AddCSourceFilesOptions = struct {
 pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     const b = m.owner;
     const allocator = b.allocator;
+
+    for (options.files) |path| {
+        if (std.fs.path.isAbsolute(path)) {
+            std.debug.panic(
+                "file paths added with 'addCSourceFiles' must be relative, found absolute path '{s}'",
+                .{path},
+            );
+        }
+    }
+
     const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
         .root = options.root,
