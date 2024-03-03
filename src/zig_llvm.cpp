@@ -384,6 +384,11 @@ struct ZigDiagnosticHandler : public DiagnosticHandler {
     bool BrokenDebugInfo;
     ZigDiagnosticHandler() : BrokenDebugInfo(false) {}
     bool handleDiagnostics(const DiagnosticInfo &DI) override {
+        // This dyn_cast should be casting to DiagnosticInfoIgnoringInvalidDebugMetadata
+        // but DiagnosticInfoIgnoringInvalidDebugMetadata is treated as DiagnosticInfoDebugMetadataVersion
+        // because of a bug in LLVM (see https://github.com/ziglang/zig/issues/19161).
+        // After this is fixed add an additional check for DiagnosticInfoIgnoringInvalidDebugMetadata
+        // but don't remove the current one as both indicate that debug info is broken.
         if (auto *Remark = dyn_cast<DiagnosticInfoDebugMetadataVersion>(&DI)) {
             BrokenDebugInfo = true;
         }
