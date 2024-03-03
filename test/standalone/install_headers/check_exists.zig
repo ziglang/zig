@@ -12,12 +12,12 @@ pub fn main() !void {
     _ = arg_it.next();
 
     const cwd = std.fs.cwd();
-    const cwd_realpath = try cwd.realpathAlloc(arena, "");
+    const cwd_realpath = try cwd.realpathAlloc(arena, ".");
 
     while (arg_it.next()) |file_path| {
         if (file_path.len > 0 and file_path[0] == '!') {
             errdefer std.log.err(
-                "excluded file check '{s}{c}{s}' failed",
+                "exclusive file check '{s}{c}{s}' failed",
                 .{ cwd_realpath, std.fs.path.sep, file_path[1..] },
             );
             if (std.fs.cwd().statFile(file_path[1..])) |_| {
@@ -28,7 +28,7 @@ pub fn main() !void {
             }
         } else {
             errdefer std.log.err(
-                "included file check '{s}{c}{s}' failed",
+                "inclusive file check '{s}{c}{s}' failed",
                 .{ cwd_realpath, std.fs.path.sep, file_path },
             );
             _ = try std.fs.cwd().statFile(file_path);
