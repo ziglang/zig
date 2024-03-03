@@ -265,8 +265,7 @@ fn addShallowDependencies(m: *Module, dependee: *Module) void {
     for (dependee.link_objects.items) |link_object| switch (link_object) {
         .other_step => |compile| {
             addStepDependencies(m, dependee, &compile.step);
-            for (compile.installed_headers.items) |header|
-                addLazyPathDependenciesOnly(m, header.source.path());
+            addLazyPathDependenciesOnly(m, compile.getEmittedIncludeTree());
         },
 
         .static_path,
@@ -693,14 +692,9 @@ pub fn appendZigProcessFlags(
                 if (other.generated_h) |header| {
                     try zig_args.appendSlice(&.{ "-isystem", std.fs.path.dirname(header.getPath()).? });
                 }
-                for (other.installed_headers.items) |header| switch (header.source) {
-                    .file => |lp| {
-                        try zig_args.appendSlice(&.{ "-I", std.fs.path.dirname(lp.getPath2(b, asking_step)).? });
-                    },
-                    .directory => |dir| {
-                        try zig_args.appendSlice(&.{ "-I", dir.path.getPath2(b, asking_step) });
-                    },
-                };
+                if (other.installed_headers_include_tree) |include_tree| {
+                    try zig_args.appendSlice(&.{ "-I", include_tree.generated_directory.getPath() });
+                }
             },
             .config_header_step => |config_header| {
                 try zig_args.appendSlice(&.{ "-I", std.fs.path.dirname(config_header.output_file.getPath()).? });
@@ -751,8 +745,7 @@ fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
     m.link_objects.append(allocator, .{ .other_step = other }) catch @panic("OOM");
     m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
 
-    for (other.installed_headers.items) |header|
-        addLazyPathDependenciesOnly(m, header.source.path());
+    addLazyPathDependenciesOnly(m, other.getEmittedIncludeTree());
 }
 
 fn requireKnownTarget(m: *Module) std.Target {

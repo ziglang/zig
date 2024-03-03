@@ -59,7 +59,13 @@ test_runner: ?[]const u8,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: ArrayList(InstalledHeader),
+installed_headers: ArrayList(HeaderInstallation),
+
+/// This step is used to create an include tree that dependent modules can add to their include
+/// search paths. Installed headers are copied to this step.
+/// This step is created the first time a module links with this artifact and is not
+/// created otherwise.
+installed_headers_include_tree: ?*Step.WriteFile = null,
 
 // keep in sync with src/Compilation.zig:RcIncludes
 /// Behavior of automatic detection of include directories when compiling .rc files.
@@ -249,66 +255,62 @@ pub const Kind = enum {
     @"test",
 };
 
-pub const InstalledHeader = struct {
-    source: Source,
-    dest_rel_path: []const u8,
+pub const HeaderInstallation = union(enum) {
+    file: File,
+    directory: Directory,
 
-    pub const Source = union(enum) {
-        file: LazyPath,
-        directory: Directory,
+    pub const File = struct {
+        source: LazyPath,
+        dest_rel_path: []const u8,
 
-        pub const Directory = struct {
-            path: LazyPath,
-            options: Directory.Options,
-
-            pub const Options = struct {
-                /// File paths which end in any of these suffixes will be excluded
-                /// from installation.
-                exclude_extensions: []const []const u8 = &.{},
-                /// Only file paths which end in any of these suffixes will be included
-                /// in installation.
-                /// `null` means all suffixes will be included.
-                /// `exclude_extensions` takes precedence over `include_extensions`
-                include_extensions: ?[]const []const u8 = &.{".h"},
-
-                pub fn dupe(self: Directory.Options, b: *std.Build) Directory.Options {
-                    return .{
-                        .exclude_extensions = b.dupeStrings(self.exclude_extensions),
-                        .include_extensions = if (self.include_extensions) |incs|
-                            b.dupeStrings(incs)
-                        else
-                            null,
-                    };
-                }
-            };
-
-            pub fn dupe(self: Directory, b: *std.Build) Directory {
-                return .{
-                    .path = self.path.dupe(b),
-                    .options = self.options.dupe(b),
-                };
-            }
-        };
-
-        pub fn path(self: Source) LazyPath {
-            return switch (self) {
-                .file => |lp| lp,
-                .directory => |dir| dir.path,
-            };
-        }
-
-        pub fn dupe(self: Source, b: *std.Build) Source {
-            return switch (self) {
-                .file => |lp| .{ .file = lp.dupe(b) },
-                .directory => |dir| .{ .directory = dir.dupe(b) },
+        pub fn dupe(self: File, b: *std.Build) File {
+            return .{
+                .source = self.source.dupe(b),
+                .dest_rel_path = b.dupePath(self.dest_rel_path),
             };
         }
     };
 
-    pub fn dupe(self: InstalledHeader, b: *std.Build) InstalledHeader {
-        return .{
-            .source = self.source.dupe(b),
-            .dest_rel_path = b.dupePath(self.dest_rel_path),
+    pub const Directory = struct {
+        source: LazyPath,
+        dest_rel_path: []const u8,
+        options: Directory.Options,
+
+        pub const Options = struct {
+            /// File paths that end in any of these suffixes will be excluded from installation.
+            exclude_extensions: []const []const u8 = &.{},
+            /// Only file paths that end in any of these suffixes will be included in installation.
+            /// `null` means that all suffixes will be included.
+            /// `exclude_extensions` takes precedence over `include_extensions`.
+            include_extensions: ?[]const []const u8 = &.{".h"},
+
+            pub fn dupe(self: Directory.Options, b: *std.Build) Directory.Options {
+                return .{
+                    .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+                    .include_extensions = if (self.include_extensions) |incs| b.dupeStrings(incs) else null,
+                };
+            }
+        };
+
+        pub fn dupe(self: Directory, b: *std.Build) Directory {
+            return .{
+                .source = self.source.dupe(b),
+                .dest_rel_path = b.dupePath(self.dest_rel_path),
+                .options = self.options.dupe(b),
+            };
+        }
+    };
+
+    pub fn getSource(self: HeaderInstallation) LazyPath {
+        return switch (self) {
+            inline .file, .directory => |x| x.source,
+        };
+    }
+
+    pub fn dupe(self: HeaderInstallation, b: *std.Build) HeaderInstallation {
+        return switch (self) {
+            .file => |f| f.dupe(b),
+            .directory => |d| d.dupe(b),
         };
     }
 };
@@ -372,7 +374,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = ArrayList(InstalledHeader).init(owner.allocator),
+        .installed_headers = ArrayList(HeaderInstallation).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
@@ -444,47 +446,69 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     return self;
 }
 
-pub fn installHeader(
-    cs: *Compile,
-    source: LazyPath,
-    dest_rel_path: []const u8,
-) void {
+pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
-    cs.installed_headers.append(.{
-        .source = .{ .file = source.dupe(b) },
+    const installation: HeaderInstallation = .{ .file = .{
+        .source = source.dupe(b),
         .dest_rel_path = b.dupePath(dest_rel_path),
-    }) catch @panic("OOM");
-    source.addStepDependencies(&cs.step);
+    } };
+    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.addHeaderInstallationToIncludeTree(installation);
+    installation.getSource().addStepDependencies(&cs.step);
 }
 
 pub fn installHeaders(
     cs: *Compile,
     source: LazyPath,
     dest_rel_path: []const u8,
-    options: InstalledHeader.Source.Directory.Options,
+    options: HeaderInstallation.Directory.Options,
 ) void {
     const b = cs.step.owner;
-    cs.installed_headers.append(.{
-        .source = .{ .directory = .{
-            .path = source.dupe(b),
-            .options = options.dupe(b),
-        } },
+    const installation: HeaderInstallation = .{ .directory = .{
+        .source = source.dupe(b),
         .dest_rel_path = b.dupePath(dest_rel_path),
-    }) catch @panic("OOM");
-    source.addStepDependencies(&cs.step);
+        .options = options.dupe(b),
+    } };
+    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.addHeaderInstallationToIncludeTree(installation);
+    installation.getSource().addStepDependencies(&cs.step);
 }
 
 pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void {
-    cs.installHeader(.{ .generated = &config_header.output_file }, config_header.include_path);
+    cs.installHeader(config_header.getOutput(), config_header.include_path);
 }
 
 pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
     assert(lib.kind == .lib);
-    const b = cs.step.owner;
-    for (lib.installed_headers.items) |header| {
-        cs.installed_headers.append(header.dupe(b)) catch @panic("OOM");
-        header.source.path().addStepDependencies(&cs.step);
+    for (lib.installed_headers.items) |installation| {
+        cs.installed_headers.append(installation) catch @panic("OOM");
+        cs.addHeaderInstallationToIncludeTree(installation);
+        installation.getSource().addStepDependencies(&cs.step);
     }
+}
+
+fn addHeaderInstallationToIncludeTree(cs: *Compile, installation: HeaderInstallation) void {
+    if (cs.installed_headers_include_tree) |wf| switch (installation) {
+        .file => |file| {
+            _ = wf.addCopyFile(file.source, file.dest_rel_path);
+        },
+        .directory => |dir| {
+            _ = dir; // TODO
+        },
+    };
+}
+
+pub fn getEmittedIncludeTree(cs: *Compile) LazyPath {
+    if (cs.installed_headers_include_tree) |wf| return wf.getDirectory();
+    const b = cs.step.owner;
+    const wf = b.addWriteFiles();
+    cs.installed_headers_include_tree = wf;
+    for (cs.installed_headers.items) |installation| {
+        cs.addHeaderInstallationToIncludeTree(installation);
+    }
+    // The compile step itself does not need to depend on the write files step,
+    // only dependent modules do.
+    return wf.getDirectory();
 }
 
 pub fn addObjCopy(cs: *Compile, options: Step.ObjCopy.Options) *Step.ObjCopy {

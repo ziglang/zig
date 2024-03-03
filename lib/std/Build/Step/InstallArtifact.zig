@@ -177,10 +177,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             all_cached = all_cached and p == .fresh;
         }
 
-        for (self.artifact.installed_headers.items) |header| switch (header.source) {
-            .file => |lp| {
-                const full_src_path = lp.getPath2(b, step);
-                const full_h_path = b.getInstallPath(h_dir, header.dest_rel_path);
+        for (self.artifact.installed_headers.items) |installation| switch (installation) {
+            .file => |file| {
+                const full_src_path = file.source.getPath2(b, step);
+                const full_h_path = b.getInstallPath(h_dir, file.dest_rel_path);
                 const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
                     return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
                         full_src_path, full_h_path, @errorName(err),
@@ -189,8 +189,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 all_cached = all_cached and p == .fresh;
             },
             .directory => |dir| {
-                const full_src_dir_path = dir.path.getPath2(b, step);
-                const full_h_prefix = b.getInstallPath(h_dir, header.dest_rel_path);
+                const full_src_dir_path = dir.source.getPath2(b, step);
+                const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
 
                 var src_dir = b.build_root.handle.openDir(full_src_dir_path, .{ .iterate = true }) catch |err| {
                     return step.fail("unable to open source directory '{s}': {s}", .{
