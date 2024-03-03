@@ -7,7 +7,8 @@ const math = std.math;
 const Allocator = mem.Allocator;
 
 /// A contiguous, growable list of items in memory.
-/// This is a wrapper around an array of T values. Initialize with `init`.
+/// This is a wrapper around an array of T values. Initialize with
+/// `init`, `initCapacity` or directly.
 ///
 /// This struct internally stores a `std.mem.Allocator` for memory management.
 /// To manually specify an allocator with each function call see `ArrayListUnmanaged`.
@@ -18,7 +19,7 @@ pub fn ArrayList(comptime T: type) type {
 /// A contiguous, growable list of arbitrarily aligned items in memory.
 /// This is a wrapper around an array of T values aligned to `alignment`-byte
 /// addresses. If the specified alignment is `null`, then `@alignOf(T)` is used.
-/// Initialize with `init`.
+/// Initialize with `init`, `initCapacity` or directly.
 ///
 /// This struct internally stores a `std.mem.Allocator` for memory management.
 /// To manually specify an allocator with each function call see `ArrayListAlignedUnmanaged`.
@@ -37,10 +38,10 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// functions of this ArrayList in accordance with the respective
         /// documentation. In all cases, "invalidated" means that the memory
         /// has been passed to this allocator's resize or free function.
-        items: Slice,
+        items: Slice = &[0]T{},
         /// How many T values this list can hold without allocating
         /// additional memory.
-        capacity: usize,
+        capacity: usize = 0,
         allocator: Allocator,
 
         pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
@@ -51,11 +52,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: Allocator) Self {
-            return Self{
-                .items = &[_]T{},
-                .capacity = 0,
-                .allocator = allocator,
-            };
+            return .{ .allocator = allocator };
         }
 
         /// Initialize with capacity to hold `num` elements.
@@ -615,7 +612,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// functions of this ArrayList in accordance with the respective
         /// documentation. In all cases, "invalidated" means that the memory
         /// has been passed to an allocator's resize or free function.
-        items: Slice = &[_]T{},
+        items: Slice = &[0]T{},
         /// How many T values this list can hold without allocating
         /// additional memory.
         capacity: usize = 0,
