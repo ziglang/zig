@@ -1245,9 +1245,11 @@ pub const Object = struct {
             );
             defer bitcode_memory_buffer.dispose();
 
+            context.enableBrokenDebugInfoCheck();
+
             var module: *llvm.Module = undefined;
-            if (context.parseBitcodeInContext2(bitcode_memory_buffer, &module).toBool()) {
-                std.debug.print("Failed to parse bitcode\n", .{});
+            if (context.parseBitcodeInContext2(bitcode_memory_buffer, &module).toBool() or context.getBrokenDebugInfo()) {
+                log.err("Failed to parse bitcode", .{});
                 return error.FailedToEmit;
             }
             break :emit .{ context, module };
