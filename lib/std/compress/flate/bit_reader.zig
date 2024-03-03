@@ -23,7 +23,7 @@ pub fn BitReader32(comptime ReaderType: type) type {
 /// fill buffer from forward_reader by calling fill in advance and readF with
 /// buffered flag set.
 ///
-pub fn BitReader(T: type, comptime ReaderType: type) type {
+pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
     assert(T == u32 or T == u64);
     const t_bytes: usize = @sizeOf(T);
     const Tshift = if (T == u64) u6 else u5;
