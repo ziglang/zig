@@ -539,5 +539,16 @@ test "pipeToFileSystem" {
     try testing.expect((try root.dir.statFile("b/symlink")).kind == .file); // statFile follows symlink
 
     var buf: [32]u8 = undefined;
-    try testing.expectEqualSlices(u8, "../a/file", try root.dir.readLink("b/symlink", &buf));
+    try testing.expectEqualSlices(
+        u8,
+        "../a/file",
+        normalizePath(try root.dir.readLink("b/symlink", &buf)),
+    );
+}
+
+fn normalizePath(bytes: []u8) []u8 {
+    const canonical_sep = std.fs.path.sep_posix;
+    if (std.fs.path.sep == canonical_sep) return bytes;
+    std.mem.replaceScalar(u8, bytes, std.fs.path.sep, canonical_sep);
+    return bytes;
 }
