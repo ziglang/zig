@@ -47,7 +47,7 @@ pub const Directory = struct {
         /// Only file paths that end in any of these suffixes will be included in copying.
         /// `null` means that all suffixes will be included.
         /// `exclude_extensions` takes precedence over `include_extensions`.
-        include_extensions: ?[]const []const u8 = &.{".h"},
+        include_extensions: ?[]const []const u8 = null,
 
         pub fn dupe(self: Options, b: *std.Build) Options {
             return .{
