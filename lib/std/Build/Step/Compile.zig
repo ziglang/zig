@@ -493,7 +493,10 @@ fn addHeaderInstallationToIncludeTree(cs: *Compile, installation: HeaderInstalla
             _ = wf.addCopyFile(file.source, file.dest_rel_path);
         },
         .directory => |dir| {
-            _ = dir; // TODO
+            _ = wf.addCopyDirectory(dir.source, dir.dest_rel_path, .{
+                .exclude_extensions = dir.options.exclude_extensions,
+                .include_extensions = dir.options.include_extensions,
+            });
         },
     };
 }
