@@ -509,7 +509,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         /// counts are included. Modifications to the set during
         /// iteration may or may not be observed by the iterator,
         /// but will not invalidate it.
-        pub fn iterator(self: *Self) Iterator {
+        pub fn iterator(self: *const Self) Iterator {
             return self.counts.iterator();
         }
     };
@@ -689,32 +689,32 @@ test EnumMultiset {
     }
 
     {
-        var copy = empty;
+        const copy = empty;
         var it = copy.iterator();
         var entry = it.next().?;
         try testing.expectEqual(entry.key, .red);
-        try testing.expectEqual(entry.value.*, 0);
+        try testing.expectEqual(entry.value_ptr.*, 0);
         entry = it.next().?;
         try testing.expectEqual(entry.key, .green);
-        try testing.expectEqual(entry.value.*, 0);
+        try testing.expectEqual(entry.value_ptr.*, 0);
         entry = it.next().?;
         try testing.expectEqual(entry.key, .blue);
-        try testing.expectEqual(entry.value.*, 0);
+        try testing.expectEqual(entry.value_ptr.*, 0);
         try testing.expectEqual(it.next(), null);
     }
 
     {
-        var copy = r0_g1_b2;
+        const copy = r0_g1_b2;
         var it = copy.iterator();
         var entry = it.next().?;
         try testing.expectEqual(entry.key, .red);
-        try testing.expectEqual(entry.value.*, 0);
+        try testing.expectEqual(entry.value_ptr.*, 0);
         entry = it.next().?;
         try testing.expectEqual(entry.key, .green);
-        try testing.expectEqual(entry.value.*, 1);
+        try testing.expectEqual(entry.value_ptr.*, 1);
         entry = it.next().?;
         try testing.expectEqual(entry.key, .blue);
-        try testing.expectEqual(entry.value.*, 2);
+        try testing.expectEqual(entry.value_ptr.*, 2);
         try testing.expectEqual(it.next(), null);
     }
 }
@@ -1145,7 +1145,7 @@ pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: ?fn (type) t
         /// Returns an iterator over the map, which visits items in index order.
         /// Modifications to the underlying map may or may not be observed by
         /// the iterator, but will not invalidate it.
-        pub fn iterator(self: *Self) Iterator {
+        pub fn iterator(self: *const Self) Iterator {
             return .{
                 .inner = self.bits.iterator(.{}),
                 .values = &self.values,
@@ -1159,14 +1159,13 @@ pub fn IndexedMap(comptime I: type, comptime V: type, comptime Ext: ?fn (type) t
             key: Key,
 
             /// A pointer to the value in the map associated
-            /// with this key.  Modifications through this
-            /// pointer will modify the underlying data.
-            value: *Value,
+            /// with this key.
+            value_ptr: *const Value,
         };
 
         pub const Iterator = struct {
             inner: BitSet.Iterator(.{}),
-            values: *[Indexer.count]Value,
+            values: *const [Indexer.count]Value,
 
             pub fn next(self: *Iterator) ?Entry {
                 return if (self.inner.next()) |index|
@@ -1232,7 +1231,7 @@ pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: ?fn (type)
         }
 
         /// Iterates over the items in the array, in index order.
-        pub fn iterator(self: *Self) Iterator {
+        pub fn iterator(self: *const Self) Iterator {
             return .{
                 .values = &self.values,
             };
@@ -1245,14 +1244,13 @@ pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: ?fn (type)
             key: Key,
 
             /// A pointer to the value in the array associated
-            /// with this key.  Modifications through this
-            /// pointer will modify the underlying data.
-            value: *Value,
+            /// with this key.
+            value_ptr: *const Value,
         };
 
         pub const Iterator = struct {
             index: usize = 0,
-            values: *[Indexer.count]Value,
+            values: *const [Indexer.count]Value,
 
             pub fn next(self: *Iterator) ?Entry {
                 const index = self.index;
@@ -1260,7 +1258,7 @@ pub fn IndexedArray(comptime I: type, comptime V: type, comptime Ext: ?fn (type)
                     self.index += 1;
                     return Entry{
                         .key = Indexer.keyForIndex(index),
-                        .value = &self.values[index],
+                        .value_ptr = &self.values[index],
                     };
                 }
                 return null;
