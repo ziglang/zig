@@ -896,6 +896,11 @@ test "header parse mode" {
 }
 
 test "create file and symlink" {
+    // With test enabled this is hanging under windows:
+    // zig build test docs --zig-lib-dir .\lib\ -Dstatic-llvm -Dskip-non-native -Denable-symlinks-windows
+    const builtin = @import("builtin");
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     var root = std.testing.tmpDir(.{});
     defer root.cleanup();
 
