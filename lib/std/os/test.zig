@@ -1284,3 +1284,37 @@ test "fchmodat smoke test" {
         try expectMode(tmp.dir.fd, "symlink", 0o600);
     try expectMode(tmp.dir.fd, "regfile", 0o640);
 }
+
+test "getopt - exercise interfaces + code paths" {
+    const myargv = [_][*:0]const u8{
+        "myprogram", "-vxasdf", "-i1234", "-A",
+        "-vn",       "-s",      "foo",    "-v",
+        "-",         "extra2",
+    };
+    var vcount: usize = 0;
+    var ncount: usize = 0;
+    var goi = os.getopt(&myargv, "vni:x:s:");
+    try std.testing.expectEqual(true, goi._opterr);
+    goi.setOptErr(false);
+    try std.testing.expectEqual(false, goi._opterr);
+    while (goi.next()) |flag| {
+        switch (flag) {
+            'v' => vcount += 1,
+            'n' => ncount += 1,
+            'i' => try std.testing.expectEqualStrings("1234", std.mem.span(goi.getOptArg().?)),
+            'x' => try std.testing.expectEqualStrings("asdf", std.mem.span(goi.getOptArg().?)),
+            's' => try std.testing.expectEqualStrings("foo", std.mem.span(goi.getOptArg().?)),
+            '?' => try std.testing.expect('A' == goi.getOptOpt()),
+            ':' => std.debug.print("Missing argument for '-{c}'\n", .{goi.getOptOpt()}),
+            else => unreachable,
+        }
+    }
+    var myoptind = goi.getOptInd();
+    try std.testing.expect(myoptind < myargv.len);
+    try std.testing.expect((myargv.len - myoptind) == 2);
+    try std.testing.expectEqualStrings("-", std.mem.span(myargv[myoptind]));
+    myoptind += 1;
+    try std.testing.expectEqualStrings("extra2", std.mem.span(myargv[myoptind]));
+    try std.testing.expect(vcount == 3);
+    try std.testing.expect(ncount == 1);
+}
