@@ -2598,7 +2598,10 @@ pub const Object = struct {
                 defer gpa.free(name);
 
                 const union_type = ip.loadUnionType(ty.toIntern());
-                if (!union_type.haveFieldTypes(ip) or !ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!union_type.haveFieldTypes(ip) or
+                    !ty.hasRuntimeBitsIgnoreComptime(mod) or
+                    !union_type.haveLayout(ip))
+                {
                     const debug_union_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
                     try o.debug_type_map.put(gpa, ty, debug_union_type);
                     return debug_union_type;
