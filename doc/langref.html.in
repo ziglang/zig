@@ -3302,7 +3302,7 @@ var bit_field = BitField{
     .c = 3,
 };
 
-test "pointer to non-bit-aligned field" {
+test "pointer to non-byte-aligned field" {
     try expect(bar(&bit_field.b) == 2);
 }
 
@@ -3351,7 +3351,7 @@ const BitField = packed struct {
     c: u2,
 };
 
-test "pointer to non-bit-aligned field" {
+test "offsets of non-byte-aligned fields" {
     comptime {
         try expect(@bitOffsetOf(BitField, "a") == 0);
         try expect(@bitOffsetOf(BitField, "b") == 3);
