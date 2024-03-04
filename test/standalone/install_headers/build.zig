@@ -4,12 +4,14 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test");
     b.default_step = test_step;
 
+    const empty_c = b.addWriteFiles().add("empty.c", "");
+
     const libfoo = b.addStaticLibrary(.{
         .name = "foo",
         .target = b.resolveTargetQuery(.{}),
         .optimize = .Debug,
     });
-    libfoo.addCSourceFile(.{ .file = b.addWriteFiles().add("empty.c", "") });
+    libfoo.addCSourceFile(.{ .file = empty_c });
 
     const exe = b.addExecutable(.{
         .name = "exe",
@@ -23,8 +25,9 @@ pub fn build(b: *std.Build) void {
         \\#include <foo/sub_dir/b.h>
         \\#include <foo/d.h>
         \\#include <foo/config.h>
+        \\#include <bar.h>
         \\int main(void) {
-        \\    printf(FOO_A FOO_B FOO_D FOO_CONFIG_1 FOO_CONFIG_2);
+        \\    printf(FOO_A FOO_B FOO_D FOO_CONFIG_1 FOO_CONFIG_2 BAR_X);
         \\    return 0;
         \\}
     ) });
@@ -51,8 +54,20 @@ pub fn build(b: *std.Build) void {
         .FOO_CONFIG_2 = "2",
     }));
 
+    const libbar = b.addStaticLibrary(.{
+        .name = "bar",
+        .target = b.resolveTargetQuery(.{}),
+        .optimize = .Debug,
+    });
+    libbar.addCSourceFile(.{ .file = empty_c });
+    libbar.installHeader(b.addWriteFiles().add("bar.h",
+        \\#define BAR_X "X"
+        \\
+    ), "bar.h");
+    libfoo.installLibraryHeaders(libbar);
+
     const run_exe = b.addRunArtifact(exe);
-    run_exe.expectStdOutEqual("ABD12");
+    run_exe.expectStdOutEqual("ABD12X");
     test_step.dependOn(&run_exe.step);
 
     const install_exe = b.addInstallArtifact(libfoo, .{
@@ -75,6 +90,7 @@ pub fn build(b: *std.Build) void {
         "!custom/include/foo/sub_dir/c.ignore_me.h",
         "custom/include/foo/d.h",
         "custom/include/foo/config.h",
+        "custom/include/bar.h",
     });
     run_check_exists.setCwd(.{ .cwd_relative = b.getInstallPath(.prefix, "") });
     run_check_exists.expectExitCode(0);
