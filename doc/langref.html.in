@@ -1643,7 +1643,7 @@ a -|= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}-%@as(i8, -127) == -127{#endsyntax#}</pre>
+            <pre>{#syntax#}-%@as(i8, -128) == -128{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -2111,7 +2111,7 @@ unwrapped == 1234{#endsyntax#}</pre>
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre>{#syntax#}(1 < 2) == true{#endsyntax#}></pre>
+            <pre>{#syntax#}(1 < 2) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
