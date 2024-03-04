@@ -33,14 +33,14 @@ pub const Tag = enum(usize) {
     /// When the type is error union:
     /// * If the tag is `.@"error"`, the error union is an error.
     /// * If the tag is `.eu_payload`, the error union is a payload.
-    /// * A nested error such as `anyerror!(anyerror!T)` in which the the outer error union
+    /// * A nested error such as `anyerror!(anyerror!T)` in which the outer error union
     ///   is non-error, but the inner error union is an error, is represented as
     ///   a tag of `.eu_payload`, with a sub-tag of `.@"error"`.
     eu_payload,
     /// When the type is optional:
     /// * If the tag is `.null_value`, the optional is null.
     /// * If the tag is `.opt_payload`, the optional is a payload.
-    /// * A nested optional such as `??T` in which the the outer optional
+    /// * A nested optional such as `??T` in which the outer optional
     ///   is non-null, but the inner optional is null, is represented as
     ///   a tag of `.opt_payload`, with a sub-tag of `.null_value`.
     opt_payload,

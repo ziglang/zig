@@ -637,7 +637,7 @@ extern struct loadavg averunnable;
  *   hw.logicalcpu_max         - The maximum number of logical processors that could be available this boot
  *
  *   hw.tbfrequency            - This gives the time base frequency used by the OS and is the basis of all timing services.
- *                               In general is is better to use mach's or higher level timing services, but this value
+ *                               In general is better to use mach's or higher level timing services, but this value
  *                               is needed to convert the PPC Time Base registers to real time.
  *
  *   hw.cpufrequency           - These values provide the current, min and max cpu frequency.  The min and max are for

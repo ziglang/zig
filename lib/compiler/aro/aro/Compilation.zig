@@ -18,7 +18,7 @@ const record_layout = @import("record_layout.zig");
 const target_util = @import("target.zig");
 
 pub const Error = error{
-    /// A fatal error has ocurred and compilation has stopped.
+    /// A fatal error has occurred and compilation has stopped.
     FatalError,
 } || Allocator.Error;
 

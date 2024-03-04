@@ -72,7 +72,7 @@
  *
  *	Unique collections of these endpoints are maintained for each
  *	Mach task.  Each Mach port in the task's collection is given a
- *	[task-local] name to identify it - and the the various "rights"
+ *	[task-local] name to identify it - and the various "rights"
  *	held by the task for that specific endpoint.
  *
  *	This header defines the types used to identify these Mach ports

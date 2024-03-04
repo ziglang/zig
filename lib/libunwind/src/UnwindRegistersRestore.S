@@ -673,7 +673,7 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_arm64_jumpto)
   ldr    d30,     [x0, #0x200]
   ldr    d31,     [x0, #0x208]
 
-  // Finally, restore sp. This must be done after the the last read from the
+  // Finally, restore sp. This must be done after the last read from the
   // context struct, because it is allocated on the stack, and an exception
   // could clobber the de-allocated portion of the stack after sp has been
   // restored.

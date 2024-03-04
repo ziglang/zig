@@ -486,7 +486,7 @@ static double SIMD_CFUNC simd_orient(simd_double2 __a, simd_double2 __b, simd_do
  *
  *  @discussion "Positively oriented" is equivalent to the vectors
  *  (a-d, b-d, c-d) following the "right hand rule", or to the dot product
- *  of c-d with the the cross product of a-d and b-d being positive.          */
+ *  of c-d with the cross product of a-d and b-d being positive.          */
 static float SIMD_CFUNC simd_orient(simd_float3 __a, simd_float3 __b, simd_float3 __c, simd_float3 __d);
 
 /*! @abstract Test the orientation of a tetrahedron in 3d.
@@ -502,7 +502,7 @@ static float SIMD_CFUNC simd_orient(simd_float3 __a, simd_float3 __b, simd_float
  *
  *  @discussion "Positively oriented" is equivalent to the vectors
  *  (a-d, b-d, c-d) following the "right hand rule", or to the dot product
- *  of c-d with the the cross product of a-d and b-d being positive.          */
+ *  of c-d with the cross product of a-d and b-d being positive.          */
 static double SIMD_CFUNC simd_orient(simd_double3 __a, simd_double3 __b, simd_double3 __c, simd_double3 __d);
 
 /*! @functiongroup incircle (points) tests
@@ -516,7 +516,7 @@ static double SIMD_CFUNC simd_orient(simd_double3 __a, simd_double3 __b, simd_do
  *  conditioned (meaning that the points are nearly co-linear or
  *  co-planar).
  *
- *  If the points are negatively-oriented, the the notions of "inside" and
+ *  If the points are negatively-oriented, the notions of "inside" and
  *  "outside" are flipped.  If the points are degenerate, then the result
  *  is undefined.                                                             */
 

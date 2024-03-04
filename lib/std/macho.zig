@@ -337,7 +337,7 @@ pub const dysymtab_command = extern struct {
     // this requires the r_address field to be something other than a section
     // offset to identify the item to be relocated.  In this case r_address is
     // set to the offset from the vmaddr of the first LC_SEGMENT command.
-    // For MH_SPLIT_SEGS images r_address is set to the the offset from the
+    // For MH_SPLIT_SEGS images r_address is set to the offset from the
     // vmaddr of the first read-write LC_SEGMENT command.
     //
     // The relocation entries are grouped by module and the module table

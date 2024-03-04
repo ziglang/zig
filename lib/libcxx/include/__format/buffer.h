@@ -95,7 +95,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI void __copy(basic_string_view<_InCharT> __str) {
     // When the underlying iterator is a simple iterator the __capacity_ is
     // infinite. For a string or container back_inserter it isn't. This means
-    // adding a large string the the buffer can cause some overhead. In that
+    // adding a large string the buffer can cause some overhead. In that
     // case a better approach could be:
     // - flush the buffer
     // - container.append(__str.begin(), __str.end());

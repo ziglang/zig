@@ -29,7 +29,7 @@ static preopen *preopens;
 static size_t num_preopens;
 static size_t preopen_capacity;
 
-/// Access to the the above preopen must be protected in the presence of
+/// Access to the above preopen must be protected in the presence of
 /// threads.
 #ifdef _REENTRANT
 static volatile int lock[1];

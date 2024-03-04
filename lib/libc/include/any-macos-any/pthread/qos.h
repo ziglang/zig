@@ -277,7 +277,7 @@ pthread_override_qos_class_start_np(pthread_t __pthread,
  * associated resources as well as the override object itself.
  *
  * The thread starting and the thread ending a QOS class override need not be
- * identical. If the thread ending the override is the the target thread of the
+ * identical. If the thread ending the override is the target thread of the
  * override itself, it should take care to elevate its requested QOS class
  * appropriately with pthread_set_qos_class_self_np() before ending the
  * override.

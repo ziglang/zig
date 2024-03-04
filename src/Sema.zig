@@ -3,7 +3,7 @@
 //! State used for compiling a ZIR into AIR.
 //! Transforms untyped ZIR instructions into semantically-analyzed AIR instructions.
 //! Does type checking, comptime control flow, and safety-check generation.
-//! This is the the heart of the Zig compiler.
+//! This is the heart of the Zig compiler.
 
 mod: *Module,
 /// Alias to `mod.gpa`.

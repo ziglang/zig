@@ -1017,7 +1017,7 @@ struct dysymtab_command {
      * this requires the r_address field to be something other than a section
      * offset to identify the item to be relocated.  In this case r_address is
      * set to the offset from the vmaddr of the first LC_SEGMENT command.
-     * For MH_SPLIT_SEGS images r_address is set to the the offset from the
+     * For MH_SPLIT_SEGS images r_address is set to the offset from the
      * vmaddr of the first read-write LC_SEGMENT command.
      *
      * The relocation entries are grouped by module and the module table
@@ -1145,7 +1145,7 @@ struct twolevel_hints_command {
  * isub_image field is an index into the sub-images (sub-frameworks and
  * sub-umbrellas list) that made up the two-level image that the undefined
  * symbol was found in when it was built by the static link editor.  If
- * isub-image is 0 the the symbol is expected to be defined in library and not
+ * isub-image is 0 the symbol is expected to be defined in library and not
  * in the sub-images.  If isub-image is non-zero it is an index into the array
  * of sub-images for the umbrella with the first index in the sub-images being
  * 1. The array of sub-images is the ordered list of sub-images of the umbrella

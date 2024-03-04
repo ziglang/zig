@@ -835,7 +835,7 @@ pub fn applyTypeAttributes(p: *Parser, ty: Type, attr_buf_start: usize, tag: ?Di
     if (p.attr_application_buf.items.len > 0) {
         return try base_ty.withAttributes(p.arena, p.attr_application_buf.items);
     } else if (existing.len > 0) {
-        // else use the ones on the typedef decl we were refering to.
+        // else use the ones on the typedef decl we were referring to.
         return try base_ty.withAttributes(p.arena, existing);
     }
     return base_ty;

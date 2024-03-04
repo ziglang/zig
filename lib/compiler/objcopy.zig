@@ -744,7 +744,7 @@ fn stripElf(
 }
 
 // note: this is "a minimal effort implementation"
-//  It doesn't support all possibile elf files: some sections type may need fixups, the program header may need fix up, ...
+//  It doesn't support all possible elf files: some sections type may need fixups, the program header may need fix up, ...
 //  It was written for a specific use case (strip debug info to a sperate file, for linux 64-bits executables built with `zig` or `zig c++` )
 // It moves and reoders the sections as little as possible to avoid having to do fixups.
 // TODO: support non-native endianess
@@ -1002,7 +1002,7 @@ fn ElfFile(comptime is_64: bool) type {
             eof_offset = @sizeOf(Elf_Ehdr);
 
             // program header as-is.
-            // nb: for only-debug files, removing it appears to work, but is invalid by ELF specifcation.
+            // nb: for only-debug files, removing it appears to work, but is invalid by ELF specification.
             {
                 assert(updated_elf_header.e_phoff == @sizeOf(Elf_Ehdr));
                 const data = std.mem.sliceAsBytes(self.program_segments);

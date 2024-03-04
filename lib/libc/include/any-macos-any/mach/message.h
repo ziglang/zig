@@ -124,7 +124,7 @@ typedef natural_t mach_msg_timeout_t;
  *  MACH_MSGH_BITS() combines two MACH_MSG_TYPE_* values, for the remote
  *  and local fields, into a single value suitable for msgh_bits.
  *
- *  MACH_MSGH_BITS_CIRCULAR should be zero; is is used internally.
+ *  MACH_MSGH_BITS_CIRCULAR should be zero; is used internally.
  *
  *  The unused bits should be zero and are reserved for the kernel
  *  or for future interface expansion.

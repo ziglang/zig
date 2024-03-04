@@ -79,7 +79,7 @@ pub fn convertEiselLemire(comptime T: type, q: i64, w_: u64) ?BiasedFp(f64) {
     }
 
     // Need to handle rounding ties. Normally, we need to round up,
-    // but if we fall right in between and and we have an even basis, we
+    // but if we fall right in between and we have an even basis, we
     // need to round down.
     //
     // This will only occur if:

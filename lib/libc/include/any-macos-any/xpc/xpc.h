@@ -1007,7 +1007,7 @@ xpc_uuid_create(const uuid_t XPC_NONNULL_ARRAY uuid);
  * @function xpc_uuid_get_bytes
  *
  * @abstract
- * Returns a pointer to the the boxed UUID bytes in an XPC UUID object.
+ * Returns a pointer to the boxed UUID bytes in an XPC UUID object.
  *
  * @param xuuid
  * The UUID object which is to be examined.
@@ -1192,7 +1192,7 @@ typedef bool (^xpc_array_applier_t)(size_t index, xpc_object_t _Nonnull value);
  * The number of objects in the given array. If the number passed is less than
  * the actual number of values in the array, only the specified number of items
  * are inserted into the resulting array. If the number passed is more than
- * the the actual number of values, the behavior is undefined.
+ * the actual number of values, the behavior is undefined.
  *
  * @result
  * A new array object. 
@@ -1856,7 +1856,7 @@ xpc_array_create_connection(xpc_object_t xarray, size_t index);
  * 
  * @result
  * The object at the specified index within the array or NULL if the given
- * object was not an XPC array or if the the value at the specified index was
+ * object was not an XPC array or if the value at the specified index was
  * not a dictionary.
  *
  * @discussion
@@ -1883,7 +1883,7 @@ xpc_array_get_dictionary(xpc_object_t xarray, size_t index);
  * 
  * @result
  * The object at the specified index within the array or NULL if the given
- * object was not an XPC array or if the the value at the specified index was
+ * object was not an XPC array or if the value at the specified index was
  * not an array.
  *
  * @discussion
@@ -1936,7 +1936,7 @@ typedef bool (^xpc_dictionary_applier_t)(const char * _Nonnull key,
  * the actual count of values, only that many key/value pairs will be inserted
  * into the dictionary.
  *
- * If the count is more than the the actual count of key/value pairs, the
+ * If the count is more than the actual count of key/value pairs, the
  * behavior is undefined. If one array is NULL and the other is not, the 
  * behavior is undefined. If both arrays are NULL and the count is non-0, the
  * behavior is undefined.

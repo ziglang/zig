@@ -126,7 +126,7 @@
    locks, but are "owned" by the opened file description, not the process.
    This means that they are inherited across fork or clone with CLONE_FILES
    like BSD (flock) locks, and they are only released automatically when the
-   last reference to the the file description against which they were acquired
+   last reference to the file description against which they were acquired
    is put. */
 #ifdef __USE_GNU
 # define F_OFD_GETLK	36

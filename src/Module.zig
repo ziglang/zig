@@ -4939,7 +4939,7 @@ pub const SwitchProngSrc = union(enum) {
 pub const PeerTypeCandidateSrc = union(enum) {
     /// Do not print out error notes for candidate sources
     none: void,
-    /// When we want to know the the src of candidate i, look up at
+    /// When we want to know the src of candidate i, look up at
     /// index i in this slice
     override: []const ?LazySrcLoc,
     /// resolvePeerTypes originates from a @TypeOf(...) call

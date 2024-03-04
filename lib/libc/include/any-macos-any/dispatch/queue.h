@@ -1323,7 +1323,7 @@ dispatch_after_f(dispatch_time_t when, dispatch_queue_t queue,
  * will not run until all blocks submitted to the queue earlier have completed,
  * and any blocks submitted to the queue after a barrier block will not run
  * until the barrier block has completed.
- * When submitted to a a global queue or to a queue not created with the
+ * When submitted to a global queue or to a queue not created with the
  * DISPATCH_QUEUE_CONCURRENT attribute, barrier blocks behave identically to
  * blocks submitted with the dispatch_async()/dispatch_sync() API.
  */

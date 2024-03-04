@@ -228,7 +228,7 @@ fn finalizeDwarfSegment(self: *DebugSymbols, macho_file: *MachO) void {
     const base_vmaddr = blk: {
         // Note that we purposely take the last VM address of the MachO binary including
         // the binary's LINKEDIT segment. This is in contrast to how dsymutil does it
-        // which overwrites the the address space taken by the original MachO binary,
+        // which overwrites the address space taken by the original MachO binary,
         // however at the cost of having LINKEDIT preceed DWARF in dSYM binary which we
         // do not want as we want to be able to incrementally move DWARF sections in the
         // file as we please.

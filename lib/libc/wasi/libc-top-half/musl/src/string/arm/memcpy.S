@@ -125,7 +125,7 @@ cached_aligned32:
 	/*
 	 * We preload a cache-line up to 64 bytes ahead. On the 926, this will
 	 * stall only until the requested world is fetched, but the linefill
-	 * continues in the the background.
+	 * continues in the background.
 	 * While the linefill is going, we write our previous cache-line
 	 * into the write-buffer (which should have some free space).
 	 * When the linefill is done, the writebuffer will

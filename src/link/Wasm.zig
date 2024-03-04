@@ -926,7 +926,7 @@ fn resolveSymbolsInArchives(wasm: *Wasm) !void {
             };
 
             // Symbol is found in unparsed object file within current archive.
-            // Parse object and and resolve symbols again before we check remaining
+            // Parse object and resolve symbols again before we check remaining
             // undefined symbols.
             var object = archive.parseObject(wasm, offset.items[0]) catch |e| {
                 var err_note = try wasm.addErrorWithNotes(1);

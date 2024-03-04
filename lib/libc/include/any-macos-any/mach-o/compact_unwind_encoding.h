@@ -428,7 +428,7 @@ enum {
 //     .quad    except_tab1
 //
 //
-// Notes: There is no need for any labels in the the __compact_unwind section.  
+// Notes: There is no need for any labels in the __compact_unwind section.
 //        The use of the .set directive is to force the evaluation of the 
 //        range-length at assembly time, instead of generating relocations.
 //

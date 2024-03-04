@@ -822,7 +822,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             }
         } else {
             // The while loop exited via its conditional, meaning we are done with
-            // the current arg and can move on the the next
+            // the current arg and can move on the next
             arg_i += 1;
             continue;
         }

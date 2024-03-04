@@ -1299,7 +1299,7 @@ void __pformat_emit_numeric_value( int c, __pformat_t *stream )
    */
   if( c == '.' )
     /*
-     * converting this internal representation of the the radix
+     * converting this internal representation of the radix
      * point to the appropriately localised representation...
      */
     __pformat_emit_radix_point( stream );

@@ -303,7 +303,7 @@ xpc_connection_set_target_queue(xpc_connection_t connection,
  * A connection may receive different events depending upon whether it is a
  * listener or not. Any connection may receive an error in its event handler.
  * But while normal connections may receive messages in addition to errors,
- * listener connections will receive connections and and not messages.
+ * listener connections will receive connections and not messages.
  *
  * Connections received by listeners are equivalent to those returned by
  * xpc_connection_create() with a non-NULL name argument and a NULL targetq

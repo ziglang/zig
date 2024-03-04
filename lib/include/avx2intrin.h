@@ -3122,7 +3122,7 @@ _mm256_broadcastsi128_si256(__m128i __X)
 ///    An immediate 8-bit integer operand, with bits [7:0] specifying the
 ///    source for each element of the result. The position of the mask bit
 ///    corresponds to the index of a copied value. When a mask bit is 0, the
-///    element is copied from \a V1; otherwise, it is is copied from \a V2.
+///    element is copied from \a V1; otherwise, it is copied from \a V2.
 /// \returns A 256-bit vector of [8 x i32] containing the result.
 #define _mm256_blend_epi32(V1, V2, M) \
   ((__m256i)__builtin_ia32_pblendd256((__v8si)(__m256i)(V1), \

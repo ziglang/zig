@@ -465,7 +465,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         // EAX=0x7, ECX=0x0 indicates the availability of the instruction (via the 18th
         // bit of EDX), while the EAX=0x1b leaf returns information on the
         // availability of specific pconfig leafs.
-        // The target feature here only refers to the the first of these two.
+        // The target feature here only refers to the first of these two.
         // Users might need to check for the availability of specific pconfig
         // leaves using cpuid, since that information is ignored while
         // detecting features using the "-march=native" flag.

@@ -690,7 +690,7 @@ bin_file: *link.File.Wasm,
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Contains extra data for MIR
 mir_extra: std.ArrayListUnmanaged(u32) = .{},
-/// When a function is executing, we store the the current stack pointer's value within this local.
+/// When a function is executing, we store the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
 /// The current stack pointer substracted with the stack size. From this value, we will calculate

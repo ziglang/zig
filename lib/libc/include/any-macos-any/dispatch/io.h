@@ -549,7 +549,7 @@ dispatch_io_set_high_water(dispatch_io_t channel, size_t high_water);
  *
  * I/O handlers should be prepared to receive amounts of data significantly
  * larger than the low water mark in general. If an I/O handler requires
- * intermediate results of fixed size, set both the low and and the high water
+ * intermediate results of fixed size, set both the low and the high water
  * mark to that size.
  *
  * The default value for the low water mark is unspecified, but must be assumed

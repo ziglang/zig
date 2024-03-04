@@ -146,7 +146,7 @@ struct relocation_info {
 #endif /* defined(__BIG_ENDIAN__) || defined(__LITTLE_ENDIAN__) */
 #define R_SCATTERED 0x80000000	/* mask to be applied to the r_address field 
 				   of a relocation_info structure to tell that
-				   is is really a scattered_relocation_info
+				   is really a scattered_relocation_info
 				   stucture */
 struct scattered_relocation_info {
 #ifdef __BIG_ENDIAN__

@@ -247,7 +247,7 @@
  * sysctl(3).  (net.inet.ip.port{hi,low}{first,last}_auto)
  *
  * Changing those values has bad security implications if you are
- * using a a stateless firewall that is allowing packets outside of that
+ * using a stateless firewall that is allowing packets outside of that
  * range in order to allow transparent outgoing connections.
  *
  * Such a firewall configuration will generally depend on the use of these

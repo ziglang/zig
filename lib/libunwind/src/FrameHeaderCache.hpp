@@ -41,7 +41,7 @@ class _LIBUNWIND_HIDDEN FrameHeaderCache {
 
   // Can't depend on the C++ standard library in libunwind, so use an array to
   // allocate the entries, and two linked lists for ordering unused and recently
-  // used entries.  FIXME: Would the the extra memory for a doubly-linked list
+  // used entries.  FIXME: Would the extra memory for a doubly-linked list
   // be better than the runtime cost of traversing a very short singly-linked
   // list on a cache miss? The entries themselves are all small and consecutive,
   // so unlikely to cause page faults when following the pointers. The memory
