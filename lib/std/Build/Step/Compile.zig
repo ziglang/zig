@@ -309,8 +309,8 @@ pub const HeaderInstallation = union(enum) {
 
     pub fn dupe(self: HeaderInstallation, b: *std.Build) HeaderInstallation {
         return switch (self) {
-            .file => |f| f.dupe(b),
-            .directory => |d| d.dupe(b),
+            .file => |f| .{ .file = f.dupe(b) },
+            .directory => |d| .{ .directory = d.dupe(b) },
         };
     }
 };
@@ -480,10 +480,12 @@ pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void
 
 pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
     assert(lib.kind == .lib);
+    const b = cs.step.owner;
     for (lib.installed_headers.items) |installation| {
-        cs.installed_headers.append(installation) catch @panic("OOM");
-        cs.addHeaderInstallationToIncludeTree(installation);
-        installation.getSource().addStepDependencies(&cs.step);
+        const installation_copy = installation.dupe(b);
+        cs.installed_headers.append(installation_copy) catch @panic("OOM");
+        cs.addHeaderInstallationToIncludeTree(installation_copy);
+        installation_copy.getSource().addStepDependencies(&cs.step);
     }
 }
 
