@@ -531,8 +531,29 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     hashStdIo(&man.hash, self.stdio);
 
+    const rand_int = std.crypto.random.int(u64);
+    const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.Build.hex64(rand_int);
+
+    for (output_placeholders.items) |placeholder| {
+        const output_components = .{ tmp_dir_path, placeholder.output.basename };
+        const output_sub_path = try fs.path.join(arena, &output_components);
+        const output_sub_dir_path = fs.path.dirname(output_sub_path).?;
+        b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
+            return step.fail("unable to make path '{}{s}': {s}", .{
+                b.cache_root, output_sub_dir_path, @errorName(err),
+            });
+        };
+        const output_path = try b.cache_root.join(arena, &output_components);
+        placeholder.output.generated_file.path = output_path;
+        const cli_arg = if (placeholder.output.prefix.len == 0)
+            output_path
+        else
+            b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
+        argv_list.items[placeholder.index] = cli_arg;
+    }
+
     if (has_side_effects) {
-        try runCommand(self, argv_list.items, has_side_effects, null, prog_node);
+        try runCommand(self, argv_list.items, has_side_effects, tmp_dir_path, prog_node);
         return;
     }
 
@@ -555,27 +576,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
         step.result_cached = true;
         return;
-    }
-
-    const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.Build.hex64(rand_int);
-
-    for (output_placeholders.items) |placeholder| {
-        const output_components = .{ tmp_dir_path, placeholder.output.basename };
-        const output_sub_path = try fs.path.join(arena, &output_components);
-        const output_sub_dir_path = fs.path.dirname(output_sub_path).?;
-        b.cache_root.handle.makePath(output_sub_dir_path) catch |err| {
-            return step.fail("unable to make path '{}{s}': {s}", .{
-                b.cache_root, output_sub_dir_path, @errorName(err),
-            });
-        };
-        const output_path = try b.cache_root.join(arena, &output_components);
-        placeholder.output.generated_file.path = output_path;
-        const cli_arg = if (placeholder.output.prefix.len == 0)
-            output_path
-        else
-            b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
-        argv_list.items[placeholder.index] = cli_arg;
     }
 
     try runCommand(self, argv_list.items, has_side_effects, tmp_dir_path, prog_node);
@@ -706,7 +706,7 @@ fn runCommand(
     self: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
-    tmp_dir_path: ?[]const u8,
+    tmp_dir_path: []const u8,
     prog_node: *std.Progress.Node,
 ) !void {
     const step = &self.step;
@@ -879,7 +879,7 @@ fn runCommand(
         },
     }) |stream| {
         if (stream.captured) |output| {
-            const output_components = .{ tmp_dir_path.?, output.basename };
+            const output_components = .{ tmp_dir_path, output.basename };
             const output_path = try b.cache_root.join(arena, &output_components);
             output.generated_file.path = output_path;
 
