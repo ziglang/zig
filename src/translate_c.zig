@@ -5217,12 +5217,51 @@ fn transGotoStmt(c: *Context, scope: *Scope, stmt: *const clang.GotoStmt) TransE
 }
 
 fn transLabelStmt(c: *Context, scope: *Scope, stmt: *const clang.LabelStmt) TransError!Node {
-    var block = try Scope.Block.init(c, scope, false);
-    defer block.deinit();
+    var block: ?Scope.Block = null;
+    var cond: ?Node = null;
+    defer if (block) |*blk| blk.deinit();
+
+    const inner_stmt = stmt.getSubStmt();
+
+    var is_break_target = false;
+
+    if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
+        for (transformations) |*transformation| {
+            const this_cond = try Tag.identifier.create(c.arena, transformation.variable);
+
+            cond = if (cond) |co|
+                try Tag.@"or".create(c.arena, .{
+                    .lhs = this_cond,
+                    .rhs = co,
+                })
+            else
+                this_cond;
+
+            switch (transformation.type) {
+                .simple => {},
+                .break_target => |*bt| {
+                    assert(@as(*const clang.LabelStmt, @ptrCast(transformation.inner_stmt)) == stmt);
+                    assert(bt.from == inner_stmt);
+
+                    is_break_target = true;
+
+                    if (block == null) {
+                        block = try Scope.Block.init(c, scope, true);
+                    }
+
+                    bt.label.* = block.?.label.?;
+                },
+            }
+        }
+    }
+
+    if (block == null) {
+        block = try Scope.Block.init(c, scope, false);
+    }
 
     const variable = c.goto.?.label_variable_names.get(try c.str(stmt.getName())).?;
 
-    try block.statements.append(try transCreateNodeInfixOp(
+    try block.?.statements.append(try transCreateNodeInfixOp(
         c,
         .assign,
         try Tag.identifier.create(c.arena, variable),
@@ -5230,9 +5269,14 @@ fn transLabelStmt(c: *Context, scope: *Scope, stmt: *const clang.LabelStmt) Tran
         .used,
     ));
 
-    try block.statements.append(try transStmt(c, scope, stmt.getSubStmt(), .unused));
+    try block.?.statements.append(try transStmt(c, scope, inner_stmt, .unused));
 
-    return try block.complete(c);
+    if (is_break_target) {
+        try block.?.statements.append(try Tag.if_not_break.create(c.arena, cond.?));
+        return try Tag.while_true.create(c.arena, try block.?.complete(c));
+    } else {
+        return try block.?.complete(c);
+    }
 }
 
 fn transStmtToScopeAndExeBlock(c: *Context, scope: *Scope, exe_block: *Scope.Block, stmt: *const clang.Stmt) TransError!void {
@@ -7191,11 +7235,53 @@ fn createGotoContextStmt(
             try new_goto_branch.append(c.gpa, stmt);
         },
         .LabelStmtClass => {
-            const label_str = try c.str(@as(*const clang.LabelStmt, @ptrCast(stmt)).getName());
+            const label_stmt: *const clang.LabelStmt = @ptrCast(stmt);
+
+            const label_branch_count_before = label_branches.count();
+            const goto_branch_count_before = goto_branches.items.len;
+
+            try createGotoContextStmt(
+                c,
+                block,
+                label_stmt.getSubStmt(),
+                transformations,
+                label_variable_names,
+                goto_targets,
+                label_branches,
+                goto_branches,
+            );
+
+            const label_str = try c.str(label_stmt.getName());
             const new_label_branch = try label_branches.getOrPut(c.gpa, label_str);
             assert(!new_label_branch.found_existing);
             new_label_branch.value_ptr.* = .{};
+
+            // A not simple transformation of a label to itself will have itself as the inner_stmt and label_stmt.getSubStmt() as the from stmt
             try new_label_branch.value_ptr.append(c.gpa, stmt);
+            try createGotoContextCombineStmts(
+                c,
+                block,
+                stmt,
+                transformations,
+                label_variable_names,
+                goto_targets,
+                label_branches,
+                goto_branches,
+                label_branch_count_before,
+                goto_branch_count_before,
+            );
+            if (new_label_branch.value_ptr.items.len != 0) {
+                assert(new_label_branch.value_ptr.pop() == stmt);
+            }
+
+            try createGotoContextAppendStmtToBranches(
+                c,
+                stmt,
+                label_branches,
+                goto_branches,
+                label_branch_count_before,
+                goto_branch_count_before,
+            );
         },
         else => {},
     }
@@ -7231,16 +7317,17 @@ fn createGotoContextCombineStmts(
 
                     assert(label_branch.items.len > 0);
 
-                    const bare_variable = try std.fmt.allocPrint(c.arena, "goto_{s}", .{label_str});
-                    const variable = try block.makeMangledName(c, bare_variable);
-
-                    try label_variable_names.put(c.arena, label_str, variable);
+                    const variable = try label_variable_names.getOrPut(c.arena, label_str);
+                    if (!variable.found_existing) {
+                        const bare_variable = try std.fmt.allocPrint(c.arena, "goto_{s}", .{label_str});
+                        variable.value_ptr.* = try block.makeMangledName(c, bare_variable);
+                    }
 
                     const goto_target = try c.arena.create(?[]const u8);
                     goto_target.* = null;
 
                     const loop_transformation: GotoContext.Transformation = .{
-                        .variable = variable,
+                        .variable = variable.value_ptr.*,
                         .inner_stmt = label_branch.getLast(),
                         .type = .{ .break_target = .{
                             .label = goto_target,
@@ -7263,7 +7350,7 @@ fn createGotoContextCombineStmts(
                             branch_transformations.value_ptr.* = .{};
                         }
                         try branch_transformations.value_ptr.append(c.arena, GotoContext.Transformation{
-                            .variable = variable,
+                            .variable = variable.value_ptr.*,
                             .inner_stmt = label_branch.items[i],
                             .type = .{ .simple = {} },
                         });
