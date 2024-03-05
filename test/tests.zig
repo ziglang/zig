@@ -998,29 +998,30 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, 
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, test_filters: []const []const u8) *Step {
+pub fn addTranslateCTests(b: *std.Build, parent_step: *std.Build.Step, test_filters: []const []const u8) void {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
-        .step = b.step("test-translate-c", "Run the C translation tests"),
+        .step = parent_step,
         .test_index = 0,
         .test_filters = test_filters,
     };
 
     translate_c.addCases(cases);
 
-    return cases.step;
+    return;
 }
 
 pub fn addRunTranslatedCTests(
     b: *std.Build,
+    parent_step: *std.Build.Step,
     test_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
-) *Step {
+) void {
     const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
     cases.* = .{
         .b = b,
-        .step = b.step("test-run-translated-c", "Run the Run-Translated-C tests"),
+        .step = parent_step,
         .test_index = 0,
         .test_filters = test_filters,
         .target = target,
@@ -1028,7 +1029,7 @@ pub fn addRunTranslatedCTests(
 
     run_translated_c.addCases(cases);
 
-    return cases.step;
+    return;
 }
 
 const ModuleTestOptions = struct {
@@ -1288,6 +1289,8 @@ pub fn addCases(
     parent_step: *Step,
     test_filters: []const []const u8,
     check_case_exe: *std.Build.Step.Compile,
+    target: std.Build.ResolvedTarget,
+    translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
 ) !void {
     const arena = b.allocator;
@@ -1300,6 +1303,8 @@ pub fn addCases(
 
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
+
+    cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
 
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(
