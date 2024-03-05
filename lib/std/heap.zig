@@ -14,6 +14,7 @@ pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedL
 pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").LogToWriterAllocator;
 pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
+pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocator.zig").Config;
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
 pub const Check = @import("heap/general_purpose_allocator.zig").Check;
 pub const WasmAllocator = @import("heap/WasmAllocator.zig");
