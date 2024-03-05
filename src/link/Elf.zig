@@ -1373,7 +1373,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     try self.writePhdrTable();
     try self.writeShdrTable();
     try self.writeAtoms();
-    try self.writeSyntheticSections();
+    self.writeSyntheticSections() catch |err| switch (err) {
+        error.RelocFailure => return error.FlushFailure,
+        error.UnsupportedCpuArch => {
+            try self.reportUnsupportedCpuArch();
+            return error.FlushFailure;
+        },
+        else => |e| return e,
+    };
 
     if (self.entry_index == null and self.base.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
@@ -4047,7 +4054,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.plt_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.plt.size();
+        self.shdrs.items[index].sh_size = self.plt.size(self);
     }
 
     if (self.got_plt_section_index) |index| {
@@ -4692,14 +4699,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
-        eh_frame.writeEhFrame(self, buffer.writer()) catch |err| switch (err) {
-            error.RelocFailure => return error.FlushFailure,
-            error.UnsupportedCpuArch => {
-                try self.reportUnsupportedCpuArch();
-                return error.FlushFailure;
-            },
-            else => |e| return e,
-        };
+        try eh_frame.writeEhFrame(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
@@ -4731,7 +4731,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.plt_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size());
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size(self));
         defer buffer.deinit();
         try self.plt.write(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
