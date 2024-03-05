@@ -2674,7 +2674,7 @@ fn analyzeAsInt(
 fn getCaptures(sema: *Sema, block: *Block, extra_index: usize, captures_len: u32) ![]InternPool.CaptureValue {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
-    const parent_captures: InternPool.CaptureValue.Slice = zcu.namespacePtr(block.namespace).ty.getCaptures(zcu);
+    const parent_captures: InternPool.CaptureValue.Slice = zcu.namespacePtr(block.namespace).getType(zcu).getCaptures(zcu);
 
     const captures = try sema.arena.alloc(InternPool.CaptureValue, captures_len);
 
@@ -2796,7 +2796,7 @@ fn zirStructDecl(
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     })).toOptional() else .none;
-    errdefer mod.destroyNamespace(new_namespace_index);
+    errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
 
     if (new_namespace_index.unwrap()) |ns| {
         const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -17268,7 +17268,7 @@ fn zirThis(
 fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
     const ip = &mod.intern_pool;
-    const captures = mod.namespacePtr(block.namespace).ty.getCaptures(mod);
+    const captures = mod.namespacePtr(block.namespace).getType(mod).getCaptures(mod);
 
     const src_node: i32 = @bitCast(extended.operand);
     const src = LazySrcLoc.nodeOffset(src_node);
@@ -21787,7 +21787,7 @@ fn reifyUnion(
                 errdefer msg.destroy(gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), field_ty, .union_field);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), field_ty, .union_field);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -21798,7 +21798,7 @@ fn reifyUnion(
                 errdefer msg.destroy(gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotPacked(msg, src.toSrcLoc(src_decl, mod), field_ty);
+                try sema.explainWhyTypeIsNotPacked(msg, src_decl.toSrcLoc(src, mod), field_ty);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;

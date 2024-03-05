@@ -2642,7 +2642,7 @@ pub const Object = struct {
                 else
                     try o.builder.debugForwardReference();
 
-                const tag_type = union_type.loadTagType();
+                const tag_type = union_type.loadTagType(ip);
 
                 for (0..tag_type.names.len) |field_index| {
                     const field_ty = union_type.field_types.get(ip)[field_index];
@@ -3552,7 +3552,7 @@ pub const Object = struct {
                     const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
                     if (!gop.found_existing) {
                         const decl = mod.declPtr(ip.loadOpaqueType(t.toIntern()).decl);
-                        const name = try o.builder.string(ip.stringToSlice(try decl.getFullyQualifiedName(mod)));
+                        const name = try o.builder.string(ip.stringToSlice(try decl.fullyQualifiedName(mod)));
                         gop.value_ptr.* = try o.builder.opaqueType(name);
                     }
                     return gop.value_ptr.*;
