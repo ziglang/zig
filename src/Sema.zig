@@ -32579,6 +32579,7 @@ fn analyzeOptionalSlicePtr(
     const result_ty = opt_slice_ty.optionalChild(mod).slicePtrFieldType(mod);
 
     if (try sema.resolveValue(opt_slice)) |opt_val| {
+        if (opt_val.isUndef(mod)) return mod.undefRef(result_ty);
         const slice_ptr: InternPool.Index = if (opt_val.optionalValue(mod)) |val|
             val.slicePtr(mod).toIntern()
         else
