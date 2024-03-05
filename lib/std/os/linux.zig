@@ -1369,6 +1369,10 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
+pub fn clock_nanosleep(clk_id: i32, flags: i32, rqtp: *const timespec, rmtp: ?*timespec) usize {
+    return std.os.linux.syscall4(.clock_nanosleep, @as(usize, @bitCast(@as(isize, clk_id))), @as(usize, @bitCast(@as(isize, flags))), @intFromPtr(rqtp), @intFromPtr(rmtp));
+}
+
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
@@ -3418,6 +3422,10 @@ pub const CLOCK = struct {
     pub const BOOTTIME_ALARM = 9;
     pub const SGI_CYCLE = 10;
     pub const TAI = 11;
+};
+
+pub const TIMER = struct {
+    pub const ABSTIME = 0x01;
 };
 
 pub const CSIGNAL = 0x000000ff;

@@ -1284,3 +1284,10 @@ test "fchmodat smoke test" {
         try expectMode(tmp.dir.fd, "symlink", 0o600);
     try expectMode(tmp.dir.fd, "regfile", 0o640);
 }
+
+test "clock_nanosleep smoke test" {
+    if (!@hasDecl(os.system, "clock_nanosleep")) return error.SkipZigTest;
+    // Absolute sleep until CLOCK.REALTIME is >= 0,0. Should always be <= now,
+    // and therefore should immediately return without error.
+    try os.clock_nanosleep(os.CLOCK.REALTIME, os.TIMER.ABSTIME, 0, 0);
+}

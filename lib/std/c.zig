@@ -1527,6 +1527,18 @@ pub usingnamespace switch (native_os) {
     },
 };
 
+// clock_nanosleep() and TIMER_ABSTIME exist in the libc of only some Unix-like
+// systems, but they are consistent everywhere they exist.
+pub usingnamespace switch (native_os) {
+    .linux, .freebsd, .netbsd, .dragonfly => struct {
+        pub const TIMER = struct {
+            pub const ABSTIME = 0x01;
+        };
+        pub extern "c" fn clock_nanosleep(clk_id: c_int, flags: c_int, rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
+    },
+    else => struct {},
+};
+
 pub const fstat = switch (native_os) {
     .macos => switch (native_arch) {
         .x86_64 => private.@"fstat$INODE64",
