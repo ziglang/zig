@@ -164,21 +164,30 @@ test "fn param" {
 }
 
 fn TypeFromFn(comptime T: type) type {
-    _ = T;
-    return struct {};
+    return struct {
+        comptime {
+            _ = T;
+        }
+    };
 }
 
 fn TypeFromFn2(comptime T1: type, comptime T2: type) type {
-    _ = T1;
-    _ = T2;
-    return struct {};
+    return struct {
+        comptime {
+            _ = T1;
+            _ = T2;
+        }
+    };
 }
 
 fn TypeFromFnB(comptime T1: type, comptime T2: type, comptime T3: type) type {
-    _ = T1;
-    _ = T2;
-    _ = T3;
-    return struct {};
+    return struct {
+        comptime {
+            _ = T1;
+            _ = T2;
+            _ = T3;
+        }
+    };
 }
 
 /// Replaces integers in `actual` with '0' before doing the test.
