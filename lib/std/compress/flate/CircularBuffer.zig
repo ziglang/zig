@@ -50,19 +50,25 @@ pub fn writeMatch(self: *Self, length: u16, distance: u16) !void {
     }
     assert(self.wp - self.rp < mask);
 
-    var from: usize = self.wp - distance;
+    var from: usize = self.wp - distance & mask;
     const from_end: usize = from + length;
-    var to: usize = self.wp;
+    var to: usize = self.wp & mask;
     const to_end: usize = to + length;
 
     self.wp += length;
 
     // Fast path using memcpy
-    if (length <= distance and // no overlapping buffers
-        (from >> 16 == from_end >> 16) and // start and and at the same circle
-        (to >> 16 == to_end >> 16))
+    if (from_end < buffer_len and to_end < buffer_len) // start and end at the same circle
     {
-        @memcpy(self.buffer[to & mask .. to_end & mask], self.buffer[from & mask .. from_end & mask]);
+        var cur_len = distance;
+        var remaining_len = length;
+        while (cur_len < remaining_len) {
+            @memcpy(self.buffer[to..][0..cur_len], self.buffer[from..][0..cur_len]);
+            to += cur_len;
+            remaining_len -= cur_len;
+            cur_len = cur_len * 2;
+        }
+        @memcpy(self.buffer[to..][0..remaining_len], self.buffer[from..][0..remaining_len]);
         return;
     }
 
@@ -130,7 +136,7 @@ pub fn full(self: *Self) bool {
 }
 
 // example from: https://youtu.be/SJPvNi4HrWQ?t=3558
-test "flate.CircularBuffer writeMatch" {
+test writeMatch {
     var cb: Self = .{};
 
     cb.writeAll("a salad; ");
@@ -140,7 +146,7 @@ test "flate.CircularBuffer writeMatch" {
     try testing.expectEqualStrings("a salad; a salsal", cb.read());
 }
 
-test "flate.CircularBuffer writeMatch overlap" {
+test "writeMatch overlap" {
     var cb: Self = .{};
 
     cb.writeAll("a b c ");
@@ -150,7 +156,7 @@ test "flate.CircularBuffer writeMatch overlap" {
     try testing.expectEqualStrings("a b c b c b c d", cb.read());
 }
 
-test "flate.CircularBuffer readAtMost" {
+test readAtMost {
     var cb: Self = .{};
 
     cb.writeAll("0123456789");
@@ -165,7 +171,7 @@ test "flate.CircularBuffer readAtMost" {
     try testing.expectEqualStrings("", cb.read());
 }
 
-test "flate.CircularBuffer" {
+test Self {
     var cb: Self = .{};
 
     const data = "0123456789abcdef" ** (1024 / 16);
@@ -201,7 +207,7 @@ test "flate.CircularBuffer" {
     try testing.expectEqual(@as(usize, 200), cb.read().len); // read the rest
 }
 
-test "flate.CircularBuffer write overlap" {
+test "write overlap" {
     var cb: Self = .{};
     cb.wp = cb.buffer.len - 15;
     cb.rp = cb.wp;
@@ -218,7 +224,7 @@ test "flate.CircularBuffer write overlap" {
     try testing.expect(cb.wp == cb.rp);
 }
 
-test "flate.CircularBuffer writeMatch/read overlap" {
+test "writeMatch/read overlap" {
     var cb: Self = .{};
     cb.wp = cb.buffer.len - 15;
     cb.rp = cb.wp;

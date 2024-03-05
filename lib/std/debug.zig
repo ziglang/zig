@@ -688,7 +688,7 @@ pub const StackIterator = struct {
             }
 
             return true;
-        } else if (@hasDecl(os.system, "msync") and native_os != .wasi) {
+        } else if (@hasDecl(os.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
                 switch (err) {
                     os.MSyncError.UnmappedMemory => {
@@ -2444,7 +2444,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return &self.dwarf;
         }
     },
-    .wasi => struct {
+    .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
             _ = allocator;

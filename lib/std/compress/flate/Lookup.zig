@@ -83,7 +83,7 @@ fn hashu(v: u32) u32 {
     return @intCast((v *% prime4) >> consts.lookup.shift);
 }
 
-test "flate.Lookup add/prev" {
+test add {
     const data = [_]u8{
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
@@ -107,7 +107,7 @@ test "flate.Lookup add/prev" {
     try expect(h.chain[2 + 8] == 2);
 }
 
-test "flate.Lookup bulkAdd" {
+test bulkAdd {
     const data = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
 
     // one by one

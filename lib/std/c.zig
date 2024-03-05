@@ -1521,8 +1521,6 @@ pub usingnamespace switch (native_os) {
 
         pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 
-        pub extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
-
         pub extern "c" fn alarm(seconds: c_uint) c_uint;
 
         pub extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
@@ -1530,26 +1528,26 @@ pub usingnamespace switch (native_os) {
 };
 
 pub const fstat = switch (native_os) {
-    .netbsd => private.__fstat50,
-    .macos, .ios, .watchos, .tvos => switch (native_arch) {
-        .aarch64 => private.fstat,
-        else => private.@"fstat$INODE64",
+    .macos => switch (native_arch) {
+        .x86_64 => private.@"fstat$INODE64",
+        else => private.fstat,
     },
+    .netbsd => private.__fstat50,
     else => private.fstat,
 };
 
 pub const fstatat = switch (native_os) {
-    .macos, .ios, .watchos, .tvos => switch (native_arch) {
-        .aarch64 => private.fstatat,
-        else => private.@"fstatat$INODE64",
+    .macos => switch (native_arch) {
+        .x86_64 => private.@"fstatat$INODE64",
+        else => private.fstatat,
     },
     else => private.fstatat,
 };
 
 pub const readdir = switch (native_os) {
-    .macos, .ios, .watchos, .tvos => switch (native_arch) {
-        .aarch64 => private.readdir,
-        else => private.@"readdir$INODE64",
+    .macos => switch (native_arch) {
+        .x86_64 => private.@"readdir$INODE64",
+        else => private.readdir,
     },
     .windows => @compileError("not available"),
     else => private.readdir,
@@ -1558,6 +1556,14 @@ pub const readdir = switch (native_os) {
 pub const realpath = switch (native_os) {
     .macos, .ios, .watchos, .tvos => private.@"realpath$DARWIN_EXTSN",
     else => private.realpath,
+};
+
+pub const stat = switch (native_os) {
+    .macos => switch (native_arch) {
+        .x86_64 => private.@"stat$INODE64",
+        else => private.stat,
+    },
+    else => private.stat,
 };
 
 pub fn getErrno(rc: anytype) c.E {
@@ -1880,22 +1886,22 @@ else
 
 const private = struct {
     extern "c" fn fstat(fd: c.fd_t, buf: *c.Stat) c_int;
-    /// On x86_64 Darwin, fstat has to be manually linked with $INODE64 suffix to
-    /// force 64bit version.
-    /// Note that this is fixed on aarch64 and no longer necessary.
-    extern "c" fn @"fstat$INODE64"(fd: c.fd_t, buf: *c.Stat) c_int;
-
-    extern "c" fn fstatat(dirfd: c.fd_t, path: [*:0]const u8, stat_buf: *c.Stat, flags: u32) c_int;
-    /// On x86_64 Darwin, fstatat has to be manually linked with $INODE64 suffix to
-    /// force 64bit version.
-    /// Note that this is fixed on aarch64 and no longer necessary.
-    extern "c" fn @"fstatat$INODE64"(dirfd: c.fd_t, path_name: [*:0]const u8, buf: *c.Stat, flags: u32) c_int;
-
-    extern "c" fn __fstat50(fd: c.fd_t, buf: *c.Stat) c_int;
-
+    extern "c" fn fstatat(dirfd: c.fd_t, path: [*:0]const u8, buf: *c.Stat, flag: u32) c_int;
     extern "c" fn readdir(dir: *c.DIR) ?*c.dirent;
-    extern "c" fn @"readdir$INODE64"(dir: *c.DIR) ?*c.dirent;
-
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
+
+    /// macos modernized symbols.
+    /// x86_64 links to $INODE64 suffix for 64-bit support.
+    /// Note these are not necessary on aarch64.
+    extern "c" fn @"fstat$INODE64"(fd: c.fd_t, buf: *c.Stat) c_int;
+    extern "c" fn @"fstatat$INODE64"(dirfd: c.fd_t, path: [*:0]const u8, buf: *c.Stat, flag: u32) c_int;
+    extern "c" fn @"readdir$INODE64"(dir: *c.DIR) ?*c.dirent;
+    extern "c" fn @"stat$INODE64"(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
+
+    /// macos modernized symbols.
     extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+
+    /// netbsd modernized symbols.
+    extern "c" fn __fstat50(fd: c.fd_t, buf: *c.Stat) c_int;
 };

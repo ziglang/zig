@@ -47,9 +47,9 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Wr
 
     try jws.objectField("env");
     try jws.beginObject();
-    inline for (@typeInfo(introspect.EnvVar).Enum.fields) |field| {
+    inline for (@typeInfo(std.zig.EnvVar).Enum.fields) |field| {
         try jws.objectField(field.name);
-        try jws.write(try @field(introspect.EnvVar, field.name).get(arena));
+        try jws.write(try @field(std.zig.EnvVar, field.name).get(arena));
     }
     try jws.endObject();
 

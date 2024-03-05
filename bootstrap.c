@@ -131,15 +131,15 @@ int main(int argc, char **argv) {
             "pub const llvm_has_xtensa = false;\n"
             "pub const version: [:0]const u8 = \"%s\";\n"
             "pub const semver = @import(\"std\").SemanticVersion.parse(version) catch unreachable;\n"
-            "pub const enable_logging: bool = false;\n"
-            "pub const enable_link_snapshots: bool = false;\n"
+            "pub const enable_debug_extensions = false;\n"
+            "pub const enable_logging = false;\n"
+            "pub const enable_link_snapshots = false;\n"
             "pub const enable_tracy = false;\n"
             "pub const value_tracing = false;\n"
             "pub const skip_non_native = false;\n"
-            "pub const only_c = false;\n"
             "pub const force_gpa = false;\n"
+            "pub const only_c = false;\n"
             "pub const only_core_functionality = true;\n"
-            "pub const only_reduce = false;\n"
         , zig_version);
         if (written < 100)
             panic("unable to write to config.zig file");
@@ -156,22 +156,8 @@ int main(int argc, char **argv) {
             "--dep", "build_options",
             "--dep", "aro",
             "--mod", "root", "src/main.zig",
-
             "--mod", "build_options", "config.zig",
-            "--mod", "aro_options", "src/stubs/aro_options.zig",
-            "--mod", "Builtins/Builtin.def", "src/stubs/aro_builtins.zig",
-            "--mod", "Attribute/names.def", "src/stubs/aro_names.zig",
-            "--mod", "Diagnostics/messages.def", "src/stubs/aro_messages.zig",
-
-            "--dep", "build_options=aro_options",
-            "--mod", "aro_backend", "deps/aro/backend.zig",
-
-            "--dep", "Builtins/Builtin.def",
-            "--dep", "Attribute/names.def",
-            "--dep", "Diagnostics/messages.def",
-            "--dep", "build_options=aro_options",
-            "--dep", "backend=aro_backend",
-            "--mod", "aro", "deps/aro/aro.zig",
+            "--mod", "aro", "lib/compiler/aro/aro.zig",
             NULL,
         };
         print_and_run(child_argv);

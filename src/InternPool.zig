@@ -338,7 +338,7 @@ const Hash = std.hash.Wyhash;
 const InternPool = @This();
 const Module = @import("Module.zig");
 const Zcu = Module;
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 
 const KeyAdapter = struct {
     intern_pool: *const InternPool,
@@ -383,27 +383,8 @@ pub const RuntimeIndex = enum(u32) {
     }
 };
 
-pub const DeclIndex = enum(u32) {
-    _,
-
-    pub fn toOptional(i: DeclIndex) OptionalDeclIndex {
-        return @enumFromInt(@intFromEnum(i));
-    }
-};
-
-pub const OptionalDeclIndex = enum(u32) {
-    none = std.math.maxInt(u32),
-    _,
-
-    pub fn init(oi: ?DeclIndex) OptionalDeclIndex {
-        return @enumFromInt(@intFromEnum(oi orelse return .none));
-    }
-
-    pub fn unwrap(oi: OptionalDeclIndex) ?DeclIndex {
-        if (oi == .none) return null;
-        return @enumFromInt(@intFromEnum(oi));
-    }
-};
+pub const DeclIndex = std.zig.DeclIndex;
+pub const OptionalDeclIndex = std.zig.OptionalDeclIndex;
 
 pub const NamespaceIndex = enum(u32) {
     _,
@@ -2612,7 +2593,7 @@ pub const Index = enum(u32) {
     }
 
     comptime {
-        if (builtin.mode == .Debug) {
+        if (!builtin.strip_debug_info) {
             _ = &dbHelper;
         }
     }
@@ -2877,7 +2858,7 @@ pub const static_keys = [_]Key{
 /// This is specified with an integer literal and a corresponding comptime
 /// assert below to break an unfortunate and arguably incorrect dependency loop
 /// when compiling.
-pub const static_len = 84;
+pub const static_len = Zir.Inst.Index.static_len;
 comptime {
     //@compileLog(static_keys.len);
     assert(static_len == static_keys.len);
@@ -3587,6 +3568,7 @@ pub const Alignment = enum(u6) {
     @"8" = 3,
     @"16" = 4,
     @"32" = 5,
+    @"64" = 6,
     none = std.math.maxInt(u6),
     _,
 
@@ -7403,10 +7385,14 @@ pub fn isIntegerType(ip: *const InternPool, ty: Index) bool {
         .c_ulong_type,
         .c_longlong_type,
         .c_ulonglong_type,
-        .c_longdouble_type,
         .comptime_int_type,
         => true,
-        else => ip.indexToKey(ty) == .int_type,
+        else => switch (ip.items.items(.tag)[@intFromEnum(ty)]) {
+            .type_int_signed,
+            .type_int_unsigned,
+            => true,
+            else => false,
+        },
     };
 }
 
@@ -7904,7 +7890,7 @@ pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: NamespaceIndex) 
     ip.namespacePtr(index).* = .{
         .parent = undefined,
         .file_scope = undefined,
-        .ty = undefined,
+        .decl_index = undefined,
     };
     ip.namespaces_free_list.append(gpa, index) catch {
         // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
@@ -7985,7 +7971,8 @@ pub fn getTrailingAggregate(
 ) Allocator.Error!Index {
     try ip.items.ensureUnusedCapacity(gpa, 1);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Bytes).Struct.fields.len);
-    const str: String = @enumFromInt(@intFromEnum(try getOrPutTrailingString(ip, gpa, len)));
+
+    const str: String = @enumFromInt(ip.string_bytes.items.len - len);
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .aggregate = .{
         .ty = ty,

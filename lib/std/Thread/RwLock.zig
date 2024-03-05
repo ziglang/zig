@@ -264,7 +264,7 @@ test "DefaultRwLock - internal state" {
     try testing.expectEqual(rwl, DefaultRwLock{});
 }
 
-test "RwLock - smoke test" {
+test "smoke test" {
     var rwl = RwLock{};
 
     rwl.lock();
@@ -293,7 +293,7 @@ test "RwLock - smoke test" {
     rwl.unlock();
 }
 
-test "RwLock - concurrent access" {
+test "concurrent access" {
     if (builtin.single_threaded)
         return;
 

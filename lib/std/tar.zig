@@ -140,11 +140,25 @@ pub const Header = struct {
     }
 
     pub fn mode(header: Header) !u32 {
-        return @intCast(try header.numeric(100, 8));
+        return @intCast(try header.octal(100, 8));
     }
 
     pub fn size(header: Header) !u64 {
-        return header.numeric(124, 12);
+        const start = 124;
+        const len = 12;
+        const raw = header.bytes[start..][0..len];
+        //  If the leading byte is 0xff (255), all the bytes of the field
+        //  (including the leading byte) are concatenated in big-endian order,
+        //  with the result being a negative number expressed in two’s
+        //  complement form.
+        if (raw[0] == 0xff) return error.TarNumericValueNegative;
+        // If the leading byte is 0x80 (128), the non-leading bytes of the
+        // field are concatenated in big-endian order.
+        if (raw[0] == 0x80) {
+            if (raw[1] != 0 or raw[2] != 0 or raw[3] != 0) return error.TarNumericValueTooBig;
+            return std.mem.readInt(u64, raw[4..12], .big);
+        }
+        return try header.octal(start, len);
     }
 
     pub fn chksum(header: Header) !u64 {
@@ -168,22 +182,6 @@ pub const Header = struct {
 
     fn str(header: Header, start: usize, len: usize) []const u8 {
         return nullStr(header.bytes[start .. start + len]);
-    }
-
-    fn numeric(header: Header, start: usize, len: usize) !u64 {
-        const raw = header.bytes[start..][0..len];
-        //  If the leading byte is 0xff (255), all the bytes of the field
-        //  (including the leading byte) are concatenated in big-endian order,
-        //  with the result being a negative number expressed in two’s
-        //  complement form.
-        if (raw[0] == 0xff) return error.TarNumericValueNegative;
-        // If the leading byte is 0x80 (128), the non-leading bytes of the
-        // field are concatenated in big-endian order.
-        if (raw[0] == 0x80) {
-            if (raw[1] + raw[2] + raw[3] != 0) return error.TarNumericValueTooBig;
-            return std.mem.readInt(u64, raw[4..12], .big);
-        }
-        return try header.octal(start, len);
     }
 
     fn octal(header: Header, start: usize, len: usize) !u64 {
@@ -233,12 +231,27 @@ fn nullStr(str: []const u8) []const u8 {
     return str;
 }
 
+pub const IteratorOptions = struct {
+    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    file_name_buffer: []u8,
+    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    link_name_buffer: []u8,
+    diagnostics: ?*Diagnostics = null,
+
+    pub const Diagnostics = Options.Diagnostics;
+};
+
 /// Iterates over files in tar archive.
 /// `next` returns each file in `reader` tar archive.
-pub fn iterator(reader: anytype, diagnostics: ?*Options.Diagnostics) Iterator(@TypeOf(reader)) {
+pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
     return .{
         .reader = reader,
-        .diagnostics = diagnostics,
+        .diagnostics = options.diagnostics,
+        .header_buffer = undefined,
+        .file_name_buffer = options.file_name_buffer,
+        .link_name_buffer = options.link_name_buffer,
+        .padding = 0,
+        .file = undefined,
     };
 }
 
@@ -248,14 +261,14 @@ fn Iterator(comptime ReaderType: type) type {
         diagnostics: ?*Options.Diagnostics,
 
         // buffers for heeader and file attributes
-        header_buffer: [Header.SIZE]u8 = undefined,
-        file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
-        link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined,
+        header_buffer: [Header.SIZE]u8,
+        file_name_buffer: []u8,
+        link_name_buffer: []u8,
 
         // bytes of padding to the end of the block
-        padding: usize = 0,
+        padding: usize,
         // current tar file
-        file: File = undefined,
+        file: File,
 
         pub const File = struct {
             name: []const u8, // name of file, symlink or directory
@@ -299,15 +312,15 @@ fn Iterator(comptime ReaderType: type) type {
             return header;
         }
 
-        inline fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
-            assert(buffer.len >= size);
+        fn readString(self: *Self, size: usize, buffer: []u8) ![]const u8 {
+            if (size > buffer.len) return error.TarCorruptInput;
             const buf = buffer[0..size];
             try self.reader.readNoEof(buf);
             return nullStr(buf);
         }
 
-        inline fn initFile(self: *Self) void {
-            self.file = File{
+        fn initFile(self: *Self) void {
+            self.file = .{
                 .name = self.file_name_buffer[0..0],
                 .link_name = self.link_name_buffer[0..0],
                 .size = 0,
@@ -318,7 +331,7 @@ fn Iterator(comptime ReaderType: type) type {
         }
 
         // Number of padding bytes in the last file block.
-        inline fn blockPadding(size: u64) usize {
+        fn blockPadding(size: u64) usize {
             const block_rounded = std.mem.alignForward(u64, size, Header.SIZE); // size rounded to te block boundary
             return @intCast(block_rounded - size);
         }
@@ -359,10 +372,10 @@ fn Iterator(comptime ReaderType: type) type {
                     },
                     // Prefix header types
                     .gnu_long_name => {
-                        self.file.name = try self.readString(@intCast(size), &self.file_name_buffer);
+                        self.file.name = try self.readString(@intCast(size), self.file_name_buffer);
                     },
                     .gnu_long_link => {
-                        self.file.link_name = try self.readString(@intCast(size), &self.link_name_buffer);
+                        self.file.link_name = try self.readString(@intCast(size), self.link_name_buffer);
                     },
                     .extended_header => {
                         // Use just attributes from last extended header.
@@ -372,13 +385,13 @@ fn Iterator(comptime ReaderType: type) type {
                         while (try rdr.next()) |attr| {
                             switch (attr.kind) {
                                 .path => {
-                                    self.file.name = try attr.value(&self.file_name_buffer);
+                                    self.file.name = try attr.value(self.file_name_buffer);
                                 },
                                 .linkpath => {
-                                    self.file.link_name = try attr.value(&self.link_name_buffer);
+                                    self.file.link_name = try attr.value(self.link_name_buffer);
                                 },
                                 .size => {
-                                    var buf: [64]u8 = undefined;
+                                    var buf: [pax_max_size_attr_len]u8 = undefined;
                                     self.file.size = try std.fmt.parseInt(u64, try attr.value(&buf), 10);
                                 },
                             }
@@ -431,6 +444,9 @@ const PaxAttributeKind = enum {
     linkpath,
     size,
 };
+
+// maxInt(u64) has 20 chars, base 10 in practice we got 24 chars
+const pax_max_size_attr_len = 64;
 
 fn PaxIterator(comptime ReaderType: type) type {
     return struct {
@@ -488,6 +504,9 @@ fn PaxIterator(comptime ReaderType: type) type {
                     try validateAttributeEnding(self.reader);
                     continue;
                 };
+                if (kind == .size and value_len > pax_max_size_attr_len) {
+                    return error.PaxSizeAttrOverflow;
+                }
                 return Attribute{
                     .kind = kind,
                     .len = value_len,
@@ -498,22 +517,22 @@ fn PaxIterator(comptime ReaderType: type) type {
             return null;
         }
 
-        inline fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
+        fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
             var fbs = std.io.fixedBufferStream(&self.scratch);
             try self.reader.streamUntilDelimiter(fbs.writer(), delimiter, null);
             return fbs.getWritten();
         }
 
-        inline fn eql(a: []const u8, b: []const u8) bool {
+        fn eql(a: []const u8, b: []const u8) bool {
             return std.mem.eql(u8, a, b);
         }
 
-        inline fn hasNull(str: []const u8) bool {
+        fn hasNull(str: []const u8) bool {
             return (std.mem.indexOfScalar(u8, str, 0)) != null;
         }
 
         // Checks that each record ends with new line.
-        inline fn validateAttributeEnding(reader: ReaderType) !void {
+        fn validateAttributeEnding(reader: ReaderType) !void {
             if (try reader.readByte() != '\n') return error.PaxInvalidAttributeEnd;
         }
     };
@@ -532,7 +551,13 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
         },
     }
 
-    var iter = iterator(reader, options.diagnostics);
+    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var iter = iterator(reader, .{
+        .file_name_buffer = &file_name_buffer,
+        .link_name_buffer = &link_name_buffer,
+        .diagnostics = options.diagnostics,
+    });
     while (try iter.next()) |file| {
         switch (file.kind) {
             .directory => {
@@ -546,31 +571,15 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
 
-                const fs_file = dir.createFile(file_name, .{}) catch |err| switch (err) {
-                    error.FileNotFound => again: {
-                        const code = code: {
-                            if (std.fs.path.dirname(file_name)) |dir_name| {
-                                dir.makePath(dir_name) catch |code| break :code code;
-                                break :again dir.createFile(file_name, .{}) catch |code| {
-                                    break :code code;
-                                };
-                            }
-                            break :code err;
-                        };
-                        const d = options.diagnostics orelse return error.UnableToCreateFile;
-                        try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
-                            .code = code,
-                            .file_name = try d.allocator.dupe(u8, file_name),
-                        } });
-                        break :again null;
-                    },
-                    else => |e| return e,
-                };
-                defer if (fs_file) |f| f.close();
-
-                if (fs_file) |f| {
-                    try file.write(f);
-                } else {
+                if (createDirAndFile(dir, file_name)) |fs_file| {
+                    defer fs_file.close();
+                    try file.write(fs_file);
+                } else |err| {
+                    const d = options.diagnostics orelse return err;
+                    try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
+                        .code = err,
+                        .file_name = try d.allocator.dupe(u8, file_name),
+                    } });
                     try file.skip();
                 }
             },
@@ -581,21 +590,10 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
                 // The data inside the symbolic link.
                 const link_name = file.link_name;
 
-                dir.symLink(link_name, file_name, .{}) catch |err| again: {
-                    const code = code: {
-                        if (err == error.FileNotFound) {
-                            if (std.fs.path.dirname(file_name)) |dir_name| {
-                                dir.makePath(dir_name) catch |code| break :code code;
-                                break :again dir.symLink(link_name, file_name, .{}) catch |code| {
-                                    break :code code;
-                                };
-                            }
-                        }
-                        break :code err;
-                    };
+                createDirAndSymlink(dir, link_name, file_name) catch |err| {
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
                     try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
-                        .code = code,
+                        .code = err,
                         .file_name = try d.allocator.dupe(u8, file_name),
                         .link_name = try d.allocator.dupe(u8, link_name),
                     } });
@@ -604,6 +602,31 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !voi
             else => unreachable,
         }
     }
+}
+
+fn createDirAndFile(dir: std.fs.Dir, file_name: []const u8) !std.fs.File {
+    const fs_file = dir.createFile(file_name, .{ .exclusive = true }) catch |err| {
+        if (err == error.FileNotFound) {
+            if (std.fs.path.dirname(file_name)) |dir_name| {
+                try dir.makePath(dir_name);
+                return try dir.createFile(file_name, .{ .exclusive = true });
+            }
+        }
+        return err;
+    };
+    return fs_file;
+}
+
+fn createDirAndSymlink(dir: std.fs.Dir, link_name: []const u8, file_name: []const u8) !void {
+    dir.symLink(link_name, file_name, .{}) catch |err| {
+        if (err == error.FileNotFound) {
+            if (std.fs.path.dirname(file_name)) |dir_name| {
+                try dir.makePath(dir_name);
+                return try dir.symLink(link_name, file_name, .{});
+            }
+        }
+        return err;
+    };
 }
 
 fn stripComponents(path: []const u8, count: u32) []const u8 {
@@ -755,4 +778,64 @@ test "tar PaxIterator" {
 
 test {
     _ = @import("tar/test.zig");
+}
+
+test "tar header parse size" {
+    const cases = [_]struct {
+        in: []const u8,
+        want: u64 = 0,
+        err: ?anyerror = null,
+    }{
+        // Test base-256 (binary) encoded values.
+        .{ .in = "", .want = 0 },
+        .{ .in = "\x80", .want = 0 },
+        .{ .in = "\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01", .want = 1 },
+        .{ .in = "\x80\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02", .want = 0x0102 },
+        .{ .in = "\x80\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08", .want = 0x0102030405060708 },
+        .{ .in = "\x80\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09", .err = error.TarNumericValueTooBig },
+        .{ .in = "\x80\x00\x00\x00\x07\x76\xa2\x22\xeb\x8a\x72\x61", .want = 537795476381659745 },
+        .{ .in = "\x80\x80\x80\x00\x01\x02\x03\x04\x05\x06\x07\x08", .err = error.TarNumericValueTooBig },
+
+        // // Test base-8 (octal) encoded values.
+        .{ .in = "00000000227\x00", .want = 0o227 },
+        .{ .in = "  000000227\x00", .want = 0o227 },
+        .{ .in = "00000000228\x00", .err = error.TarHeader },
+        .{ .in = "11111111111\x00", .want = 0o11111111111 },
+    };
+
+    for (cases) |case| {
+        var bytes = [_]u8{0} ** Header.SIZE;
+        @memcpy(bytes[124 .. 124 + case.in.len], case.in);
+        var header = Header{ .bytes = &bytes };
+        if (case.err) |err| {
+            try std.testing.expectError(err, header.size());
+        } else {
+            try std.testing.expectEqual(case.want, try header.size());
+        }
+    }
+}
+
+test "tar header parse mode" {
+    const cases = [_]struct {
+        in: []const u8,
+        want: u64 = 0,
+        err: ?anyerror = null,
+    }{
+        .{ .in = "0000644\x00", .want = 0o644 },
+        .{ .in = "0000777\x00", .want = 0o777 },
+        .{ .in = "7777777\x00", .want = 0o7777777 },
+        .{ .in = "7777778\x00", .err = error.TarHeader },
+        .{ .in = "77777777", .want = 0o77777777 },
+        .{ .in = "777777777777", .want = 0o77777777 },
+    };
+    for (cases) |case| {
+        var bytes = [_]u8{0} ** Header.SIZE;
+        @memcpy(bytes[100 .. 100 + case.in.len], case.in);
+        var header = Header{ .bytes = &bytes };
+        if (case.err) |err| {
+            try std.testing.expectError(err, header.mode());
+        } else {
+            try std.testing.expectEqual(case.want, try header.mode());
+        }
+    }
 }

@@ -32,6 +32,12 @@ pub const Location = struct {
     line_end: usize,
 };
 
+pub const Span = struct {
+    start: u32,
+    end: u32,
+    main: u32,
+};
+
 pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.tokens.deinit(gpa);
     tree.nodes.deinit(gpa);
@@ -105,9 +111,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     };
 }
 
-/// `gpa` is used for allocating the resulting formatted source code, as well as
-/// for allocating extra stack memory if needed, because this function utilizes recursion.
-/// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
+/// `gpa` is used for allocating the resulting formatted source code.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
 pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
@@ -3535,6 +3539,39 @@ pub const Node = struct {
     };
 };
 
+pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
+    return tokensToSpan(
+        tree,
+        tree.firstToken(node),
+        tree.lastToken(node),
+        tree.nodes.items(.main_token)[node],
+    );
+}
+
+pub fn tokenToSpan(tree: *const Ast, token: Ast.TokenIndex) Span {
+    return tokensToSpan(tree, token, token, token);
+}
+
+pub fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
+    const token_starts = tree.tokens.items(.start);
+    var start_tok = start;
+    var end_tok = end;
+
+    if (tree.tokensOnSameLine(start, end)) {
+        // do nothing
+    } else if (tree.tokensOnSameLine(start, main)) {
+        end_tok = main;
+    } else if (tree.tokensOnSameLine(main, end)) {
+        start_tok = main;
+    } else {
+        start_tok = main;
+        end_tok = main;
+    }
+    const start_off = token_starts[start_tok];
+    const end_off = token_starts[end_tok] + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
+    return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
+}
+
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -3546,5 +3583,6 @@ const Parse = @import("Parse.zig");
 const private_render = @import("./render.zig");
 
 test {
-    testing.refAllDecls(@This());
+    _ = Parse;
+    _ = private_render;
 }

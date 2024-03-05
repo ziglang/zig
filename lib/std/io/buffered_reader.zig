@@ -53,7 +53,7 @@ pub fn bufferedReaderSize(comptime size: usize, reader: anytype) BufferedReader(
     return .{ .unbuffered_reader = reader };
 }
 
-test "io.BufferedReader OneByte" {
+test "OneByte" {
     const OneByteReadReader = struct {
         str: []const u8,
         curr: usize,
@@ -96,7 +96,7 @@ test "io.BufferedReader OneByte" {
 fn smallBufferedReader(underlying_stream: anytype) BufferedReader(8, @TypeOf(underlying_stream)) {
     return .{ .unbuffered_reader = underlying_stream };
 }
-test "io.BufferedReader Block" {
+test "Block" {
     const BlockReader = struct {
         block: []const u8,
         reads_allowed: usize,

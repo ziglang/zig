@@ -639,7 +639,8 @@ pub fn abiAndDynamicLinkerFromFile(
             var link_buf: [std.os.PATH_MAX]u8 = undefined;
             const link_name = std.os.readlink(dl_path, &link_buf) catch |err| switch (err) {
                 error.NameTooLong => unreachable,
-                error.InvalidUtf8 => unreachable, // Windows only
+                error.InvalidUtf8 => unreachable, // WASI only
+                error.InvalidWtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable, // Windows only
                 error.UnsupportedReparsePointType => unreachable, // Windows only
                 error.NetworkNotFound => unreachable, // Windows only
@@ -730,14 +731,14 @@ test glibcVerFromLinkName {
 fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
     var dir = fs.cwd().openDir(rpath, .{}) catch |err| switch (err) {
         error.NameTooLong => unreachable,
-        error.InvalidUtf8 => unreachable,
+        error.InvalidUtf8 => unreachable, // WASI only
+        error.InvalidWtf8 => unreachable, // Windows-only
         error.BadPathName => unreachable,
         error.DeviceBusy => unreachable,
         error.NetworkNotFound => unreachable, // Windows-only
 
         error.FileNotFound,
         error.NotDir,
-        error.InvalidHandle,
         error.AccessDenied,
         error.NoDevice,
         => return error.GLibCNotFound,
@@ -761,7 +762,8 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
     const glibc_so_basename = "libc.so.6";
     var f = dir.openFile(glibc_so_basename, .{}) catch |err| switch (err) {
         error.NameTooLong => unreachable,
-        error.InvalidUtf8 => unreachable, // Windows only
+        error.InvalidUtf8 => unreachable, // WASI only
+        error.InvalidWtf8 => unreachable, // Windows only
         error.BadPathName => unreachable, // Windows only
         error.PipeBusy => unreachable, // Windows-only
         error.SharingViolation => unreachable, // Windows-only
@@ -772,7 +774,6 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.PathAlreadyExists => unreachable, // read-only
         error.DeviceBusy => unreachable, // read-only
         error.FileBusy => unreachable, // read-only
-        error.InvalidHandle => unreachable, // should not be in the error set
         error.WouldBlock => unreachable, // not using O_NONBLOCK
         error.NoDevice => unreachable, // not asking for a special device
 
@@ -998,7 +999,8 @@ fn detectAbiAndDynamicLinker(
                 error.NameTooLong => unreachable,
                 error.PathAlreadyExists => unreachable,
                 error.SharingViolation => unreachable,
-                error.InvalidUtf8 => unreachable,
+                error.InvalidUtf8 => unreachable, // WASI only
+                error.InvalidWtf8 => unreachable, // Windows only
                 error.BadPathName => unreachable,
                 error.PipeBusy => unreachable,
                 error.FileLocksNotSupported => unreachable,
@@ -1008,7 +1010,6 @@ fn detectAbiAndDynamicLinker(
 
                 error.IsDir,
                 error.NotDir,
-                error.InvalidHandle,
                 error.AccessDenied,
                 error.NoDevice,
                 error.FileNotFound,
@@ -1103,7 +1104,6 @@ fn preadMin(file: fs.File, buf: []u8, offset: u64, min_read_len: usize) !usize {
             error.ConnectionResetByPeer => return error.UnableToReadElfFile,
             error.ConnectionTimedOut => return error.UnableToReadElfFile,
             error.SocketNotConnected => return error.UnableToReadElfFile,
-            error.NetNameDeleted => return error.UnableToReadElfFile,
             error.Unexpected => return error.Unexpected,
             error.InputOutput => return error.FileSystem,
             error.AccessDenied => return error.Unexpected,

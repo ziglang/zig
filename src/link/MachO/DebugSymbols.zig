@@ -269,8 +269,7 @@ fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, u
     defer gpa.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    var cwriter = std.io.countingWriter(stream.writer());
-    const writer = cwriter.writer();
+    const writer = stream.writer();
 
     var ncmds: usize = 0;
 
@@ -314,7 +313,7 @@ fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, u
     try writer.writeStruct(self.symtab_cmd);
     ncmds += 1;
 
-    assert(cwriter.bytes_written == needed_size);
+    assert(stream.pos == needed_size);
 
     try self.file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 

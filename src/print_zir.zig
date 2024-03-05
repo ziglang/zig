@@ -5,9 +5,9 @@ const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const InternPool = @import("InternPool.zig");
 
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Module = @import("Module.zig");
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 
 /// Write human-readable, debug formatted ZIR code to a file.
 pub fn renderAsTextToFile(
@@ -509,10 +509,6 @@ const Writer = struct {
             .@"unreachable" => try self.writeUnreachable(stream, inst),
 
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
-
-            .dbg_block_begin,
-            .dbg_block_end,
-            => try stream.writeAll(")"),
 
             .closure_get => try self.writeInstNode(stream, inst),
 

@@ -317,13 +317,17 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     });
 
     switch (cpu_arch) {
-        .x86_64 => x86_64.resolveReloc(rel, P, S + A, contents[offset..]),
+        .x86_64 => try x86_64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
+        .aarch64 => try aarch64.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
+        .riscv64 => try riscv.resolveReloc(rec, elf_file, rel, P, S + A, contents[offset..]),
         else => return error.UnsupportedCpuArch,
     }
 }
 
 pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
+
+    var has_reloc_errors = false;
 
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
@@ -335,7 +339,10 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
 
             for (cie.relocs(elf_file)) |rel| {
                 const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
-                try resolveReloc(cie, sym, rel, elf_file, contents);
+                resolveReloc(cie, sym, rel, elf_file, contents) catch |err| switch (err) {
+                    error.RelocFailure => has_reloc_errors = true,
+                    else => |e| return e,
+                };
             }
 
             try writer.writeAll(contents);
@@ -359,7 +366,10 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
 
             for (fde.relocs(elf_file)) |rel| {
                 const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
-                try resolveReloc(fde, sym, rel, elf_file, contents);
+                resolveReloc(fde, sym, rel, elf_file, contents) catch |err| switch (err) {
+                    error.RelocFailure => has_reloc_errors = true,
+                    else => |e| return e,
+                };
             }
 
             try writer.writeAll(contents);
@@ -367,6 +377,8 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     }
 
     try writer.writeInt(u32, 0, .little);
+
+    if (has_reloc_errors) return error.RelocFailure;
 }
 
 pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
@@ -540,17 +552,52 @@ const EH_PE = struct {
 };
 
 const x86_64 = struct {
-    fn resolveReloc(rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) void {
+    fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         switch (r_type) {
+            .NONE => {},
             .@"32" => std.mem.writeInt(i32, data[0..4], @as(i32, @truncate(target)), .little),
             .@"64" => std.mem.writeInt(i64, data[0..8], target, .little),
             .PC32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
             .PC64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
-            else => unreachable,
+            else => try reportInvalidReloc(rec, elf_file, rel),
         }
     }
 };
+
+const aarch64 = struct {
+    fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
+        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+        switch (r_type) {
+            .NONE => {},
+            .ABS64 => std.mem.writeInt(i64, data[0..8], target, .little),
+            .PREL32 => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
+            .PREL64 => std.mem.writeInt(i64, data[0..8], target - source, .little),
+            else => try reportInvalidReloc(rec, elf_file, rel),
+        }
+    }
+};
+
+const riscv = struct {
+    fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
+        const r_type: elf.R_RISCV = @enumFromInt(rel.r_type());
+        switch (r_type) {
+            .NONE => {},
+            .@"32_PCREL" => std.mem.writeInt(i32, data[0..4], @as(i32, @intCast(target - source)), .little),
+            else => try reportInvalidReloc(rec, elf_file, rel),
+        }
+    }
+};
+
+fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
+    var err = try elf_file.addErrorWithNotes(1);
+    try err.addMsg(elf_file, "invalid relocation type {} at offset 0x{x}", .{
+        relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
+        rel.r_offset,
+    });
+    try err.addNote(elf_file, "in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
+    return error.RelocFailure;
+}
 
 const std = @import("std");
 const assert = std.debug.assert;

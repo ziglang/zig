@@ -478,7 +478,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: InternPool.De
     }
     const unnamed_consts = gop.value_ptr;
 
-    const decl_name = mod.intern_pool.stringToSlice(try decl.getFullyQualifiedName(mod));
+    const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
 
     const index = unnamed_consts.items.len;
     // name is freed when the unnamed const is freed

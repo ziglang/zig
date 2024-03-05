@@ -10,124 +10,141 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
         .os_tag = .linux,
     });
-    const musl_target = b.resolveTargetQuery(.{
+    const x86_64_musl = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .linux,
         .abi = .musl,
     });
-    const glibc_target = b.resolveTargetQuery(.{
+    const x86_64_gnu = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .linux,
         .abi = .gnu,
     });
+    const aarch64_musl = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    });
+    const riscv64_musl = b.resolveTargetQuery(.{
+        .cpu_arch = .riscv64,
+        .os_tag = .linux,
+        .abi = .musl,
+    });
 
+    // x86_64 tests
     // Exercise linker in -r mode
-    elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = musl_target }));
-    elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
-    elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
-    elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
-    elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
+    elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = x86_64_musl }));
+    elf_step.dependOn(testEmitRelocatable(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testRelocatableArchive(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = x86_64_musl }));
 
     // Exercise linker in ar mode
-    elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
-    elf_step.dependOn(testEmitStaticLibZig(b, .{ .use_llvm = false, .target = musl_target }));
+    elf_step.dependOn(testEmitStaticLib(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testEmitStaticLibZig(b, .{ .use_llvm = false, .target = x86_64_musl }));
 
     // Exercise linker with self-hosted backend (no LLVM)
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingObj(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false, .target = default_target }));
-    elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = glibc_target }));
-    elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = musl_target }));
+    elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = x86_64_gnu }));
+    elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = x86_64_musl }));
 
     // Exercise linker with LLVM backend
     // musl tests
-    elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
-    elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
-    elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
-    elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
-    elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
-    elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
-    elf_step.dependOn(testImageBase(b, .{ .target = musl_target }));
-    elf_step.dependOn(testInitArrayOrder(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = musl_target }));
+    elf_step.dependOn(testAbsSymbols(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testCommonSymbols(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testEmptyObject(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testEntryPoint(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testGcSections(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testImageBase(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testInitArrayOrder(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = x86_64_musl }));
     // https://github.com/ziglang/zig/issues/17449
-    // elf_step.dependOn(testLargeBss(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+    // elf_step.dependOn(testLargeBss(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testLinkingC(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testLinkingCpp(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testLinkingZig(b, .{ .target = x86_64_musl }));
     // https://github.com/ziglang/zig/issues/17451
-    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = musl_target }));
-    elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
-    elf_step.dependOn(testStrip(b, .{ .target = musl_target }));
+    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testTlsStatic(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testStrip(b, .{ .target = x86_64_musl }));
 
     // glibc tests
-    elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target }));
+    elf_step.dependOn(testAsNeeded(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testCanonicalPlt(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testCopyrel(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testCanonicalPlt(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testCopyrel(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testCopyrelAlias(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testCopyrelAlias(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testCopyrelAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testExportDynamic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testCopyrelAlignment(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testDsoPlt(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testDsoUndef(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testExportDynamic(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testFuncAddress(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testHiddenWeakUndef(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncAlias(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testFuncAddress(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testHiddenWeakUndef(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testIFuncAlias(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testIFuncDlopen(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncDynamic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncExport(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncFuncPtr(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncNoPlt(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testIFuncDlopen(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testIFuncDso(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testIFuncDynamic(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testIFuncExport(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testIFuncFuncPtr(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testIFuncNoPlt(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17430 ??
-    // elf_step.dependOn(testIFuncStatic(b, .{ .target = glibc_target }));
-    // elf_step.dependOn(testIFuncStaticPie(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testInitArrayOrder(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLdScriptPathError(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLdScriptAllowUndefinedVersion(b, .{ .target = glibc_target, .use_lld = true }));
-    elf_step.dependOn(testLdScriptDisallowUndefinedVersion(b, .{ .target = glibc_target, .use_lld = true }));
-    elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testIFuncStatic(b, .{ .target = x86_64_gnu }));
+    // elf_step.dependOn(testIFuncStaticPie(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testInitArrayOrder(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testLargeBss(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testLinkOrder(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testLdScript(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testLdScriptPathError(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testLdScriptAllowUndefinedVersion(b, .{ .target = x86_64_gnu, .use_lld = true }));
+    elf_step.dependOn(testLdScriptDisallowUndefinedVersion(b, .{ .target = x86_64_gnu, .use_lld = true }));
+    elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17451
-    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testPltGot(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testPreinitArray(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testSharedAbsSymbol(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsDfStaticTls(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsGd(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsGdNoPlt(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsGdToIe(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsIe(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLargeAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLargeTbss(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLargeStaticImage(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLdDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testPie(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testPltGot(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testPreinitArray(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testSharedAbsSymbol(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsDfStaticTls(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsDso(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsGd(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsGdNoPlt(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsGdToIe(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsIe(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsLargeAlignment(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsLargeTbss(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsLargeStaticImage(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsLd(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsLdDso(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = x86_64_gnu }));
     // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testTlsNoPic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testUnknownFileTypeError(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testUnresolvedError(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testZStackSize(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testZText(b, .{ .target = glibc_target }));
+    // elf_step.dependOn(testTlsNoPic(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsPic(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testUnknownFileTypeError(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testUnresolvedError(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testWeakExports(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testWeakUndefsDso(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testZNow(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testZStackSize(b, .{ .target = x86_64_gnu }));
+    elf_step.dependOn(testZText(b, .{ .target = x86_64_gnu }));
+
+    // aarch64 tests
+    elf_step.dependOn(testLinkingC(b, .{ .target = aarch64_musl }));
+
+    // riscv64 tests
+    elf_step.dependOn(testLinkingC(b, .{ .target = riscv64_musl }));
 
     return elf_step;
 }

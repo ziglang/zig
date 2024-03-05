@@ -148,7 +148,7 @@ const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
 const Air = @import("Air.zig");
-const Zir = @import("Zir.zig");
+const Zir = std.zig.Zir;
 const Module = @import("Module.zig");
 const trace = @import("tracy.zig").trace;
 const Namespace = Module.Namespace;
@@ -156,7 +156,7 @@ const CompileError = Module.CompileError;
 const SemaError = Module.SemaError;
 const Decl = Module.Decl;
 const CaptureScope = Module.CaptureScope;
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 const RangeSet = @import("RangeSet.zig");
 const target_util = @import("target.zig");
 const Package = @import("Package.zig");
@@ -364,6 +364,12 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
+    /// If not `null`, this boolean is set when a `dbg_var_ptr` or `dbg_var_val`
+    /// instruction is emitted. It signals that the innermost lexically
+    /// enclosing `block`/`block_inline` should be translated into a real AIR
+    /// `block` in order for codegen to match lexical scoping for debug vars.
+    need_debug_scope: ?*bool = null,
+
     const ComptimeReason = union(enum) {
         c_import: struct {
             block: *Block,
@@ -391,7 +397,7 @@ pub const Block = struct {
                         break :blk src_loc;
                     } else blk: {
                         const src_decl = mod.declPtr(rt.block.src_decl);
-                        break :blk rt.func_src.toSrcLoc(src_decl, mod);
+                        break :blk src_decl.toSrcLoc(rt.func_src, mod);
                     };
                     if (rt.return_ty.isGenericPoison()) {
                         return mod.errNoteNonLazy(src_loc, parent, prefix ++ "the generic function was instantiated with a comptime-only return type", .{});
@@ -482,6 +488,7 @@ pub const Block = struct {
             .float_mode = parent.float_mode,
             .c_import_buf = parent.c_import_buf,
             .error_return_trace_index = parent.error_return_trace_index,
+            .need_debug_scope = parent.need_debug_scope,
         };
     }
 
@@ -869,104 +876,100 @@ pub fn deinit(sema: *Sema) void {
     sema.* = undefined;
 }
 
-/// Returns only the result from the body that is specified.
-/// Only appropriate to call when it is determined at comptime that this body
-/// has no peers.
-fn resolveBody(
-    sema: *Sema,
-    block: *Block,
-    body: []const Zir.Inst.Index,
-    /// This is the instruction that a break instruction within `body` can
-    /// use to return from the body.
-    body_inst: Zir.Inst.Index,
-) CompileError!Air.Inst.Ref {
-    const break_data = (try sema.analyzeBodyBreak(block, body)) orelse
-        return .unreachable_value;
-    // For comptime control flow, we need to detect when `analyzeBody` reports
-    // that we need to break from an outer block. In such case we
-    // use Zig's error mechanism to send control flow up the stack until
-    // we find the corresponding block to this break.
-    if (block.is_comptime and break_data.block_inst != body_inst) {
-        sema.comptime_break_inst = break_data.inst;
-        return error.ComptimeBreak;
-    }
-    return try sema.resolveInst(break_data.operand);
-}
-
+/// Performs semantic analysis of a ZIR body which is behind a runtime condition. If comptime
+/// control flow happens here, Sema will convert it to runtime control flow by introducing post-hoc
+/// blocks where necessary.
 fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.Index) !void {
-    _ = sema.analyzeBodyInner(block, body) catch |err| switch (err) {
+    sema.analyzeBodyInner(block, body) catch |err| switch (err) {
         error.ComptimeBreak => {
             const zir_datas = sema.code.instructions.items(.data);
             const break_data = zir_datas[@intFromEnum(sema.comptime_break_inst)].@"break";
             const extra = sema.code.extraData(Zir.Inst.Break, break_data.payload_index).data;
-            try sema.addRuntimeBreak(block, .{
-                .block_inst = extra.block_inst,
-                .operand = break_data.operand,
-                .inst = sema.comptime_break_inst,
-            });
+            try sema.addRuntimeBreak(block, extra.block_inst, break_data.operand);
         },
         else => |e| return e,
     };
 }
 
-pub fn analyzeBody(
+/// Semantically analyze a ZIR function body. It is guranteed by AstGen that such a body cannot
+/// trigger comptime control flow to move above the function body.
+pub fn analyzeFnBody(
     sema: *Sema,
     block: *Block,
     body: []const Zir.Inst.Index,
 ) !void {
-    _ = sema.analyzeBodyInner(block, body) catch |err| switch (err) {
+    sema.analyzeBodyInner(block, body) catch |err| switch (err) {
         error.ComptimeBreak => unreachable, // unexpected comptime control flow
         else => |e| return e,
     };
 }
 
-const BreakData = struct {
-    block_inst: Zir.Inst.Index,
-    operand: Zir.Inst.Ref,
-    inst: Zir.Inst.Index,
-};
-
-pub fn analyzeBodyBreak(
+/// Given a ZIR body which can be exited via a `break_inline` instruction, or a non-inline body which
+/// we are evaluating at comptime, semantically analyze the body and return the result from it.
+/// Returns `null` if control flow did not break from this block, but instead terminated with some
+/// other runtime noreturn instruction. Compile-time breaks to blocks further up the stack still
+/// return `error.ComptimeBreak`. If `block.is_comptime`, this function will never return `null`.
+fn analyzeInlineBody(
     sema: *Sema,
     block: *Block,
     body: []const Zir.Inst.Index,
-) CompileError!?BreakData {
-    const break_inst = sema.analyzeBodyInner(block, body) catch |err| switch (err) {
-        error.ComptimeBreak => sema.comptime_break_inst,
-        else => |e| return e,
-    };
-    if (block.instructions.items.len != 0 and
-        sema.isNoReturn(block.instructions.items[block.instructions.items.len - 1].toRef()))
+    /// The index which a break instruction can target to break from this body.
+    break_target: Zir.Inst.Index,
+) CompileError!?Air.Inst.Ref {
+    if (sema.analyzeBodyInner(block, body)) |_| {
         return null;
+    } else |err| switch (err) {
+        error.ComptimeBreak => {},
+        else => |e| return e,
+    }
+    const break_inst = sema.comptime_break_inst;
     const break_data = sema.code.instructions.items(.data)[@intFromEnum(break_inst)].@"break";
     const extra = sema.code.extraData(Zir.Inst.Break, break_data.payload_index).data;
-    return BreakData{
-        .block_inst = extra.block_inst,
-        .operand = break_data.operand,
-        .inst = break_inst,
-    };
+    if (extra.block_inst != break_target) {
+        // This control flow goes further up the stack.
+        return error.ComptimeBreak;
+    }
+    return try sema.resolveInst(break_data.operand);
 }
 
-/// ZIR instructions which are always `noreturn` return this. This matches the
-/// return type of `analyzeBody` so that we can tail call them.
-/// Only appropriate to return when the instruction is known to be NoReturn
-/// solely based on the ZIR tag.
-const always_noreturn: CompileError!Zir.Inst.Index = @as(Zir.Inst.Index, undefined);
+/// Like `analyzeInlineBody`, but if the body does not break with a value, returns
+/// `.unreachable_value` instead of `null`. Notably, use this to evaluate an arbitrary
+/// body at comptime to a single result value.
+pub fn resolveInlineBody(
+    sema: *Sema,
+    block: *Block,
+    body: []const Zir.Inst.Index,
+    /// The index which a break instruction can target to break from this body.
+    break_target: Zir.Inst.Index,
+) CompileError!Air.Inst.Ref {
+    return (try sema.analyzeInlineBody(block, body, break_target)) orelse .unreachable_value;
+}
 
-/// This function is the main loop of `Sema` and it can be used in two different ways:
-/// * The traditional way where there are N breaks out of the block and peer type
-///   resolution is done on the break operands. In this case, the `Zir.Inst.Index`
-///   part of the return value will be `undefined`, and callsites should ignore it,
-///   finding the block result value via the block scope.
-/// * The "flat" way. There is only 1 break out of the block, and it is with a `break_inline`
-///   instruction. In this case, the `Zir.Inst.Index` part of the return value will be
-///   the break instruction. This communicates both which block the break applies to, as
-///   well as the operand. No block scope needs to be created for this strategy.
+/// This function is the main loop of `Sema`. It analyzes a single body of ZIR instructions.
+///
+/// If this function returns normally, the merges of `block` were populated with all possible
+/// (runtime) results of this block. Peer type resolution should be performed on the result,
+/// and relevant runtime instructions written to perform necessary coercions and breaks. See
+/// `resolveAnalyzedBlock`. This form of return is impossible if `block.is_comptime == true`.
+///
+/// Alternatively, this function may return `error.ComptimeBreak`. This indicates that comptime
+/// control flow is happening, and we are breaking at comptime from a block indicated by the
+/// break instruction in `sema.comptime_break_inst`. This occurs for any `break_inline`, or for a
+/// standard `break` at comptime. This error is pushed up the stack until the target block is
+/// reached, at which point the break operand will be fetched.
+///
+/// It is rare to call this function directly. Usually, you want one of the following wrappers:
+/// * If the body is exited via a `break_inline`, or is being evaluated at comptime,
+///   use `Sema.analyzeInlineBody` or `Sema.resolveInlineBody`.
+/// * If the body is behind a fresh runtime condition, use `Sema.analyzeBodyRuntimeBreak`.
+/// * If the body is an entire function body, use `Sema.analyzeFnBody`.
+/// * If the body is to be generated into an AIR `block`, use `Sema.resolveBlockBody`.
+/// * Otherwise, direct usage of `Sema.analyzeBodyInner` may be necessary.
 fn analyzeBodyInner(
     sema: *Sema,
     block: *Block,
     body: []const Zir.Inst.Index,
-) CompileError!Zir.Inst.Index {
+) CompileError!void {
     // No tracy calls here, to avoid interfering with the tail call mechanism.
 
     try sema.inst_map.ensureSpaceForInstructions(sema.gpa, body);
@@ -986,13 +989,11 @@ fn analyzeBodyInner(
     crash_info.push();
     defer crash_info.pop();
 
-    var dbg_block_begins: u32 = 0;
-
     // We use a while (true) loop here to avoid a redundant way of breaking out of
     // the loop. The only way to break out of the loop is with a `noreturn`
     // instruction.
     var i: u32 = 0;
-    const result = while (true) {
+    while (true) {
         crash_info.setBodyIndex(i);
         const inst = body[i];
         std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{
@@ -1209,14 +1210,14 @@ fn analyzeBodyInner(
             // Instructions that we know to *always* be noreturn based solely on their tag.
             // These functions match the return type of analyzeBody so that we can
             // tail call them here.
-            .compile_error  => break sema.zirCompileError(block, inst),
-            .ret_implicit   => break sema.zirRetImplicit(block, inst),
-            .ret_node       => break sema.zirRetNode(block, inst),
-            .ret_load       => break sema.zirRetLoad(block, inst),
-            .ret_err_value  => break sema.zirRetErrValue(block, inst),
-            .@"unreachable" => break sema.zirUnreachable(block, inst),
-            .panic          => break sema.zirPanic(block, inst),
-            .trap           => break sema.zirTrap(block, inst),
+            .compile_error  => break try sema.zirCompileError(block, inst),
+            .ret_implicit   => break try sema.zirRetImplicit(block, inst),
+            .ret_node       => break try sema.zirRetNode(block, inst),
+            .ret_load       => break try sema.zirRetLoad(block, inst),
+            .ret_err_value  => break try sema.zirRetErrValue(block, inst),
+            .@"unreachable" => break try sema.zirUnreachable(block, inst),
+            .panic          => break try sema.zirPanic(block, inst),
+            .trap           => break try sema.zirTrap(block, inst),
             // zig fmt: on
 
             // This instruction never exists in an analyzed body. It exists only in the declaration
@@ -1242,7 +1243,7 @@ fn analyzeBodyInner(
                     .builtin_extern     => try sema.zirBuiltinExtern(     block, extended),
                     .@"asm"             => try sema.zirAsm(               block, extended, false),
                     .asm_expr           => try sema.zirAsm(               block, extended, true),
-                    .typeof_peer        => try sema.zirTypeofPeer(        block, extended),
+                    .typeof_peer        => try sema.zirTypeofPeer(        block, extended, inst),
                     .compile_log        => try sema.zirCompileLog(               extended),
                     .min_multi          => try sema.zirMinMaxMulti(       block, extended, .min),
                     .max_multi          => try sema.zirMinMaxMulti(       block, extended, .max),
@@ -1329,18 +1330,6 @@ fn analyzeBodyInner(
             },
             .dbg_var_val => {
                 try sema.zirDbgVar(block, inst, .dbg_var_val);
-                i += 1;
-                continue;
-            },
-            .dbg_block_begin => {
-                dbg_block_begins += 1;
-                try zirDbgBlockBegin(block);
-                i += 1;
-                continue;
-            },
-            .dbg_block_end => {
-                dbg_block_begins -= 1;
-                try zirDbgBlockEnd(block);
                 i += 1;
                 continue;
             },
@@ -1529,18 +1518,16 @@ fn analyzeBodyInner(
             // Special case instructions to handle comptime control flow.
             .@"break" => {
                 if (block.is_comptime) {
-                    break inst; // same as break_inline
+                    sema.comptime_break_inst = inst;
+                    return error.ComptimeBreak;
                 } else {
-                    break sema.zirBreak(block, inst);
+                    try sema.zirBreak(block, inst);
+                    break;
                 }
             },
             .break_inline => {
-                if (block.is_comptime) {
-                    break inst;
-                } else {
-                    sema.comptime_break_inst = inst;
-                    return error.ComptimeBreak;
-                }
+                sema.comptime_break_inst = inst;
+                return error.ComptimeBreak;
             },
             .repeat => {
                 if (block.is_comptime) {
@@ -1555,7 +1542,10 @@ fn analyzeBodyInner(
                     i = 0;
                     continue;
                 } else {
-                    break always_noreturn;
+                    // We are definitely called by `zirLoop`, which will treat the
+                    // fact that this body does not terminate `noreturn` as an
+                    // implicit repeat.
+                    break;
                 }
             },
             .repeat_inline => {
@@ -1591,13 +1581,8 @@ fn analyzeBodyInner(
                 child_block.instructions = block.instructions;
                 defer block.instructions = child_block.instructions;
 
-                const break_data = (try sema.analyzeBodyBreak(&child_block, inline_body)) orelse
-                    break always_noreturn;
-                if (inst == break_data.block_inst) {
-                    break :blk try sema.resolveInst(break_data.operand);
-                } else {
-                    break break_data.inst;
-                }
+                const result = try sema.analyzeInlineBody(&child_block, inline_body, inst) orelse break;
+                break :blk result;
             },
             .block, .block_comptime => blk: {
                 if (!block.is_comptime) {
@@ -1622,13 +1607,8 @@ fn analyzeBodyInner(
                 child_block.instructions = block.instructions;
                 defer block.instructions = child_block.instructions;
 
-                const break_data = (try sema.analyzeBodyBreak(&child_block, inline_body)) orelse
-                    break always_noreturn;
-                if (inst == break_data.block_inst) {
-                    break :blk try sema.resolveInst(break_data.operand);
-                } else {
-                    break break_data.inst;
-                }
+                const result = try sema.analyzeInlineBody(&child_block, inline_body, inst) orelse break;
+                break :blk result;
             },
             .block_inline => blk: {
                 // Directly analyze the block body without introducing a new block.
@@ -1641,10 +1621,17 @@ fn analyzeBodyInner(
                 const inline_body = sema.code.bodySlice(extra.end, extra.data.body_len);
                 const gpa = sema.gpa;
 
-                const opt_break_data = b: {
+                const BreakResult = struct {
+                    block_inst: Zir.Inst.Index,
+                    operand: Zir.Inst.Ref,
+                };
+
+                const opt_break_data: ?BreakResult, const need_debug_scope = b: {
                     // Create a temporary child block so that this inline block is properly
                     // labeled for any .restore_err_ret_index instructions
                     var child_block = block.makeSubBlock();
+                    var need_debug_scope = false;
+                    child_block.need_debug_scope = &need_debug_scope;
 
                     // If this block contains a function prototype, we need to reset the
                     // current list of parameters and restore it later.
@@ -1665,7 +1652,26 @@ fn analyzeBodyInner(
                     child_block.instructions = block.instructions;
                     defer block.instructions = child_block.instructions;
 
-                    break :b try sema.analyzeBodyBreak(&child_block, inline_body);
+                    const break_result: ?BreakResult = if (sema.analyzeBodyInner(&child_block, inline_body)) |_| r: {
+                        break :r null;
+                    } else |err| switch (err) {
+                        error.ComptimeBreak => brk_res: {
+                            const break_inst = sema.comptime_break_inst;
+                            const break_data = sema.code.instructions.items(.data)[@intFromEnum(break_inst)].@"break";
+                            const break_extra = sema.code.extraData(Zir.Inst.Break, break_data.payload_index).data;
+                            break :brk_res .{
+                                .block_inst = break_extra.block_inst,
+                                .operand = break_data.operand,
+                            };
+                        },
+                        else => |e| return e,
+                    };
+
+                    if (need_debug_scope) {
+                        _ = try sema.ensurePostHoc(block, inst);
+                    }
+
+                    break :b .{ break_result, need_debug_scope };
                 };
 
                 // A runtime conditional branch that needs a post-hoc block to be
@@ -1686,39 +1692,37 @@ fn analyzeBodyInner(
                         // since it crosses a runtime branch.
                         // It may pass through our currently being analyzed block_inline or it
                         // may point directly to it. In the latter case, this modifies the
-                        // block that we are about to look up in the post_hoc_blocks map below.
-                        try sema.addRuntimeBreak(block, break_data);
-                    } else {
-                        // Here the comptime control flow ends with noreturn; however
-                        // we have runtime control flow continuing after this block.
-                        // This branch is therefore handled by the `i += 1; continue;`
-                        // logic below.
+                        // block that we looked up in the post_hoc_blocks map above.
+                        try sema.addRuntimeBreak(block, break_data.block_inst, break_data.operand);
                     }
 
                     try labeled_block.block.instructions.appendSlice(gpa, block.instructions.items[block_index..]);
                     block.instructions.items.len = block_index;
 
-                    const block_result = try sema.analyzeBlockBody(block, inst_data.src(), &labeled_block.block, &labeled_block.label.merges);
+                    const block_result = try sema.resolveAnalyzedBlock(block, inst_data.src(), &labeled_block.block, &labeled_block.label.merges, need_debug_scope);
                     {
                         // Destroy the ad-hoc block entry so that it does not interfere with
                         // the next iteration of comptime control flow, if any.
                         labeled_block.destroy(gpa);
                         assert(sema.post_hoc_blocks.remove(new_block_inst));
                     }
-                    map.putAssumeCapacity(inst, block_result);
-                    i += 1;
-                    continue;
+
+                    break :blk block_result;
                 }
 
-                const break_data = opt_break_data orelse break always_noreturn;
+                const break_data = opt_break_data orelse break;
                 if (inst == break_data.block_inst) {
                     break :blk try sema.resolveInst(break_data.operand);
                 } else {
-                    break break_data.inst;
+                    // `comptime_break_inst` preserved from `analyzeBodyInner` above.
+                    return error.ComptimeBreak;
                 }
             },
             .condbr => blk: {
-                if (!block.is_comptime) break sema.zirCondbr(block, inst);
+                if (!block.is_comptime) {
+                    try sema.zirCondbr(block, inst);
+                    break;
+                }
                 // Same as condbr_inline. TODO https://github.com/ziglang/zig/issues/8220
                 const inst_data = datas[@intFromEnum(inst)].pl_node;
                 const cond_src: LazySrcLoc = .{ .node_offset_if_cond = inst_data.src_node };
@@ -1735,13 +1739,9 @@ fn analyzeBodyInner(
                 const inline_body = if (cond.val.toBool()) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
-                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
-                    break always_noreturn;
-                if (inst == break_data.block_inst) {
-                    break :blk try sema.resolveInst(break_data.operand);
-                } else {
-                    break break_data.inst;
-                }
+
+                const result = try sema.analyzeInlineBody(block, inline_body, inst) orelse break;
+                break :blk result;
             },
             .condbr_inline => blk: {
                 const inst_data = datas[@intFromEnum(inst)].pl_node;
@@ -1761,13 +1761,9 @@ fn analyzeBodyInner(
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const old_runtime_index = block.runtime_index;
                 defer block.runtime_index = old_runtime_index;
-                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
-                    break always_noreturn;
-                if (inst == break_data.block_inst) {
-                    break :blk try sema.resolveInst(break_data.operand);
-                } else {
-                    break break_data.inst;
-                }
+
+                const result = try sema.analyzeInlineBody(block, inline_body, inst) orelse break;
+                break :blk result;
             },
             .@"try" => blk: {
                 if (!block.is_comptime) break :blk try sema.zirTry(block, inst);
@@ -1792,13 +1788,8 @@ fn analyzeBodyInner(
                 if (is_non_err_val.toBool()) {
                     break :blk try sema.analyzeErrUnionPayload(block, src, err_union_ty, err_union, operand_src, false);
                 }
-                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
-                    break always_noreturn;
-                if (inst == break_data.block_inst) {
-                    break :blk try sema.resolveInst(break_data.operand);
-                } else {
-                    break break_data.inst;
-                }
+                const result = try sema.analyzeInlineBody(block, inline_body, inst) orelse break;
+                break :blk result;
             },
             .try_ptr => blk: {
                 if (!block.is_comptime) break :blk try sema.zirTryPtr(block, inst);
@@ -1818,22 +1809,22 @@ fn analyzeBodyInner(
                 if (is_non_err_val.toBool()) {
                     break :blk try sema.analyzeErrUnionPayloadPtr(block, src, operand, false, false);
                 }
-                const break_data = (try sema.analyzeBodyBreak(block, inline_body)) orelse
-                    break always_noreturn;
-                if (inst == break_data.block_inst) {
-                    break :blk try sema.resolveInst(break_data.operand);
-                } else {
-                    break break_data.inst;
-                }
+                const result = try sema.analyzeInlineBody(block, inline_body, inst) orelse break;
+                break :blk result;
             },
             .@"defer" => blk: {
                 const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].@"defer";
                 const defer_body = sema.code.bodySlice(inst_data.index, inst_data.len);
-                const break_inst = sema.analyzeBodyInner(block, defer_body) catch |err| switch (err) {
-                    error.ComptimeBreak => sema.comptime_break_inst,
+                if (sema.analyzeBodyInner(block, defer_body)) |_| {
+                    // The defer terminated noreturn - no more analysis needed.
+                    break;
+                } else |err| switch (err) {
+                    error.ComptimeBreak => {},
                     else => |e| return e,
-                };
-                if (break_inst != defer_body[defer_body.len - 1]) break always_noreturn;
+                }
+                if (sema.comptime_break_inst != defer_body[defer_body.len - 1]) {
+                    return error.ComptimeBreak;
+                }
                 break :blk .void_value;
             },
             .defer_err_code => blk: {
@@ -1842,11 +1833,16 @@ fn analyzeBodyInner(
                 const defer_body = sema.code.bodySlice(extra.index, extra.len);
                 const err_code = try sema.resolveInst(inst_data.err_code);
                 map.putAssumeCapacity(extra.remapped_err_code, err_code);
-                const break_inst = sema.analyzeBodyInner(block, defer_body) catch |err| switch (err) {
-                    error.ComptimeBreak => sema.comptime_break_inst,
+                if (sema.analyzeBodyInner(block, defer_body)) |_| {
+                    // The defer terminated noreturn - no more analysis needed.
+                    break;
+                } else |err| switch (err) {
+                    error.ComptimeBreak => {},
                     else => |e| return e,
-                };
-                if (break_inst != defer_body[defer_body.len - 1]) break always_noreturn;
+                }
+                if (sema.comptime_break_inst != defer_body[defer_body.len - 1]) {
+                    return error.ComptimeBreak;
+                }
                 break :blk .void_value;
             },
         };
@@ -1854,30 +1850,15 @@ fn analyzeBodyInner(
             // We're going to assume that the body itself is noreturn, so let's ensure that now
             assert(block.instructions.items.len > 0);
             assert(sema.isNoReturn(block.instructions.items[block.instructions.items.len - 1].toRef()));
-            break always_noreturn;
+            break;
         }
         map.putAssumeCapacity(inst, air_inst);
         i += 1;
-    };
-
-    // balance out dbg_block_begins in case of early noreturn
-    if (!block.is_comptime and !block.ownerModule().strip) {
-        const noreturn_inst = block.instructions.popOrNull();
-        while (dbg_block_begins > 0) {
-            dbg_block_begins -= 1;
-            _ = try block.addInst(.{
-                .tag = .dbg_block_end,
-                .data = undefined,
-            });
-        }
-        if (noreturn_inst) |some| try block.instructions.append(sema.gpa, some);
     }
 
     // We may have overwritten the capture scope due to a `repeat` instruction where
     // the body had a capture; restore it now.
     block.wip_capture_scope = parent_capture_scope;
-
-    return result;
 }
 
 pub fn resolveInstAllowNone(sema: *Sema, zir_ref: Zir.Inst.Ref) !Air.Inst.Ref {
@@ -1914,7 +1895,7 @@ fn resolveConstBool(
     return val.toBool();
 }
 
-pub fn resolveConstString(
+fn resolveConstString(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -1922,6 +1903,16 @@ pub fn resolveConstString(
     reason: NeededComptimeReason,
 ) ![]u8 {
     const air_inst = try sema.resolveInst(zir_ref);
+    return sema.toConstString(block, src, air_inst, reason);
+}
+
+pub fn toConstString(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    air_inst: Air.Inst.Ref,
+    reason: NeededComptimeReason,
+) ![]u8 {
     const wanted_type = Type.slice_const_u8;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstDefinedValue(block, src, coerced_inst, reason);
@@ -2213,9 +2204,8 @@ fn resolveValueAllowVariables(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Val
     return val;
 }
 
-/// Returns a compile error if the value has tag `variable`. See `resolveInstValue` for
-/// a function that does not.
-pub fn resolveInstConst(
+/// Returns a compile error if the value has tag `variable`.
+fn resolveInstConst(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -2231,15 +2221,13 @@ pub fn resolveInstConst(
 }
 
 /// Value Tag may be `undef` or `variable`.
-/// See `resolveInstConst` for an alternative.
-pub fn resolveInstValueAllowVariables(
+pub fn resolveConstValueAllowVariables(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    zir_ref: Zir.Inst.Ref,
+    air_ref: Air.Inst.Ref,
     reason: NeededComptimeReason,
 ) CompileError!TypedValue {
-    const air_ref = try sema.resolveInst(zir_ref);
     const val = try sema.resolveValueAllowVariables(air_ref) orelse {
         return sema.failWithNeededComptime(block, src, reason);
     };
@@ -2441,7 +2429,7 @@ fn errNote(
 ) error{OutOfMemory}!void {
     const mod = sema.mod;
     const src_decl = mod.declPtr(block.src_decl);
-    return mod.errNoteNonLazy(src.toSrcLoc(src_decl, mod), parent, format, args);
+    return mod.errNoteNonLazy(src_decl.toSrcLoc(src, mod), parent, format, args);
 }
 
 fn addFieldErrNote(
@@ -2498,7 +2486,7 @@ fn errMsg(
     const mod = sema.mod;
     if (src == .unneeded) return error.NeededSourceLocation;
     const src_decl = mod.declPtr(block.src_decl);
-    return Module.ErrorMsg.create(sema.gpa, src.toSrcLoc(src_decl, mod), format, args);
+    return Module.ErrorMsg.create(sema.gpa, src_decl.toSrcLoc(src, mod), format, args);
 }
 
 pub fn fail(
@@ -2525,7 +2513,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
     ref: {
         errdefer err_msg.destroy(gpa);
 
-        if (crash_report.is_enabled and mod.comp.debug_compile_errors) {
+        if (build_options.enable_debug_extensions and mod.comp.debug_compile_errors) {
             var wip_errors: std.zig.ErrorBundle.Wip = undefined;
             wip_errors.init(gpa) catch unreachable;
             Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*) catch unreachable;
@@ -2576,7 +2564,7 @@ fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg)
                     const decl = mod.declPtr(ref.referencer);
                     try reference_stack.append(.{
                         .decl = decl.name,
-                        .src_loc = ref.src.toSrcLoc(decl, mod),
+                        .src_loc = decl.toSrcLoc(ref.src, mod),
                     });
                 }
                 referenced_by = ref.referencer;
@@ -2619,7 +2607,7 @@ fn reparentOwnedErrorMsg(
 ) !void {
     const mod = sema.mod;
     const src_decl = mod.declPtr(block.src_decl);
-    const resolved_src = src.toSrcLoc(src_decl, mod);
+    const resolved_src = src_decl.toSrcLoc(src, mod);
     const msg_str = try std.fmt.allocPrint(mod.gpa, format, args);
 
     const orig_notes = msg.notes.len;
@@ -2636,7 +2624,7 @@ fn reparentOwnedErrorMsg(
 
 const align_ty = Type.u29;
 
-fn analyzeAsAlign(
+pub fn analyzeAsAlign(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -2674,7 +2662,7 @@ fn validateAlignAllowZero(
     return Alignment.fromNonzeroByteUnits(alignment);
 }
 
-pub fn resolveAlign(
+fn resolveAlign(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
@@ -2801,10 +2789,9 @@ fn zirStructDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const struct_ty = ty: {
@@ -2821,7 +2808,6 @@ fn zirStructDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(struct_ty);
-    new_namespace.ty = Type.fromInterned(struct_ty);
 
     const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
     try mod.finalizeAnonDecl(new_decl_index);
@@ -2990,10 +2976,9 @@ fn zirEnumDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer if (!done) mod.destroyNamespace(new_namespace_index);
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -3036,7 +3021,6 @@ fn zirEnumDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(incomplete_enum.index);
-    new_namespace.ty = Type.fromInterned(incomplete_enum.index);
 
     const decl_val = try sema.analyzeDeclVal(block, src, new_decl_index);
     try mod.finalizeAnonDecl(new_decl_index);
@@ -3078,7 +3062,7 @@ fn zirEnumDecl(
         defer enum_block.instructions.deinit(sema.gpa);
 
         if (body.len != 0) {
-            try sema.analyzeBody(&enum_block, body);
+            _ = try sema.analyzeInlineBody(&enum_block, body, inst);
         }
 
         if (tag_type_ref != .none) {
@@ -3248,10 +3232,9 @@ fn zirUnionDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const union_ty = ty: {
@@ -3292,7 +3275,6 @@ fn zirUnionDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(union_ty);
-    new_namespace.ty = Type.fromInterned(union_ty);
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
     try mod.scanNamespace(new_namespace_index, decls, new_decl);
@@ -3346,10 +3328,9 @@ fn zirOpaqueDecl(
 
     const new_namespace_index = try mod.createNamespace(.{
         .parent = block.namespace.toOptional(),
-        .ty = undefined,
+        .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const opaque_ty = try mod.intern(.{ .opaque_type = .{
@@ -3362,7 +3343,6 @@ fn zirOpaqueDecl(
 
     new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(opaque_ty);
-    new_namespace.ty = Type.fromInterned(opaque_ty);
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
     try mod.scanNamespace(new_namespace_index, decls, new_decl);
@@ -4149,6 +4129,13 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 return;
             }
 
+            if (try sema.typeRequiresComptime(final_elem_ty)) {
+                // The alloc wasn't comptime-known per the above logic, so the
+                // type cannot be comptime-only.
+                // TODO: source location of runtime control flow
+                return sema.fail(block, src, "value with comptime-only type '{}' depends on runtime control flow", .{final_elem_ty.fmt(mod)});
+            }
+
             try sema.queueFullTypeResolution(final_elem_ty);
 
             // Change it to a normal alloc.
@@ -4827,7 +4814,7 @@ fn validateStructInit(
         if (root_msg) |msg| {
             if (mod.typeToStruct(struct_ty)) |struct_type| {
                 const decl = mod.declPtr(struct_type.decl.unwrap().?);
-                const fqn = try decl.getFullyQualifiedName(mod);
+                const fqn = try decl.fullyQualifiedName(mod);
                 try mod.errNoteNonLazy(
                     decl.srcLoc(mod),
                     msg,
@@ -4954,7 +4941,7 @@ fn validateStructInit(
     if (root_msg) |msg| {
         if (mod.typeToStruct(struct_ty)) |struct_type| {
             const decl = mod.declPtr(struct_type.decl.unwrap().?);
-            const fqn = try decl.getFullyQualifiedName(mod);
+            const fqn = try decl.fullyQualifiedName(mod);
             try mod.errNoteNonLazy(
                 decl.srcLoc(mod),
                 msg,
@@ -5044,22 +5031,33 @@ fn zirValidatePtrArrayInit(
     const array_ty = sema.typeOf(array_ptr).childType(mod).optEuBaseType(mod);
     const array_len = array_ty.arrayLen(mod);
 
+    // Collect the comptime element values in case the array literal ends up
+    // being comptime-known.
+    const element_vals = try sema.arena.alloc(
+        InternPool.Index,
+        try sema.usizeCast(block, init_src, array_len),
+    );
+
     if (instrs.len != array_len) switch (array_ty.zigTypeTag(mod)) {
         .Struct => {
             var root_msg: ?*Module.ErrorMsg = null;
             errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
+            try sema.resolveStructFieldInits(array_ty);
             var i = instrs.len;
             while (i < array_len) : (i += 1) {
-                const default_val = array_ty.structFieldDefaultValue(i, mod);
-                if (default_val.toIntern() == .unreachable_value) {
+                const default_val = array_ty.structFieldDefaultValue(i, mod).toIntern();
+                if (default_val == .unreachable_value) {
                     const template = "missing tuple field with index {d}";
                     if (root_msg) |msg| {
                         try sema.errNote(block, init_src, msg, template, .{i});
                     } else {
                         root_msg = try sema.errMsg(block, init_src, template, .{i});
                     }
+                    continue;
                 }
+
+                element_vals[i] = default_val;
             }
 
             if (root_msg) |msg| {
@@ -5106,12 +5104,6 @@ fn zirValidatePtrArrayInit(
     var array_is_comptime = true;
     var first_block_index = block.instructions.items.len;
 
-    // Collect the comptime element values in case the array literal ends up
-    // being comptime-known.
-    const element_vals = try sema.arena.alloc(
-        InternPool.Index,
-        try sema.usizeCast(block, init_src, array_len),
-    );
     const air_tags = sema.air_instructions.items(.tag);
     const air_datas = sema.air_instructions.items(.data);
 
@@ -5268,7 +5260,7 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, src.toSrcLoc(src_decl, mod), elem_ty);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(src, mod), elem_ty);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -5348,7 +5340,7 @@ fn failWithBadStructFieldAccess(
     const mod = sema.mod;
     const gpa = sema.gpa;
     const decl = mod.declPtr(struct_type.decl.unwrap().?);
-    const fqn = try decl.getFullyQualifiedName(mod);
+    const fqn = try decl.fullyQualifiedName(mod);
 
     const msg = msg: {
         const msg = try sema.errMsg(
@@ -5375,7 +5367,7 @@ fn failWithBadUnionFieldAccess(
     const gpa = sema.gpa;
 
     const decl = mod.declPtr(union_obj.decl);
-    const fqn = try decl.getFullyQualifiedName(mod);
+    const fqn = try decl.fullyQualifiedName(mod);
 
     const msg = msg: {
         const msg = try sema.errMsg(
@@ -5613,7 +5605,7 @@ fn zirFloat128(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     return Air.internedToRef((try sema.mod.floatValue(Type.comptime_float, number)).toIntern());
 }
 
-fn zirCompileError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirCompileError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -5666,7 +5658,7 @@ fn zirCompileLog(
     return .void_value;
 }
 
-fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = inst_data.src();
     const msg_inst = try sema.resolveInst(inst_data.operand);
@@ -5679,16 +5671,14 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.I
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
     try sema.panicWithMsg(block, src, coerced_msg, .@"@panic");
-    return always_noreturn;
 }
 
-fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const src_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].node;
     const src = LazySrcLoc.nodeOffset(src_node);
     if (block.is_comptime)
         return sema.fail(block, src, "encountered @trap at comptime", .{});
     _ = try block.addNoOp(.trap);
-    return always_noreturn;
 }
 
 fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -5732,7 +5722,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     var child_block = parent_block.makeSubBlock();
     child_block.label = &label;
     child_block.runtime_cond = null;
-    child_block.runtime_loop = src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    child_block.runtime_loop = mod.declPtr(child_block.src_decl).toSrcLoc(src, mod);
     child_block.runtime_index.increment();
     const merges = &child_block.label.?.merges;
 
@@ -5742,7 +5732,8 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     var loop_block = child_block.makeSubBlock();
     defer loop_block.instructions.deinit(gpa);
 
-    try sema.analyzeBody(&loop_block, body);
+    // Use `analyzeBodyInner` directly to push any comptime control flow up the stack.
+    try sema.analyzeBodyInner(&loop_block, body);
 
     const loop_block_len = loop_block.instructions.items.len;
     if (loop_block_len > 0 and sema.typeOf(loop_block.instructions.items[loop_block_len - 1].toRef()).isNoReturn(mod)) {
@@ -5758,7 +5749,7 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
         );
         sema.air_extra.appendSliceAssumeCapacity(@ptrCast(loop_block.instructions.items));
     }
-    return sema.analyzeBlockBody(parent_block, src, &child_block, merges);
+    return sema.resolveAnalyzedBlock(parent_block, src, &child_block, merges, false);
 }
 
 fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -5774,7 +5765,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     const body = sema.code.bodySlice(extra.end, extra.data.body_len);
 
     // we check this here to avoid undefined symbols
-    if (!@import("build_options").have_llvm)
+    if (!build_options.have_llvm)
         return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
 
     var c_import_buf = std.ArrayList(u8).init(gpa);
@@ -5801,8 +5792,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     };
     defer child_block.instructions.deinit(gpa);
 
-    // Ignore the result, all the relevant operations have written to c_import_buf already.
-    _ = try sema.analyzeBodyBreak(&child_block, body);
+    _ = try sema.analyzeInlineBody(&child_block, body, inst);
 
     var c_import_res = comp.cImport(c_import_buf.items, parent_block.ownerModule()) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
@@ -5932,6 +5922,9 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
     return sema.resolveBlockBody(parent_block, src, &child_block, body, inst, &label.merges);
 }
 
+/// Semantically analyze the given ZIR body, emitting any resulting runtime code into the AIR block
+/// specified by `child_block` if necessary (and emitting this block into `parent_block`).
+/// TODO: `merges` is known from `child_block`, remove this parameter.
 fn resolveBlockBody(
     sema: *Sema,
     parent_block: *Block,
@@ -5944,15 +5937,34 @@ fn resolveBlockBody(
     merges: *Block.Merges,
 ) CompileError!Air.Inst.Ref {
     if (child_block.is_comptime) {
-        return sema.resolveBody(child_block, body, body_inst);
+        return sema.resolveInlineBody(child_block, body, body_inst);
     } else {
+        assert(sema.air_instructions.items(.tag)[@intFromEnum(merges.block_inst)] == .block);
+        var need_debug_scope = false;
+        child_block.need_debug_scope = &need_debug_scope;
         if (sema.analyzeBodyInner(child_block, body)) |_| {
-            return sema.analyzeBlockBody(parent_block, src, child_block, merges);
+            return sema.resolveAnalyzedBlock(parent_block, src, child_block, merges, need_debug_scope);
         } else |err| switch (err) {
             error.ComptimeBreak => {
                 // Comptime control flow is happening, however child_block may still contain
                 // runtime instructions which need to be copied to the parent block.
-                try parent_block.instructions.appendSlice(sema.gpa, child_block.instructions.items);
+                if (need_debug_scope and child_block.instructions.items.len > 0) {
+                    // We need a runtime block for scoping reasons.
+                    _ = try child_block.addBr(merges.block_inst, .void_value);
+                    try parent_block.instructions.append(sema.gpa, merges.block_inst);
+                    try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Block).Struct.fields.len +
+                        child_block.instructions.items.len);
+                    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                        .ty = .void_type,
+                        .payload = sema.addExtraAssumeCapacity(Air.Block{
+                            .body_len = @intCast(child_block.instructions.items.len),
+                        }),
+                    } };
+                    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
+                } else {
+                    // We can copy instructions directly to the parent block.
+                    try parent_block.instructions.appendSlice(sema.gpa, child_block.instructions.items);
+                }
 
                 const break_inst = sema.comptime_break_inst;
                 const break_data = sema.code.instructions.items(.data)[@intFromEnum(break_inst)].@"break";
@@ -5968,12 +5980,18 @@ fn resolveBlockBody(
     }
 }
 
-fn analyzeBlockBody(
+/// After a body corresponding to an AIR `block` has been analyzed, this function places them into
+/// the block pointed at by `merges.block_inst` if necessary, or the block may be elided in favor of
+/// inlining the instructions directly into the parent block. Either way, it considers all merges of
+/// this block, and combines them appropriately using peer type resolution, returning the final
+/// value of the block.
+fn resolveAnalyzedBlock(
     sema: *Sema,
     parent_block: *Block,
     src: LazySrcLoc,
     child_block: *Block,
     merges: *Block.Merges,
+    need_debug_scope: bool,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -5985,27 +6003,101 @@ fn analyzeBlockBody(
     assert(child_block.instructions.items.len != 0);
     assert(sema.typeOf(child_block.instructions.items[child_block.instructions.items.len - 1].toRef()).isNoReturn(mod));
 
+    const block_tag = sema.air_instructions.items(.tag)[@intFromEnum(merges.block_inst)];
+    switch (block_tag) {
+        .block => {},
+        .dbg_inline_block => assert(need_debug_scope),
+        else => unreachable,
+    }
     if (merges.results.items.len == 0) {
-        // No need for a block instruction. We can put the new instructions
-        // directly into the parent block.
-        try parent_block.instructions.appendSlice(gpa, child_block.instructions.items);
-        return child_block.instructions.items[child_block.instructions.items.len - 1].toRef();
+        switch (block_tag) {
+            .block => {
+                // No need for a block instruction. We can put the new instructions
+                // directly into the parent block.
+                if (need_debug_scope) {
+                    // The code following this block is unreachable, as the block has no
+                    // merges, so we don't necessarily need to emit this as an AIR block.
+                    // However, we need a block *somewhere* to make the scoping correct,
+                    // so forward this request to the parent block.
+                    if (parent_block.need_debug_scope) |ptr| ptr.* = true;
+                }
+                try parent_block.instructions.appendSlice(gpa, child_block.instructions.items);
+                return child_block.instructions.items[child_block.instructions.items.len - 1].toRef();
+            },
+            .dbg_inline_block => {
+                // Create a block containing all instruction from the body.
+                try parent_block.instructions.append(gpa, merges.block_inst);
+                try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).Struct.fields.len +
+                    child_block.instructions.items.len);
+                sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                    .ty = .noreturn_type,
+                    .payload = sema.addExtraAssumeCapacity(Air.DbgInlineBlock{
+                        .func = child_block.inlining.?.func,
+                        .body_len = @intCast(child_block.instructions.items.len),
+                    }),
+                } };
+                sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
+                return merges.block_inst.toRef();
+            },
+            else => unreachable,
+        }
     }
     if (merges.results.items.len == 1) {
-        const last_inst_index = child_block.instructions.items.len - 1;
-        const last_inst = child_block.instructions.items[last_inst_index];
-        if (sema.getBreakBlock(last_inst)) |br_block| {
-            if (br_block == merges.block_inst) {
-                // No need for a block instruction. We can put the new instructions directly
-                // into the parent block. Here we omit the break instruction.
-                const without_break = child_block.instructions.items[0..last_inst_index];
-                try parent_block.instructions.appendSlice(gpa, without_break);
-                return merges.results.items[0];
+        // If the `break` is trailing, we may be able to elide the AIR block here
+        // by appending the new instructions directly to the parent block.
+        if (!need_debug_scope) {
+            const last_inst_index = child_block.instructions.items.len - 1;
+            const last_inst = child_block.instructions.items[last_inst_index];
+            if (sema.getBreakBlock(last_inst)) |br_block| {
+                if (br_block == merges.block_inst) {
+                    // Great, the last instruction is the break! Put the instructions
+                    // directly into the parent block.
+                    try parent_block.instructions.appendSlice(gpa, child_block.instructions.items[0..last_inst_index]);
+                    return merges.results.items[0];
+                }
             }
+        }
+        // Okay, we need a runtime block. If the value is comptime-known, the
+        // block should just return void, and we return the merge result
+        // directly. Otherwise, we can defer to the logic below.
+        if (try sema.resolveValue(merges.results.items[0])) |result_val| {
+            // Create a block containing all instruction from the body.
+            try parent_block.instructions.append(gpa, merges.block_inst);
+            switch (block_tag) {
+                .block => {
+                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+                        child_block.instructions.items.len);
+                    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                        .ty = .void_type,
+                        .payload = sema.addExtraAssumeCapacity(Air.Block{
+                            .body_len = @intCast(child_block.instructions.items.len),
+                        }),
+                    } };
+                },
+                .dbg_inline_block => {
+                    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).Struct.fields.len +
+                        child_block.instructions.items.len);
+                    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                        .ty = .void_type,
+                        .payload = sema.addExtraAssumeCapacity(Air.DbgInlineBlock{
+                            .func = child_block.inlining.?.func,
+                            .body_len = @intCast(child_block.instructions.items.len),
+                        }),
+                    } };
+                },
+                else => unreachable,
+            }
+            sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
+            // Rewrite the break to just give value {}; the value is
+            // comptime-known and will be returned directly.
+            sema.air_instructions.items(.data)[@intFromEnum(merges.br_list.items[0])].br.operand = .void_value;
+            return Air.internedToRef(result_val.toIntern());
         }
     }
     // It is impossible to have the number of results be > 1 in a comptime scope.
     assert(!child_block.is_comptime); // Should already got a compile error in the condbr condition.
+
+    // Note that we'll always create an AIR block here, so `need_debug_scope` is irrelevant.
 
     // Need to set the type and emit the Block instruction. This allows machine code generation
     // to emit a jump instruction to after the block when it encounters the break.
@@ -6023,21 +6115,37 @@ fn analyzeBlockBody(
             try mod.errNoteNonLazy(runtime_src, msg, "runtime control flow here", .{});
 
             const child_src_decl = mod.declPtr(child_block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, type_src.toSrcLoc(child_src_decl, mod), resolved_ty);
+            try sema.explainWhyTypeIsComptime(msg, child_src_decl.toSrcLoc(type_src, mod), resolved_ty);
 
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(child_block, msg);
     }
     const ty_inst = Air.internedToRef(resolved_ty.toIntern());
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
-        child_block.instructions.items.len);
-    sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
-        .ty = ty_inst,
-        .payload = sema.addExtraAssumeCapacity(Air.Block{
-            .body_len = @intCast(child_block.instructions.items.len),
-        }),
-    } };
+    switch (block_tag) {
+        .block => {
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+                child_block.instructions.items.len);
+            sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                .ty = ty_inst,
+                .payload = sema.addExtraAssumeCapacity(Air.Block{
+                    .body_len = @intCast(child_block.instructions.items.len),
+                }),
+            } };
+        },
+        .dbg_inline_block => {
+            try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.DbgInlineBlock).Struct.fields.len +
+                child_block.instructions.items.len);
+            sema.air_instructions.items(.data)[@intFromEnum(merges.block_inst)] = .{ .ty_pl = .{
+                .ty = ty_inst,
+                .payload = sema.addExtraAssumeCapacity(Air.DbgInlineBlock{
+                    .func = child_block.inlining.?.func,
+                    .body_len = @intCast(child_block.instructions.items.len),
+                }),
+            } };
+        },
+        else => unreachable,
+    }
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(child_block.instructions.items));
     // Now that the block has its type resolved, we need to go back into all the break
     // instructions, and insert type coercion on the operands.
@@ -6178,7 +6286,7 @@ pub fn analyzeExport(
             errdefer msg.destroy(gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), exported_decl.ty, .other);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), exported_decl.ty, .other);
 
             try sema.addDeclaredHereNote(msg, exported_decl.ty);
             break :msg msg;
@@ -6325,7 +6433,7 @@ fn zirFence(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) Co
     });
 }
 
-fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -6351,7 +6459,7 @@ fn zirBreak(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) CompileError
                     block.runtime_cond = start_block.runtime_cond orelse start_block.runtime_loop;
                     block.runtime_loop = start_block.runtime_loop;
                 }
-                return inst;
+                return;
             }
         }
         block = block.parent.?;
@@ -6384,32 +6492,12 @@ fn zirDbgStmt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!voi
     });
 }
 
-fn zirDbgBlockBegin(block: *Block) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip) return;
-
-    _ = try block.addInst(.{
-        .tag = .dbg_block_begin,
-        .data = undefined,
-    });
-}
-
-fn zirDbgBlockEnd(block: *Block) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip) return;
-
-    _ = try block.addInst(.{
-        .tag = .dbg_block_end,
-        .data = undefined,
-    });
-}
-
 fn zirDbgVar(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
     air_tag: Air.Inst.Tag,
 ) CompileError!void {
-    if (block.is_comptime or block.ownerModule().strip) return;
-
     const str_op = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_op;
     const operand = try sema.resolveInst(str_op.operand);
     const name = str_op.getStr(sema.code);
@@ -6423,6 +6511,8 @@ fn addDbgVar(
     air_tag: Air.Inst.Tag,
     name: []const u8,
 ) CompileError!void {
+    if (block.is_comptime or block.ownerModule().strip) return;
+
     const mod = sema.mod;
     const operand_ty = sema.typeOf(operand);
     const val_ty = switch (air_tag) {
@@ -6432,6 +6522,15 @@ fn addDbgVar(
     };
     if (try sema.typeRequiresComptime(val_ty)) return;
     if (!(try sema.typeHasRuntimeBits(val_ty))) return;
+
+    // To ensure the lexical scoping is known to backends, this alloc must be
+    // within a real runtime block. We set a flag which communicates information
+    // to the closest lexically enclosing block:
+    // * If it is a `block_inline`, communicates to logic in `analyzeBodyInner`
+    //   to create a post-hoc block.
+    // * Otherwise, communicates to logic in `resolveBlockBody` to create a
+    //   real `block` instruction.
+    if (block.need_debug_scope) |ptr| ptr.* = true;
 
     try sema.queueFullTypeResolution(operand_ty);
 
@@ -6497,8 +6596,7 @@ fn lookupInNamespace(
     const mod = sema.mod;
 
     const namespace = mod.namespacePtr(namespace_index);
-    const namespace_decl_index = namespace.getDeclIndex(mod);
-    const namespace_decl = mod.declPtr(namespace_decl_index);
+    const namespace_decl = mod.declPtr(namespace.decl_index);
     if (namespace_decl.analysis == .file_failure) {
         return error.AnalysisFail;
     }
@@ -6519,7 +6617,7 @@ fn lookupInNamespace(
 
         while (check_i < checked_namespaces.count()) : (check_i += 1) {
             const check_ns = checked_namespaces.keys()[check_i];
-            if (check_ns.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .mod = mod })) |decl_index| {
+            if (check_ns.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .zcu = mod })) |decl_index| {
                 // Skip decls which are not marked pub, which are in a different
                 // file than the `a.b`/`@hasDecl` syntax.
                 const decl = mod.declPtr(decl_index);
@@ -6577,7 +6675,7 @@ fn lookupInNamespace(
                 return sema.failWithOwnedErrorMsg(block, msg);
             },
         }
-    } else if (namespace.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .mod = mod })) |decl_index| {
+    } else if (namespace.decls.getKeyAdapted(ident_name, Module.DeclAdapter{ .zcu = mod })) |decl_index| {
         return decl_index;
     }
 
@@ -7071,7 +7169,7 @@ const CallArgsInfo = union(enum) {
                 // Give the arg its result type
                 sema.inst_map.putAssumeCapacity(zir_call.call_inst, Air.internedToRef(param_ty.toIntern()));
                 // Resolve the arg!
-                const uncoerced_arg = try sema.resolveBody(block, arg_body, zir_call.call_inst);
+                const uncoerced_arg = try sema.resolveInlineBody(block, arg_body, zir_call.call_inst);
 
                 if (sema.typeOf(uncoerced_arg).zigTypeTag(mod) == .NoReturn) {
                     // This terminates resolution of arguments. The caller should
@@ -7340,7 +7438,6 @@ fn analyzeCall(
             .needed_comptime_reason = "function being called at comptime must be comptime-known",
             .block_comptime_reason = comptime_reason,
         });
-        const prev_fn_index = sema.func_index;
         const module_fn_index = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
             .extern_func => return sema.fail(block, call_src, "{s} call of extern function", .{
                 @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
@@ -7376,9 +7473,10 @@ fn analyzeCall(
         // set to in the `Block`.
         // This block instruction will be used to capture the return value from the
         // inlined function.
+        const need_debug_scope = !is_comptime_call and !block.is_typeof and !block.ownerModule().strip;
         const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
         try sema.air_instructions.append(gpa, .{
-            .tag = .block,
+            .tag = if (need_debug_scope) .dbg_inline_block else .block,
             .data = undefined,
         });
         // This one is shared among sub-blocks within the same callee, but not
@@ -7514,7 +7612,7 @@ fn analyzeCall(
         // each of the parameters, resolving the return type and providing it to the child
         // `Sema` so that it can be used for the `ret_ptr` instruction.
         const ret_ty_inst = if (fn_info.ret_ty_body.len != 0)
-            try sema.resolveBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst.resolve(ip))
+            try sema.resolveInlineBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst.resolve(ip))
         else
             try sema.resolveInst(fn_info.ret_ty_ref);
         const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
@@ -7545,10 +7643,7 @@ fn analyzeCall(
             }
 
             new_fn_info.return_type = sema.fn_ret_ty.toIntern();
-            const new_func_resolved_ty = try mod.funcType(new_fn_info);
             if (!is_comptime_call and !block.is_typeof) {
-                try emitDbgInline(block, prev_fn_index, module_fn_index, new_func_resolved_ty, .dbg_inline_begin);
-
                 const zir_tags = sema.code.instructions.items(.tag);
                 for (fn_info.param_body) |param| switch (zir_tags[@intFromEnum(param)]) {
                     .param, .param_comptime => {
@@ -7583,24 +7678,12 @@ fn analyzeCall(
             }
 
             const result = result: {
-                sema.analyzeBody(&child_block, fn_info.body) catch |err| switch (err) {
+                sema.analyzeFnBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
                     else => |e| return e,
                 };
-                break :result try sema.analyzeBlockBody(block, call_src, &child_block, merges);
+                break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, need_debug_scope);
             };
-
-            if (!is_comptime_call and !block.is_typeof and
-                sema.typeOf(result).zigTypeTag(mod) != .NoReturn)
-            {
-                try emitDbgInline(
-                    block,
-                    module_fn_index,
-                    prev_fn_index,
-                    mod.funcOwnerDeclPtr(sema.func_index).ty,
-                    .dbg_inline_end,
-                );
-            }
 
             if (should_memoize and is_comptime_call) {
                 const result_val = try sema.resolveConstValue(block, .unneeded, result, undefined);
@@ -7766,7 +7849,7 @@ fn analyzeInlineCallArg(
             const param_ty = param_ty: {
                 const raw_param_ty = func_ty_info.param_types.get(ip)[arg_i.*];
                 if (raw_param_ty != .generic_poison_type) break :param_ty raw_param_ty;
-                const param_ty_inst = try ics.callee().resolveBody(param_block, param_body, inst);
+                const param_ty_inst = try ics.callee().resolveInlineBody(param_block, param_body, inst);
                 const param_ty = try ics.callee().analyzeAsType(param_block, param_src, param_ty_inst);
                 break :param_ty param_ty.toIntern();
             };
@@ -7953,7 +8036,7 @@ fn instantiateGenericCall(
         .sema = &child_sema,
         .src_decl = generic_owner_func.owner_decl,
         .namespace = namespace_index,
-        .wip_capture_scope = try mod.createCaptureScope(sema.owner_decl.src_scope),
+        .wip_capture_scope = try mod.createCaptureScope(fn_owner_decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -8001,7 +8084,7 @@ fn instantiateGenericCall(
                             child_sema.generic_call_decl = prev_generic_call_decl;
                         }
 
-                        const param_ty_inst = try child_sema.resolveBody(&child_block, param_ty_body, param_inst);
+                        const param_ty_inst = try child_sema.resolveInlineBody(&child_block, param_ty_body, param_inst);
                         break :param_ty try child_sema.analyzeAsType(&child_block, param_data.src(), param_ty_inst);
                     },
                     else => unreachable,
@@ -8057,7 +8140,7 @@ fn instantiateGenericCall(
                     };
                     try child_sema.errNote(&child_block, param_src, msg, "declared here", .{});
                     const src_decl = mod.declPtr(block.src_decl);
-                    try sema.explainWhyTypeIsComptime(msg, arg_src.toSrcLoc(src_decl, mod), arg_ty);
+                    try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(arg_src, mod), arg_ty);
                     break :msg msg;
                 }),
 
@@ -8093,7 +8176,7 @@ fn instantiateGenericCall(
 
     // We've already handled parameters, so don't resolve the whole body. Instead, just
     // do the instructions after the params (i.e. the func itself).
-    const new_func_inst = try child_sema.resolveBody(&child_block, fn_info.param_body[args_info.count()..], fn_info.param_body_inst);
+    const new_func_inst = try child_sema.resolveInlineBody(&child_block, fn_info.param_body[args_info.count()..], fn_info.param_body_inst);
     const callee_index = (child_sema.resolveConstDefinedValue(&child_block, .unneeded, new_func_inst, undefined) catch unreachable).toIntern();
 
     const callee = mod.funcInfo(callee_index);
@@ -8166,27 +8249,6 @@ fn resolveTupleLazyValues(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type)
         // TODO: mutate in intern pool
         _ = try sema.resolveLazyValue(Value.fromInterned(field_val));
     }
-}
-
-fn emitDbgInline(
-    block: *Block,
-    old_func: InternPool.Index,
-    new_func: InternPool.Index,
-    new_func_ty: Type,
-    tag: Air.Inst.Tag,
-) CompileError!void {
-    if (block.ownerModule().strip) return;
-
-    // Recursive inline call; no dbg_inline needed.
-    if (old_func == new_func) return;
-
-    _ = try block.addInst(.{
-        .tag = tag,
-        .data = .{ .ty_fn = .{
-            .ty = Air.internedToRef(new_func_ty.toIntern()),
-            .func = new_func,
-        } },
-    });
 }
 
 fn zirIntType(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9151,7 +9213,7 @@ fn resolveGenericBody(
             sema.generic_call_decl = prev_generic_call_decl;
         }
 
-        const uncasted = sema.resolveBody(block, body, func_inst) catch |err| break :err err;
+        const uncasted = sema.resolveInlineBody(block, body, func_inst) catch |err| break :err err;
         const result = sema.coerce(block, dest_ty, uncasted, src) catch |err| break :err err;
         const val = sema.resolveConstDefinedValue(block, src, result, reason) catch |err| break :err err;
         return val;
@@ -9362,7 +9424,7 @@ fn funcCommon(
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, param_src.toSrcLoc(src_decl, mod), param_ty, .param_ty);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(param_src, mod), param_ty, .param_ty);
 
                 try sema.addDeclaredHereNote(msg, param_ty);
                 break :msg msg;
@@ -9377,7 +9439,7 @@ fn funcCommon(
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsComptime(msg, param_src.toSrcLoc(src_decl, mod), param_ty);
+                try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(param_src, mod), param_ty);
 
                 try sema.addDeclaredHereNote(msg, param_ty);
                 break :msg msg;
@@ -9646,7 +9708,7 @@ fn finishFunc(
             errdefer msg.destroy(gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ret_ty_src.toSrcLoc(src_decl, mod), return_type, .ret_ty);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(ret_ty_src, mod), return_type, .ret_ty);
 
             try sema.addDeclaredHereNote(msg, return_type);
             break :msg msg;
@@ -9667,7 +9729,7 @@ fn finishFunc(
             "function with comptime-only return type '{}' requires all parameters to be comptime",
             .{return_type.fmt(mod)},
         );
-        try sema.explainWhyTypeIsComptime(msg, ret_ty_src.toSrcLoc(sema.owner_decl, mod), return_type);
+        try sema.explainWhyTypeIsComptime(msg, sema.owner_decl.toSrcLoc(ret_ty_src, mod), return_type);
 
         const tags = sema.code.instructions.items(.tag);
         const data = sema.code.instructions.items(.data);
@@ -9785,7 +9847,7 @@ fn zirParam(
                 sema.generic_call_decl = prev_generic_call_decl;
             }
 
-            if (sema.resolveBody(block, body, inst)) |param_ty_inst| {
+            if (sema.resolveInlineBody(block, body, inst)) |param_ty_inst| {
                 if (sema.analyzeAsType(block, src, param_ty_inst)) |param_ty| {
                     break :param_ty param_ty;
                 } else |err| break :err err;
@@ -9940,7 +10002,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             const msg = try sema.errMsg(block, ptr_src, "comptime-only type '{}' has no pointer address", .{pointee_ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, ptr_src.toSrcLoc(src_decl, mod), pointee_ty);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(ptr_src, mod), pointee_ty);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -10926,50 +10988,51 @@ const SwitchProngAnalysis = struct {
                 // By-reference captures have some further restrictions which make them easier to emit
                 if (capture_byref) {
                     const operand_ptr_info = operand_ptr_ty.ptrInfo(mod);
-                    const capture_ptr_ty = try sema.ptrType(.{
-                        .child = capture_ty.toIntern(),
-                        .flags = .{
-                            // TODO: alignment!
-                            .is_const = operand_ptr_info.flags.is_const,
-                            .is_volatile = operand_ptr_info.flags.is_volatile,
-                            .address_space = operand_ptr_info.flags.address_space,
-                        },
-                    });
-
-                    // By-ref captures of hetereogeneous types are only allowed if each field
-                    // pointer type is in-memory coercible to the capture pointer type.
-                    if (!same_types) {
-                        for (field_indices, 0..) |field_idx, i| {
+                    const capture_ptr_ty = resolve: {
+                        // By-ref captures of hetereogeneous types are only allowed if all field
+                        // pointer types are peer resolvable to each other.
+                        // We need values to run PTR on, so make a bunch of undef constants.
+                        const dummy_captures = try sema.arena.alloc(Air.Inst.Ref, case_vals.len);
+                        for (field_indices, dummy_captures) |field_idx, *dummy| {
                             const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_idx]);
                             const field_ptr_ty = try sema.ptrType(.{
                                 .child = field_ty.toIntern(),
                                 .flags = .{
-                                    // TODO: alignment!
                                     .is_const = operand_ptr_info.flags.is_const,
                                     .is_volatile = operand_ptr_info.flags.is_volatile,
                                     .address_space = operand_ptr_info.flags.address_space,
+                                    .alignment = union_obj.fieldAlign(ip, field_idx),
                                 },
                             });
-                            if (.ok != try sema.coerceInMemoryAllowed(block, capture_ptr_ty, field_ptr_ty, false, sema.mod.getTarget(), .unneeded, .unneeded)) {
+                            dummy.* = try mod.undefRef(field_ptr_ty);
+                        }
+                        const case_srcs = try sema.arena.alloc(?LazySrcLoc, case_vals.len);
+                        @memset(case_srcs, .unneeded);
+
+                        break :resolve sema.resolvePeerTypes(block, .unneeded, dummy_captures, .{ .override = case_srcs }) catch |err| switch (err) {
+                            error.NeededSourceLocation => {
+                                // This must be a multi-prong so this must be a `multi_capture` src
                                 const multi_idx = raw_capture_src.multi_capture;
                                 const src_decl_ptr = sema.mod.declPtr(block.src_decl);
+                                for (case_srcs, 0..) |*case_src, i| {
+                                    const raw_case_src: Module.SwitchProngSrc = .{ .multi = .{ .prong = multi_idx, .item = @intCast(i) } };
+                                    case_src.* = raw_case_src.resolve(mod, src_decl_ptr, switch_node_offset, .none);
+                                }
                                 const capture_src = raw_capture_src.resolve(mod, src_decl_ptr, switch_node_offset, .none);
-                                const raw_case_src: Module.SwitchProngSrc = .{ .multi = .{ .prong = multi_idx, .item = @intCast(i) } };
-                                const case_src = raw_case_src.resolve(mod, src_decl_ptr, switch_node_offset, .none);
-                                const msg = msg: {
-                                    const msg = try sema.errMsg(block, capture_src, "capture group with incompatible types", .{});
-                                    errdefer msg.destroy(sema.gpa);
-                                    try sema.errNote(block, case_src, msg, "pointer type child '{}' cannot cast into resolved pointer type child '{}'", .{
-                                        field_ty.fmt(sema.mod),
-                                        capture_ty.fmt(sema.mod),
-                                    });
-                                    try sema.errNote(block, capture_src, msg, "this coercion is only possible when capturing by value", .{});
-                                    break :msg msg;
+                                _ = sema.resolvePeerTypes(block, capture_src, dummy_captures, .{ .override = case_srcs }) catch |err1| switch (err1) {
+                                    error.AnalysisFail => {
+                                        const msg = sema.err orelse return error.AnalysisFail;
+                                        try sema.errNote(block, capture_src, msg, "this coercion is only possible when capturing by value", .{});
+                                        try sema.reparentOwnedErrorMsg(block, capture_src, msg, "capture group with incompatible types", .{});
+                                        return error.AnalysisFail;
+                                    },
+                                    else => |e| return e,
                                 };
-                                return sema.failWithOwnedErrorMsg(block, msg);
-                            }
-                        }
-                    }
+                                unreachable;
+                            },
+                            else => |e| return e,
+                        };
+                    };
 
                     if (try sema.resolveDefinedValue(block, operand_src, spa.operand_ptr)) |op_ptr_val| {
                         if (op_ptr_val.isUndef(mod)) return mod.undefRef(capture_ptr_ty);
@@ -11466,8 +11529,9 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     var sub_block = child_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = main_operand_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    sub_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(main_operand_src, mod);
     sub_block.runtime_index.increment();
+    sub_block.need_debug_scope = null; // this body is emitted regardless
     defer sub_block.instructions.deinit(gpa);
 
     try sema.analyzeBodyRuntimeBreak(&sub_block, non_error_case.body);
@@ -11530,7 +11594,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
 
-    return sema.analyzeBlockBody(block, main_src, &child_block, merges);
+    return sema.resolveAnalyzedBlock(block, main_src, &child_block, merges, false);
 }
 
 fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_ref: bool) CompileError!Air.Inst.Ref {
@@ -11660,7 +11724,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
     // Validate for duplicate items, missing else prong, and invalid range.
     switch (operand_ty.zigTypeTag(mod)) {
-        .Union => unreachable, // handled in zirSwitchCond
+        .Union => unreachable, // handled in `switchCond`
         .Enum => {
             seen_enum_fields = try gpa.alloc(?Module.SwitchProngSrc, operand_ty.enumFieldCount(mod));
             empty_enum = seen_enum_fields.len == 0 and !operand_ty.isNonexhaustiveEnum(mod);
@@ -12152,7 +12216,7 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         false,
     );
 
-    return sema.analyzeBlockBody(block, src, &child_block, merges);
+    return sema.resolveAnalyzedBlock(block, src, &child_block, merges, false);
 }
 
 const SpecialProng = struct {
@@ -12201,8 +12265,9 @@ fn analyzeSwitchRuntimeBlock(
 
     var case_block = child_block.makeSubBlock();
     case_block.runtime_loop = null;
-    case_block.runtime_cond = operand_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    case_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(operand_src, mod);
     case_block.runtime_index.increment();
+    case_block.need_debug_scope = null; // this body is emitted regardless
     defer case_block.instructions.deinit(gpa);
 
     var extra_index: usize = special.end;
@@ -13165,8 +13230,6 @@ fn validateErrSetSwitch(
                 const tags = sema.code.instructions.items(.tag);
                 const datas = sema.code.instructions.items(.data);
                 for (else_case.body) |else_inst| switch (tags[@intFromEnum(else_inst)]) {
-                    .dbg_block_begin,
-                    .dbg_block_end,
                     .dbg_stmt,
                     .dbg_var_val,
                     .ret_type,
@@ -13418,8 +13481,6 @@ fn maybeErrorUnwrap(
             .@"unreachable" => if (!block.wantSafety()) return false,
             .err_union_code => if (!allow_err_code_inst) return false,
             .save_err_ret_index,
-            .dbg_block_begin,
-            .dbg_block_end,
             .dbg_stmt,
             .str,
             .as_node,
@@ -13432,10 +13493,7 @@ fn maybeErrorUnwrap(
 
     for (body) |inst| {
         const air_inst = switch (tags[@intFromEnum(inst)]) {
-            .dbg_block_begin,
-            .dbg_block_end,
-            .err_union_code,
-            => continue,
+            .err_union_code => continue,
             .dbg_stmt => {
                 try sema.zirDbgStmt(block, inst);
                 continue;
@@ -13501,8 +13559,6 @@ fn maybeErrorUnwrapComptime(sema: *Sema, block: *Block, body: []const Zir.Inst.I
     const tags = sema.code.instructions.items(.tag);
     const inst = for (body) |inst| {
         switch (tags[@intFromEnum(inst)]) {
-            .dbg_block_begin,
-            .dbg_block_end,
             .dbg_stmt,
             .save_err_ret_index,
             => {},
@@ -13646,7 +13702,7 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         return sema.fail(block, operand_src, "file path name cannot be empty", .{});
     }
 
-    const src_loc = operand_src.toSrcLoc(mod.declPtr(block.src_decl), mod);
+    const src_loc = mod.declPtr(block.src_decl).toSrcLoc(operand_src, mod);
     const val = mod.embedFile(block.getFileScope(mod), name, src_loc) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
@@ -17203,7 +17259,7 @@ fn zirThis(
     extended: Zir.Inst.Extended.InstData,
 ) CompileError!Air.Inst.Ref {
     const mod = sema.mod;
-    const this_decl_index = mod.namespaceDeclIndex(block.namespace);
+    const this_decl_index = mod.namespacePtr(block.namespace).decl_index;
     const src = LazySrcLoc.nodeOffset(@bitCast(extended.operand));
     return sema.analyzeDeclVal(block, src, this_decl_index);
 }
@@ -18585,7 +18641,7 @@ fn zirTypeofBuiltin(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     };
     defer child_block.instructions.deinit(sema.gpa);
 
-    const operand = try sema.resolveBody(&child_block, body, inst);
+    const operand = try sema.resolveInlineBody(&child_block, body, inst);
     const operand_ty = sema.typeOf(operand);
     if (operand_ty.isGenericPoison()) return error.GenericPoison;
     return Air.internedToRef(operand_ty.toIntern());
@@ -18640,6 +18696,7 @@ fn zirTypeofPeer(
     sema: *Sema,
     block: *Block,
     extended: Zir.Inst.Extended.InstData,
+    inst: Zir.Inst.Index,
 ) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -18664,7 +18721,7 @@ fn zirTypeofPeer(
     };
     defer child_block.instructions.deinit(sema.gpa);
     // Ignore the result, we only care about the instructions in `args`.
-    _ = try sema.analyzeBodyBreak(&child_block, body);
+    _ = try sema.analyzeInlineBody(&child_block, body, inst);
 
     const args = sema.code.refSlice(extra.end, extended.small);
 
@@ -18731,7 +18788,7 @@ fn zirBoolBr(
         // comptime-known left-hand side. No need for a block here; the result
         // is simply the rhs expression. Here we rely on there only being 1
         // break instruction (`break_inline`).
-        const rhs_result = try sema.resolveBody(parent_block, body, inst);
+        const rhs_result = try sema.resolveInlineBody(parent_block, body, inst);
         if (sema.typeOf(rhs_result).isNoReturn(mod)) {
             return rhs_result;
         }
@@ -18749,7 +18806,7 @@ fn zirBoolBr(
 
     var child_block = parent_block.makeSubBlock();
     child_block.runtime_loop = null;
-    child_block.runtime_cond = lhs_src.toSrcLoc(mod.declPtr(child_block.src_decl), mod);
+    child_block.runtime_cond = mod.declPtr(child_block.src_decl).toSrcLoc(lhs_src, mod);
     child_block.runtime_index.increment();
     defer child_block.instructions.deinit(gpa);
 
@@ -18765,7 +18822,7 @@ fn zirBoolBr(
     const lhs_result: Air.Inst.Ref = if (is_bool_or) .bool_true else .bool_false;
     _ = try lhs_block.addBr(block_inst, lhs_result);
 
-    const rhs_result = try sema.resolveBody(rhs_block, body, inst);
+    const rhs_result = try sema.resolveInlineBody(rhs_block, body, inst);
     const rhs_noret = sema.typeOf(rhs_result).isNoReturn(mod);
     const coerced_rhs_result = if (!rhs_noret) rhs: {
         const coerced_result = try sema.coerce(rhs_block, Type.bool, rhs_result, rhs_src);
@@ -18916,7 +18973,7 @@ fn zirCondbr(
     sema: *Sema,
     parent_block: *Block,
     inst: Zir.Inst.Index,
-) CompileError!Zir.Inst.Index {
+) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -18935,8 +18992,7 @@ fn zirCondbr(
         const body = if (cond_val.toBool()) then_body else else_body;
 
         try sema.maybeErrorUnwrapCondbr(parent_block, body, extra.data.condition, cond_src);
-        // We use `analyzeBodyInner` since we want to propagate any possible
-        // `error.ComptimeBreak` to the caller.
+        // We use `analyzeBodyInner` since we want to propagate any comptime control flow to the caller.
         return sema.analyzeBodyInner(parent_block, body);
     }
 
@@ -18946,8 +19002,9 @@ fn zirCondbr(
     // instructions array in between using it for the then block and else block.
     var sub_block = parent_block.makeSubBlock();
     sub_block.runtime_loop = null;
-    sub_block.runtime_cond = cond_src.toSrcLoc(mod.declPtr(parent_block.src_decl), mod);
+    sub_block.runtime_cond = mod.declPtr(parent_block.src_decl).toSrcLoc(cond_src, mod);
     sub_block.runtime_index.increment();
+    sub_block.need_debug_scope = null; // this body is emitted regardless
     defer sub_block.instructions.deinit(gpa);
 
     try sema.analyzeBodyRuntimeBreak(&sub_block, then_body);
@@ -18985,7 +19042,6 @@ fn zirCondbr(
     });
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
-    return always_noreturn;
 }
 
 fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -19010,14 +19066,15 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
         }
         // We can analyze the body directly in the parent block because we know there are
         // no breaks from the body possible, and that the body is noreturn.
-        return sema.resolveBody(parent_block, body, inst);
+        try sema.analyzeBodyInner(parent_block, body);
+        return .unreachable_value;
     }
 
     var sub_block = parent_block.makeSubBlock();
     defer sub_block.instructions.deinit(sema.gpa);
 
     // This body is guaranteed to end with noreturn and has no breaks.
-    _ = try sema.analyzeBodyInner(&sub_block, body);
+    try sema.analyzeBodyInner(&sub_block, body);
 
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).Struct.fields.len +
         sub_block.instructions.items.len);
@@ -19057,14 +19114,15 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
         }
         // We can analyze the body directly in the parent block because we know there are
         // no breaks from the body possible, and that the body is noreturn.
-        return sema.resolveBody(parent_block, body, inst);
+        try sema.analyzeBodyInner(parent_block, body);
+        return .unreachable_value;
     }
 
     var sub_block = parent_block.makeSubBlock();
     defer sub_block.instructions.deinit(sema.gpa);
 
     // This body is guaranteed to end with noreturn and has no breaks.
-    _ = try sema.analyzeBodyInner(&sub_block, body);
+    try sema.analyzeBodyInner(&sub_block, body);
 
     const operand_ty = sema.typeOf(operand);
     const ptr_info = operand_ty.ptrInfo(mod);
@@ -19094,55 +19152,64 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     return try_inst;
 }
 
-// A `break` statement is inside a runtime condition, but trying to
-// break from an inline loop. In such case we must convert it to
-// a runtime break.
-fn addRuntimeBreak(sema: *Sema, child_block: *Block, break_data: BreakData) !void {
-    const gop = sema.inst_map.getOrPutAssumeCapacity(break_data.block_inst);
-    const labeled_block = if (!gop.found_existing) blk: {
-        try sema.post_hoc_blocks.ensureUnusedCapacity(sema.gpa, 1);
+fn ensurePostHoc(sema: *Sema, block: *Block, dest_block: Zir.Inst.Index) !*LabeledBlock {
+    const gop = sema.inst_map.getOrPutAssumeCapacity(dest_block);
+    if (gop.found_existing) existing: {
+        // This may be a *result* from an earlier iteration of an inline loop.
+        // In this case, there will not be a post-hoc block entry, and we can
+        // continue with the logic below.
+        const new_block_inst = gop.value_ptr.*.toIndex() orelse break :existing;
+        return sema.post_hoc_blocks.get(new_block_inst) orelse break :existing;
+    }
 
-        const new_block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
-        gop.value_ptr.* = new_block_inst.toRef();
-        try sema.air_instructions.append(sema.gpa, .{
-            .tag = .block,
-            .data = undefined,
-        });
-        const labeled_block = try sema.gpa.create(LabeledBlock);
-        labeled_block.* = .{
-            .label = .{
-                .zir_block = break_data.block_inst,
-                .merges = .{
-                    .src_locs = .{},
-                    .results = .{},
-                    .br_list = .{},
-                    .block_inst = new_block_inst,
-                },
+    try sema.post_hoc_blocks.ensureUnusedCapacity(sema.gpa, 1);
+
+    const new_block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
+    gop.value_ptr.* = new_block_inst.toRef();
+    try sema.air_instructions.append(sema.gpa, .{
+        .tag = .block,
+        .data = undefined,
+    });
+    const labeled_block = try sema.gpa.create(LabeledBlock);
+    labeled_block.* = .{
+        .label = .{
+            .zir_block = dest_block,
+            .merges = .{
+                .src_locs = .{},
+                .results = .{},
+                .br_list = .{},
+                .block_inst = new_block_inst,
             },
-            .block = .{
-                .parent = child_block,
-                .sema = sema,
-                .src_decl = child_block.src_decl,
-                .namespace = child_block.namespace,
-                .wip_capture_scope = child_block.wip_capture_scope,
-                .instructions = .{},
-                .label = &labeled_block.label,
-                .inlining = child_block.inlining,
-                .is_comptime = child_block.is_comptime,
-            },
-        };
-        sema.post_hoc_blocks.putAssumeCapacityNoClobber(new_block_inst, labeled_block);
-        break :blk labeled_block;
-    } else blk: {
-        const new_block_inst = gop.value_ptr.*.toIndex().?;
-        const labeled_block = sema.post_hoc_blocks.get(new_block_inst).?;
-        break :blk labeled_block;
+        },
+        .block = .{
+            .parent = block,
+            .sema = sema,
+            .src_decl = block.src_decl,
+            .namespace = block.namespace,
+            .wip_capture_scope = block.wip_capture_scope,
+            .instructions = .{},
+            .label = &labeled_block.label,
+            .inlining = block.inlining,
+            .is_comptime = block.is_comptime,
+        },
     };
+    sema.post_hoc_blocks.putAssumeCapacityNoClobber(new_block_inst, labeled_block);
+    return labeled_block;
+}
 
-    const operand = try sema.resolveInst(break_data.operand);
+/// A `break` statement is inside a runtime condition, but trying to
+/// break from an inline loop. In such case we must convert it to
+/// a runtime break.
+fn addRuntimeBreak(sema: *Sema, child_block: *Block, block_inst: Zir.Inst.Index, break_operand: Zir.Inst.Ref) !void {
+    const labeled_block = try sema.ensurePostHoc(child_block, block_inst);
+
+    const operand = try sema.resolveInst(break_operand);
     const br_ref = try child_block.addBr(labeled_block.label.merges.block_inst, operand);
+
     try labeled_block.label.merges.results.append(sema.gpa, operand);
     try labeled_block.label.merges.br_list.append(sema.gpa, br_ref.toIndex().?);
+    try labeled_block.label.merges.src_locs.append(sema.gpa, null);
+
     labeled_block.block.runtime_index.increment();
     if (labeled_block.block.runtime_cond == null and labeled_block.block.runtime_loop == null) {
         labeled_block.block.runtime_cond = child_block.runtime_cond orelse child_block.runtime_loop;
@@ -19150,7 +19217,7 @@ fn addRuntimeBreak(sema: *Sema, child_block: *Block, break_data: BreakData) !voi
     }
 }
 
-fn zirUnreachable(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirUnreachable(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].@"unreachable";
     const src = inst_data.src();
 
@@ -19167,14 +19234,13 @@ fn zirUnreachable(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         },
         else => |e| return e,
     };
-    return always_noreturn;
 }
 
 fn zirRetErrValue(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-) CompileError!Zir.Inst.Index {
+) CompileError!void {
     const mod = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
     const err_name = try mod.intern_pool.getOrPutString(sema.gpa, inst_data.get(sema.code));
@@ -19193,7 +19259,7 @@ fn zirRetImplicit(
     sema: *Sema,
     block: *Block,
     inst: Zir.Inst.Index,
-) CompileError!Zir.Inst.Index {
+) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -19208,7 +19274,7 @@ fn zirRetImplicit(
         } else {
             try block.addUnreachable(r_brace_src, false);
         }
-        return always_noreturn;
+        return;
     }
 
     const operand = try sema.resolveInst(inst_data.operand);
@@ -19239,7 +19305,7 @@ fn zirRetImplicit(
     return sema.analyzeRet(block, operand, r_brace_src, r_brace_src);
 }
 
-fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -19250,7 +19316,7 @@ fn zirRetNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
     return sema.analyzeRet(block, operand, src, .{ .node_offset_return_operand = inst_data.src_node });
 }
 
-fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir.Inst.Index {
+fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -19269,7 +19335,6 @@ fn zirRetLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Zir
     }
 
     _ = try block.addUnOp(.ret_load, ret_ptr);
-    return always_noreturn;
 }
 
 fn retWithErrTracing(
@@ -19279,12 +19344,12 @@ fn retWithErrTracing(
     is_non_err: Air.Inst.Ref,
     ret_tag: Air.Inst.Tag,
     operand: Air.Inst.Ref,
-) CompileError!Zir.Inst.Index {
+) CompileError!void {
     const mod = sema.mod;
     const need_check = switch (is_non_err) {
         .bool_true => {
             _ = try block.addUnOp(ret_tag, operand);
-            return always_noreturn;
+            return;
         },
         .bool_false => false,
         else => true,
@@ -19300,7 +19365,7 @@ fn retWithErrTracing(
     if (!need_check) {
         try sema.callBuiltin(block, src, return_err_fn, .never_inline, &args, .@"error return");
         _ = try block.addUnOp(ret_tag, operand);
-        return always_noreturn;
+        return;
     }
 
     var then_block = block.makeSubBlock();
@@ -19327,8 +19392,6 @@ fn retWithErrTracing(
         .operand = is_non_err,
         .payload = cond_br_payload,
     } } });
-
-    return always_noreturn;
 }
 
 fn wantErrorReturnTracing(sema: *Sema, fn_ret_ty: Type) bool {
@@ -19455,7 +19518,7 @@ fn analyzeRet(
     uncasted_operand: Air.Inst.Ref,
     src: LazySrcLoc,
     operand_src: LazySrcLoc,
-) CompileError!Zir.Inst.Index {
+) CompileError!void {
     // Special case for returning an error to an inferred error set; we need to
     // add the error tag to the inferred error set of the in-scope function, so
     // that the coercion below works correctly.
@@ -19477,15 +19540,17 @@ fn analyzeRet(
 
             if (sema.fn_ret_ty.isError(mod) and ret_val.getErrorName(mod) != .none) {
                 const src_decl = mod.declPtr(block.src_decl);
-                const src_loc = src.toSrcLoc(src_decl, mod);
+                const src_loc = src_decl.toSrcLoc(src, mod);
                 try sema.comptime_err_ret_trace.append(src_loc);
             }
             return error.ComptimeReturn;
         }
         // We are inlining a function call; rewrite the `ret` as a `break`.
+        const br_inst = try block.addBr(inlining.merges.block_inst, operand);
         try inlining.merges.results.append(sema.gpa, operand);
-        _ = try block.addBr(inlining.merges.block_inst, operand);
-        return always_noreturn;
+        try inlining.merges.br_list.append(sema.gpa, br_inst.toIndex().?);
+        try inlining.merges.src_locs.append(sema.gpa, operand_src);
+        return;
     } else if (block.is_comptime) {
         return sema.fail(block, src, "function called at runtime cannot return value at comptime", .{});
     } else if (sema.func_is_naked) {
@@ -19510,8 +19575,6 @@ fn analyzeRet(
     }
 
     _ = try block.addUnOp(air_tag, operand);
-
-    return always_noreturn;
 }
 
 fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
@@ -19588,7 +19651,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const address_space: std.builtin.AddressSpace = if (inst_data.flags.has_addrspace) blk: {
         const ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_i]);
         extra_i += 1;
-        break :blk try sema.analyzeAddressSpace(block, addrspace_src, ref, .pointer);
+        break :blk try sema.resolveAddressSpace(block, addrspace_src, ref, .pointer);
     } else if (elem_ty.zigTypeTag(mod) == .Fn and target.cpu.arch == .avr) .flash else .generic;
 
     const bit_offset: u16 = if (inst_data.flags.has_bit_range) blk: {
@@ -19632,7 +19695,7 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
                 errdefer msg.destroy(sema.gpa);
 
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, elem_ty_src.toSrcLoc(src_decl, mod), elem_ty, .other);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(elem_ty_src, mod), elem_ty, .other);
 
                 try sema.addDeclaredHereNote(msg, elem_ty);
                 break :msg msg;
@@ -20068,7 +20131,7 @@ fn finishStructInit(
     if (root_msg) |msg| {
         if (mod.typeToStruct(struct_ty)) |struct_type| {
             const decl = mod.declPtr(struct_type.decl.unwrap().?);
-            const fqn = try decl.getFullyQualifiedName(mod);
+            const fqn = try decl.fullyQualifiedName(mod);
             try mod.errNoteNonLazy(
                 decl.srcLoc(mod),
                 msg,
@@ -21100,7 +21163,7 @@ fn zirReify(
                         errdefer msg.destroy(gpa);
 
                         const src_decl = mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), elem_ty, .other);
+                        try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), elem_ty, .other);
 
                         try sema.addDeclaredHereNote(msg, elem_ty);
                         break :msg msg;
@@ -21397,10 +21460,9 @@ fn zirReify(
 
             const new_namespace_index = try mod.createNamespace(.{
                 .parent = block.namespace.toOptional(),
-                .ty = undefined,
+                .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
             });
-            const new_namespace = mod.namespacePtr(new_namespace_index);
             errdefer mod.destroyNamespace(new_namespace_index);
 
             const opaque_ty = try mod.intern(.{ .opaque_type = .{
@@ -21413,7 +21475,6 @@ fn zirReify(
 
             new_decl.ty = Type.type;
             new_decl.val = Value.fromInterned(opaque_ty);
-            new_namespace.ty = Type.fromInterned(opaque_ty);
 
             const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
             try mod.finalizeAnonDecl(new_decl_index);
@@ -21546,7 +21607,7 @@ fn zirReify(
                         errdefer msg.destroy(gpa);
 
                         const src_decl = mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), field_ty, .union_field);
+                        try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), field_ty, .union_field);
 
                         try sema.addDeclaredHereNote(msg, field_ty);
                         break :msg msg;
@@ -21558,7 +21619,7 @@ fn zirReify(
                         errdefer msg.destroy(gpa);
 
                         const src_decl = mod.declPtr(block.src_decl);
-                        try sema.explainWhyTypeIsNotPacked(msg, src.toSrcLoc(src_decl, mod), field_ty);
+                        try sema.explainWhyTypeIsNotPacked(msg, src_decl.toSrcLoc(src, mod), field_ty);
 
                         try sema.addDeclaredHereNote(msg, field_ty);
                         break :msg msg;
@@ -21607,10 +21668,9 @@ fn zirReify(
 
             const new_namespace_index = try mod.createNamespace(.{
                 .parent = block.namespace.toOptional(),
-                .ty = undefined,
+                .decl_index = new_decl_index,
                 .file_scope = block.getFileScope(mod),
             });
-            const new_namespace = mod.namespacePtr(new_namespace_index);
             errdefer mod.destroyNamespace(new_namespace_index);
 
             const union_ty = try ip.getUnionType(gpa, .{
@@ -21642,7 +21702,6 @@ fn zirReify(
 
             new_decl.ty = Type.type;
             new_decl.val = Value.fromInterned(union_ty);
-            new_namespace.ty = Type.fromInterned(union_ty);
 
             const decl_val = sema.analyzeDeclVal(block, src, new_decl_index);
             try mod.finalizeAnonDecl(new_decl_index);
@@ -21915,7 +21974,7 @@ fn reifyStruct(
                 errdefer msg.destroy(gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), field_ty, .struct_field);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), field_ty, .struct_field);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -21927,7 +21986,7 @@ fn reifyStruct(
                 errdefer msg.destroy(gpa);
 
                 const src_decl = sema.mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotPacked(msg, src.toSrcLoc(src_decl, mod), field_ty);
+                try sema.explainWhyTypeIsNotPacked(msg, src_decl.toSrcLoc(src, mod), field_ty);
 
                 try sema.addDeclaredHereNote(msg, field_ty);
                 break :msg msg;
@@ -21994,7 +22053,7 @@ fn zirCVaArg(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl, mod), arg_ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(ty_src, mod), arg_ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, arg_ty);
             break :msg msg;
@@ -23325,7 +23384,8 @@ fn checkVectorElemType(
     const mod = sema.mod;
     switch (ty.zigTypeTag(mod)) {
         .Int, .Float, .Bool => return,
-        else => if (ty.isPtrAtRuntime(mod)) return,
+        .Optional, .Pointer => if (ty.isPtrAtRuntime(mod)) return,
+        else => {},
     }
     return sema.fail(block, ty_src, "expected integer, float, bool, or pointer for the vector element type; found '{}'", .{ty.fmt(mod)});
 }
@@ -25838,7 +25898,7 @@ fn zirBuiltinExtern(
             const msg = try sema.errMsg(block, ty_src, "extern symbol cannot have type '{}'", .{ty.fmt(mod)});
             errdefer msg.destroy(sema.gpa);
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, ty_src.toSrcLoc(src_decl, mod), ty, .other);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(ty_src, mod), ty, .other);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -25982,7 +26042,7 @@ fn validateVarType(
                 const msg = try sema.errMsg(block, src, "extern variable cannot have type '{}'", .{var_ty.fmt(mod)});
                 errdefer msg.destroy(sema.gpa);
                 const src_decl = mod.declPtr(block.src_decl);
-                try sema.explainWhyTypeIsNotExtern(msg, src.toSrcLoc(src_decl, mod), var_ty, .other);
+                try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), var_ty, .other);
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
@@ -26005,7 +26065,7 @@ fn validateVarType(
         errdefer msg.destroy(sema.gpa);
 
         const src_decl = mod.declPtr(block.src_decl);
-        try sema.explainWhyTypeIsComptime(msg, src.toSrcLoc(src_decl, mod), var_ty);
+        try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(src, mod), var_ty);
         if (var_ty.zigTypeTag(mod) == .ComptimeInt or var_ty.zigTypeTag(mod) == .ComptimeFloat) {
             try sema.errNote(block, src, msg, "to modify this variable at runtime, it must be given an explicit fixed-size number type", .{});
         }
@@ -27208,10 +27268,10 @@ fn fieldCallBind(
             .Union => {
                 try sema.resolveTypeFields(concrete_ty);
                 const union_obj = mod.typeToUnion(concrete_ty).?;
-                const field_index = union_obj.nameIndex(ip, field_name) orelse break :find_field;
-                const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
+                _ = union_obj.nameIndex(ip, field_name) orelse break :find_field;
 
-                return sema.finishFieldCallBind(block, src, ptr_ty, field_ty, field_index, object_ptr);
+                const field_ptr = try unionFieldPtr(sema, block, src, object_ptr, field_name, field_name_src, concrete_ty, false);
+                return .{ .direct = try sema.analyzeLoad(block, src, field_ptr, src) };
             },
             .Type => {
                 const namespace = try sema.analyzeLoad(block, src, object_ptr, src);
@@ -28072,7 +28132,7 @@ fn validateRuntimeElemAccess(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsComptime(msg, parent_src.toSrcLoc(src_decl, mod), parent_ty);
+            try sema.explainWhyTypeIsComptime(msg, src_decl.toSrcLoc(parent_src, mod), parent_ty);
 
             break :msg msg;
         };
@@ -28452,7 +28512,7 @@ const CoerceOpts = struct {
     report_err: bool = true,
     /// Ignored if `report_err == false`.
     is_ret: bool = false,
-    /// Should coercion to comptime_int ermit an error message.
+    /// Should coercion to comptime_int emit an error message.
     no_cast_to_comptime_int: bool = false,
 
     param_src: struct {
@@ -28471,7 +28531,7 @@ const CoerceOpts = struct {
                     .lazy = LazySrcLoc.nodeOffset(param_src.node_offset_param),
                 };
             }
-            return param_src.toSrcLoc(fn_decl, mod);
+            return fn_decl.toSrcLoc(param_src, mod);
         }
     } = .{},
 };
@@ -29089,7 +29149,7 @@ fn coerceExtra(
 
             const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
             const src_decl = mod.funcOwnerDeclPtr(sema.func_index);
-            try mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl, mod), msg, "'noreturn' declared here", .{});
+            try mod.errNoteNonLazy(src_decl.toSrcLoc(ret_ty_src, mod), msg, "'noreturn' declared here", .{});
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -29124,9 +29184,9 @@ fn coerceExtra(
             const ret_ty_src: LazySrcLoc = .{ .node_offset_fn_type_ret_ty = 0 };
             const src_decl = mod.funcOwnerDeclPtr(sema.func_index);
             if (inst_ty.isError(mod) and !dest_ty.isError(mod)) {
-                try mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl, mod), msg, "function cannot return an error", .{});
+                try mod.errNoteNonLazy(src_decl.toSrcLoc(ret_ty_src, mod), msg, "function cannot return an error", .{});
             } else {
-                try mod.errNoteNonLazy(ret_ty_src.toSrcLoc(src_decl, mod), msg, "function return type declared here", .{});
+                try mod.errNoteNonLazy(src_decl.toSrcLoc(ret_ty_src, mod), msg, "function return type declared here", .{});
             }
         }
 
@@ -30144,7 +30204,7 @@ fn coerceVarArgParam(
             errdefer msg.destroy(sema.gpa);
 
             const src_decl = sema.mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, inst_src.toSrcLoc(src_decl, mod), coerced_ty, .param_ty);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(inst_src, mod), coerced_ty, .param_ty);
 
             try sema.addDeclaredHereNote(msg, coerced_ty);
             break :msg msg;
@@ -31855,6 +31915,34 @@ fn coerceArrayLike(
     }
 
     const dest_elem_ty = dest_ty.childType(mod);
+    if (dest_ty.isVector(mod) and inst_ty.isVector(mod) and (try sema.resolveValue(inst)) == null) {
+        const inst_elem_ty = inst_ty.childType(mod);
+        switch (dest_elem_ty.zigTypeTag(mod)) {
+            .Int => if (inst_elem_ty.isInt(mod)) {
+                // integer widening
+                const dst_info = dest_elem_ty.intInfo(mod);
+                const src_info = inst_elem_ty.intInfo(mod);
+                if ((src_info.signedness == dst_info.signedness and dst_info.bits >= src_info.bits) or
+                    // small enough unsigned ints can get casted to large enough signed ints
+                    (dst_info.signedness == .signed and dst_info.bits > src_info.bits))
+                {
+                    try sema.requireRuntimeBlock(block, inst_src, null);
+                    return block.addTyOp(.intcast, dest_ty, inst);
+                }
+            },
+            .Float => if (inst_elem_ty.isRuntimeFloat()) {
+                // float widening
+                const src_bits = inst_elem_ty.floatBits(target);
+                const dst_bits = dest_elem_ty.floatBits(target);
+                if (dst_bits >= src_bits) {
+                    try sema.requireRuntimeBlock(block, inst_src, null);
+                    return block.addTyOp(.fpext, dest_ty, inst);
+                }
+            },
+            else => {},
+        }
+    }
+
     const element_vals = try sema.arena.alloc(InternPool.Index, dest_len);
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, dest_len);
     var runtime_src: ?LazySrcLoc = null;
@@ -33753,7 +33841,10 @@ fn unionToTag(
         return Air.internedToRef(opv.toIntern());
     }
     if (try sema.resolveValue(un)) |un_val| {
-        return Air.internedToRef(un_val.unionTag(mod).?.toIntern());
+        const tag_val = un_val.unionTag(mod).?;
+        if (tag_val.isUndef(mod))
+            return try mod.undefRef(enum_ty);
+        return Air.internedToRef(tag_val.toIntern());
     }
     try sema.requireRuntimeBlock(block, un_src, null);
     return block.addTyOp(.get_union_tag, enum_ty, un);
@@ -34260,7 +34351,21 @@ fn resolvePeerTypesInner(
                     .peer_idx_b = i,
                 } };
 
-                if (!ty.childType(mod).eql(elem_ty, mod)) {
+                const peer_elem_ty = ty.childType(mod);
+                if (!peer_elem_ty.eql(elem_ty, mod)) coerce: {
+                    const peer_elem_coerces_to_elem =
+                        try sema.coerceInMemoryAllowed(block, elem_ty, peer_elem_ty, false, mod.getTarget(), src, src);
+                    if (peer_elem_coerces_to_elem == .ok) {
+                        break :coerce;
+                    }
+
+                    const elem_coerces_to_peer_elem =
+                        try sema.coerceInMemoryAllowed(block, peer_elem_ty, elem_ty, false, mod.getTarget(), src, src);
+                    if (elem_coerces_to_peer_elem == .ok) {
+                        elem_ty = peer_elem_ty;
+                        break :coerce;
+                    }
+
                     return .{ .conflict = .{
                         .peer_idx_a = first_arr_idx,
                         .peer_idx_b = i,
@@ -35696,7 +35801,7 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.Key.StructType) Comp
                 break :blk try sema.resolveType(&block, backing_int_src, backing_int_ref);
             } else {
                 const body = zir.bodySlice(extra_index, backing_int_body_len);
-                const ty_ref = try sema.resolveBody(&block, body, zir_index);
+                const ty_ref = try sema.resolveInlineBody(&block, body, zir_index);
                 break :blk try sema.analyzeAsType(&block, backing_int_src, ty_ref);
             }
         };
@@ -36577,7 +36682,7 @@ fn semaStructFields(
             assert(zir_field.type_body_len != 0);
             const body = zir.bodySlice(extra_index, zir_field.type_body_len);
             extra_index += body.len;
-            const ty_ref = try sema.resolveBody(&block_scope, body, zir_index);
+            const ty_ref = try sema.resolveInlineBody(&block_scope, body, zir_index);
             break :ty sema.analyzeAsType(&block_scope, .unneeded, ty_ref) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const ty_src = mod.fieldSrcLoc(decl_index, .{
@@ -36663,7 +36768,7 @@ fn semaStructFields(
         if (zir_field.align_body_len > 0) {
             const body = zir.bodySlice(extra_index, zir_field.align_body_len);
             extra_index += body.len;
-            const align_ref = try sema.resolveBody(&block_scope, body, zir_index);
+            const align_ref = try sema.resolveInlineBody(&block_scope, body, zir_index);
             const field_align = sema.analyzeAsAlign(&block_scope, .unneeded, align_ref) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const align_src = mod.fieldSrcLoc(decl_index, .{
@@ -36813,7 +36918,7 @@ fn semaStructFieldInits(
             try sema.inst_map.ensureSpaceForInstructions(sema.gpa, &.{zir_index});
             sema.inst_map.putAssumeCapacity(zir_index, type_ref);
 
-            const init = try sema.resolveBody(&block_scope, body, zir_index);
+            const init = try sema.resolveInlineBody(&block_scope, body, zir_index);
             const coerced = sema.coerce(&block_scope, field_ty, init, .unneeded) catch |err| switch (err) {
                 error.NeededSourceLocation => {
                     const init_src = mod.fieldSrcLoc(decl_index, .{
@@ -36930,7 +37035,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
     defer assert(block_scope.instructions.items.len == 0);
 
     if (body.len != 0) {
-        try sema.analyzeBody(&block_scope, body);
+        _ = try sema.analyzeInlineBody(&block_scope, body, zir_index);
     }
 
     for (comptime_mutable_decls.items) |ct_decl_index| {
@@ -37139,7 +37244,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Key.Un
                     });
                     errdefer msg.destroy(sema.gpa);
                     const decl_ptr = mod.declPtr(tag_info.decl);
-                    try mod.errNoteNonLazy(enum_field_src.toSrcLoc(decl_ptr, mod), msg, "enum field here", .{});
+                    try mod.errNoteNonLazy(decl_ptr.toSrcLoc(enum_field_src, mod), msg, "enum field here", .{});
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);
@@ -37268,7 +37373,7 @@ fn generateUnionTagTypeNumbered(
     const src_decl = mod.declPtr(block.src_decl);
     const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
     errdefer mod.destroyDecl(new_decl_index);
-    const fqn = try decl.getFullyQualifiedName(mod);
+    const fqn = try decl.fullyQualifiedName(mod);
     const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
     try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
         .ty = Type.noreturn,
@@ -37277,7 +37382,6 @@ fn generateUnionTagTypeNumbered(
     errdefer mod.abortAnonDecl(new_decl_index);
 
     const new_decl = mod.declPtr(new_decl_index);
-    new_decl.name_fully_qualified = true;
     new_decl.owns_tv = true;
     new_decl.name_fully_qualified = true;
 
@@ -37318,7 +37422,7 @@ fn generateUnionTagTypeSimple(
                 .val = Value.@"unreachable",
             });
         };
-        const fqn = try mod.declPtr(decl_index).getFullyQualifiedName(mod);
+        const fqn = try mod.declPtr(decl_index).fullyQualifiedName(mod);
         const src_decl = mod.declPtr(block.src_decl);
         const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node, block.wip_capture_scope);
         errdefer mod.destroyDecl(new_decl_index);
@@ -37874,15 +37978,25 @@ pub const AddressSpaceContext = enum {
     pointer,
 };
 
-pub fn analyzeAddressSpace(
+fn resolveAddressSpace(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
     ctx: AddressSpaceContext,
 ) !std.builtin.AddressSpace {
-    const mod = sema.mod;
     const air_ref = try sema.resolveInst(zir_ref);
+    return sema.analyzeAsAddressSpace(block, src, air_ref, ctx);
+}
+
+pub fn analyzeAsAddressSpace(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    air_ref: Air.Inst.Ref,
+    ctx: AddressSpaceContext,
+) !std.builtin.AddressSpace {
+    const mod = sema.mod;
     const coerced = try sema.coerce(block, Type.fromInterned(.address_space_type), air_ref, src);
     const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{
         .needed_comptime_reason = "address space must be comptime-known",

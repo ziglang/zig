@@ -8,6 +8,7 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 objc_methnames: std.ArrayListUnmanaged(u8) = .{},
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
+num_rebase_relocs: u32 = 0,
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn deinit(self: *InternalObject, allocator: Allocator) void {
@@ -115,6 +116,7 @@ fn addObjcSelrefsSection(
         },
     });
     atom.relocs = .{ .pos = 0, .len = 1 };
+    self.num_rebase_relocs += 1;
 
     return atom_index;
 }

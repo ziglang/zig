@@ -70,7 +70,7 @@ pub fn fill(self: *Sfc64, buf: []u8) void {
     }
 }
 
-test "Sfc64 sequence" {
+test "sequence" {
     // Unfortunately there does not seem to be an official test sequence.
     var r = Sfc64.init(0);
 
@@ -98,7 +98,7 @@ test "Sfc64 sequence" {
     }
 }
 
-test "Sfc64 fill" {
+test fill {
     // Unfortunately there does not seem to be an official test sequence.
     var r = Sfc64.init(0);
 

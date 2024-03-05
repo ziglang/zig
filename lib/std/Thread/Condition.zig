@@ -296,7 +296,7 @@ const FutexImpl = struct {
     }
 };
 
-test "Condition - smoke test" {
+test "smoke test" {
     var mutex = Mutex{};
     var cond = Condition{};
 
@@ -317,7 +317,7 @@ test "Condition - smoke test" {
 }
 
 // Inspired from: https://github.com/Amanieu/parking_lot/pull/129
-test "Condition - wait and signal" {
+test "wait and signal" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -362,7 +362,7 @@ test "Condition - wait and signal" {
     }
 }
 
-test "Condition - signal" {
+test signal {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -429,7 +429,7 @@ test "Condition - signal" {
     }
 }
 
-test "Condition - multi signal" {
+test "multi signal" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -491,7 +491,7 @@ test "Condition - multi signal" {
     }
 }
 
-test "Condition - broadcasting" {
+test broadcast {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -557,7 +557,7 @@ test "Condition - broadcasting" {
     }
 }
 
-test "Condition - broadcasting - wake all threads" {
+test "broadcasting - wake all threads" {
     // Tests issue #12877
     // This test requires spawning threads
     if (builtin.single_threaded) {

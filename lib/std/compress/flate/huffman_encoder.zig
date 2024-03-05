@@ -360,7 +360,7 @@ fn byFreq(context: void, a: LiteralNode, b: LiteralNode) bool {
     return a.freq < b.freq;
 }
 
-test "flate.HuffmanEncoder generate a Huffman code from an array of frequencies" {
+test "generate a Huffman code from an array of frequencies" {
     var freqs: [19]u16 = [_]u16{
         8, // 0
         1, // 1
@@ -421,7 +421,7 @@ test "flate.HuffmanEncoder generate a Huffman code from an array of frequencies"
     try testing.expectEqual(@as(u16, 0x3f), enc.codes[16].code);
 }
 
-test "flate.HuffmanEncoder generate a Huffman code for the fixed literal table specific to Deflate" {
+test "generate a Huffman code for the fixed literal table specific to Deflate" {
     const enc = fixedLiteralEncoder();
     for (enc.codes) |c| {
         switch (c.len) {
@@ -443,7 +443,7 @@ test "flate.HuffmanEncoder generate a Huffman code for the fixed literal table s
     }
 }
 
-test "flate.HuffmanEncoder generate a Huffman code for the 30 possible relative distances (LZ77 distances) of Deflate" {
+test "generate a Huffman code for the 30 possible relative distances (LZ77 distances) of Deflate" {
     const enc = fixedDistanceEncoder();
     for (enc.codes) |c| {
         const v = @bitReverse(@as(u5, @intCast(c.code)));
@@ -458,7 +458,7 @@ fn bitReverse(comptime T: type, value: T, n: usize) T {
     return r >> @as(math.Log2Int(T), @intCast(@typeInfo(T).Int.bits - n));
 }
 
-test "flate bitReverse" {
+test bitReverse {
     const ReverseBitsTest = struct {
         in: u16,
         bit_count: u5,
@@ -482,7 +482,7 @@ test "flate bitReverse" {
     }
 }
 
-test "flate.HuffmanEncoder fixedLiteralEncoder codes" {
+test "fixedLiteralEncoder codes" {
     var al = std.ArrayList(u8).init(testing.allocator);
     defer al.deinit();
     var bw = std.io.bitWriter(.little, al.writer());

@@ -120,7 +120,7 @@ pub fn directEnumArray(
     return directEnumArrayDefault(E, Data, null, max_unused_slots, init_values);
 }
 
-test "std.enums.directEnumArray" {
+test directEnumArray {
     const E = enum(i4) { a = 4, b = 6, c = 2 };
     var runtime_false: bool = false;
     _ = &runtime_false;
@@ -163,7 +163,7 @@ pub fn directEnumArrayDefault(
     return result;
 }
 
-test "std.enums.directEnumArrayDefault" {
+test directEnumArrayDefault {
     const E = enum(i4) { a = 4, b = 6, c = 2 };
     var runtime_false: bool = false;
     _ = &runtime_false;
@@ -178,7 +178,7 @@ test "std.enums.directEnumArrayDefault" {
     try testing.expectEqual(false, array[2]);
 }
 
-test "std.enums.directEnumArrayDefault slice" {
+test "directEnumArrayDefault slice" {
     const E = enum(i4) { a = 4, b = 6, c = 2 };
     var runtime_b = "b";
     _ = &runtime_b;
@@ -214,7 +214,7 @@ pub fn nameCast(comptime E: type, comptime value: anytype) E {
     };
 }
 
-test "std.enums.nameCast" {
+test nameCast {
     const A = enum(u1) { a = 0, b = 1 };
     const B = enum(u1) { a = 1, b = 0 };
     try testing.expectEqual(A.a, nameCast(A, .a));
@@ -515,7 +515,7 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
     };
 }
 
-test "EnumMultiset" {
+test EnumMultiset {
     const Ball = enum { red, green, blue };
 
     const empty = EnumMultiset(Ball).initEmpty();
@@ -983,7 +983,7 @@ test "pure EnumSet fns" {
     try testing.expect(full.differenceWith(black).eql(red));
 }
 
-test "std.enums.EnumSet empty" {
+test "EnumSet empty" {
     const E = enum {};
     const empty = EnumSet(E).initEmpty();
     const full = EnumSet(E).initFull();
@@ -994,7 +994,7 @@ test "std.enums.EnumSet empty" {
     try std.testing.expect(empty.eql(full.complement()));
 }
 
-test "std.enums.EnumSet const iterator" {
+test "EnumSet const iterator" {
     const Direction = enum { up, down, left, right };
     const diag_move = init: {
         var move = EnumSet(Direction).initEmpty();
@@ -1298,7 +1298,7 @@ pub fn ensureIndexer(comptime T: type) void {
     }
 }
 
-test "std.enums.ensureIndexer" {
+test ensureIndexer {
     ensureIndexer(struct {
         pub const Key = u32;
         pub const count: comptime_int = 8;
@@ -1463,7 +1463,7 @@ test "EnumIndexer non-exhaustive" {
     }
 }
 
-test "std.enums.EnumIndexer dense zeroed" {
+test "EnumIndexer dense zeroed" {
     const E = enum(u2) { b = 1, a = 0, c = 2 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
@@ -1479,7 +1479,7 @@ test "std.enums.EnumIndexer dense zeroed" {
     try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }
 
-test "std.enums.EnumIndexer dense positive" {
+test "EnumIndexer dense positive" {
     const E = enum(u4) { c = 6, a = 4, b = 5 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
@@ -1495,7 +1495,7 @@ test "std.enums.EnumIndexer dense positive" {
     try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }
 
-test "std.enums.EnumIndexer dense negative" {
+test "EnumIndexer dense negative" {
     const E = enum(i4) { a = -6, c = -4, b = -5 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
@@ -1511,7 +1511,7 @@ test "std.enums.EnumIndexer dense negative" {
     try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }
 
-test "std.enums.EnumIndexer sparse" {
+test "EnumIndexer sparse" {
     const E = enum(i4) { a = -2, c = 6, b = 4 };
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
@@ -1527,7 +1527,7 @@ test "std.enums.EnumIndexer sparse" {
     try testing.expectEqual(E.c, Indexer.keyForIndex(2));
 }
 
-test "std.enums.EnumIndexer empty" {
+test "EnumIndexer empty" {
     const E = enum {};
     const Indexer = EnumIndexer(E);
     ensureIndexer(Indexer);
@@ -1535,7 +1535,7 @@ test "std.enums.EnumIndexer empty" {
     try testing.expectEqual(0, Indexer.count);
 }
 
-test "enumValues" {
+test values {
     const E = enum {
         X,
         Y,

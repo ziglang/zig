@@ -140,11 +140,11 @@ pub const DeclState = struct {
         switch (ty.zigTypeTag(mod)) {
             .NoReturn => unreachable,
             .Void => {
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.pad1));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.zero_bit_type));
             },
             .Bool => {
                 try dbg_info_buffer.ensureUnusedCapacity(12);
-                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.base_type));
+                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.base_type));
                 // DW.AT.encoding, DW.FORM.data1
                 dbg_info_buffer.appendAssumeCapacity(DW.ATE.boolean);
                 // DW.AT.byte_size, DW.FORM.udata
@@ -155,7 +155,7 @@ pub const DeclState = struct {
             .Int => {
                 const info = ty.intInfo(mod);
                 try dbg_info_buffer.ensureUnusedCapacity(12);
-                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.base_type));
+                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.base_type));
                 // DW.AT.encoding, DW.FORM.data1
                 dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
                     .signed => DW.ATE.signed,
@@ -169,7 +169,7 @@ pub const DeclState = struct {
             .Optional => {
                 if (ty.isPtrLikeOptional(mod)) {
                     try dbg_info_buffer.ensureUnusedCapacity(12);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.base_type));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.base_type));
                     // DW.AT.encoding, DW.FORM.data1
                     dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
                     // DW.AT.byte_size, DW.FORM.udata
@@ -180,7 +180,7 @@ pub const DeclState = struct {
                     // Non-pointer optionals are structs: struct { .maybe = *, .val = * }
                     const payload_ty = ty.optionalChild(mod);
                     // DW.AT.structure_type
-                    try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_type));
+                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
                     const abi_size = ty.abiSize(mod);
                     try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
@@ -188,7 +188,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(7);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("maybe");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -200,7 +200,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.ensureUnusedCapacity(6);
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.member
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("val");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -222,14 +222,14 @@ pub const DeclState = struct {
                     const ptr_bytes: u8 = @intCast(@divExact(ptr_bits, 8));
                     // DW.AT.structure_type
                     try dbg_info_buffer.ensureUnusedCapacity(2);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_type));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(5);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("ptr");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -242,7 +242,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.ensureUnusedCapacity(6);
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.member
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("len");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -257,7 +257,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                 } else {
                     try dbg_info_buffer.ensureUnusedCapacity(5);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.ptr_type));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.ptr_type));
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
                     try dbg_info_buffer.resize(index + 4);
@@ -266,7 +266,7 @@ pub const DeclState = struct {
             },
             .Array => {
                 // DW.AT.array_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.array_type));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.array_type));
                 // DW.AT.name, DW.FORM.string
                 try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                 // DW.AT.type, DW.FORM.ref4
@@ -274,7 +274,7 @@ pub const DeclState = struct {
                 try dbg_info_buffer.resize(index + 4);
                 try self.addTypeRelocGlobal(atom_index, ty.childType(mod), @intCast(index));
                 // DW.AT.subrange_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.array_dim));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.array_dim));
                 // DW.AT.type, DW.FORM.ref4
                 index = dbg_info_buffer.items.len;
                 try dbg_info_buffer.resize(index + 4);
@@ -287,7 +287,7 @@ pub const DeclState = struct {
             },
             .Struct => {
                 // DW.AT.structure_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_type));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
 
@@ -299,7 +299,7 @@ pub const DeclState = struct {
 
                             for (fields.types.get(ip), 0..) |field_ty, field_index| {
                                 // DW.AT.member
-                                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
+                                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));
                                 // DW.AT.name, DW.FORM.string
                                 try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                 // DW.AT.type, DW.FORM.ref4
@@ -325,7 +325,7 @@ pub const DeclState = struct {
                                 for (struct_type.field_types.get(ip), struct_type.offsets.get(ip), 0..) |field_ty, field_off, field_index| {
                                     if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                                     // DW.AT.member
-                                    try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
+                                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));
                                     // DW.AT.name, DW.FORM.string
                                     try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                     // DW.AT.type, DW.FORM.ref4
@@ -345,7 +345,7 @@ pub const DeclState = struct {
                                     const field_name = ip.stringToSlice(field_name_ip);
                                     // DW.AT.member
                                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2);
-                                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                                     // DW.AT.name, DW.FORM.string
                                     dbg_info_buffer.appendSliceAssumeCapacity(field_name);
                                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -367,7 +367,7 @@ pub const DeclState = struct {
             },
             .Enum => {
                 // DW.AT.enumeration_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.enum_type));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.enum_type));
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), ty.abiSize(mod));
                 // DW.AT.name, DW.FORM.string
@@ -379,7 +379,7 @@ pub const DeclState = struct {
                     const field_name = ip.stringToSlice(field_name_index);
                     // DW.AT.enumerator
                     try dbg_info_buffer.ensureUnusedCapacity(field_name.len + 2 + @sizeOf(u64));
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.enum_variant));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity(field_name);
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -409,7 +409,7 @@ pub const DeclState = struct {
                 const is_tagged = layout.tag_size > 0;
                 if (is_tagged) {
                     // DW.AT.structure_type
-                    try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_type));
+                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                     // DW.AT.byte_size, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), layout.abi_size);
                     // DW.AT.name, DW.FORM.string
@@ -418,7 +418,7 @@ pub const DeclState = struct {
 
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(9);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("payload");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -431,7 +431,7 @@ pub const DeclState = struct {
                 }
 
                 // DW.AT.union_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.union_type));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.union_type));
                 // DW.AT.byte_size, DW.FORM.udata,
                 try leb128.writeULEB128(dbg_info_buffer.writer(), layout.payload_size);
                 // DW.AT.name, DW.FORM.string
@@ -445,7 +445,7 @@ pub const DeclState = struct {
                 for (union_obj.field_types.get(ip), union_obj.field_names.get(ip)) |field_ty, field_name| {
                     if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                     // DW.AT.member
-                    try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_member));
+                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     try dbg_info_buffer.appendSlice(ip.stringToSlice(field_name));
                     try dbg_info_buffer.append(0);
@@ -462,7 +462,7 @@ pub const DeclState = struct {
                 if (is_tagged) {
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(5);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("tag");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -488,7 +488,7 @@ pub const DeclState = struct {
                 const error_off = if (error_align.compare(.gte, payload_align)) 0 else payload_ty.abiSize(mod);
 
                 // DW.AT.structure_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.struct_type));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
                 // DW.AT.byte_size, DW.FORM.udata
                 try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
                 // DW.AT.name, DW.FORM.string
@@ -498,7 +498,7 @@ pub const DeclState = struct {
                 if (!payload_ty.isNoReturn(mod)) {
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(7);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("value");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -513,7 +513,7 @@ pub const DeclState = struct {
                 {
                     // DW.AT.member
                     try dbg_info_buffer.ensureUnusedCapacity(5);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.struct_member));
+                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
                     // DW.AT.name, DW.FORM.string
                     dbg_info_buffer.appendSliceAssumeCapacity("err");
                     dbg_info_buffer.appendAssumeCapacity(0);
@@ -530,7 +530,7 @@ pub const DeclState = struct {
             },
             else => {
                 log.debug("TODO implement .debug_info for type '{}'", .{ty.fmt(self.mod)});
-                try dbg_info_buffer.append(@intFromEnum(AbbrevKind.pad1));
+                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.zero_bit_type));
             },
         }
     }
@@ -565,7 +565,7 @@ pub const DeclState = struct {
         switch (loc) {
             .register => |reg| {
                 try dbg_info.ensureUnusedCapacity(4);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevKind.parameter));
+                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevCode.parameter));
                 // DW.AT.location, DW.FORM.exprloc
                 var expr_len = std.io.countingWriter(std.io.null_writer);
                 if (reg < 32) {
@@ -587,7 +587,7 @@ pub const DeclState = struct {
                 const reg_bytes: u8 = @intCast(@divExact(reg_bits, 8));
                 const abi_size = ty.abiSize(self.mod);
                 try dbg_info.ensureUnusedCapacity(10);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevKind.parameter));
+                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevCode.parameter));
                 // DW.AT.location, DW.FORM.exprloc
                 var expr_len = std.io.countingWriter(std.io.null_writer);
                 for (regs, 0..) |reg, reg_i| {
@@ -620,7 +620,7 @@ pub const DeclState = struct {
             },
             .stack => |info| {
                 try dbg_info.ensureUnusedCapacity(9);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevKind.parameter));
+                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevCode.parameter));
                 // DW.AT.location, DW.FORM.exprloc
                 var expr_len = std.io.countingWriter(std.io.null_writer);
                 if (info.fp_register < 32) {
@@ -649,7 +649,7 @@ pub const DeclState = struct {
                 // where each argument is encoded as
                 // <opcode> i:uleb128
                 dbg_info.appendSliceAssumeCapacity(&.{
-                    @intFromEnum(AbbrevKind.parameter),
+                    @intFromEnum(AbbrevCode.parameter),
                     DW.OP.WASM_location,
                     DW.OP.WASM_local,
                 });
@@ -676,7 +676,7 @@ pub const DeclState = struct {
         const dbg_info = &self.dbg_info;
         const atom_index = self.di_atom_decls.get(owner_decl).?;
         const name_with_null = name.ptr[0 .. name.len + 1];
-        try dbg_info.append(@intFromEnum(AbbrevKind.variable));
+        try dbg_info.append(@intFromEnum(AbbrevCode.variable));
         const gpa = self.dwarf.allocator;
         const mod = self.mod;
         const target = mod.getTarget();
@@ -991,8 +991,10 @@ pub const ExprlocRelocation = struct {
 
 pub const PtrWidth = enum { p32, p64 };
 
-pub const AbbrevKind = enum(u8) {
-    compile_unit = 1,
+pub const AbbrevCode = enum(u8) {
+    null,
+    padding,
+    compile_unit,
     subprogram,
     subprogram_retvoid,
     base_type,
@@ -1002,7 +1004,7 @@ pub const AbbrevKind = enum(u8) {
     enum_type,
     enum_variant,
     union_type,
-    pad1,
+    zero_bit_type,
     parameter,
     variable,
     array_type,
@@ -1080,7 +1082,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
-    const decl_linkage_name = try decl.getFullyQualifiedName(mod);
+    const decl_linkage_name = try decl.fullyQualifiedName(mod);
 
     log.debug("initDeclState {}{*}", .{ decl_linkage_name.fmt(&mod.intern_pool), decl });
 
@@ -1162,7 +1164,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             const fn_ret_type = decl.ty.fnReturnType(mod);
             const fn_ret_has_bits = fn_ret_type.hasRuntimeBits(mod);
             dbg_info_buffer.appendAssumeCapacity(@intFromEnum(
-                @as(AbbrevKind, if (fn_ret_has_bits) .subprogram else .subprogram_retvoid),
+                @as(AbbrevCode, if (fn_ret_has_bits) .subprogram else .subprogram_retvoid),
             ));
             // These get overwritten after generating the machine code. These values are
             // "relocations" and have to be in this fixed place so that functions can be
@@ -1295,9 +1297,9 @@ pub fn commitDeclState(
                                 }
                             },
                             .wasm => {
-                                const wasm_file = self.bin_file.cast(File.Wasm).?;
-                                const debug_line = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-                                writeDbgLineNopsBuffered(debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
+                                // const wasm_file = self.bin_file.cast(File.Wasm).?;
+                                // const debug_line = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
+                                // writeDbgLineNopsBuffered(debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
                             },
                             else => unreachable,
                         }
@@ -1388,26 +1390,26 @@ pub fn commitDeclState(
                 },
 
                 .wasm => {
-                    const wasm_file = self.bin_file.cast(File.Wasm).?;
-                    const atom = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?);
-                    const debug_line = &atom.code;
-                    const segment_size = debug_line.items.len;
-                    if (needed_size != segment_size) {
-                        log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-                        if (needed_size > segment_size) {
-                            log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment_size});
-                            try debug_line.resize(self.allocator, needed_size);
-                            @memset(debug_line.items[segment_size..], 0);
-                        }
-                        debug_line.items.len = needed_size;
-                    }
-                    writeDbgLineNopsBuffered(
-                        debug_line.items,
-                        src_fn.off,
-                        prev_padding_size,
-                        dbg_line_buffer.items,
-                        next_padding_size,
-                    );
+                    // const wasm_file = self.bin_file.cast(File.Wasm).?;
+                    // const atom = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?);
+                    // const debug_line = &atom.code;
+                    // const segment_size = debug_line.items.len;
+                    // if (needed_size != segment_size) {
+                    //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
+                    //     if (needed_size > segment_size) {
+                    //         log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment_size});
+                    //         try debug_line.resize(self.allocator, needed_size);
+                    //         @memset(debug_line.items[segment_size..], 0);
+                    //     }
+                    //     debug_line.items.len = needed_size;
+                    // }
+                    // writeDbgLineNopsBuffered(
+                    //     debug_line.items,
+                    //     src_fn.off,
+                    //     prev_padding_size,
+                    //     dbg_line_buffer.items,
+                    //     next_padding_size,
+                    // );
                 },
                 else => unreachable,
             }
@@ -1551,10 +1553,10 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
                         }
                     },
                     .wasm => {
-                        const wasm_file = self.bin_file.cast(File.Wasm).?;
-                        const debug_info_index = wasm_file.debug_info_atom.?;
-                        const debug_info = &wasm_file.getAtomPtr(debug_info_index).code;
-                        try writeDbgInfoNopsToArrayList(gpa, debug_info, atom.off, 0, &.{0}, atom.len, false);
+                        // const wasm_file = self.bin_file.cast(File.Wasm).?;
+                        // const debug_info_index = wasm_file.debug_info_atom.?;
+                        // const debug_info = &wasm_file.getAtomPtr(debug_info_index).code;
+                        // try writeDbgInfoNopsToArrayList(gpa, debug_info, atom.off, 0, &.{0}, atom.len, false);
                     },
                     else => unreachable,
                 }
@@ -1592,7 +1594,6 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
     // This logic is nearly identical to the logic above in `updateDecl` for
     // `SrcFn` and the line number programs. If you are editing this logic, you
     // probably need to edit that logic too.
-    const gpa = self.allocator;
 
     const atom = self.getAtom(.di_atom, atom_index);
     const last_decl_index = self.di_atom_last_index.?;
@@ -1663,31 +1664,31 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
         },
 
         .wasm => {
-            const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const info_atom = wasm_file.debug_info_atom.?;
-            const debug_info = &wasm_file.getAtomPtr(info_atom).code;
-            const segment_size = debug_info.items.len;
-            if (needed_size != segment_size) {
-                log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-                if (needed_size > segment_size) {
-                    log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment_size});
-                    try debug_info.resize(self.allocator, needed_size);
-                    @memset(debug_info.items[segment_size..], 0);
-                }
-                debug_info.items.len = needed_size;
-            }
-            log.debug(" writeDbgInfoNopsToArrayList debug_info_len={d} offset={d} content_len={d} next_padding_size={d}", .{
-                debug_info.items.len, atom.off, dbg_info_buf.len, next_padding_size,
-            });
-            try writeDbgInfoNopsToArrayList(
-                gpa,
-                debug_info,
-                atom.off,
-                prev_padding_size,
-                dbg_info_buf,
-                next_padding_size,
-                trailing_zero,
-            );
+            // const wasm_file = self.bin_file.cast(File.Wasm).?;
+            // const info_atom = wasm_file.debug_info_atom.?;
+            // const debug_info = &wasm_file.getAtomPtr(info_atom).code;
+            // const segment_size = debug_info.items.len;
+            // if (needed_size != segment_size) {
+            //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
+            //     if (needed_size > segment_size) {
+            //         log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment_size});
+            //         try debug_info.resize(self.allocator, needed_size);
+            //         @memset(debug_info.items[segment_size..], 0);
+            //     }
+            //     debug_info.items.len = needed_size;
+            // }
+            // log.debug(" writeDbgInfoNopsToArrayList debug_info_len={d} offset={d} content_len={d} next_padding_size={d}", .{
+            //     debug_info.items.len, atom.off, dbg_info_buf.len, next_padding_size,
+            // });
+            // try writeDbgInfoNopsToArrayList(
+            //     gpa,
+            //     debug_info,
+            //     atom.off,
+            //     prev_padding_size,
+            //     dbg_info_buf,
+            //     next_padding_size,
+            //     trailing_zero,
+            // );
         },
         else => unreachable,
     }
@@ -1733,10 +1734,10 @@ pub fn updateDeclLineNumber(self: *Dwarf, mod: *Module, decl_index: InternPool.D
             }
         },
         .wasm => {
-            const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const offset = atom.off + self.getRelocDbgLineOff();
-            const line_atom_index = wasm_file.debug_line_atom.?;
-            wasm_file.getAtomPtr(line_atom_index).code.items[offset..][0..data.len].* = data;
+            // const wasm_file = self.bin_file.cast(File.Wasm).?;
+            // const offset = atom.off + self.getRelocDbgLineOff();
+            // const line_atom_index = wasm_file.debug_line_atom.?;
+            // wasm_file.getAtomPtr(line_atom_index).code.items[offset..][0..data.len].* = data;
         },
         else => unreachable,
     }
@@ -1801,12 +1802,18 @@ pub fn freeDecl(self: *Dwarf, decl_index: InternPool.DeclIndex) void {
 }
 
 pub fn writeDbgAbbrev(self: *Dwarf) !void {
-    const gpa = self.allocator;
     // These are LEB encoded but since the values are all less than 127
     // we can simply append these bytes.
     // zig fmt: off
     const abbrev_buf = [_]u8{
-        @intFromEnum(AbbrevKind.compile_unit),
+        @intFromEnum(AbbrevCode.padding),
+        @as(u8, 0x80) | @as(u7, @truncate(DW.TAG.ZIG_padding >> 0)),
+        @as(u8, 0x80) | @as(u7, @truncate(DW.TAG.ZIG_padding >> 7)),
+        @as(u8, 0x00) | @as(u7, @intCast(DW.TAG.ZIG_padding >> 14)),
+        DW.CHILDREN.no,
+        0, 0,
+
+        @intFromEnum(AbbrevCode.compile_unit),
         DW.TAG.compile_unit,
         DW.CHILDREN.yes,
         DW.AT.stmt_list, DW.FORM.sec_offset,
@@ -1818,7 +1825,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.language,  DW.FORM.data2,
         0,               0,
 
-        @intFromEnum(AbbrevKind.subprogram),
+        @intFromEnum(AbbrevCode.subprogram),
         DW.TAG.subprogram,
         DW.CHILDREN.yes,
         DW.AT.low_pc,       DW.FORM.addr,
@@ -1828,7 +1835,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.linkage_name, DW.FORM.string,
         0,                  0,
 
-        @intFromEnum(AbbrevKind.subprogram_retvoid),
+        @intFromEnum(AbbrevCode.subprogram_retvoid),
         DW.TAG.subprogram,
         DW.CHILDREN.yes,
         DW.AT.low_pc,       DW.FORM.addr,
@@ -1837,25 +1844,25 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.linkage_name, DW.FORM.string,
         0,                  0,
 
-        @intFromEnum(AbbrevKind.base_type),
+        @intFromEnum(AbbrevCode.base_type),
         DW.TAG.base_type, DW.CHILDREN.no,
         DW.AT.encoding,   DW.FORM.data1,
         DW.AT.byte_size,  DW.FORM.udata,
         DW.AT.name,       DW.FORM.string,
         0,                0,
 
-        @intFromEnum(AbbrevKind.ptr_type),
+        @intFromEnum(AbbrevCode.ptr_type),
         DW.TAG.pointer_type, DW.CHILDREN.no,
         DW.AT.type,          DW.FORM.ref4,
         0,                   0,
 
-        @intFromEnum(AbbrevKind.struct_type),
+        @intFromEnum(AbbrevCode.struct_type),
         DW.TAG.structure_type, DW.CHILDREN.yes,
         DW.AT.byte_size,       DW.FORM.udata,
         DW.AT.name,            DW.FORM.string,
         0,                     0,
 
-        @intFromEnum(AbbrevKind.struct_member),
+        @intFromEnum(AbbrevCode.struct_member),
         DW.TAG.member,
         DW.CHILDREN.no,
         DW.AT.name,                 DW.FORM.string,
@@ -1863,31 +1870,31 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.data_member_location, DW.FORM.udata,
         0,                          0,
 
-        @intFromEnum(AbbrevKind.enum_type),
+        @intFromEnum(AbbrevCode.enum_type),
         DW.TAG.enumeration_type,
         DW.CHILDREN.yes,
         DW.AT.byte_size, DW.FORM.udata,
         DW.AT.name,      DW.FORM.string,
         0,               0,
 
-        @intFromEnum(AbbrevKind.enum_variant),
+        @intFromEnum(AbbrevCode.enum_variant),
         DW.TAG.enumerator, DW.CHILDREN.no,
         DW.AT.name,        DW.FORM.string,
         DW.AT.const_value, DW.FORM.data8,
         0,                 0,
 
-        @intFromEnum(AbbrevKind.union_type),
+        @intFromEnum(AbbrevCode.union_type),
         DW.TAG.union_type, DW.CHILDREN.yes,
         DW.AT.byte_size,   DW.FORM.udata,
         DW.AT.name,        DW.FORM.string,
         0,                 0,
 
-        @intFromEnum(AbbrevKind.pad1),
+        @intFromEnum(AbbrevCode.zero_bit_type),
         DW.TAG.unspecified_type,
         DW.CHILDREN.no,
         0, 0,
 
-        @intFromEnum(AbbrevKind.parameter),
+        @intFromEnum(AbbrevCode.parameter),
         DW.TAG.formal_parameter,
         DW.CHILDREN.no,
         DW.AT.location, DW.FORM.exprloc,
@@ -1895,7 +1902,7 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.name,     DW.FORM.string,
         0,              0,
 
-        @intFromEnum(AbbrevKind.variable),
+        @intFromEnum(AbbrevCode.variable),
         DW.TAG.variable,
         DW.CHILDREN.no,
         DW.AT.location, DW.FORM.exprloc,
@@ -1903,14 +1910,14 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
         DW.AT.name,     DW.FORM.string,
         0,              0,
 
-        @intFromEnum(AbbrevKind.array_type),
+        @intFromEnum(AbbrevCode.array_type),
         DW.TAG.array_type,
         DW.CHILDREN.yes,
         DW.AT.name, DW.FORM.string,
         DW.AT.type, DW.FORM.ref4,
         0,          0,
 
-        @intFromEnum(AbbrevKind.array_dim),
+        @intFromEnum(AbbrevCode.array_dim),
         DW.TAG.subrange_type,
         DW.CHILDREN.no,
         DW.AT.type,  DW.FORM.ref4,
@@ -1951,10 +1958,10 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
             }
         },
         .wasm => {
-            const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_abbrev = &wasm_file.getAtomPtr(wasm_file.debug_abbrev_atom.?).code;
-            try debug_abbrev.resize(gpa, needed_size);
-            debug_abbrev.items[0..abbrev_buf.len].* = abbrev_buf;
+            // const wasm_file = self.bin_file.cast(File.Wasm).?;
+            // const debug_abbrev = &wasm_file.getAtomPtr(wasm_file.debug_abbrev_atom.?).code;
+            // try debug_abbrev.resize(gpa, needed_size);
+            // debug_abbrev.items[0..abbrev_buf.len].* = abbrev_buf;
         },
         else => unreachable,
     }
@@ -2007,7 +2014,7 @@ pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Module, low_pc: u64, high_pc: u64)
     const comp_dir_strp = try self.strtab.insert(self.allocator, compile_unit_dir);
     const producer_strp = try self.strtab.insert(self.allocator, link.producer_string);
 
-    di_buf.appendAssumeCapacity(@intFromEnum(AbbrevKind.compile_unit));
+    di_buf.appendAssumeCapacity(@intFromEnum(AbbrevCode.compile_unit));
     self.writeOffsetAssumeCapacity(&di_buf, 0); // DW.AT.stmt_list, DW.FORM.sec_offset
     self.writeAddrAssumeCapacity(&di_buf, low_pc);
     self.writeAddrAssumeCapacity(&di_buf, high_pc);
@@ -2046,9 +2053,9 @@ pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Module, low_pc: u64, high_pc: u64)
             }
         },
         .wasm => {
-            const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_info = &wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
-            try writeDbgInfoNopsToArrayList(self.allocator, debug_info, 0, 0, di_buf.items, jmp_amt, false);
+            // const wasm_file = self.bin_file.cast(File.Wasm).?;
+            // const debug_info = &wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
+            // try writeDbgInfoNopsToArrayList(self.allocator, debug_info, 0, 0, di_buf.items, jmp_amt, false);
         },
         else => unreachable,
     }
@@ -2226,7 +2233,7 @@ fn pwriteDbgInfoNops(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const page_of_nops = [1]u8{@intFromEnum(AbbrevKind.pad1)} ** 4096;
+    const page_of_nops = [1]u8{@intFromEnum(AbbrevCode.padding)} ** 4096;
     var vecs: [32]std.os.iovec_const = undefined;
     var vec_index: usize = 0;
     {
@@ -2298,9 +2305,9 @@ fn writeDbgInfoNopsToArrayList(
         buffer.items.len,
         offset + content.len + next_padding_size + 1,
     ));
-    @memset(buffer.items[offset - prev_padding_size .. offset], @intFromEnum(AbbrevKind.pad1));
+    @memset(buffer.items[offset - prev_padding_size .. offset], @intFromEnum(AbbrevCode.padding));
     @memcpy(buffer.items[offset..][0..content.len], content);
-    @memset(buffer.items[offset + content.len ..][0..next_padding_size], @intFromEnum(AbbrevKind.pad1));
+    @memset(buffer.items[offset + content.len ..][0..next_padding_size], @intFromEnum(AbbrevCode.padding));
 
     if (trailing_zero) {
         buffer.items[offset + content.len + next_padding_size] = 0;
@@ -2309,7 +2316,6 @@ fn writeDbgInfoNopsToArrayList(
 
 pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
     const comp = self.bin_file.comp;
-    const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
     const target_endian = target.cpu.arch.endian();
     const ptr_width_bytes = self.ptrWidthBytes();
@@ -2382,10 +2388,10 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
             }
         },
         .wasm => {
-            const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_ranges = &wasm_file.getAtomPtr(wasm_file.debug_ranges_atom.?).code;
-            try debug_ranges.resize(gpa, needed_size);
-            @memcpy(debug_ranges.items[0..di_buf.items.len], di_buf.items);
+            // const wasm_file = self.bin_file.cast(File.Wasm).?;
+            // const debug_ranges = &wasm_file.getAtomPtr(wasm_file.debug_ranges_atom.?).code;
+            // try debug_ranges.resize(gpa, needed_size);
+            // @memcpy(debug_ranges.items[0..di_buf.items.len], di_buf.items);
         },
         else => unreachable,
     }
@@ -2539,14 +2545,15 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
                 }
             },
             .wasm => {
-                const wasm_file = self.bin_file.cast(File.Wasm).?;
-                const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-                {
-                    const src = debug_line.items[first_fn.off..];
-                    @memcpy(buffer[0..src.len], src);
-                }
-                try debug_line.resize(self.allocator, debug_line.items.len + delta);
-                @memcpy(debug_line.items[first_fn.off + delta ..][0..buffer.len], buffer);
+                _ = &buffer;
+                // const wasm_file = self.bin_file.cast(File.Wasm).?;
+                // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
+                // {
+                //     const src = debug_line.items[first_fn.off..];
+                //     @memcpy(buffer[0..src.len], src);
+                // }
+                // try debug_line.resize(self.allocator, debug_line.items.len + delta);
+                // @memcpy(debug_line.items[first_fn.off + delta ..][0..buffer.len], buffer);
             },
             else => unreachable,
         }
@@ -2595,9 +2602,9 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
             }
         },
         .wasm => {
-            const wasm_file = self.bin_file.cast(File.Wasm).?;
-            const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-            writeDbgLineNopsBuffered(debug_line.items, 0, 0, di_buf.items, jmp_amt);
+            // const wasm_file = self.bin_file.cast(File.Wasm).?;
+            // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
+            // writeDbgLineNopsBuffered(debug_line.items, 0, 0, di_buf.items, jmp_amt);
         },
         else => unreachable,
     }
@@ -2745,9 +2752,9 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
                     }
                 },
                 .wasm => {
-                    const wasm_file = self.bin_file.cast(File.Wasm).?;
-                    const debug_info = wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
-                    debug_info.items[atom.off + reloc.offset ..][0..buf.len].* = buf;
+                    // const wasm_file = self.bin_file.cast(File.Wasm).?;
+                    // const debug_info = wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
+                    // debug_info.items[atom.off + reloc.offset ..][0..buf.len].* = buf;
                 },
                 else => unreachable,
             }
@@ -2842,7 +2849,7 @@ fn addDbgInfoErrorSetNames(
     const target_endian = target.cpu.arch.endian();
 
     // DW.AT.enumeration_type
-    try dbg_info_buffer.append(@intFromEnum(AbbrevKind.enum_type));
+    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.enum_type));
     // DW.AT.byte_size, DW.FORM.udata
     const abi_size = Type.anyerror.abiSize(mod);
     try leb128.writeULEB128(dbg_info_buffer.writer(), abi_size);
@@ -2853,7 +2860,7 @@ fn addDbgInfoErrorSetNames(
     // DW.AT.enumerator
     const no_error = "(no error)";
     try dbg_info_buffer.ensureUnusedCapacity(no_error.len + 2 + @sizeOf(u64));
-    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.enum_variant));
+    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
     // DW.AT.name, DW.FORM.string
     dbg_info_buffer.appendSliceAssumeCapacity(no_error);
     dbg_info_buffer.appendAssumeCapacity(0);
@@ -2865,7 +2872,7 @@ fn addDbgInfoErrorSetNames(
         const error_name = mod.intern_pool.stringToSlice(error_name_ip);
         // DW.AT.enumerator
         try dbg_info_buffer.ensureUnusedCapacity(error_name.len + 2 + @sizeOf(u64));
-        dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevKind.enum_variant));
+        dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
         // DW.AT.name, DW.FORM.string
         dbg_info_buffer.appendSliceAssumeCapacity(error_name);
         dbg_info_buffer.appendAssumeCapacity(0);

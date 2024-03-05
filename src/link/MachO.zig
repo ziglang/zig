@@ -2170,8 +2170,7 @@ fn initSegments(self: *MachO) !void {
     for (slice.items(.header)) |header| {
         const segname = header.segName();
         if (self.getSegmentByName(segname) == null) {
-            const flags: u32 = if (mem.startsWith(u8, segname, "__DATA_CONST")) macho.SG_READ_ONLY else 0;
-            _ = try self.addSegment(segname, .{ .prot = getSegmentProt(segname), .flags = flags });
+            _ = try self.addSegment(segname, .{ .prot = getSegmentProt(segname) });
         }
     }
 
@@ -2247,10 +2246,16 @@ fn initSegments(self: *MachO) !void {
         segment.nsects += 1;
         seg_id.* = segment_id;
     }
+
+    // Set __DATA_CONST as READ_ONLY
+    if (self.getSegmentByName("__DATA_CONST")) |seg_id| {
+        const seg = &self.segments.items[seg_id];
+        seg.flags |= macho.SG_READ_ONLY;
+    }
 }
 
 fn allocateSections(self: *MachO) !void {
-    const headerpad = load_commands.calcMinHeaderPadSize(self);
+    const headerpad = try load_commands.calcMinHeaderPadSize(self);
     var vmaddr: u64 = if (self.pagezero_seg_index) |index|
         self.segments.items[index].vmaddr + self.segments.items[index].vmsize
     else
@@ -2473,6 +2478,9 @@ fn initDyldInfoSections(self: *MachO) !void {
         nrebases += ctx.rebase_relocs;
         nbinds += ctx.bind_relocs;
         nweak_binds += ctx.weak_bind_relocs;
+    }
+    if (self.getInternalObject()) |int| {
+        nrebases += int.num_rebase_relocs;
     }
     try self.rebase.entries.ensureUnusedCapacity(gpa, nrebases);
     try self.bind.entries.ensureUnusedCapacity(gpa, nbinds);
@@ -2904,13 +2912,12 @@ pub fn writeStrtab(self: *MachO, off: u32) !u32 {
 
 fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
     const gpa = self.base.comp.gpa;
-    const needed_size = load_commands.calcLoadCommandsSize(self, false);
+    const needed_size = try load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    var cwriter = std.io.countingWriter(stream.writer());
-    const writer = cwriter.writer();
+    const writer = stream.writer();
 
     var ncmds: usize = 0;
 
@@ -2974,7 +2981,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + cwriter.bytes_written;
+    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + stream.pos;
     try writer.writeStruct(self.uuid_cmd);
     ncmds += 1;
 
@@ -3002,7 +3009,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    assert(cwriter.bytes_written == needed_size);
+    assert(stream.pos == needed_size);
 
     try self.base.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
@@ -3728,7 +3735,6 @@ pub fn addSegment(self: *MachO, name: []const u8, opts: struct {
     fileoff: u64 = 0,
     filesize: u64 = 0,
     prot: macho.vm_prot_t = macho.PROT.NONE,
-    flags: u32 = 0,
 }) error{OutOfMemory}!u8 {
     const gpa = self.base.comp.gpa;
     const index = @as(u8, @intCast(self.segments.items.len));
@@ -4314,8 +4320,6 @@ const is_hot_update_compatible = switch (builtin.target.os.tag) {
 const default_entry_symbol_name = "_main";
 
 pub const base_tag: link.File.Tag = link.File.Tag.macho;
-pub const N_DEAD: u16 = @as(u16, @bitCast(@as(i16, -1)));
-pub const N_BOUNDARY: u16 = @as(u16, @bitCast(@as(i16, -2)));
 
 const Section = struct {
     header: macho.section_64,
@@ -4610,13 +4614,7 @@ const SystemLib = struct {
     must_link: bool = false,
 };
 
-/// The filesystem layout of darwin SDK elements.
-pub const SdkLayout = enum {
-    /// macOS SDK layout: TOP { /usr/include, /usr/lib, /System/Library/Frameworks }.
-    sdk,
-    /// Shipped libc layout: TOP { /lib/libc/include,  /lib/libc/darwin, <NONE> }.
-    vendored,
-};
+pub const SdkLayout = std.zig.LibCDirs.DarwinSdkLayout;
 
 const UndefinedTreatment = enum {
     @"error",

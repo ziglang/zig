@@ -4,6 +4,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const net = std.net;
 const os = std.os;
+const posix = std.posix;
 const linux = os.linux;
 const testing = std.testing;
 
@@ -3730,8 +3731,8 @@ const SocketTestHarness = struct {
     client: os.socket_t,
 
     fn close(self: SocketTestHarness) void {
-        os.closeSocket(self.client);
-        os.closeSocket(self.listener);
+        posix.close(self.client);
+        posix.close(self.listener);
     }
 };
 
@@ -3739,7 +3740,7 @@ fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
     // Create a TCP server socket
     var address = try net.Address.parseIp4("127.0.0.1", 0);
     const listener_socket = try createListenerSocket(&address);
-    errdefer os.closeSocket(listener_socket);
+    errdefer posix.close(listener_socket);
 
     // Submit 1 accept
     var accept_addr: os.sockaddr = undefined;
@@ -3748,7 +3749,7 @@ fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
 
     // Create a TCP client socket
     const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    errdefer os.closeSocket(client);
+    errdefer posix.close(client);
     _ = try ring.connect(0xcccccccc, client, &address.any, address.getOsSockLen());
 
     try testing.expectEqual(@as(u32, 2), try ring.submit());
@@ -3788,7 +3789,7 @@ fn createSocketTestHarness(ring: *IO_Uring) !SocketTestHarness {
 fn createListenerSocket(address: *net.Address) !os.socket_t {
     const kernel_backlog = 1;
     const listener_socket = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-    errdefer os.closeSocket(listener_socket);
+    errdefer posix.close(listener_socket);
 
     try os.setsockopt(listener_socket, os.SOL.SOCKET, os.SO.REUSEADDR, &mem.toBytes(@as(c_int, 1)));
     try os.bind(listener_socket, &address.any, address.getOsSockLen());
@@ -3813,7 +3814,7 @@ test "accept multishot" {
 
     var address = try net.Address.parseIp4("127.0.0.1", 0);
     const listener_socket = try createListenerSocket(&address);
-    defer os.closeSocket(listener_socket);
+    defer posix.close(listener_socket);
 
     // submit multishot accept operation
     var addr: os.sockaddr = undefined;
@@ -3826,7 +3827,7 @@ test "accept multishot" {
     while (nr > 0) : (nr -= 1) {
         // connect client
         const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
-        errdefer os.closeSocket(client);
+        errdefer posix.close(client);
         try os.connect(client, &address.any, address.getOsSockLen());
 
         // test accept completion
@@ -3836,7 +3837,7 @@ test "accept multishot" {
         try testing.expect(cqe.user_data == userdata);
         try testing.expect(cqe.flags & linux.IORING_CQE_F_MORE > 0); // more flag is set
 
-        os.closeSocket(client);
+        posix.close(client);
     }
 }
 
@@ -3909,7 +3910,7 @@ test "accept_direct" {
     try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
-    defer os.closeSocket(listener_socket);
+    defer posix.close(listener_socket);
 
     const accept_userdata: u64 = 0xaaaaaaaa;
     const read_userdata: u64 = 0xbbbbbbbb;
@@ -3927,7 +3928,7 @@ test "accept_direct" {
             // connect
             const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
-            defer os.closeSocket(client);
+            defer posix.close(client);
 
             // accept completion
             const cqe_accept = try ring.copy_cqe();
@@ -3961,7 +3962,7 @@ test "accept_direct" {
             // connect
             const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
-            defer os.closeSocket(client);
+            defer posix.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
             try testing.expect(cqe_accept.user_data == accept_userdata);
@@ -3989,7 +3990,7 @@ test "accept_multishot_direct" {
     try ring.register_files(registered_fds[0..]);
 
     const listener_socket = try createListenerSocket(&address);
-    defer os.closeSocket(listener_socket);
+    defer posix.close(listener_socket);
 
     const accept_userdata: u64 = 0xaaaaaaaa;
 
@@ -4003,7 +4004,7 @@ test "accept_multishot_direct" {
             // connect
             const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
-            defer os.closeSocket(client);
+            defer posix.close(client);
 
             // accept completion
             const cqe_accept = try ring.copy_cqe();
@@ -4018,7 +4019,7 @@ test "accept_multishot_direct" {
             // connect
             const client = try os.socket(address.any.family, os.SOCK.STREAM | os.SOCK.CLOEXEC, 0);
             try os.connect(client, &address.any, address.getOsSockLen());
-            defer os.closeSocket(client);
+            defer posix.close(client);
             // completion with error
             const cqe_accept = try ring.copy_cqe();
             try testing.expect(cqe_accept.user_data == accept_userdata);
@@ -4092,7 +4093,7 @@ test "socket_direct/socket_direct_alloc/close_direct" {
     // use sockets from registered_fds in connect operation
     var address = try net.Address.parseIp4("127.0.0.1", 0);
     const listener_socket = try createListenerSocket(&address);
-    defer os.closeSocket(listener_socket);
+    defer posix.close(listener_socket);
     const accept_userdata: u64 = 0xaaaaaaaa;
     const connect_userdata: u64 = 0xbbbbbbbb;
     const close_userdata: u64 = 0xcccccccc;

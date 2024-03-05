@@ -881,7 +881,7 @@ const PosixImpl = struct {
     }
 };
 
-test "Futex - smoke test" {
+test "smoke test" {
     var value = atomic.Value(u32).init(0);
 
     // Try waits with invalid values.
@@ -898,7 +898,7 @@ test "Futex - smoke test" {
     Futex.wake(&value, std.math.maxInt(u32));
 }
 
-test "Futex - signaling" {
+test "signaling" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -952,7 +952,7 @@ test "Futex - signaling" {
     for (paddles) |p| try testing.expectEqual(p.current, num_iterations);
 }
 
-test "Futex - broadcasting" {
+test "broadcasting" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -1054,7 +1054,7 @@ pub const Deadline = struct {
     }
 };
 
-test "Futex - Deadline" {
+test "Deadline" {
     var deadline = Deadline.init(100 * std.time.ns_per_ms);
     var futex_word = atomic.Value(u32).init(0);
 
