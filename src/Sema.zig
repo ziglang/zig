@@ -22779,7 +22779,11 @@ fn ptrCastFull(
     }
 
     const ptr = if (src_info.flags.size == .Slice and dest_info.flags.size != .Slice) ptr: {
-        break :ptr try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty);
+        if (operand_ty.zigTypeTag(mod) == .Optional) {
+            break :ptr try sema.analyzeOptionalSlicePtr(block, operand_src, operand, operand_ty);
+        } else {
+            break :ptr try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty);
+        }
     } else operand;
 
     const dest_ptr_ty = if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) blk: {
@@ -32561,6 +32565,32 @@ fn analyzeSlicePtr(
         return Air.internedToRef(val.slicePtr(mod).toIntern());
     }
     try sema.requireRuntimeBlock(block, slice_src, null);
+    return block.addTyOp(.slice_ptr, result_ty, slice);
+}
+
+fn analyzeOptionalSlicePtr(
+    sema: *Sema,
+    block: *Block,
+    opt_slice_src: LazySrcLoc,
+    opt_slice: Air.Inst.Ref,
+    opt_slice_ty: Type,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+    const result_ty = opt_slice_ty.optionalChild(mod).slicePtrFieldType(mod);
+
+    if (try sema.resolveValue(opt_slice)) |opt_val| {
+        if (opt_val.isUndef(mod)) return mod.undefRef(result_ty);
+        const slice_ptr: InternPool.Index = if (opt_val.optionalValue(mod)) |val|
+            val.slicePtr(mod).toIntern()
+        else
+            .null_value;
+
+        return Air.internedToRef(slice_ptr);
+    }
+
+    try sema.requireRuntimeBlock(block, opt_slice_src, null);
+
+    const slice = try block.addTyOp(.optional_payload, opt_slice_ty, opt_slice);
     return block.addTyOp(.slice_ptr, result_ty, slice);
 }
 
