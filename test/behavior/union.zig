@@ -2273,3 +2273,30 @@ test "create union(enum) from other union(enum)" {
         else => {},
     }
 }
+
+test "matching captures causes union equivalence" {
+    const S = struct {
+        fn SignedUnsigned(comptime I: type) type {
+            const bits = @typeInfo(I).Int.bits;
+            return union {
+                u: @Type(.{ .Int = .{
+                    .signedness = .unsigned,
+                    .bits = bits,
+                } }),
+                i: @Type(.{ .Int = .{
+                    .signedness = .signed,
+                    .bits = bits,
+                } }),
+            };
+        }
+    };
+
+    comptime assert(S.SignedUnsigned(u8) == S.SignedUnsigned(i8));
+    comptime assert(S.SignedUnsigned(u16) == S.SignedUnsigned(i16));
+    comptime assert(S.SignedUnsigned(u8) != S.SignedUnsigned(u16));
+
+    const a: S.SignedUnsigned(u8) = .{ .u = 10 };
+    const b: S.SignedUnsigned(i8) = .{ .u = 10 };
+    comptime assert(@TypeOf(a) == @TypeOf(b));
+    try expect(a.u == b.u);
+}
