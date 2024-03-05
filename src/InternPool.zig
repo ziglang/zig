@@ -6810,23 +6810,24 @@ pub const WipEnumType = struct {
     names_start: u32,
     values_map: OptionalMapIndex,
     values_start: u32,
-    expected_fields_len: if (std.debug.runtime_safety) u32 else void,
 
     pub fn prepare(
         wip: WipEnumType,
         ip: *InternPool,
         decl: DeclIndex,
         namespace: OptionalNamespaceIndex,
-        tag_ty: Index,
     ) void {
-        assert(ip.isIntegerType(tag_ty));
-        ip.extra.items[wip.tag_ty_index] = @intFromEnum(tag_ty);
         ip.extra.items[wip.decl_index] = @intFromEnum(decl);
         if (wip.namespace_index) |i| {
             ip.extra.items[i] = @intFromEnum(namespace.unwrap().?);
         } else {
             assert(namespace == .none);
         }
+    }
+
+    pub fn setTagTy(wip: WipEnumType, ip: *InternPool, tag_ty: Index) void {
+        assert(ip.isIntegerType(tag_ty));
+        ip.extra.items[wip.tag_ty_index] = @intFromEnum(tag_ty);
     }
 
     pub const FieldConflict = struct {
@@ -6856,18 +6857,6 @@ pub const WipEnumType = struct {
         }
         ip.extra.items[wip.values_start + field_index] = @intFromEnum(value);
         return null;
-    }
-
-    pub fn finish(wip: WipEnumType, ip: *InternPool) Index {
-        if (std.debug.runtime_safety) {
-            const names_map = &ip.maps.items[@intFromEnum(wip.names_map)];
-            assert(names_map.count() == wip.expected_fields_len);
-            if (wip.values_map.unwrap()) |v| {
-                const values_map = &ip.maps.items[@intFromEnum(v)];
-                assert(values_map.count() == wip.expected_fields_len);
-            }
-        }
-        return wip.index;
     }
 
     pub fn cancel(wip: WipEnumType, ip: *InternPool) void {
@@ -6951,7 +6940,6 @@ pub fn getEnumType(
                 .names_start = @intCast(names_start),
                 .values_map = .none,
                 .values_start = undefined,
-                .expected_fields_len = if (std.debug.runtime_safety) ini.fields_len else {},
             } };
         },
         .explicit, .nonexhaustive => {
@@ -7016,7 +7004,6 @@ pub fn getEnumType(
                 .names_start = @intCast(names_start),
                 .values_map = values_map,
                 .values_start = @intCast(values_start),
-                .expected_fields_len = if (std.debug.runtime_safety) ini.fields_len else {},
             } };
         },
     }

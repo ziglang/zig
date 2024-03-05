@@ -2993,7 +2993,12 @@ fn zirEnumDecl(
         },
         .existing => |ty| return Air.internedToRef(ty),
     };
-    errdefer wip_ty.cancel(ip);
+
+    // Once this is `true`, we will not delete the decl or type even upon failure, since we
+    // have finished constructing the type and are in the process of analyzing it.
+    var done = false;
+
+    errdefer if (!done) wip_ty.cancel(ip);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
         .ty = Type.type,
@@ -3001,7 +3006,7 @@ fn zirEnumDecl(
     }, small.name_strategy, "enum", inst);
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer if (!done) mod.abortAnonDecl(new_decl_index);
 
     if (sema.mod.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
@@ -3017,11 +3022,16 @@ fn zirEnumDecl(
         .decl_index = new_decl_index,
         .file_scope = block.getFileScope(mod),
     })).toOptional() else .none;
-    errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
+    errdefer if (!done) if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
 
     if (new_namespace_index.unwrap()) |ns| {
         try mod.scanNamespace(ns, decls, new_decl);
     }
+
+    // We've finished the initial construction of this type, and are about to perform analysis.
+    // Set the decl and namespace appropriately, and don't destroy anything on failure.
+    wip_ty.prepare(ip, new_decl_index, new_namespace_index);
+    done = true;
 
     const int_tag_ty = ty: {
         // We create a block for the field type instructions because they
@@ -3075,7 +3085,7 @@ fn zirEnumDecl(
         }
     };
 
-    wip_ty.prepare(ip, new_decl_index, new_namespace_index, int_tag_ty.toIntern());
+    wip_ty.setTagTy(ip, int_tag_ty.toIntern());
 
     if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
         if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(mod)) {
@@ -3177,7 +3187,7 @@ fn zirEnumDecl(
     }
 
     try mod.finalizeAnonDecl(new_decl_index);
-    return Air.internedToRef(wip_ty.finish(ip));
+    return Air.internedToRef(wip_ty.index);
 }
 
 fn zirUnionDecl(
@@ -21537,7 +21547,8 @@ fn reifyEnum(
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
-    wip_ty.prepare(ip, new_decl_index, .none, tag_ty.toIntern());
+    wip_ty.prepare(ip, new_decl_index, .none);
+    wip_ty.setTagTy(ip, tag_ty.toIntern());
 
     for (0..fields_len) |field_idx| {
         const field_info = try fields_val.elemValue(mod, field_idx);
@@ -21582,7 +21593,7 @@ fn reifyEnum(
     }
 
     try mod.finalizeAnonDecl(new_decl_index);
-    return Air.internedToRef(wip_ty.finish(ip));
+    return Air.internedToRef(wip_ty.index);
 }
 
 fn reifyUnion(
