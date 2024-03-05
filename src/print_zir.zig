@@ -1427,11 +1427,11 @@ const Writer = struct {
             try stream.writeAll("{}, ");
         } else {
             try stream.writeAll("{ ");
-            try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
             extra_index += 1;
             for (1..captures_len) |_| {
                 try stream.writeAll(", ");
-                try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
                 extra_index += 1;
             }
             try stream.writeAll(" }, ");
@@ -1652,11 +1652,11 @@ const Writer = struct {
             try stream.writeAll("{}, ");
         } else {
             try stream.writeAll("{ ");
-            try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
             extra_index += 1;
             for (1..captures_len) |_| {
                 try stream.writeAll(", ");
-                try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
                 extra_index += 1;
             }
             try stream.writeAll(" }, ");
@@ -1817,11 +1817,11 @@ const Writer = struct {
             try stream.writeAll("{}, ");
         } else {
             try stream.writeAll("{ ");
-            try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
             extra_index += 1;
             for (1..captures_len) |_| {
                 try stream.writeAll(", ");
-                try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
                 extra_index += 1;
             }
             try stream.writeAll(" }, ");
@@ -1930,11 +1930,11 @@ const Writer = struct {
             try stream.writeAll("{}, ");
         } else {
             try stream.writeAll("{ ");
-            try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
             extra_index += 1;
             for (1..captures_len) |_| {
                 try stream.writeAll(", ");
-                try self.writeCapture(stream, @enumFromInt(self.code.extra[extra_index]));
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
                 extra_index += 1;
             }
             try stream.writeAll(" }, ");
@@ -2808,8 +2808,14 @@ const Writer = struct {
 
     fn writeCapture(self: *Writer, stream: anytype, capture: Zir.Inst.Capture) !void {
         switch (capture.unwrap()) {
-            .inst => |inst| return self.writeInstIndex(stream, inst),
             .nested => |i| return stream.print("[{d}]", .{i}),
+            .instruction => |inst| return self.writeInstIndex(stream, inst),
+            .decl_val => |str| try stream.print("decl_val \"{}\"", .{
+                std.zig.fmtEscapes(self.code.nullTerminatedString(str)),
+            }),
+            .decl_ref => |str| try stream.print("decl_ref \"{}\"", .{
+                std.zig.fmtEscapes(self.code.nullTerminatedString(str)),
+            }),
         }
     }
 

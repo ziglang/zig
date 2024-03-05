@@ -44,6 +44,9 @@ compile_errors: ArrayListUnmanaged(Zir.Inst.CompileErrors.Item) = .{},
 /// The topmost block of the current function.
 fn_block: ?*GenZir = null,
 fn_var_args: bool = false,
+/// Whether we are somewhere within a function. If `true`, any container decls may be
+/// generic and thus must be tunneled through closure.
+within_fn: bool = false,
 /// The return type of the current function. This may be a trivial `Ref`, or
 /// otherwise it refers to a `ret_type` instruction.
 fn_ret_ty: Zir.Inst.Ref = .none,
@@ -4050,6 +4053,11 @@ fn fnDecl(
     };
     defer fn_gz.unstack();
 
+    // Set this now, since parameter types, return type, etc may be generic.
+    const prev_within_fn = astgen.within_fn;
+    defer astgen.within_fn = prev_within_fn;
+    astgen.within_fn = true;
+
     const is_pub = fn_proto.visib_token != null;
     const is_export = blk: {
         const maybe_export_token = fn_proto.extern_export_inline_token orelse break :blk false;
@@ -4311,6 +4319,10 @@ fn fnDecl(
 
         const prev_fn_block = astgen.fn_block;
         const prev_fn_ret_ty = astgen.fn_ret_ty;
+        defer {
+            astgen.fn_block = prev_fn_block;
+            astgen.fn_ret_ty = prev_fn_ret_ty;
+        }
         astgen.fn_block = &fn_gz;
         astgen.fn_ret_ty = if (is_inferred_error or ret_ref.toIndex() != null) r: {
             // We're essentially guaranteed to need the return type at some point,
@@ -4319,10 +4331,6 @@ fn fnDecl(
             // return type now so the rest of the function can use it.
             break :r try fn_gz.addNode(.ret_type, decl_node);
         } else ret_ref;
-        defer {
-            astgen.fn_block = prev_fn_block;
-            astgen.fn_ret_ty = prev_fn_ret_ty;
-        }
 
         const prev_var_args = astgen.fn_var_args;
         astgen.fn_var_args = is_var_args;
@@ -4768,11 +4776,14 @@ fn testDecl(
     };
     defer fn_block.unstack();
 
+    const prev_within_fn = astgen.within_fn;
     const prev_fn_block = astgen.fn_block;
     const prev_fn_ret_ty = astgen.fn_ret_ty;
+    astgen.within_fn = true;
     astgen.fn_block = &fn_block;
     astgen.fn_ret_ty = .anyerror_void_error_union_type;
     defer {
+        astgen.within_fn = prev_within_fn;
         astgen.fn_block = prev_fn_block;
         astgen.fn_ret_ty = prev_fn_ret_ty;
     }
@@ -4871,6 +4882,7 @@ fn structDeclInner(
         .node = node,
         .inst = decl_inst,
         .declaring_gz = gz,
+        .maybe_generic = astgen.within_fn,
     };
     defer namespace.deinit(gpa);
 
@@ -5195,6 +5207,7 @@ fn unionDeclInner(
         .node = node,
         .inst = decl_inst,
         .declaring_gz = gz,
+        .maybe_generic = astgen.within_fn,
     };
     defer namespace.deinit(gpa);
 
@@ -5543,6 +5556,7 @@ fn containerDecl(
                 .node = node,
                 .inst = decl_inst,
                 .declaring_gz = gz,
+                .maybe_generic = astgen.within_fn,
             };
             defer namespace.deinit(gpa);
 
@@ -5709,6 +5723,7 @@ fn containerDecl(
                 .node = node,
                 .inst = decl_inst,
                 .declaring_gz = gz,
+                .maybe_generic = astgen.within_fn,
             };
             defer namespace.deinit(gpa);
 
@@ -8247,9 +8262,14 @@ fn localVarRef(
     const name_str_index = try astgen.identAsString(ident_token);
     var s = scope;
     var found_already: ?Ast.Node.Index = null; // we have found a decl with the same name already
+    var found_needs_tunnel: bool = undefined; // defined when `found_already != null`
+    var found_namespaces_out: u32 = undefined; // defined when `found_already != null`
+
+    // The number of namespaces above `gz` we currently are
     var num_namespaces_out: u32 = 0;
-    // defined when `num_namespaces_out != 0`
+    // defined by `num_namespaces_out != 0`
     var capturing_namespace: *Scope.Namespace = undefined;
+
     while (true) switch (s.tag) {
         .local_val => {
             const local_val = s.cast(Scope.LocalVal).?;
@@ -8267,9 +8287,8 @@ fn localVarRef(
                     gz,
                     ident,
                     num_namespaces_out,
-                    capturing_namespace,
-                    local_val.inst,
-                    local_val.token_src,
+                    .{ .ref = local_val.inst },
+                    .{ .token = local_val.token_src },
                 ) else local_val.inst;
 
                 return rvalueNoCoercePreRef(gz, ri, value_inst, ident);
@@ -8298,9 +8317,8 @@ fn localVarRef(
                     gz,
                     ident,
                     num_namespaces_out,
-                    capturing_namespace,
-                    local_ptr.ptr,
-                    local_ptr.token_src,
+                    .{ .ref = local_ptr.ptr },
+                    .{ .token = local_ptr.token_src },
                 ) else local_ptr.ptr;
 
                 switch (ri.rl) {
@@ -8329,6 +8347,8 @@ fn localVarRef(
                 }
                 // We found a match but must continue looking for ambiguous references to decls.
                 found_already = i;
+                found_needs_tunnel = ns.maybe_generic;
+                found_namespaces_out = num_namespaces_out;
             }
             num_namespaces_out += 1;
             capturing_namespace = ns;
@@ -8343,6 +8363,29 @@ fn localVarRef(
 
     // Decl references happen by name rather than ZIR index so that when unrelated
     // decls are modified, ZIR code containing references to them can be unmodified.
+
+    if (found_namespaces_out > 0 and found_needs_tunnel) {
+        switch (ri.rl) {
+            .ref, .ref_coerced_ty => return tunnelThroughClosure(
+                gz,
+                ident,
+                found_namespaces_out,
+                .{ .decl_ref = name_str_index },
+                .{ .node = found_already.? },
+            ),
+            else => {
+                const result = try tunnelThroughClosure(
+                    gz,
+                    ident,
+                    found_namespaces_out,
+                    .{ .decl_val = name_str_index },
+                    .{ .node = found_already.? },
+                );
+                return rvalueNoCoercePreRef(gz, ri, result, ident);
+            },
+        }
+    }
+
     switch (ri.rl) {
         .ref, .ref_coerced_ty => return gz.addStrTok(.decl_ref, name_str_index, ident_token),
         else => {
@@ -8361,17 +8404,22 @@ fn tunnelThroughClosure(
     inner_ref_node: Ast.Node.Index,
     /// The number of namespaces being tunnelled through. At least 1.
     num_tunnels: u32,
-    /// The namespace being captured from.
-    ns: *Scope.Namespace,
     /// The value being captured.
-    value: Zir.Inst.Ref,
-    /// The token of the value's declaration.
-    token: Ast.TokenIndex,
+    value: union(enum) {
+        ref: Zir.Inst.Ref,
+        decl_val: Zir.NullTerminatedString,
+        decl_ref: Zir.NullTerminatedString,
+    },
+    /// The location of the value's declaration.
+    decl_src: union(enum) {
+        token: Ast.TokenIndex,
+        node: Ast.Node.Index,
+    },
 ) !Zir.Inst.Ref {
-    const value_inst = value.toIndex() orelse {
-        // For trivial values, we don't need a tunnel; just return the ref.
-        return value;
-    };
+    switch (value) {
+        .ref => |v| if (v.toIndex() == null) return v, // trivia value; do not need tunnel
+        .decl_val, .decl_ref => {},
+    }
 
     const astgen = gz.astgen;
     const gpa = astgen.gpa;
@@ -8382,7 +8430,7 @@ fn tunnelThroughClosure(
     var sfba = std.heap.stackFallback(@sizeOf(usize) * 2, astgen.arena);
     var intermediate_tunnels = try sfba.get().alloc(*Scope.Namespace, num_tunnels - 1);
 
-    {
+    const root_ns = ns: {
         var i: usize = num_tunnels - 1;
         var scope: *Scope = gz.parent;
         while (i > 0) {
@@ -8392,15 +8440,27 @@ fn tunnelThroughClosure(
             }
             scope = scope.parent().?;
         }
-    }
+        while (true) {
+            if (scope.cast(Scope.Namespace)) |ns| break :ns ns;
+            scope = scope.parent().?;
+        }
+    };
 
     // Now that we know the scopes we're tunneling through, begin adding
     // captures as required, starting with the outermost namespace.
+    const root_capture = Zir.Inst.Capture.wrap(switch (value) {
+        .ref => |v| .{ .instruction = v.toIndex().? },
+        .decl_val => |str| .{ .decl_val = str },
+        .decl_ref => |str| .{ .decl_ref = str },
+    });
     var cur_capture_index = std.math.cast(
         u16,
-        (try ns.captures.getOrPut(gpa, Zir.Inst.Capture.wrap(.{ .inst = value_inst }))).index,
-    ) orelse return astgen.failNodeNotes(ns.node, "this compiler implementation only supports up to 65536 captures per namespace", .{}, &.{
-        try astgen.errNoteTok(token, "captured value here", .{}),
+        (try root_ns.captures.getOrPut(gpa, root_capture)).index,
+    ) orelse return astgen.failNodeNotes(root_ns.node, "this compiler implementation only supports up to 65536 captures per namespace", .{}, &.{
+        switch (decl_src) {
+            .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
+            .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
+        },
         try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
     });
 
@@ -8409,7 +8469,10 @@ fn tunnelThroughClosure(
             u16,
             (try tunnel_ns.captures.getOrPut(gpa, Zir.Inst.Capture.wrap(.{ .nested = cur_capture_index }))).index,
         ) orelse return astgen.failNodeNotes(tunnel_ns.node, "this compiler implementation only supports up to 65536 captures per namespace", .{}, &.{
-            try astgen.errNoteTok(token, "captured value here", .{}),
+            switch (decl_src) {
+                .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
+                .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
+            },
             try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
         });
     }
@@ -11752,6 +11815,7 @@ const Scope = struct {
         decls: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{},
         node: Ast.Node.Index,
         inst: Zir.Inst.Index,
+        maybe_generic: bool,
 
         /// The astgen scope containing this namespace.
         /// Only valid during astgen.

@@ -503,22 +503,29 @@ pub const OptionalNullTerminatedString = enum(u32) {
 };
 
 /// A single value captured in the closure of a namespace type. This is not a plain
-/// `Index` because we must differentiate between runtime-known values (where we
-/// store the type) and comptime-known values (where we store the value).
+/// `Index` because we must differentiate between the following cases:
+/// * runtime-known value (where we store the type)
+/// * comptime-known value (where we store the value)
+/// * decl val (so that we can analyze the value lazily)
+/// * decl ref (so that we can analyze the reference lazily)
 pub const CaptureValue = packed struct(u32) {
-    tag: enum { @"comptime", runtime },
-    idx: u31,
+    tag: enum { @"comptime", runtime, decl_val, decl_ref },
+    idx: u30,
 
     pub fn wrap(val: Unwrapped) CaptureValue {
         return switch (val) {
             .@"comptime" => |i| .{ .tag = .@"comptime", .idx = @intCast(@intFromEnum(i)) },
             .runtime => |i| .{ .tag = .runtime, .idx = @intCast(@intFromEnum(i)) },
+            .decl_val => |i| .{ .tag = .decl_val, .idx = @intCast(@intFromEnum(i)) },
+            .decl_ref => |i| .{ .tag = .decl_ref, .idx = @intCast(@intFromEnum(i)) },
         };
     }
     pub fn unwrap(val: CaptureValue) Unwrapped {
         return switch (val.tag) {
             .@"comptime" => .{ .@"comptime" = @enumFromInt(val.idx) },
             .runtime => .{ .runtime = @enumFromInt(val.idx) },
+            .decl_val => .{ .decl_val = @enumFromInt(val.idx) },
+            .decl_ref => .{ .decl_ref = @enumFromInt(val.idx) },
         };
     }
 
@@ -527,6 +534,8 @@ pub const CaptureValue = packed struct(u32) {
         @"comptime": Index,
         /// Index refers to the type.
         runtime: Index,
+        decl_val: DeclIndex,
+        decl_ref: DeclIndex,
     };
 
     pub const Slice = struct {

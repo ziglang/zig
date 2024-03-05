@@ -459,11 +459,21 @@ const Scope = struct {
         NotRequested: u32, // instr_index
     };
 
-    fn getCapture(scope: Scope, idx: u16) struct { Zir.Inst.Index, *Scope } {
+    fn getCapture(scope: Scope, idx: u16) struct {
+        union(enum) { inst: Zir.Inst.Index, decl: Zir.NullTerminatedString },
+        *Scope,
+    } {
         const parent = scope.parent.?;
         return switch (scope.captures[idx].unwrap()) {
-            .inst => |inst| .{ inst, parent },
             .nested => |parent_idx| parent.getCapture(parent_idx),
+            .instruction => |inst| .{
+                .{ .inst = inst },
+                parent,
+            },
+            .decl_val, .decl_ref => |str| .{
+                .{ .decl = str },
+                parent,
+            },
         };
     }
 
@@ -4048,7 +4058,13 @@ fn walkInstruction(
                 },
                 .closure_get => {
                     const captured, const scope = parent_scope.getCapture(extended.small);
-                    return self.walkInstruction(file, scope, parent_src, captured, need_type, call_ctx);
+                    switch (captured) {
+                        .inst => |cap_inst| return self.walkInstruction(file, scope, parent_src, cap_inst, need_type, call_ctx),
+                        .decl => |str| {
+                            const decl_status = parent_scope.resolveDeclName(str, file, inst.toOptional());
+                            return .{ .expr = .{ .declRef = decl_status } };
+                        },
+                    }
                 },
             }
         },

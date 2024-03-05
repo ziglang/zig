@@ -3057,26 +3057,50 @@ pub const Inst = struct {
     };
 
     /// Represents a single value being captured in a type declaration's closure.
-    /// If high bit is 0, this represents a `Zir.Inst,Index`.
-    /// If high bit is 1, this represents an index into the last closure.
-    pub const Capture = enum(u32) {
-        _,
+    pub const Capture = packed struct(u32) {
+        tag: enum(u2) {
+            /// `data` is a `u16` index into the parent closure.
+            nested,
+            /// `data` is a `Zir.Inst.Index` to an instruction whose value is being captured.
+            instruction,
+            /// `data` is a `NullTerminatedString` to a decl name.
+            decl_val,
+            /// `data` is a `NullTerminatedString` to a decl name.
+            decl_ref,
+        },
+        data: u30,
         pub const Unwrapped = union(enum) {
-            inst: Zir.Inst.Index,
             nested: u16,
+            instruction: Zir.Inst.Index,
+            decl_val: NullTerminatedString,
+            decl_ref: NullTerminatedString,
         };
         pub fn wrap(cap: Unwrapped) Capture {
             return switch (cap) {
-                .inst => |inst| @enumFromInt(@intFromEnum(inst)),
-                .nested => |idx| @enumFromInt((1 << 31) | @as(u32, idx)),
+                .nested => |idx| .{
+                    .tag = .nested,
+                    .data = idx,
+                },
+                .instruction => |inst| .{
+                    .tag = .instruction,
+                    .data = @intCast(@intFromEnum(inst)),
+                },
+                .decl_val => |str| .{
+                    .tag = .decl_val,
+                    .data = @intCast(@intFromEnum(str)),
+                },
+                .decl_ref => |str| .{
+                    .tag = .decl_ref,
+                    .data = @intCast(@intFromEnum(str)),
+                },
             };
         }
         pub fn unwrap(cap: Capture) Unwrapped {
-            const raw = @intFromEnum(cap);
-            const tag: u1 = @intCast(raw >> 31);
-            return switch (tag) {
-                0 => .{ .inst = @enumFromInt(raw) },
-                1 => .{ .nested = @truncate(raw) },
+            return switch (cap.tag) {
+                .nested => .{ .nested = @intCast(cap.data) },
+                .instruction => .{ .instruction = @enumFromInt(cap.data) },
+                .decl_val => .{ .decl_val = @enumFromInt(cap.data) },
+                .decl_ref => .{ .decl_ref = @enumFromInt(cap.data) },
             };
         }
     };

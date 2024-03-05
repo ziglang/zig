@@ -2671,26 +2671,34 @@ fn analyzeAsInt(
 
 /// Given a ZIR extra index which points to a list of `Zir.Inst.Capture`,
 /// resolves this into a list of `InternPool.CaptureValue` allocated by `arena`.
-fn getCaptures(sema: *Sema, parent_namespace: ?InternPool.NamespaceIndex, extra_index: usize, captures_len: u32) ![]InternPool.CaptureValue {
+fn getCaptures(sema: *Sema, block: *Block, extra_index: usize, captures_len: u32) ![]InternPool.CaptureValue {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
-    const parent_captures: InternPool.CaptureValue.Slice = if (parent_namespace) |p| parent: {
-        break :parent zcu.namespacePtr(p).ty.getCaptures(zcu);
-    } else undefined; // never used so `undefined` is safe
+    const parent_captures: InternPool.CaptureValue.Slice = zcu.namespacePtr(block.namespace).ty.getCaptures(zcu);
 
     const captures = try sema.arena.alloc(InternPool.CaptureValue, captures_len);
 
     for (sema.code.extra[extra_index..][0..captures_len], captures) |raw, *capture| {
-        const zir_capture: Zir.Inst.Capture = @enumFromInt(raw);
+        const zir_capture: Zir.Inst.Capture = @bitCast(raw);
         capture.* = switch (zir_capture.unwrap()) {
-            .inst => |inst| InternPool.CaptureValue.wrap(capture: {
+            .nested => |parent_idx| parent_captures.get(ip)[parent_idx],
+            .instruction => |inst| InternPool.CaptureValue.wrap(capture: {
                 const air_ref = try sema.resolveInst(inst.toRef());
                 if (try sema.resolveValueResolveLazy(air_ref)) |val| {
                     break :capture .{ .@"comptime" = val.toIntern() };
                 }
                 break :capture .{ .runtime = sema.typeOf(air_ref).toIntern() };
             }),
-            .nested => |parent_idx| parent_captures.get(ip)[parent_idx],
+            .decl_val => |str| capture: {
+                const decl_name = try ip.getOrPutString(sema.gpa, sema.code.nullTerminatedString(str));
+                const decl = try sema.lookupIdentifier(block, .unneeded, decl_name); // TODO: could we need this src loc?
+                break :capture InternPool.CaptureValue.wrap(.{ .decl_val = decl });
+            },
+            .decl_ref => |str| capture: {
+                const decl_name = try ip.getOrPutString(sema.gpa, sema.code.nullTerminatedString(str));
+                const decl = try sema.lookupIdentifier(block, .unneeded, decl_name); // TODO: could we need this src loc?
+                break :capture InternPool.CaptureValue.wrap(.{ .decl_ref = decl });
+            },
         };
     }
 
@@ -2727,7 +2735,7 @@ fn zirStructDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block.namespace, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, extra_index, captures_len);
     extra_index += captures_len;
 
     if (small.has_backing_int) {
@@ -2944,7 +2952,7 @@ fn zirEnumDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block.namespace, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, extra_index, captures_len);
     extra_index += captures_len;
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -3209,7 +3217,7 @@ fn zirUnionDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block.namespace, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, extra_index, captures_len);
     extra_index += captures_len;
 
     const wip_ty = switch (try ip.getUnionType(gpa, .{
@@ -3315,7 +3323,7 @@ fn zirOpaqueDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block.namespace, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, extra_index, captures_len);
     extra_index += captures_len;
 
     const wip_ty = switch (try ip.getOpaqueType(gpa, .{
@@ -17268,6 +17276,8 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     const capture_ty = switch (captures.get(ip)[extended.small].unwrap()) {
         .@"comptime" => |index| return Air.internedToRef(index),
         .runtime => |index| index,
+        .decl_val => |decl_index| return sema.analyzeDeclVal(block, src, decl_index),
+        .decl_ref => |decl_index| return sema.analyzeDeclRef(decl_index),
     };
 
     // The comptime case is handled already above. Runtime case below.
