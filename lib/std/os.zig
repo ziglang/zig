@@ -4844,6 +4844,7 @@ pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
 }
 
 pub const AccessError = error{
+    AccessDenied,
     PermissionDenied,
     FileNotFound,
     NameTooLong,
@@ -4867,10 +4868,7 @@ pub const AccessError = error{
 /// TODO currently this assumes `mode` is `F.OK` on Windows.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
-        const path_w = windows.sliceToPrefixedFileW(null, path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const path_w = try windows.sliceToPrefixedFileW(null, path);
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -4883,10 +4881,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
 /// Same as `access` except `path` is null-terminated.
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (builtin.os.tag == .windows) {
-        const path_w = windows.cStrToPrefixedFileW(null, path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const path_w = windows.cStrToPrefixedFileW(null, path);
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
@@ -4894,7 +4889,8 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     }
     switch (errno(system.access(path, mode))) {
         .SUCCESS => return,
-        .ACCES => return error.PermissionDenied,
+        .ACCES => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         .ROFS => return error.ReadOnlyFileSystem,
         .LOOP => return error.SymLinkLoop,
         .TXTBSY => return error.FileBusy,
@@ -4925,7 +4921,7 @@ pub fn accessW(path: [*:0]const u16, mode: u32) windows.GetFileAttributesError!v
     switch (windows.kernel32.GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         .PATH_NOT_FOUND => return error.FileNotFound,
-        .ACCESS_DENIED => return error.PermissionDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         else => |err| return windows.unexpectedError(err),
     }
 }
@@ -4993,7 +4989,8 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
     }
     switch (errno(system.faccessat(dirfd, path, mode, flags))) {
         .SUCCESS => return,
-        .ACCES => return error.PermissionDenied,
+        .ACCES => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         .ROFS => return error.ReadOnlyFileSystem,
         .LOOP => return error.SymLinkLoop,
         .TXTBSY => return error.FileBusy,
@@ -5046,7 +5043,7 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16, mode: u32, flags: u32
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
         .OBJECT_NAME_INVALID => unreachable,
         .INVALID_PARAMETER => unreachable,
-        .ACCESS_DENIED => return error.PermissionDenied,
+        .ACCESS_DENIED => return error.AccessDenied,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
         else => |rc| return windows.unexpectedStatus(rc),
     }
