@@ -355,16 +355,16 @@ pub const Type = struct {
                 try writer.writeAll("}");
             },
 
-            .union_type => |union_type| {
-                const decl = mod.declPtr(union_type.decl);
+            .union_type => {
+                const decl = mod.declPtr(ip.loadUnionType(ty.toIntern()).decl);
                 try decl.renderFullyQualifiedName(mod, writer);
             },
-            .opaque_type => |opaque_type| {
-                const decl = mod.declPtr(opaque_type.decl);
+            .opaque_type => {
+                const decl = mod.declPtr(ip.loadOpaqueType(ty.toIntern()).decl);
                 try decl.renderFullyQualifiedName(mod, writer);
             },
-            .enum_type => |enum_type| {
-                const decl = mod.declPtr(enum_type.decl);
+            .enum_type => {
+                const decl = mod.declPtr(ip.loadEnumType(ty.toIntern()).decl);
                 try decl.renderFullyQualifiedName(mod, writer);
             },
             .func_type => |fn_info| {
@@ -2845,9 +2845,9 @@ pub const Type = struct {
     pub fn getNamespaceIndex(ty: Type, mod: *Module) InternPool.OptionalNamespaceIndex {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace.toOptional(),
+            .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace,
             .struct_type => ip.loadStructType(ty.toIntern()).namespace,
-            .union_type => ip.loadUnionType(ty.toIntern()).namespace.toOptional(),
+            .union_type => ip.loadUnionType(ty.toIntern()).namespace,
             .enum_type => ip.loadEnumType(ty.toIntern()).namespace,
 
             else => .none,
@@ -3180,17 +3180,8 @@ pub const Type = struct {
     }
 
     pub fn declSrcLocOrNull(ty: Type, mod: *Module) ?Module.SrcLoc {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| {
-                return mod.declPtr(struct_type.decl.unwrap() orelse return null).srcLoc(mod);
-            },
-            .union_type => |union_type| {
-                return mod.declPtr(union_type.decl).srcLoc(mod);
-            },
-            .opaque_type => |opaque_type| mod.opaqueSrcLoc(opaque_type),
-            .enum_type => |enum_type| mod.declPtr(enum_type.decl).srcLoc(mod),
-            else => null,
-        };
+        const decl = ty.getOwnerDeclOrNull(mod) orelse return null;
+        return mod.declPtr(decl).srcLoc(mod);
     }
 
     pub fn getOwnerDecl(ty: Type, mod: *Module) InternPool.DeclIndex {
@@ -3198,11 +3189,12 @@ pub const Type = struct {
     }
 
     pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?InternPool.DeclIndex {
-        return switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .struct_type => |struct_type| struct_type.decl.unwrap(),
-            .union_type => |union_type| union_type.decl,
-            .opaque_type => |opaque_type| opaque_type.decl,
-            .enum_type => |enum_type| enum_type.decl,
+        const ip = &mod.intern_pool;
+        return switch (ip.indexToKey(ty.toIntern())) {
+            .struct_type => ip.loadStructType(ty.toIntern()).decl.unwrap(),
+            .union_type => ip.loadUnionType(ty.toIntern()).decl,
+            .opaque_type => ip.loadOpaqueType(ty.toIntern()).decl,
+            .enum_type => ip.loadEnumType(ty.toIntern()).decl,
             else => null,
         };
     }
@@ -3287,9 +3279,9 @@ pub const Type = struct {
         const ip = &zcu.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
             .struct_type => ip.loadStructType(ty.toIntern()).zir_index.unwrap(),
-            .union_type => ip.loadUnionType(ty.toIntern()).zir_index.unwrap(),
+            .union_type => ip.loadUnionType(ty.toIntern()).zir_index,
             .enum_type => ip.loadEnumType(ty.toIntern()).zir_index.unwrap(),
-            .opaque_type => ip.loadOpaqueType(ty.toIntern()).zir_index.unwrap(),
+            .opaque_type => ip.loadOpaqueType(ty.toIntern()).zir_index,
             else => null,
         };
     }

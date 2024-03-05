@@ -3548,12 +3548,11 @@ pub const Object = struct {
                     );
                     return ty;
                 },
-                .opaque_type => |opaque_type| {
+                .opaque_type => {
                     const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
                     if (!gop.found_existing) {
-                        const name = try o.builder.string(ip.stringToSlice(
-                            try mod.opaqueFullyQualifiedName(opaque_type),
-                        ));
+                        const decl = mod.declPtr(ip.loadOpaqueType(t.toIntern()).decl);
+                        const name = try o.builder.string(ip.stringToSlice(try decl.getFullyQualifiedName(mod)));
                         gop.value_ptr.* = try o.builder.opaqueType(name);
                     }
                     return gop.value_ptr.*;

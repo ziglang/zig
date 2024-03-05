@@ -344,6 +344,7 @@ const KeyAdapter = struct {
 
     pub fn eql(ctx: @This(), a: Key, b_void: void, b_map_index: usize) bool {
         _ = b_void;
+        if (ctx.intern_pool.items.items(.tag)[b_map_index] == .removed) return false;
         return ctx.intern_pool.indexToKey(@as(Index, @enumFromInt(b_map_index))).eql(a, ctx.intern_pool);
     }
 
@@ -551,14 +552,14 @@ pub const Key = union(enum) {
     /// This represents a struct that has been explicitly declared in source code,
     /// or was created with `@Type`. It is unique and based on a declaration.
     /// It may be a tuple, if declared like this: `struct {A, B, C}`.
-    struct_type: StructType,
+    struct_type: NamespaceType,
     /// This is an anonymous struct or tuple type which has no corresponding
     /// declaration. It is used for types that have no `struct` keyword in the
     /// source code, and were not created via `@Type`.
     anon_struct_type: AnonStructType,
-    union_type: Key.UnionType,
-    opaque_type: OpaqueType,
-    enum_type: EnumType,
+    union_type: NamespaceType,
+    opaque_type: NamespaceType,
+    enum_type: NamespaceType,
     func_type: FuncType,
     error_set_type: ErrorSetType,
     /// The payload is the function body, either a `func_decl` or `func_instance`.
@@ -703,66 +704,41 @@ pub const Key = union(enum) {
         }
     };
 
-    /// This is the hashmap key. To fetch other data associated with the struct, see `loadStructType`.
-    pub const StructType = struct {
-        /// The struct's owner Decl. `none` when the struct is `@TypeOf(.{})`.
-        decl: OptionalDeclIndex,
-    };
-
-    /// This is the hashmap key. To fetch other data associated with the opaque, see `loadOpaqueType`.
-    pub const OpaqueType = struct {
-        /// The opaque's owner Decl.
-        decl: DeclIndex,
-    };
-
-    /// This is the hashmap key. To fetch other data associated with the union, see `loadUnionType`.
-    pub const UnionType = struct {
-        /// The union's owner Decl.
-        decl: DeclIndex,
-    };
-
-    /// This is the hashmap key. To fetch other data associated with the enum, see `loadEnumType`.
-    pub const EnumType = struct {
-        /// The enum's owner Decl.
-        decl: DeclIndex,
-    };
-
-    pub const IncompleteEnumType = struct {
-        /// Same as corresponding `EnumType` field.
-        decl: DeclIndex,
-        /// Same as corresponding `EnumType` field.
-        namespace: OptionalNamespaceIndex,
-        /// The field names and field values are not known yet, but
-        /// the number of fields must be known ahead of time.
-        fields_len: u32,
-        /// This information is needed so that the size does not change
-        /// later when populating field values.
-        has_values: bool,
-        /// Same as corresponding `EnumType` field.
-        tag_mode: LoadedEnumType.TagMode,
-        /// This may be updated via `setTagType` later.
-        tag_ty: Index = .none,
-        zir_index: TrackedInst.Index.Optional,
-        captures: []const CaptureValue,
-
-        pub fn toEnumType(self: @This()) LoadedEnumType {
-            if (true) @compileError("AHHHH");
-            return .{
-                .decl = self.decl,
-                .namespace = self.namespace,
-                .tag_ty = self.tag_ty,
-                .tag_mode = self.tag_mode,
-                .names = .{ .start = 0, .len = 0 },
-                .values = .{ .start = 0, .len = 0 },
-                .zir_index = self.zir_index,
-            };
-        }
-
-        /// Only the decl is used for hashing and equality, so we can construct
-        /// this minimal key for use with `map`.
-        pub fn toKey(self: @This()) Key {
-            return .{ .enum_type = .{ .decl = self.decl } };
-        }
+    /// This is the hashmap key. To fetch other data associated with the type, see:
+    /// * `loadStructType`
+    /// * `loadUnionType`
+    /// * `loadEnumType`
+    /// * `loadOpaqueType`
+    pub const NamespaceType = union(enum) {
+        /// This type corresponds to an actual source declaration, e.g. `struct { ... }`.
+        /// It is hashed based on its ZIR instruction index and set of captures.
+        declared: struct {
+            /// A `struct_decl`, `union_decl`, `enum_decl`, or `opaque_decl` instruction.
+            zir_index: TrackedInst.Index,
+            /// The captured values of this type. These values must be fully resolved per the language spec.
+            captures: union(enum) {
+                owned: CaptureValue.Slice,
+                external: []const CaptureValue,
+            },
+        },
+        /// This type is an automatically-generated enum tag type for a union.
+        /// It is hashed based on the index of the union type it corresponds to.
+        generated_tag: struct {
+            /// The union for which this is a tag type.
+            union_type: Index,
+        },
+        /// This type originates from a reification via `@Type`.
+        /// It is hased based on its ZIR instruction index and fields, attributes, etc.
+        /// To avoid making this key overly complex, the type-specific data is hased by Sema.
+        reified: struct {
+            /// A `reify` instruction.
+            zir_index: TrackedInst.Index,
+            /// A hash of this type's attributes, fields, etc, generated by Sema.
+            type_hash: u64,
+        },
+        /// This type is `@TypeOf(.{})`.
+        /// TODO: can we change the language spec to not special-case this type?
+        empty_struct: void,
     };
 
     pub const FuncType = struct {
@@ -1113,12 +1089,37 @@ pub const Key = union(enum) {
                 .payload => |y| Hash.hash(seed + 1, asBytes(&x.ty) ++ asBytes(&y)),
             },
 
-            inline .opaque_type,
+            .variable => |variable| Hash.hash(seed, asBytes(&variable.decl)),
+
+            .opaque_type,
             .enum_type,
-            .variable,
             .union_type,
             .struct_type,
-            => |x| Hash.hash(seed, asBytes(&x.decl)),
+            => |namespace_type| {
+                var hasher = Hash.init(seed);
+                std.hash.autoHash(&hasher, std.meta.activeTag(namespace_type));
+                switch (namespace_type) {
+                    .declared => |declared| {
+                        std.hash.autoHash(&hasher, declared.zir_index);
+                        const captures = switch (declared.captures) {
+                            .owned => |cvs| cvs.get(ip),
+                            .external => |cvs| cvs,
+                        };
+                        for (captures) |cv| {
+                            std.hash.autoHash(&hasher, cv);
+                        }
+                    },
+                    .generated_tag => |generated_tag| {
+                        std.hash.autoHash(&hasher, generated_tag.union_type);
+                    },
+                    .reified => |reified| {
+                        std.hash.autoHash(&hasher, reified.zir_index);
+                        std.hash.autoHash(&hasher, reified.type_hash);
+                    },
+                    .empty_struct => {},
+                }
+                return hasher.final();
+            },
 
             .int => |int| {
                 var hasher = Hash.init(seed);
@@ -1523,21 +1524,31 @@ pub const Key = union(enum) {
                 }
             },
 
-            .opaque_type => |a_info| {
-                const b_info = b.opaque_type;
-                return a_info.decl == b_info.decl;
-            },
-            .enum_type => |a_info| {
-                const b_info = b.enum_type;
-                return a_info.decl == b_info.decl;
-            },
-            .union_type => |a_info| {
-                const b_info = b.union_type;
-                return a_info.decl == b_info.decl;
-            },
-            .struct_type => |a_info| {
-                const b_info = b.struct_type;
-                return a_info.decl == b_info.decl;
+            inline .opaque_type, .enum_type, .union_type, .struct_type => |a_info, a_tag_ct| {
+                const b_info = @field(b, @tagName(a_tag_ct));
+                if (std.meta.activeTag(a_info) != b_info) return false;
+                switch (a_info) {
+                    .declared => |a_d| {
+                        const b_d = b_info.declared;
+                        if (a_d.zir_index != b_d.zir_index) return false;
+                        const a_captures = switch (a_d.captures) {
+                            .owned => |s| s.get(ip),
+                            .external => |cvs| cvs,
+                        };
+                        const b_captures = switch (b_d.captures) {
+                            .owned => |s| s.get(ip),
+                            .external => |cvs| cvs,
+                        };
+                        return std.mem.eql(u32, @ptrCast(a_captures), @ptrCast(b_captures));
+                    },
+                    .generated_tag => |a_gt| return a_gt.union_type == b_info.generated_tag.union_type,
+                    .reified => |a_r| {
+                        const b_r = b_info.reified;
+                        return a_r.zir_index == b_r.zir_index and
+                            a_r.type_hash == b_r.type_hash;
+                    },
+                    .empty_struct => return true,
+                }
             },
             .aggregate => |a_info| {
                 const b_info = b.aggregate;
@@ -1685,7 +1696,7 @@ pub const LoadedUnionType = struct {
     /// The Decl that corresponds to the union itself.
     decl: DeclIndex,
     /// Represents the declarations inside this union.
-    namespace: NamespaceIndex,
+    namespace: OptionalNamespaceIndex,
     /// The enum tag type.
     enum_tag_ty: Index,
     /// List of field types in declaration order.
@@ -1695,8 +1706,8 @@ pub const LoadedUnionType = struct {
     /// `none` means the ABI alignment of the type.
     /// If this slice has length 0 it means all elements are `none`.
     field_aligns: Alignment.Slice,
-    /// Index of the union_decl ZIR instruction.
-    zir_index: TrackedInst.Index.Optional,
+    /// Index of the union_decl or reify ZIR instruction.
+    zir_index: TrackedInst.Index,
     captures: CaptureValue.Slice,
 
     pub const RuntimeTag = enum(u2) {
@@ -1845,6 +1856,9 @@ pub fn loadUnionType(ip: *const InternPool, index: Index) LoadedUnionType {
         .len = captures_len,
     };
     extra_index += captures_len;
+    if (type_union.data.flags.is_reified) {
+        extra_index += 2; // PackedU64
+    }
 
     const field_types: Index.Slice = .{
         .start = extra_index,
@@ -1880,7 +1894,8 @@ pub const LoadedStructType = struct {
     decl: OptionalDeclIndex,
     /// `none` when the struct has no declarations.
     namespace: OptionalNamespaceIndex,
-    /// Index of the `struct_decl` ZIR instruction.
+    /// Index of the `struct_decl` or `reify` ZIR instruction.
+    /// Only `none` when the struct is `@TypeOf(.{})`.
     zir_index: TrackedInst.Index.Optional,
     layout: std.builtin.Type.ContainerLayout,
     field_names: NullTerminatedString.Slice,
@@ -2239,6 +2254,9 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = captures_len,
             };
             extra_index += captures_len;
+            if (extra.data.flags.is_reified) {
+                extra_index += 2; // PackedU64
+            }
             const field_types: Index.Slice = .{
                 .start = extra_index,
                 .len = fields_len,
@@ -2286,7 +2304,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .extra_index = item.data,
                 .decl = extra.data.decl.toOptional(),
                 .namespace = namespace,
-                .zir_index = extra.data.zir_index,
+                .zir_index = extra.data.zir_index.toOptional(),
                 .layout = if (extra.data.flags.is_extern) .Extern else .Auto,
                 .field_names = names,
                 .field_types = field_types,
@@ -2314,6 +2332,9 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = captures_len,
             };
             extra_index += captures_len;
+            if (extra.data.flags.is_reified) {
+                extra_index += 2; // PackedU64
+            }
             const field_types: Index.Slice = .{
                 .start = extra_index,
                 .len = fields_len,
@@ -2336,7 +2357,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .extra_index = item.data,
                 .decl = extra.data.decl.toOptional(),
                 .namespace = extra.data.namespace,
-                .zir_index = extra.data.zir_index,
+                .zir_index = extra.data.zir_index.toOptional(),
                 .layout = .Packed,
                 .field_names = field_names,
                 .field_types = field_types,
@@ -2372,6 +2393,7 @@ const LoadedEnumType = struct {
     names_map: MapIndex,
     /// This is guaranteed to not be `.none` if explicit values are provided.
     values_map: OptionalMapIndex,
+    /// This is `none` only if this is a generated tag type.
     zir_index: TrackedInst.Index.Optional,
     captures: CaptureValue.Slice,
 
@@ -2425,15 +2447,23 @@ const LoadedEnumType = struct {
 
 pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
     const item = ip.items.get(@intFromEnum(index));
-    switch (item.tag) {
+    const tag_mode: LoadedEnumType.TagMode = switch (item.tag) {
         .type_enum_auto => {
             const extra = ip.extraDataTrail(EnumAuto, item.data);
+            var extra_index: u32 = @intCast(extra.end);
+            if (extra.data.zir_index == .none) {
+                extra_index += 1; // owner_union
+            }
+            const captures_len = if (extra.data.captures_len == std.math.maxInt(u32)) c: {
+                extra_index += 2; // type_hash: PackedU64
+                break :c 0;
+            } else extra.data.captures_len;
             return .{
                 .decl = extra.data.decl,
                 .namespace = extra.data.namespace,
                 .tag_ty = extra.data.int_tag_type,
                 .names = .{
-                    .start = @intCast(extra.end + extra.data.captures_len),
+                    .start = extra_index + captures_len,
                     .len = extra.data.fields_len,
                 },
                 .values = .{ .start = 0, .len = 0 },
@@ -2442,41 +2472,45 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
                 .values_map = .none,
                 .zir_index = extra.data.zir_index,
                 .captures = .{
-                    .start = @intCast(extra.end),
-                    .len = extra.data.captures_len,
+                    .start = extra_index,
+                    .len = captures_len,
                 },
             };
         },
-        .type_enum_explicit, .type_enum_nonexhaustive => {
-            const extra = ip.extraDataTrail(EnumExplicit, item.data);
-            return .{
-                .decl = extra.data.decl,
-                .namespace = extra.data.namespace,
-                .tag_ty = extra.data.int_tag_type,
-                .names = .{
-                    .start = @intCast(extra.end + extra.data.captures_len),
-                    .len = extra.data.fields_len,
-                },
-                .values = .{
-                    .start = @intCast(extra.end + extra.data.captures_len + extra.data.fields_len),
-                    .len = if (extra.data.values_map != .none) extra.data.fields_len else 0,
-                },
-                .tag_mode = switch (item.tag) {
-                    .type_enum_explicit => .explicit,
-                    .type_enum_nonexhaustive => .nonexhaustive,
-                    else => unreachable,
-                },
-                .names_map = extra.data.names_map,
-                .values_map = extra.data.values_map,
-                .zir_index = extra.data.zir_index,
-                .captures = .{
-                    .start = @intCast(extra.end),
-                    .len = extra.data.captures_len,
-                },
-            };
-        },
+        .type_enum_explicit => .explicit,
+        .type_enum_nonexhaustive => .nonexhaustive,
         else => unreachable,
+    };
+    const extra = ip.extraDataTrail(EnumExplicit, item.data);
+    var extra_index: u32 = @intCast(extra.end);
+    if (extra.data.zir_index == .none) {
+        extra_index += 1; // owner_union
     }
+    const captures_len = if (extra.data.captures_len == std.math.maxInt(u32)) c: {
+        extra_index += 2; // type_hash: PackedU64
+        break :c 0;
+    } else extra.data.captures_len;
+    return .{
+        .decl = extra.data.decl,
+        .namespace = extra.data.namespace,
+        .tag_ty = extra.data.int_tag_type,
+        .names = .{
+            .start = extra_index + captures_len,
+            .len = extra.data.fields_len,
+        },
+        .values = .{
+            .start = extra_index + captures_len + extra.data.fields_len,
+            .len = if (extra.data.values_map != .none) extra.data.fields_len else 0,
+        },
+        .tag_mode = tag_mode,
+        .names_map = extra.data.names_map,
+        .values_map = extra.data.values_map,
+        .zir_index = extra.data.zir_index,
+        .captures = .{
+            .start = extra_index,
+            .len = captures_len,
+        },
+    };
 }
 
 /// Note that this type doubles as the payload for `Tag.type_opaque`.
@@ -2484,9 +2518,9 @@ pub const LoadedOpaqueType = struct {
     /// The opaque's owner Decl.
     decl: DeclIndex,
     /// Contains the declarations inside this opaque.
-    namespace: NamespaceIndex,
-    /// The index of the `opaque_decl` instruction.
-    zir_index: TrackedInst.Index.Optional,
+    namespace: OptionalNamespaceIndex,
+    /// Index of the `opaque_decl` or `reify` instruction.
+    zir_index: TrackedInst.Index,
     captures: CaptureValue.Slice,
 };
 
@@ -2494,13 +2528,17 @@ pub fn loadOpaqueType(ip: *const InternPool, index: Index) LoadedOpaqueType {
     assert(ip.items.items(.tag)[@intFromEnum(index)] == .type_opaque);
     const extra_index = ip.items.items(.data)[@intFromEnum(index)];
     const extra = ip.extraDataTrail(Tag.TypeOpaque, extra_index);
+    const captures_len = if (extra.data.captures_len == std.math.maxInt(u32))
+        0
+    else
+        extra.data.captures_len;
     return .{
         .decl = extra.data.decl,
         .namespace = extra.data.namespace,
         .zir_index = extra.data.zir_index,
         .captures = .{
             .start = extra.end,
-            .len = extra.data.captures_len,
+            .len = captures_len,
         },
     };
 }
@@ -2693,6 +2731,7 @@ pub const Index = enum(u32) {
             },
         };
 
+        removed: void,
         type_int_signed: struct { data: u32 },
         type_int_unsigned: struct { data: u32 },
         type_array_big: struct { data: *Array },
@@ -3100,6 +3139,12 @@ comptime {
 }
 
 pub const Tag = enum(u8) {
+    /// This special tag represents a value which was removed from this pool via
+    /// `InternPool.remove`. The item remains allocated to preserve indices, but
+    /// lookups will consider it not equal to any other item, and all queries
+    /// assert not this tag. `data` is unused.
+    removed,
+
     /// An integer type.
     /// data is number of bits
     type_int_signed,
@@ -3367,6 +3412,7 @@ pub const Tag = enum(u8) {
 
     fn Payload(comptime tag: Tag) type {
         return switch (tag) {
+            .removed => unreachable,
             .type_int_signed => unreachable,
             .type_int_unsigned => unreachable,
             .type_array_big => Array,
@@ -3544,8 +3590,9 @@ pub const Tag = enum(u8) {
     /// Trailing:
     /// 0. captures_len: u32 // if `any_captures`
     /// 1. capture: CaptureValue // for each `captures_len`
-    /// 2. field type: Index for each field; declaration order
-    /// 3. field align: Alignment for each field; declaration order
+    /// 2. type_hash: PackedU64 // if `is_reified`
+    /// 3. field type: Index for each field; declaration order
+    /// 4. field align: Alignment for each field; declaration order
     pub const TypeUnion = struct {
         flags: Flags,
         /// This could be provided through the tag type, but it is more convenient
@@ -3557,10 +3604,10 @@ pub const Tag = enum(u8) {
         /// Only valid after .have_layout
         padding: u32,
         decl: DeclIndex,
-        namespace: NamespaceIndex,
+        namespace: OptionalNamespaceIndex,
         /// The enum that provides the list of field names and values.
         tag_ty: Index,
-        zir_index: TrackedInst.Index.Optional,
+        zir_index: TrackedInst.Index,
 
         pub const Flags = packed struct(u32) {
             any_captures: bool,
@@ -3573,19 +3620,21 @@ pub const Tag = enum(u8) {
             assumed_runtime_bits: bool,
             assumed_pointer_aligned: bool,
             alignment: Alignment,
-            _: u13 = 0,
+            is_reified: bool,
+            _: u12 = 0,
         };
     };
 
     /// Trailing:
     /// 0. captures_len: u32 // if `any_captures`
     /// 1. capture: CaptureValue // for each `captures_len`
-    /// 2. type: Index for each fields_len
-    /// 3. name: NullTerminatedString for each fields_len
-    /// 4. init: Index for each fields_len // if tag is type_struct_packed_inits
+    /// 2. type_hash: PackedU64 // if `is_reified`
+    /// 3. type: Index for each fields_len
+    /// 4. name: NullTerminatedString for each fields_len
+    /// 5. init: Index for each fields_len // if tag is type_struct_packed_inits
     pub const TypeStructPacked = struct {
         decl: DeclIndex,
-        zir_index: TrackedInst.Index.Optional,
+        zir_index: TrackedInst.Index,
         fields_len: u32,
         namespace: OptionalNamespaceIndex,
         backing_int_ty: Index,
@@ -3597,7 +3646,8 @@ pub const Tag = enum(u8) {
             /// Dependency loop detection when resolving field inits.
             field_inits_wip: bool,
             inits_resolved: bool,
-            _: u29 = 0,
+            is_reified: bool,
+            _: u28 = 0,
         };
     };
 
@@ -3618,24 +3668,25 @@ pub const Tag = enum(u8) {
     /// Trailing:
     /// 0. captures_len: u32 // if `any_captures`
     /// 1. capture: CaptureValue // for each `captures_len`
-    /// 2. type: Index for each field in declared order
-    /// 3. if not is_tuple:
+    /// 2. type_hash: PackedU64 // if `is_reified`
+    /// 3. type: Index for each field in declared order
+    /// 4. if not is_tuple:
     ///    names_map: MapIndex,
     ///    name: NullTerminatedString // for each field in declared order
-    /// 4. if any_default_inits:
+    /// 5. if any_default_inits:
     ///    init: Index // for each field in declared order
-    /// 5. if has_namespace:
+    /// 6. if has_namespace:
     ///    namespace: NamespaceIndex
-    /// 6. if any_aligned_fields:
+    /// 7. if any_aligned_fields:
     ///    align: Alignment // for each field in declared order
-    /// 7. if any_comptime_fields:
+    /// 8. if any_comptime_fields:
     ///    field_is_comptime_bits: u32 // minimal number of u32s needed, LSB is field 0
-    /// 8. if not is_extern:
+    /// 9. if not is_extern:
     ///    field_index: RuntimeOrder // for each field in runtime order
-    /// 9. field_offset: u32 // for each field in declared order, undef until layout_resolved
+    /// 10. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         decl: DeclIndex,
-        zir_index: TrackedInst.Index.Optional,
+        zir_index: TrackedInst.Index,
         fields_len: u32,
         flags: Flags,
         size: u32,
@@ -3670,8 +3721,8 @@ pub const Tag = enum(u8) {
             // The types and all its fields have had their layout resolved. Even through pointer,
             // which `layout_resolved` does not ensure.
             fully_resolved: bool,
-
-            _: u7 = 0,
+            is_reified: bool,
+            _: u6 = 0,
         };
     };
 
@@ -3681,9 +3732,10 @@ pub const Tag = enum(u8) {
         /// The opaque's owner Decl.
         decl: DeclIndex,
         /// Contains the declarations inside this opaque.
-        namespace: NamespaceIndex,
+        namespace: OptionalNamespaceIndex,
         /// The index of the `opaque_decl` instruction.
-        zir_index: TrackedInst.Index.Optional,
+        zir_index: TrackedInst.Index,
+        /// `std.math.maxInt(u32)` indicates this type is reified.
         captures_len: u32,
     };
 };
@@ -3992,12 +4044,15 @@ pub const Array = struct {
 };
 
 /// Trailing:
-/// 0. capture: CaptureValue // for each `captures_len`
-/// 1. field name: NullTerminatedString for each fields_len; declaration order
-/// 2. tag value: Index for each fields_len; declaration order
+/// 0. owner_union: Index // if `zir_index == .none`
+/// 1. capture: CaptureValue // for each `captures_len`
+/// 2. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
+/// 3. field name: NullTerminatedString for each fields_len; declaration order
+/// 4. tag value: Index for each fields_len; declaration order
 pub const EnumExplicit = struct {
     /// The Decl that corresponds to the enum itself.
     decl: DeclIndex,
+    /// `std.math.maxInt(u32)` indicates this type is reified.
     captures_len: u32,
     /// This may be `none` if there are no declarations.
     namespace: OptionalNamespaceIndex,
@@ -4011,15 +4066,20 @@ pub const EnumExplicit = struct {
     /// If this is `none`, it means the trailing tag values are absent because
     /// they are auto-numbered.
     values_map: OptionalMapIndex,
+    /// `none` means this is a generated tag type.
+    /// There will be a trailing union type for which this is a tag.
     zir_index: TrackedInst.Index.Optional,
 };
 
 /// Trailing:
-/// 0. capture: CaptureValue // for each `captures_len`
-/// 1. field name: NullTerminatedString for each fields_len; declaration order
+/// 0. owner_union: Index // if `zir_index == .none`
+/// 1. capture: CaptureValue // for each `captures_len`
+/// 2. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
+/// 3. field name: NullTerminatedString for each fields_len; declaration order
 pub const EnumAuto = struct {
     /// The Decl that corresponds to the enum itself.
     decl: DeclIndex,
+    /// `std.math.maxInt(u32)` indicates this type is reified.
     captures_len: u32,
     /// This may be `none` if there are no declarations.
     namespace: OptionalNamespaceIndex,
@@ -4029,6 +4089,8 @@ pub const EnumAuto = struct {
     fields_len: u32,
     /// Maps field names to declaration index.
     names_map: MapIndex,
+    /// `none` means this is a generated tag type.
+    /// There will be a trailing union type for which this is a tag.
     zir_index: TrackedInst.Index.Optional,
 };
 
@@ -4269,6 +4331,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
     const item = ip.items.get(@intFromEnum(index));
     const data = item.data;
     return switch (item.tag) {
+        .removed => unreachable,
         .type_int_signed => .{
             .int_type = .{
                 .signedness = .signed,
@@ -4330,31 +4393,123 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             .inferred_error_set_type = @enumFromInt(data),
         },
 
-        .type_opaque => .{ .opaque_type = .{
-            .decl = ip.extraData(Tag.TypeOpaque, data).decl,
+        .type_opaque => .{ .opaque_type = ns: {
+            const extra = ip.extraDataTrail(Tag.TypeOpaque, data);
+            if (extra.data.captures_len == std.math.maxInt(u32)) {
+                break :ns .{ .reified = .{
+                    .zir_index = extra.data.zir_index,
+                    .type_hash = 0,
+                } };
+            }
+            break :ns .{ .declared = .{
+                .zir_index = extra.data.zir_index,
+                .captures = .{ .owned = .{
+                    .start = extra.end,
+                    .len = extra.data.captures_len,
+                } },
+            } };
         } },
 
-        .type_struct => .{ .struct_type = if (data == 0) .{
-            .decl = .none,
-        } else .{
-            .decl = ip.extraData(Tag.TypeStruct, data).decl.toOptional(),
+        .type_struct => .{ .struct_type = ns: {
+            if (data == 0) break :ns .empty_struct;
+            const extra = ip.extraDataTrail(Tag.TypeStruct, data);
+            if (extra.data.flags.is_reified) {
+                assert(!extra.data.flags.any_captures);
+                break :ns .{ .reified = .{
+                    .zir_index = extra.data.zir_index,
+                    .type_hash = ip.extraData(PackedU64, extra.end).get(),
+                } };
+            }
+            break :ns .{ .declared = .{
+                .zir_index = extra.data.zir_index,
+                .captures = .{ .owned = if (extra.data.flags.any_captures) .{
+                    .start = extra.end + 1,
+                    .len = ip.extra.items[extra.end],
+                } else .{ .start = 0, .len = 0 } },
+            } };
         } },
 
-        .type_struct_packed, .type_struct_packed_inits => .{ .struct_type = .{
-            .decl = ip.extraData(Tag.TypeStructPacked, data).decl.toOptional(),
+        .type_struct_packed, .type_struct_packed_inits => .{ .struct_type = ns: {
+            const extra = ip.extraDataTrail(Tag.TypeStructPacked, data);
+            if (extra.data.flags.is_reified) {
+                assert(!extra.data.flags.any_captures);
+                break :ns .{ .reified = .{
+                    .zir_index = extra.data.zir_index,
+                    .type_hash = ip.extraData(PackedU64, extra.end).get(),
+                } };
+            }
+            break :ns .{ .declared = .{
+                .zir_index = extra.data.zir_index,
+                .captures = .{ .owned = if (extra.data.flags.any_captures) .{
+                    .start = extra.end + 1,
+                    .len = ip.extra.items[extra.end],
+                } else .{ .start = 0, .len = 0 } },
+            } };
         } },
 
         .type_struct_anon => .{ .anon_struct_type = extraTypeStructAnon(ip, data) },
         .type_tuple_anon => .{ .anon_struct_type = extraTypeTupleAnon(ip, data) },
-        .type_union => .{ .union_type = .{
-            .decl = ip.extraData(Tag.TypeUnion, data).decl,
+        .type_union => .{ .union_type = ns: {
+            const extra = ip.extraDataTrail(Tag.TypeUnion, data);
+            if (extra.data.flags.is_reified) {
+                assert(!extra.data.flags.any_captures);
+                break :ns .{ .reified = .{
+                    .zir_index = extra.data.zir_index,
+                    .type_hash = ip.extraData(PackedU64, extra.end).get(),
+                } };
+            }
+            break :ns .{ .declared = .{
+                .zir_index = extra.data.zir_index,
+                .captures = .{ .owned = if (extra.data.flags.any_captures) .{
+                    .start = extra.end + 1,
+                    .len = ip.extra.items[extra.end],
+                } else .{ .start = 0, .len = 0 } },
+            } };
         } },
 
-        .type_enum_auto => .{ .enum_type = .{
-            .decl = ip.extraData(EnumAuto, data).decl,
+        .type_enum_auto => .{ .enum_type = ns: {
+            const extra = ip.extraDataTrail(EnumAuto, data);
+            const zir_index = extra.data.zir_index.unwrap() orelse {
+                assert(extra.data.captures_len == 0);
+                break :ns .{ .generated_tag = .{
+                    .union_type = @enumFromInt(ip.extra.items[extra.end]),
+                } };
+            };
+            if (extra.data.captures_len == std.math.maxInt(u32)) {
+                break :ns .{ .reified = .{
+                    .zir_index = zir_index,
+                    .type_hash = ip.extraData(PackedU64, extra.end).get(),
+                } };
+            }
+            break :ns .{ .declared = .{
+                .zir_index = zir_index,
+                .captures = .{ .owned = .{
+                    .start = extra.end,
+                    .len = extra.data.captures_len,
+                } },
+            } };
         } },
-        .type_enum_explicit, .type_enum_nonexhaustive => .{ .enum_type = .{
-            .decl = ip.extraData(EnumExplicit, data).decl,
+        .type_enum_explicit, .type_enum_nonexhaustive => .{ .enum_type = ns: {
+            const extra = ip.extraDataTrail(EnumExplicit, data);
+            const zir_index = extra.data.zir_index.unwrap() orelse {
+                assert(extra.data.captures_len == 0);
+                break :ns .{ .generated_tag = .{
+                    .union_type = @enumFromInt(ip.extra.items[extra.end]),
+                } };
+            };
+            if (extra.data.captures_len == std.math.maxInt(u32)) {
+                break :ns .{ .reified = .{
+                    .zir_index = zir_index,
+                    .type_hash = ip.extraData(PackedU64, extra.end).get(),
+                } };
+            }
+            break :ns .{ .declared = .{
+                .zir_index = zir_index,
+                .captures = .{ .owned = .{
+                    .start = extra.end,
+                    .len = extra.data.captures_len,
+                } },
+            } };
         } },
         .type_function => .{ .func_type = ip.extraFuncType(data) },
 
@@ -4979,7 +5134,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .union_type => unreachable, // use getUnionType() instead
         .opaque_type => unreachable, // use getOpaqueType() instead
 
-        .enum_type => unreachable, // use getEnum() or getIncompleteEnum() instead
+        .enum_type => unreachable, // use getEnumType() instead
         .func_type => unreachable, // use getFuncType() instead
         .extern_func => unreachable, // use getExternFunc() instead
         .func => unreachable, // use getFuncInstance() or getFuncDecl() instead
@@ -5652,9 +5807,7 @@ pub const UnionTypeInit = struct {
         assumed_pointer_aligned: bool,
         alignment: Alignment,
     },
-    decl: DeclIndex,
-    namespace: NamespaceIndex,
-    zir_index: TrackedInst.Index.Optional,
+    has_namespace: bool,
     fields_len: u32,
     enum_tag_ty: Index,
     /// May have length 0 which leaves the values unset until later.
@@ -5663,23 +5816,50 @@ pub const UnionTypeInit = struct {
     /// The logic for `any_aligned_fields` is asserted to have been done before
     /// calling this function.
     field_aligns: []const Alignment,
-    captures: []const CaptureValue,
+    key: union(enum) {
+        declared: struct {
+            zir_index: TrackedInst.Index,
+            captures: []const CaptureValue,
+        },
+        reified: struct {
+            zir_index: TrackedInst.Index,
+            type_hash: u64,
+        },
+    },
 };
 
-pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocator.Error!Index {
-    const prev_extra_len = ip.extra.items.len;
+pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocator.Error!WipNamespaceType.Result {
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .union_type = switch (ini.key) {
+        .declared => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .external = d.captures },
+        } },
+        .reified => |r| .{ .reified = .{
+            .zir_index = r.zir_index,
+            .type_hash = r.type_hash,
+        } },
+    } }, adapter);
+    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
+    errdefer _ = ip.map.pop();
+
     const align_elements_len = if (ini.flags.any_aligned_fields) (ini.fields_len + 3) / 4 else 0;
     const align_element: u32 = @bitCast([1]u8{@intFromEnum(Alignment.none)} ** 4);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeUnion).Struct.fields.len +
-        @intFromBool(ini.captures.len != 0) + // captures_len
-        ini.captures.len + // captures
+        // TODO: fmt bug
+        // zig fmt: off
+        switch (ini.key) {
+            .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+            .reified => 2, // type_hash: PackedU64
+        } +
+        // zig fmt: on
         ini.fields_len + // field types
         align_elements_len);
     try ip.items.ensureUnusedCapacity(gpa, 1);
 
-    const union_type_extra_index = ip.addExtraAssumeCapacity(Tag.TypeUnion{
+    const extra_index = ip.addExtraAssumeCapacity(Tag.TypeUnion{
         .flags = .{
-            .any_captures = ini.captures.len != 0,
+            .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
             .runtime_tag = ini.flags.runtime_tag,
             .any_aligned_fields = ini.flags.any_aligned_fields,
             .layout = ini.flags.layout,
@@ -5688,19 +5868,30 @@ pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocat
             .assumed_runtime_bits = ini.flags.assumed_runtime_bits,
             .assumed_pointer_aligned = ini.flags.assumed_pointer_aligned,
             .alignment = ini.flags.alignment,
+            .is_reified = ini.key == .reified,
         },
         .fields_len = ini.fields_len,
         .size = std.math.maxInt(u32),
         .padding = std.math.maxInt(u32),
-        .decl = ini.decl,
-        .namespace = ini.namespace,
+        .decl = undefined, // set by `finish`
+        .namespace = .none, // set by `finish`
         .tag_ty = ini.enum_tag_ty,
-        .zir_index = ini.zir_index,
+        .zir_index = switch (ini.key) {
+            inline else => |x| x.zir_index,
+        },
     });
 
-    if (ini.captures.len != 0) {
-        ip.extra.appendAssumeCapacity(@intCast(ini.captures.len));
-        ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.captures));
+    ip.items.appendAssumeCapacity(.{
+        .tag = .type_union,
+        .data = extra_index,
+    });
+
+    switch (ini.key) {
+        .declared => |d| if (d.captures.len != 0) {
+            ip.extra.appendAssumeCapacity(@intCast(d.captures.len));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast(d.captures));
+        },
+        .reified => |r| _ = ip.addExtraAssumeCapacity(PackedU64.init(r.type_hash)),
     }
 
     // field types
@@ -5725,27 +5916,41 @@ pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocat
         assert(ini.field_aligns.len == 0);
     }
 
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{
-        .union_type = .{ .decl = ini.decl },
-    }, adapter);
-    if (gop.found_existing) {
-        ip.extra.items.len = prev_extra_len;
-        return @enumFromInt(gop.index);
-    }
-
-    ip.items.appendAssumeCapacity(.{
-        .tag = .type_union,
-        .data = union_type_extra_index,
-    });
-    return @enumFromInt(ip.items.len - 1);
+    return .{ .wip = .{
+        .index = @enumFromInt(ip.items.len - 1),
+        .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "decl").?,
+        .namespace_extra_index = if (ini.has_namespace)
+            extra_index + std.meta.fieldIndex(Tag.TypeUnion, "namespace").?
+        else
+            null,
+    } };
 }
 
+pub const WipNamespaceType = struct {
+    index: Index,
+    decl_extra_index: u32,
+    namespace_extra_index: ?u32,
+    pub fn finish(wip: WipNamespaceType, ip: *InternPool, decl: DeclIndex, namespace: OptionalNamespaceIndex) Index {
+        ip.extra.items[wip.decl_extra_index] = @intFromEnum(decl);
+        if (wip.namespace_extra_index) |i| {
+            ip.extra.items[i] = @intFromEnum(namespace.unwrap().?);
+        } else {
+            assert(namespace == .none);
+        }
+        return wip.index;
+    }
+    pub fn cancel(wip: WipNamespaceType, ip: *InternPool) void {
+        ip.remove(wip.index);
+    }
+
+    pub const Result = union(enum) {
+        wip: WipNamespaceType,
+        existing: Index,
+    };
+};
+
 pub const StructTypeInit = struct {
-    decl: DeclIndex,
-    namespace: OptionalNamespaceIndex,
     layout: std.builtin.Type.ContainerLayout,
-    zir_index: TrackedInst.Index.Optional,
     fields_len: u32,
     known_non_opv: bool,
     requires_comptime: RequiresComptime,
@@ -5754,61 +5959,101 @@ pub const StructTypeInit = struct {
     any_default_inits: bool,
     inits_resolved: bool,
     any_aligned_fields: bool,
-    captures: []const CaptureValue,
+    has_namespace: bool,
+    key: union(enum) {
+        declared: struct {
+            zir_index: TrackedInst.Index,
+            captures: []const CaptureValue,
+        },
+        reified: struct {
+            zir_index: TrackedInst.Index,
+            type_hash: u64,
+        },
+    },
 };
 
 pub fn getStructType(
     ip: *InternPool,
     gpa: Allocator,
     ini: StructTypeInit,
-) Allocator.Error!Index {
+) Allocator.Error!WipNamespaceType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const key: Key = .{
-        .struct_type = .{ .decl = ini.decl.toOptional() },
-    };
+    const key: Key = .{ .struct_type = switch (ini.key) {
+        .declared => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .external = d.captures },
+        } },
+        .reified => |r| .{ .reified = .{
+            .zir_index = r.zir_index,
+            .type_hash = r.type_hash,
+        } },
+    } };
     const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
-    if (gop.found_existing) return @enumFromInt(gop.index);
+    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
     errdefer _ = ip.map.pop();
 
     const names_map = try ip.addMap(gpa, ini.fields_len);
     errdefer _ = ip.maps.pop();
+
+    const zir_index = switch (ini.key) {
+        inline else => |x| x.zir_index,
+    };
 
     const is_extern = switch (ini.layout) {
         .Auto => false,
         .Extern => true,
         .Packed => {
             try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeStructPacked).Struct.fields.len +
-                @intFromBool(ini.captures.len != 0) + // captures_len
-                ini.captures.len + // captures
+                // TODO: fmt bug
+                // zig fmt: off
+                switch (ini.key) {
+                    .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+                    .reified => 2, // type_hash: PackedU64
+                } +
+                // zig fmt: on
                 ini.fields_len + // types
                 ini.fields_len + // names
                 ini.fields_len); // inits
+            const extra_index = ip.addExtraAssumeCapacity(Tag.TypeStructPacked{
+                .decl = undefined, // set by `finish`
+                .zir_index = zir_index,
+                .fields_len = ini.fields_len,
+                .namespace = .none,
+                .backing_int_ty = .none,
+                .names_map = names_map,
+                .flags = .{
+                    .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+                    .field_inits_wip = false,
+                    .inits_resolved = ini.inits_resolved,
+                    .is_reified = ini.key == .reified,
+                },
+            });
             try ip.items.append(gpa, .{
                 .tag = if (ini.any_default_inits) .type_struct_packed_inits else .type_struct_packed,
-                .data = ip.addExtraAssumeCapacity(Tag.TypeStructPacked{
-                    .decl = ini.decl,
-                    .zir_index = ini.zir_index,
-                    .fields_len = ini.fields_len,
-                    .namespace = ini.namespace,
-                    .backing_int_ty = .none,
-                    .names_map = names_map,
-                    .flags = .{
-                        .any_captures = ini.captures.len != 0,
-                        .field_inits_wip = false,
-                        .inits_resolved = ini.inits_resolved,
-                    },
-                }),
+                .data = extra_index,
             });
-            if (ini.captures.len != 0) {
-                ip.extra.appendAssumeCapacity(@intCast(ini.captures.len));
-                ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.captures));
+            switch (ini.key) {
+                .declared => |d| if (d.captures.len != 0) {
+                    ip.extra.appendAssumeCapacity(@intCast(d.captures.len));
+                    ip.extra.appendSliceAssumeCapacity(@ptrCast(d.captures));
+                },
+                .reified => |r| {
+                    _ = ip.addExtraAssumeCapacity(PackedU64.init(r.type_hash));
+                },
             }
             ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
             ip.extra.appendNTimesAssumeCapacity(@intFromEnum(OptionalNullTerminatedString.none), ini.fields_len);
             if (ini.any_default_inits) {
                 ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
             }
-            return @enumFromInt(ip.items.len - 1);
+            return .{ .wip = .{
+                .index = @enumFromInt(ip.items.len - 1),
+                .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "decl").?,
+                .namespace_extra_index = if (ini.has_namespace)
+                    extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?
+                else
+                    null,
+            } };
         },
     };
 
@@ -5817,44 +6062,56 @@ pub fn getStructType(
     const comptime_elements_len = if (ini.any_comptime_fields) (ini.fields_len + 31) / 32 else 0;
 
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeStruct).Struct.fields.len +
-        @intFromBool(ini.captures.len != 0) + // captures_len
-        ini.captures.len + // captures
+        // TODO: fmt bug
+        // zig fmt: off
+        switch (ini.key) {
+            .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+            .reified => 2, // type_hash: PackedU64
+        } +
+        // zig fmt: on
         (ini.fields_len * 5) + // types, names, inits, runtime order, offsets
         align_elements_len + comptime_elements_len +
         2); // names_map + namespace
+    const extra_index = ip.addExtraAssumeCapacity(Tag.TypeStruct{
+        .decl = undefined, // set by `finish`
+        .zir_index = zir_index,
+        .fields_len = ini.fields_len,
+        .size = std.math.maxInt(u32),
+        .flags = .{
+            .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+            .is_extern = is_extern,
+            .known_non_opv = ini.known_non_opv,
+            .requires_comptime = ini.requires_comptime,
+            .is_tuple = ini.is_tuple,
+            .assumed_runtime_bits = false,
+            .assumed_pointer_aligned = false,
+            .has_namespace = ini.has_namespace,
+            .any_comptime_fields = ini.any_comptime_fields,
+            .any_default_inits = ini.any_default_inits,
+            .any_aligned_fields = ini.any_aligned_fields,
+            .alignment = .none,
+            .alignment_wip = false,
+            .field_types_wip = false,
+            .layout_wip = false,
+            .layout_resolved = false,
+            .field_inits_wip = false,
+            .inits_resolved = ini.inits_resolved,
+            .fully_resolved = false,
+            .is_reified = ini.key == .reified,
+        },
+    });
     try ip.items.append(gpa, .{
         .tag = .type_struct,
-        .data = ip.addExtraAssumeCapacity(Tag.TypeStruct{
-            .decl = ini.decl,
-            .zir_index = ini.zir_index,
-            .fields_len = ini.fields_len,
-            .size = std.math.maxInt(u32),
-            .flags = .{
-                .any_captures = ini.captures.len != 0,
-                .is_extern = is_extern,
-                .known_non_opv = ini.known_non_opv,
-                .requires_comptime = ini.requires_comptime,
-                .is_tuple = ini.is_tuple,
-                .assumed_runtime_bits = false,
-                .assumed_pointer_aligned = false,
-                .has_namespace = ini.namespace != .none,
-                .any_comptime_fields = ini.any_comptime_fields,
-                .any_default_inits = ini.any_default_inits,
-                .any_aligned_fields = ini.any_aligned_fields,
-                .alignment = .none,
-                .alignment_wip = false,
-                .field_types_wip = false,
-                .layout_wip = false,
-                .layout_resolved = false,
-                .field_inits_wip = false,
-                .inits_resolved = ini.inits_resolved,
-                .fully_resolved = false,
-            },
-        }),
+        .data = extra_index,
     });
-    if (ini.captures.len != 0) {
-        ip.extra.appendAssumeCapacity(@intCast(ini.captures.len));
-        ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.captures));
+    switch (ini.key) {
+        .declared => |d| if (d.captures.len != 0) {
+            ip.extra.appendAssumeCapacity(@intCast(d.captures.len));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast(d.captures));
+        },
+        .reified => |r| {
+            _ = ip.addExtraAssumeCapacity(PackedU64.init(r.type_hash));
+        },
     }
     ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
     if (!ini.is_tuple) {
@@ -5864,9 +6121,10 @@ pub fn getStructType(
     if (ini.any_default_inits) {
         ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), ini.fields_len);
     }
-    if (ini.namespace.unwrap()) |namespace| {
-        ip.extra.appendAssumeCapacity(@intFromEnum(namespace));
-    }
+    const namespace_extra_index: ?u32 = if (ini.has_namespace) i: {
+        ip.extra.appendAssumeCapacity(undefined); // set by `finish`
+        break :i @intCast(ip.extra.items.len - 1);
+    } else null;
     if (ini.any_aligned_fields) {
         ip.extra.appendNTimesAssumeCapacity(align_element, align_elements_len);
     }
@@ -5877,7 +6135,11 @@ pub fn getStructType(
         ip.extra.appendNTimesAssumeCapacity(@intFromEnum(LoadedStructType.RuntimeOrder.unresolved), ini.fields_len);
     }
     ip.extra.appendNTimesAssumeCapacity(std.math.maxInt(u32), ini.fields_len);
-    return @enumFromInt(ip.items.len - 1);
+    return .{ .wip = .{
+        .index = @enumFromInt(ip.items.len - 1),
+        .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "decl").?,
+        .namespace_extra_index = namespace_extra_index,
+    } };
 }
 
 pub const AnonStructTypeInit = struct {
@@ -6513,282 +6775,399 @@ fn finishFuncInstance(
     return func_index;
 }
 
-/// Provides API for completing an enum type after calling `getIncompleteEnum`.
-pub const IncompleteEnumType = struct {
+pub const EnumTypeInit = struct {
+    has_namespace: bool,
+    has_values: bool,
+    tag_mode: LoadedEnumType.TagMode,
+    fields_len: u32,
+    key: union(enum) {
+        declared: struct {
+            zir_index: TrackedInst.Index,
+            captures: []const CaptureValue,
+        },
+        reified: struct {
+            zir_index: TrackedInst.Index,
+            type_hash: u64,
+        },
+    },
+};
+
+pub const WipEnumType = struct {
     index: Index,
     tag_ty_index: u32,
+    decl_index: u32,
+    namespace_index: ?u32,
     names_map: MapIndex,
     names_start: u32,
     values_map: OptionalMapIndex,
     values_start: u32,
+    expected_fields_len: if (std.debug.runtime_safety) u32 else void,
 
-    pub fn setTagType(self: @This(), ip: *InternPool, tag_ty: Index) void {
-        assert(tag_ty == .noreturn_type or ip.isIntegerType(tag_ty));
-        ip.extra.items[self.tag_ty_index] = @intFromEnum(tag_ty);
+    pub fn prepare(
+        wip: WipEnumType,
+        ip: *InternPool,
+        decl: DeclIndex,
+        namespace: OptionalNamespaceIndex,
+        tag_ty: Index,
+    ) void {
+        assert(ip.isIntegerType(tag_ty));
+        ip.extra.items[wip.tag_ty_index] = @intFromEnum(tag_ty);
+        ip.extra.items[wip.decl_index] = @intFromEnum(decl);
+        if (wip.namespace_index) |i| {
+            ip.extra.items[i] = @intFromEnum(namespace.unwrap().?);
+        } else {
+            assert(namespace == .none);
+        }
     }
 
-    /// Returns the already-existing field with the same name, if any.
-    pub fn addFieldName(
-        self: @This(),
-        ip: *InternPool,
-        name: NullTerminatedString,
-    ) ?u32 {
-        return ip.addFieldName(self.names_map, self.names_start, name);
-    }
+    pub const FieldConflict = struct {
+        kind: enum { name, value },
+        prev_field_idx: u32,
+    };
 
-    /// Returns the already-existing field with the same value, if any.
-    /// Make sure the type of the value has the integer tag type of the enum.
-    pub fn addFieldValue(
-        self: @This(),
-        ip: *InternPool,
-        value: Index,
-    ) ?u32 {
-        assert(ip.typeOf(value) == @as(Index, @enumFromInt(ip.extra.items[self.tag_ty_index])));
-        const map = &ip.maps.items[@intFromEnum(self.values_map.unwrap().?)];
+    /// Returns the already-existing field with the same name or value, if any.
+    /// If the enum is automatially numbered, `value` must be `.none`.
+    /// Otherwise, the type of `value` must be the integer tag type of the enum.
+    pub fn nextField(wip: WipEnumType, ip: *InternPool, name: NullTerminatedString, value: Index) ?FieldConflict {
+        if (ip.addFieldName(wip.names_map, wip.names_start, name)) |conflict| {
+            return .{ .kind = .name, .prev_field_idx = conflict };
+        }
+        if (value == .none) {
+            assert(wip.values_map == .none);
+            return null;
+        }
+        assert(ip.typeOf(value) == @as(Index, @enumFromInt(ip.extra.items[wip.tag_ty_index])));
+        const map = &ip.maps.items[@intFromEnum(wip.values_map.unwrap().?)];
         const field_index = map.count();
-        const indexes = ip.extra.items[self.values_start..][0..field_index];
+        const indexes = ip.extra.items[wip.values_start..][0..field_index];
         const adapter: Index.Adapter = .{ .indexes = @ptrCast(indexes) };
         const gop = map.getOrPutAssumeCapacityAdapted(value, adapter);
-        if (gop.found_existing) return @intCast(gop.index);
-        ip.extra.items[self.values_start + field_index] = @intFromEnum(value);
+        if (gop.found_existing) {
+            return .{ .kind = .value, .prev_field_idx = @intCast(gop.index) };
+        }
+        ip.extra.items[wip.values_start + field_index] = @intFromEnum(value);
         return null;
     }
+
+    pub fn finish(wip: WipEnumType, ip: *InternPool) Index {
+        if (std.debug.runtime_safety) {
+            const names_map = &ip.maps.items[@intFromEnum(wip.names_map)];
+            assert(names_map.count() == wip.expected_fields_len);
+            if (wip.values_map.unwrap()) |v| {
+                const values_map = &ip.maps.items[@intFromEnum(v)];
+                assert(values_map.count() == wip.expected_fields_len);
+            }
+        }
+        return wip.index;
+    }
+
+    pub fn cancel(wip: WipEnumType, ip: *InternPool) void {
+        ip.remove(wip.index);
+    }
+
+    pub const Result = union(enum) {
+        wip: WipEnumType,
+        existing: Index,
+    };
 };
 
-/// This is used to create an enum type in the `InternPool`, with the ability
-/// to update the tag type, field names, and field values later.
-pub fn getIncompleteEnum(
+pub fn getEnumType(
     ip: *InternPool,
     gpa: Allocator,
-    enum_type: Key.IncompleteEnumType,
-) Allocator.Error!IncompleteEnumType {
-    switch (enum_type.tag_mode) {
-        .auto => return getIncompleteEnumAuto(ip, gpa, enum_type),
-        .explicit => return getIncompleteEnumExplicit(ip, gpa, enum_type, .type_enum_explicit),
-        .nonexhaustive => return getIncompleteEnumExplicit(ip, gpa, enum_type, .type_enum_nonexhaustive),
+    ini: EnumTypeInit,
+) Allocator.Error!WipEnumType.Result {
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .enum_type = switch (ini.key) {
+        .declared => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .external = d.captures },
+        } },
+        .reified => |r| .{ .reified = .{
+            .zir_index = r.zir_index,
+            .type_hash = r.type_hash,
+        } },
+    } }, adapter);
+    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
+    assert(gop.index == ip.items.len);
+    errdefer _ = ip.map.pop();
+
+    try ip.items.ensureUnusedCapacity(gpa, 1);
+
+    const names_map = try ip.addMap(gpa, ini.fields_len);
+    errdefer _ = ip.maps.pop();
+
+    switch (ini.tag_mode) {
+        .auto => {
+            assert(!ini.has_values);
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumAuto).Struct.fields.len +
+                // TODO: fmt bug
+                // zig fmt: off
+                switch (ini.key) {
+                    .declared => |d| d.captures.len,
+                    .reified => 2, // type_hash: PackedU64
+                } +
+                // zig fmt: on
+                ini.fields_len); // field types
+
+            const extra_index = ip.addExtraAssumeCapacity(EnumAuto{
+                .decl = undefined, // set by `prepare`
+                .captures_len = switch (ini.key) {
+                    .declared => |d| @intCast(d.captures.len),
+                    .reified => std.math.maxInt(u32),
+                },
+                .namespace = .none,
+                .int_tag_type = .none, // set by `prepare`
+                .fields_len = ini.fields_len,
+                .names_map = names_map,
+                .zir_index = switch (ini.key) {
+                    inline else => |x| x.zir_index,
+                }.toOptional(),
+            });
+            ip.items.appendAssumeCapacity(.{
+                .tag = .type_enum_auto,
+                .data = extra_index,
+            });
+            switch (ini.key) {
+                .declared => |d| ip.extra.appendSliceAssumeCapacity(@ptrCast(d.captures)),
+                .reified => |r| _ = ip.addExtraAssumeCapacity(PackedU64.init(r.type_hash)),
+            }
+            const names_start = ip.extra.items.len;
+            ip.extra.appendNTimesAssumeCapacity(undefined, ini.fields_len);
+            return .{ .wip = .{
+                .index = @enumFromInt(gop.index),
+                .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
+                .decl_index = extra_index + std.meta.fieldIndex(EnumAuto, "decl").?,
+                .namespace_index = if (ini.has_namespace) extra_index + std.meta.fieldIndex(EnumAuto, "namespace").? else null,
+                .names_map = names_map,
+                .names_start = @intCast(names_start),
+                .values_map = .none,
+                .values_start = undefined,
+                .expected_fields_len = if (std.debug.runtime_safety) ini.fields_len else {},
+            } };
+        },
+        .explicit, .nonexhaustive => {
+            const values_map: OptionalMapIndex = if (!ini.has_values) .none else m: {
+                const values_map = try ip.addMap(gpa, ini.fields_len);
+                break :m values_map.toOptional();
+            };
+            errdefer if (ini.has_values) {
+                _ = ip.map.pop();
+            };
+
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
+                // TODO: fmt bug
+                // zig fmt: off
+                switch (ini.key) {
+                    .declared => |d| d.captures.len,
+                    .reified => 2, // type_hash: PackedU64
+                } +
+                // zig fmt: on
+                ini.fields_len + // field types
+                ini.fields_len * @intFromBool(ini.has_values)); // field values
+
+            const extra_index = ip.addExtraAssumeCapacity(EnumExplicit{
+                .decl = undefined, // set by `prepare`
+                .captures_len = switch (ini.key) {
+                    .declared => |d| @intCast(d.captures.len),
+                    .reified => std.math.maxInt(u32),
+                },
+                .namespace = .none,
+                .int_tag_type = .none, // set by `prepare`
+                .fields_len = ini.fields_len,
+                .names_map = names_map,
+                .values_map = values_map,
+                .zir_index = switch (ini.key) {
+                    inline else => |x| x.zir_index,
+                }.toOptional(),
+            });
+            ip.items.appendAssumeCapacity(.{
+                .tag = switch (ini.tag_mode) {
+                    .auto => unreachable,
+                    .explicit => .type_enum_explicit,
+                    .nonexhaustive => .type_enum_nonexhaustive,
+                },
+                .data = extra_index,
+            });
+            switch (ini.key) {
+                .declared => |d| ip.extra.appendSliceAssumeCapacity(@ptrCast(d.captures)),
+                .reified => |r| _ = ip.addExtraAssumeCapacity(PackedU64.init(r.type_hash)),
+            }
+            const names_start = ip.extra.items.len;
+            ip.extra.appendNTimesAssumeCapacity(undefined, ini.fields_len);
+            const values_start = ip.extra.items.len;
+            if (ini.has_values) {
+                ip.extra.appendNTimesAssumeCapacity(undefined, ini.fields_len);
+            }
+            return .{ .wip = .{
+                .index = @enumFromInt(gop.index),
+                .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
+                .decl_index = extra_index + std.meta.fieldIndex(EnumAuto, "decl").?,
+                .namespace_index = if (ini.has_namespace) extra_index + std.meta.fieldIndex(EnumAuto, "namespace").? else null,
+                .names_map = names_map,
+                .names_start = @intCast(names_start),
+                .values_map = values_map,
+                .values_start = @intCast(values_start),
+                .expected_fields_len = if (std.debug.runtime_safety) ini.fields_len else {},
+            } };
+        },
     }
 }
 
-fn getIncompleteEnumAuto(
-    ip: *InternPool,
-    gpa: Allocator,
-    enum_type: Key.IncompleteEnumType,
-) Allocator.Error!IncompleteEnumType {
-    const int_tag_type = if (enum_type.tag_ty != .none)
-        enum_type.tag_ty
-    else
-        try ip.get(gpa, .{ .int_type = .{
-            .bits = if (enum_type.fields_len == 0) 0 else std.math.log2_int_ceil(u32, enum_type.fields_len),
-            .signedness = .unsigned,
-        } });
-
-    // We must keep the map in sync with `items`. The hash and equality functions
-    // for enum types only look at the decl field, which is present even in
-    // an `IncompleteEnumType`.
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, enum_type.toKey(), adapter);
-    assert(!gop.found_existing);
-
-    const names_map = try ip.addMap(gpa, enum_type.fields_len);
-
-    const extra_fields_len: u32 = @typeInfo(EnumAuto).Struct.fields.len;
-    try ip.extra.ensureUnusedCapacity(gpa, extra_fields_len + enum_type.captures.len + enum_type.fields_len);
-    try ip.items.ensureUnusedCapacity(gpa, 1);
-
-    const extra_index = ip.addExtraAssumeCapacity(EnumAuto{
-        .decl = enum_type.decl,
-        .captures_len = @intCast(enum_type.captures.len),
-        .namespace = enum_type.namespace,
-        .int_tag_type = int_tag_type,
-        .names_map = names_map,
-        .fields_len = enum_type.fields_len,
-        .zir_index = enum_type.zir_index,
-    });
-
-    ip.items.appendAssumeCapacity(.{
-        .tag = .type_enum_auto,
-        .data = extra_index,
-    });
-    ip.extra.appendSliceAssumeCapacity(@ptrCast(enum_type.captures));
-    ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), enum_type.fields_len);
-    return .{
-        .index = @enumFromInt(ip.items.len - 1),
-        .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
-        .names_map = names_map,
-        .names_start = extra_index + extra_fields_len,
-        .values_map = .none,
-        .values_start = undefined,
-    };
-}
-
-fn getIncompleteEnumExplicit(
-    ip: *InternPool,
-    gpa: Allocator,
-    enum_type: Key.IncompleteEnumType,
-    tag: Tag,
-) Allocator.Error!IncompleteEnumType {
-    // We must keep the map in sync with `items`. The hash and equality functions
-    // for enum types only look at the decl field, which is present even in
-    // an `IncompleteEnumType`.
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, enum_type.toKey(), adapter);
-    assert(!gop.found_existing);
-
-    const names_map = try ip.addMap(gpa, enum_type.fields_len);
-    const values_map: OptionalMapIndex = if (!enum_type.has_values) .none else m: {
-        const values_map = try ip.addMap(gpa, enum_type.fields_len);
-        break :m values_map.toOptional();
-    };
-
-    const reserved_len = enum_type.fields_len +
-        if (enum_type.has_values) enum_type.fields_len else 0;
-
-    const extra_fields_len: u32 = @typeInfo(EnumExplicit).Struct.fields.len;
-    try ip.extra.ensureUnusedCapacity(gpa, extra_fields_len + enum_type.captures.len + reserved_len);
-    try ip.items.ensureUnusedCapacity(gpa, 1);
-
-    const extra_index = ip.addExtraAssumeCapacity(EnumExplicit{
-        .decl = enum_type.decl,
-        .captures_len = @intCast(enum_type.captures.len),
-        .namespace = enum_type.namespace,
-        .int_tag_type = enum_type.tag_ty,
-        .fields_len = enum_type.fields_len,
-        .names_map = names_map,
-        .values_map = values_map,
-        .zir_index = enum_type.zir_index,
-    });
-
-    ip.items.appendAssumeCapacity(.{
-        .tag = tag,
-        .data = extra_index,
-    });
-    ip.extra.appendSliceAssumeCapacity(@ptrCast(enum_type.captures));
-    // This is both fields and values (if present).
-    ip.extra.appendNTimesAssumeCapacity(@intFromEnum(Index.none), reserved_len);
-    return .{
-        .index = @enumFromInt(ip.items.len - 1),
-        .tag_ty_index = extra_index + std.meta.fieldIndex(EnumExplicit, "int_tag_type").?,
-        .names_map = names_map,
-        .names_start = extra_index + extra_fields_len,
-        .values_map = values_map,
-        .values_start = extra_index + extra_fields_len + enum_type.fields_len,
-    };
-}
-
-pub const GetEnumInit = struct {
+const GeneratedTagEnumTypeInit = struct {
     decl: DeclIndex,
-    namespace: OptionalNamespaceIndex,
+    owner_union_ty: Index,
     tag_ty: Index,
     names: []const NullTerminatedString,
     values: []const Index,
     tag_mode: LoadedEnumType.TagMode,
-    zir_index: TrackedInst.Index.Optional,
-    captures: []const CaptureValue,
 };
 
-pub fn getEnum(ip: *InternPool, gpa: Allocator, ini: GetEnumInit) Allocator.Error!Index {
-    const adapter: KeyAdapter = .{ .intern_pool = ip };
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{
-        .enum_type = .{ .decl = ini.decl },
-    }, adapter);
-    if (gop.found_existing) return @enumFromInt(gop.index);
-    errdefer _ = ip.map.pop();
+/// Creates an enum type which was automatically-generated as the tag type of a
+/// `union` with no explicit tag type. Since this is only called once per union
+/// type, it asserts that no matching type yet exists.
+pub fn getGeneratedTagEnumType(ip: *InternPool, gpa: Allocator, ini: GeneratedTagEnumTypeInit) Allocator.Error!Index {
+    assert(ip.isUnion(ini.owner_union_ty));
+    assert(ip.isIntegerType(ini.tag_ty));
+    for (ini.values) |val| assert(ip.typeOf(val) == ini.tag_ty);
+
+    try ip.map.ensureUnusedCapacity(gpa, 1);
     try ip.items.ensureUnusedCapacity(gpa, 1);
 
-    assert(ini.tag_ty == .noreturn_type or ip.isIntegerType(ini.tag_ty));
-    for (ini.values) |value| assert(ip.typeOf(value) == ini.tag_ty);
+    const names_map = try ip.addMap(gpa, ini.names.len);
+    errdefer _ = ip.maps.pop();
+    ip.addStringsToMap(names_map, ini.names);
+
+    const fields_len: u32 = @intCast(ini.names.len);
 
     switch (ini.tag_mode) {
         .auto => {
-            const names_map = try ip.addMap(gpa, ini.names.len);
-            addStringsToMap(ip, names_map, ini.names);
-
-            const fields_len: u32 = @intCast(ini.names.len);
             try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumAuto).Struct.fields.len +
-                ini.captures.len + fields_len);
+                1 + // owner_union
+                fields_len); // field names
             ip.items.appendAssumeCapacity(.{
                 .tag = .type_enum_auto,
                 .data = ip.addExtraAssumeCapacity(EnumAuto{
                     .decl = ini.decl,
-                    .captures_len = @intCast(ini.captures.len),
-                    .namespace = ini.namespace,
+                    .captures_len = 0,
+                    .namespace = .none,
                     .int_tag_type = ini.tag_ty,
-                    .names_map = names_map,
                     .fields_len = fields_len,
-                    .zir_index = ini.zir_index,
+                    .names_map = names_map,
+                    .zir_index = .none,
                 }),
             });
-            ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.captures));
+            ip.extra.appendAssumeCapacity(@intFromEnum(ini.owner_union_ty));
             ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.names));
-            return @enumFromInt(ip.items.len - 1);
         },
-        .explicit => return finishGetEnum(ip, gpa, ini, .type_enum_explicit),
-        .nonexhaustive => return finishGetEnum(ip, gpa, ini, .type_enum_nonexhaustive),
+        .explicit, .nonexhaustive => {
+            try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
+                1 + // owner_union
+                fields_len + // field names
+                ini.values.len); // field values
+
+            const values_map: OptionalMapIndex = if (ini.values.len != 0) m: {
+                const map = try ip.addMap(gpa, ini.values.len);
+                addIndexesToMap(ip, map, ini.values);
+                break :m map.toOptional();
+            } else .none;
+            // We don't clean up the values map on error!
+            errdefer @compileError("error path leaks values_map");
+
+            ip.items.appendAssumeCapacity(.{
+                .tag = switch (ini.tag_mode) {
+                    .explicit => .type_enum_explicit,
+                    .nonexhaustive => .type_enum_nonexhaustive,
+                    .auto => unreachable,
+                },
+                .data = ip.addExtraAssumeCapacity(EnumExplicit{
+                    .decl = ini.decl,
+                    .captures_len = 0,
+                    .namespace = .none,
+                    .int_tag_type = ini.tag_ty,
+                    .fields_len = fields_len,
+                    .names_map = names_map,
+                    .values_map = values_map,
+                    .zir_index = .none,
+                }),
+            });
+            ip.extra.appendAssumeCapacity(@intFromEnum(ini.owner_union_ty));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.names));
+            ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.values));
+        },
     }
-}
+    // Same as above
+    errdefer @compileError("error path leaks values_map and extra data");
 
-fn finishGetEnum(
-    ip: *InternPool,
-    gpa: Allocator,
-    ini: GetEnumInit,
-    tag: Tag,
-) Allocator.Error!Index {
-    const names_map = try ip.addMap(gpa, ini.names.len);
-    addStringsToMap(ip, names_map, ini.names);
-
-    const values_map: OptionalMapIndex = if (ini.values.len == 0) .none else m: {
-        const values_map = try ip.addMap(gpa, ini.values.len);
-        addIndexesToMap(ip, values_map, ini.values);
-        break :m values_map.toOptional();
-    };
-    const fields_len: u32 = @intCast(ini.names.len);
-    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
-        ini.captures.len + fields_len);
-    ip.items.appendAssumeCapacity(.{
-        .tag = tag,
-        .data = ip.addExtraAssumeCapacity(EnumExplicit{
-            .decl = ini.decl,
-            .captures_len = @intCast(ini.captures.len),
-            .namespace = ini.namespace,
-            .int_tag_type = ini.tag_ty,
-            .fields_len = fields_len,
-            .names_map = names_map,
-            .values_map = values_map,
-            .zir_index = ini.zir_index,
-        }),
-    });
-    ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.captures));
-    ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.names));
-    ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.values));
-    return @enumFromInt(ip.items.len - 1);
+    // Capacity for this was ensured earlier
+    const adapter: KeyAdapter = .{ .intern_pool = ip };
+    const gop = ip.map.getOrPutAssumeCapacityAdapted(Key{ .enum_type = .{
+        .generated_tag = .{ .union_type = ini.owner_union_ty },
+    } }, adapter);
+    assert(!gop.found_existing);
+    assert(gop.index == ip.items.len - 1);
+    return @enumFromInt(gop.index);
 }
 
 pub const OpaqueTypeIni = struct {
-    decl: DeclIndex,
-    namespace: NamespaceIndex,
-    zir_index: TrackedInst.Index.Optional,
-    captures: []const CaptureValue,
+    has_namespace: bool,
+    key: union(enum) {
+        declared: struct {
+            zir_index: TrackedInst.Index,
+            captures: []const CaptureValue,
+        },
+        reified: struct {
+            zir_index: TrackedInst.Index,
+            // No type hash since reifid opaques have no data other than the `@Type` location
+        },
+    },
 };
 
-pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeIni) Allocator.Error!Index {
+pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeIni) Allocator.Error!WipNamespaceType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
-    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(LoadedOpaqueType).Struct.fields.len + ini.captures.len);
+    const gop = try ip.map.getOrPutAdapted(gpa, Key{ .opaque_type = switch (ini.key) {
+        .declared => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .external = d.captures },
+        } },
+        .reified => |r| .{ .reified = .{
+            .zir_index = r.zir_index,
+            .type_hash = 0,
+        } },
+    } }, adapter);
+    if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
+    errdefer _ = ip.map.pop();
     try ip.items.ensureUnusedCapacity(gpa, 1);
-    const gop = try ip.map.getOrPutAdapted(gpa, Key{
-        .opaque_type = .{ .decl = ini.decl },
-    }, adapter);
-    if (gop.found_existing) return @enumFromInt(gop.index);
+    try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeOpaque).Struct.fields.len + switch (ini.key) {
+        .declared => |d| d.captures.len,
+        .reified => 0,
+    });
+    const extra_index = ip.addExtraAssumeCapacity(Tag.TypeOpaque{
+        .decl = undefined, // set by `finish`
+        .namespace = .none,
+        .zir_index = switch (ini.key) {
+            inline else => |x| x.zir_index,
+        },
+        .captures_len = switch (ini.key) {
+            .declared => |d| @intCast(d.captures.len),
+            .reified => std.math.maxInt(u32),
+        },
+    });
     ip.items.appendAssumeCapacity(.{
         .tag = .type_opaque,
-        .data = ip.addExtraAssumeCapacity(Tag.TypeOpaque{
-            .decl = ini.decl,
-            .namespace = ini.namespace,
-            .zir_index = ini.zir_index,
-            .captures_len = @intCast(ini.captures.len),
-        }),
+        .data = extra_index,
     });
-    ip.extra.appendSliceAssumeCapacity(@ptrCast(ini.captures));
-    return @enumFromInt(gop.index);
+    switch (ini.key) {
+        .declared => |d| ip.extra.appendSliceAssumeCapacity(@ptrCast(d.captures)),
+        .reified => {},
+    }
+    return .{ .wip = .{
+        .index = @enumFromInt(gop.index),
+        .decl_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "decl").?,
+        .namespace_extra_index = if (ini.has_namespace)
+            extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "namespace").?
+        else
+            null,
+    } };
 }
 
 pub fn getIfExists(ip: *const InternPool, key: Key) ?Index {
@@ -6837,8 +7216,34 @@ fn addMap(ip: *InternPool, gpa: Allocator, cap: usize) Allocator.Error!MapIndex 
 
 /// This operation only happens under compile error conditions.
 /// Leak the index until the next garbage collection.
-/// TODO: this is a bit problematic to implement, can we get away without it?
-pub const remove = @compileError("InternPool.remove is not currently a supported operation; put a TODO there instead");
+/// Invalidates all references to this index.
+pub fn remove(ip: *InternPool, index: Index) void {
+    if (@intFromEnum(index) < static_keys.len) {
+        // The item being removed replaced a special index via `InternPool.resolveBuiltinType`.
+        // Restore the original item at this index.
+        switch (static_keys[@intFromEnum(index)]) {
+            .simple_type => |s| {
+                ip.items.set(@intFromEnum(index), .{
+                    .tag = .simple_type,
+                    .data = @intFromEnum(s),
+                });
+            },
+            else => unreachable,
+        }
+        return;
+    }
+
+    if (@intFromEnum(index) == ip.items.len - 1) {
+        // Happy case - we can just drop the item without affecting any other indices.
+        ip.items.len -= 1;
+        _ = ip.map.pop();
+    } else {
+        // We must preserve the item so that indices following it remain valid.
+        // Thus, we will rewrite the tag to `removed`, leaking the item until
+        // next GC but causing `KeyAdapter` to ignore it.
+        ip.items.set(@intFromEnum(index), .{ .tag = .removed, .data = undefined });
+    }
+}
 
 fn addInt(ip: *InternPool, gpa: Allocator, ty: Index, tag: Tag, limbs: []const Limb) !void {
     const limbs_len = @as(u32, @intCast(limbs.len));
@@ -7635,6 +8040,10 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         if (!gop.found_existing) gop.value_ptr.* = .{};
         gop.value_ptr.count += 1;
         gop.value_ptr.bytes += 1 + 4 + @as(usize, switch (tag) {
+            // Note that in this case, we have technically leaked some extra data
+            // bytes which we do not account for here.
+            .removed => 0,
+
             .type_int_signed => 0,
             .type_int_unsigned => 0,
             .type_array_small => @sizeOf(Vector),
@@ -7852,6 +8261,8 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
     for (tags, datas, 0..) |tag, data, i| {
         try w.print("${d} = {s}(", .{ i, @tagName(tag) });
         switch (tag) {
+            .removed => {},
+
             .simple_type => try w.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(data)))}),
             .simple_value => try w.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(data)))}),
 
@@ -8258,6 +8669,8 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         // This optimization on tags is needed so that indexToKey can call
         // typeOf without being recursive.
         _ => switch (ip.items.items(.tag)[@intFromEnum(index)]) {
+            .removed => unreachable,
+
             .type_int_signed,
             .type_int_unsigned,
             .type_array_big,
@@ -8575,6 +8988,8 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .var_args_param_type => unreachable, // special tag
 
         _ => switch (ip.items.items(.tag)[@intFromEnum(index)]) {
+            .removed => unreachable,
+
             .type_int_signed,
             .type_int_unsigned,
             => .Int,

@@ -568,9 +568,9 @@ pub const Decl = struct {
             .empty_struct_type => .none,
             .none => .none,
             else => switch (ip.indexToKey(decl.val.toIntern())) {
-                .opaque_type => ip.loadOpaqueType(decl.val.toIntern()).namespace.toOptional(),
+                .opaque_type => ip.loadOpaqueType(decl.val.toIntern()).namespace,
                 .struct_type => ip.loadStructType(decl.val.toIntern()).namespace,
-                .union_type => ip.loadUnionType(decl.val.toIntern()).namespace.toOptional(),
+                .union_type => ip.loadUnionType(decl.val.toIntern()).namespace,
                 .enum_type => ip.loadEnumType(decl.val.toIntern()).namespace,
                 else => .none,
             },
@@ -3302,6 +3302,70 @@ pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     return mod.semaFile(file);
 }
 
+fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespace.Index, file: *File) Allocator.Error!InternPool.Index {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
+    assert(extended.opcode == .struct_decl);
+    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+    assert(!small.has_captures_len);
+    assert(!small.has_backing_int);
+    assert(small.layout == .Auto);
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    const fields_len = if (small.has_fields_len) blk: {
+        const fields_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const decls = file.zir.bodySlice(extra_index, decls_len);
+    extra_index += decls_len;
+
+    const tracked_inst = try ip.trackZir(gpa, file, .main_struct_inst);
+    const wip_ty = switch (try ip.getStructType(gpa, .{
+        .layout = .Auto,
+        .fields_len = fields_len,
+        .known_non_opv = small.known_non_opv,
+        .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
+        .is_tuple = small.is_tuple,
+        .any_comptime_fields = small.any_comptime_fields,
+        .any_default_inits = small.any_default_inits,
+        .inits_resolved = false,
+        .any_aligned_fields = small.any_aligned_fields,
+        .has_namespace = true,
+        .key = .{ .declared = .{
+            .zir_index = tracked_inst,
+            .captures = &.{},
+        } },
+    })) {
+        .existing => unreachable, // we wouldn't be analysing the file root if this type existed
+        .wip => |wip| wip,
+    };
+    errdefer wip_ty.cancel(ip);
+
+    if (zcu.comp.debug_incremental) {
+        try ip.addDependency(
+            gpa,
+            InternPool.Depender.wrap(.{ .decl = decl_index }),
+            .{ .src_hash = tracked_inst },
+        );
+    }
+
+    const decl = zcu.declPtr(decl_index);
+    decl.val = Value.fromInterned(wip_ty.index);
+    decl.has_tv = true;
+    decl.owns_tv = true;
+    decl.analysis = .complete;
+
+    try zcu.scanNamespace(namespace_index, decls, decl);
+
+    return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
+}
+
 /// Regardless of the file status, will create a `Decl` so that we
 /// can track dependencies and re-analyze when the file becomes outdated.
 pub fn semaFile(mod: *Module, file: *File) SemaError!void {
@@ -3323,7 +3387,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .decl_index = undefined,
         .file_scope = file,
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
     const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0);
@@ -3331,7 +3394,7 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     errdefer @panic("TODO error handling");
 
     file.root_decl = new_decl_index.toOptional();
-    new_namespace.decl_index = new_decl_index;
+    mod.namespacePtr(new_namespace_index).decl_index = new_decl_index;
 
     new_decl.name = try file.fullyQualifiedName(mod);
     new_decl.name_fully_qualified = true;
@@ -3350,63 +3413,10 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     }
     assert(file.zir_loaded);
 
-    var sema_arena = std.heap.ArenaAllocator.init(gpa);
-    defer sema_arena.deinit();
-    const sema_arena_allocator = sema_arena.allocator();
+    const struct_ty = try mod.getFileRootStruct(new_decl_index, new_namespace_index, file);
+    errdefer mod.intern_pool.remove(struct_ty);
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
-    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
-    defer comptime_err_ret_trace.deinit();
-
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = sema_arena_allocator,
-        .code = file.zir,
-        .owner_decl = new_decl,
-        .owner_decl_index = new_decl_index,
-        .func_index = .none,
-        .func_is_naked = false,
-        .fn_ret_ty = Type.void,
-        .fn_ret_ty_ies = null,
-        .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
-        .comptime_err_ret_trace = &comptime_err_ret_trace,
-    };
-    defer sema.deinit();
-
-    const struct_ty = sema.getStructType(
-        new_decl_index,
-        new_namespace_index,
-        null,
-        try mod.intern_pool.trackZir(gpa, file, .main_struct_inst),
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        // The following errors are from resolving capture values, but the root
-        // struct of a file has no captures.
-        error.AnalysisFail,
-        error.NeededSourceLocation,
-        error.GenericPoison,
-        error.ComptimeReturn,
-        error.ComptimeBreak,
-        => unreachable,
-    };
-    // TODO: figure out InternPool removals for incremental compilation
-    //errdefer ip.remove(struct_ty);
-    for (comptime_mutable_decls.items) |decl_index| {
-        const decl = mod.declPtr(decl_index);
-        _ = try decl.internValue(mod);
-    }
-
-    new_decl.val = Value.fromInterned(struct_ty);
-    new_decl.has_tv = true;
-    new_decl.owns_tv = true;
-    new_decl.analysis = .complete;
-
-    const comp = mod.comp;
-    switch (comp.cache_use) {
+    switch (mod.comp.cache_use) {
         .whole => |whole| if (whole.cache_manifest) |man| {
             const source = file.getSource(gpa) catch |err| {
                 try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
@@ -5938,14 +5948,6 @@ pub fn atomicPtrAlignment(
     }
 
     return .none;
-}
-
-pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc {
-    return mod.declPtr(opaque_type.decl).srcLoc(mod);
-}
-
-pub fn opaqueFullyQualifiedName(mod: *Module, opaque_type: InternPool.Key.OpaqueType) !InternPool.NullTerminatedString {
-    return mod.declPtr(opaque_type.decl).fullyQualifiedName(mod);
 }
 
 pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
