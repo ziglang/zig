@@ -711,7 +711,8 @@ const ArgsIterator = struct {
     resp_file: ?ArgIteratorResponseFile = null,
     args: []const []const u8,
     i: usize = 0,
-    fn next(it: *@This()) ?[]const u8 {
+
+    fn next(it: *ArgsIterator) ?[]const u8 {
         if (it.i >= it.args.len) {
             if (it.resp_file) |*resp| return resp.next();
             return null;
@@ -719,7 +720,22 @@ const ArgsIterator = struct {
         defer it.i += 1;
         return it.args[it.i];
     }
-    fn nextOrFatal(it: *@This()) []const u8 {
+
+    fn nextOrFatal(it: *ArgsIterator) []const u8 {
+        if (it.i >= it.args.len) {
+            if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
+            fatal("expected parameter after {s}", .{it.args[it.i - 1]});
+        }
+        const arg = it.args[it.i];
+        if (mem.startsWith(u8, arg, "-")) {
+            fatal("expected parameter after {s}", .{it.args[it.i - 1]});
+        }
+        it.i += 1;
+        return arg;
+    }
+
+    // Only used for the deprecated "--mod" option.
+    fn nextMultiOrFatal(it: *ArgsIterator) []const u8 {
         if (it.i >= it.args.len) {
             if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
             fatal("expected parameter after {s}", .{it.args[it.i - 1]});
@@ -1042,8 +1058,8 @@ fn buildOutputType(
                         // deprecated, kept around until the next zig1.wasm update
                         try handleModArg(
                             arena,
-                            args_iter.nextOrFatal(),
-                            args_iter.nextOrFatal(),
+                            args_iter.nextMultiOrFatal(),
+                            args_iter.nextMultiOrFatal(),
                             &create_module,
                             &mod_opts,
                             &cc_argv,
