@@ -63,6 +63,11 @@ pub const CreateOptions = struct {
 
     builtin_mod: ?*Package.Module,
 
+    /// Allocated into the given `arena`. Should be shared across all module creations in a Compilation.
+    /// Ignored if `builtin_mod` is passed or if `!have_zcu`.
+    /// Otherwise, may be `null` only if this Compilation consists of a single module.
+    builtin_modules: ?*std.StringHashMapUnmanaged(*Module),
+
     pub const Paths = struct {
         root: Package.Path,
         /// Relative to `root`. May contain path separators.
@@ -364,11 +369,20 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .wasi_exec_model = options.global.wasi_exec_model,
         }, arena);
 
+        const new = if (options.builtin_modules) |builtins| new: {
+            const gop = try builtins.getOrPut(arena, generated_builtin_source);
+            if (gop.found_existing) break :b gop.value_ptr.*;
+            errdefer builtins.removeByPtr(gop.key_ptr);
+            const new = try arena.create(Module);
+            gop.value_ptr.* = new;
+            break :new new;
+        } else try arena.create(Module);
+        errdefer if (options.builtin_modules) |builtins| assert(builtins.remove(generated_builtin_source));
+
         const new_file = try arena.create(File);
 
         const digest = Cache.HashHelper.oneShot(generated_builtin_source);
         const builtin_sub_path = try arena.dupe(u8, "b" ++ std.fs.path.sep_str ++ digest);
-        const new = try arena.create(Module);
         new.* = .{
             .root = .{
                 .root_dir = options.global_cache_directory,

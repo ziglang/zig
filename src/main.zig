@@ -2697,7 +2697,9 @@ fn buildOutputType(
     create_module.opts.emit_bin = emit_bin != .no;
     create_module.opts.any_c_source_files = create_module.c_source_files.items.len != 0;
 
-    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory);
+    var builtin_modules: std.StringHashMapUnmanaged(*Package.Module) = .{};
+    // `builtin_modules` allocated into `arena`, so no deinit
+    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, &builtin_modules);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {
         if (cli_mod.resolved == null)
             fatal("module '{s}' declared but not used", .{key});
@@ -2742,6 +2744,7 @@ fn buildOutputType(
                 .global = create_module.resolved_options,
                 .parent = main_mod,
                 .builtin_mod = main_mod.getBuiltinDependency(),
+                .builtin_modules = null, // `builtin_mod` is specified
             });
             test_mod.deps = try main_mod.deps.clone(arena);
             break :test_mod test_mod;
@@ -2760,6 +2763,7 @@ fn buildOutputType(
             .global = create_module.resolved_options,
             .parent = main_mod,
             .builtin_mod = main_mod.getBuiltinDependency(),
+            .builtin_modules = null, // `builtin_mod` is specified
         });
 
         break :root_mod test_mod;
@@ -3467,6 +3471,7 @@ fn createModule(
     index: usize,
     parent: ?*Package.Module,
     zig_lib_directory: Cache.Directory,
+    builtin_modules: *std.StringHashMapUnmanaged(*Package.Module),
 ) Allocator.Error!*Package.Module {
     const cli_mod = &create_module.modules.values()[index];
     if (cli_mod.resolved) |m| return m;
@@ -3919,6 +3924,7 @@ fn createModule(
         .global = create_module.resolved_options,
         .parent = parent,
         .builtin_mod = null,
+        .builtin_modules = builtin_modules,
     }) catch |err| switch (err) {
         error.ValgrindUnsupportedOnTarget => fatal("unable to create module '{s}': valgrind does not support the selected target CPU architecture", .{name}),
         error.TargetRequiresSingleThreaded => fatal("unable to create module '{s}': the selected target does not support multithreading", .{name}),
@@ -3941,7 +3947,7 @@ fn createModule(
     for (cli_mod.deps) |dep| {
         const dep_index = create_module.modules.getIndex(dep.value) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
-        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory);
+        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory, builtin_modules);
         try mod.deps.put(arena, dep.key, dep_mod);
     }
 
@@ -5237,6 +5243,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .global = config,
                 .parent = null,
                 .builtin_mod = null,
+                .builtin_modules = null, // all modules will inherit this one's builtin
             });
 
             const builtin_mod = root_mod.getBuiltinDependency();
@@ -5253,6 +5260,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .global = config,
                 .parent = root_mod,
                 .builtin_mod = builtin_mod,
+                .builtin_modules = null, // `builtin_mod` is specified
             });
 
             var cleanup_build_dir: ?fs.Dir = null;
@@ -5387,6 +5395,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             .global = config,
                             .parent = root_mod,
                             .builtin_mod = builtin_mod,
+                            .builtin_modules = null, // `builtin_mod` is specified
                         });
                         const hash_cloned = try arena.dupe(u8, &hash);
                         deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
@@ -5636,6 +5645,7 @@ fn jitCmd(
             .global = config,
             .parent = null,
             .builtin_mod = null,
+            .builtin_modules = null, // all modules will inherit this one's builtin
         });
 
         if (options.depend_on_aro) {
@@ -5658,6 +5668,7 @@ fn jitCmd(
                 .global = config,
                 .parent = null,
                 .builtin_mod = root_mod.getBuiltinDependency(),
+                .builtin_modules = null, // `builtin_mod` is specified
             });
             try root_mod.deps.put(arena, "aro", aro_mod);
         }
@@ -7204,10 +7215,11 @@ fn createDependenciesModule(
         },
         .fully_qualified_name = "root.@dependencies",
         .parent = main_mod,
-        .builtin_mod = builtin_mod,
         .cc_argv = &.{},
         .inherited = .{},
         .global = global_options,
+        .builtin_mod = builtin_mod,
+        .builtin_modules = null, // `builtin_mod` is specified
     });
     try main_mod.deps.put(arena, "@dependencies", deps_mod);
     return deps_mod;

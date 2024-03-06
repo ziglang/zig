@@ -1118,6 +1118,7 @@ fn buildSharedLib(
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     });
 
     const c_source_files = [1]Compilation.CSourceFile{

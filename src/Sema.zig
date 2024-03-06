@@ -5858,6 +5858,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         .global = comp.config,
         .parent = parent_mod,
         .builtin_mod = parent_mod.getBuiltinDependency(),
+        .builtin_modules = null, // `builtin_mod` is set
     }) catch |err| switch (err) {
         // None of these are possible because we are creating a package with
         // the exact same configuration as the parent package, which already
