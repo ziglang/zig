@@ -32,6 +32,12 @@ pub const Location = struct {
     line_end: usize,
 };
 
+pub const Span = struct {
+    start: u32,
+    end: u32,
+    main: u32,
+};
+
 pub fn deinit(tree: *Ast, gpa: Allocator) void {
     tree.tokens.deinit(gpa);
     tree.nodes.deinit(gpa);
@@ -105,9 +111,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
     };
 }
 
-/// `gpa` is used for allocating the resulting formatted source code, as well as
-/// for allocating extra stack memory if needed, because this function utilizes recursion.
-/// Note: that's not actually true yet, see https://github.com/ziglang/zig/issues/1006.
+/// `gpa` is used for allocating the resulting formatted source code.
 /// Caller owns the returned slice of bytes, allocated with `gpa`.
 pub fn render(tree: Ast, gpa: Allocator) RenderError![]u8 {
     var buffer = std.ArrayList(u8).init(gpa);
@@ -140,9 +144,20 @@ pub fn tokenLocation(self: Ast, start_offset: ByteOffset, token_index: TokenInde
         .line_end = self.source.len,
     };
     const token_start = self.tokens.items(.start)[token_index];
-    for (self.source[start_offset..], 0..) |c, i| {
-        if (i + start_offset == token_start) {
-            loc.line_end = i + start_offset;
+
+    // Scan to by line until we go past the token start
+    while (std.mem.indexOfScalarPos(u8, self.source, loc.line_start, '\n')) |i| {
+        if (i >= token_start) {
+            break; // Went past
+        }
+        loc.line += 1;
+        loc.line_start = i + 1;
+    }
+
+    const offset = loc.line_start;
+    for (self.source[offset..], 0..) |c, i| {
+        if (i + offset == token_start) {
+            loc.line_end = i + offset;
             while (loc.line_end < self.source.len and self.source[loc.line_end] != '\n') {
                 loc.line_end += 1;
             }
@@ -1422,8 +1437,8 @@ pub fn containerField(tree: Ast, node: Node.Index) full.ContainerField {
     return tree.fullContainerFieldComponents(.{
         .main_token = main_token,
         .type_expr = data.lhs,
-        .value_expr = extra.value_expr,
         .align_expr = extra.align_expr,
+        .value_expr = extra.value_expr,
         .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
             tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
@@ -1436,8 +1451,8 @@ pub fn containerFieldInit(tree: Ast, node: Node.Index) full.ContainerField {
     return tree.fullContainerFieldComponents(.{
         .main_token = main_token,
         .type_expr = data.lhs,
-        .value_expr = data.rhs,
         .align_expr = 0,
+        .value_expr = data.rhs,
         .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
             tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
@@ -1450,8 +1465,8 @@ pub fn containerFieldAlign(tree: Ast, node: Node.Index) full.ContainerField {
     return tree.fullContainerFieldComponents(.{
         .main_token = main_token,
         .type_expr = data.lhs,
-        .value_expr = 0,
         .align_expr = data.rhs,
+        .value_expr = 0,
         .tuple_like = tree.tokens.items(.tag)[main_token] != .identifier or
             tree.tokens.items(.tag)[main_token + 1] != .colon,
     });
@@ -2554,8 +2569,8 @@ pub const full = struct {
         pub const Components = struct {
             main_token: TokenIndex,
             type_expr: Node.Index,
-            value_expr: Node.Index,
             align_expr: Node.Index,
+            value_expr: Node.Index,
             tuple_like: bool,
         };
 
@@ -3258,13 +3273,13 @@ pub const Node = struct {
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_multi,
-        /// `fn (a: b) rhs addrspace(e) linksection(f) callconv(g)`. `FnProtoOne[lhs]`.
+        /// `fn (a: b) addrspace(e) linksection(f) callconv(g) rhs`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
         fn_proto_one,
-        /// `fn (a: b, c: d) rhs addrspace(e) linksection(f) callconv(g)`. `FnProto[lhs]`.
+        /// `fn (a: b, c: d) addrspace(e) linksection(f) callconv(g) rhs`. `FnProto[lhs]`.
         /// anytype and ... parameters are omitted from the AST tree.
         /// main_token is the `fn` keyword.
         /// extern function declarations use this tag.
@@ -3416,8 +3431,8 @@ pub const Node = struct {
     };
 
     pub const ArrayTypeSentinel = struct {
-        elem_type: Index,
         sentinel: Index,
+        elem_type: Index,
     };
 
     pub const PtrType = struct {
@@ -3447,8 +3462,8 @@ pub const Node = struct {
     };
 
     pub const ContainerField = struct {
-        value_expr: Index,
         align_expr: Index,
+        value_expr: Index,
     };
 
     pub const GlobalVarDecl = struct {
@@ -3524,6 +3539,39 @@ pub const Node = struct {
     };
 };
 
+pub fn nodeToSpan(tree: *const Ast, node: u32) Span {
+    return tokensToSpan(
+        tree,
+        tree.firstToken(node),
+        tree.lastToken(node),
+        tree.nodes.items(.main_token)[node],
+    );
+}
+
+pub fn tokenToSpan(tree: *const Ast, token: Ast.TokenIndex) Span {
+    return tokensToSpan(tree, token, token, token);
+}
+
+pub fn tokensToSpan(tree: *const Ast, start: Ast.TokenIndex, end: Ast.TokenIndex, main: Ast.TokenIndex) Span {
+    const token_starts = tree.tokens.items(.start);
+    var start_tok = start;
+    var end_tok = end;
+
+    if (tree.tokensOnSameLine(start, end)) {
+        // do nothing
+    } else if (tree.tokensOnSameLine(start, main)) {
+        end_tok = main;
+    } else if (tree.tokensOnSameLine(main, end)) {
+        start_tok = main;
+    } else {
+        start_tok = main;
+        end_tok = main;
+    }
+    const start_off = token_starts[start_tok];
+    const end_off = token_starts[end_tok] + @as(u32, @intCast(tree.tokenSlice(end_tok).len));
+    return Span{ .start = start_off, .end = end_off, .main = token_starts[main] };
+}
+
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -3535,5 +3583,6 @@ const Parse = @import("Parse.zig");
 const private_render = @import("./render.zig");
 
 test {
-    testing.refAllDecls(@This());
+    _ = Parse;
+    _ = private_render;
 }

@@ -44,11 +44,11 @@ pub fn create(
 
 const SearchPhrase = struct {
     string: []const u8,
-    file_source: ?std.Build.LazyPath = null,
+    lazy_path: ?std.Build.LazyPath = null,
 
     fn resolve(phrase: SearchPhrase, b: *std.Build, step: *Step) []const u8 {
-        const file_source = phrase.file_source orelse return phrase.string;
-        return b.fmt("{s} {s}", .{ phrase.string, file_source.getPath2(b, step) });
+        const lazy_path = phrase.lazy_path orelse return phrase.string;
+        return b.fmt("{s} {s}", .{ phrase.string, lazy_path.getPath2(b, step) });
     }
 };
 
@@ -246,10 +246,12 @@ const ComputeCompareExpected = struct {
 };
 
 const Check = struct {
+    kind: Kind,
     actions: std.ArrayList(Action),
 
-    fn create(allocator: Allocator) Check {
+    fn create(allocator: Allocator, kind: Kind) Check {
         return .{
+            .kind = kind,
             .actions = std.ArrayList(Action).init(allocator),
         };
     }
@@ -289,82 +291,105 @@ const Check = struct {
             .expected = expected,
         }) catch @panic("OOM");
     }
+
+    const Kind = enum {
+        headers,
+        symtab,
+        indirect_symtab,
+        dynamic_symtab,
+        archive_symtab,
+        dynamic_section,
+        dyld_rebase,
+        dyld_bind,
+        dyld_weak_bind,
+        dyld_lazy_bind,
+        exports,
+        compute_compare,
+    };
 };
 
 /// Creates a new empty sequence of actions.
-pub fn checkStart(self: *CheckObject) void {
-    var new_check = Check.create(self.step.owner.allocator);
+fn checkStart(self: *CheckObject, kind: Check.Kind) void {
+    const new_check = Check.create(self.step.owner.allocator, kind);
     self.checks.append(new_check) catch @panic("OOM");
 }
 
-/// Adds an exact match phrase to the latest created Check with `CheckObject.checkStart()`.
+/// Adds an exact match phrase to the latest created Check.
 pub fn checkExact(self: *CheckObject, phrase: []const u8) void {
     self.checkExactInner(phrase, null);
 }
 
 /// Like `checkExact()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExactPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
-    self.checkExactInner(phrase, file_source);
+pub fn checkExactPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    self.checkExactInner(phrase, lazy_path);
 }
 
-fn checkExactInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.LazyPath) void {
+fn checkExactInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.exact(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.exact(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
-/// Adds a fuzzy match phrase to the latest created Check with `CheckObject.checkStart()`.
+/// Adds a fuzzy match phrase to the latest created Check.
 pub fn checkContains(self: *CheckObject, phrase: []const u8) void {
     self.checkContainsInner(phrase, null);
 }
 
-/// Like `checkContains()` but takes an additional argument `FileSource` which will be
+/// Like `checkContains()` but takes an additional argument `lazy_path` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkContainsPath(self: *CheckObject, phrase: []const u8, file_source: std.Build.LazyPath) void {
-    self.checkContainsInner(phrase, file_source);
+pub fn checkContainsPath(
+    self: *CheckObject,
+    phrase: []const u8,
+    lazy_path: std.Build.LazyPath,
+) void {
+    self.checkContainsInner(phrase, lazy_path);
 }
 
-fn checkContainsInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkContainsInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.contains(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.contains(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
-/// Adds an exact match phrase with variable extractor to the latest created Check
-/// with `CheckObject.checkStart()`.
+/// Adds an exact match phrase with variable extractor to the latest created Check.
 pub fn checkExtract(self: *CheckObject, phrase: []const u8) void {
     self.checkExtractInner(phrase, null);
 }
 
-/// Like `checkExtract()` but takes an additional argument `FileSource` which will be
+/// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkExtractFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
-    self.checkExtractInner(phrase, file_source);
+pub fn checkExtractLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    self.checkExtractInner(phrase, lazy_path);
 }
 
-fn checkExtractInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkExtractInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.extract(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.extract(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
 }
 
-/// Adds another searched phrase to the latest created Check with `CheckObject.checkStart(...)`
+/// Adds another searched phrase to the latest created Check
 /// however ensures there is no matching phrase in the output.
 pub fn checkNotPresent(self: *CheckObject, phrase: []const u8) void {
     self.checkNotPresentInner(phrase, null);
 }
 
-/// Like `checkExtract()` but takes an additional argument `FileSource` which will be
+/// Like `checkExtract()` but takes an additional argument `LazyPath` which will be
 /// resolved to a full search query in `make()`.
-pub fn checkNotPresentFileSource(self: *CheckObject, phrase: []const u8, file_source: std.Build.FileSource) void {
-    self.checkNotPresentInner(phrase, file_source);
+pub fn checkNotPresentLazyPath(self: *CheckObject, phrase: []const u8, lazy_path: std.Build.LazyPath) void {
+    self.checkNotPresentInner(phrase, lazy_path);
 }
 
-fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, file_source: ?std.Build.FileSource) void {
+fn checkNotPresentInner(self: *CheckObject, phrase: []const u8, lazy_path: ?std.Build.LazyPath) void {
     assert(self.checks.items.len > 0);
     const last = &self.checks.items[self.checks.items.len - 1];
-    last.notPresent(.{ .string = self.step.owner.dupe(phrase), .file_source = file_source });
+    last.notPresent(.{ .string = self.step.owner.dupe(phrase), .lazy_path = lazy_path });
+}
+
+/// Creates a new check checking in the file headers (section, program headers, etc.).
+pub fn checkInHeaders(self: *CheckObject) void {
+    self.checkStart(.headers);
 }
 
 /// Creates a new check checking specifically symbol table parsed and dumped from the object
@@ -377,7 +402,79 @@ pub fn checkInSymtab(self: *CheckObject) void {
         .coff => @panic("TODO symtab for coff"),
         else => @panic("TODO other file formats"),
     };
-    self.checkStart();
+    self.checkStart(.symtab);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dyld rebase opcodes contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldRebase(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_rebase_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.dyld_rebase);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dyld bind opcodes contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldBind(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_bind_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.dyld_bind);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dyld weak bind opcodes contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldWeakBind(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_weak_bind_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.dyld_weak_bind);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically dyld lazy bind opcodes contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInDyldLazyBind(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.dyld_lazy_bind_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.dyld_lazy_bind);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically exports info contents parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInExports(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.exports_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.exports);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically indirect symbol table parsed and dumped
+/// from the object file.
+/// This check is target-dependent and applicable to MachO only.
+pub fn checkInIndirectSymtab(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .macho => MachODumper.indirect_symtab_label,
+        else => @panic("Unsupported target platform"),
+    };
+    self.checkStart(.indirect_symtab);
     self.checkExact(label);
 }
 
@@ -389,7 +486,7 @@ pub fn checkInDynamicSymtab(self: *CheckObject) void {
         .elf => ElfDumper.dynamic_symtab_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart();
+    self.checkStart(.dynamic_symtab);
     self.checkExact(label);
 }
 
@@ -401,7 +498,18 @@ pub fn checkInDynamicSection(self: *CheckObject) void {
         .elf => ElfDumper.dynamic_section_label,
         else => @panic("Unsupported target platform"),
     };
-    self.checkStart();
+    self.checkStart(.dynamic_section);
+    self.checkExact(label);
+}
+
+/// Creates a new check checking specifically symbol table parsed and dumped from the archive
+/// file.
+pub fn checkInArchiveSymtab(self: *CheckObject) void {
+    const label = switch (self.obj_format) {
+        .elf => ElfDumper.archive_symtab_label,
+        else => @panic("TODO other file formats"),
+    };
+    self.checkStart(.archive_symtab);
     self.checkExact(label);
 }
 
@@ -413,7 +521,7 @@ pub fn checkComputeCompare(
     program: []const u8,
     expected: ComputeCompareExpected,
 ) void {
-    var new_check = Check.create(self.step.owner.allocator);
+    var new_check = Check.create(self.step.owner.allocator, .compute_compare);
     new_check.computeCmp(.{ .string = self.step.owner.dupe(program) }, expected);
     self.checks.append(new_check) catch @panic("OOM");
 }
@@ -434,17 +542,35 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         null,
     ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
 
-    const output = switch (self.obj_format) {
-        .macho => try MachODumper.parseAndDump(step, contents),
-        .elf => try ElfDumper.parseAndDump(step, contents),
-        .coff => @panic("TODO coff parser"),
-        .wasm => try WasmDumper.parseAndDump(step, contents),
-        else => unreachable,
-    };
-
     var vars = std.StringHashMap(u64).init(gpa);
-
     for (self.checks.items) |chk| {
+        if (chk.kind == .compute_compare) {
+            assert(chk.actions.items.len == 1);
+            const act = chk.actions.items[0];
+            assert(act.tag == .compute_cmp);
+            const res = act.computeCmp(b, step, vars) catch |err| switch (err) {
+                error.UnknownVariable => return step.fail("Unknown variable", .{}),
+                else => |e| return e,
+            };
+            if (!res) {
+                return step.fail(
+                    \\
+                    \\========= comparison failed for action: ===========
+                    \\{s} {}
+                    \\===================================================
+                , .{ act.phrase.resolve(b, step), act.expected.? });
+            }
+            continue;
+        }
+
+        const output = switch (self.obj_format) {
+            .macho => try MachODumper.parseAndDump(step, chk.kind, contents),
+            .elf => try ElfDumper.parseAndDump(step, chk.kind, contents),
+            .coff => return step.fail("TODO coff parser", .{}),
+            .wasm => try WasmDumper.parseAndDump(step, chk.kind, contents),
+            else => unreachable,
+        };
+
         var it = mem.tokenizeAny(u8, output, "\r\n");
         for (chk.actions.items) |act| {
             switch (act.tag) {
@@ -462,6 +588,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
+
                 .contains => {
                     while (it.next()) |line| {
                         if (act.contains(b, step, line)) break;
@@ -476,6 +603,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
+
                 .not_present => {
                     while (it.next()) |line| {
                         if (act.notPresent(b, step, line)) continue;
@@ -489,6 +617,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
+
                 .extract => {
                     while (it.next()) |line| {
                         if (try act.extract(b, step, line, &vars)) break;
@@ -503,28 +632,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         , .{ act.phrase.resolve(b, step), output });
                     }
                 },
-                .compute_cmp => {
-                    const res = act.computeCmp(b, step, vars) catch |err| switch (err) {
-                        error.UnknownVariable => {
-                            return step.fail(
-                                \\========= from parsed file: =====================
-                                \\{s}
-                                \\=================================================
-                            , .{output});
-                        },
-                        else => |e| return e,
-                    };
-                    if (!res) {
-                        return step.fail(
-                            \\
-                            \\========= comparison failed for action: ===========
-                            \\{s} {}
-                            \\========= from parsed file: =======================
-                            \\{s}
-                            \\===================================================
-                        , .{ act.phrase.resolve(b, step), act.expected.?, output });
-                    }
-                },
+
+                .compute_cmp => unreachable,
             }
         }
     }
@@ -532,14 +641,26 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
 const MachODumper = struct {
     const LoadCommandIterator = macho.LoadCommandIterator;
+    const dyld_rebase_label = "dyld rebase data";
+    const dyld_bind_label = "dyld bind data";
+    const dyld_weak_bind_label = "dyld weak bind data";
+    const dyld_lazy_bind_label = "dyld lazy bind data";
+    const exports_label = "exports data";
     const symtab_label = "symbol table";
+    const indirect_symtab_label = "indirect symbol table";
 
     const Symtab = struct {
-        symbols: []align(1) const macho.nlist_64,
-        strings: []const u8,
+        symbols: []align(1) const macho.nlist_64 = &[0]macho.nlist_64{},
+        strings: []const u8 = &[0]u8{},
+        indirect_symbols: []align(1) const u32 = &[0]u32{},
+
+        fn getString(symtab: Symtab, off: u32) []const u8 {
+            assert(off < symtab.strings.len);
+            return mem.sliceTo(@as([*:0]const u8, @ptrCast(symtab.strings.ptr + off)), 0);
+        }
     };
 
-    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -552,50 +673,210 @@ const MachODumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        var symtab: ?Symtab = null;
+        var symtab: Symtab = .{};
+        var segments = std.ArrayList(macho.segment_command_64).init(gpa);
+        defer segments.deinit();
         var sections = std.ArrayList(macho.section_64).init(gpa);
+        defer sections.deinit();
         var imports = std.ArrayList([]const u8).init(gpa);
+        defer imports.deinit();
+        var text_seg: ?u8 = null;
+        var dyld_info_lc: ?macho.dyld_info_command = null;
 
-        var it: LoadCommandIterator = .{
-            .ncmds = hdr.ncmds,
-            .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
-        };
-        var i: usize = 0;
-        while (it.next()) |cmd| {
-            switch (cmd.cmd()) {
-                .SEGMENT_64 => {
-                    const seg = cmd.cast(macho.segment_command_64).?;
-                    try sections.ensureUnusedCapacity(seg.nsects);
-                    for (cmd.getSections()) |sect| {
-                        sections.appendAssumeCapacity(sect);
-                    }
-                },
-                .SYMTAB => {
-                    const lc = cmd.cast(macho.symtab_command).?;
-                    const symbols = @as([*]align(1) const macho.nlist_64, @ptrCast(bytes.ptr + lc.symoff))[0..lc.nsyms];
-                    const strings = bytes[lc.stroff..][0..lc.strsize];
-                    symtab = .{ .symbols = symbols, .strings = strings };
-                },
-                .LOAD_DYLIB,
-                .LOAD_WEAK_DYLIB,
-                .REEXPORT_DYLIB,
-                => {
-                    try imports.append(cmd.getDylibPathName());
-                },
-                else => {},
+        {
+            var it: LoadCommandIterator = .{
+                .ncmds = hdr.ncmds,
+                .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+            };
+            var i: usize = 0;
+            while (it.next()) |cmd| {
+                switch (cmd.cmd()) {
+                    .SEGMENT_64 => {
+                        const seg = cmd.cast(macho.segment_command_64).?;
+                        try sections.ensureUnusedCapacity(seg.nsects);
+                        for (cmd.getSections()) |sect| {
+                            sections.appendAssumeCapacity(sect);
+                        }
+                        const seg_id: u8 = @intCast(segments.items.len);
+                        try segments.append(seg);
+                        if (mem.eql(u8, seg.segName(), "__TEXT")) {
+                            text_seg = seg_id;
+                        }
+                    },
+                    .SYMTAB => {
+                        const lc = cmd.cast(macho.symtab_command).?;
+                        const symbols = @as([*]align(1) const macho.nlist_64, @ptrCast(bytes.ptr + lc.symoff))[0..lc.nsyms];
+                        const strings = bytes[lc.stroff..][0..lc.strsize];
+                        symtab.symbols = symbols;
+                        symtab.strings = strings;
+                    },
+                    .DYSYMTAB => {
+                        const lc = cmd.cast(macho.dysymtab_command).?;
+                        const indexes = @as([*]align(1) const u32, @ptrCast(bytes.ptr + lc.indirectsymoff))[0..lc.nindirectsyms];
+                        symtab.indirect_symbols = indexes;
+                    },
+                    .LOAD_DYLIB,
+                    .LOAD_WEAK_DYLIB,
+                    .REEXPORT_DYLIB,
+                    => {
+                        try imports.append(cmd.getDylibPathName());
+                    },
+                    .DYLD_INFO_ONLY => {
+                        dyld_info_lc = cmd.cast(macho.dyld_info_command).?;
+                    },
+                    else => {},
+                }
+
+                i += 1;
             }
-
-            try dumpLoadCommand(cmd, i, writer);
-            try writer.writeByte('\n');
-
-            i += 1;
         }
 
-        if (symtab) |stab| {
-            try dumpSymtab(sections.items, imports.items, stab, writer);
+        switch (kind) {
+            .headers => {
+                try dumpHeader(hdr, writer);
+
+                var it: LoadCommandIterator = .{
+                    .ncmds = hdr.ncmds,
+                    .buffer = bytes[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+                };
+                var i: usize = 0;
+                while (it.next()) |cmd| {
+                    try dumpLoadCommand(cmd, i, writer);
+                    try writer.writeByte('\n');
+
+                    i += 1;
+                }
+            },
+
+            .symtab => if (symtab.symbols.len > 0) {
+                try dumpSymtab(sections.items, imports.items, symtab, writer);
+            } else return step.fail("no symbol table found", .{}),
+
+            .indirect_symtab => if (symtab.symbols.len > 0 and symtab.indirect_symbols.len > 0) {
+                try dumpIndirectSymtab(gpa, sections.items, symtab, writer);
+            } else return step.fail("no indirect symbol table found", .{}),
+
+            .dyld_rebase,
+            .dyld_bind,
+            .dyld_weak_bind,
+            .dyld_lazy_bind,
+            => {
+                if (dyld_info_lc == null) return step.fail("no dyld info found", .{});
+                const lc = dyld_info_lc.?;
+
+                switch (kind) {
+                    .dyld_rebase => if (lc.rebase_size > 0) {
+                        const data = bytes[lc.rebase_off..][0..lc.rebase_size];
+                        try writer.writeAll(dyld_rebase_label ++ "\n");
+                        try dumpRebaseInfo(gpa, data, segments.items, writer);
+                    } else return step.fail("no rebase data found", .{}),
+
+                    .dyld_bind => if (lc.bind_size > 0) {
+                        const data = bytes[lc.bind_off..][0..lc.bind_size];
+                        try writer.writeAll(dyld_bind_label ++ "\n");
+                        try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                    } else return step.fail("no bind data found", .{}),
+
+                    .dyld_weak_bind => if (lc.weak_bind_size > 0) {
+                        const data = bytes[lc.weak_bind_off..][0..lc.weak_bind_size];
+                        try writer.writeAll(dyld_weak_bind_label ++ "\n");
+                        try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                    } else return step.fail("no weak bind data found", .{}),
+
+                    .dyld_lazy_bind => if (lc.lazy_bind_size > 0) {
+                        const data = bytes[lc.lazy_bind_off..][0..lc.lazy_bind_size];
+                        try writer.writeAll(dyld_lazy_bind_label ++ "\n");
+                        try dumpBindInfo(gpa, data, segments.items, imports.items, writer);
+                    } else return step.fail("no lazy bind data found", .{}),
+
+                    else => unreachable,
+                }
+            },
+
+            .exports => blk: {
+                if (dyld_info_lc) |lc| {
+                    if (lc.export_size > 0) {
+                        const data = bytes[lc.export_off..][0..lc.export_size];
+                        try writer.writeAll(exports_label ++ "\n");
+                        try dumpExportsTrie(gpa, data, segments.items[text_seg.?], writer);
+                        break :blk;
+                    }
+                }
+                return step.fail("no exports data found", .{});
+            },
+
+            else => return step.fail("invalid check kind for MachO file format: {s}", .{@tagName(kind)}),
         }
 
         return output.toOwnedSlice();
+    }
+
+    fn dumpHeader(hdr: macho.mach_header_64, writer: anytype) !void {
+        const cputype = switch (hdr.cputype) {
+            macho.CPU_TYPE_ARM64 => "ARM64",
+            macho.CPU_TYPE_X86_64 => "X86_64",
+            else => "Unknown",
+        };
+        const filetype = switch (hdr.filetype) {
+            macho.MH_OBJECT => "MH_OBJECT",
+            macho.MH_EXECUTE => "MH_EXECUTE",
+            macho.MH_FVMLIB => "MH_FVMLIB",
+            macho.MH_CORE => "MH_CORE",
+            macho.MH_PRELOAD => "MH_PRELOAD",
+            macho.MH_DYLIB => "MH_DYLIB",
+            macho.MH_DYLINKER => "MH_DYLINKER",
+            macho.MH_BUNDLE => "MH_BUNDLE",
+            macho.MH_DYLIB_STUB => "MH_DYLIB_STUB",
+            macho.MH_DSYM => "MH_DSYM",
+            macho.MH_KEXT_BUNDLE => "MH_KEXT_BUNDLE",
+            else => "Unknown",
+        };
+
+        try writer.print(
+            \\header
+            \\cputype {s}
+            \\filetype {s}
+            \\ncmds {d}
+            \\sizeofcmds {x}
+            \\flags
+        , .{
+            cputype,
+            filetype,
+            hdr.ncmds,
+            hdr.sizeofcmds,
+        });
+
+        if (hdr.flags > 0) {
+            if (hdr.flags & macho.MH_NOUNDEFS != 0) try writer.writeAll(" NOUNDEFS");
+            if (hdr.flags & macho.MH_INCRLINK != 0) try writer.writeAll(" INCRLINK");
+            if (hdr.flags & macho.MH_DYLDLINK != 0) try writer.writeAll(" DYLDLINK");
+            if (hdr.flags & macho.MH_BINDATLOAD != 0) try writer.writeAll(" BINDATLOAD");
+            if (hdr.flags & macho.MH_PREBOUND != 0) try writer.writeAll(" PREBOUND");
+            if (hdr.flags & macho.MH_SPLIT_SEGS != 0) try writer.writeAll(" SPLIT_SEGS");
+            if (hdr.flags & macho.MH_LAZY_INIT != 0) try writer.writeAll(" LAZY_INIT");
+            if (hdr.flags & macho.MH_TWOLEVEL != 0) try writer.writeAll(" TWOLEVEL");
+            if (hdr.flags & macho.MH_FORCE_FLAT != 0) try writer.writeAll(" FORCE_FLAT");
+            if (hdr.flags & macho.MH_NOMULTIDEFS != 0) try writer.writeAll(" NOMULTIDEFS");
+            if (hdr.flags & macho.MH_NOFIXPREBINDING != 0) try writer.writeAll(" NOFIXPREBINDING");
+            if (hdr.flags & macho.MH_PREBINDABLE != 0) try writer.writeAll(" PREBINDABLE");
+            if (hdr.flags & macho.MH_ALLMODSBOUND != 0) try writer.writeAll(" ALLMODSBOUND");
+            if (hdr.flags & macho.MH_SUBSECTIONS_VIA_SYMBOLS != 0) try writer.writeAll(" SUBSECTIONS_VIA_SYMBOLS");
+            if (hdr.flags & macho.MH_CANONICAL != 0) try writer.writeAll(" CANONICAL");
+            if (hdr.flags & macho.MH_WEAK_DEFINES != 0) try writer.writeAll(" WEAK_DEFINES");
+            if (hdr.flags & macho.MH_BINDS_TO_WEAK != 0) try writer.writeAll(" BINDS_TO_WEAK");
+            if (hdr.flags & macho.MH_ALLOW_STACK_EXECUTION != 0) try writer.writeAll(" ALLOW_STACK_EXECUTION");
+            if (hdr.flags & macho.MH_ROOT_SAFE != 0) try writer.writeAll(" ROOT_SAFE");
+            if (hdr.flags & macho.MH_SETUID_SAFE != 0) try writer.writeAll(" SETUID_SAFE");
+            if (hdr.flags & macho.MH_NO_REEXPORTED_DYLIBS != 0) try writer.writeAll(" NO_REEXPORTED_DYLIBS");
+            if (hdr.flags & macho.MH_PIE != 0) try writer.writeAll(" PIE");
+            if (hdr.flags & macho.MH_DEAD_STRIPPABLE_DYLIB != 0) try writer.writeAll(" DEAD_STRIPPABLE_DYLIB");
+            if (hdr.flags & macho.MH_HAS_TLV_DESCRIPTORS != 0) try writer.writeAll(" HAS_TLV_DESCRIPTORS");
+            if (hdr.flags & macho.MH_NO_HEAP_EXECUTION != 0) try writer.writeAll(" NO_HEAP_EXECUTION");
+            if (hdr.flags & macho.MH_APP_EXTENSION_SAFE != 0) try writer.writeAll(" APP_EXTENSION_SAFE");
+            if (hdr.flags & macho.MH_NLIST_OUTOFSYNC_WITH_DYLDINFO != 0) try writer.writeAll(" NLIST_OUTOFSYNC_WITH_DYLDINFO");
+        }
+
+        try writer.writeByte('\n');
     }
 
     fn dumpLoadCommand(lc: macho.LoadCommandIterator.LoadCommand, index: usize, writer: anytype) !void {
@@ -834,7 +1115,7 @@ const MachODumper = struct {
 
         for (symtab.symbols) |sym| {
             if (sym.stab()) continue;
-            const sym_name = mem.sliceTo(@as([*:0]const u8, @ptrCast(symtab.strings.ptr + sym.n_strx)), 0);
+            const sym_name = symtab.getString(sym.n_strx);
             if (sym.sect()) {
                 const sect = sections[sym.n_sect - 1];
                 try writer.print("{x} ({s},{s})", .{
@@ -842,12 +1123,21 @@ const MachODumper = struct {
                     sect.segName(),
                     sect.sectName(),
                 });
+                if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try writer.writeAll(" [referenced dynamically]");
+                if (sym.weakDef()) try writer.writeAll(" weak");
+                if (sym.weakRef()) try writer.writeAll(" weakref");
                 if (sym.ext()) {
+                    if (sym.pext()) try writer.writeAll(" private");
                     try writer.writeAll(" external");
-                }
+                } else if (sym.pext()) try writer.writeAll(" (was private external)");
+                try writer.print(" {s}\n", .{sym_name});
+            } else if (sym.tentative()) {
+                const alignment = (sym.n_desc >> 8) & 0x0F;
+                try writer.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s}\n", .{sym_name});
             } else if (sym.undf()) {
-                const ordinal = @divTrunc(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
+                const ordinal = @divFloor(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                 const import_name = blk: {
                     if (ordinal <= 0) {
                         if (ordinal == macho.BIND_SPECIAL_DYLIB_SELF)
@@ -865,17 +1155,474 @@ const MachODumper = struct {
                     break :blk basename[0..ext];
                 };
                 try writer.writeAll("(undefined)");
-                if (sym.weakRef()) {
-                    try writer.writeAll(" weak");
-                }
-                if (sym.ext()) {
-                    try writer.writeAll(" external");
-                }
+                if (sym.weakRef()) try writer.writeAll(" weakref");
+                if (sym.ext()) try writer.writeAll(" external");
                 try writer.print(" {s} (from {s})\n", .{
                     sym_name,
                     import_name,
                 });
-            } else unreachable;
+            }
+        }
+    }
+
+    fn dumpIndirectSymtab(
+        gpa: Allocator,
+        sections: []const macho.section_64,
+        symtab: Symtab,
+        writer: anytype,
+    ) !void {
+        try writer.writeAll(indirect_symtab_label ++ "\n");
+
+        var sects = std.ArrayList(macho.section_64).init(gpa);
+        defer sects.deinit();
+        try sects.ensureUnusedCapacity(3);
+
+        for (sections) |sect| {
+            if (mem.eql(u8, sect.sectName(), "__stubs")) sects.appendAssumeCapacity(sect);
+            if (mem.eql(u8, sect.sectName(), "__got")) sects.appendAssumeCapacity(sect);
+            if (mem.eql(u8, sect.sectName(), "__la_symbol_ptr")) sects.appendAssumeCapacity(sect);
+        }
+
+        const sortFn = struct {
+            fn sortFn(ctx: void, lhs: macho.section_64, rhs: macho.section_64) bool {
+                _ = ctx;
+                return lhs.reserved1 < rhs.reserved1;
+            }
+        }.sortFn;
+        mem.sort(macho.section_64, sects.items, {}, sortFn);
+
+        var i: usize = 0;
+        while (i < sects.items.len) : (i += 1) {
+            const sect = sects.items[i];
+            const start = sect.reserved1;
+            const end = if (i + 1 >= sects.items.len) symtab.indirect_symbols.len else sects.items[i + 1].reserved1;
+            const entry_size = blk: {
+                if (mem.eql(u8, sect.sectName(), "__stubs")) break :blk sect.reserved2;
+                break :blk @sizeOf(u64);
+            };
+
+            try writer.print("{s},{s}\n", .{ sect.segName(), sect.sectName() });
+            try writer.print("nentries {d}\n", .{end - start});
+            for (symtab.indirect_symbols[start..end], 0..) |index, j| {
+                const sym = symtab.symbols[index];
+                const addr = sect.addr + entry_size * j;
+                try writer.print("0x{x} {d} {s}\n", .{ addr, index, symtab.getString(sym.n_strx) });
+            }
+        }
+    }
+
+    fn dumpRebaseInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        writer: anytype,
+    ) !void {
+        var rebases = std.ArrayList(u64).init(gpa);
+        defer rebases.deinit();
+        try parseRebaseInfo(data, segments, &rebases);
+        mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
+        for (rebases.items) |addr| {
+            try writer.print("0x{x}\n", .{addr});
+        }
+    }
+
+    fn parseRebaseInfo(
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        rebases: *std.ArrayList(u64),
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var offset: u64 = 0;
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.REBASE_OPCODE_MASK;
+            const imm = byte & macho.REBASE_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.REBASE_OPCODE_DONE => break,
+                macho.REBASE_OPCODE_SET_TYPE_IMM => {},
+                macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
+                    offset += imm * @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    offset += addend;
+                },
+                macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
+                    const addend = try std.leb.readULEB128(u64, reader);
+                    const seg = segments[seg_id.?];
+                    const addr = seg.vmaddr + offset;
+                    try rebases.append(addr);
+                    offset += addend + @sizeOf(u64);
+                },
+                macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES,
+                macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var ntimes: u64 = 1;
+                    var skip: u64 = 0;
+                    switch (opc) {
+                        macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES => {
+                            ntimes = imm;
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
+                            ntimes = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+                    const seg = segments[seg_id.?];
+                    const base_addr = seg.vmaddr;
+                    var count: usize = 0;
+                    while (count < ntimes) : (count += 1) {
+                        const addr = base_addr + offset;
+                        try rebases.append(addr);
+                        offset += skip + @sizeOf(u64);
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    const Binding = struct {
+        address: u64,
+        addend: i64,
+        ordinal: u16,
+        tag: Tag,
+        name: []const u8,
+
+        fn deinit(binding: *Binding, gpa: Allocator) void {
+            gpa.free(binding.name);
+        }
+
+        fn lessThan(ctx: void, lhs: Binding, rhs: Binding) bool {
+            _ = ctx;
+            return lhs.address < rhs.address;
+        }
+
+        const Tag = enum {
+            ord,
+            self,
+            exe,
+            flat,
+        };
+    };
+
+    fn dumpBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        dylibs: []const []const u8,
+        writer: anytype,
+    ) !void {
+        var bindings = std.ArrayList(Binding).init(gpa);
+        defer {
+            for (bindings.items) |*b| {
+                b.deinit(gpa);
+            }
+            bindings.deinit();
+        }
+        try parseBindInfo(gpa, data, segments, &bindings);
+        mem.sort(Binding, bindings.items, {}, Binding.lessThan);
+        for (bindings.items) |binding| {
+            try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
+            try writer.writeAll(" (");
+            switch (binding.tag) {
+                .self => try writer.writeAll("self"),
+                .exe => try writer.writeAll("main executable"),
+                .flat => try writer.writeAll("flat lookup"),
+                .ord => try writer.writeAll(std.fs.path.basename(dylibs[binding.ordinal - 1])),
+            }
+            try writer.print(") {s}\n", .{binding.name});
+        }
+    }
+
+    fn parseBindInfo(
+        gpa: Allocator,
+        data: []const u8,
+        segments: []const macho.segment_command_64,
+        bindings: *std.ArrayList(Binding),
+    ) !void {
+        var stream = std.io.fixedBufferStream(data);
+        var creader = std.io.countingReader(stream.reader());
+        const reader = creader.reader();
+
+        var seg_id: ?u8 = null;
+        var tag: Binding.Tag = .self;
+        var ordinal: u16 = 0;
+        var offset: u64 = 0;
+        var addend: i64 = 0;
+
+        var name_buf = std.ArrayList(u8).init(gpa);
+        defer name_buf.deinit();
+
+        while (true) {
+            const byte = reader.readByte() catch break;
+            const opc = byte & macho.BIND_OPCODE_MASK;
+            const imm = byte & macho.BIND_IMMEDIATE_MASK;
+            switch (opc) {
+                macho.BIND_OPCODE_DONE,
+                macho.BIND_OPCODE_SET_TYPE_IMM,
+                => {},
+                macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM => {
+                    tag = .ord;
+                    ordinal = imm;
+                },
+                macho.BIND_OPCODE_SET_DYLIB_SPECIAL_IMM => {
+                    switch (imm) {
+                        0 => tag = .self,
+                        0xf => tag = .exe,
+                        0xe => tag = .flat,
+                        else => unreachable,
+                    }
+                },
+                macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
+                    seg_id = imm;
+                    offset = try std.leb.readULEB128(u64, reader);
+                },
+                macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
+                    name_buf.clearRetainingCapacity();
+                    try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
+                    try name_buf.append(0);
+                },
+                macho.BIND_OPCODE_SET_ADDEND_SLEB => {
+                    addend = try std.leb.readILEB128(i64, reader);
+                },
+                macho.BIND_OPCODE_ADD_ADDR_ULEB => {
+                    const x = try std.leb.readULEB128(u64, reader);
+                    offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
+                },
+                macho.BIND_OPCODE_DO_BIND,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB,
+                macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED,
+                macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB,
+                => {
+                    var add_addr: u64 = 0;
+                    var count: u64 = 1;
+                    var skip: u64 = 0;
+
+                    switch (opc) {
+                        macho.BIND_OPCODE_DO_BIND => {},
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
+                            add_addr = try std.leb.readULEB128(u64, reader);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
+                            add_addr = imm * @sizeOf(u64);
+                        },
+                        macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
+                            count = try std.leb.readULEB128(u64, reader);
+                            skip = try std.leb.readULEB128(u64, reader);
+                        },
+                        else => unreachable,
+                    }
+
+                    const seg = segments[seg_id.?];
+                    var i: u64 = 0;
+                    while (i < count) : (i += 1) {
+                        const addr: u64 = @intCast(@as(i64, @intCast(seg.vmaddr + offset)));
+                        try bindings.append(.{
+                            .address = addr,
+                            .addend = addend,
+                            .tag = tag,
+                            .ordinal = ordinal,
+                            .name = try gpa.dupe(u8, name_buf.items),
+                        });
+                        offset += skip + @sizeOf(u64) + add_addr;
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    fn dumpExportsTrie(
+        gpa: Allocator,
+        data: []const u8,
+        seg: macho.segment_command_64,
+        writer: anytype,
+    ) !void {
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        defer arena.deinit();
+
+        var exports = std.ArrayList(Export).init(arena.allocator());
+        var it = TrieIterator{ .data = data };
+        try parseTrieNode(arena.allocator(), &it, "", &exports);
+
+        mem.sort(Export, exports.items, {}, Export.lessThan);
+
+        for (exports.items) |exp| {
+            switch (exp.tag) {
+                .@"export" => {
+                    const info = exp.data.@"export";
+                    if (info.kind != .regular or info.weak) {
+                        try writer.writeByte('[');
+                    }
+                    switch (info.kind) {
+                        .regular => {},
+                        .absolute => try writer.writeAll("ABS, "),
+                        .tlv => try writer.writeAll("THREAD_LOCAL, "),
+                    }
+                    if (info.weak) try writer.writeAll("WEAK");
+                    if (info.kind != .regular or info.weak) {
+                        try writer.writeAll("] ");
+                    }
+                    try writer.print("{x} ", .{seg.vmaddr + info.vmoffset});
+                },
+                else => {},
+            }
+
+            try writer.print("{s}\n", .{exp.name});
+        }
+    }
+
+    const TrieIterator = struct {
+        data: []const u8,
+        pos: usize = 0,
+
+        fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
+            return std.io.fixedBufferStream(it.data[it.pos..]);
+        }
+
+        fn readULEB128(it: *TrieIterator) !u64 {
+            var stream = it.getStream();
+            var creader = std.io.countingReader(stream.reader());
+            const reader = creader.reader();
+            const value = try std.leb.readULEB128(u64, reader);
+            it.pos += creader.bytes_read;
+            return value;
+        }
+
+        fn readString(it: *TrieIterator) ![:0]const u8 {
+            var stream = it.getStream();
+            const reader = stream.reader();
+
+            var count: usize = 0;
+            while (true) : (count += 1) {
+                const byte = try reader.readByte();
+                if (byte == 0) break;
+            }
+
+            const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
+            it.pos += count + 1;
+            return str;
+        }
+
+        fn readByte(it: *TrieIterator) !u8 {
+            var stream = it.getStream();
+            const value = try stream.reader().readByte();
+            it.pos += 1;
+            return value;
+        }
+    };
+
+    const Export = struct {
+        name: []const u8,
+        tag: enum { @"export", reexport, stub_resolver },
+        data: union {
+            @"export": struct {
+                kind: enum { regular, absolute, tlv },
+                weak: bool = false,
+                vmoffset: u64,
+            },
+            reexport: u64,
+            stub_resolver: struct {
+                stub_offset: u64,
+                resolver_offset: u64,
+            },
+        },
+
+        inline fn rankByTag(self: Export) u3 {
+            return switch (self.tag) {
+                .@"export" => 1,
+                .reexport => 2,
+                .stub_resolver => 3,
+            };
+        }
+
+        fn lessThan(ctx: void, lhs: Export, rhs: Export) bool {
+            _ = ctx;
+            if (lhs.rankByTag() == rhs.rankByTag()) {
+                return switch (lhs.tag) {
+                    .@"export" => lhs.data.@"export".vmoffset < rhs.data.@"export".vmoffset,
+                    .reexport => lhs.data.reexport < rhs.data.reexport,
+                    .stub_resolver => lhs.data.stub_resolver.stub_offset < rhs.data.stub_resolver.stub_offset,
+                };
+            }
+            return lhs.rankByTag() < rhs.rankByTag();
+        }
+    };
+
+    fn parseTrieNode(
+        arena: Allocator,
+        it: *TrieIterator,
+        prefix: []const u8,
+        exports: *std.ArrayList(Export),
+    ) !void {
+        const size = try it.readULEB128();
+        if (size > 0) {
+            const flags = try it.readULEB128();
+            switch (flags) {
+                macho.EXPORT_SYMBOL_FLAGS_REEXPORT => {
+                    const ord = try it.readULEB128();
+                    const name = try arena.dupe(u8, try it.readString());
+                    try exports.append(.{
+                        .name = if (name.len > 0) name else prefix,
+                        .tag = .reexport,
+                        .data = .{ .reexport = ord },
+                    });
+                },
+                macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER => {
+                    const stub_offset = try it.readULEB128();
+                    const resolver_offset = try it.readULEB128();
+                    try exports.append(.{
+                        .name = prefix,
+                        .tag = .stub_resolver,
+                        .data = .{ .stub_resolver = .{
+                            .stub_offset = stub_offset,
+                            .resolver_offset = resolver_offset,
+                        } },
+                    });
+                },
+                else => {
+                    const vmoff = try it.readULEB128();
+                    try exports.append(.{
+                        .name = prefix,
+                        .tag = .@"export",
+                        .data = .{ .@"export" = .{
+                            .kind = switch (flags & macho.EXPORT_SYMBOL_FLAGS_KIND_MASK) {
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR => .regular,
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE => .absolute,
+                                macho.EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL => .tlv,
+                                else => unreachable,
+                            },
+                            .weak = flags & macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION != 0,
+                            .vmoffset = vmoff,
+                        } },
+                    });
+                },
+            }
+        }
+
+        const nedges = try it.readByte();
+        for (0..nedges) |_| {
+            const label = try it.readString();
+            const off = try it.readULEB128();
+            const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
+            const curr = it.pos;
+            it.pos = off;
+            try parseTrieNode(arena, it, prefix_label, exports);
+            it.pos = curr;
         }
     }
 };
@@ -884,34 +1631,182 @@ const ElfDumper = struct {
     const symtab_label = "symbol table";
     const dynamic_symtab_label = "dynamic symbol table";
     const dynamic_section_label = "dynamic section";
+    const archive_symtab_label = "archive symbol table";
 
-    const Symtab = struct {
-        symbols: []align(1) const elf.Elf64_Sym,
-        strings: []const u8,
+    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+        return parseAndDumpArchive(step, kind, bytes) catch |err| switch (err) {
+            error.InvalidArchiveMagicNumber => try parseAndDumpObject(step, kind, bytes),
+            else => |e| return e,
+        };
+    }
 
-        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
-            if (index >= st.symbols.len) return null;
-            return st.symbols[index];
+    fn parseAndDumpArchive(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
+        const gpa = step.owner.allocator;
+        var stream = std.io.fixedBufferStream(bytes);
+        const reader = stream.reader();
+
+        const magic = try reader.readBytesNoEof(elf.ARMAG.len);
+        if (!mem.eql(u8, &magic, elf.ARMAG)) {
+            return error.InvalidArchiveMagicNumber;
         }
 
-        fn getName(st: Symtab, index: usize) ?[]const u8 {
-            const sym = st.get(index) orelse return null;
-            return getString(st.strings, sym.st_name);
+        var ctx = ArchiveContext{
+            .gpa = gpa,
+            .data = bytes,
+            .strtab = &[0]u8{},
+        };
+        defer {
+            for (ctx.objects.items) |*object| {
+                gpa.free(object.name);
+            }
+            ctx.objects.deinit(gpa);
         }
-    };
 
-    const Context = struct {
+        while (true) {
+            if (stream.pos >= ctx.data.len) break;
+            if (!mem.isAligned(stream.pos, 2)) stream.pos += 1;
+
+            const hdr = try reader.readStruct(elf.ar_hdr);
+
+            if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) return error.InvalidArchiveHeaderMagicNumber;
+
+            const size = try hdr.size();
+            defer {
+                _ = stream.seekBy(size) catch {};
+            }
+
+            if (hdr.isSymtab()) {
+                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p32);
+                continue;
+            }
+            if (hdr.isSymtab64()) {
+                try ctx.parseSymtab(ctx.data[stream.pos..][0..size], .p64);
+                continue;
+            }
+            if (hdr.isStrtab()) {
+                ctx.strtab = ctx.data[stream.pos..][0..size];
+                continue;
+            }
+            if (hdr.isSymdef() or hdr.isSymdefSorted()) continue;
+
+            const name = if (hdr.name()) |name|
+                try gpa.dupe(u8, name)
+            else if (try hdr.nameOffset()) |off|
+                try gpa.dupe(u8, ctx.getString(off))
+            else
+                unreachable;
+
+            try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
+        }
+
+        var output = std.ArrayList(u8).init(gpa);
+        const writer = output.writer();
+
+        switch (kind) {
+            .archive_symtab => if (ctx.symtab.items.len > 0) {
+                try ctx.dumpSymtab(writer);
+            } else return step.fail("no archive symbol table found", .{}),
+
+            else => if (ctx.objects.items.len > 0) {
+                try ctx.dumpObjects(step, kind, writer);
+            } else return step.fail("empty archive", .{}),
+        }
+
+        return output.toOwnedSlice();
+    }
+
+    const ArchiveContext = struct {
         gpa: Allocator,
         data: []const u8,
-        hdr: elf.Elf64_Ehdr,
-        shdrs: []align(1) const elf.Elf64_Shdr,
-        phdrs: []align(1) const elf.Elf64_Phdr,
-        shstrtab: []const u8,
-        symtab: ?Symtab = null,
-        dysymtab: ?Symtab = null,
+        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .{},
+        strtab: []const u8,
+        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .{},
+
+        fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
+            var stream = std.io.fixedBufferStream(raw);
+            const reader = stream.reader();
+            const num = switch (ptr_width) {
+                .p32 => try reader.readInt(u32, .big),
+                .p64 => try reader.readInt(u64, .big),
+            };
+            const ptr_size: usize = switch (ptr_width) {
+                .p32 => @sizeOf(u32),
+                .p64 => @sizeOf(u64),
+            };
+            const strtab_off = (num + 1) * ptr_size;
+            const strtab_len = raw.len - strtab_off;
+            const strtab = raw[strtab_off..][0..strtab_len];
+
+            try ctx.symtab.ensureTotalCapacityPrecise(ctx.gpa, num);
+
+            var stroff: usize = 0;
+            for (0..num) |_| {
+                const off = switch (ptr_width) {
+                    .p32 => try reader.readInt(u32, .big),
+                    .p64 => try reader.readInt(u64, .big),
+                };
+                const name = mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + stroff)), 0);
+                stroff += name.len + 1;
+                ctx.symtab.appendAssumeCapacity(.{ .off = off, .name = name });
+            }
+        }
+
+        fn dumpSymtab(ctx: ArchiveContext, writer: anytype) !void {
+            var files = std.AutoHashMap(usize, []const u8).init(ctx.gpa);
+            defer files.deinit();
+            try files.ensureUnusedCapacity(@intCast(ctx.objects.items.len));
+
+            for (ctx.objects.items) |object| {
+                files.putAssumeCapacityNoClobber(object.off - @sizeOf(elf.ar_hdr), object.name);
+            }
+
+            var symbols = std.AutoArrayHashMap(usize, std.ArrayList([]const u8)).init(ctx.gpa);
+            defer {
+                for (symbols.values()) |*value| {
+                    value.deinit();
+                }
+                symbols.deinit();
+            }
+
+            for (ctx.symtab.items) |entry| {
+                const gop = try symbols.getOrPut(@intCast(entry.off));
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = std.ArrayList([]const u8).init(ctx.gpa);
+                }
+                try gop.value_ptr.append(entry.name);
+            }
+
+            try writer.print("{s}\n", .{archive_symtab_label});
+            for (symbols.keys(), symbols.values()) |off, values| {
+                try writer.print("in object {s}\n", .{files.get(off).?});
+                for (values.items) |value| {
+                    try writer.print("{s}\n", .{value});
+                }
+            }
+        }
+
+        fn dumpObjects(ctx: ArchiveContext, step: *Step, kind: Check.Kind, writer: anytype) !void {
+            for (ctx.objects.items) |object| {
+                try writer.print("object {s}\n", .{object.name});
+                const output = try parseAndDumpObject(step, kind, ctx.data[object.off..][0..object.len]);
+                defer ctx.gpa.free(output);
+                try writer.print("{s}\n", .{output});
+            }
+        }
+
+        fn getString(ctx: ArchiveContext, off: u32) []const u8 {
+            assert(off < ctx.strtab.len);
+            const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(ctx.strtab.ptr + off)), 0);
+            return name[0 .. name.len - 1];
+        }
+
+        const ArSymtabEntry = struct {
+            name: [:0]const u8,
+            off: u64,
+        };
     };
 
-    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
+    fn parseAndDumpObject(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var stream = std.io.fixedBufferStream(bytes);
         const reader = stream.reader();
@@ -924,7 +1819,7 @@ const ElfDumper = struct {
         const shdrs = @as([*]align(1) const elf.Elf64_Shdr, @ptrCast(bytes.ptr + hdr.e_shoff))[0..hdr.e_shnum];
         const phdrs = @as([*]align(1) const elf.Elf64_Phdr, @ptrCast(bytes.ptr + hdr.e_phoff))[0..hdr.e_phnum];
 
-        var ctx = Context{
+        var ctx = ObjectContext{
             .gpa = gpa,
             .data = bytes,
             .hdr = hdr,
@@ -932,14 +1827,14 @@ const ElfDumper = struct {
             .phdrs = phdrs,
             .shstrtab = undefined,
         };
-        ctx.shstrtab = getSectionContents(ctx, ctx.hdr.e_shstrndx);
+        ctx.shstrtab = ctx.getSectionContents(ctx.hdr.e_shstrndx);
 
         for (ctx.shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
             elf.SHT_SYMTAB, elf.SHT_DYNSYM => {
-                const raw = getSectionContents(ctx, i);
+                const raw = ctx.getSectionContents(i);
                 const nsyms = @divExact(raw.len, @sizeOf(elf.Elf64_Sym));
                 const symbols = @as([*]align(1) const elf.Elf64_Sym, @ptrCast(raw.ptr))[0..nsyms];
-                const strings = getSectionContents(ctx, shdr.sh_link);
+                const strings = ctx.getSectionContents(shdr.sh_link);
 
                 switch (shdr.sh_type) {
                     elf.SHT_SYMTAB => {
@@ -964,199 +1859,360 @@ const ElfDumper = struct {
         var output = std.ArrayList(u8).init(gpa);
         const writer = output.writer();
 
-        try dumpHeader(ctx, writer);
-        try dumpShdrs(ctx, writer);
-        try dumpPhdrs(ctx, writer);
-        try dumpDynamicSection(ctx, writer);
-        try dumpSymtab(ctx, .symtab, writer);
-        try dumpSymtab(ctx, .dysymtab, writer);
+        switch (kind) {
+            .headers => {
+                try ctx.dumpHeader(writer);
+                try ctx.dumpShdrs(writer);
+                try ctx.dumpPhdrs(writer);
+            },
+
+            .symtab => if (ctx.symtab.symbols.len > 0) {
+                try ctx.dumpSymtab(.symtab, writer);
+            } else return step.fail("no symbol table found", .{}),
+
+            .dynamic_symtab => if (ctx.dysymtab.symbols.len > 0) {
+                try ctx.dumpSymtab(.dysymtab, writer);
+            } else return step.fail("no dynamic symbol table found", .{}),
+
+            .dynamic_section => if (ctx.getSectionByName(".dynamic")) |shndx| {
+                try ctx.dumpDynamicSection(shndx, writer);
+            } else return step.fail("no .dynamic section found", .{}),
+
+            else => return step.fail("invalid check kind for ELF file format: {s}", .{@tagName(kind)}),
+        }
 
         return output.toOwnedSlice();
     }
 
-    inline fn getSectionName(ctx: Context, shndx: usize) []const u8 {
-        const shdr = ctx.shdrs[shndx];
-        return getString(ctx.shstrtab, shdr.sh_name);
-    }
+    const ObjectContext = struct {
+        gpa: Allocator,
+        data: []const u8,
+        hdr: elf.Elf64_Ehdr,
+        shdrs: []align(1) const elf.Elf64_Shdr,
+        phdrs: []align(1) const elf.Elf64_Phdr,
+        shstrtab: []const u8,
+        symtab: Symtab = .{},
+        dysymtab: Symtab = .{},
 
-    fn getSectionContents(ctx: Context, shndx: usize) []const u8 {
-        const shdr = ctx.shdrs[shndx];
-        assert(shdr.sh_offset < ctx.data.len);
-        assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
-        return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
-    }
+        fn dumpHeader(ctx: ObjectContext, writer: anytype) !void {
+            try writer.writeAll("header\n");
+            try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
+            try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
+        }
 
-    fn getSectionByName(ctx: Context, name: []const u8) ?usize {
-        for (0..ctx.shdrs.len) |shndx| {
-            if (mem.eql(u8, getSectionName(ctx, shndx), name)) return shndx;
-        } else return null;
-    }
+        fn dumpPhdrs(ctx: ObjectContext, writer: anytype) !void {
+            if (ctx.phdrs.len == 0) return;
+
+            try writer.writeAll("program headers\n");
+
+            for (ctx.phdrs, 0..) |phdr, phndx| {
+                try writer.print("phdr {d}\n", .{phndx});
+                try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
+                try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
+                try writer.print("paddr {x}\n", .{phdr.p_paddr});
+                try writer.print("offset {x}\n", .{phdr.p_offset});
+                try writer.print("memsz {x}\n", .{phdr.p_memsz});
+                try writer.print("filesz {x}\n", .{phdr.p_filesz});
+                try writer.print("align {x}\n", .{phdr.p_align});
+
+                {
+                    const flags = phdr.p_flags;
+                    try writer.writeAll("flags");
+                    if (flags > 0) try writer.writeByte(' ');
+                    if (flags & elf.PF_R != 0) {
+                        try writer.writeByte('R');
+                    }
+                    if (flags & elf.PF_W != 0) {
+                        try writer.writeByte('W');
+                    }
+                    if (flags & elf.PF_X != 0) {
+                        try writer.writeByte('E');
+                    }
+                    if (flags & elf.PF_MASKOS != 0) {
+                        try writer.writeAll("OS");
+                    }
+                    if (flags & elf.PF_MASKPROC != 0) {
+                        try writer.writeAll("PROC");
+                    }
+                    try writer.writeByte('\n');
+                }
+            }
+        }
+
+        fn dumpShdrs(ctx: ObjectContext, writer: anytype) !void {
+            if (ctx.shdrs.len == 0) return;
+
+            try writer.writeAll("section headers\n");
+
+            for (ctx.shdrs, 0..) |shdr, shndx| {
+                try writer.print("shdr {d}\n", .{shndx});
+                try writer.print("name {s}\n", .{ctx.getSectionName(shndx)});
+                try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
+                try writer.print("addr {x}\n", .{shdr.sh_addr});
+                try writer.print("offset {x}\n", .{shdr.sh_offset});
+                try writer.print("size {x}\n", .{shdr.sh_size});
+                try writer.print("addralign {x}\n", .{shdr.sh_addralign});
+                // TODO dump formatted sh_flags
+            }
+        }
+
+        fn dumpDynamicSection(ctx: ObjectContext, shndx: usize, writer: anytype) !void {
+            const shdr = ctx.shdrs[shndx];
+            const strtab = ctx.getSectionContents(shdr.sh_link);
+            const data = ctx.getSectionContents(shndx);
+            const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
+            const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
+
+            try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
+
+            for (entries) |entry| {
+                const key = @as(u64, @bitCast(entry.d_tag));
+                const value = entry.d_val;
+
+                const key_str = switch (key) {
+                    elf.DT_NEEDED => "NEEDED",
+                    elf.DT_SONAME => "SONAME",
+                    elf.DT_INIT_ARRAY => "INIT_ARRAY",
+                    elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
+                    elf.DT_FINI_ARRAY => "FINI_ARRAY",
+                    elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
+                    elf.DT_HASH => "HASH",
+                    elf.DT_GNU_HASH => "GNU_HASH",
+                    elf.DT_STRTAB => "STRTAB",
+                    elf.DT_SYMTAB => "SYMTAB",
+                    elf.DT_STRSZ => "STRSZ",
+                    elf.DT_SYMENT => "SYMENT",
+                    elf.DT_PLTGOT => "PLTGOT",
+                    elf.DT_PLTRELSZ => "PLTRELSZ",
+                    elf.DT_PLTREL => "PLTREL",
+                    elf.DT_JMPREL => "JMPREL",
+                    elf.DT_RELA => "RELA",
+                    elf.DT_RELASZ => "RELASZ",
+                    elf.DT_RELAENT => "RELAENT",
+                    elf.DT_VERDEF => "VERDEF",
+                    elf.DT_VERDEFNUM => "VERDEFNUM",
+                    elf.DT_FLAGS => "FLAGS",
+                    elf.DT_FLAGS_1 => "FLAGS_1",
+                    elf.DT_VERNEED => "VERNEED",
+                    elf.DT_VERNEEDNUM => "VERNEEDNUM",
+                    elf.DT_VERSYM => "VERSYM",
+                    elf.DT_RELACOUNT => "RELACOUNT",
+                    elf.DT_RPATH => "RPATH",
+                    elf.DT_RUNPATH => "RUNPATH",
+                    elf.DT_INIT => "INIT",
+                    elf.DT_FINI => "FINI",
+                    elf.DT_NULL => "NULL",
+                    else => "UNKNOWN",
+                };
+                try writer.print("{s}", .{key_str});
+
+                switch (key) {
+                    elf.DT_NEEDED,
+                    elf.DT_SONAME,
+                    elf.DT_RPATH,
+                    elf.DT_RUNPATH,
+                    => {
+                        const name = getString(strtab, @intCast(value));
+                        try writer.print(" {s}", .{name});
+                    },
+
+                    elf.DT_INIT_ARRAY,
+                    elf.DT_FINI_ARRAY,
+                    elf.DT_HASH,
+                    elf.DT_GNU_HASH,
+                    elf.DT_STRTAB,
+                    elf.DT_SYMTAB,
+                    elf.DT_PLTGOT,
+                    elf.DT_JMPREL,
+                    elf.DT_RELA,
+                    elf.DT_VERDEF,
+                    elf.DT_VERNEED,
+                    elf.DT_VERSYM,
+                    elf.DT_INIT,
+                    elf.DT_FINI,
+                    elf.DT_NULL,
+                    => try writer.print(" {x}", .{value}),
+
+                    elf.DT_INIT_ARRAYSZ,
+                    elf.DT_FINI_ARRAYSZ,
+                    elf.DT_STRSZ,
+                    elf.DT_SYMENT,
+                    elf.DT_PLTRELSZ,
+                    elf.DT_RELASZ,
+                    elf.DT_RELAENT,
+                    elf.DT_RELACOUNT,
+                    => try writer.print(" {d}", .{value}),
+
+                    elf.DT_PLTREL => try writer.writeAll(switch (value) {
+                        elf.DT_REL => " REL",
+                        elf.DT_RELA => " RELA",
+                        else => " UNKNOWN",
+                    }),
+
+                    elf.DT_FLAGS => if (value > 0) {
+                        if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                        if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
+                        if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
+                        if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
+                        if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
+                    },
+
+                    elf.DT_FLAGS_1 => if (value > 0) {
+                        if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
+                        if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
+                        if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
+                        if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
+                        if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
+                        if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
+                        if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
+                        if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
+                        if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
+                        if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
+                        if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
+                        if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
+                        if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
+                        if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
+                        if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
+                        if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
+                        if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
+                        if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
+                        if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
+                        if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
+                        if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
+                        if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
+                        if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
+                        if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
+                        if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
+                        if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
+                        if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
+                        if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
+                    },
+
+                    else => try writer.print(" {x}", .{value}),
+                }
+                try writer.writeByte('\n');
+            }
+        }
+
+        fn dumpSymtab(ctx: ObjectContext, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
+            const symtab = switch (@"type") {
+                .symtab => ctx.symtab,
+                .dysymtab => ctx.dysymtab,
+            };
+
+            try writer.writeAll(switch (@"type") {
+                .symtab => symtab_label,
+                .dysymtab => dynamic_symtab_label,
+            } ++ "\n");
+
+            for (symtab.symbols, 0..) |sym, index| {
+                try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
+
+                {
+                    if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
+                        if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
+                            try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
+                        } else {
+                            const sym_ndx = switch (sym.st_shndx) {
+                                elf.SHN_ABS => "ABS",
+                                elf.SHN_COMMON => "COM",
+                                elf.SHN_LIVEPATCH => "LIV",
+                                else => "UNK",
+                            };
+                            try writer.print(" {s}", .{sym_ndx});
+                        }
+                    } else if (sym.st_shndx == elf.SHN_UNDEF) {
+                        try writer.writeAll(" UND");
+                    } else {
+                        try writer.print(" {x}", .{sym.st_shndx});
+                    }
+                }
+
+                blk: {
+                    const tt = sym.st_type();
+                    const sym_type = switch (tt) {
+                        elf.STT_NOTYPE => "NOTYPE",
+                        elf.STT_OBJECT => "OBJECT",
+                        elf.STT_FUNC => "FUNC",
+                        elf.STT_SECTION => "SECTION",
+                        elf.STT_FILE => "FILE",
+                        elf.STT_COMMON => "COMMON",
+                        elf.STT_TLS => "TLS",
+                        elf.STT_NUM => "NUM",
+                        elf.STT_GNU_IFUNC => "IFUNC",
+                        else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
+                            break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
+                        } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
+                            break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
+                        } else "UNK",
+                    };
+                    try writer.print(" {s}", .{sym_type});
+                }
+
+                blk: {
+                    const bind = sym.st_bind();
+                    const sym_bind = switch (bind) {
+                        elf.STB_LOCAL => "LOCAL",
+                        elf.STB_GLOBAL => "GLOBAL",
+                        elf.STB_WEAK => "WEAK",
+                        elf.STB_NUM => "NUM",
+                        else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
+                            break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
+                        } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
+                            break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
+                        } else "UNKNOWN",
+                    };
+                    try writer.print(" {s}", .{sym_bind});
+                }
+
+                const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
+                try writer.print(" {s}", .{@tagName(sym_vis)});
+
+                const sym_name = switch (sym.st_type()) {
+                    elf.STT_SECTION => ctx.getSectionName(sym.st_shndx),
+                    else => symtab.getName(index).?,
+                };
+                try writer.print(" {s}\n", .{sym_name});
+            }
+        }
+
+        inline fn getSectionName(ctx: ObjectContext, shndx: usize) []const u8 {
+            const shdr = ctx.shdrs[shndx];
+            return getString(ctx.shstrtab, shdr.sh_name);
+        }
+
+        fn getSectionContents(ctx: ObjectContext, shndx: usize) []const u8 {
+            const shdr = ctx.shdrs[shndx];
+            assert(shdr.sh_offset < ctx.data.len);
+            assert(shdr.sh_offset + shdr.sh_size <= ctx.data.len);
+            return ctx.data[shdr.sh_offset..][0..shdr.sh_size];
+        }
+
+        fn getSectionByName(ctx: ObjectContext, name: []const u8) ?usize {
+            for (0..ctx.shdrs.len) |shndx| {
+                if (mem.eql(u8, ctx.getSectionName(shndx), name)) return shndx;
+            } else return null;
+        }
+    };
+
+    const Symtab = struct {
+        symbols: []align(1) const elf.Elf64_Sym = &[0]elf.Elf64_Sym{},
+        strings: []const u8 = &[0]u8{},
+
+        fn get(st: Symtab, index: usize) ?elf.Elf64_Sym {
+            if (index >= st.symbols.len) return null;
+            return st.symbols[index];
+        }
+
+        fn getName(st: Symtab, index: usize) ?[]const u8 {
+            const sym = st.get(index) orelse return null;
+            return getString(st.strings, sym.st_name);
+        }
+    };
 
     fn getString(strtab: []const u8, off: u32) []const u8 {
         assert(off < strtab.len);
         return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
-    }
-
-    fn dumpHeader(ctx: Context, writer: anytype) !void {
-        try writer.writeAll("header\n");
-        try writer.print("type {s}\n", .{@tagName(ctx.hdr.e_type)});
-        try writer.print("entry {x}\n", .{ctx.hdr.e_entry});
-    }
-
-    fn dumpShdrs(ctx: Context, writer: anytype) !void {
-        if (ctx.shdrs.len == 0) return;
-
-        try writer.writeAll("section headers\n");
-
-        for (ctx.shdrs, 0..) |shdr, shndx| {
-            try writer.print("shdr {d}\n", .{shndx});
-            try writer.print("name {s}\n", .{getSectionName(ctx, shndx)});
-            try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
-            try writer.print("addr {x}\n", .{shdr.sh_addr});
-            try writer.print("offset {x}\n", .{shdr.sh_offset});
-            try writer.print("size {x}\n", .{shdr.sh_size});
-            try writer.print("addralign {x}\n", .{shdr.sh_addralign});
-            // TODO dump formatted sh_flags
-        }
-    }
-
-    fn dumpDynamicSection(ctx: Context, writer: anytype) !void {
-        const shndx = getSectionByName(ctx, ".dynamic") orelse return;
-        const shdr = ctx.shdrs[shndx];
-        const strtab = getSectionContents(ctx, shdr.sh_link);
-        const data = getSectionContents(ctx, shndx);
-        const nentries = @divExact(data.len, @sizeOf(elf.Elf64_Dyn));
-        const entries = @as([*]align(1) const elf.Elf64_Dyn, @ptrCast(data.ptr))[0..nentries];
-
-        try writer.writeAll(ElfDumper.dynamic_section_label ++ "\n");
-
-        for (entries) |entry| {
-            const key = @as(u64, @bitCast(entry.d_tag));
-            const value = entry.d_val;
-
-            const key_str = switch (key) {
-                elf.DT_NEEDED => "NEEDED",
-                elf.DT_SONAME => "SONAME",
-                elf.DT_INIT_ARRAY => "INIT_ARRAY",
-                elf.DT_INIT_ARRAYSZ => "INIT_ARRAYSZ",
-                elf.DT_FINI_ARRAY => "FINI_ARRAY",
-                elf.DT_FINI_ARRAYSZ => "FINI_ARRAYSZ",
-                elf.DT_HASH => "HASH",
-                elf.DT_GNU_HASH => "GNU_HASH",
-                elf.DT_STRTAB => "STRTAB",
-                elf.DT_SYMTAB => "SYMTAB",
-                elf.DT_STRSZ => "STRSZ",
-                elf.DT_SYMENT => "SYMENT",
-                elf.DT_PLTGOT => "PLTGOT",
-                elf.DT_PLTRELSZ => "PLTRELSZ",
-                elf.DT_PLTREL => "PLTREL",
-                elf.DT_JMPREL => "JMPREL",
-                elf.DT_RELA => "RELA",
-                elf.DT_RELASZ => "RELASZ",
-                elf.DT_RELAENT => "RELAENT",
-                elf.DT_VERDEF => "VERDEF",
-                elf.DT_VERDEFNUM => "VERDEFNUM",
-                elf.DT_FLAGS => "FLAGS",
-                elf.DT_FLAGS_1 => "FLAGS_1",
-                elf.DT_VERNEED => "VERNEED",
-                elf.DT_VERNEEDNUM => "VERNEEDNUM",
-                elf.DT_VERSYM => "VERSYM",
-                elf.DT_RELACOUNT => "RELACOUNT",
-                elf.DT_RPATH => "RPATH",
-                elf.DT_RUNPATH => "RUNPATH",
-                elf.DT_INIT => "INIT",
-                elf.DT_FINI => "FINI",
-                elf.DT_NULL => "NULL",
-                else => "UNKNOWN",
-            };
-            try writer.print("{s}", .{key_str});
-
-            switch (key) {
-                elf.DT_NEEDED,
-                elf.DT_SONAME,
-                elf.DT_RPATH,
-                elf.DT_RUNPATH,
-                => {
-                    const name = getString(strtab, @intCast(value));
-                    try writer.print(" {s}", .{name});
-                },
-
-                elf.DT_INIT_ARRAY,
-                elf.DT_FINI_ARRAY,
-                elf.DT_HASH,
-                elf.DT_GNU_HASH,
-                elf.DT_STRTAB,
-                elf.DT_SYMTAB,
-                elf.DT_PLTGOT,
-                elf.DT_JMPREL,
-                elf.DT_RELA,
-                elf.DT_VERDEF,
-                elf.DT_VERNEED,
-                elf.DT_VERSYM,
-                elf.DT_INIT,
-                elf.DT_FINI,
-                elf.DT_NULL,
-                => try writer.print(" {x}", .{value}),
-
-                elf.DT_INIT_ARRAYSZ,
-                elf.DT_FINI_ARRAYSZ,
-                elf.DT_STRSZ,
-                elf.DT_SYMENT,
-                elf.DT_PLTRELSZ,
-                elf.DT_RELASZ,
-                elf.DT_RELAENT,
-                elf.DT_RELACOUNT,
-                => try writer.print(" {d}", .{value}),
-
-                elf.DT_PLTREL => try writer.writeAll(switch (value) {
-                    elf.DT_REL => " REL",
-                    elf.DT_RELA => " RELA",
-                    else => " UNKNOWN",
-                }),
-
-                elf.DT_FLAGS => if (value > 0) {
-                    if (value & elf.DF_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                    if (value & elf.DF_SYMBOLIC != 0) try writer.writeAll(" SYMBOLIC");
-                    if (value & elf.DF_TEXTREL != 0) try writer.writeAll(" TEXTREL");
-                    if (value & elf.DF_BIND_NOW != 0) try writer.writeAll(" BIND_NOW");
-                    if (value & elf.DF_STATIC_TLS != 0) try writer.writeAll(" STATIC_TLS");
-                },
-
-                elf.DT_FLAGS_1 => if (value > 0) {
-                    if (value & elf.DF_1_NOW != 0) try writer.writeAll(" NOW");
-                    if (value & elf.DF_1_GLOBAL != 0) try writer.writeAll(" GLOBAL");
-                    if (value & elf.DF_1_GROUP != 0) try writer.writeAll(" GROUP");
-                    if (value & elf.DF_1_NODELETE != 0) try writer.writeAll(" NODELETE");
-                    if (value & elf.DF_1_LOADFLTR != 0) try writer.writeAll(" LOADFLTR");
-                    if (value & elf.DF_1_INITFIRST != 0) try writer.writeAll(" INITFIRST");
-                    if (value & elf.DF_1_NOOPEN != 0) try writer.writeAll(" NOOPEN");
-                    if (value & elf.DF_1_ORIGIN != 0) try writer.writeAll(" ORIGIN");
-                    if (value & elf.DF_1_DIRECT != 0) try writer.writeAll(" DIRECT");
-                    if (value & elf.DF_1_TRANS != 0) try writer.writeAll(" TRANS");
-                    if (value & elf.DF_1_INTERPOSE != 0) try writer.writeAll(" INTERPOSE");
-                    if (value & elf.DF_1_NODEFLIB != 0) try writer.writeAll(" NODEFLIB");
-                    if (value & elf.DF_1_NODUMP != 0) try writer.writeAll(" NODUMP");
-                    if (value & elf.DF_1_CONFALT != 0) try writer.writeAll(" CONFALT");
-                    if (value & elf.DF_1_ENDFILTEE != 0) try writer.writeAll(" ENDFILTEE");
-                    if (value & elf.DF_1_DISPRELDNE != 0) try writer.writeAll(" DISPRELDNE");
-                    if (value & elf.DF_1_DISPRELPND != 0) try writer.writeAll(" DISPRELPND");
-                    if (value & elf.DF_1_NODIRECT != 0) try writer.writeAll(" NODIRECT");
-                    if (value & elf.DF_1_IGNMULDEF != 0) try writer.writeAll(" IGNMULDEF");
-                    if (value & elf.DF_1_NOKSYMS != 0) try writer.writeAll(" NOKSYMS");
-                    if (value & elf.DF_1_NOHDR != 0) try writer.writeAll(" NOHDR");
-                    if (value & elf.DF_1_EDITED != 0) try writer.writeAll(" EDITED");
-                    if (value & elf.DF_1_NORELOC != 0) try writer.writeAll(" NORELOC");
-                    if (value & elf.DF_1_SYMINTPOSE != 0) try writer.writeAll(" SYMINTPOSE");
-                    if (value & elf.DF_1_GLOBAUDIT != 0) try writer.writeAll(" GLOBAUDIT");
-                    if (value & elf.DF_1_SINGLETON != 0) try writer.writeAll(" SINGLETON");
-                    if (value & elf.DF_1_STUB != 0) try writer.writeAll(" STUB");
-                    if (value & elf.DF_1_PIE != 0) try writer.writeAll(" PIE");
-                },
-
-                else => try writer.print(" {x}", .{value}),
-            }
-            try writer.writeByte('\n');
-        }
     }
 
     fn fmtShType(sh_type: u32) std.fmt.Formatter(formatShType) {
@@ -1206,45 +2262,6 @@ const ElfDumper = struct {
         try writer.writeAll(name);
     }
 
-    fn dumpPhdrs(ctx: Context, writer: anytype) !void {
-        if (ctx.phdrs.len == 0) return;
-
-        try writer.writeAll("program headers\n");
-
-        for (ctx.phdrs, 0..) |phdr, phndx| {
-            try writer.print("phdr {d}\n", .{phndx});
-            try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
-            try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
-            try writer.print("paddr {x}\n", .{phdr.p_paddr});
-            try writer.print("offset {x}\n", .{phdr.p_offset});
-            try writer.print("memsz {x}\n", .{phdr.p_memsz});
-            try writer.print("filesz {x}\n", .{phdr.p_filesz});
-            try writer.print("align {x}\n", .{phdr.p_align});
-
-            {
-                const flags = phdr.p_flags;
-                try writer.writeAll("flags");
-                if (flags > 0) try writer.writeByte(' ');
-                if (flags & elf.PF_R != 0) {
-                    try writer.writeByte('R');
-                }
-                if (flags & elf.PF_W != 0) {
-                    try writer.writeByte('W');
-                }
-                if (flags & elf.PF_X != 0) {
-                    try writer.writeByte('E');
-                }
-                if (flags & elf.PF_MASKOS != 0) {
-                    try writer.writeAll("OS");
-                }
-                if (flags & elf.PF_MASKPROC != 0) {
-                    try writer.writeAll("PROC");
-                }
-                try writer.writeByte('\n');
-            }
-        }
-    }
-
     fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
         return .{ .data = ph_type };
     }
@@ -1278,94 +2295,12 @@ const ElfDumper = struct {
         };
         try writer.writeAll(p_type);
     }
-
-    fn dumpSymtab(ctx: Context, comptime @"type": enum { symtab, dysymtab }, writer: anytype) !void {
-        const symtab = switch (@"type") {
-            .symtab => ctx.symtab,
-            .dysymtab => ctx.dysymtab,
-        } orelse return;
-
-        try writer.writeAll(switch (@"type") {
-            .symtab => symtab_label,
-            .dysymtab => dynamic_symtab_label,
-        } ++ "\n");
-
-        for (symtab.symbols, 0..) |sym, index| {
-            try writer.print("{x} {x}", .{ sym.st_value, sym.st_size });
-
-            {
-                if (elf.SHN_LORESERVE <= sym.st_shndx and sym.st_shndx < elf.SHN_HIRESERVE) {
-                    if (elf.SHN_LOPROC <= sym.st_shndx and sym.st_shndx < elf.SHN_HIPROC) {
-                        try writer.print(" LO+{d}", .{sym.st_shndx - elf.SHN_LOPROC});
-                    } else {
-                        const sym_ndx = &switch (sym.st_shndx) {
-                            elf.SHN_ABS => "ABS",
-                            elf.SHN_COMMON => "COM",
-                            elf.SHN_LIVEPATCH => "LIV",
-                            else => "UNK",
-                        };
-                        try writer.print(" {s}", .{sym_ndx});
-                    }
-                } else if (sym.st_shndx == elf.SHN_UNDEF) {
-                    try writer.writeAll(" UND");
-                } else {
-                    try writer.print(" {x}", .{sym.st_shndx});
-                }
-            }
-
-            blk: {
-                const tt = sym.st_type();
-                const sym_type = switch (tt) {
-                    elf.STT_NOTYPE => "NOTYPE",
-                    elf.STT_OBJECT => "OBJECT",
-                    elf.STT_FUNC => "FUNC",
-                    elf.STT_SECTION => "SECTION",
-                    elf.STT_FILE => "FILE",
-                    elf.STT_COMMON => "COMMON",
-                    elf.STT_TLS => "TLS",
-                    elf.STT_NUM => "NUM",
-                    elf.STT_GNU_IFUNC => "IFUNC",
-                    else => if (elf.STT_LOPROC <= tt and tt < elf.STT_HIPROC) {
-                        break :blk try writer.print(" LOPROC+{d}", .{tt - elf.STT_LOPROC});
-                    } else if (elf.STT_LOOS <= tt and tt < elf.STT_HIOS) {
-                        break :blk try writer.print(" LOOS+{d}", .{tt - elf.STT_LOOS});
-                    } else "UNK",
-                };
-                try writer.print(" {s}", .{sym_type});
-            }
-
-            blk: {
-                const bind = sym.st_bind();
-                const sym_bind = switch (bind) {
-                    elf.STB_LOCAL => "LOCAL",
-                    elf.STB_GLOBAL => "GLOBAL",
-                    elf.STB_WEAK => "WEAK",
-                    elf.STB_NUM => "NUM",
-                    else => if (elf.STB_LOPROC <= bind and bind < elf.STB_HIPROC) {
-                        break :blk try writer.print(" LOPROC+{d}", .{bind - elf.STB_LOPROC});
-                    } else if (elf.STB_LOOS <= bind and bind < elf.STB_HIOS) {
-                        break :blk try writer.print(" LOOS+{d}", .{bind - elf.STB_LOOS});
-                    } else "UNKNOWN",
-                };
-                try writer.print(" {s}", .{sym_bind});
-            }
-
-            const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
-            try writer.print(" {s}", .{@tagName(sym_vis)});
-
-            const sym_name = switch (sym.st_type()) {
-                elf.STT_SECTION => getSectionName(ctx, sym.st_shndx),
-                else => symtab.getName(index).?,
-            };
-            try writer.print(" {s}\n", .{sym_name});
-        }
-    }
 };
 
 const WasmDumper = struct {
     const symtab_label = "symbols";
 
-    fn parseAndDump(step: *Step, bytes: []const u8) ![]const u8 {
+    fn parseAndDump(step: *Step, kind: Check.Kind, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
         var fbs = std.io.fixedBufferStream(bytes);
         const reader = fbs.reader();
@@ -1382,15 +2317,21 @@ const WasmDumper = struct {
         errdefer output.deinit();
         const writer = output.writer();
 
-        while (reader.readByte()) |current_byte| {
-            const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
-                return step.fail("Found invalid section id '{d}'", .{current_byte});
-            };
+        switch (kind) {
+            .headers => {
+                while (reader.readByte()) |current_byte| {
+                    const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
+                        return step.fail("Found invalid section id '{d}'", .{current_byte});
+                    };
 
-            const section_length = try std.leb.readULEB128(u32, reader);
-            try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
-            fbs.pos += section_length;
-        } else |_| {} // reached end of stream
+                    const section_length = try std.leb.readULEB128(u32, reader);
+                    try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
+                    fbs.pos += section_length;
+                } else |_| {} // reached end of stream
+            },
+
+            else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(kind)}),
+        }
 
         return output.toOwnedSlice();
     }

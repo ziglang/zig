@@ -246,18 +246,18 @@ pub const ArenaAllocator = struct {
     }
 };
 
-test "ArenaAllocator (reset with preheating)" {
+test "reset with preheating" {
     var arena_allocator = ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     // provides some variance in the allocated data
-    var rng_src = std.rand.DefaultPrng.init(19930913);
+    var rng_src = std.Random.DefaultPrng.init(19930913);
     const random = rng_src.random();
     var rounds: usize = 25;
     while (rounds > 0) {
         rounds -= 1;
         _ = arena_allocator.reset(.retain_capacity);
         var alloced_bytes: usize = 0;
-        var total_size: usize = random.intRangeAtMost(usize, 256, 16384);
+        const total_size: usize = random.intRangeAtMost(usize, 256, 16384);
         while (alloced_bytes < total_size) {
             const size = random.intRangeAtMost(usize, 16, 256);
             const alignment = 32;
@@ -269,7 +269,7 @@ test "ArenaAllocator (reset with preheating)" {
     }
 }
 
-test "ArenaAllocator (reset while retaining a buffer)" {
+test "reset while retaining a buffer" {
     var arena_allocator = ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const a = arena_allocator.allocator();

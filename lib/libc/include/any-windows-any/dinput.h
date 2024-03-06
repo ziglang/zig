@@ -603,6 +603,7 @@ typedef WINBOOL (CALLBACK *LPDIENUMCREATEDEFFECTOBJECTSCALLBACK)(LPDIRECTINPUTEF
 #define DIK_YEN             0x7D    /* (Japanese keyboard)            */
 #define DIK_ABNT_C2         0x7E    /* Numpad . on Portugese (Brazilian) keyboards */
 #define DIK_NUMPADEQUALS    0x8D    /* = on numeric keypad (NEC PC98) */
+#define DIK_PREVTRACK       0x90    /* Previous Track (DIK_CIRCUMFLEX on Japanese keyboard) */
 #define DIK_CIRCUMFLEX      0x90    /* (Japanese keyboard)            */
 #define DIK_AT              0x91    /*                     (NEC PC98) */
 #define DIK_COLON           0x92    /*                     (NEC PC98) */
@@ -1132,6 +1133,7 @@ DECL_WINELIB_TYPE_AW(LPCDIEFFECTINFO)
 
 typedef WINBOOL (CALLBACK *LPDIENUMEFFECTSCALLBACKA)(LPCDIEFFECTINFOA, LPVOID);
 typedef WINBOOL (CALLBACK *LPDIENUMEFFECTSCALLBACKW)(LPCDIEFFECTINFOW, LPVOID);
+DECL_WINELIB_TYPE_AW(LPDIENUMEFFECTSCALLBACK)
 
 typedef struct DIEFFESCAPE {
 	DWORD	dwSize;
@@ -2150,6 +2152,8 @@ extern const DIDATAFORMAT c_dfDIMouse2; /* DX 7 */
 extern const DIDATAFORMAT c_dfDIKeyboard;
 #if DIRECTINPUT_VERSION >= 0x0500
 extern const DIDATAFORMAT c_dfDIJoystick;
+extern LPCDIDATAFORMAT WINAPI GetdfDIJoystick(void);
+
 extern const DIDATAFORMAT c_dfDIJoystick2;
 #endif /* DI5 */
 #ifdef __cplusplus

@@ -100,7 +100,7 @@ pub const Parser = struct {
             // because it almost always leads to unhelpful error messages
             // (usually it will end up with bogus things like 'file
             // not found: {')
-            var statement = try self.parseStatement();
+            const statement = try self.parseStatement();
             try statements.append(statement);
         }
     }
@@ -698,7 +698,7 @@ pub const Parser = struct {
             .dlginclude => {
                 const common_resource_attributes = try self.parseCommonResourceAttributes();
 
-                var filename_expression = try self.parseExpression(.{
+                const filename_expression = try self.parseExpression(.{
                     .allowed_types = .{ .string = true },
                 });
 
@@ -756,7 +756,7 @@ pub const Parser = struct {
                     return &node.base;
                 }
 
-                var filename_expression = try self.parseExpression(.{
+                const filename_expression = try self.parseExpression(.{
                     // Don't tell the user that numbers are accepted since we error on
                     // number expressions and regular number literals are treated as unquoted
                     // literals rather than numbers, so from the users perspective
@@ -934,8 +934,8 @@ pub const Parser = struct {
             style = try optional_param_parser.parse(.{ .not_expression_allowed = true });
         }
 
-        var exstyle: ?*Node = try optional_param_parser.parse(.{ .not_expression_allowed = true });
-        var help_id: ?*Node = switch (resource) {
+        const exstyle: ?*Node = try optional_param_parser.parse(.{ .not_expression_allowed = true });
+        const help_id: ?*Node = switch (resource) {
             .dialogex => try optional_param_parser.parse(.{}),
             else => null,
         };
@@ -1246,13 +1246,16 @@ pub const Parser = struct {
         self.nextToken(.normal) catch unreachable;
         switch (statement_type) {
             .file_version, .product_version => {
-                var parts = std.BoundedArray(*Node, 4){};
+                var parts_buffer: [4]*Node = undefined;
+                var parts = std.ArrayListUnmanaged(*Node).initBuffer(&parts_buffer);
 
-                while (parts.len < 4) {
+                while (true) {
                     const value = try self.parseExpression(.{ .allowed_types = .{ .number = true } });
                     parts.addOneAssumeCapacity().* = value;
 
-                    if (parts.len == 4 or !(try self.parseOptionalToken(.comma))) {
+                    if (parts.unusedCapacitySlice().len == 0 or
+                        !(try self.parseOptionalToken(.comma)))
+                    {
                         break;
                     }
                 }
@@ -1260,7 +1263,7 @@ pub const Parser = struct {
                 const node = try self.state.arena.create(Node.VersionStatement);
                 node.* = .{
                     .type = type_token,
-                    .parts = try self.state.arena.dupe(*Node, parts.slice()),
+                    .parts = try self.state.arena.dupe(*Node, parts.items),
                 };
                 return &node.base;
             },
@@ -1526,7 +1529,7 @@ pub const Parser = struct {
 
         pub fn toErrorDetails(options: ParseExpressionOptions, token: Token) ErrorDetails {
             // TODO: expected_types_override interaction with is_known_to_be_number_expression?
-            var expected_types = options.expected_types_override orelse ErrorDetails.ExpectedTypes{
+            const expected_types = options.expected_types_override orelse ErrorDetails.ExpectedTypes{
                 .number = options.allowed_types.number,
                 .number_expression = options.allowed_types.number,
                 .string_literal = options.allowed_types.string and !options.is_known_to_be_number_expression,

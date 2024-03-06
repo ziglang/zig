@@ -6,6 +6,7 @@ const std = @import("std");
 const Mir = @import("Mir.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const InternPool = @import("../../InternPool.zig");
 const codegen = @import("../../codegen.zig");
 const leb128 = std.leb;
 
@@ -21,7 +22,7 @@ code: *std.ArrayList(u8),
 /// List of allocated locals.
 locals: []const u8,
 /// The declaration that code is being generated for.
-decl_index: Module.Decl.Index,
+decl_index: InternPool.DeclIndex,
 
 // Debug information
 /// Holds the debug information for this emission
@@ -253,8 +254,10 @@ fn offset(self: Emit) u32 {
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     @setCold(true);
     std.debug.assert(emit.error_msg == null);
-    const mod = emit.bin_file.base.options.module.?;
-    emit.error_msg = try Module.ErrorMsg.create(emit.bin_file.base.allocator, mod.declPtr(emit.decl_index).srcLoc(mod), format, args);
+    const comp = emit.bin_file.base.comp;
+    const zcu = comp.module.?;
+    const gpa = comp.gpa;
+    emit.error_msg = try Module.ErrorMsg.create(gpa, zcu.declPtr(emit.decl_index).srcLoc(zcu), format, args);
     return error.EmitFail;
 }
 
@@ -298,6 +301,8 @@ fn emitLabel(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
 }
 
 fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
+    const comp = emit.bin_file.base.comp;
+    const gpa = comp.gpa;
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(@intFromEnum(tag));
     var buf: [5]u8 = undefined;
@@ -305,9 +310,9 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
-    const atom_index = emit.bin_file.decls.get(emit.decl_index).?;
+    const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
     const atom = emit.bin_file.getAtomPtr(atom_index);
-    try atom.relocs.append(emit.bin_file.base.allocator, .{
+    try atom.relocs.append(gpa, .{
         .index = label,
         .offset = global_offset,
         .relocation_type = .R_WASM_GLOBAL_INDEX_LEB,
@@ -355,6 +360,8 @@ fn encodeMemArg(mem_arg: Mir.MemArg, writer: anytype) !void {
 }
 
 fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const comp = emit.bin_file.base.comp;
+    const gpa = comp.gpa;
     const label = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(std.wasm.opcode(.call));
     const call_offset = emit.offset();
@@ -363,9 +370,9 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.appendSlice(&buf);
 
     if (label != 0) {
-        const atom_index = emit.bin_file.decls.get(emit.decl_index).?;
+        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
-        try atom.relocs.append(emit.bin_file.base.allocator, .{
+        try atom.relocs.append(gpa, .{
             .offset = call_offset,
             .index = label,
             .relocation_type = .R_WASM_FUNCTION_INDEX_LEB,
@@ -378,11 +385,25 @@ fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.append(std.wasm.opcode(.call_indirect));
     // NOTE: If we remove unused function types in the future for incremental
     // linking, we must also emit a relocation for this `type_index`
-    try leb128.writeULEB128(emit.code.writer(), type_index);
+    const call_offset = emit.offset();
+    var buf: [5]u8 = undefined;
+    leb128.writeUnsignedFixed(5, &buf, type_index);
+    try emit.code.appendSlice(&buf);
+    if (type_index != 0) {
+        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom = emit.bin_file.getAtomPtr(atom_index);
+        try atom.relocs.append(emit.bin_file.base.comp.gpa, .{
+            .offset = call_offset,
+            .index = type_index,
+            .relocation_type = .R_WASM_TYPE_INDEX_LEB,
+        });
+    }
     try leb128.writeULEB128(emit.code.writer(), @as(u32, 0)); // TODO: Emit relocation for table index
 }
 
 fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
+    const comp = emit.bin_file.base.comp;
+    const gpa = comp.gpa;
     const symbol_index = emit.mir.instructions.items(.data)[inst].label;
     try emit.code.append(std.wasm.opcode(.i32_const));
     const index_offset = emit.offset();
@@ -391,9 +412,9 @@ fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.appendSlice(&buf);
 
     if (symbol_index != 0) {
-        const atom_index = emit.bin_file.decls.get(emit.decl_index).?;
+        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
-        try atom.relocs.append(emit.bin_file.base.allocator, .{
+        try atom.relocs.append(gpa, .{
             .offset = index_offset,
             .index = symbol_index,
             .relocation_type = .R_WASM_TABLE_INDEX_SLEB,
@@ -405,7 +426,10 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
     const extra_index = emit.mir.instructions.items(.data)[inst].payload;
     const mem = emit.mir.extraData(Mir.Memory, extra_index).data;
     const mem_offset = emit.offset() + 1;
-    const is_wasm32 = emit.bin_file.base.options.target.cpu.arch == .wasm32;
+    const comp = emit.bin_file.base.comp;
+    const gpa = comp.gpa;
+    const target = comp.root_mod.resolved_target.result;
+    const is_wasm32 = target.cpu.arch == .wasm32;
     if (is_wasm32) {
         try emit.code.append(std.wasm.opcode(.i32_const));
         var buf: [5]u8 = undefined;
@@ -419,9 +443,9 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 
     if (mem.pointer != 0) {
-        const atom_index = emit.bin_file.decls.get(emit.decl_index).?;
+        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
-        try atom.relocs.append(emit.bin_file.base.allocator, .{
+        try atom.relocs.append(gpa, .{
             .offset = mem_offset,
             .index = mem.pointer,
             .relocation_type = if (is_wasm32) .R_WASM_MEMORY_ADDR_LEB else .R_WASM_MEMORY_ADDR_LEB64,

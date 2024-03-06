@@ -88,10 +88,10 @@ pub const Path = struct {
         p: Path,
         sub_path: []const u8,
         options: fs.Dir.AtomicFileOptions,
+        buf: *[fs.MAX_PATH_BYTES]u8,
     ) !fs.AtomicFile {
-        var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
         const joined_path = if (p.sub_path.len == 0) sub_path else p: {
-            break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+            break :p std.fmt.bufPrint(buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
                 p.sub_path, sub_path,
             }) catch return error.NameTooLong;
         };
@@ -108,6 +108,16 @@ pub const Path = struct {
         return p.root_dir.handle.access(joined_path, flags);
     }
 
+    pub fn makePath(p: Path, sub_path: []const u8) !void {
+        var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        const joined_path = if (p.sub_path.len == 0) sub_path else p: {
+            break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+                p.sub_path, sub_path,
+            }) catch return error.NameTooLong;
+        };
+        return p.root_dir.handle.makePath(joined_path);
+    }
+
     pub fn format(
         self: Path,
         comptime fmt_string: []const u8,
@@ -116,7 +126,7 @@ pub const Path = struct {
     ) !void {
         if (fmt_string.len == 1) {
             // Quote-escape the string.
-            const stringEscape = std.zig.fmt.stringEscape;
+            const stringEscape = std.zig.stringEscape;
             const f = switch (fmt_string[0]) {
                 'q' => "",
                 '\'' => '\'',

@@ -13,8 +13,8 @@ const Complex = cmath.Complex;
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
 /// Returns the hyperbolic arc-cosine of z.
-pub fn cosh(z: anytype) Complex(@TypeOf(z.re)) {
-    const T = @TypeOf(z.re);
+pub fn cosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
+    const T = @TypeOf(z.re, z.im);
     return switch (T) {
         f32 => cosh32(z),
         f64 => cosh64(z),
@@ -155,7 +155,7 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
 
 const epsilon = 0.0001;
 
-test "complex.ccosh32" {
+test cosh32 {
     const a = Complex(f32).init(5, 3);
     const c = cosh(a);
 
@@ -163,7 +163,7 @@ test "complex.ccosh32" {
     try testing.expect(math.approxEqAbs(f32, c.im, 10.471557, epsilon));
 }
 
-test "complex.ccosh64" {
+test cosh64 {
     const a = Complex(f64).init(5, 3);
     const c = cosh(a);
 

@@ -9,7 +9,6 @@ const ResetEvent = @This();
 const os = std.os;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Atomic = std.atomic.Atomic;
 const Futex = std.Thread.Futex;
 
 impl: Impl = .{},
@@ -89,7 +88,7 @@ const SingleThreadedImpl = struct {
 };
 
 const FutexImpl = struct {
-    state: Atomic(u32) = Atomic(u32).init(unset),
+    state: std.atomic.Value(u32) = std.atomic.Value(u32).init(unset),
 
     const unset = 0;
     const waiting = 1;
@@ -115,7 +114,7 @@ const FutexImpl = struct {
         // We avoid using any strict barriers until the end when we know the ResetEvent is set.
         var state = self.state.load(.Monotonic);
         if (state == unset) {
-            state = self.state.compareAndSwap(state, waiting, .Monotonic, .Monotonic) orelse waiting;
+            state = self.state.cmpxchgStrong(state, waiting, .Monotonic, .Monotonic) orelse waiting;
         }
 
         // Wait until the ResetEvent is set since the state is waiting.
@@ -158,7 +157,7 @@ const FutexImpl = struct {
     }
 };
 
-test "ResetEvent - smoke test" {
+test "smoke test" {
     // make sure the event is unset
     var event = ResetEvent{};
     try testing.expectEqual(false, event.isSet());
@@ -182,7 +181,7 @@ test "ResetEvent - smoke test" {
     try testing.expectEqual(true, event.isSet());
 }
 
-test "ResetEvent - signaling" {
+test "signaling" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -243,7 +242,7 @@ test "ResetEvent - signaling" {
     try ctx.input();
 }
 
-test "ResetEvent - broadcast" {
+test "broadcast" {
     // This test requires spawning threads
     if (builtin.single_threaded) {
         return error.SkipZigTest;
@@ -252,7 +251,7 @@ test "ResetEvent - broadcast" {
     const num_threads = 10;
     const Barrier = struct {
         event: ResetEvent = .{},
-        counter: Atomic(usize) = Atomic(usize).init(num_threads),
+        counter: std.atomic.Value(usize) = std.atomic.Value(usize).init(num_threads),
 
         fn wait(self: *@This()) void {
             if (self.counter.fetchSub(1, .AcqRel) == 1) {

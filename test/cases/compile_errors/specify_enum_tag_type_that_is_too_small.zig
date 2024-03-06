@@ -7,8 +7,7 @@ const Small = enum(u2) {
 };
 
 export fn entry() void {
-    var x = Small.One;
-    _ = x;
+    _ = Small.One;
 }
 
 // error

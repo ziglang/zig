@@ -30,6 +30,7 @@ fn testIntEdges(comptime T: type) void {
     const max = maxInt(T);
 
     var runtime_val: T = undefined;
+    _ = &runtime_val;
 
     if (min > runtime_val) @compileError("analyzed impossible branch");
     if (min <= runtime_val) {} else @compileError("analyzed impossible branch");
@@ -104,4 +105,9 @@ fn testIntEdges(comptime T: type) void {
     if (undef_const >= max + 1) @compileError("analyzed impossible branch");
     if (undef_const == max + 1) @compileError("analyzed impossible branch");
     if (undef_const != max + 1) {} else @compileError("analyzed impossible branch");
+}
+
+test "comparison elided on large integer value" {
+    try std.testing.expect(-1 == @as(i8, -3) >> 2);
+    try std.testing.expect(-1 == -3 >> 2000);
 }

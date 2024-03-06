@@ -169,7 +169,7 @@ pub fn Complex(comptime T: type) type {
 
 const epsilon = 0.0001;
 
-test "complex.add" {
+test "add" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.add(b);
@@ -177,7 +177,7 @@ test "complex.add" {
     try testing.expect(c.re == 7 and c.im == 10);
 }
 
-test "complex.sub" {
+test "sub" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.sub(b);
@@ -185,7 +185,7 @@ test "complex.sub" {
     try testing.expect(c.re == 3 and c.im == -4);
 }
 
-test "complex.mul" {
+test "mul" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.mul(b);
@@ -193,7 +193,7 @@ test "complex.mul" {
     try testing.expect(c.re == -11 and c.im == 41);
 }
 
-test "complex.div" {
+test "div" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.div(b);
@@ -202,28 +202,28 @@ test "complex.div" {
         math.approxEqAbs(f32, c.im, @as(f32, -29) / 53, epsilon));
 }
 
-test "complex.conj" {
+test "conj" {
     const a = Complex(f32).init(5, 3);
     const c = a.conj();
 
     try testing.expect(c.re == 5 and c.im == -3);
 }
 
-test "complex.neg" {
+test "neg" {
     const a = Complex(f32).init(5, 3);
     const c = a.neg();
 
     try testing.expect(c.re == -5 and c.im == -3);
 }
 
-test "complex.lead" {
+test "lead" {
     const a = Complex(f32).init(5, 3);
     const c = a.lead();
 
     try testing.expect(c.re == -3 and c.im == 5);
 }
 
-test "complex.inv" {
+test "inv" {
     const a = Complex(f32).init(5, 3);
     const c = a.inv();
 
@@ -231,7 +231,7 @@ test "complex.inv" {
         math.approxEqAbs(f32, c.im, @as(f32, -3) / 34, epsilon));
 }
 
-test "complex.abs" {
+test "abs" {
     const a = Complex(f32).init(5, 3);
     const c = a.abs();
 

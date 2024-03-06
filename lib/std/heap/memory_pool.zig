@@ -42,12 +42,15 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         /// as `@sizeOf(Item)` as the pool also uses the items for internal means.
         pub const item_size = @max(@sizeOf(Node), @sizeOf(Item));
 
+        // This needs to be kept in sync with Node.
+        const node_alignment = @alignOf(*anyopaque);
+
         /// Alignment of the memory pool items. This is not necessarily the same
         /// as `@alignOf(Item)` as the pool also uses the items for internal means.
-        pub const item_alignment = @max(@alignOf(Node), pool_options.alignment orelse 0);
+        pub const item_alignment = @max(node_alignment, pool_options.alignment orelse @alignOf(Item));
 
         const Node = struct {
-            next: ?*@This(),
+            next: ?*align(item_alignment) @This(),
         };
         const NodePtr = *align(item_alignment) Node;
         const ItemPtr = *align(item_alignment) Item;
@@ -142,7 +145,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
     };
 }
 
-test "memory pool: basic" {
+test "basic" {
     var pool = MemoryPool(u32).init(std.testing.allocator);
     defer pool.deinit();
 
@@ -162,7 +165,7 @@ test "memory pool: basic" {
     try std.testing.expect(p2 == p4);
 }
 
-test "memory pool: preheating (success)" {
+test "preheating (success)" {
     var pool = try MemoryPool(u32).initPreheated(std.testing.allocator, 4);
     defer pool.deinit();
 
@@ -171,12 +174,12 @@ test "memory pool: preheating (success)" {
     _ = try pool.create();
 }
 
-test "memory pool: preheating (failure)" {
-    var failer = std.testing.failing_allocator;
+test "preheating (failure)" {
+    const failer = std.testing.failing_allocator;
     try std.testing.expectError(error.OutOfMemory, MemoryPool(u32).initPreheated(failer, 5));
 }
 
-test "memory pool: growable" {
+test "growable" {
     var pool = try MemoryPoolExtra(u32, .{ .growable = false }).initPreheated(std.testing.allocator, 4);
     defer pool.deinit();
 
@@ -186,4 +189,28 @@ test "memory pool: growable" {
     _ = try pool.create();
 
     try std.testing.expectError(error.OutOfMemory, pool.create());
+}
+
+test "greater than pointer default alignment" {
+    const Foo = struct {
+        data: u64 align(16),
+    };
+
+    var pool = MemoryPool(Foo).init(std.testing.allocator);
+    defer pool.deinit();
+
+    const foo: *Foo = try pool.create();
+    _ = foo;
+}
+
+test "greater than pointer manual alignment" {
+    const Foo = struct {
+        data: u64,
+    };
+
+    var pool = MemoryPoolAligned(Foo, 16).init(std.testing.allocator);
+    defer pool.deinit();
+
+    const foo: *align(16) Foo = try pool.create();
+    _ = foo;
 }

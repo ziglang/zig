@@ -22,9 +22,16 @@ cd $ZIGDIR
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
-git config core.abbrev 9
 git fetch --unshallow || true
 git fetch --tags
+
+# Test building from source without LLVM.
+git clean -fd
+rm -rf zig-out
+cc -o bootstrap bootstrap.c
+./bootstrap
+./zig2 build -Dno-lib
+./zig-out/bin/zig test test/behavior.zig
 
 rm -rf build
 mkdir build
@@ -66,8 +73,7 @@ stage3/bin/zig build \
   -Duse-zig-libcxx \
   -Dversion-string="$(stage3/bin/zig version)"
 
-# Disabled due to https://github.com/ziglang/zig/issues/15197
-## diff returns an error code if the files differ.
-#echo "If the following command fails, it means nondeterminism has been"
-#echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
-#diff stage3/bin/zig stage4/bin/zig
+# diff returns an error code if the files differ.
+echo "If the following command fails, it means nondeterminism has been"
+echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+diff stage3/bin/zig stage4/bin/zig

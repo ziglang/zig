@@ -178,6 +178,12 @@ struct wasi_ciovec {
     uint32_t len;
 };
 
+enum wasi_whence {
+    wasi_whence_set = 0,
+    wasi_whence_cur = 1,
+    wasi_whence_end = 2,
+};
+
 extern uint8_t **const wasm_memory;
 extern void wasm__start(void);
 
@@ -197,7 +203,9 @@ struct DirEntry {
 static uint32_t fd_len;
 static struct FileDescriptor {
     uint32_t de;
+    enum wasi_fdflags fdflags;
     FILE *stream;
+    uint64_t fs_rights_inheriting;
 } *fds;
 
 static void *dupe(const void *data, size_t len) {
@@ -654,13 +662,15 @@ uint32_t wasi_snapshot_preview1_fd_filestat_set_times(uint32_t fd, uint64_t atim
 }
 
 uint32_t wasi_snapshot_preview1_environ_sizes_get(uint32_t environ_size, uint32_t environ_buf_size) {
-    (void)environ_size;
-    (void)environ_buf_size;
+    uint8_t *const m = *wasm_memory;
+    uint32_t *environ_size_ptr = (uint32_t *)&m[environ_size];
+    uint32_t *environ_buf_size_ptr = (uint32_t *)&m[environ_buf_size];
 #if LOG_TRACE
     fprintf(stderr, "wasi_snapshot_preview1_environ_sizes_get()\n");
 #endif
 
-    panic("unimplemented");
+    *environ_size_ptr = 0;
+    *environ_buf_size_ptr = 0;
     return wasi_errno_success;
 }
 
@@ -701,13 +711,17 @@ uint32_t wasi_snapshot_preview1_path_filestat_get(uint32_t fd, uint32_t flags, u
 }
 
 uint32_t wasi_snapshot_preview1_fd_fdstat_get(uint32_t fd, uint32_t res_fdstat) {
-    (void)fd;
-    (void)res_fdstat;
+    uint8_t *const m = *wasm_memory;
+    struct wasi_fdstat *res_fdstat_ptr = (struct wasi_fdstat *)&m[res_fdstat];
 #if LOG_TRACE
     fprintf(stderr, "wasi_snapshot_preview1_fd_fdstat_get(%u)\n", fd);
 #endif
 
-    panic("unimplemented");
+    if (fd >= fd_len || fds[fd].de >= de_len) return wasi_errno_badf;
+    res_fdstat_ptr->fs_filetype = des[fds[fd].de].filetype;
+    res_fdstat_ptr->fs_flags = fds[fd].fdflags;
+    res_fdstat_ptr->padding = 0;
+    res_fdstat_ptr->fs_rights_inheriting = fds[fd].fs_rights_inheriting;
     return wasi_errno_success;
 }
 
@@ -764,7 +778,6 @@ uint32_t wasi_snapshot_preview1_fd_write(uint32_t fd, uint32_t iovs, uint32_t io
 uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32_t path, uint32_t path_len, uint32_t oflags, uint64_t fs_rights_base, uint64_t fs_rights_inheriting, uint32_t fdflags, uint32_t res_fd) {
     uint8_t *const m = *wasm_memory;
     const char *path_ptr = (const char *)&m[path];
-    (void)fs_rights_inheriting;
     uint32_t *res_fd_ptr = (uint32_t *)&m[res_fd];
 #if LOG_TRACE
     fprintf(stderr, "wasi_snapshot_preview1_path_open(%u, 0x%X, \"%.*s\", 0x%X, 0x%llX, 0x%llX, 0x%X)\n", fd, dirflags, (int)path_len, path_ptr, oflags, (unsigned long long)fs_rights_base, (unsigned long long)fs_rights_inheriting, fdflags);
@@ -786,10 +799,12 @@ uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32
         fds = new_fds;
 
         fds[fd_len].de = de;
+        fds[fd_len].fdflags = fdflags;
         switch (des[de].filetype) {
             case wasi_filetype_directory: fds[fd_len].stream = NULL; break;
             default: panic("unimplemented");
         }
+        fds[fd_len].fs_rights_inheriting = fs_rights_inheriting;
 
 #if LOG_TRACE
         fprintf(stderr, "fd = %u\n", fd_len);
@@ -849,7 +864,9 @@ uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32
     fprintf(stderr, "fd = %u\n", fd_len);
 #endif
     fds[fd_len].de = de;
+    fds[fd_len].fdflags = fdflags;
     fds[fd_len].stream = stream;
+    fds[fd_len].fs_rights_inheriting = fs_rights_inheriting;
     *res_fd_ptr = fd_len;
     fd_len += 1;
     return wasi_errno_success;
@@ -946,6 +963,43 @@ uint32_t wasi_snapshot_preview1_fd_pread(uint32_t fd, uint32_t iovs, uint32_t io
     return wasi_errno_success;
 }
 
+uint32_t wasi_snapshot_preview1_fd_seek(uint32_t fd, uint64_t in_offset, uint32_t whence, uint32_t res_filesize) {
+    uint8_t *const m = *wasm_memory;
+    int64_t offset = (int64_t)in_offset;
+    uint64_t *res_filesize_ptr = (uint64_t *)&m[res_filesize];
+#if LOG_TRACE
+    fprintf(stderr, "wasi_snapshot_preview1_fd_seek(%u, 0x%lld, %u)\n", fd, (long long)offset, whence);
+#endif
+
+    if (fd >= fd_len || fds[fd].de >= de_len) return wasi_errno_badf;
+    switch (des[fds[fd].de].filetype) {
+        case wasi_filetype_character_device: break;
+        case wasi_filetype_regular_file: break;
+        case wasi_filetype_directory: return wasi_errno_inval;
+        default: panic("unimplemented");
+    }
+
+    int seek_whence;
+    switch (whence) {
+        case wasi_whence_set:
+            seek_whence = SEEK_SET;
+            break;
+        case wasi_whence_cur:
+            seek_whence = SEEK_CUR;
+            break;
+        case wasi_whence_end:
+            seek_whence = SEEK_END;
+            break;
+        default:
+            return wasi_errno_inval;
+    }
+    if (fseek(fds[fd].stream, offset, seek_whence) < 0) return wasi_errno_io;
+    long res_offset = ftell(fds[fd].stream);
+    if (res_offset < 0) return wasi_errno_io;
+    *res_filesize_ptr = (uint64_t)res_offset;
+    return wasi_errno_success;
+}
+
 uint32_t wasi_snapshot_preview1_poll_oneoff(uint32_t in, uint32_t out, uint32_t nsubscriptions, uint32_t res_nevents) {
     (void)in;
     (void)out;
@@ -958,7 +1012,6 @@ uint32_t wasi_snapshot_preview1_poll_oneoff(uint32_t in, uint32_t out, uint32_t 
     panic("unimplemented");
     return wasi_errno_success;
 }
-
 
 void wasi_snapshot_preview1_debug(uint32_t string, uint64_t x) {
     uint8_t *const m = *wasm_memory;

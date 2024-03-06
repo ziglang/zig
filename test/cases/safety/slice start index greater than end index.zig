@@ -11,6 +11,7 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 pub fn main() !void {
     var a: usize = 1;
     var b: usize = 10;
+    _ = .{ &a, &b };
     var buf: [16]u8 = undefined;
 
     const slice = buf[b..a];

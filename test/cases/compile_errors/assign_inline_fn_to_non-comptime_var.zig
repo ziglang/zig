@@ -1,6 +1,6 @@
 export fn entry() void {
     var a = &b;
-    _ = a;
+    _ = &a;
 }
 inline fn b() void {}
 

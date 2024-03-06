@@ -1,6 +1,6 @@
 export fn entry() void {
     var q: u8 = 0;
-    switch (q) {
+    switch ((&q).*) {
         1...2 => {},
         0...255 => {},
     }

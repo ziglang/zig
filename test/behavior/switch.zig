@@ -157,6 +157,7 @@ fn testSwitchOnBoolsFalseWithElse(x: bool) bool {
 
 test "u0" {
     var val: u0 = 0;
+    _ = &val;
     switch (val) {
         0 => try expect(val == 0),
     }
@@ -164,6 +165,7 @@ test "u0" {
 
 test "undefined.u0" {
     var val: u0 = undefined;
+    _ = &val;
     switch (val) {
         0 => try expect(val == 0),
     }
@@ -173,6 +175,7 @@ test "switch with disjoint range" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var q: u8 = 0;
+    _ = &q;
     switch (q) {
         0...125 => {},
         127...255 => {},
@@ -183,12 +186,8 @@ test "switch with disjoint range" {
 test "switch variable for range and multiple prongs" {
     const S = struct {
         fn doTheTest() !void {
-            var u: u8 = 16;
-            try doTheSwitch(u);
-            try comptime doTheSwitch(u);
-            var v: u8 = 42;
-            try doTheSwitch(v);
-            try comptime doTheSwitch(v);
+            try doTheSwitch(16);
+            try doTheSwitch(42);
         }
         fn doTheSwitch(q: u8) !void {
             switch (q) {
@@ -198,7 +197,8 @@ test "switch variable for range and multiple prongs" {
             }
         }
     };
-    _ = S;
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }
 
 var state: u32 = 0;
@@ -322,7 +322,8 @@ test "switch on union with some prongs capturing" {
     };
 
     var x: X = X{ .b = 10 };
-    var y: i32 = switch (x) {
+    _ = &x;
+    const y: i32 = switch (x) {
         .a => unreachable,
         .b => |b| b + 1,
     };
@@ -357,6 +358,7 @@ test "anon enum literal used in switch on union enum" {
     };
 
     var foo = Foo{ .a = 1234 };
+    _ = &foo;
     switch (foo) {
         .a => |x| {
             try expect(x == 1234);
@@ -406,9 +408,10 @@ test "switch on integer with else capturing expr" {
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 5;
+            _ = &x;
             switch (x + 10) {
-                14 => @panic("fail"),
-                16 => @panic("fail"),
+                14 => return error.TestFailed,
+                16 => return error.TestFailed,
                 else => |e| try expect(e == 15),
             }
         }
@@ -519,7 +522,7 @@ test "switch with null and T peer types and inferred result location type" {
                 else => null,
             }) |v| {
                 _ = v;
-                @panic("fail");
+                return error.TestFailed;
             }
         }
     };
@@ -545,12 +548,12 @@ test "switch prongs with cases with identical payload types" {
         fn doTheSwitch1(u: Union) !void {
             switch (u) {
                 .A, .C => |e| {
-                    try expect(@TypeOf(e) == usize);
+                    comptime assert(@TypeOf(e) == usize);
                     try expect(e == 8);
                 },
                 .B => |e| {
                     _ = e;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
             }
         }
@@ -558,10 +561,10 @@ test "switch prongs with cases with identical payload types" {
             switch (u) {
                 .A, .C => |e| {
                     _ = e;
-                    @panic("fail");
+                    return error.TestFailed;
                 },
                 .B => |e| {
-                    try expect(@TypeOf(e) == isize);
+                    comptime assert(@TypeOf(e) == isize);
                     try expect(e == -8);
                 },
             }
@@ -569,6 +572,69 @@ test "switch prongs with cases with identical payload types" {
     };
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "switch prong pointer capture alignment" {
+    const U = union(enum) {
+        a: u8 align(8),
+        b: u8 align(4),
+        c: u8,
+    };
+
+    const S = struct {
+        fn doTheTest() !void {
+            const u = U{ .a = 1 };
+            switch (u) {
+                .a => |*a| comptime assert(@TypeOf(a) == *align(8) const u8),
+                .b, .c => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+
+            switch (u) {
+                .a, .b => |*p| comptime assert(@TypeOf(p) == *align(4) const u8),
+                .c => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+
+            switch (u) {
+                .a, .c => |*p| comptime assert(@TypeOf(p) == *const u8),
+                .b => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+        }
+
+        fn doTheTest2() !void {
+            const un1 = U{ .b = 1 };
+            switch (un1) {
+                .b => |*b| comptime assert(@TypeOf(b) == *align(4) const u8),
+                .a, .c => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+
+            const un2 = U{ .c = 1 };
+            switch (un2) {
+                .c => |*c| comptime assert(@TypeOf(c) == *const u8),
+                .a, .b => |*p| {
+                    _ = p;
+                    return error.TestFailed;
+                },
+            }
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
+
+    try S.doTheTest2();
+    try comptime S.doTheTest2();
 }
 
 test "switch on pointer type" {
@@ -597,15 +663,16 @@ test "switch on pointer type" {
     try expect(1 == S.doTheTest(S.P1));
     try expect(2 == S.doTheTest(S.P2));
     try expect(3 == S.doTheTest(S.P3));
-    try comptime expect(1 == S.doTheTest(S.P1));
-    try comptime expect(2 == S.doTheTest(S.P2));
-    try comptime expect(3 == S.doTheTest(S.P3));
+    comptime assert(1 == S.doTheTest(S.P1));
+    comptime assert(2 == S.doTheTest(S.P2));
+    comptime assert(3 == S.doTheTest(S.P3));
 }
 
 test "switch on error set with single else" {
     const S = struct {
         fn doTheTest() !void {
             var some: error{Foo} = error.Foo;
+            _ = &some;
             try expect(switch (some) {
                 else => blk: {
                     break :blk true;
@@ -672,7 +739,8 @@ test "enum value without tag name used as switch item" {
         b = 2,
         _,
     };
-    var e: E = @as(E, @enumFromInt(0));
+    var e: E = @enumFromInt(0);
+    _ = &e;
     switch (e) {
         @as(E, @enumFromInt(0)) => {},
         .a => return error.TestFailed,
@@ -685,6 +753,7 @@ test "switch item sizeof" {
     const S = struct {
         fn doTheTest() !void {
             var a: usize = 0;
+            _ = &a;
             switch (a) {
                 @sizeOf(struct {}) => {},
                 else => return error.TestFailed,
@@ -699,6 +768,7 @@ test "comptime inline switch" {
     const U = union(enum) { a: type, b: type };
     const value = comptime blk: {
         var u: U = .{ .a = u32 };
+        _ = &u;
         break :blk switch (u) {
             inline .a, .b => |v| v,
         };
@@ -814,6 +884,7 @@ test "peer type resolution on switch captures ignores unused payload bits" {
 
     // This is runtime-known so the following store isn't comptime-known.
     var rt: u32 = 123;
+    _ = &rt;
     val = .{ .a = rt }; // will not necessarily zero remaning payload memory
 
     // Fields intentionally backwards here
@@ -822,4 +893,40 @@ test "peer type resolution on switch captures ignores unused payload bits" {
     };
 
     try expect(x == 123);
+}
+
+test "switch prong captures range" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        fn a(b: []u3, c: u3) void {
+            switch (c) {
+                0...1 => b[c] = c,
+                2...3 => b[c] = c,
+                4...7 => |d| b[d] = c,
+            }
+        }
+    };
+
+    var arr: [8]u3 = undefined;
+    S.a(&arr, 5);
+    try expect(arr[5] == 5);
+}
+
+test "prong with inline call to unreachable" {
+    const U = union(enum) {
+        void: void,
+        bool: bool,
+
+        inline fn unreach() noreturn {
+            unreachable;
+        }
+    };
+    var u: U = undefined;
+    u = .{ .bool = true };
+    switch (u) {
+        .void => U.unreach(),
+        .bool => |ok| try expect(ok),
+    }
 }

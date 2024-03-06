@@ -17,7 +17,7 @@ pub fn main() anyerror!void {
 
     const tmp_absolute_path = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(tmp_absolute_path);
-    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, tmp_absolute_path);
+    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, tmp_absolute_path);
     defer allocator.free(tmp_absolute_path_w);
     const cwd_absolute_path = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd_absolute_path);
@@ -158,7 +158,7 @@ fn testExec(allocator: std.mem.Allocator, command: []const u8, expected_stdout: 
 }
 
 fn testExecWithCwd(allocator: std.mem.Allocator, command: []const u8, cwd: ?[]const u8, expected_stdout: []const u8) !void {
-    var result = try std.ChildProcess.run(.{
+    const result = try std.ChildProcess.run(.{
         .allocator = allocator,
         .argv = &[_][]const u8{command},
         .cwd = cwd,

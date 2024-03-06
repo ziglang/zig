@@ -1,6 +1,9 @@
 //! This file contains the functionality for lowering x86_64 MIR to Instructions
 
 bin_file: *link.File,
+output_mode: std.builtin.OutputMode,
+link_mode: std.builtin.LinkMode,
+pic: bool,
 allocator: Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
@@ -11,6 +14,7 @@ result_relocs_len: u8 = undefined,
 result_insts: [
     std.mem.max(usize, &.{
         1, // non-pseudo instructions
+        3, // (ELF only) TLS local dynamic (LD) sequence in PIC mode
         2, // cmovcc: cmovcc \ cmovcc
         3, // setcc: setcc \ setcc \ logicop
         2, // jcc: jcc \ jcc
@@ -28,6 +32,7 @@ result_relocs: [
         2, // jcc: jcc \ jcc
         2, // test \ jcc \ probe \ sub \ jmp
         1, // probe \ sub \ jcc
+        3, // (ELF only) TLS local dynamic (LD) sequence in PIC mode
     })
 ]Reloc = undefined,
 
@@ -51,11 +56,12 @@ pub const Reloc = struct {
     const Target = union(enum) {
         inst: Mir.Inst.Index,
         linker_reloc: bits.Symbol,
+        linker_tlsld: bits.Symbol,
+        linker_dtpoff: bits.Symbol,
         linker_extern_fn: bits.Symbol,
         linker_got: bits.Symbol,
         linker_direct: bits.Symbol,
         linker_import: bits.Symbol,
-        linker_tlv: bits.Symbol,
     };
 };
 
@@ -259,6 +265,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_prologue_end_none,
             .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
+            .pseudo_dbg_inline_func,
             .pseudo_dead_none,
             => {},
             else => unreachable,
@@ -319,20 +326,13 @@ fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    const needsZigGot = struct {
-        fn needsZigGot(sym: bits.Symbol, ctx: *link.File) bool {
-            const elf_file = ctx.cast(link.File.Elf).?;
-            const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-            return elf_file.symbol(sym_index).flags.needs_zig_got;
-        }
-    }.needsZigGot;
-
-    const is_obj_or_static_lib = switch (lower.bin_file.options.output_mode) {
+    const is_obj_or_static_lib = switch (lower.output_mode) {
         .Exe => false,
         .Obj => true,
-        .Lib => lower.bin_file.options.link_mode == .Static,
+        .Lib => lower.link_mode == .Static,
     };
-    var emit_prefix = prefix;
+
+    const emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
     const emit_ops = emit_ops_storage[0..ops.len];
@@ -345,34 +345,116 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                     assert(prefix == .none);
                     assert(mem_op.sib.disp == 0);
                     assert(mem_op.sib.scale_index.scale == 0);
-                    _ = lower.reloc(.{ .linker_reloc = sym });
-                    break :op if (lower.bin_file.options.pic) switch (mnemonic) {
-                        .lea => {
-                            break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
-                        },
-                        .mov => {
-                            if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
-                            break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
-                        },
-                        else => unreachable,
-                    } else switch (mnemonic) {
-                        .call => break :op if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) .{
-                            .imm = Immediate.s(0),
-                        } else .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                            .base = .{ .reg = .ds },
-                        }) },
-                        .lea => {
-                            emit_mnemonic = .mov;
-                            break :op .{ .imm = Immediate.s(0) };
-                        },
-                        .mov => {
-                            if (is_obj_or_static_lib and needsZigGot(sym, lower.bin_file)) emit_mnemonic = .lea;
-                            break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+
+                    if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                        const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
+                        const elf_sym = elf_file.symbol(sym_index);
+
+                        if (elf_sym.flags.is_tls) {
+                            // TODO handle extern TLS vars, i.e., emit GD model
+                            if (lower.pic) {
+                                // Here, we currently assume local dynamic TLS vars, and so
+                                // we emit LD model.
+                                _ = lower.reloc(.{ .linker_tlsld = sym });
+                                lower.result_insts[lower.result_insts_len] =
+                                    try Instruction.new(.none, .lea, &[_]Operand{
+                                    .{ .reg = .rdi },
+                                    .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                                });
+                                lower.result_insts_len += 1;
+                                _ = lower.reloc(.{ .linker_extern_fn = .{
+                                    .atom_index = sym.atom_index,
+                                    .sym_index = try elf_file.getGlobalSymbol("__tls_get_addr", null),
+                                } });
+                                lower.result_insts[lower.result_insts_len] =
+                                    try Instruction.new(.none, .call, &[_]Operand{
+                                    .{ .imm = Immediate.s(0) },
+                                });
+                                lower.result_insts_len += 1;
+                                _ = lower.reloc(.{ .linker_dtpoff = sym });
+                                emit_mnemonic = .lea;
+                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                    .base = .{ .reg = .rax },
+                                    .disp = std.math.minInt(i32),
+                                }) };
+                            } else {
+                                // Since we are linking statically, we emit LE model directly.
+                                lower.result_insts[lower.result_insts_len] =
+                                    try Instruction.new(.none, .mov, &[_]Operand{
+                                    .{ .reg = .rax },
+                                    .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .fs } }) },
+                                });
+                                lower.result_insts_len += 1;
+                                _ = lower.reloc(.{ .linker_reloc = sym });
+                                emit_mnemonic = .lea;
+                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                    .base = .{ .reg = .rax },
+                                    .disp = std.math.minInt(i32),
+                                }) };
+                            }
+                        }
+
+                        _ = lower.reloc(.{ .linker_reloc = sym });
+                        break :op if (lower.pic) switch (mnemonic) {
+                            .lea => {
+                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                            },
+                            .mov => {
+                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
+                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                            },
+                            else => unreachable,
+                        } else switch (mnemonic) {
+                            .call => break :op if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) .{
+                                .imm = Immediate.s(0),
+                            } else .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
-                            }) };
-                        },
-                        else => unreachable,
-                    };
+                            }) },
+                            .lea => {
+                                emit_mnemonic = .mov;
+                                break :op .{ .imm = Immediate.s(0) };
+                            },
+                            .mov => {
+                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
+                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                    .base = .{ .reg = .ds },
+                                }) };
+                            },
+                            else => unreachable,
+                        };
+                    } else if (lower.bin_file.cast(link.File.MachO)) |macho_file| {
+                        const sym_index = macho_file.getZigObject().?.symbols.items[sym.sym_index];
+                        const macho_sym = macho_file.getSymbol(sym_index);
+
+                        if (macho_sym.flags.tlv) {
+                            _ = lower.reloc(.{ .linker_reloc = sym });
+                            lower.result_insts[lower.result_insts_len] =
+                                try Instruction.new(.none, .mov, &[_]Operand{
+                                .{ .reg = .rdi },
+                                .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                            });
+                            lower.result_insts_len += 1;
+                            lower.result_insts[lower.result_insts_len] =
+                                try Instruction.new(.none, .call, &[_]Operand{
+                                .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .rdi } }) },
+                            });
+                            lower.result_insts_len += 1;
+                            emit_mnemonic = .mov;
+                            break :op .{ .reg = .rax };
+                        }
+
+                        _ = lower.reloc(.{ .linker_reloc = sym });
+                        break :op switch (mnemonic) {
+                            .lea => {
+                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                            },
+                            .mov => {
+                                if (is_obj_or_static_lib and macho_sym.flags.needs_zig_got) emit_mnemonic = .lea;
+                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                            },
+                            else => unreachable,
+                        };
+                    }
                 },
             },
         };
@@ -395,8 +477,9 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u => inst.data.ri.fixes,
         .ri64, .rm, .rmi_s, .mr => inst.data.rx.fixes,
-        .mrr, .rrm => inst.data.rrx.fixes,
+        .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
+        .rrmr => inst.data.rrrx.fixes,
         .rrmi => inst.data.rrix.fixes,
         .mi_u, .mi_s => inst.data.x.fixes,
         .m => inst.data.x.fixes,
@@ -483,6 +566,11 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rx.r1 },
             .{ .mem = lower.mem(inst.data.rx.payload) },
         },
+        .rmr => &.{
+            .{ .reg = inst.data.rrx.r1 },
+            .{ .mem = lower.mem(inst.data.rrx.payload) },
+            .{ .reg = inst.data.rrx.r2 },
+        },
         .rmi => &.{
             .{ .reg = inst.data.rix.r1 },
             .{ .mem = lower.mem(inst.data.rix.payload) },
@@ -515,6 +603,12 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rrx.r2 },
             .{ .mem = lower.mem(inst.data.rrx.payload) },
         },
+        .rrmr => &.{
+            .{ .reg = inst.data.rrrx.r1 },
+            .{ .reg = inst.data.rrrx.r2 },
+            .{ .mem = lower.mem(inst.data.rrrx.payload) },
+            .{ .reg = inst.data.rrrx.r3 },
+        },
         .rrmi => &.{
             .{ .reg = inst.data.rrix.r1 },
             .{ .reg = inst.data.rrix.r2 },
@@ -524,14 +618,13 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .extern_fn_reloc => &.{
             .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
         },
-        .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ops: {
+        .got_reloc, .direct_reloc, .import_reloc => ops: {
             const reg = inst.data.rx.r1;
             const extra = lower.mir.extraData(bits.Symbol, inst.data.rx.payload).data;
             _ = lower.reloc(switch (inst.ops) {
                 .got_reloc => .{ .linker_got = extra },
                 .direct_reloc => .{ .linker_direct = extra },
                 .import_reloc => .{ .linker_import = extra },
-                .tlv_reloc => .{ .linker_tlv = extra },
                 else => unreachable,
             });
             break :ops &.{

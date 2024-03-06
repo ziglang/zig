@@ -304,7 +304,7 @@ pub fn decodeZstandardFrame(
 
     var frame_context = context: {
         var fbs = std.io.fixedBufferStream(src[consumed_count..]);
-        var source = fbs.reader();
+        const source = fbs.reader();
         const frame_header = try decodeZstandardHeader(source);
         consumed_count += fbs.pos;
         break :context FrameContext.init(
@@ -409,7 +409,7 @@ pub const FrameContext = struct {
             .hasher_opt = if (should_compute_checksum) std.hash.XxHash64.init(0) else null,
             .window_size = window_size,
             .has_checksum = frame_header.descriptor.content_checksum_flag,
-            .block_size_max = @min(1 << 17, window_size),
+            .block_size_max = @min(types.block_size_max, window_size),
             .content_size = content_size,
         };
     }
@@ -447,7 +447,7 @@ pub fn decodeZstandardFrameArrayList(
 
     var frame_context = context: {
         var fbs = std.io.fixedBufferStream(src[consumed_count..]);
-        var source = fbs.reader();
+        const source = fbs.reader();
         const frame_header = try decodeZstandardHeader(source);
         consumed_count += fbs.pos;
         break :context try FrameContext.init(frame_header, window_size_max, verify_checksum);

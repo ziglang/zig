@@ -1,6 +1,6 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
 const TypedValue = @This();
@@ -89,7 +89,7 @@ pub fn print(
 
                 if (payload.tag) |tag| {
                     try print(.{
-                        .ty = ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty.toType(),
+                        .ty = Type.fromInterned(ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty),
                         .val = tag,
                     }, writer, level - 1, mod);
                     try writer.writeAll(" = ");
@@ -222,10 +222,10 @@ pub fn print(
             .int => |int| switch (int.storage) {
                 inline .u64, .i64, .big_int => |x| return writer.print("{}", .{x}),
                 .lazy_align => |lazy_ty| return writer.print("{d}", .{
-                    lazy_ty.toType().abiAlignment(mod),
+                    Type.fromInterned(lazy_ty).abiAlignment(mod),
                 }),
                 .lazy_size => |lazy_ty| return writer.print("{d}", .{
-                    lazy_ty.toType().abiSize(mod),
+                    Type.fromInterned(lazy_ty).abiSize(mod),
                 }),
             },
             .err => |err| return writer.print("error.{}", .{
@@ -236,7 +236,7 @@ pub fn print(
                     err_name.fmt(ip),
                 }),
                 .payload => |payload| {
-                    val = payload.toValue();
+                    val = Value.fromInterned(payload);
                     ty = ty.errorUnionPayload(mod);
                 },
             },
@@ -254,8 +254,8 @@ pub fn print(
                 }
                 try writer.writeAll("@enumFromInt(");
                 try print(.{
-                    .ty = ip.typeOf(enum_tag.int).toType(),
-                    .val = enum_tag.int.toValue(),
+                    .ty = Type.fromInterned(ip.typeOf(enum_tag.int)),
+                    .val = Value.fromInterned(enum_tag.int),
                 }, writer, level - 1, mod);
                 try writer.writeAll(")");
                 return;
@@ -264,53 +264,52 @@ pub fn print(
             .float => |float| switch (float.storage) {
                 inline else => |x| return writer.print("{d}", .{@as(f64, @floatCast(x))}),
             },
-            .ptr => |ptr| {
-                if (ptr.addr == .int) {
-                    switch (ip.indexToKey(ptr.addr.int)) {
-                        .int => |i| switch (i.storage) {
-                            inline else => |addr| return writer.print("{x:0>8}", .{addr}),
-                        },
-                        .undef => return writer.writeAll("undefined"),
-                        else => unreachable,
-                    }
-                }
-
-                const ptr_ty = ip.indexToKey(ty.toIntern()).ptr_type;
-                if (ptr_ty.flags.size == .Slice) {
-                    if (level == 0) {
-                        return writer.writeAll(".{ ... }");
-                    }
-                    const elem_ty = ptr_ty.child.toType();
-                    const len = ptr.len.toValue().toUnsignedInt(mod);
-                    if (elem_ty.eql(Type.u8, mod)) str: {
-                        const max_len = @min(len, max_string_len);
-                        var buf: [max_string_len]u8 = undefined;
-                        for (buf[0..max_len], 0..) |*c, i| {
-                            const maybe_elem = try val.maybeElemValue(mod, i);
-                            const elem = maybe_elem orelse return writer.writeAll(".{ (reinterpreted data) }");
-                            if (elem.isUndef(mod)) break :str;
-                            c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
-                        }
-                        const truncated = if (len > max_string_len) " (truncated)" else "";
-                        return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
-                    }
-                    try writer.writeAll(".{ ");
-                    const max_len = @min(len, max_aggregate_items);
-                    for (0..max_len) |i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        const maybe_elem = try val.maybeElemValue(mod, i);
-                        const elem = maybe_elem orelse return writer.writeAll("(reinterpreted data) }");
-                        try print(.{
-                            .ty = elem_ty,
-                            .val = elem,
+            .slice => |slice| {
+                const ptr_ty = switch (ip.indexToKey(slice.ptr)) {
+                    .ptr => |ptr| ty: {
+                        if (ptr.addr == .int) return print(.{
+                            .ty = Type.fromInterned(ptr.ty),
+                            .val = Value.fromInterned(slice.ptr),
                         }, writer, level - 1, mod);
-                    }
-                    if (len > max_aggregate_items) {
-                        try writer.writeAll(", ...");
-                    }
-                    return writer.writeAll(" }");
+                        break :ty ip.indexToKey(ptr.ty).ptr_type;
+                    },
+                    .undef => |ptr_ty| ip.indexToKey(ptr_ty).ptr_type,
+                    else => unreachable,
+                };
+                if (level == 0) {
+                    return writer.writeAll(".{ ... }");
                 }
-
+                const elem_ty = Type.fromInterned(ptr_ty.child);
+                const len = Value.fromInterned(slice.len).toUnsignedInt(mod);
+                if (elem_ty.eql(Type.u8, mod)) str: {
+                    const max_len = @min(len, max_string_len);
+                    var buf: [max_string_len]u8 = undefined;
+                    for (buf[0..max_len], 0..) |*c, i| {
+                        const maybe_elem = try val.maybeElemValue(mod, i);
+                        const elem = maybe_elem orelse return writer.writeAll(".{ (reinterpreted data) }");
+                        if (elem.isUndef(mod)) break :str;
+                        c.* = @as(u8, @intCast(elem.toUnsignedInt(mod)));
+                    }
+                    const truncated = if (len > max_string_len) " (truncated)" else "";
+                    return writer.print("\"{}{s}\"", .{ std.zig.fmtEscapes(buf[0..max_len]), truncated });
+                }
+                try writer.writeAll(".{ ");
+                const max_len = @min(len, max_aggregate_items);
+                for (0..max_len) |i| {
+                    if (i != 0) try writer.writeAll(", ");
+                    const maybe_elem = try val.maybeElemValue(mod, i);
+                    const elem = maybe_elem orelse return writer.writeAll("(reinterpreted data) }");
+                    try print(.{
+                        .ty = elem_ty,
+                        .val = elem,
+                    }, writer, level - 1, mod);
+                }
+                if (len > max_aggregate_items) {
+                    try writer.writeAll(", ...");
+                }
+                return writer.writeAll(" }");
+            },
+            .ptr => |ptr| {
                 switch (ptr.addr) {
                     .decl => |decl_index| {
                         const decl = mod.declPtr(decl_index);
@@ -326,8 +325,8 @@ pub fn print(
                             @intFromEnum(decl_val),
                         });
                         return print(.{
-                            .ty = ip.typeOf(decl_val).toType(),
-                            .val = decl_val.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(decl_val)),
+                            .val = Value.fromInterned(decl_val),
                         }, writer, level - 1, mod);
                     },
                     .mut_decl => |mut_decl| {
@@ -340,39 +339,54 @@ pub fn print(
                     },
                     .comptime_field => |field_val_ip| {
                         return print(.{
-                            .ty = ip.typeOf(field_val_ip).toType(),
-                            .val = field_val_ip.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(field_val_ip)),
+                            .val = Value.fromInterned(field_val_ip),
                         }, writer, level - 1, mod);
                     },
-                    .int => unreachable,
+                    .int => |int_ip| {
+                        try writer.writeAll("@ptrFromInt(");
+                        try print(.{
+                            .ty = Type.usize,
+                            .val = Value.fromInterned(int_ip),
+                        }, writer, level - 1, mod);
+                        try writer.writeByte(')');
+                    },
                     .eu_payload => |eu_ip| {
                         try writer.writeAll("(payload of ");
                         try print(.{
-                            .ty = ip.typeOf(eu_ip).toType(),
-                            .val = eu_ip.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(eu_ip)),
+                            .val = Value.fromInterned(eu_ip),
                         }, writer, level - 1, mod);
                         try writer.writeAll(")");
                     },
                     .opt_payload => |opt_ip| {
                         try print(.{
-                            .ty = ip.typeOf(opt_ip).toType(),
-                            .val = opt_ip.toValue(),
+                            .ty = Type.fromInterned(ip.typeOf(opt_ip)),
+                            .val = Value.fromInterned(opt_ip),
                         }, writer, level - 1, mod);
                         try writer.writeAll(".?");
                     },
                     .elem => |elem| {
-                        try print(.{
-                            .ty = ip.typeOf(elem.base).toType(),
-                            .val = elem.base.toValue(),
-                        }, writer, level - 1, mod);
+                        if (level == 0) {
+                            try writer.writeAll("(...)");
+                        } else {
+                            try print(.{
+                                .ty = Type.fromInterned(ip.typeOf(elem.base)),
+                                .val = Value.fromInterned(elem.base),
+                            }, writer, level - 1, mod);
+                        }
                         try writer.print("[{}]", .{elem.index});
                     },
                     .field => |field| {
-                        const ptr_container_ty = ip.typeOf(field.base).toType();
-                        try print(.{
-                            .ty = ptr_container_ty,
-                            .val = field.base.toValue(),
-                        }, writer, level - 1, mod);
+                        const ptr_container_ty = Type.fromInterned(ip.typeOf(field.base));
+                        if (level == 0) {
+                            try writer.writeAll("(...)");
+                        } else {
+                            try print(.{
+                                .ty = ptr_container_ty,
+                                .val = Value.fromInterned(field.base),
+                            }, writer, level - 1, mod);
+                        }
 
                         const container_ty = ptr_container_ty.childType(mod);
                         switch (container_ty.zigTypeTag(mod)) {
@@ -404,7 +418,7 @@ pub fn print(
             .opt => |opt| switch (opt.val) {
                 .none => return writer.writeAll("null"),
                 else => |payload| {
-                    val = payload.toValue();
+                    val = Value.fromInterned(payload);
                     ty = ty.optionalChild(mod);
                 },
             },
@@ -426,20 +440,20 @@ pub fn print(
                     if (un.tag != .none) {
                         try print(.{
                             .ty = ty.unionTagTypeHypothetical(mod),
-                            .val = un.tag.toValue(),
+                            .val = Value.fromInterned(un.tag),
                         }, writer, level - 1, mod);
                         try writer.writeAll(" = ");
-                        const field_ty = ty.unionFieldType(un.tag.toValue(), mod).?;
+                        const field_ty = ty.unionFieldType(Value.fromInterned(un.tag), mod).?;
                         try print(.{
                             .ty = field_ty,
-                            .val = un.val.toValue(),
+                            .val = Value.fromInterned(un.val),
                         }, writer, level - 1, mod);
                     } else {
                         try writer.writeAll("(unknown tag) = ");
                         const backing_ty = try ty.unionBackingType(mod);
                         try print(.{
                             .ty = backing_ty,
-                            .val = un.val.toValue(),
+                            .val = Value.fromInterned(un.val),
                         }, writer, level - 1, mod);
                     }
                 } else try writer.writeAll("...");

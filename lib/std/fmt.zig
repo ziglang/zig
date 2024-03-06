@@ -23,7 +23,7 @@ pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
     alignment: Alignment = .right,
-    fill: u8 = ' ',
+    fill: u21 = ' ',
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -40,9 +40,9 @@ pub const FormatOptions = struct {
 ///   - when using a field name, you are required to enclose the field name (an identifier) in square
 ///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
-/// - *fill* is a single character which is used to pad the formatted text
-/// - *alignment* is one of the three characters `<`, `^`, or `>` to make the text left-, center-, or right-aligned, respectively
-/// - *width* is the total width of the field in characters
+/// - *fill* is a single unicode codepoint which is used to pad the formatted text
+/// - *alignment* is one of the three bytes '<', '^', or '>' to make the text left-, center-, or right-aligned, respectively
+/// - *width* is the total width of the field in unicode codepoints
 /// - *precision* specifies how many decimals a formatted number should have
 ///
 /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
@@ -211,14 +211,18 @@ fn cacheString(str: anytype) []const u8 {
 
 pub const Placeholder = struct {
     specifier_arg: []const u8,
-    fill: u8,
+    fill: u21,
     alignment: Alignment,
     arg: Specifier,
     width: Specifier,
     precision: Specifier,
 
     pub fn parse(comptime str: anytype) Placeholder {
-        comptime var parser = Parser{ .buf = &str };
+        const view = std.unicode.Utf8View.initComptime(&str);
+        comptime var parser = Parser{
+            .buf = &str,
+            .iter = view.iterator(),
+        };
 
         // Parse the positional argument number
         const arg = comptime parser.specifier() catch |err|
@@ -230,7 +234,7 @@ pub const Placeholder = struct {
         // Skip the colon, if present
         if (comptime parser.char()) |ch| {
             if (ch != ':') {
-                @compileError("expected : or }, found '" ++ [1]u8{ch} ++ "'");
+                @compileError("expected : or }, found '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
             }
         }
 
@@ -265,7 +269,7 @@ pub const Placeholder = struct {
         // Skip the dot, if present
         if (comptime parser.char()) |ch| {
             if (ch != '.') {
-                @compileError("expected . or }, found '" ++ [1]u8{ch} ++ "'");
+                @compileError("expected . or }, found '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
             }
         }
 
@@ -274,7 +278,7 @@ pub const Placeholder = struct {
             @compileError(@errorName(err));
 
         if (comptime parser.char()) |ch| {
-            @compileError("extraneous trailing character '" ++ [1]u8{ch} ++ "'");
+            @compileError("extraneous trailing character '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
         }
 
         return Placeholder{
@@ -297,21 +301,23 @@ pub const Specifier = union(enum) {
 pub const Parser = struct {
     buf: []const u8,
     pos: usize = 0,
+    iter: std.unicode.Utf8Iterator = undefined,
 
     // Returns a decimal number or null if the current character is not a
     // digit
     pub fn number(self: *@This()) ?usize {
         var r: ?usize = null;
 
-        while (self.pos < self.buf.len) : (self.pos += 1) {
-            switch (self.buf[self.pos]) {
+        while (self.peek(0)) |code_point| {
+            switch (code_point) {
                 '0'...'9' => {
                     if (r == null) r = 0;
                     r.? *= 10;
-                    r.? += self.buf[self.pos] - '0';
+                    r.? += code_point - '0';
                 },
                 else => break,
             }
+            _ = self.iter.nextCodepoint();
         }
 
         return r;
@@ -319,31 +325,27 @@ pub const Parser = struct {
 
     // Returns a substring of the input starting from the current position
     // and ending where `ch` is found or until the end if not found
-    pub fn until(self: *@This(), ch: u8) []const u8 {
-        const start = self.pos;
-
-        if (start >= self.buf.len)
-            return &[_]u8{};
-
-        while (self.pos < self.buf.len) : (self.pos += 1) {
-            if (self.buf[self.pos] == ch) break;
+    pub fn until(self: *@This(), ch: u21) []const u8 {
+        var result: []const u8 = &[_]u8{};
+        while (self.peek(0)) |code_point| {
+            if (code_point == ch)
+                break;
+            result = result ++ (self.iter.nextCodepointSlice() orelse &[_]u8{});
         }
-        return self.buf[start..self.pos];
+        return result;
     }
 
     // Returns one character, if available
-    pub fn char(self: *@This()) ?u8 {
-        if (self.pos < self.buf.len) {
-            const ch = self.buf[self.pos];
-            self.pos += 1;
-            return ch;
+    pub fn char(self: *@This()) ?u21 {
+        if (self.iter.nextCodepoint()) |code_point| {
+            return code_point;
         }
         return null;
     }
 
-    pub fn maybe(self: *@This(), val: u8) bool {
-        if (self.pos < self.buf.len and self.buf[self.pos] == val) {
-            self.pos += 1;
+    pub fn maybe(self: *@This(), val: u21) bool {
+        if (self.peek(0) == val) {
+            _ = self.iter.nextCodepoint();
             return true;
         }
         return false;
@@ -367,8 +369,17 @@ pub const Parser = struct {
     }
 
     // Returns the n-th next character or null if that's past the end
-    pub fn peek(self: *@This(), n: usize) ?u8 {
-        return if (self.pos + n < self.buf.len) self.buf[self.pos + n] else null;
+    pub fn peek(self: *@This(), n: usize) ?u21 {
+        const original_i = self.iter.i;
+        defer self.iter.i = original_i;
+
+        var i = 0;
+        var code_point: ?u21 = null;
+        while (i <= n) : (i += 1) {
+            code_point = self.iter.nextCodepoint();
+            if (code_point == null) return null;
+        }
+        return code_point;
     }
 };
 
@@ -435,7 +446,7 @@ pub fn defaultSpec(comptime T: type) [:0]const u8 {
         .Array => |_| return ANY,
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                .Array => |_| return "*",
+                .Array => |_| return ANY,
                 else => {},
             },
             .Many, .C => return "*",
@@ -478,7 +489,7 @@ pub fn formatType(
         return formatAddress(value, options, writer);
     }
 
-    if (comptime std.meta.trait.hasFn("format")(T)) {
+    if (std.meta.hasMethod(T, "format")) {
         return try value.format(actual_fmt, options, writer);
     }
 
@@ -599,29 +610,7 @@ pub fn formatType(
         },
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                .Array => |info| {
-                    if (actual_fmt.len == 0)
-                        @compileError("cannot format array ref without a specifier (i.e. {s} or {*})");
-                    if (info.child == u8) {
-                        switch (actual_fmt[0]) {
-                            's', 'x', 'X', 'e', 'E' => {
-                                comptime checkTextFmt(actual_fmt);
-                                return formatBuf(value, options, writer);
-                            },
-                            else => {},
-                        }
-                    }
-                    if (comptime std.meta.trait.isZigString(info.child)) {
-                        for (value, 0..) |item, i| {
-                            comptime checkTextFmt(actual_fmt);
-                            if (i != 0) try formatBuf(", ", options, writer);
-                            try formatBuf(item, options, writer);
-                        }
-                        return;
-                    }
-                    invalidFmtError(fmt, value);
-                },
-                .Enum, .Union, .Struct => {
+                .Array, .Enum, .Union, .Struct => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
                 },
                 else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @intFromPtr(value) }),
@@ -632,14 +621,8 @@ pub fn formatType(
                 if (ptr_info.sentinel) |_| {
                     return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
                 }
-                if (ptr_info.child == u8) {
-                    switch (actual_fmt[0]) {
-                        's', 'x', 'X', 'e', 'E' => {
-                            comptime checkTextFmt(actual_fmt);
-                            return formatBuf(mem.span(value), options, writer);
-                        },
-                        else => {},
-                    }
+                if (actual_fmt[0] == 's' and ptr_info.child == u8) {
+                    return formatBuf(mem.span(value), options, writer);
                 }
                 invalidFmtError(fmt, value);
             },
@@ -649,14 +632,8 @@ pub fn formatType(
                 if (max_depth == 0) {
                     return writer.writeAll("{ ... }");
                 }
-                if (ptr_info.child == u8) {
-                    switch (actual_fmt[0]) {
-                        's', 'x', 'X', 'e', 'E' => {
-                            comptime checkTextFmt(actual_fmt);
-                            return formatBuf(value, options, writer);
-                        },
-                        else => {},
-                    }
+                if (actual_fmt[0] == 's' and ptr_info.child == u8) {
+                    return formatBuf(value, options, writer);
                 }
                 try writer.writeAll("{ ");
                 for (value, 0..) |elem, i| {
@@ -674,14 +651,8 @@ pub fn formatType(
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
             }
-            if (info.child == u8) {
-                switch (actual_fmt[0]) {
-                    's', 'x', 'X', 'e', 'E' => {
-                        comptime checkTextFmt(actual_fmt);
-                        return formatBuf(&value, options, writer);
-                    },
-                    else => {},
-                }
+            if (actual_fmt[0] == 's' and info.child == u8) {
+                return formatBuf(&value, options, writer);
             }
             try writer.writeAll("{ ");
             for (value, 0..) |elem, i| {
@@ -1005,8 +976,7 @@ pub fn formatUnicodeCodepoint(
     var buf: [4]u8 = undefined;
     const len = unicode.utf8Encode(c, &buf) catch |err| switch (err) {
         error.Utf8CannotEncodeSurrogateHalf, error.CodepointTooLarge => {
-            const len = unicode.utf8Encode(unicode.replacement_character, &buf) catch unreachable;
-            return formatBuf(buf[0..len], options, writer);
+            return formatBuf(&unicode.utf8EncodeComptime(unicode.replacement_character), options, writer);
         },
     };
     return formatBuf(buf[0..len], options, writer);
@@ -1025,20 +995,28 @@ pub fn formatBuf(
         if (padding == 0)
             return writer.writeAll(buf);
 
+        var fill_buffer: [4]u8 = undefined;
+        const fill_utf8 = if (unicode.utf8Encode(options.fill, &fill_buffer)) |len|
+            fill_buffer[0..len]
+        else |err| switch (err) {
+            error.Utf8CannotEncodeSurrogateHalf,
+            error.CodepointTooLarge,
+            => &unicode.utf8EncodeComptime(unicode.replacement_character),
+        };
         switch (options.alignment) {
             .left => {
                 try writer.writeAll(buf);
-                try writer.writeByteNTimes(options.fill, padding);
+                try writer.writeBytesNTimes(fill_utf8, padding);
             },
             .center => {
                 const left_padding = padding / 2;
                 const right_padding = (padding + 1) / 2;
-                try writer.writeByteNTimes(options.fill, left_padding);
+                try writer.writeBytesNTimes(fill_utf8, left_padding);
                 try writer.writeAll(buf);
-                try writer.writeByteNTimes(options.fill, right_padding);
+                try writer.writeBytesNTimes(fill_utf8, right_padding);
             },
             .right => {
-                try writer.writeByteNTimes(options.fill, padding);
+                try writer.writeBytesNTimes(fill_utf8, padding);
                 try writer.writeAll(buf);
             },
         }
@@ -1049,8 +1027,10 @@ pub fn formatBuf(
 }
 
 /// Print a float in scientific notation to the specified precision. Null uses full precision.
-/// It should be the case that every full precision, printed value can be re-parsed back to the
-/// same type unambiguously.
+/// For floats with less than 64 bits, it should be the case that every full precision, printed
+/// value can be re-parsed back to the same type unambiguously.
+///
+/// Floats with more than 64 are currently rounded, see https://github.com/ziglang/zig/issues/1181
 pub fn formatFloatScientific(
     value: anytype,
     options: FormatOptions,
@@ -1253,6 +1233,8 @@ pub fn formatFloatHexadecimal(
 
 /// Print a float of the format x.yyyyy where the number of y is specified by the precision argument.
 /// By default floats are printed at full precision (no rounding).
+///
+/// Floats with more than 64 bits are not yet supported, see https://github.com/ziglang/zig/issues/1181
 pub fn formatFloatDecimal(
     value: anytype,
     options: FormatOptions,
@@ -1296,16 +1278,16 @@ pub fn formatFloatDecimal(
         errol.roundToPrecision(&float_decimal, precision, errol.RoundMode.Decimal);
 
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
+        const num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
+        const num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
             try writer.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
 
-            var i = num_digits_whole_no_pad;
+            var i: usize = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
                 try writer.writeAll("0");
             }
@@ -1354,16 +1336,16 @@ pub fn formatFloatDecimal(
         }
     } else {
         // exp < 0 means the leading is always 0 as errol result is normalized.
-        var num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
+        const num_digits_whole = if (float_decimal.exp > 0) @as(usize, @intCast(float_decimal.exp)) else 0;
 
         // the actual slice into the buffer, we may need to zero-pad between num_digits_whole and this.
-        var num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
+        const num_digits_whole_no_pad = @min(num_digits_whole, float_decimal.digits.len);
 
         if (num_digits_whole > 0) {
             // We may have to zero pad, for instance 1e4 requires zero padding.
             try writer.writeAll(float_decimal.digits[0..num_digits_whole_no_pad]);
 
-            var i = num_digits_whole_no_pad;
+            var i: usize = num_digits_whole_no_pad;
             while (i < num_digits_whole) : (i += 1) {
                 try writer.writeAll("0");
             }
@@ -1792,6 +1774,11 @@ test "parseInt" {
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0b", 0));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0o", 0));
     try std.testing.expectError(error.InvalidCharacter, parseInt(u32, "0x", 0));
+
+    // edge cases which previously errored due to base overflowing T
+    try std.testing.expectEqual(@as(i2, -2), try std.fmt.parseInt(i2, "-10", 2));
+    try std.testing.expectEqual(@as(i4, -8), try std.fmt.parseInt(i4, "-10", 8));
+    try std.testing.expectEqual(@as(i5, -16), try std.fmt.parseInt(i5, "-10", 16));
 }
 
 fn parseWithSign(
@@ -1832,27 +1819,33 @@ fn parseWithSign(
         .neg => math.sub,
     };
 
-    var x: T = 0;
+    // accumulate into U which is always 8 bits or larger.  this prevents
+    // `buf_base` from overflowing T.
+    const info = @typeInfo(T);
+    const U = std.meta.Int(info.Int.signedness, @max(8, info.Int.bits));
+    var x: U = 0;
 
     if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;
 
     for (buf_start) |c| {
         if (c == '_') continue;
         const digit = try charToDigit(c, buf_base);
-
         if (x != 0) {
-            x = try math.mul(T, x, math.cast(T, buf_base) orelse return error.Overflow);
+            x = try math.mul(U, x, math.cast(U, buf_base) orelse return error.Overflow);
         } else if (sign == .neg) {
             // The first digit of a negative number.
             // Consider parsing "-4" as an i3.
             // This should work, but positive 4 overflows i3, so we can't cast the digit to T and subtract.
-            x = math.cast(T, -@as(i8, @intCast(digit))) orelse return error.Overflow;
+            x = math.cast(U, -@as(i8, @intCast(digit))) orelse return error.Overflow;
             continue;
         }
-        x = try add(T, x, math.cast(T, digit) orelse return error.Overflow);
+        x = try add(U, x, math.cast(U, digit) orelse return error.Overflow);
     }
 
-    return x;
+    return if (T == U)
+        x
+    else
+        math.cast(T, x) orelse return error.Overflow;
 }
 
 /// Parses the string `buf` as unsigned representation in the specified base
@@ -1993,7 +1986,10 @@ pub const BufPrintError = error{
 /// Returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var fbs = std.io.fixedBufferStream(buf);
-    try format(fbs.writer(), fmt, args);
+    format(fbs.writer().any(), fmt, args) catch |err| switch (err) {
+        error.NoSpaceLeft => return error.NoSpaceLeft,
+        else => unreachable,
+    };
     return fbs.getWritten();
 }
 
@@ -2005,7 +2001,7 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 /// Count the characters needed for format. Useful for preallocating memory
 pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer = std.io.countingWriter(std.io.null_writer);
-    format(counting_writer.writer(), fmt, args) catch |err| switch (err) {};
+    format(counting_writer.writer().any(), fmt, args) catch unreachable;
     return counting_writer.bytes_written;
 }
 
@@ -2062,6 +2058,8 @@ test "comptimePrint" {
     @setEvalBranchQuota(2000);
     try std.testing.expectEqual(*const [3:0]u8, @TypeOf(comptimePrint("{}", .{100})));
     try std.testing.expectEqualSlices(u8, "100", comptimePrint("{}", .{100}));
+    try std.testing.expectEqualStrings("30", comptimePrint("{d}", .{30.0}));
+    try std.testing.expectEqualStrings("30.0", comptimePrint("{d:3.1}", .{30.0}));
 }
 
 test "parse u64 digit too big" {
@@ -2195,12 +2193,22 @@ test "buffer" {
     }
 }
 
+// Test formatting of arrays by value, by single-item pointer, and as a slice
+fn expectArrayFmt(expected: []const u8, comptime template: []const u8, comptime array_value: anytype) !void {
+    try expectFmt(expected, template, .{array_value});
+    try expectFmt(expected, template, .{&array_value});
+    var runtime_zero: usize = 0;
+    _ = &runtime_zero;
+    try expectFmt(expected, template, .{array_value[runtime_zero..]});
+}
+
 test "array" {
     {
         const value: [3]u8 = "abc".*;
-        try expectFmt("array: abc\n", "array: {s}\n", .{value});
-        try expectFmt("array: abc\n", "array: {s}\n", .{&value});
-        try expectFmt("array: { 97, 98, 99 }\n", "array: {d}\n", .{value});
+        try expectArrayFmt("array: abc\n", "array: {s}\n", value);
+        try expectArrayFmt("array: { 97, 98, 99 }\n", "array: {d}\n", value);
+        try expectArrayFmt("array: { 61, 62, 63 }\n", "array: {x}\n", value);
+        try expectArrayFmt("array: { 97, 98, 99 }\n", "array: {any}\n", value);
 
         var buf: [100]u8 = undefined;
         try expectFmt(
@@ -2209,15 +2217,27 @@ test "array" {
             .{&value},
         );
     }
+
+    {
+        const value = [2][3]u8{ "abc".*, "def".* };
+
+        try expectArrayFmt("array: { abc, def }\n", "array: {s}\n", value);
+        try expectArrayFmt("array: { { 97, 98, 99 }, { 100, 101, 102 } }\n", "array: {d}\n", value);
+        try expectArrayFmt("array: { { 61, 62, 63 }, { 64, 65, 66 } }\n", "array: {x}\n", value);
+    }
 }
 
 test "slice" {
     {
         const value: []const u8 = "abc";
         try expectFmt("slice: abc\n", "slice: {s}\n", .{value});
+        try expectFmt("slice: { 97, 98, 99 }\n", "slice: {d}\n", .{value});
+        try expectFmt("slice: { 61, 62, 63 }\n", "slice: {x}\n", .{value});
+        try expectFmt("slice: { 97, 98, 99 }\n", "slice: {any}\n", .{value});
     }
     {
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const value = @as([*]align(1) const []const u8, @ptrFromInt(0xdeadbeef))[runtime_zero..runtime_zero];
         try expectFmt("slice: []const u8@deadbeef\n", "slice: {*}\n", .{value});
     }
@@ -2232,10 +2252,29 @@ test "slice" {
     {
         var int_slice = [_]u32{ 1, 4096, 391891, 1111111111 };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         try expectFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {any}", .{int_slice[runtime_zero..]});
         try expectFmt("int: { 1, 4096, 391891, 1111111111 }", "int: {d}", .{int_slice[runtime_zero..]});
         try expectFmt("int: { 1, 1000, 5fad3, 423a35c7 }", "int: {x}", .{int_slice[runtime_zero..]});
         try expectFmt("int: { 00001, 01000, 5fad3, 423a35c7 }", "int: {x:0>5}", .{int_slice[runtime_zero..]});
+    }
+    {
+        const S1 = struct {
+            x: u8,
+        };
+        const struct_slice: []const S1 = &[_]S1{ S1{ .x = 8 }, S1{ .x = 42 } };
+        try expectFmt("slice: { fmt.test.slice.S1{ .x = 8 }, fmt.test.slice.S1{ .x = 42 } }", "slice: {any}", .{struct_slice});
+    }
+    {
+        const S2 = struct {
+            x: u8,
+
+            pub fn format(s: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+                try writer.print("S2({})", .{s.x});
+            }
+        };
+        const struct_slice: []const S2 = &[_]S2{ S2{ .x = 8 }, S2{ .x = 42 } };
+        try expectFmt("slice: { S2(8), S2(42) }", "slice: {any}", .{struct_slice});
     }
 }
 
@@ -2751,8 +2790,6 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
-
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;
@@ -2793,15 +2830,24 @@ test "padding" {
     try expectFmt("a====", "{c:=<5}", .{'a'});
 }
 
+test "padding fill char utf" {
+    try expectFmt("──crêpe───", "{s:─^10}", .{"crêpe"});
+    try expectFmt("─────crêpe", "{s:─>10}", .{"crêpe"});
+    try expectFmt("crêpe─────", "{s:─<10}", .{"crêpe"});
+    try expectFmt("────a", "{c:─>5}", .{'a'});
+    try expectFmt("──a──", "{c:─^5}", .{'a'});
+    try expectFmt("a────", "{c:─<5}", .{'a'});
+}
+
 test "decimal float padding" {
-    var number: f32 = 3.1415;
+    const number: f32 = 3.1415;
     try expectFmt("left-pad:   **3.141\n", "left-pad:   {d:*>7.3}\n", .{number});
     try expectFmt("center-pad: *3.141*\n", "center-pad: {d:*^7.3}\n", .{number});
     try expectFmt("right-pad:  3.141**\n", "right-pad:  {d:*<7.3}\n", .{number});
 }
 
 test "sci float padding" {
-    var number: f32 = 3.1415;
+    const number: f32 = 3.1415;
     try expectFmt("left-pad:   **3.141e+00\n", "left-pad:   {e:*>11.3}\n", .{number});
     try expectFmt("center-pad: *3.141e+00*\n", "center-pad: {e:*^11.3}\n", .{number});
     try expectFmt("right-pad:  3.141e+00**\n", "right-pad:  {e:*<11.3}\n", .{number});
@@ -2825,7 +2871,7 @@ test "named arguments" {
 }
 
 test "runtime width specifier" {
-    var width: usize = 9;
+    const width: usize = 9;
     try expectFmt("~~hello~~", "{s:~^[1]}", .{ "hello", width });
     try expectFmt("~~hello~~", "{s:~^[width]}", .{ .string = "hello", .width = width });
     try expectFmt("    hello", "{s:[1]}", .{ "hello", width });
@@ -2833,8 +2879,8 @@ test "runtime width specifier" {
 }
 
 test "runtime precision specifier" {
-    var number: f32 = 3.1415;
-    var precision: usize = 2;
+    const number: f32 = 3.1415;
+    const precision: usize = 2;
     try expectFmt("3.14e+00", "{:1.[1]}", .{ number, precision });
     try expectFmt("3.14e+00", "{:1.[precision]}", .{ .number = number, .precision = precision });
 }

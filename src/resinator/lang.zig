@@ -98,7 +98,7 @@ pub fn tagToId(tag: []const u8) error{InvalidLanguageTag}!?LanguageId {
     var normalized_buf: [longest_known_tag]u8 = undefined;
     // To allow e.g. `de-de_phoneb` to get looked up as `de-de`, we need to
     // omit the suffix, but only if the tag contains a valid alternate sort order.
-    var tag_to_normalize = if (parsed.isSuffixValidSortOrder()) tag[0 .. tag.len - (parsed.suffix.?.len + 1)] else tag;
+    const tag_to_normalize = if (parsed.isSuffixValidSortOrder()) tag[0 .. tag.len - (parsed.suffix.?.len + 1)] else tag;
     const normalized_tag = normalizeTag(tag_to_normalize, &normalized_buf);
     return std.meta.stringToEnum(LanguageId, normalized_tag) orelse {
         // special case for a tag that has been mapped to the same ID
@@ -140,9 +140,9 @@ test "exhaustive tagToId" {
         writer.writeAll(parsed_sort.suffix.?) catch unreachable;
         const expected_field_name = comptime field: {
             var name_buf: [5]u8 = undefined;
-            std.mem.copy(u8, &name_buf, parsed_sort.language_code);
+            @memcpy(&name_buf[0..parsed_sort.language_code.len], parsed_sort.language_code);
             name_buf[2] = '_';
-            std.mem.copy(u8, name_buf[3..], parsed_sort.country_code.?);
+            @memcpy(name_buf[3..], parsed_sort.country_code.?);
             break :field name_buf;
         };
         const expected = @field(LanguageId, &expected_field_name);

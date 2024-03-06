@@ -6,6 +6,7 @@ test "integer division" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testDivision();
     try comptime testDivision();
@@ -96,15 +97,18 @@ test "large integer division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         var numerator: u256 = 99999999999999999997315645440;
         var divisor: u256 = 10000000000000000000000000000;
+        _ = .{ &numerator, &divisor };
         try expect(numerator / divisor == 9);
     }
     {
         var numerator: u256 = 99999999999999999999000000000000000000000;
         var divisor: u256 = 10000000000000000000000000000000000000000;
+        _ = .{ &numerator, &divisor };
         try expect(numerator / divisor == 9);
     }
 }

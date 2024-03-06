@@ -104,6 +104,67 @@ pub fn getSelfDebugInfo() !*DebugInfo {
     }
 }
 
+/// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
+/// Obtains the stderr mutex while dumping.
+pub fn dump_hex(bytes: []const u8) void {
+    stderr_mutex.lock();
+    defer stderr_mutex.unlock();
+    dump_hex_fallible(bytes) catch {};
+}
+
+/// Prints a hexadecimal view of the bytes, unbuffered, returning any error that occurs.
+pub fn dump_hex_fallible(bytes: []const u8) !void {
+    const stderr = std.io.getStdErr();
+    const ttyconf = std.io.tty.detectConfig(stderr);
+    const writer = stderr.writer();
+    var chunks = mem.window(u8, bytes, 16, 16);
+    while (chunks.next()) |window| {
+        // 1. Print the address.
+        const address = (@intFromPtr(bytes.ptr) + 0x10 * (chunks.index orelse 0) / 16) - 0x10;
+        try ttyconf.setColor(writer, .dim);
+        // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
+        // Also, make sure all lines are aligned by padding the address.
+        try writer.print("{x:0>[1]}  ", .{ address, @sizeOf(usize) * 2 });
+        try ttyconf.setColor(writer, .reset);
+
+        // 2. Print the bytes.
+        for (window, 0..) |byte, index| {
+            try writer.print("{X:0>2} ", .{byte});
+            if (index == 7) try writer.writeByte(' ');
+        }
+        try writer.writeByte(' ');
+        if (window.len < 16) {
+            var missing_columns = (16 - window.len) * 3;
+            if (window.len < 8) missing_columns += 1;
+            try writer.writeByteNTimes(' ', missing_columns);
+        }
+
+        // 3. Print the characters.
+        for (window) |byte| {
+            if (std.ascii.isPrint(byte)) {
+                try writer.writeByte(byte);
+            } else {
+                // Related: https://github.com/ziglang/zig/issues/7600
+                if (ttyconf == .windows_api) {
+                    try writer.writeByte('.');
+                    continue;
+                }
+
+                // Let's print some common control codes as graphical Unicode symbols.
+                // We don't want to do this for all control codes because most control codes apart from
+                // the ones that Zig has escape sequences for are likely not very useful to print as symbols.
+                switch (byte) {
+                    '\n' => try writer.writeAll("␊"),
+                    '\r' => try writer.writeAll("␍"),
+                    '\t' => try writer.writeAll("␉"),
+                    else => try writer.writeByte('.'),
+                }
+            }
+        }
+        try writer.writeByte('\n');
+    }
+}
+
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
@@ -375,7 +436,7 @@ pub fn panicExtra(
 
 /// Non-zero whenever the program triggered a panic.
 /// The counter is incremented/decremented atomically.
-var panicking = std.atomic.Atomic(u8).init(0);
+var panicking = std.atomic.Value(u8).init(0);
 
 // Locked to avoid interleaving panic messages from multiple threads.
 var panic_mutex = std.Thread.Mutex{};
@@ -448,7 +509,7 @@ fn waitForOtherThreadToFinishPanicking() void {
         if (builtin.single_threaded) unreachable;
 
         // Sleep forever without hammering the CPU
-        var futex = std.atomic.Atomic(u32).init(0);
+        var futex = std.atomic.Value(u32).init(0);
         while (true) std.Thread.Futex.wait(&futex, 0);
         unreachable;
     }
@@ -606,20 +667,7 @@ pub const StackIterator = struct {
         if (aligned_address == 0) return false;
         const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
 
-        if (native_os != .windows) {
-            if (native_os != .wasi) {
-                os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
-                    switch (err) {
-                        os.MSyncError.UnmappedMemory => {
-                            return false;
-                        },
-                        else => unreachable,
-                    }
-                };
-            }
-
-            return true;
-        } else {
+        if (native_os == .windows) {
             const w = os.windows;
             var memory_info: w.MEMORY_BASIC_INFORMATION = undefined;
 
@@ -639,6 +687,20 @@ pub const StackIterator = struct {
                 return false;
             }
 
+            return true;
+        } else if (@hasDecl(os.system, "msync") and native_os != .wasi and native_os != .emscripten) {
+            os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
+                switch (err) {
+                    os.MSyncError.UnmappedMemory => {
+                        return false;
+                    },
+                    else => unreachable,
+                }
+            };
+
+            return true;
+        } else {
+            // We are unable to determine validity of memory on this target.
             return true;
         }
     }
@@ -812,7 +874,7 @@ pub fn writeStackTraceWindows(
     var addr_buf: [1024]usize = undefined;
     const n = walkStackWindows(addr_buf[0..], context);
     const addrs = addr_buf[0..n];
-    var start_i: usize = if (start_addr) |saddr| blk: {
+    const start_i: usize = if (start_addr) |saddr| blk: {
         for (addrs, 0..) |addr, i| {
             if (addr == saddr) break :blk i;
         }
@@ -853,8 +915,8 @@ test "machoSearchSymbols" {
         .{ .addr = 300, .strx = undefined, .size = undefined, .ofile = undefined },
     };
 
-    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 0));
-    try testing.expectEqual(@as(?*const MachoSymbol, null), machoSearchSymbols(&symbols, 99));
+    try testing.expectEqual(null, machoSearchSymbols(&symbols, 0));
+    try testing.expectEqual(null, machoSearchSymbols(&symbols, 99));
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 100).?);
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 150).?);
     try testing.expectEqual(&symbols[0], machoSearchSymbols(&symbols, 199).?);
@@ -1078,14 +1140,9 @@ pub fn readElfDebugInfo(
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
 ) !ModuleDebugInfo {
     nosuspend {
-
-        // TODO https://github.com/ziglang/zig/issues/5525
         const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk if (fs.path.isAbsolute(filename))
-                fs.openFileAbsolute(filename, .{ .intended_io_mode = .blocking })
-            else
-                fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
-        } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
+            break :blk fs.cwd().openFile(filename, .{});
+        } else fs.openSelfExe(.{})) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
         };
@@ -1155,10 +1212,9 @@ pub fn readElfDebugInfo(
                 const chdr = section_reader.readStruct(elf.Chdr) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
-                defer zlib_stream.deinit();
+                var zlib_stream = std.compress.zlib.decompressor(section_stream.reader());
 
-                var decompressed_section = try allocator.alloc(u8, chdr.ch_size);
+                const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);
 
                 const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
@@ -1395,36 +1451,174 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
 fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
+    var f = try fs.cwd().openFile(line_info.file_name, .{});
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
     var buf: [mem.page_size]u8 = undefined;
-    var line: usize = 1;
-    var column: usize = 1;
-    while (true) {
-        const amt_read = try f.read(buf[0..]);
-        const slice = buf[0..amt_read];
-
-        for (slice) |byte| {
-            if (line == line_info.line) {
-                switch (byte) {
-                    '\t' => try out_stream.writeByte(' '),
-                    else => try out_stream.writeByte(byte),
-                }
-                if (byte == '\n') {
-                    return;
-                }
-            }
-            if (byte == '\n') {
-                line += 1;
-                column = 1;
+    var amt_read = try f.read(buf[0..]);
+    const line_start = seek: {
+        var current_line_start: usize = 0;
+        var next_line: usize = 1;
+        while (next_line != line_info.line) {
+            const slice = buf[current_line_start..amt_read];
+            if (mem.indexOfScalar(u8, slice, '\n')) |pos| {
+                next_line += 1;
+                if (pos == slice.len - 1) {
+                    amt_read = try f.read(buf[0..]);
+                    current_line_start = 0;
+                } else current_line_start += pos + 1;
+            } else if (amt_read < buf.len) {
+                return error.EndOfFile;
             } else {
-                column += 1;
+                amt_read = try f.read(buf[0..]);
+                current_line_start = 0;
             }
         }
+        break :seek current_line_start;
+    };
+    const slice = buf[line_start..amt_read];
+    if (mem.indexOfScalar(u8, slice, '\n')) |pos| {
+        const line = slice[0 .. pos + 1];
+        mem.replaceScalar(u8, line, '\t', ' ');
+        return out_stream.writeAll(line);
+    } else { // Line is the last inside the buffer, and requires another read to find delimiter. Alternatively the file ends.
+        mem.replaceScalar(u8, slice, '\t', ' ');
+        try out_stream.writeAll(slice);
+        while (amt_read == buf.len) {
+            amt_read = try f.read(buf[0..]);
+            if (mem.indexOfScalar(u8, buf[0..amt_read], '\n')) |pos| {
+                const line = buf[0 .. pos + 1];
+                mem.replaceScalar(u8, line, '\t', ' ');
+                return out_stream.writeAll(line);
+            } else {
+                const line = buf[0..amt_read];
+                mem.replaceScalar(u8, line, '\t', ' ');
+                try out_stream.writeAll(line);
+            }
+        }
+        // Make sure printing last line of file inserts extra newline
+        try out_stream.writeByte('\n');
+    }
+}
 
-        if (amt_read < buf.len) return error.EndOfFile;
+test "printLineFromFileAnyOs" {
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
+    const output_stream = output.writer();
+
+    const allocator = std.testing.allocator;
+    const join = std.fs.path.join;
+    const expectError = std.testing.expectError;
+    const expectEqualStrings = std.testing.expectEqualStrings;
+
+    var test_dir = std.testing.tmpDir(.{});
+    defer test_dir.cleanup();
+    // Relies on testing.tmpDir internals which is not ideal, but LineInfo requires paths.
+    const test_dir_path = try join(allocator, &.{ "zig-cache", "tmp", test_dir.sub_path[0..] });
+    defer allocator.free(test_dir_path);
+
+    // Cases
+    {
+        const path = try join(allocator, &.{ test_dir_path, "one_line.zig" });
+        defer allocator.free(path);
+        try test_dir.dir.writeFile("one_line.zig", "no new lines in this file, but one is printed anyway");
+
+        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings("no new lines in this file, but one is printed anyway\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
+        defer allocator.free(path);
+        try test_dir.dir.writeFile("three_lines.zig",
+            \\1
+            \\2
+            \\3
+        );
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings("1\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
+        try expectEqualStrings("3\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("line_overlaps_page_boundary.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "line_overlaps_page_boundary.zig" });
+        defer allocator.free(path);
+
+        const overlap = 10;
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', mem.page_size - overlap);
+        try writer.writeByte('\n');
+        try writer.writeByteNTimes('a', overlap);
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try expectEqualStrings(("a" ** overlap) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("file_ends_on_page_boundary.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', mem.page_size);
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** mem.page_size) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("very_long_first_line_spanning_multiple_pages.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        try writer.writeByteNTimes('a', 3 * mem.page_size);
+
+        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "\n", output.items);
+        output.clearRetainingCapacity();
+
+        try writer.writeAll("a\na");
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try expectEqualStrings(("a" ** (3 * mem.page_size)) ++ "a\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try expectEqualStrings("a\n", output.items);
+        output.clearRetainingCapacity();
+    }
+    {
+        const file = try test_dir.dir.createFile("file_of_newlines.zig", .{});
+        defer file.close();
+        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_of_newlines.zig" });
+        defer allocator.free(path);
+
+        var writer = file.writer();
+        const real_file_start = 3 * mem.page_size;
+        try writer.writeByteNTimes('\n', real_file_start);
+        try writer.writeAll("abc\ndef");
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
+        try expectEqualStrings("abc\n", output.items);
+        output.clearRetainingCapacity();
+
+        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
+        try expectEqualStrings("def\n", output.items);
+        output.clearRetainingCapacity();
     }
 }
 
@@ -1445,7 +1639,6 @@ const MachoSymbol = struct {
     }
 };
 
-/// `file` is expected to have been opened with .intended_io_mode == .blocking.
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
 fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
@@ -1457,7 +1650,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
             null,
             file_len,
             os.PROT.READ,
-            os.MAP.SHARED,
+            .{ .TYPE = .SHARED },
             file.handle,
             0,
         );
@@ -1629,9 +1822,7 @@ pub const DebugInfo = struct {
                         errdefer self.allocator.destroy(obj_di);
 
                         const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
-                        const macho_file = fs.cwd().openFile(macho_path, .{
-                            .intended_io_mode = .blocking,
-                        }) catch |err| switch (err) {
+                        const macho_file = fs.cwd().openFile(macho_path, .{}) catch |err| switch (err) {
                             error.FileNotFound => return error.MissingDebugInfo,
                             else => return err,
                         };
@@ -1710,7 +1901,7 @@ pub const DebugInfo = struct {
                 if (coff_obj.strtabRequired()) {
                     var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
                     // openFileAbsoluteW requires the prefix to be present
-                    mem.copy(u16, name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
+                    @memcpy(name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
 
                     const process_handle = windows.kernel32.GetCurrentProcess();
                     const len = windows.kernel32.K32GetModuleFileNameExW(
@@ -1967,7 +2158,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !*OFileInfo {
-            const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
+            const o_file = try fs.cwd().openFile(o_file_path, .{});
             const mapped_mem = try mapWholeFile(o_file);
 
             const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
@@ -2046,7 +2237,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             };
 
             try DW.openDwarfDebugInfo(&di, allocator);
-            var info = OFileInfo{
+            const info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
             };
@@ -2122,7 +2313,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
                 // Check if its debug infos are already in the cache
                 const o_file_path = mem.sliceTo(self.strings[symbol.ofile..], 0);
-                var o_file_info = self.ofiles.getPtr(o_file_path) orelse
+                const o_file_info = self.ofiles.getPtr(o_file_path) orelse
                     (self.loadOFile(allocator, o_file_path) catch |err| switch (err) {
                     error.FileNotFound,
                     error.MissingDebugInfo,
@@ -2253,7 +2444,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return &self.dwarf;
         }
     },
-    .wasi => struct {
+    .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
             _ = allocator;
@@ -2392,6 +2583,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
         else => unreachable,
     };
 
+    const code = if (native_os == .netbsd) info.info.code else info.code;
     nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;
@@ -2401,14 +2593,14 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
                 panic_mutex.lock();
                 defer panic_mutex.unlock();
 
-                dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+                dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
             }
 
             waitForOtherThreadToFinishPanicking();
         },
         else => {
             // panic mutex already locked
-            dumpSegfaultInfoPosix(sig, addr, ctx_ptr);
+            dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
         },
     };
 
@@ -2418,10 +2610,20 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     os.abort();
 }
 
-fn dumpSegfaultInfoPosix(sig: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
+fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
     const stderr = io.getStdErr().writer();
     _ = switch (sig) {
-        os.SIG.SEGV => stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
+        os.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
+            // x86_64 doesn't have a full 64-bit virtual address space.
+            // Addresses outside of that address space are non-canonical
+            // and the CPU won't provide the faulting address to us.
+            // This happens when accessing memory addresses such as 0xaaaaaaaaaaaaaaaa
+            // but can also happen when no addressable memory is involved;
+            // for example when reading/writing model-specific registers
+            // by executing `rdmsr` or `wrmsr` in user-space (unprivileged mode).
+            stderr.print("General protection exception (no address available)\n", .{})
+        else
+            stderr.print("Segmentation fault at address 0x{x}\n", .{addr}),
         os.SIG.ILL => stderr.print("Illegal instruction at address 0x{x}\n", .{addr}),
         os.SIG.BUS => stderr.print("Bus error at address 0x{x}\n", .{addr}),
         os.SIG.FPE => stderr.print("Arithmetic exception at address 0x{x}\n", .{addr}),
@@ -2513,6 +2715,8 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
 }
 
 test "manage resources correctly" {
+    if (builtin.strip_debug_info) return error.SkipZigTest;
+
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     if (builtin.os.tag == .windows) {
@@ -2627,4 +2831,8 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             }
         }
     };
+}
+
+test {
+    _ = &dump_hex;
 }

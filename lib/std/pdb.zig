@@ -513,7 +513,7 @@ pub const Pdb = struct {
     };
 
     pub fn init(allocator: mem.Allocator, path: []const u8) !Pdb {
-        const file = try fs.cwd().openFile(path, .{ .intended_io_mode = .blocking });
+        const file = try fs.cwd().openFile(path, .{});
         errdefer file.close();
 
         return Pdb{
@@ -897,7 +897,7 @@ const Msf = struct {
             return error.UnhandledBigDirectoryStream; // cf. BlockMapAddr comment.
 
         try file.seekTo(superblock.BlockSize * superblock.BlockMapAddr);
-        var dir_blocks = try allocator.alloc(u32, dir_block_count);
+        const dir_blocks = try allocator.alloc(u32, dir_block_count);
         for (dir_blocks) |*b| {
             b.* = try in.readInt(u32, .little);
         }

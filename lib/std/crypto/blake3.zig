@@ -200,7 +200,7 @@ const CompressGeneric = struct {
     }
 };
 
-const compress = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_x86_64)
+const compress = if (builtin.cpu.arch == .x86_64)
     CompressVectorized.compress
 else
     CompressGeneric.compress;
@@ -241,7 +241,7 @@ const Output = struct {
         var out_block_it = ChunkIterator.init(output, 2 * OUT_LEN);
         var output_block_counter: usize = 0;
         while (out_block_it.next()) |out_block| {
-            var words = compress(
+            const words = compress(
                 self.input_chaining_value,
                 self.block_words,
                 self.block_len,

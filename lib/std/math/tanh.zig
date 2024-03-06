@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 const expo2 = @import("expo2.zig").expo2;
 const maxInt = std.math.maxInt;
@@ -58,7 +59,7 @@ fn tanh32(x: f32) f32 {
     }
     // |x| is subnormal
     else {
-        math.doNotOptimizeAway(ax * ax);
+        mem.doNotOptimizeAway(ax * ax);
         t = ax;
     }
 
@@ -96,19 +97,19 @@ fn tanh64(x: f64) f64 {
     }
     // |x| is subnormal
     else {
-        math.doNotOptimizeAway(@as(f32, @floatCast(ax)));
+        mem.doNotOptimizeAway(@as(f32, @floatCast(ax)));
         t = ax;
     }
 
     return if (sign) -t else t;
 }
 
-test "math.tanh" {
+test tanh {
     try expect(tanh(@as(f32, 1.5)) == tanh32(1.5));
     try expect(tanh(@as(f64, 1.5)) == tanh64(1.5));
 }
 
-test "math.tanh32" {
+test tanh32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, tanh32(0.0), 0.0, epsilon));
@@ -121,7 +122,7 @@ test "math.tanh32" {
     try expect(math.approxEqAbs(f32, tanh32(-37.45), -1.0, epsilon));
 }
 
-test "math.tanh64" {
+test tanh64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, tanh64(0.0), 0.0, epsilon));
@@ -134,17 +135,17 @@ test "math.tanh64" {
     try expect(math.approxEqAbs(f64, tanh64(-37.45), -1.0, epsilon));
 }
 
-test "math.tanh32.special" {
-    try expect(tanh32(0.0) == 0.0);
-    try expect(tanh32(-0.0) == -0.0);
+test "tanh32.special" {
+    try expect(math.isPositiveZero(tanh32(0.0)));
+    try expect(math.isNegativeZero(tanh32(-0.0)));
     try expect(tanh32(math.inf(f32)) == 1.0);
     try expect(tanh32(-math.inf(f32)) == -1.0);
     try expect(math.isNan(tanh32(math.nan(f32))));
 }
 
-test "math.tanh64.special" {
-    try expect(tanh64(0.0) == 0.0);
-    try expect(tanh64(-0.0) == -0.0);
+test "tanh64.special" {
+    try expect(math.isPositiveZero(tanh64(0.0)));
+    try expect(math.isNegativeZero(tanh64(-0.0)));
     try expect(tanh64(math.inf(f64)) == 1.0);
     try expect(tanh64(-math.inf(f64)) == -1.0);
     try expect(math.isNan(tanh64(math.nan(f64))));

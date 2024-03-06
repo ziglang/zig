@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 const fs = std.fs;
 
 const C = @This();
+const build_options = @import("build_options");
 const Module = @import("../Module.zig");
 const InternPool = @import("../InternPool.zig");
 const Alignment = InternPool.Alignment;
@@ -13,6 +14,7 @@ const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
+const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
@@ -23,7 +25,7 @@ base: link.File,
 /// This linker backend does not try to incrementally link output C source code.
 /// Instead, it tracks all declarations in this table, and iterates over it
 /// in the flush function, stitching pre-rendered pieces of C code together.
-decl_table: std.AutoArrayHashMapUnmanaged(Module.Decl.Index, DeclBlock) = .{},
+decl_table: std.AutoArrayHashMapUnmanaged(InternPool.DeclIndex, DeclBlock) = .{},
 /// All the string bytes of rendered C code, all squished into one array.
 /// While in progress, a separate buffer is used, and then when finished, the
 /// buffer is copied into this one.
@@ -82,7 +84,8 @@ pub fn getString(this: C, s: String) []const u8 {
 }
 
 pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
-    const gpa = this.base.allocator;
+    const comp = this.base.comp;
+    const gpa = comp.gpa;
     try this.string_bytes.appendSlice(gpa, s);
     return .{
         .start = @intCast(this.string_bytes.items.len - s.len),
@@ -90,28 +93,53 @@ pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
     };
 }
 
-pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C {
-    assert(options.target.ofmt == .c);
+pub fn open(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*C {
+    return createEmpty(arena, comp, emit, options);
+}
 
-    if (options.use_llvm) return error.LLVMHasNoCBackend;
-    if (options.use_lld) return error.LLDHasNoCBackend;
+pub fn createEmpty(
+    arena: Allocator,
+    comp: *Compilation,
+    emit: Compilation.Emit,
+    options: link.File.OpenOptions,
+) !*C {
+    const target = comp.root_mod.resolved_target.result;
+    assert(target.ofmt == .c);
+    const optimize_mode = comp.root_mod.optimize_mode;
+    const use_lld = build_options.have_llvm and comp.config.use_lld;
+    const use_llvm = comp.config.use_llvm;
+    const output_mode = comp.config.output_mode;
 
-    const file = try options.emit.?.directory.handle.createFile(sub_path, .{
+    // These are caught by `Compilation.Config.resolve`.
+    assert(!use_lld);
+    assert(!use_llvm);
+
+    const file = try emit.directory.handle.createFile(emit.sub_path, .{
         // Truncation is done on `flush`.
         .truncate = false,
-        .mode = link.determineMode(options),
     });
     errdefer file.close();
 
-    var c_file = try gpa.create(C);
-    errdefer gpa.destroy(c_file);
+    const c_file = try arena.create(C);
 
     c_file.* = .{
         .base = .{
             .tag = .c,
-            .options = options,
+            .comp = comp,
+            .emit = emit,
+            .gc_sections = options.gc_sections orelse (optimize_mode != .Debug and output_mode != .Obj),
+            .print_gc_sections = options.print_gc_sections,
+            .stack_size = options.stack_size orelse 16777216,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = file,
-            .allocator = gpa,
+            .disable_lld_caching = options.disable_lld_caching,
+            .build_id = options.build_id,
+            .rpath_list = options.rpath_list,
         },
     };
 
@@ -119,7 +147,7 @@ pub fn openPath(gpa: Allocator, sub_path: []const u8, options: link.Options) !*C
 }
 
 pub fn deinit(self: *C) void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     for (self.decl_table.values()) |*db| {
         db.deinit(gpa);
@@ -135,10 +163,12 @@ pub fn deinit(self: *C) void {
     self.string_bytes.deinit(gpa);
     self.fwd_decl_buf.deinit(gpa);
     self.code_buf.deinit(gpa);
+    self.lazy_fwd_decl_buf.deinit(gpa);
+    self.lazy_code_buf.deinit(gpa);
 }
 
-pub fn freeDecl(self: *C, decl_index: Module.Decl.Index) void {
-    const gpa = self.base.allocator;
+pub fn freeDecl(self: *C, decl_index: InternPool.DeclIndex) void {
+    const gpa = self.base.comp.gpa;
     if (self.decl_table.fetchSwapRemove(decl_index)) |kv| {
         var decl_block = kv.value;
         decl_block.deinit(gpa);
@@ -152,7 +182,7 @@ pub fn updateFunc(
     air: Air,
     liveness: Liveness,
 ) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const func = module.funcInfo(func_index);
     const decl_index = func.owner_decl;
@@ -220,7 +250,7 @@ pub fn updateFunc(
 }
 
 fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const anon_decl = self.anon_decls.keys()[i];
 
     const fwd_decl = &self.fwd_decl_buf;
@@ -254,8 +284,8 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     }
 
     const tv: @import("../TypedValue.zig") = .{
-        .ty = module.intern_pool.typeOf(anon_decl).toType(),
-        .val = anon_decl.toValue(),
+        .ty = Type.fromInterned(module.intern_pool.typeOf(anon_decl)),
+        .val = Value.fromInterned(anon_decl),
     };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
     const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;
@@ -278,11 +308,11 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
     };
 }
 
-pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDecl(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const gop = try self.decl_table.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
@@ -336,7 +366,7 @@ pub fn updateDecl(self: *C, module: *Module, decl_index: Module.Decl.Index) !voi
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
 }
 
-pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: Module.Decl.Index) !void {
+pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: InternPool.DeclIndex) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;
@@ -344,12 +374,13 @@ pub fn updateDeclLineNumber(self: *C, module: *Module, decl_index: Module.Decl.I
     _ = decl_index;
 }
 
-pub fn flush(self: *C, comp: *Compilation, prog_node: *std.Progress.Node) !void {
-    return self.flushModule(comp, prog_node);
+pub fn flush(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !void {
+    return self.flushModule(arena, prog_node);
 }
 
 fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
-    var defines = std.ArrayList(u8).init(self.base.allocator);
+    const gpa = self.base.comp.gpa;
+    var defines = std.ArrayList(u8).init(gpa);
     errdefer defines.deinit();
     const writer = defines.writer();
     switch (target.abi) {
@@ -360,7 +391,9 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
     return defines;
 }
 
-pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !void {
+pub fn flushModule(self: *C, arena: Allocator, prog_node: *std.Progress.Node) !void {
+    _ = arena; // Has the same lifetime as the call to Compilation.update.
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -368,8 +401,9 @@ pub fn flushModule(self: *C, _: *Compilation, prog_node: *std.Progress.Node) !vo
     sub_prog_node.activate();
     defer sub_prog_node.end();
 
-    const gpa = self.base.allocator;
-    const module = self.base.options.module.?;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
+    const module = self.base.comp.module.?;
 
     {
         var i: usize = 0;
@@ -517,8 +551,8 @@ fn flushCTypes(
     pass: codegen.DeclGen.Pass,
     decl_ctypes: codegen.CType.Store,
 ) FlushDeclError!void {
-    const gpa = self.base.allocator;
-    const mod = self.base.options.module.?;
+    const gpa = self.base.comp.gpa;
+    const mod = self.base.comp.module.?;
 
     const decl_ctypes_len = decl_ctypes.count();
     f.ctypes_map.clearRetainingCapacity();
@@ -598,7 +632,7 @@ fn flushCTypes(
 }
 
 fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const fwd_decl = &self.lazy_fwd_decl_buf;
     const code = &self.lazy_code_buf;
@@ -606,7 +640,7 @@ fn flushErrDecls(self: *C, ctypes: *codegen.CType.Store) FlushDeclError!void {
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
-            .module = self.base.options.module.?,
+            .module = self.base.comp.module.?,
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
@@ -640,7 +674,7 @@ fn flushLazyFn(
     ctypes: *codegen.CType.Store,
     lazy_fn: codegen.LazyFnMap.Entry,
 ) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
 
     const fwd_decl = &self.lazy_fwd_decl_buf;
     const code = &self.lazy_code_buf;
@@ -648,7 +682,7 @@ fn flushLazyFn(
     var object = codegen.Object{
         .dg = .{
             .gpa = gpa,
-            .module = self.base.options.module.?,
+            .module = self.base.comp.module.?,
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
@@ -680,7 +714,7 @@ fn flushLazyFn(
 }
 
 fn flushLazyFns(self: *C, f: *Flush, lazy_fns: codegen.LazyFnMap) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     try f.lazy_fns.ensureUnusedCapacity(gpa, @intCast(lazy_fns.count()));
 
     var it = lazy_fns.iterator();
@@ -699,7 +733,7 @@ fn flushDeclBlock(
     export_names: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
     extern_symbol_name: InternPool.OptionalNullTerminatedString,
 ) FlushDeclError!void {
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     try self.flushLazyFns(f, decl_block.lazy_fns);
     try f.all_buffers.ensureUnusedCapacity(gpa, 1);
     fwd_decl: {

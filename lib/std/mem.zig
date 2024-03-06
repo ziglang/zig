@@ -4,8 +4,6 @@ const debug = std.debug;
 const assert = debug.assert;
 const math = std.math;
 const mem = @This();
-const meta = std.meta;
-const trait = meta.trait;
 const testing = std.testing;
 const Endian = std.builtin.Endian;
 const native_endian = builtin.cpu.arch.endian();
@@ -192,10 +190,6 @@ test "Allocator.resize" {
     }
 }
 
-/// Deprecated: use `@memcpy` if the arguments do not overlap, or
-/// `copyForwards` if they do.
-pub const copy = copyForwards;
-
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
@@ -218,8 +212,6 @@ pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
         dest[i] = source[i];
     }
 }
-
-pub const set = @compileError("deprecated; use @memset instead");
 
 /// Generally, Zig users are encouraged to explicitly initialize all fields of a struct explicitly rather than using this function.
 /// However, it is recognized that there are sometimes use cases for initializing all fields to a "zero" value. For example, when
@@ -403,11 +395,11 @@ test "zeroes" {
         b: u32,
     };
 
-    var c = zeroes(C_union);
+    const c = zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), c.a);
     try testing.expectEqual(@as(u32, 0), c.b);
 
-    comptime var comptime_union = zeroes(C_union);
+    const comptime_union = comptime zeroes(C_union);
     try testing.expectEqual(@as(u8, 0), comptime_union.a);
     try testing.expectEqual(@as(u32, 0), comptime_union.b);
 
@@ -640,14 +632,87 @@ test "lessThan" {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
+const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
+    // The SPIR-V backend does not support the optimized path yet.
+    .stage2_spirv64 => false,
+    else => true,
+};
+
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
+    if (@sizeOf(T) == 0) return true;
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and backend_can_use_eql_bytes) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+
     if (a.len != b.len) return false;
-    if (a.ptr == b.ptr) return true;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+
     for (a, b) |a_elem, b_elem| {
         if (a_elem != b_elem) return false;
     }
     return true;
+}
+
+/// std.mem.eql heavily optimized for slices of bytes.
+fn eqlBytes(a: []const u8, b: []const u8) bool {
+    if (!backend_can_use_eql_bytes) {
+        return eql(u8, a, b);
+    }
+
+    if (a.len != b.len) return false;
+    if (a.len == 0 or a.ptr == b.ptr) return true;
+
+    if (a.len <= 16) {
+        if (a.len < 4) {
+            const x = (a[0] ^ b[0]) | (a[a.len - 1] ^ b[a.len - 1]) | (a[a.len / 2] ^ b[a.len / 2]);
+            return x == 0;
+        }
+        var x: u32 = 0;
+        for ([_]usize{ 0, a.len - 4, (a.len / 8) * 4, a.len - 4 - ((a.len / 8) * 4) }) |n| {
+            x |= @as(u32, @bitCast(a[n..][0..4].*)) ^ @as(u32, @bitCast(b[n..][0..4].*));
+        }
+        return x == 0;
+    }
+
+    // Figure out the fastest way to scan through the input in chunks.
+    // Uses vectors when supported and falls back to usize/words when not.
+    const Scan = if (std.simd.suggestVectorLength(u8)) |vec_size|
+        struct {
+            pub const size = vec_size;
+            pub const Chunk = @Vector(size, u8);
+            pub inline fn isNotEqual(chunk_a: Chunk, chunk_b: Chunk) bool {
+                return @reduce(.Or, chunk_a != chunk_b);
+            }
+        }
+    else
+        struct {
+            pub const size = @sizeOf(usize);
+            pub const Chunk = usize;
+            pub inline fn isNotEqual(chunk_a: Chunk, chunk_b: Chunk) bool {
+                return chunk_a != chunk_b;
+            }
+        };
+
+    inline for (1..6) |s| {
+        const n = 16 << s;
+        if (n <= Scan.size and a.len <= n) {
+            const V = @Vector(n / 2, u8);
+            var x = @as(V, a[0 .. n / 2].*) ^ @as(V, b[0 .. n / 2].*);
+            x |= @as(V, a[a.len - n / 2 ..][0 .. n / 2].*) ^ @as(V, b[a.len - n / 2 ..][0 .. n / 2].*);
+            const zero: V = @splat(0);
+            return !@reduce(.Or, x != zero);
+        }
+    }
+    // Compare inputs in chunks at a time (excluding the last chunk).
+    for (0..(a.len - 1) / Scan.size) |i| {
+        const a_chunk: Scan.Chunk = @bitCast(a[i * Scan.size ..][0..Scan.size].*);
+        const b_chunk: Scan.Chunk = @bitCast(b[i * Scan.size ..][0..Scan.size].*);
+        if (Scan.isNotEqual(a_chunk, b_chunk)) return false;
+    }
+
+    // Compare the last chunk using an overlapping read (similar to the previous size strategies).
+    const last_a_chunk: Scan.Chunk = @bitCast(a[a.len - Scan.size ..][0..Scan.size].*);
+    const last_b_chunk: Scan.Chunk = @bitCast(b[a.len - Scan.size ..][0..Scan.size].*);
+    return !Scan.isNotEqual(last_a_chunk, last_b_chunk);
 }
 
 /// Compares two slices and returns the index of the first inequality.
@@ -736,7 +801,7 @@ test "span" {
 }
 
 /// Helper for the return type of sliceTo()
-fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
+fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
     switch (@typeInfo(T)) {
         .Optional => |optional_info| {
             return ?SliceTo(optional_info.child, end);
@@ -796,7 +861,7 @@ fn SliceTo(comptime T: type, comptime end: meta.Elem(T)) type {
 /// resulting slice is also sentinel terminated.
 /// Pointer properties such as mutability and alignment are preserved.
 /// C pointers are assumed to be non-null.
-pub fn sliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) SliceTo(@TypeOf(ptr), end) {
+pub fn sliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) SliceTo(@TypeOf(ptr), end) {
     if (@typeInfo(@TypeOf(ptr)) == .Optional) {
         const non_null = ptr orelse return null;
         return sliceTo(non_null, end);
@@ -852,7 +917,7 @@ test "sliceTo" {
 }
 
 /// Private helper for sliceTo(). If you want the length, use sliceTo(foo, x).len
-fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
+fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
     switch (@typeInfo(@TypeOf(ptr))) {
         .Pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
@@ -869,7 +934,10 @@ fn lenSliceTo(ptr: anytype, comptime end: meta.Elem(@TypeOf(ptr))) usize {
             },
             .Many => if (ptr_info.sentinel) |sentinel_ptr| {
                 const sentinel = @as(*align(1) const ptr_info.child, @ptrCast(sentinel_ptr)).*;
-                // We may be looking for something other than the sentinel,
+                if (sentinel == end) {
+                    return indexOfSentinel(ptr_info.child, end, ptr);
+                }
+                // We're looking for something other than the sentinel,
                 // but iterating past the sentinel would be a bug so we need
                 // to check for both.
                 var i: usize = 0;
@@ -974,15 +1042,16 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // The below branch assumes that reading past the end of the buffer is valid, as long
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
-            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorSize(T)) |block_len| {
-                comptime std.debug.assert(std.mem.page_size % block_len == 0);
+            .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
+
+                comptime std.debug.assert(std.mem.page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page < std.mem.page_size - block_len) {
+                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1027,7 +1096,7 @@ test "indexOfSentinel vector paths" {
     const allocator = std.testing.allocator;
 
     inline for (Types) |T| {
-        const block_len = std.simd.suggestVectorSize(T) orelse continue;
+        const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
         const memory = try allocator.alloc(T, 3 * std.mem.page_size / @sizeOf(T));
@@ -1118,11 +1187,11 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
-        if (std.simd.suggestVectorSize(T)) |block_len| {
+        if (std.simd.suggestVectorLength(T)) |block_len| {
             // For Intel Nehalem (2009) and AMD Bulldozer (2012) or later, unaligned loads on aligned data result
             // in the same execution as aligned loads. We ignore older arch's here and don't bother pre-aligning.
             //
-            // Use `std.simd.suggestVectorSize(T)` to get the same alignment as used in this function
+            // Use `std.simd.suggestVectorLength(T)` to get the same alignment as used in this function
             // however this usually isn't necessary unless your arch has a performance penalty due to this.
             //
             // This may differ for other arch's. Arm for example costs a cycle when loading across a cache
@@ -1269,7 +1338,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
-        if (mem.eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (mem.eql(T, haystack[i..][0..needle.len], needle)) return i;
         if (i == 0) return null;
     }
 }
@@ -1277,12 +1346,33 @@ pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const 
 /// Consider using `indexOfPos` instead of this, which will automatically use a
 /// more sophisticated algorithm on larger inputs.
 pub fn indexOfPosLinear(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
     var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i .. i + needle.len], needle)) return i;
+        if (eql(T, haystack[i..][0..needle.len], needle)) return i;
     }
     return null;
+}
+
+test indexOfPosLinear {
+    try testing.expectEqual(0, indexOfPosLinear(u8, "", 0, ""));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "123", 0, ""));
+
+    try testing.expectEqual(null, indexOfPosLinear(u8, "", 0, "1"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "1", 0, "1"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "2", 0, "1"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "21", 0, "1"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "222", 0, "1"));
+
+    try testing.expectEqual(null, indexOfPosLinear(u8, "", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "1", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "2", 0, "12"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "12", 0, "12"));
+    try testing.expectEqual(null, indexOfPosLinear(u8, "21", 0, "12"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "212", 0, "12"));
+    try testing.expectEqual(0, indexOfPosLinear(u8, "122", 0, "12"));
+    try testing.expectEqual(1, indexOfPosLinear(u8, "212112", 0, "12"));
 }
 
 fn boyerMooreHorspoolPreprocessReverse(pattern: []const u8, table: *[256]usize) void {
@@ -1319,7 +1409,7 @@ pub fn lastIndexOf(comptime T: type, haystack: []const T, needle: []const T) ?us
     if (needle.len > haystack.len) return null;
     if (needle.len == 0) return haystack.len;
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
+    if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return lastIndexOfLinear(T, haystack, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -1350,7 +1440,7 @@ pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, nee
         return indexOfScalarPos(T, haystack, start_index, needle[0]);
     }
 
-    if (!meta.trait.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
+    if (!std.meta.hasUniqueRepresentation(T) or haystack.len < 52 or needle.len <= 4)
         return indexOfPosLinear(T, haystack, start_index, needle);
 
     const haystack_bytes = sliceAsBytes(haystack);
@@ -1906,13 +1996,34 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
-    if (@typeInfo(S) != .Struct) @compileError("byteSwapAllFields expects a struct as the first argument");
-    inline for (std.meta.fields(S)) |f| {
-        if (@typeInfo(f.type) == .Struct) {
-            byteSwapAllFields(f.type, &@field(ptr, f.name));
-        } else {
-            @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
-        }
+    switch (@typeInfo(S)) {
+        .Struct => {
+            inline for (std.meta.fields(S)) |f| {
+                switch (@typeInfo(f.type)) {
+                    .Struct, .Array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .Enum => {
+                        @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
+                    },
+                    else => {
+                        @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
+                    },
+                }
+            }
+        },
+        .Array => {
+            for (ptr) |*item| {
+                switch (@typeInfo(@TypeOf(item.*))) {
+                    .Struct, .Array => byteSwapAllFields(@TypeOf(item.*), item),
+                    .Enum => {
+                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
+                    },
+                    else => {
+                        item.* = @byteSwap(item.*);
+                    },
+                }
+            }
+        },
+        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
     }
 }
 
@@ -1921,21 +2032,25 @@ test "byteSwapAllFields" {
         f0: u8,
         f1: u16,
         f2: u32,
+        f3: [1]u8,
     };
     const K = extern struct {
         f0: u8,
         f1: T,
         f2: u16,
+        f3: [1]u8,
     };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
+        .f3 = .{0x12},
     };
     var k = K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x1234,
+        .f3 = .{0x12},
     };
     byteSwapAllFields(T, &s);
     byteSwapAllFields(K, &k);
@@ -1943,11 +2058,13 @@ test "byteSwapAllFields" {
         .f0 = 0x12,
         .f1 = 0x3412,
         .f2 = 0x78563412,
+        .f3 = .{0x12},
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x3412,
+        .f3 = .{0x12},
     }, k);
 }
 
@@ -2954,12 +3071,12 @@ fn joinMaybeZ(allocator: Allocator, separator: []const u8, slices: []const []con
     const buf = try allocator.alloc(u8, total_len);
     errdefer allocator.free(buf);
 
-    copy(u8, buf, slices[0]);
+    @memcpy(buf[0..slices[0].len], slices[0]);
     var buf_index: usize = slices[0].len;
     for (slices[1..]) |slice| {
-        copy(u8, buf[buf_index..], separator);
+        @memcpy(buf[buf_index .. buf_index + separator.len], separator);
         buf_index += separator.len;
-        copy(u8, buf[buf_index..], slice);
+        @memcpy(buf[buf_index .. buf_index + slice.len], slice);
         buf_index += slice.len;
     }
 
@@ -3052,7 +3169,7 @@ pub fn concatMaybeSentinel(allocator: Allocator, comptime T: type, slices: []con
 
     var buf_index: usize = 0;
     for (slices) |slice| {
-        copy(T, buf[buf_index..], slice);
+        @memcpy(buf[buf_index .. buf_index + slice.len], slice);
         buf_index += slice.len;
     }
 
@@ -3270,7 +3387,7 @@ test "indexOfMax" {
 /// Finds the indices of the smallest and largest number in a slice. O(n).
 /// Returns an anonymous struct with the fields `index_min` and `index_max`.
 /// `slice` must not be empty.
-pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usize, index_max: usize } {
+pub fn indexOfMinMax(comptime T: type, slice: []const T) IndexOfMinMaxResult {
     assert(slice.len > 0);
     var minVal = slice[0];
     var maxVal = slice[0];
@@ -3289,10 +3406,12 @@ pub fn indexOfMinMax(comptime T: type, slice: []const T) struct { index_min: usi
     return .{ .index_min = minIdx, .index_max = maxIdx };
 }
 
+pub const IndexOfMinMaxResult = struct { index_min: usize, index_max: usize };
+
 test "indexOfMinMax" {
-    try testing.expectEqual(indexOfMinMax(u8, "abcdefg"), .{ .index_min = 0, .index_max = 6 });
-    try testing.expectEqual(indexOfMinMax(u8, "gabcdef"), .{ .index_min = 1, .index_max = 0 });
-    try testing.expectEqual(indexOfMinMax(u8, "a"), .{ .index_min = 0, .index_max = 0 });
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 6 }, indexOfMinMax(u8, "abcdefg"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 1, .index_max = 0 }, indexOfMinMax(u8, "gabcdef"));
+    try testing.expectEqual(IndexOfMinMaxResult{ .index_min = 0, .index_max = 0 }, indexOfMinMax(u8, "a"));
 }
 
 pub fn swap(comptime T: type, a: *T, b: *T) void {
@@ -3368,13 +3487,7 @@ fn ReverseIterator(comptime T: type) type {
 
 /// Iterates over a slice in reverse.
 pub fn reverseIterator(slice: anytype) ReverseIterator(@TypeOf(slice)) {
-    const T = @TypeOf(slice);
-    if (comptime trait.isPtrTo(.Array)(T)) {
-        return .{ .ptr = slice, .index = slice.len };
-    } else {
-        comptime assert(trait.isSlice(T));
-        return .{ .ptr = slice.ptr, .index = slice.len };
-    }
+    return .{ .ptr = slice.ptr, .index = slice.len };
 }
 
 test "reverseIterator" {
@@ -3394,12 +3507,12 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, null), it.next());
 
         it = reverseIterator(slice);
-        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expect(*const i32 == @TypeOf(it.nextPtr().?));
         try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
 
-        var mut_slice: []i32 = &array;
+        const mut_slice: []i32 = &array;
         var mut_it = reverseIterator(mut_slice);
         mut_it.nextPtr().?.* += 1;
         mut_it.nextPtr().?.* += 2;
@@ -3414,12 +3527,12 @@ test "reverseIterator" {
         try testing.expectEqual(@as(?i32, null), it.next());
 
         it = reverseIterator(ptr_to_array);
-        try testing.expect(trait.isConstPtr(@TypeOf(it.nextPtr().?)));
+        try testing.expect(*const i32 == @TypeOf(it.nextPtr().?));
         try testing.expectEqual(@as(?i32, 7), it.nextPtr().?.*);
         try testing.expectEqual(@as(?i32, 3), it.nextPtr().?.*);
         try testing.expectEqual(@as(?*const i32, null), it.nextPtr());
 
-        var mut_ptr_to_array: *[2]i32 = &array;
+        const mut_ptr_to_array: *[2]i32 = &array;
         var mut_it = reverseIterator(mut_ptr_to_array);
         mut_it.nextPtr().?.* += 1;
         mut_it.nextPtr().?.* += 2;
@@ -3581,7 +3694,7 @@ test "replacementSize" {
 
 /// Perform a replacement on an allocated buffer of pre-determined size. Caller must free returned memory.
 pub fn replaceOwned(comptime T: type, allocator: Allocator, input: []const T, needle: []const T, replacement: []const T) Allocator.Error![]T {
-    var output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
+    const output = try allocator.alloc(T, replacementSize(T, input, needle, replacement));
     _ = replace(T, input, needle, replacement, output);
     return output;
 }
@@ -3693,8 +3806,8 @@ pub fn alignPointer(ptr: anytype, align_to: usize) ?@TypeOf(ptr) {
 test "alignPointer" {
     const S = struct {
         fn checkAlign(comptime T: type, base: usize, align_to: usize, expected: usize) !void {
-            var ptr = @as(T, @ptrFromInt(base));
-            var aligned = alignPointer(ptr, align_to);
+            const ptr: T = @ptrFromInt(base);
+            const aligned = alignPointer(ptr, align_to);
             try testing.expectEqual(expected, @intFromPtr(aligned));
         }
     };
@@ -3730,11 +3843,7 @@ fn CopyPtrAttrs(
 }
 
 fn AsBytesReturnType(comptime P: type) type {
-    if (!trait.isSingleItemPtr(P))
-        @compileError("expected single item pointer, passed " ++ @typeName(P));
-
-    const size = @sizeOf(meta.Child(P));
-
+    const size = @sizeOf(std.meta.Child(P));
     return CopyPtrAttrs(P, .One, [size]u8);
 }
 
@@ -3818,21 +3927,13 @@ test "toBytes" {
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-    const size = @as(usize, @sizeOf(T));
-
-    if (comptime !trait.is(.Pointer)(B) or
-        (meta.Child(B) != [size]u8 and meta.Child(B) != [size:0]u8))
-    {
-        @compileError(std.fmt.comptimePrint("expected *[{}]u8, passed " ++ @typeName(B), .{size}));
-    }
-
     return CopyPtrAttrs(B, .One, T);
 }
 
 /// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
 /// backed by those bytes, preserving pointer attributes.
 pub fn bytesAsValue(comptime T: type, bytes: anytype) BytesAsValueReturnType(T, @TypeOf(bytes)) {
-    return @as(BytesAsValueReturnType(T, @TypeOf(bytes)), @ptrCast(bytes));
+    return @ptrCast(bytes);
 }
 
 test "bytesAsValue" {
@@ -3848,7 +3949,7 @@ test "bytesAsValue" {
         .big => "\xC0\xDE\xFA\xCE",
         .little => "\xCE\xFA\xDE\xC0",
     }.*;
-    var codeface = bytesAsValue(u32, &codeface_bytes);
+    const codeface = bytesAsValue(u32, &codeface_bytes);
     try testing.expect(codeface.* == 0xC0DEFACE);
     codeface.* = 0;
     for (codeface_bytes) |b|
@@ -3872,7 +3973,7 @@ test "bytesAsValue" {
         .big => "\xA1\xDE\xEF\xBE",
     };
     const inst2 = bytesAsValue(S, inst_bytes);
-    try testing.expect(meta.eql(inst, inst2.*));
+    try testing.expect(std.meta.eql(inst, inst2.*));
 }
 
 test "bytesAsValue preserves pointer attributes" {
@@ -3905,14 +4006,6 @@ test "bytesToValue" {
 }
 
 fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
-    if (!(trait.isSlice(bytesType) or trait.isPtrTo(.Array)(bytesType)) or meta.Elem(bytesType) != u8) {
-        @compileError("expected []u8 or *[_]u8, passed " ++ @typeName(bytesType));
-    }
-
-    if (trait.isPtrTo(.Array)(bytesType) and @typeInfo(meta.Child(bytesType)).Array.len % @sizeOf(T) != 0) {
-        @compileError("number of bytes in " ++ @typeName(bytesType) ++ " is not divisible by size of " ++ @typeName(T));
-    }
-
     return CopyPtrAttrs(bytesType, .Slice, T);
 }
 
@@ -3941,6 +4034,7 @@ test "bytesAsSlice" {
     {
         const bytes = [_]u8{ 0xDE, 0xAD, 0xBE, 0xEF };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const slice = bytesAsSlice(u16, bytes[runtime_zero..]);
         try testing.expect(slice.len == 2);
         try testing.expect(bigToNative(u16, slice[0]) == 0xDEAD);
@@ -3957,6 +4051,7 @@ test "bytesAsSlice keeps pointer alignment" {
     {
         var bytes = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
         var runtime_zero: usize = 0;
+        _ = &runtime_zero;
         const numbers = bytesAsSlice(u32, bytes[runtime_zero..]);
         try comptime testing.expect(@TypeOf(numbers) == []align(@alignOf(@TypeOf(bytes))) u32);
     }
@@ -3967,8 +4062,8 @@ test "bytesAsSlice on a packed struct" {
         a: u8,
     };
 
-    var b = [1]u8{9};
-    var f = bytesAsSlice(F, &b);
+    const b: [1]u8 = .{9};
+    const f = bytesAsSlice(F, &b);
     try testing.expect(f[0].a == 9);
 }
 
@@ -3998,10 +4093,6 @@ test "bytesAsSlice preserves pointer attributes" {
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {
-    if (!trait.isSlice(Slice) and !trait.isPtrTo(.Array)(Slice)) {
-        @compileError("expected []T or *[_]T, passed " ++ @typeName(Slice));
-    }
-
     return CopyPtrAttrs(Slice, .Slice, u8);
 }
 
@@ -4010,15 +4101,15 @@ pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     const Slice = @TypeOf(slice);
 
     // a slice of zero-bit values always occupies zero bytes
-    if (@sizeOf(meta.Elem(Slice)) == 0) return &[0]u8{};
+    if (@sizeOf(std.meta.Elem(Slice)) == 0) return &[0]u8{};
 
     // let's not give an undefined pointer to @ptrCast
     // it may be equal to zero and fail a null check
-    if (slice.len == 0 and comptime meta.sentinel(Slice) == null) return &[0]u8{};
+    if (slice.len == 0 and std.meta.sentinel(Slice) == null) return &[0]u8{};
 
     const cast_target = CopyPtrAttrs(Slice, .Many, u8);
 
-    return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(meta.Elem(Slice))];
+    return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(std.meta.Elem(Slice))];
 }
 
 test "sliceAsBytes" {
@@ -4120,8 +4211,7 @@ pub const alignForwardGeneric = @compileError("renamed to alignForward");
 /// result eventually gets discarded.
 // TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/zig/issues/6168
 pub fn doNotOptimizeAway(val: anytype) void {
-    var a: u8 = 0;
-    if (@typeInfo(@TypeOf(.{a})).Struct.fields[0].is_comptime) return;
+    if (@inComptime()) return;
 
     const max_gp_register_bits = @bitSizeOf(c_long);
     const t = @typeInfo(@TypeOf(val));
@@ -4354,7 +4444,7 @@ test "read/write(Var)PackedInt" {
 
     const foreign_endian: Endian = if (native_endian == .big) .little else .big;
     const expect = std.testing.expect;
-    var prng = std.rand.DefaultPrng.init(1234);
+    var prng = std.Random.DefaultPrng.init(1234);
     const random = prng.random();
 
     @setEvalBranchQuota(10_000);

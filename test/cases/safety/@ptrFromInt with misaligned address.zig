@@ -9,7 +9,8 @@ pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usi
 }
 pub fn main() !void {
     var x: usize = 5;
-    var y: [*]align(4) u8 = @ptrFromInt(x);
+    _ = &x;
+    const y: [*]align(4) u8 = @ptrFromInt(x);
     _ = y;
     return error.TestFailed;
 }

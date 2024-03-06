@@ -58,7 +58,7 @@ test "chdir smoke test" {
     {
         // Create a tmp directory
         var tmp_dir_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-        var tmp_dir_path = path: {
+        const tmp_dir_path = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
         };
@@ -72,7 +72,7 @@ test "chdir smoke test" {
 
         // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
         var resolved_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-        var resolved_cwd = path: {
+        const resolved_cwd = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
         };
@@ -87,6 +87,7 @@ test "chdir smoke test" {
 
 test "open smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
 
@@ -109,21 +110,21 @@ test "open smoke test" {
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.PathAlreadyExists, os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode));
 
-    // Try opening without `O.EXCL` flag.
+    // Try opening without `EXCL` flag.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true }, mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.NotDir, os.open(file_path, os.O.RDWR | os.O.DIRECTORY, mode));
+    try expectError(error.NotDir, os.open(file_path, .{ .ACCMODE = .RDWR, .DIRECTORY = true }, mode));
 
     // Create some directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
@@ -131,16 +132,17 @@ test "open smoke test" {
 
     // Open dir using `open`
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    fd = try os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
     os.close(fd);
 
     // Try opening as file which should fail.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try expectError(error.IsDir, os.open(file_path, os.O.RDWR, mode));
+    try expectError(error.IsDir, os.open(file_path, .{ .ACCMODE = .RDWR }, mode));
 }
 
 test "openat smoke test" {
     if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
 
@@ -151,28 +153,47 @@ test "openat smoke test" {
     const mode: os.mode_t = if (native_os == .windows) 0 else 0o666;
 
     // Create some file using `openat`.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .CREAT = true,
+        .EXCL = true,
+    }), mode);
     os.close(fd);
 
     // Try this again with the same flags. This op should fail with error.PathAlreadyExists.
-    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT | os.O.EXCL, mode));
+    try expectError(error.PathAlreadyExists, os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .CREAT = true,
+        .EXCL = true,
+    }), mode));
 
-    // Try opening without `O.EXCL` flag.
-    fd = try os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.CREAT, mode);
+    // Try opening without `EXCL` flag.
+    fd = try os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .CREAT = true,
+    }), mode);
     os.close(fd);
 
     // Try opening as a directory which should fail.
-    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.O.RDWR | os.O.DIRECTORY, mode));
+    try expectError(error.NotDir, os.openat(tmp.dir.fd, "some_file", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+        .DIRECTORY = true,
+    }), mode));
 
     // Create some directory
     try os.mkdirat(tmp.dir.fd, "some_dir", mode);
 
     // Open dir using `open`
-    fd = try os.openat(tmp.dir.fd, "some_dir", os.O.RDONLY | os.O.DIRECTORY, mode);
+    fd = try os.openat(tmp.dir.fd, "some_dir", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDONLY,
+        .DIRECTORY = true,
+    }), mode);
     os.close(fd);
 
     // Try opening as file which should fail.
-    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.O.RDWR, mode));
+    try expectError(error.IsDir, os.openat(tmp.dir.fd, "some_dir", os.CommonOpenFlags.lower(.{
+        .ACCMODE = .RDWR,
+    }), mode));
 }
 
 test "symlink with relative paths" {
@@ -372,7 +393,7 @@ fn testThreadIdFn(thread_id: *Thread.Id) void {
     thread_id.* = Thread.getCurrentId();
 }
 
-test "std.Thread.getCurrentId" {
+test "Thread.getCurrentId" {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var thread_current_id: Thread.Id = undefined;
@@ -523,7 +544,7 @@ test "pipe" {
     if (native_os == .windows or native_os == .wasi)
         return error.SkipZigTest;
 
-    var fds = try os.pipe();
+    const fds = try os.pipe();
     try expect((try os.write(fds[1], "hello")) == 5);
     var buf: [16]u8 = undefined;
     try expect((try os.read(fds[0], buf[0..])) == 5);
@@ -533,7 +554,7 @@ test "pipe" {
 }
 
 test "argsAlloc" {
-    var args = try std.process.argsAlloc(std.testing.allocator);
+    const args = try std.process.argsAlloc(std.testing.allocator);
     std.process.argsFree(std.testing.allocator, args);
 }
 
@@ -576,7 +597,7 @@ test "mmap" {
             null,
             1234,
             os.PROT.READ | os.PROT.WRITE,
-            os.MAP.ANONYMOUS | os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         );
@@ -618,7 +639,7 @@ test "mmap" {
             null,
             alloc_size,
             os.PROT.READ,
-            os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE },
             file.handle,
             0,
         );
@@ -642,7 +663,7 @@ test "mmap" {
             null,
             alloc_size / 2,
             os.PROT.READ,
-            os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE },
             file.handle,
             alloc_size / 2,
         );
@@ -688,7 +709,7 @@ test "fcntl" {
         tmp.dir.deleteFile(test_out_file) catch {};
     }
 
-    // Note: The test assumes createFile opens the file with O.CLOEXEC
+    // Note: The test assumes createFile opens the file with CLOEXEC
     {
         const flags = try os.fcntl(file.handle, os.F.GETFD, 0);
         try expect((flags & os.FD_CLOEXEC) != 0);
@@ -760,6 +781,13 @@ test "getrlimit and setrlimit" {
         const resource = @as(os.rlimit_resource, @enumFromInt(field.value));
         const limit = try os.getrlimit(resource);
 
+        // XNU kernel does not support RLIMIT_STACK if a custom stack is active,
+        // which looks to always be the case. EINVAL is returned.
+        // See https://github.com/apple-oss-distributions/xnu/blob/5e3eaea39dcf651e66cb99ba7d70e32cc4a99587/bsd/kern/kern_resource.c#L1173
+        if (builtin.os.tag.isDarwin() and resource == .STACK) {
+            continue;
+        }
+
         // On 32 bit MIPS musl includes a fix which changes limits greater than -1UL/2 to RLIM_INFINITY.
         // See http://git.musl-libc.org/cgit/musl/commit/src/misc/getrlimit.c?id=8258014fd1e34e942a549c88c7e022a00445c352
         //
@@ -791,7 +819,7 @@ test "shutdown socket" {
         error.SocketNotConnected => {},
         else => |e| return e,
     };
-    os.closeSocket(sock);
+    std.net.Stream.close(.{ .handle = sock });
 }
 
 test "sigaction" {
@@ -982,6 +1010,7 @@ test "POSIX file locking with fcntl" {
 
 test "rename smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1002,7 +1031,7 @@ test "rename smoke test" {
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
     os.close(fd);
 
     // Rename the file
@@ -1011,12 +1040,12 @@ test "rename smoke test" {
 
     // Try opening renamed file
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_file" });
-    fd = try os.open(file_path, os.O.RDWR, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR }, mode);
     os.close(fd);
 
     // Try opening original file - should fail with error.FileNotFound
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    try expectError(error.FileNotFound, os.open(file_path, os.O.RDWR, mode));
+    try expectError(error.FileNotFound, os.open(file_path, .{ .ACCMODE = .RDWR }, mode));
 
     // Create some directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
@@ -1028,16 +1057,17 @@ test "rename smoke test" {
 
     // Try opening renamed directory
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_other_dir" });
-    fd = try os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode);
     os.close(fd);
 
     // Try opening original directory - should fail with error.FileNotFound
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_dir" });
-    try expectError(error.FileNotFound, os.open(file_path, os.O.RDONLY | os.O.DIRECTORY, mode));
+    try expectError(error.FileNotFound, os.open(file_path, .{ .ACCMODE = .RDONLY, .DIRECTORY = true }, mode));
 }
 
 test "access smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1058,7 +1088,7 @@ test "access smoke test" {
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
-    fd = try os.open(file_path, os.O.RDWR | os.O.CREAT | os.O.EXCL, mode);
+    fd = try os.open(file_path, .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true }, mode);
     os.close(fd);
 
     // Try to access() the file
@@ -1083,22 +1113,21 @@ test "access smoke test" {
 }
 
 test "timerfd" {
-    if (native_os != .linux)
-        return error.SkipZigTest;
+    if (native_os != .linux) return error.SkipZigTest;
 
     const linux = os.linux;
-    var tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, linux.TFD.CLOEXEC);
+    const tfd = try os.timerfd_create(linux.CLOCK.MONOTONIC, .{ .CLOEXEC = true });
     defer os.close(tfd);
 
     // Fire event 10_000_000ns = 10ms after the os.timerfd_settime call.
     var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10 * (1000 * 1000) } };
-    try os.timerfd_settime(tfd, 0, &sit, null);
+    try os.timerfd_settime(tfd, .{}, &sit, null);
 
     var fds: [1]os.pollfd = .{.{ .fd = tfd, .events = os.linux.POLL.IN, .revents = 0 }};
     try expectEqual(@as(usize, 1), try os.poll(&fds, -1)); // -1 => infinite waiting
 
-    var git = try os.timerfd_gettime(tfd);
-    var expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
+    const git = try os.timerfd_gettime(tfd);
+    const expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
     try expectEqual(expect_disarmed_timer, git);
 }
 
@@ -1128,11 +1157,11 @@ test "read with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{ .read = true });
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.read(file.handle, bytes);
 }
@@ -1153,11 +1182,11 @@ test "pread with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{ .read = true });
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.pread(file.handle, bytes, 0);
 }
@@ -1178,11 +1207,11 @@ test "write with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{});
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.write(file.handle, bytes);
 }
@@ -1203,13 +1232,18 @@ test "pwrite with empty buffer" {
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
-    var file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
+    const file_path: []u8 = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
     var file = try fs.cwd().createFile(file_path, .{});
     defer file.close();
 
-    var bytes = try allocator.alloc(u8, 0);
+    const bytes = try allocator.alloc(u8, 0);
 
     _ = try os.pwrite(file.handle, bytes, 0);
+}
+
+fn expectMode(dir: os.fd_t, file: []const u8, mode: os.mode_t) !void {
+    const st = try os.fstatat(dir, file, os.AT.SYMLINK_NOFOLLOW);
+    try expectEqual(mode, st.mode & 0b111_111_111);
 }
 
 test "fchmodat smoke test" {
@@ -1218,10 +1252,35 @@ test "fchmodat smoke test" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    try expectError(error.FileNotFound, os.fchmodat(tmp.dir.fd, "foo.txt", 0o666, 0));
-    const fd = try os.openat(tmp.dir.fd, "foo.txt", os.O.RDWR | os.O.CREAT | os.O.EXCL, 0o666);
+    try expectError(error.FileNotFound, os.fchmodat(tmp.dir.fd, "regfile", 0o666, 0));
+    const fd = try os.openat(
+        tmp.dir.fd,
+        "regfile",
+        .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .TRUNC = true },
+        0o644,
+    );
     os.close(fd);
-    try os.fchmodat(tmp.dir.fd, "foo.txt", 0o755, 0);
-    const st = try os.fstatat(tmp.dir.fd, "foo.txt", 0);
-    try expectEqual(@as(os.mode_t, 0o755), st.mode & 0b111_111_111);
+    try os.symlinkat("regfile", tmp.dir.fd, "symlink");
+    const sym_mode = blk: {
+        const st = try os.fstatat(tmp.dir.fd, "symlink", os.AT.SYMLINK_NOFOLLOW);
+        break :blk st.mode & 0b111_111_111;
+    };
+
+    try os.fchmodat(tmp.dir.fd, "regfile", 0o640, 0);
+    try expectMode(tmp.dir.fd, "regfile", 0o640);
+    try os.fchmodat(tmp.dir.fd, "regfile", 0o600, os.AT.SYMLINK_NOFOLLOW);
+    try expectMode(tmp.dir.fd, "regfile", 0o600);
+
+    try os.fchmodat(tmp.dir.fd, "symlink", 0o640, 0);
+    try expectMode(tmp.dir.fd, "regfile", 0o640);
+    try expectMode(tmp.dir.fd, "symlink", sym_mode);
+
+    var test_link = true;
+    os.fchmodat(tmp.dir.fd, "symlink", 0o600, os.AT.SYMLINK_NOFOLLOW) catch |err| switch (err) {
+        error.OperationNotSupported => test_link = false,
+        else => |e| return e,
+    };
+    if (test_link)
+        try expectMode(tmp.dir.fd, "symlink", 0o600);
+    try expectMode(tmp.dir.fd, "regfile", 0o640);
 }

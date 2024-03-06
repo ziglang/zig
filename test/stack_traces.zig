@@ -20,7 +20,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -31,6 +31,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -70,7 +71,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -83,6 +84,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -125,7 +127,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -136,6 +138,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -176,7 +179,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -187,6 +190,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -230,7 +234,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -244,6 +248,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -286,7 +291,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -297,6 +302,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -336,7 +342,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -350,6 +356,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -391,7 +398,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -402,6 +409,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -461,7 +469,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
                 .linux, // defeated by aggressive inlining
             },
@@ -478,6 +486,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -531,7 +540,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -547,6 +556,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -595,7 +605,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -611,6 +621,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\        ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -659,7 +670,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -675,6 +686,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\        ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -728,7 +740,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             ,
         },
         .ReleaseSafe = .{
-            .exclude_os = .{
+            .exclude_os = &.{
                 .windows, // TODO
             },
             .expect =
@@ -747,6 +759,7 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\    ^
             \\
             ,
+            .error_tracing = true,
         },
         .ReleaseFast = .{
             .expect =
@@ -763,10 +776,6 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
     });
 
     cases.addCase(.{
-        .exclude_os = .{
-            .openbsd, // integer overflow
-            .windows, // TODO intermittent failures
-        },
         .name = "dumpCurrentStackTrace",
         .source =
         \\const std = @import("std");
@@ -783,6 +792,10 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
         \\}
         ,
         .Debug = .{
+            .exclude_os = &.{
+                .openbsd, // integer overflow
+                .windows, // TODO intermittent failures
+            },
             .expect =
             \\source.zig:7:8: [address] in foo (test)
             \\    bar();
@@ -790,6 +803,61 @@ pub fn addCases(cases: *tests.StackTracesContext) void {
             \\source.zig:10:8: [address] in main (test)
             \\    foo();
             \\       ^
+            \\
+            ,
+        },
+    });
+    cases.addCase(.{
+        .name = "error union switch with call operand",
+        .source =
+        \\pub fn main() !void {
+        \\    try foo();
+        \\    return error.TheSkyIsFalling;
+        \\}
+        \\
+        \\noinline fn failure() error{ Fatal, NonFatal }!void {
+        \\    return error.NonFatal;
+        \\}
+        \\
+        \\fn foo() error{Fatal}!void {
+        \\    return failure() catch |err| switch (err) {
+        \\        error.Fatal => return error.Fatal,
+        \\        error.NonFatal => return,
+        \\    };
+        \\}
+        ,
+        .Debug = .{
+            .expect =
+            \\error: TheSkyIsFalling
+            \\source.zig:3:5: [address] in main (test)
+            \\    return error.TheSkyIsFalling;
+            \\    ^
+            \\
+            ,
+        },
+        .ReleaseSafe = .{
+            .exclude_os = &.{
+                .windows, // TODO
+                .linux, // defeated by aggressive inlining
+            },
+            .expect =
+            \\error: TheSkyIsFalling
+            \\source.zig:3:5: [address] in [function]
+            \\    return error.TheSkyIsFalling;
+            \\    ^
+            \\
+            ,
+            .error_tracing = true,
+        },
+        .ReleaseFast = .{
+            .expect =
+            \\error: TheSkyIsFalling
+            \\
+            ,
+        },
+        .ReleaseSmall = .{
+            .expect =
+            \\error: TheSkyIsFalling
             \\
             ,
         },

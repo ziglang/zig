@@ -4,7 +4,7 @@ export fn foo1() void {
     _ = word;
 }
 export fn foo2() void {
-    var bytes: []const u8 = &[_]u8{ 1, 2 };
+    const bytes: []const u8 = &[_]u8{ 1, 2 };
     const word: u16 = @bitCast(bytes);
     _ = word;
 }

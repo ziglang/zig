@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
+const assert = std.debug.assert;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
@@ -21,6 +22,7 @@ fn testLocVars(b: i32) void {
 
 test "mutable local variables" {
     var zero: i32 = 0;
+    _ = &zero;
     try expect(zero == 0);
 
     var i = @as(i32, 0);
@@ -70,7 +72,7 @@ fn outer(y: u32) *const fn (u32) u32 {
 test "return inner function which references comptime variable of outer function" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    var func = outer(10);
+    const func = outer(10);
     try expect(func(3) == 7);
 }
 
@@ -206,7 +208,7 @@ test "pass by non-copying value through var arg" {
 }
 
 fn addPointCoordsVar(pt: anytype) !i32 {
-    try comptime expect(@TypeOf(pt) == Point);
+    comptime assert(@TypeOf(pt) == Point);
     return pt.x + pt.y;
 }
 
@@ -259,7 +261,7 @@ test "implicit cast fn call result to optional in field result" {
 
     const S = struct {
         fn entry() !void {
-            var x = Foo{
+            const x = Foo{
                 .field = optionalPtr(),
             };
             try expect(x.field.?.* == 999);
@@ -386,6 +388,7 @@ test "ability to give comptime types and non comptime types to same parameter" {
     const S = struct {
         fn doTheTest() !void {
             var x: i32 = 1;
+            _ = &x;
             try expect(foo(x) == 10);
             try expect(foo(i32) == 20);
         }
@@ -413,11 +416,11 @@ test "import passed byref to function in return type" {
 
     const S = struct {
         fn get() @import("std").ArrayListUnmanaged(i32) {
-            var x: @import("std").ArrayListUnmanaged(i32) = .{};
+            const x: @import("std").ArrayListUnmanaged(i32) = .{};
             return x;
         }
     };
-    var list = S.get();
+    const list = S.get();
     try expect(list.items.len == 0);
 }
 
@@ -426,7 +429,7 @@ test "implicit cast function to function ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const S1 = struct {
         export fn someFunctionThatReturnsAValue() c_int {
@@ -434,11 +437,13 @@ test "implicit cast function to function ptr" {
         }
     };
     var fnPtr1: *const fn () callconv(.C) c_int = S1.someFunctionThatReturnsAValue;
+    _ = &fnPtr1;
     try expect(fnPtr1() == 123);
     const S2 = struct {
         extern fn someFunctionThatReturnsAValue() c_int;
     };
     var fnPtr2: *const fn () callconv(.C) c_int = S2.someFunctionThatReturnsAValue;
+    _ = &fnPtr2;
     try expect(fnPtr2() == 123);
 }
 
@@ -588,5 +593,15 @@ test "pointer to alias behaves same as pointer to function" {
         const bar = foo;
     };
     var a = &S.bar;
+    _ = &a;
     try std.testing.expect(S.foo() == a());
+}
+
+test "comptime parameters don't have to be marked comptime if only called at comptime" {
+    const S = struct {
+        fn foo(x: comptime_int, y: comptime_int) u32 {
+            return x + y;
+        }
+    };
+    comptime std.debug.assert(S.foo(5, 6) == 11);
 }

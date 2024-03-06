@@ -102,6 +102,15 @@ typedef struct _IPV6_ADDRESS_EX {
   ULONG  sin6_scope_id;
 } IPV6_ADDRESS_EX, *PIPV6_ADDRESS_EX;
 
+typedef struct icmpv6_echo_reply_lh {
+  IPV6_ADDRESS_EX Address;
+  ULONG Status;
+  unsigned int RoundTripTime;
+} ICMPV6_ECHO_REPLY_LH, *PICMPV6_ECHO_REPLY_LH;
+
+typedef ICMPV6_ECHO_REPLY_LH ICMPV6_ECHO_REPLY;
+typedef ICMPV6_ECHO_REPLY_LH *PICMPV6_ECHO_REPLY;
+
 #define IP_STATUS_BASE 11000
 
 #define IP_SUCCESS 0
@@ -161,6 +170,7 @@ typedef struct _IPV6_ADDRESS_EX {
 #define MAX_IP_STATUS IP_GENERAL_FAILURE
 #define IP_PENDING (IP_STATUS_BASE + 255)
 
+#define IP_FLAG_REVERSE 0x1
 #define IP_FLAG_DF 0x2
 
 #define IP_OPT_EOL 0

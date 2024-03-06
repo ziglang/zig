@@ -7,16 +7,7 @@
 #include <windows.h>
 #include <string.h>
 
-#if defined (_WIN64) && defined (__ia64__)
-#error FIXME: Unsupported __ImageBase implementation.
-#else
-#ifdef __GNUC__
-/* Hack, for bug in ld.  Will be removed soon.  */
-#define __ImageBase __MINGW_LSYMBOL(_image_base__)
-#endif
-/* This symbol is defined by the linker.  */
 extern IMAGE_DOS_HEADER __ImageBase;
-#endif
 
 WINBOOL _ValidateImageBase (PBYTE);
 

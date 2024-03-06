@@ -131,6 +131,31 @@ pub const Time = extern struct {
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
+
+    fn daysInYear(year: u16, maxMonth: u4) u32 {
+        const leapYear: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
+        var days: u32 = 0;
+        var month: u4 = 0;
+        while (month < maxMonth) : (month += 1) {
+            days += std.time.epoch.getDaysInMonth(leapYear, @enumFromInt(month + 1));
+        }
+        return days;
+    }
+
+    pub fn toEpoch(self: std.os.uefi.Time) u64 {
+        var year: u16 = 0;
+        var days: u32 = 0;
+
+        while (year < (self.year - 1971)) : (year += 1) {
+            days += daysInYear(year + 1970, 12);
+        }
+
+        days += daysInYear(self.year, @as(u4, @intCast(self.month)) - 1) + self.day;
+        const hours = self.hour + (days * 24);
+        const minutes = self.minute + (hours * 60);
+        const seconds = self.second + (minutes * std.time.s_per_min);
+        return self.nanosecond + (seconds * std.time.ns_per_s);
+    }
 };
 
 /// Capabilities of the clock device
@@ -149,11 +174,10 @@ pub const TimeCapabilities = extern struct {
 pub const FileHandle = *opaque {};
 
 test "GUID formatting" {
-    var bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
+    const bytes = [_]u8{ 137, 60, 203, 50, 128, 128, 124, 66, 186, 19, 80, 73, 135, 59, 194, 135 };
+    const guid: Guid = @bitCast(bytes);
 
-    var guid = @as(Guid, @bitCast(bytes));
-
-    var str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
+    const str = try std.fmt.allocPrint(std.testing.allocator, "{}", .{guid});
     defer std.testing.allocator.free(str);
 
     try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));

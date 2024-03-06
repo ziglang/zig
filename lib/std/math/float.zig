@@ -132,33 +132,33 @@ test "float bits" {
     }
 }
 
-test "math.inf" {
+test inf {
     const inf_u16: u16 = 0x7C00;
     const inf_u32: u32 = 0x7F800000;
     const inf_u64: u64 = 0x7FF0000000000000;
     const inf_u80: u80 = 0x7FFF8000000000000000;
     const inf_u128: u128 = 0x7FFF0000000000000000000000000000;
-    try expectEqual(inf_u16, @bitCast(inf(f16)));
-    try expectEqual(inf_u32, @bitCast(inf(f32)));
-    try expectEqual(inf_u64, @bitCast(inf(f64)));
-    try expectEqual(inf_u80, @bitCast(inf(f80)));
-    try expectEqual(inf_u128, @bitCast(inf(f128)));
+    try expectEqual(inf_u16, @as(u16, @bitCast(inf(f16))));
+    try expectEqual(inf_u32, @as(u32, @bitCast(inf(f32))));
+    try expectEqual(inf_u64, @as(u64, @bitCast(inf(f64))));
+    try expectEqual(inf_u80, @as(u80, @bitCast(inf(f80))));
+    try expectEqual(inf_u128, @as(u128, @bitCast(inf(f128))));
 }
 
-test "math.nan" {
+test nan {
     const qnan_u16: u16 = 0x7E00;
     const qnan_u32: u32 = 0x7FC00000;
     const qnan_u64: u64 = 0x7FF8000000000000;
     const qnan_u80: u80 = 0x7FFFC000000000000000;
     const qnan_u128: u128 = 0x7FFF8000000000000000000000000000;
-    try expectEqual(qnan_u16, @bitCast(nan(f16)));
-    try expectEqual(qnan_u32, @bitCast(nan(f32)));
-    try expectEqual(qnan_u64, @bitCast(nan(f64)));
-    try expectEqual(qnan_u80, @bitCast(nan(f80)));
-    try expectEqual(qnan_u128, @bitCast(nan(f128)));
+    try expectEqual(qnan_u16, @as(u16, @bitCast(nan(f16))));
+    try expectEqual(qnan_u32, @as(u32, @bitCast(nan(f32))));
+    try expectEqual(qnan_u64, @as(u64, @bitCast(nan(f64))));
+    try expectEqual(qnan_u80, @as(u80, @bitCast(nan(f80))));
+    try expectEqual(qnan_u128, @as(u128, @bitCast(nan(f128))));
 }
 
-test "math.snan" {
+test snan {
     // TODO: https://github.com/ziglang/zig/issues/14366
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 
@@ -167,9 +167,9 @@ test "math.snan" {
     const snan_u64: u64 = 0x7FF4000000000000;
     const snan_u80: u80 = 0x7FFFA000000000000000;
     const snan_u128: u128 = 0x7FFF4000000000000000000000000000;
-    try expectEqual(snan_u16, @bitCast(snan(f16)));
-    try expectEqual(snan_u32, @bitCast(snan(f32)));
-    try expectEqual(snan_u64, @bitCast(snan(f64)));
-    try expectEqual(snan_u80, @bitCast(snan(f80)));
-    try expectEqual(snan_u128, @bitCast(snan(f128)));
+    try expectEqual(snan_u16, @as(u16, @bitCast(snan(f16))));
+    try expectEqual(snan_u32, @as(u32, @bitCast(snan(f32))));
+    try expectEqual(snan_u64, @as(u64, @bitCast(snan(f64))));
+    try expectEqual(snan_u80, @as(u80, @bitCast(snan(f80))));
+    try expectEqual(snan_u128, @as(u128, @bitCast(snan(f128))));
 }

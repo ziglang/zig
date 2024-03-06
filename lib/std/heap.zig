@@ -38,25 +38,14 @@ const CAllocator = struct {
         }
     }
 
-    usingnamespace if (@hasDecl(c, "malloc_size"))
-        struct {
-            pub const supports_malloc_size = true;
-            pub const malloc_size = c.malloc_size;
-        }
+    pub const supports_malloc_size = @TypeOf(malloc_size) != void;
+    pub const malloc_size = if (@hasDecl(c, "malloc_size"))
+        c.malloc_size
     else if (@hasDecl(c, "malloc_usable_size"))
-        struct {
-            pub const supports_malloc_size = true;
-            pub const malloc_size = c.malloc_usable_size;
-        }
+        c.malloc_usable_size
     else if (@hasDecl(c, "_msize"))
-        struct {
-            pub const supports_malloc_size = true;
-            pub const malloc_size = c._msize;
-        }
-    else
-        struct {
-            pub const supports_malloc_size = false;
-        };
+        c._msize
+    else {};
 
     pub const supports_posix_memalign = @hasDecl(c, "posix_memalign");
 
@@ -81,10 +70,10 @@ const CAllocator = struct {
         // Thin wrapper around regular malloc, overallocate to account for
         // alignment padding and store the original malloc()'ed pointer before
         // the aligned address.
-        var unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
+        const unaligned_ptr = @as([*]u8, @ptrCast(c.malloc(len + alignment - 1 + @sizeOf(usize)) orelse return null));
         const unaligned_addr = @intFromPtr(unaligned_ptr);
         const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), alignment);
-        var aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
+        const aligned_ptr = unaligned_ptr + (aligned_addr - unaligned_addr);
         getHeader(aligned_ptr).* = unaligned_ptr;
 
         return aligned_ptr;
@@ -207,7 +196,16 @@ fn rawCResize(
 ) bool {
     _ = log2_old_align;
     _ = ret_addr;
-    return new_len <= buf.len;
+
+    if (new_len <= buf.len)
+        return true;
+
+    if (CAllocator.supports_malloc_size) {
+        const full_len = CAllocator.malloc_size(buf.ptr);
+        if (new_len <= full_len) return true;
+    }
+
+    return false;
 }
 
 fn rawCFree(
@@ -223,7 +221,11 @@ fn rawCFree(
 
 /// This allocator makes a syscall directly for every allocation and free.
 /// Thread-safe and lock-free.
-pub const page_allocator = if (builtin.target.isWasm())
+pub const page_allocator = if (@hasDecl(root, "os") and
+    @hasDecl(root.os, "heap") and
+    @hasDecl(root.os.heap, "page_allocator"))
+    root.os.heap.page_allocator
+else if (builtin.target.isWasm())
     Allocator{
         .ptr = undefined,
         .vtable = &WasmPageAllocator.vtable,
@@ -233,8 +235,6 @@ else if (builtin.target.os.tag == .plan9)
         .ptr = undefined,
         .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
     }
-else if (builtin.target.os.tag == .freestanding)
-    root.os.heap.page_allocator
 else
     Allocator{
         .ptr = undefined,
@@ -521,10 +521,16 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
         buffer: [size]u8,
         fallback_allocator: Allocator,
         fixed_buffer_allocator: FixedBufferAllocator,
+        get_called: if (std.debug.runtime_safety) bool else void =
+            if (std.debug.runtime_safety) false else {},
 
         /// This function both fetches a `Allocator` interface to this
         /// allocator *and* resets the internal buffer allocator.
         pub fn get(self: *Self) Allocator {
+            if (std.debug.runtime_safety) {
+                assert(!self.get_called); // `get` called multiple times; instead use `const allocator = stackFallback(N).get();`
+                self.get_called = true;
+            }
             self.fixed_buffer_allocator = FixedBufferAllocator.init(self.buffer[0..]);
             return .{
                 .ptr = self,
@@ -535,6 +541,12 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
                 },
             };
         }
+
+        /// Unlike most std allocators `StackFallbackAllocator` modifies
+        /// its internal state before returning an implementation of
+        /// the`Allocator` interface and therefore also doesn't use
+        /// the usual `.allocator()` method.
+        pub const allocator = @compileError("use 'const allocator = stackFallback(N).get();' instead");
 
         fn alloc(
             ctx: *anyopaque,
@@ -661,12 +673,12 @@ test "FixedBufferAllocator.reset" {
     const X = 0xeeeeeeeeeeeeeeee;
     const Y = 0xffffffffffffffff;
 
-    var x = try allocator.create(u64);
+    const x = try allocator.create(u64);
     x.* = X;
     try testing.expectError(error.OutOfMemory, allocator.create(u64));
 
     fba.reset();
-    var y = try allocator.create(u64);
+    const y = try allocator.create(u64);
     y.* = Y;
 
     // we expect Y to have overwritten X.
@@ -675,13 +687,22 @@ test "FixedBufferAllocator.reset" {
 }
 
 test "StackFallbackAllocator" {
-    const fallback_allocator = page_allocator;
-    var stack_allocator = stackFallback(4096, fallback_allocator);
-
-    try testAllocator(stack_allocator.get());
-    try testAllocatorAligned(stack_allocator.get());
-    try testAllocatorLargeAlignment(stack_allocator.get());
-    try testAllocatorAlignedShrink(stack_allocator.get());
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocator(stack_allocator.get());
+    }
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocatorAligned(stack_allocator.get());
+    }
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocatorLargeAlignment(stack_allocator.get());
+    }
+    {
+        var stack_allocator = stackFallback(4096, std.testing.allocator);
+        try testAllocatorAlignedShrink(stack_allocator.get());
+    }
 }
 
 test "FixedBufferAllocator Reuse memory on realloc" {
@@ -691,9 +712,9 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
         const allocator = fixed_buffer_allocator.allocator();
 
-        var slice0 = try allocator.alloc(u8, 5);
+        const slice0 = try allocator.alloc(u8, 5);
         try testing.expect(slice0.len == 5);
-        var slice1 = try allocator.realloc(slice0, 10);
+        const slice1 = try allocator.realloc(slice0, 10);
         try testing.expect(slice1.ptr == slice0.ptr);
         try testing.expect(slice1.len == 10);
         try testing.expectError(error.OutOfMemory, allocator.realloc(slice1, 11));
@@ -706,8 +727,8 @@ test "FixedBufferAllocator Reuse memory on realloc" {
         var slice0 = try allocator.alloc(u8, 2);
         slice0[0] = 1;
         slice0[1] = 2;
-        var slice1 = try allocator.alloc(u8, 2);
-        var slice2 = try allocator.realloc(slice0, 4);
+        const slice1 = try allocator.alloc(u8, 2);
+        const slice2 = try allocator.realloc(slice0, 4);
         try testing.expect(slice0.ptr != slice2.ptr);
         try testing.expect(slice1.ptr != slice2.ptr);
         try testing.expect(slice2[0] == 1);
@@ -757,7 +778,7 @@ pub fn testAllocator(base_allocator: mem.Allocator) !void {
     allocator.free(slice);
 
     // Zero-length allocation
-    var empty = try allocator.alloc(u8, 0);
+    const empty = try allocator.alloc(u8, 0);
     allocator.free(empty);
     // Allocation with zero-sized types
     const zero_bit_ptr = try allocator.create(u0);

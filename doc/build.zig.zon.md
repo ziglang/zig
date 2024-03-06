@@ -18,12 +18,6 @@ String. Required.
 
 [semver](https://semver.org/)
 
-### `dependencies`
-
-Struct.
-
-Each dependency must either provide a `url` and `hash`, or a `path`.
-
 ### `minimum_zig_version`
 
 String. Optional.
@@ -32,6 +26,12 @@ String. Optional.
 
 This is currently advisory only; the compiler does not yet do anything
 with this version.
+
+### `dependencies`
+
+Struct.
+
+Each dependency must either provide a `url` and `hash`, or a `path`.
 
 #### `url`
 
@@ -51,7 +51,7 @@ This is computed from the file contents of the directory of files that is
 obtained after fetching `url` and applying the inclusion rules given by
 `paths`.
 
-This field is the source of truth; packages do not come from an `url`; they
+This field is the source of truth; packages do not come from a `url`; they
 come from a `hash`. `url` is just one of many possible mirrors for how to
 obtain a package matching this `hash`.
 
@@ -61,7 +61,7 @@ String.
 
 When this is provided, the package is found in a directory relative to the
 build root. In this case the package's hash is irrelevant and therefore not
-computed.
+computed. This field and `url` are mutually exclusive.
 
 ### `paths`
 

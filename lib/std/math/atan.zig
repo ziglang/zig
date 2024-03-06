@@ -6,6 +6,7 @@
 
 const std = @import("../std.zig");
 const math = std.math;
+const mem = std.mem;
 const expect = std.testing.expect;
 
 /// Returns the arc-tangent of x.
@@ -67,7 +68,7 @@ fn atan32(x_: f32) f32 {
         // |x| < 2^(-12)
         if (ix < 0x39800000) {
             if (ix < 0x00800000) {
-                math.doNotOptimizeAway(x * x);
+                mem.doNotOptimizeAway(x * x);
             }
             return x;
         }
@@ -143,8 +144,8 @@ fn atan64(x_: f64) f64 {
     };
 
     var x = x_;
-    var ux = @as(u64, @bitCast(x));
-    var ix = @as(u32, @intCast(ux >> 32));
+    const ux: u64 = @bitCast(x);
+    var ix: u32 = @intCast(ux >> 32);
     const sign = ix >> 31;
     ix &= 0x7FFFFFFF;
 
@@ -165,7 +166,7 @@ fn atan64(x_: f64) f64 {
         // |x| < 2^(-27)
         if (ix < 0x3E400000) {
             if (ix < 0x00100000) {
-                math.doNotOptimizeAway(@as(f32, @floatCast(x)));
+                mem.doNotOptimizeAway(@as(f32, @floatCast(x)));
             }
             return x;
         }
@@ -211,12 +212,12 @@ fn atan64(x_: f64) f64 {
     }
 }
 
-test "math.atan" {
+test atan {
     try expect(@as(u32, @bitCast(atan(@as(f32, 0.2)))) == @as(u32, @bitCast(atan32(0.2))));
     try expect(atan(@as(f64, 0.2)) == atan64(0.2));
 }
 
-test "math.atan32" {
+test atan32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, atan32(0.2), 0.197396, epsilon));
@@ -226,7 +227,7 @@ test "math.atan32" {
     try expect(math.approxEqAbs(f32, atan32(1.5), 0.982794, epsilon));
 }
 
-test "math.atan64" {
+test atan64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, atan64(0.2), 0.197396, epsilon));
@@ -236,20 +237,20 @@ test "math.atan64" {
     try expect(math.approxEqAbs(f64, atan64(1.5), 0.982794, epsilon));
 }
 
-test "math.atan32.special" {
+test "atan32.special" {
     const epsilon = 0.000001;
 
-    try expect(atan32(0.0) == 0.0);
-    try expect(atan32(-0.0) == -0.0);
+    try expect(math.isPositiveZero(atan32(0.0)));
+    try expect(math.isNegativeZero(atan32(-0.0)));
     try expect(math.approxEqAbs(f32, atan32(math.inf(f32)), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f32, atan32(-math.inf(f32)), -math.pi / 2.0, epsilon));
 }
 
-test "math.atan64.special" {
+test "atan64.special" {
     const epsilon = 0.000001;
 
-    try expect(atan64(0.0) == 0.0);
-    try expect(atan64(-0.0) == -0.0);
+    try expect(math.isPositiveZero(atan64(0.0)));
+    try expect(math.isNegativeZero(atan64(-0.0)));
     try expect(math.approxEqAbs(f64, atan64(math.inf(f64)), math.pi / 2.0, epsilon));
     try expect(math.approxEqAbs(f64, atan64(-math.inf(f64)), -math.pi / 2.0, epsilon));
 }

@@ -5,13 +5,13 @@ const U = union(E) {
 };
 
 export fn foo() void {
-    var u: U = .{ .a = 123 };
+    const u: U = .{ .a = 123 };
     _ = u;
 }
 
 // error
 // target=native
 //
-// :4:5: error: duplicate union field: 'a'
-// :3:5: note: other field here
+// :3:5: error: duplicate union field name
+// :4:5: note: duplicate field here
 // :2:11: note: union declared here

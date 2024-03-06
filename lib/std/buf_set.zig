@@ -17,8 +17,7 @@ pub const BufSet = struct {
     /// be used internally for both backing allocations and
     /// string duplication.
     pub fn init(a: Allocator) BufSet {
-        var self = BufSet{ .hash_map = BufSetHashMap.init(a) };
-        return self;
+        return .{ .hash_map = BufSetHashMap.init(a) };
     }
 
     /// Free a BufSet along with all stored keys.
@@ -76,8 +75,8 @@ pub const BufSet = struct {
         self: *const BufSet,
         new_allocator: Allocator,
     ) Allocator.Error!BufSet {
-        var cloned_hashmap = try self.hash_map.cloneWithAllocator(new_allocator);
-        var cloned = BufSet{ .hash_map = cloned_hashmap };
+        const cloned_hashmap = try self.hash_map.cloneWithAllocator(new_allocator);
+        const cloned = BufSet{ .hash_map = cloned_hashmap };
         var it = cloned.hash_map.keyIterator();
         while (it.next()) |key_ptr| {
             key_ptr.* = try cloned.copy(key_ptr.*);
@@ -91,6 +90,23 @@ pub const BufSet = struct {
         return self.cloneWithAllocator(self.allocator());
     }
 
+    test clone {
+        var original = BufSet.init(testing.allocator);
+        defer original.deinit();
+        try original.insert("x");
+
+        var cloned = try original.clone();
+        defer cloned.deinit();
+        cloned.remove("x");
+        try testing.expect(original.count() == 1);
+        try testing.expect(cloned.count() == 0);
+
+        try testing.expectError(
+            error.OutOfMemory,
+            original.cloneWithAllocator(testing.failing_allocator),
+        );
+    }
+
     fn free(self: *const BufSet, value: []const u8) void {
         self.hash_map.allocator.free(value);
     }
@@ -102,7 +118,7 @@ pub const BufSet = struct {
     }
 };
 
-test "BufSet" {
+test BufSet {
     var bufset = BufSet.init(std.testing.allocator);
     defer bufset.deinit();
 
@@ -116,25 +132,8 @@ test "BufSet" {
     try bufset.insert("z");
 }
 
-test "BufSet clone" {
-    var original = BufSet.init(testing.allocator);
-    defer original.deinit();
-    try original.insert("x");
-
-    var cloned = try original.clone();
-    defer cloned.deinit();
-    cloned.remove("x");
-    try testing.expect(original.count() == 1);
-    try testing.expect(cloned.count() == 0);
-
-    try testing.expectError(
-        error.OutOfMemory,
-        original.cloneWithAllocator(testing.failing_allocator),
-    );
-}
-
-test "BufSet.clone with arena" {
-    var allocator = std.testing.allocator;
+test "clone with arena" {
+    const allocator = std.testing.allocator;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 

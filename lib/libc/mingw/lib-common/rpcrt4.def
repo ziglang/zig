@@ -34,8 +34,6 @@ CStdStubBuffer_Disconnect
 CStdStubBuffer_Invoke
 CStdStubBuffer_IsIIDSupported
 CStdStubBuffer_QueryInterface
-CreateProxyFromTypeInfo
-CreateStubFromTypeInfo
 DceErrorInqTextA
 DceErrorInqTextW
 DllGetClassObject
@@ -75,7 +73,6 @@ I_RpcClearMutex
 I_RpcCompleteAndFree
 I_RpcConnectionInqSockBuffSize
 I_RpcConnectionSetSockBuffSize
-I_RpcCompleteAndFree
 I_RpcDeleteMutex
 I_RpcEnableWmiTrace
 I_RpcExceptionFilter
@@ -105,7 +102,6 @@ I_RpcNsBindingSetEntryNameA
 I_RpcNsBindingSetEntryNameW
 I_RpcNsInterfaceExported
 I_RpcNsInterfaceUnexported
-I_RpcOpenClientProcess
 I_RpcParseSecurity
 I_RpcPauseExecution
 I_RpcProxyNewConnection
@@ -253,13 +249,8 @@ NdrFixedArrayMarshall
 NdrFixedArrayMemorySize
 NdrFixedArrayUnmarshall
 NdrFreeBuffer
-NdrFullPointerFree
-NdrFullPointerInsertRefId
-NdrFullPointerQueryPointer
-NdrFullPointerQueryRefId
 NdrFullPointerXlatFree
 NdrFullPointerXlatInit
-NdrGetBaseInterfaceFromStub
 NdrGetBuffer
 NdrGetDcomProtocolVersion
 NdrGetSimpleTypeBufferAlignment
