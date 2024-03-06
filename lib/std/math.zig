@@ -37,6 +37,12 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
+/// pi/180.0
+pub const rad_per_deg = 0.0174532925199432957692369076848861271344287188854172545609719144;
+
+/// 180.0/pi
+pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
+
 pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
 pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
 pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;
@@ -297,7 +303,7 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
 pub fn radiansToDegrees(comptime T: type, angle_in_radians: T) T {
     if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
         @compileError("T must be a float type");
-    return angle_in_radians * 180.0 / pi;
+    return angle_in_radians * deg_per_rad;
 }
 
 test "radiansToDegrees" {
@@ -312,7 +318,7 @@ test "radiansToDegrees" {
 pub fn degreesToRadians(comptime T: type, angle_in_degrees: T) T {
     if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
         @compileError("T must be a float type");
-    return angle_in_degrees * pi / 180.0;
+    return angle_in_degrees * rad_per_deg;
 }
 
 test "degreesToRadians" {
