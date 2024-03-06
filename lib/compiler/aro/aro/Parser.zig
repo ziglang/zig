@@ -403,7 +403,7 @@ pub fn errExtra(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, extra: Diag
         .tag = tag,
         .loc = loc,
         .extra = extra,
-    }, tok.expansionSlice());
+    }, p.pp.expansionSlice(tok_i));
 }
 
 pub fn errTok(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex) Compilation.Error!void {
@@ -432,6 +432,11 @@ pub fn removeNull(p: *Parser, str: Value) !Value {
 }
 
 pub fn typeStr(p: *Parser, ty: Type) ![]const u8 {
+    if (@import("builtin").mode != .Debug) {
+        if (ty.is(.invalid)) {
+            return "Tried to render invalid type - this is an aro bug.";
+        }
+    }
     if (Type.Builder.fromType(ty).str(p.comp.langopts)) |str| return str;
     const strings_top = p.strings.items.len;
     defer p.strings.items.len = strings_top;
@@ -446,6 +451,11 @@ pub fn typePairStr(p: *Parser, a: Type, b: Type) ![]const u8 {
 }
 
 pub fn typePairStrExtra(p: *Parser, a: Type, msg: []const u8, b: Type) ![]const u8 {
+    if (@import("builtin").mode != .Debug) {
+        if (a.is(.invalid) or b.is(.invalid)) {
+            return "Tried to render invalid type - this is an aro bug.";
+        }
+    }
     const strings_top = p.strings.items.len;
     defer p.strings.items.len = strings_top;
 
@@ -635,7 +645,6 @@ fn diagnoseIncompleteDefinitions(p: *Parser) !void {
     const tys = node_slices.items(.ty);
     const data = node_slices.items(.data);
 
-    const err_start = p.comp.diagnostics.list.items.len;
     for (p.decl_buf.items) |decl_node| {
         const idx = @intFromEnum(decl_node);
         switch (tags[idx]) {
@@ -656,8 +665,6 @@ fn diagnoseIncompleteDefinitions(p: *Parser) !void {
         try p.errStr(.tentative_definition_incomplete, tentative_def_tok, type_str);
         try p.errStr(.forward_declaration_here, data[idx].decl_ref, type_str);
     }
-    const errors_added = p.comp.diagnostics.list.items.len - err_start;
-    assert(errors_added == 2 * p.tentative_defs.count()); // Each tentative def should add an error + note
 }
 
 /// root : (decl | assembly ';' | staticAssert)*
@@ -2201,7 +2208,15 @@ fn recordSpec(p: *Parser) Error!Type {
     } else {
         record_ty.fields = try p.arena.dupe(Type.Record.Field, p.record_buf.items[record_buf_top..]);
     }
-    if (old_field_attr_start < p.field_attr_buf.items.len) {
+    const attr_count = p.field_attr_buf.items.len - old_field_attr_start;
+    const record_decls = p.decl_buf.items[decl_buf_top..];
+    if (attr_count > 0) {
+        if (attr_count != record_decls.len) {
+            // A mismatch here means that non-field decls were parsed. This can happen if there were
+            // parse errors during attribute parsing. Bail here because if there are any field attributes,
+            // there must be exactly one per field.
+            return error.ParsingFailed;
+        }
         const field_attr_slice = p.field_attr_buf.items[old_field_attr_start..];
         const duped = try p.arena.dupe([]const Attribute, field_attr_slice);
         record_ty.field_attributes = duped.ptr;
@@ -2242,7 +2257,6 @@ fn recordSpec(p: *Parser) Error!Type {
         .ty = ty,
         .data = .{ .bin = .{ .lhs = .none, .rhs = .none } },
     };
-    const record_decls = p.decl_buf.items[decl_buf_top..];
     switch (record_decls.len) {
         0 => {},
         1 => node.data = .{ .bin = .{ .lhs = record_decls[0], .rhs = .none } },
@@ -2560,6 +2574,7 @@ fn enumSpec(p: *Parser) Error!Type {
             if (field.ty.eql(Type.int, p.comp, false)) continue;
 
             const sym = p.syms.get(field.name, .vars) orelse continue;
+            if (sym.kind != .enumeration) continue; // already an error
 
             var res = Result{ .node = field.node, .ty = field.ty, .val = sym.val };
             const dest_ty = if (p.comp.fixedEnumTagSpecifier()) |some|
@@ -4603,24 +4618,31 @@ fn nodeIsNoreturn(p: *Parser, node: NodeIndex) NoreturnKind {
         },
         .compound_stmt_two => {
             const data = p.nodes.items(.data)[@intFromEnum(node)];
-            if (data.bin.rhs != .none) return p.nodeIsNoreturn(data.bin.rhs);
-            if (data.bin.lhs != .none) return p.nodeIsNoreturn(data.bin.lhs);
+            const lhs_type = if (data.bin.lhs != .none) p.nodeIsNoreturn(data.bin.lhs) else .no;
+            const rhs_type = if (data.bin.rhs != .none) p.nodeIsNoreturn(data.bin.rhs) else .no;
+            if (lhs_type == .complex or rhs_type == .complex) return .complex;
+            if (lhs_type == .yes or rhs_type == .yes) return .yes;
             return .no;
         },
         .compound_stmt => {
             const data = p.nodes.items(.data)[@intFromEnum(node)];
-            return p.nodeIsNoreturn(p.data.items[data.range.end - 1]);
+            var it = data.range.start;
+            while (it != data.range.end) : (it += 1) {
+                const kind = p.nodeIsNoreturn(p.data.items[it]);
+                if (kind != .no) return kind;
+            }
+            return .no;
         },
         .labeled_stmt => {
             const data = p.nodes.items(.data)[@intFromEnum(node)];
             return p.nodeIsNoreturn(data.decl.node);
         },
-        .switch_stmt => {
+        .default_stmt => {
             const data = p.nodes.items(.data)[@intFromEnum(node)];
-            if (data.bin.rhs == .none) return .complex;
-            if (p.nodeIsNoreturn(data.bin.rhs) == .yes) return .yes;
-            return .complex;
+            if (data.un == .none) return .no;
+            return p.nodeIsNoreturn(data.un);
         },
+        .while_stmt, .do_while_stmt, .for_decl_stmt, .forever_stmt, .for_stmt, .switch_stmt => return .complex,
         else => return .no,
     }
 }
@@ -4787,7 +4809,11 @@ const CallExpr = union(enum) {
                 Builtin.tagFromName("__va_start").?,
                 Builtin.tagFromName("va_start").?,
                 => arg_idx != 1,
-                Builtin.tagFromName("__builtin_complex").? => false,
+                Builtin.tagFromName("__builtin_complex").?,
+                Builtin.tagFromName("__builtin_add_overflow").?,
+                Builtin.tagFromName("__builtin_sub_overflow").?,
+                Builtin.tagFromName("__builtin_mul_overflow").?,
+                => false,
                 else => true,
             },
         };
@@ -4800,6 +4826,7 @@ const CallExpr = union(enum) {
     }
 
     fn checkVarArg(self: CallExpr, p: *Parser, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, arg_idx: u32) !void {
+        @setEvalBranchQuota(10_000);
         if (self == .standard) return;
 
         const builtin_tok = p.nodes.items(.data)[@intFromEnum(self.builtin.node)].decl.name;
@@ -4809,6 +4836,11 @@ const CallExpr = union(enum) {
             Builtin.tagFromName("va_start").?,
             => return p.checkVaStartArg(builtin_tok, first_after, param_tok, arg, arg_idx),
             Builtin.tagFromName("__builtin_complex").? => return p.checkComplexArg(builtin_tok, first_after, param_tok, arg, arg_idx),
+            Builtin.tagFromName("__builtin_add_overflow").?,
+            Builtin.tagFromName("__builtin_sub_overflow").?,
+            Builtin.tagFromName("__builtin_mul_overflow").?,
+            => return p.checkArithOverflowArg(builtin_tok, first_after, param_tok, arg, arg_idx),
+
             else => {},
         }
     }
@@ -4823,15 +4855,43 @@ const CallExpr = union(enum) {
         return switch (self) {
             .standard => null,
             .builtin => |builtin| switch (builtin.tag) {
-                Builtin.tagFromName("__builtin_complex").? => 2,
+                Builtin.tagFromName("__c11_atomic_thread_fence").?,
+                Builtin.tagFromName("__c11_atomic_signal_fence").?,
+                Builtin.tagFromName("__c11_atomic_is_lock_free").?,
+                => 1,
 
+                Builtin.tagFromName("__builtin_complex").?,
+                Builtin.tagFromName("__c11_atomic_load").?,
+                Builtin.tagFromName("__c11_atomic_init").?,
+                => 2,
+
+                Builtin.tagFromName("__c11_atomic_store").?,
+                Builtin.tagFromName("__c11_atomic_exchange").?,
+                Builtin.tagFromName("__c11_atomic_fetch_add").?,
+                Builtin.tagFromName("__c11_atomic_fetch_sub").?,
+                Builtin.tagFromName("__c11_atomic_fetch_or").?,
+                Builtin.tagFromName("__c11_atomic_fetch_xor").?,
+                Builtin.tagFromName("__c11_atomic_fetch_and").?,
                 Builtin.tagFromName("__atomic_fetch_add").?,
                 Builtin.tagFromName("__atomic_fetch_sub").?,
                 Builtin.tagFromName("__atomic_fetch_and").?,
                 Builtin.tagFromName("__atomic_fetch_xor").?,
                 Builtin.tagFromName("__atomic_fetch_or").?,
                 Builtin.tagFromName("__atomic_fetch_nand").?,
+                Builtin.tagFromName("__atomic_add_fetch").?,
+                Builtin.tagFromName("__atomic_sub_fetch").?,
+                Builtin.tagFromName("__atomic_and_fetch").?,
+                Builtin.tagFromName("__atomic_xor_fetch").?,
+                Builtin.tagFromName("__atomic_or_fetch").?,
+                Builtin.tagFromName("__atomic_nand_fetch").?,
+                Builtin.tagFromName("__builtin_add_overflow").?,
+                Builtin.tagFromName("__builtin_sub_overflow").?,
+                Builtin.tagFromName("__builtin_mul_overflow").?,
                 => 3,
+
+                Builtin.tagFromName("__c11_atomic_compare_exchange_strong").?,
+                Builtin.tagFromName("__c11_atomic_compare_exchange_weak").?,
+                => 5,
 
                 Builtin.tagFromName("__atomic_compare_exchange").?,
                 Builtin.tagFromName("__atomic_compare_exchange_n").?,
@@ -4845,15 +4905,45 @@ const CallExpr = union(enum) {
         return switch (self) {
             .standard => callable_ty.returnType(),
             .builtin => |builtin| switch (builtin.tag) {
+                Builtin.tagFromName("__c11_atomic_exchange").? => {
+                    if (p.list_buf.items.len != 4) return Type.invalid; // wrong number of arguments; already an error
+                    const second_param = p.list_buf.items[2];
+                    return p.nodes.items(.ty)[@intFromEnum(second_param)];
+                },
+                Builtin.tagFromName("__c11_atomic_load").? => {
+                    if (p.list_buf.items.len != 3) return Type.invalid; // wrong number of arguments; already an error
+                    const first_param = p.list_buf.items[1];
+                    const ty = p.nodes.items(.ty)[@intFromEnum(first_param)];
+                    if (!ty.isPtr()) return Type.invalid;
+                    return ty.elemType();
+                },
+
                 Builtin.tagFromName("__atomic_fetch_add").?,
+                Builtin.tagFromName("__atomic_add_fetch").?,
+                Builtin.tagFromName("__c11_atomic_fetch_add").?,
+
                 Builtin.tagFromName("__atomic_fetch_sub").?,
+                Builtin.tagFromName("__atomic_sub_fetch").?,
+                Builtin.tagFromName("__c11_atomic_fetch_sub").?,
+
                 Builtin.tagFromName("__atomic_fetch_and").?,
+                Builtin.tagFromName("__atomic_and_fetch").?,
+                Builtin.tagFromName("__c11_atomic_fetch_and").?,
+
                 Builtin.tagFromName("__atomic_fetch_xor").?,
+                Builtin.tagFromName("__atomic_xor_fetch").?,
+                Builtin.tagFromName("__c11_atomic_fetch_xor").?,
+
                 Builtin.tagFromName("__atomic_fetch_or").?,
+                Builtin.tagFromName("__atomic_or_fetch").?,
+                Builtin.tagFromName("__c11_atomic_fetch_or").?,
+
                 Builtin.tagFromName("__atomic_fetch_nand").?,
+                Builtin.tagFromName("__atomic_nand_fetch").?,
+                Builtin.tagFromName("__c11_atomic_fetch_nand").?,
                 => {
-                    if (p.list_buf.items.len < 2) return Type.invalid; // not enough arguments; already an error
-                    const second_param = p.list_buf.items[p.list_buf.items.len - 2];
+                    if (p.list_buf.items.len != 3) return Type.invalid; // wrong number of arguments; already an error
+                    const second_param = p.list_buf.items[2];
                     return p.nodes.items(.ty)[@intFromEnum(second_param)];
                 },
                 Builtin.tagFromName("__builtin_complex").? => {
@@ -4863,8 +4953,17 @@ const CallExpr = union(enum) {
                 },
                 Builtin.tagFromName("__atomic_compare_exchange").?,
                 Builtin.tagFromName("__atomic_compare_exchange_n").?,
+                Builtin.tagFromName("__c11_atomic_is_lock_free").?,
                 => .{ .specifier = .bool },
                 else => callable_ty.returnType(),
+
+                Builtin.tagFromName("__c11_atomic_compare_exchange_strong").?,
+                Builtin.tagFromName("__c11_atomic_compare_exchange_weak").?,
+                => {
+                    if (p.list_buf.items.len != 6) return Type.invalid; // wrong number of arguments
+                    const third_param = p.list_buf.items[3];
+                    return p.nodes.items(.ty)[@intFromEnum(third_param)];
+                },
             },
         };
     }
@@ -4975,15 +5074,19 @@ pub const Result = struct {
             .call_expr_one => {
                 const fn_ptr = p.nodes.items(.data)[@intFromEnum(cur_node)].bin.lhs;
                 const fn_ty = p.nodes.items(.ty)[@intFromEnum(fn_ptr)].elemType();
-                if (fn_ty.hasAttribute(.nodiscard)) try p.errStr(.nodiscard_unused, expr_start, "TODO get name");
-                if (fn_ty.hasAttribute(.warn_unused_result)) try p.errStr(.warn_unused_result, expr_start, "TODO get name");
+                const cast_info = p.nodes.items(.data)[@intFromEnum(fn_ptr)].cast.operand;
+                const decl_ref = p.nodes.items(.data)[@intFromEnum(cast_info)].decl_ref;
+                if (fn_ty.hasAttribute(.nodiscard)) try p.errStr(.nodiscard_unused, expr_start, p.tokSlice(decl_ref));
+                if (fn_ty.hasAttribute(.warn_unused_result)) try p.errStr(.warn_unused_result, expr_start, p.tokSlice(decl_ref));
                 return;
             },
             .call_expr => {
                 const fn_ptr = p.data.items[p.nodes.items(.data)[@intFromEnum(cur_node)].range.start];
                 const fn_ty = p.nodes.items(.ty)[@intFromEnum(fn_ptr)].elemType();
-                if (fn_ty.hasAttribute(.nodiscard)) try p.errStr(.nodiscard_unused, expr_start, "TODO get name");
-                if (fn_ty.hasAttribute(.warn_unused_result)) try p.errStr(.warn_unused_result, expr_start, "TODO get name");
+                const cast_info = p.nodes.items(.data)[@intFromEnum(fn_ptr)].cast.operand;
+                const decl_ref = p.nodes.items(.data)[@intFromEnum(cast_info)].decl_ref;
+                if (fn_ty.hasAttribute(.nodiscard)) try p.errStr(.nodiscard_unused, expr_start, p.tokSlice(decl_ref));
+                if (fn_ty.hasAttribute(.warn_unused_result)) try p.errStr(.warn_unused_result, expr_start, p.tokSlice(decl_ref));
                 return;
             },
             .stmt_expr => {
@@ -6356,8 +6459,15 @@ fn shiftExpr(p: *Parser) Error!Result {
         try rhs.expect(p);
 
         if (try lhs.adjustTypes(shr.?, &rhs, p, .integer)) {
+            if (rhs.val.compare(.lt, Value.zero, p.comp)) {
+                try p.errStr(.negative_shift_count, shl orelse shr.?, try rhs.str(p));
+            }
+            if (rhs.val.compare(.gte, try Value.int(lhs.ty.bitSizeof(p.comp).?, p.comp), p.comp)) {
+                try p.errStr(.too_big_shift_count, shl orelse shr.?, try rhs.str(p));
+            }
             if (shl != null) {
-                if (try lhs.val.shl(lhs.val, rhs.val, lhs.ty, p.comp)) try p.errOverflow(shl.?, lhs);
+                if (try lhs.val.shl(lhs.val, rhs.val, lhs.ty, p.comp) and
+                    lhs.ty.signedness(p.comp) != .unsigned) try p.errOverflow(shl.?, lhs);
             } else {
                 lhs.val = try lhs.val.shr(rhs.val, lhs.ty, p.comp);
             }
@@ -6381,9 +6491,11 @@ fn addExpr(p: *Parser) Error!Result {
         const lhs_ty = lhs.ty;
         if (try lhs.adjustTypes(minus.?, &rhs, p, if (plus != null) .add else .sub)) {
             if (plus != null) {
-                if (try lhs.val.add(lhs.val, rhs.val, lhs.ty, p.comp)) try p.errOverflow(plus.?, lhs);
+                if (try lhs.val.add(lhs.val, rhs.val, lhs.ty, p.comp) and
+                    lhs.ty.signedness(p.comp) != .unsigned) try p.errOverflow(plus.?, lhs);
             } else {
-                if (try lhs.val.sub(lhs.val, rhs.val, lhs.ty, p.comp)) try p.errOverflow(minus.?, lhs);
+                if (try lhs.val.sub(lhs.val, rhs.val, lhs.ty, p.comp) and
+                    lhs.ty.signedness(p.comp) != .unsigned) try p.errOverflow(minus.?, lhs);
             }
         }
         if (lhs.ty.specifier != .invalid and lhs_ty.isPtr() and !lhs_ty.isVoidStar() and lhs_ty.elemType().hasIncompleteSize()) {
@@ -6420,9 +6532,11 @@ fn mulExpr(p: *Parser) Error!Result {
 
         if (try lhs.adjustTypes(percent.?, &rhs, p, if (tag == .mod_expr) .integer else .arithmetic)) {
             if (mul != null) {
-                if (try lhs.val.mul(lhs.val, rhs.val, lhs.ty, p.comp)) try p.errOverflow(mul.?, lhs);
+                if (try lhs.val.mul(lhs.val, rhs.val, lhs.ty, p.comp) and
+                    lhs.ty.signedness(p.comp) != .unsigned) try p.errOverflow(mul.?, lhs);
             } else if (div != null) {
-                if (try lhs.val.div(lhs.val, rhs.val, lhs.ty, p.comp)) try p.errOverflow(mul.?, lhs);
+                if (try lhs.val.div(lhs.val, rhs.val, lhs.ty, p.comp) and
+                    lhs.ty.signedness(p.comp) != .unsigned) try p.errOverflow(mul.?, lhs);
             } else {
                 var res = try Value.rem(lhs.val, rhs.val, lhs.ty, p.comp);
                 if (res.opt_ref == .none) {
@@ -6827,7 +6941,7 @@ fn unExpr(p: *Parser) Error!Result {
                 try p.errStr(.invalid_argument_un, tok, try p.typeStr(operand.ty));
 
             try operand.usualUnaryConversion(p, tok);
-            if (operand.val.is(.int, p.comp)) {
+            if (operand.val.is(.int, p.comp) or operand.val.is(.float, p.comp)) {
                 _ = try operand.val.sub(Value.zero, operand.val, operand.ty, p.comp);
             } else {
                 operand.val = .{};
@@ -6898,6 +7012,8 @@ fn unExpr(p: *Parser) Error!Result {
                 if (operand.val.is(.int, p.comp)) {
                     operand.val = try operand.val.bitNot(operand.ty, p.comp);
                 }
+            } else if (operand.ty.isComplex()) {
+                try p.errStr(.complex_conj, tok, try p.typeStr(operand.ty));
             } else {
                 try p.errStr(.invalid_argument_un, tok, try p.typeStr(operand.ty));
                 operand.val = .{};
@@ -7331,6 +7447,20 @@ fn checkVaStartArg(p: *Parser, builtin_tok: TokenIndex, first_after: TokenIndex,
     const decl_ref = p.getNode(arg.node, .decl_ref_expr);
     if (decl_ref == null or last_param_name != try StrInt.intern(p.comp, p.tokSlice(p.nodes.items(.data)[@intFromEnum(decl_ref.?)].decl_ref))) {
         try p.errTok(.va_start_not_last_param, param_tok);
+    }
+}
+
+fn checkArithOverflowArg(p: *Parser, builtin_tok: TokenIndex, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, idx: u32) !void {
+    _ = builtin_tok;
+    _ = first_after;
+    if (idx <= 1) {
+        if (!arg.ty.isInt()) {
+            return p.errStr(.overflow_builtin_requires_int, param_tok, try p.typeStr(arg.ty));
+        }
+    } else if (idx == 2) {
+        if (!arg.ty.isPtr()) return p.errStr(.overflow_result_requires_ptr, param_tok, try p.typeStr(arg.ty));
+        const child = arg.ty.elemType();
+        if (!child.isInt() or child.is(.bool) or child.is(.@"enum") or child.qual.@"const") return p.errStr(.overflow_result_requires_ptr, param_tok, try p.typeStr(arg.ty));
     }
 }
 
@@ -7880,6 +8010,7 @@ fn charLiteral(p: *Parser) Error!Result {
 
     const slice = char_kind.contentSlice(p.tokSlice(p.tok_i));
 
+    var is_multichar = false;
     if (slice.len == 1 and std.ascii.isASCII(slice[0])) {
         // fast path: single unescaped ASCII char
         val = slice[0];
@@ -7913,7 +8044,7 @@ fn charLiteral(p: *Parser) Error!Result {
             },
         };
 
-        const is_multichar = chars.items.len > 1;
+        is_multichar = chars.items.len > 1;
         if (is_multichar) {
             if (char_kind == .char and chars.items.len == 4) {
                 char_literal_parser.warn(.four_char_char_literal, .{ .none = {} });
@@ -7956,9 +8087,19 @@ fn charLiteral(p: *Parser) Error!Result {
     else
         p.comp.types.intmax;
 
+    var value = try Value.int(val, p.comp);
+    // C99 6.4.4.4.10
+    // > If an integer character constant contains a single character or escape sequence,
+    // > its value is the one that results when an object with type char whose value is
+    // > that of the single character or escape sequence is converted to type int.
+    // This conversion only matters if `char` is signed and has a high-order bit of `1`
+    if (char_kind == .char and !is_multichar and val > 0x7F and p.comp.getCharSignedness() == .signed) {
+        try value.intCast(.{ .specifier = .char }, p.comp);
+    }
+
     const res = Result{
         .ty = if (p.in_macro) macro_ty else ty,
-        .val = try Value.int(val, p.comp),
+        .val = value,
         .node = try p.addNode(.{ .tag = .char_literal, .ty = ty, .data = undefined }),
     };
     if (!p.in_macro) try p.value_map.put(res.node, res.val);

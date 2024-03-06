@@ -28,7 +28,7 @@ fn deinit(pragma: *Pragma, comp: *Compilation) void {
 
 fn preprocessorHandler(_: *Pragma, pp: *Preprocessor, start_idx: TokenIndex) Pragma.Error!void {
     const message_tok = pp.tokens.get(start_idx);
-    const message_expansion_locs = message_tok.expansionSlice();
+    const message_expansion_locs = pp.expansionSlice(start_idx);
 
     const str = Pragma.pasteTokens(pp, start_idx + 1) catch |err| switch (err) {
         error.ExpectedStringLiteral => {

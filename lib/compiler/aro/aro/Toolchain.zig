@@ -487,3 +487,22 @@ pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !v
         try argv.append("-ldl");
     }
 }
+
+pub fn defineSystemIncludes(tc: *Toolchain) !void {
+    return switch (tc.inner) {
+        .uninitialized => unreachable,
+        .linux => |*linux| linux.defineSystemIncludes(tc),
+        .unknown => {
+            if (tc.driver.nostdinc) return;
+
+            const comp = tc.driver.comp;
+            if (!tc.driver.nobuiltininc) {
+                try comp.addBuiltinIncludeDir(tc.driver.aro_name);
+            }
+
+            if (!tc.driver.nostdlibinc) {
+                try comp.addSystemIncludeDir("/usr/include");
+            }
+        },
+    };
+}

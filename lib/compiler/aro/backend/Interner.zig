@@ -485,11 +485,11 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
                 .data = try i.addExtra(gpa, Tag.F64.pack(data)),
             }),
             .f80 => |data| i.items.appendAssumeCapacity(.{
-                .tag = .f64,
+                .tag = .f80,
                 .data = try i.addExtra(gpa, Tag.F80.pack(data)),
             }),
             .f128 => |data| i.items.appendAssumeCapacity(.{
-                .tag = .f64,
+                .tag = .f128,
                 .data = try i.addExtra(gpa, Tag.F128.pack(data)),
             }),
         },
