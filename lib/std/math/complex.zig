@@ -136,22 +136,6 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the complex number shifted by a specified angle.
-        pub fn shift(self: Self, radian: T) Self {
-            return Self{
-                .re = @cos(radian) * self.re - @sin(radian) * self.im,
-                .im = @sin(radian) * self.re + @cos(radian) * self.im,
-            };
-        }
-
-        /// Returns the complex number scaled by a specified factor.
-        pub fn scale(self: Self, factor: T) Self {
-            return Self{
-                .re = self.re * factor,
-                .im = self.im * factor,
-            };
-        }
-
         // default formatting
         pub fn format(
             complex: @This(),
