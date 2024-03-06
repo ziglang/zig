@@ -727,8 +727,7 @@ test "union with only 1 field casted to its enum type which has enum value speci
         Literal: Literal,
     };
 
-    var e = Expr{ .Literal = Literal{ .Bool = true } };
-    _ = &e;
+    const e = Expr{ .Literal = Literal{ .Bool = true } };
     comptime assert(Tag(ExprTag) == comptime_int);
     const t = comptime @as(ExprTag, e);
     try expect(t == Expr.Literal);
