@@ -11990,9 +11990,7 @@ VarDeclProto <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteA
 
 GlobalVarDecl <- VarDeclProto (EQUAL Expr)? SEMICOLON
 
-ContainerField
-    <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
-     / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
+ContainerField <- doc_comment? KEYWORD_comptime? !KEYWORD_fn (IDENTIFIER COLON)? TypeExpr ByteAlign? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
