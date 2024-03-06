@@ -22,6 +22,9 @@ pub extern "c" fn lwp_gettid() c_int;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
+pub extern "c" fn mlockall(flags: c_int) c_int;
+pub extern "c" fn munlockall() c_int;
+
 pub const pthread_attr_t = extern struct { // copied from freebsd
     __size: [56]u8,
     __align: c_long,
@@ -935,6 +938,11 @@ pub const MADV = struct {
     pub const CORE = 9;
     pub const INVAL = 10;
     pub const SETMAP = 11;
+};
+
+pub const MCL = struct {
+    pub const CURRENT = 0x01;
+    pub const FUTURE = 0x02;
 };
 
 pub const LOCK = struct {

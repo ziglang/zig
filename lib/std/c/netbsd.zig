@@ -26,6 +26,9 @@ pub const sigaltstack = __sigaltstack14;
 
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 
+pub extern "c" fn mlockall(flags: c_int) c_int;
+pub extern "c" fn munlockall() c_int;
+
 pub const pthread_spin_t = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be, .aarch64_32 => u8,
     .mips, .mipsel, .mips64, .mips64el => u32,
@@ -498,6 +501,11 @@ pub const CLOCK = struct {
     pub const MONOTONIC = 3;
     pub const THREAD_CPUTIME_ID = 0x20000000;
     pub const PROCESS_CPUTIME_ID = 0x40000000;
+};
+
+pub const MCL = struct {
+    pub const CURRENT = 0x01;
+    pub const FUTURE = 0x02;
 };
 
 pub const MSF = struct {

@@ -20,6 +20,8 @@ pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: u
 pub extern "c" fn sysconf(sc: c_int) i64;
 pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
 pub extern "c" fn madvise(address: [*]u8, len: usize, advise: u32) c_int;
+pub extern "c" fn mlockall(flags: c_int) c_int;
+pub extern "c" fn munlockall() c_int;
 
 pub const pthread_attr_t = extern struct {
     mutexattr: ?*anyopaque = null,
@@ -523,6 +525,11 @@ pub const MADV = struct {
     pub const ACCESS_MANY = 8;
     /// contents will be purged
     pub const PURGE = 9;
+};
+
+pub const MCL = struct {
+    pub const CURRENT = 0x01;
+    pub const FUTURE = 0x02;
 };
 
 pub const W = struct {

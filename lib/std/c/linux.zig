@@ -23,6 +23,7 @@ pub const IOV_MAX = linux.IOV_MAX;
 pub const IPPROTO = linux.IPPROTO;
 pub const LOCK = linux.LOCK;
 pub const MADV = linux.MADV;
+pub const MCL = linux.MCL;
 pub const MSF = linux.MSF;
 pub const MMAP2_UNIT = linux.MMAP2_UNIT;
 pub const MSG = linux.MSG;
@@ -305,6 +306,9 @@ pub extern "c" fn madvise(
     length: usize,
     advice: c_uint,
 ) c_int;
+
+pub extern "c" fn mlockall(flags: c_int) c_int;
+pub extern "c" fn munlockall() c_int;
 
 pub const pthread_attr_t = extern struct {
     __size: [56]u8,

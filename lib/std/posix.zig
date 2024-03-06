@@ -72,6 +72,7 @@ pub const Kevent = system.Kevent;
 pub const LOCK = system.LOCK;
 pub const MADV = system.MADV;
 pub const MAP = system.MAP;
+pub const MCL = system.MCL;
 pub const MSF = system.MSF;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MFD = system.MFD;
@@ -7071,6 +7072,47 @@ pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) Madv
         .IO => return error.WouldExceedMaximumResidentSetSize,
         .NOMEM => return error.OutOfMemory,
         .NOSYS => return error.MadviseUnavailable,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const MlockallError = error{
+    InvalidArgument,
+    LockedMemoryLimitExceeded,
+    NotImplemented,
+    PermissionDenied,
+    SystemResources,
+} || UnexpectedError;
+
+pub fn mlockall(flags: i32) MlockallError!void {
+    switch (native_os) {
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris => {},
+        else => return error.NotImplemented,
+    }
+    switch (errno(system.mlockall(flags))) {
+        .SUCCESS => return,
+        .INVAL => return error.InvalidArgument,
+        .NOMEM => return error.LockedMemoryLimitExceeded,
+        .PERM => return error.PermissionDenied,
+        // Solaris and (Free|Net|Open)BSD, presumably no room to fault in locked stuff:
+        .AGAIN => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub const MunlockallError = error{
+    NotImplemented,
+    PermissionDenied,
+} || UnexpectedError;
+
+pub fn munlockall() MunlockallError!void {
+    switch (native_os) {
+        .linux, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris => {},
+        else => return error.NotImplemented,
+    }
+    switch (errno(system.munlockall())) {
+        .SUCCESS => return,
+        .PERM => return error.PermissionDenied, // Solaris, possibly BSDs as well
         else => |err| return unexpectedErrno(err),
     }
 }
