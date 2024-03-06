@@ -43,34 +43,53 @@ pub fn Complex(comptime T: type) type {
         }
 
         /// Returns the sum of two complex numbers.
-        pub fn add(self: Self, other: Self) Self {
-            return Self{
-                .re = self.re + other.re,
-                .im = self.im + other.im,
+        pub fn add(self: Self, other: anytype) Self {
+            return switch (@TypeOf(other)) {
+                Self => .{
+                    .re = self.re + other.re,
+                    .im = self.im + other.im,
+                },
+                else => .{
+                    .re = self.re + other,
+                    .im = self.im,
+                },
             };
         }
 
         /// Returns the subtraction of two complex numbers.
-        pub fn sub(self: Self, other: Self) Self {
-            return Self{
-                .re = self.re - other.re,
-                .im = self.im - other.im,
+        pub fn sub(self: Self, other: anytype) Self {
+            return switch (@TypeOf(other)) {
+                Self => .{
+                    .re = self.re - other.re,
+                    .im = self.im - other.im,
+                },
+                else => .{
+                    .re = self.re - other,
+                    .im = self.im,
+                },
             };
         }
 
         /// Returns the product of two complex numbers.
-        pub fn mul(self: Self, other: Self) Self {
-            return Self{
-                .re = self.re * other.re - self.im * other.im,
-                .im = self.im * other.re + self.re * other.im,
+        pub fn mul(self: Self, other: anytype) Self {
+            return switch (@TypeOf(other)) {
+                Self => .{
+                    .re = self.re * other.re - self.im * other.im,
+                    .im = self.im * other.re + self.re * other.im,
+                },
+                else => .{
+                    .re = self.re * other,
+                    .im = self.im * other,
+                },
             };
         }
 
         /// Returns the quotient of two complex numbers.
-        pub fn div(self: Self, other: Self) Self {
-            const re_num = self.re * other.re + self.im * other.im;
-            const im_num = self.im * other.re - self.re * other.im;
-            const den = other.re * other.re + other.im * other.im;
+        pub fn div(self: Self, other: anytype) Self {
+            const same = Self == @TypeOf(other);
+            const re_num = if (same) self.re * other.re + self.im * other.im else self.re;
+            const im_num = if (same) self.im * other.re - self.re * other.im else self.im;
+            const den = if (same) other.re * other.re + other.im * other.im else other;
 
             return Self{
                 .re = re_num / den,
