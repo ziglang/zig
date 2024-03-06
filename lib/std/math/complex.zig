@@ -143,33 +143,38 @@ test "add" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.add(b);
-
+    const d = c.add(1);
     try testing.expect(c.re == 7 and c.im == 10);
+    try testing.expect(d.re == 8 and d.im == 10);
 }
 
 test "sub" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.sub(b);
-
+    const d = c.sub(1);
     try testing.expect(c.re == 3 and c.im == -4);
+    try testing.expect(d.re == 2 and d.im == -4);
 }
 
 test "mul" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.mul(b);
-
+    const d = c.mul(2);
     try testing.expect(c.re == -11 and c.im == 41);
+    try testing.expect(d.re == -22 and d.im == 82);
 }
 
 test "div" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.div(b);
-
+    const d = c.div(2);
     try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 31) / 53, epsilon) and
         math.approxEqAbs(f32, c.im, @as(f32, -29) / 53, epsilon));
+    try testing.expect(math.approxEqAbs(f32, d.re, @as(f32, 31) / 106, epsilon) and
+        math.approxEqAbs(f32, d.im, @as(f32, -29) / 106, epsilon));
 }
 
 test "conjugate" {
