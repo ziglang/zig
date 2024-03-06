@@ -12,6 +12,16 @@ const StringInterner = @import("StringInterner.zig");
 
 pub const Token = struct {
     id: Id,
+    loc: Source.Location,
+
+    pub const List = std.MultiArrayList(Token);
+    pub const Id = Tokenizer.Token.Id;
+    pub const NumberPrefix = number_affixes.Prefix;
+    pub const NumberSuffix = number_affixes.Suffix;
+};
+
+pub const TokenWithExpansionLocs = struct {
+    id: Token.Id,
     flags: packed struct {
         expansion_disabled: bool = false,
         is_macro_arg: bool = false,
@@ -22,15 +32,15 @@ pub const Token = struct {
     loc: Source.Location,
     expansion_locs: ?[*]Source.Location = null,
 
-    pub fn expansionSlice(tok: Token) []const Source.Location {
+    pub fn expansionSlice(tok: TokenWithExpansionLocs) []const Source.Location {
         const locs = tok.expansion_locs orelse return &[0]Source.Location{};
         var i: usize = 0;
         while (locs[i].id != .unused) : (i += 1) {}
         return locs[0..i];
     }
 
-    pub fn addExpansionLocation(tok: *Token, gpa: std.mem.Allocator, new: []const Source.Location) !void {
-        if (new.len == 0 or tok.id == .whitespace) return;
+    pub fn addExpansionLocation(tok: *TokenWithExpansionLocs, gpa: std.mem.Allocator, new: []const Source.Location) !void {
+        if (new.len == 0 or tok.id == .whitespace or tok.id == .macro_ws or tok.id == .placemarker) return;
         var list = std.ArrayList(Source.Location).init(gpa);
         defer {
             @memset(list.items.ptr[list.items.len..list.capacity], .{});
@@ -70,14 +80,14 @@ pub const Token = struct {
         gpa.free(locs[0 .. i + 1]);
     }
 
-    pub fn dupe(tok: Token, gpa: std.mem.Allocator) !Token {
+    pub fn dupe(tok: TokenWithExpansionLocs, gpa: std.mem.Allocator) !TokenWithExpansionLocs {
         var copy = tok;
         copy.expansion_locs = null;
         try copy.addExpansionLocation(gpa, tok.expansionSlice());
         return copy;
     }
 
-    pub fn checkMsEof(tok: Token, source: Source, comp: *Compilation) !void {
+    pub fn checkMsEof(tok: TokenWithExpansionLocs, source: Source, comp: *Compilation) !void {
         std.debug.assert(tok.id == .eof);
         if (source.buf.len > tok.loc.byte_offset and source.buf[tok.loc.byte_offset] == 0x1A) {
             try comp.addDiagnostic(.{
@@ -90,11 +100,6 @@ pub const Token = struct {
             }, &.{});
         }
     }
-
-    pub const List = std.MultiArrayList(Token);
-    pub const Id = Tokenizer.Token.Id;
-    pub const NumberPrefix = number_affixes.Prefix;
-    pub const NumberSuffix = number_affixes.Suffix;
 };
 
 pub const TokenIndex = u32;

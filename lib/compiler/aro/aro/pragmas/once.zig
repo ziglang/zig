@@ -45,7 +45,7 @@ fn preprocessorHandler(pragma: *Pragma, pp: *Preprocessor, start_idx: TokenIndex
         try pp.comp.addDiagnostic(.{
             .tag = .extra_tokens_directive_end,
             .loc = name_tok.loc,
-        }, next.expansionSlice());
+        }, pp.expansionSlice(start_idx + 1));
     }
     const seen = self.preprocess_count == pp.preprocess_count;
     const prev = try self.pragma_once.fetchPut(name_tok.loc.id, {});

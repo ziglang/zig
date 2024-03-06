@@ -649,7 +649,7 @@ fn writeValue(ir: Ir, val: Interner.Ref, config: std.io.tty.Config, w: anytype) 
         .float => |repr| switch (repr) {
             inline else => |x| return w.print("{d}", .{@as(f64, @floatCast(x))}),
         },
-        .bytes => |b| return std.zig.fmt.stringEscape(b, "", .{}, w),
+        .bytes => |b| return std.zig.stringEscape(b, "", .{}, w),
         else => unreachable, // not a value
     }
 }

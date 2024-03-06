@@ -105,6 +105,7 @@ pub const Func = struct {
     fn eql(a: *const Func, b: *const Func, a_spec: Specifier, b_spec: Specifier, comp: *const Compilation) bool {
         // return type cannot have qualifiers
         if (!a.return_type.eql(b.return_type, comp, false)) return false;
+        if (a.params.len == 0 and b.params.len == 0) return true;
 
         if (a.params.len != b.params.len) {
             if (a_spec == .old_style_func or b_spec == .old_style_func) {
@@ -114,6 +115,7 @@ pub const Func = struct {
                 }
                 return true;
             }
+            return false;
         }
         if ((a_spec == .func) != (b_spec == .func)) return false;
         // TODO validate this
@@ -887,7 +889,8 @@ pub fn hasIncompleteSize(ty: Type) bool {
         .@"struct", .@"union" => ty.data.record.isIncomplete(),
         .array, .static_array => ty.data.array.elem.hasIncompleteSize(),
         .typeof_type => ty.data.sub_type.hasIncompleteSize(),
-        .typeof_expr => ty.data.expr.ty.hasIncompleteSize(),
+        .typeof_expr, .variable_len_array => ty.data.expr.ty.hasIncompleteSize(),
+        .unspecified_variable_len_array => ty.data.sub_type.hasIncompleteSize(),
         .attributed => ty.data.attributed.base.hasIncompleteSize(),
         else => false,
     };
@@ -1053,7 +1056,7 @@ pub fn bitSizeof(ty: Type, comp: *const Compilation) ?u64 {
 }
 
 pub fn alignable(ty: Type) bool {
-    return ty.isArray() or !ty.hasIncompleteSize() or ty.is(.void);
+    return (ty.isArray() or !ty.hasIncompleteSize() or ty.is(.void)) and !ty.is(.invalid);
 }
 
 /// Get the alignment of a type

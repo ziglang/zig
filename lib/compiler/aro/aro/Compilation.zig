@@ -241,6 +241,12 @@ pub const SystemDefinesMode = enum {
 fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
     const ptr_width = comp.target.ptrBitWidth();
 
+    if (comp.langopts.gnuc_version > 0) {
+        try w.print("#define __GNUC__ {d}\n", .{comp.langopts.gnuc_version / 10_000});
+        try w.print("#define __GNUC_MINOR__ {d}\n", .{comp.langopts.gnuc_version / 100 % 100});
+        try w.print("#define __GNUC_PATCHLEVEL__ {d}\n", .{comp.langopts.gnuc_version % 100});
+    }
+
     // os macros
     switch (comp.target.os.tag) {
         .linux => try w.writeAll(
@@ -419,6 +425,25 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
         \\
     );
 
+    // TODO: Set these to target-specific constants depending on backend capabilities
+    // For now they are just set to the "may be lock-free" value
+    try w.writeAll(
+        \\#define __ATOMIC_BOOL_LOCK_FREE 1
+        \\#define __ATOMIC_CHAR_LOCK_FREE 1
+        \\#define __ATOMIC_CHAR16_T_LOCK_FREE 1
+        \\#define __ATOMIC_CHAR32_T_LOCK_FREE 1
+        \\#define __ATOMIC_WCHAR_T_LOCK_FREE 1
+        \\#define __ATOMIC_SHORT_LOCK_FREE 1
+        \\#define __ATOMIC_INT_LOCK_FREE 1
+        \\#define __ATOMIC_LONG_LOCK_FREE 1
+        \\#define __ATOMIC_LLONG_LOCK_FREE 1
+        \\#define __ATOMIC_POINTER_LOCK_FREE 1
+        \\
+    );
+    if (comp.langopts.hasChar8_T()) {
+        try w.writeAll("#define __ATOMIC_CHAR8_T_LOCK_FREE 1\n");
+    }
+
     // types
     if (comp.getCharSignedness() == .unsigned) try w.writeAll("#define __CHAR_UNSIGNED__ 1\n");
     try w.writeAll("#define __CHAR_BIT__ 8\n");
@@ -438,6 +463,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
     try comp.generateIntMaxAndWidth(w, "PTRDIFF", comp.types.ptrdiff);
     try comp.generateIntMaxAndWidth(w, "INTPTR", comp.types.intptr);
     try comp.generateIntMaxAndWidth(w, "UINTPTR", comp.types.intptr.makeIntegerUnsigned());
+    try comp.generateIntMaxAndWidth(w, "SIG_ATOMIC", target_util.sigAtomicType(comp.target));
 
     // int widths
     try w.print("#define __BITINT_MAXWIDTH__ {d}\n", .{bit_int_max_bits});
@@ -474,6 +500,8 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
     try generateTypeMacro(w, mapper, "__PTRDIFF_TYPE__", comp.types.ptrdiff, comp.langopts);
     try generateTypeMacro(w, mapper, "__SIZE_TYPE__", comp.types.size, comp.langopts);
     try generateTypeMacro(w, mapper, "__WCHAR_TYPE__", comp.types.wchar, comp.langopts);
+    try generateTypeMacro(w, mapper, "__CHAR16_TYPE__", comp.types.uint_least16_t, comp.langopts);
+    try generateTypeMacro(w, mapper, "__CHAR32_TYPE__", comp.types.uint_least32_t, comp.langopts);
 
     try comp.generateExactWidthTypes(w, mapper);
     try comp.generateFastAndLeastWidthTypes(w, mapper);
@@ -518,7 +546,6 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
 
     // standard macros
     try buf.appendSlice(
-        \\#define __STDC_NO_ATOMICS__ 1
         \\#define __STDC_NO_COMPLEX__ 1
         \\#define __STDC_NO_THREADS__ 1
         \\#define __STDC_NO_VLA__ 1
@@ -1030,9 +1057,8 @@ pub fn getCharSignedness(comp: *const Compilation) std.builtin.Signedness {
     return comp.langopts.char_signedness_override orelse comp.target.charSignedness();
 }
 
-pub fn defineSystemIncludes(comp: *Compilation, aro_dir: []const u8) !void {
-    var stack_fallback = std.heap.stackFallback(path_buf_stack_limit, comp.gpa);
-    const allocator = stack_fallback.get();
+/// Add built-in aro headers directory to system include paths
+pub fn addBuiltinIncludeDir(comp: *Compilation, aro_dir: []const u8) !void {
     var search_path = aro_dir;
     while (std.fs.path.dirname(search_path)) |dirname| : (search_path = dirname) {
         var base_dir = std.fs.cwd().openDir(dirname, .{}) catch continue;
@@ -1044,23 +1070,12 @@ pub fn defineSystemIncludes(comp: *Compilation, aro_dir: []const u8) !void {
         try comp.system_include_dirs.append(comp.gpa, path);
         break;
     } else return error.AroIncludeNotFound;
+}
 
-    if (comp.target.os.tag == .linux) {
-        const triple_str = try comp.target.linuxTriple(allocator);
-        defer allocator.free(triple_str);
-
-        const multiarch_path = try std.fs.path.join(allocator, &.{ "/usr/include", triple_str });
-        defer allocator.free(multiarch_path);
-
-        if (!std.meta.isError(std.fs.accessAbsolute(multiarch_path, .{}))) {
-            const duped = try comp.gpa.dupe(u8, multiarch_path);
-            errdefer comp.gpa.free(duped);
-            try comp.system_include_dirs.append(comp.gpa, duped);
-        }
-    }
-    const usr_include = try comp.gpa.dupe(u8, "/usr/include");
-    errdefer comp.gpa.free(usr_include);
-    try comp.system_include_dirs.append(comp.gpa, usr_include);
+pub fn addSystemIncludeDir(comp: *Compilation, path: []const u8) !void {
+    const duped = try comp.gpa.dupe(u8, path);
+    errdefer comp.gpa.free(duped);
+    try comp.system_include_dirs.append(comp.gpa, duped);
 }
 
 pub fn getSource(comp: *const Compilation, id: Source.Id) Source {
@@ -1331,6 +1346,10 @@ pub fn hasInclude(
     /// __has_include vs __has_include_next
     which: WhichInclude,
 ) !bool {
+    if (mem.indexOfScalar(u8, filename, 0) != null) {
+        return false;
+    }
+
     const cwd = std.fs.cwd();
     if (std.fs.path.isAbsolute(filename)) {
         if (which == .next) return false;

@@ -99,10 +99,7 @@ fn createType(desc: TypeDescription, it: *TypeDescription.TypeIterator, comp: *c
             }
         },
         .h => builder.combine(undefined, .fp16, 0) catch unreachable,
-        .x => {
-            // Todo: _Float16
-            return .{ .specifier = .invalid };
-        },
+        .x => builder.combine(undefined, .float16, 0) catch unreachable,
         .y => {
             // Todo: __bf16
             return .{ .specifier = .invalid };

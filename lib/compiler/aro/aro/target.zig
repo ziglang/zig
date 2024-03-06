@@ -102,6 +102,16 @@ pub fn int16Type(target: std.Target) Type {
     };
 }
 
+/// sig_atomic_t for this target
+pub fn sigAtomicType(target: std.Target) Type {
+    if (target.cpu.arch.isWasm()) return .{ .specifier = .long };
+    return switch (target.cpu.arch) {
+        .avr => .{ .specifier = .schar },
+        .msp430 => .{ .specifier = .long },
+        else => .{ .specifier = .int },
+    };
+}
+
 /// int64_t for this target
 pub fn int64Type(target: std.Target) Type {
     switch (target.cpu.arch) {
