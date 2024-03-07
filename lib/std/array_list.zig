@@ -724,6 +724,17 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Insert `item` at index `i`. Moves `list[i .. list.len]` to higher indices to make room.
         /// If in` is equal to the length of the list this operation is equivalent to append.
         /// This operation is O(N).
+        /// Never resizes the list.
+        /// Asserts that the index is in bounds or equal to the length.
+        pub fn insertNoResize(self: *Self, n: usize, item: T) error{CapacityExceeded}!void {
+            // Overflow can't happen because self.items.len can never hold the entire address space.
+            if (self.items.len + 1 > self.capacity) return error.CapacityExceeded;
+            return self.insertAssumeCapacity(n, item);
+        }
+
+        /// Insert `item` at index `i`. Moves `list[n .. list.len]` to higher indices to make room.
+        /// If `n` is equal to the length of the list this operation is equivalent to append.
+        /// This operation is O(N).
         /// Asserts that the list has capacity for one additional item.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertAssumeCapacity(self: *Self, i: usize, item: T) void {
@@ -751,6 +762,23 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             var managed = self.toManaged(allocator);
             defer self.* = managed.moveToUnmanaged();
             return managed.addManyAt(index, count);
+        }
+
+        /// Add `count` new elements at position `index`, which have
+        /// `undefined` values. Returns a slice pointing to the newly allocated
+        /// elements, which becomes invalid after various `ArrayList`
+        /// operations.
+        /// Invalidates pre-existing pointers to elements at and after `index`,
+        /// but not any before that.
+        /// Does not resize the list.
+        pub fn addManyAtNoResize(
+            self: *Self,
+            index: usize,
+            count: usize,
+        ) error{CapacityExceeded}![]T {
+            const new_capacity = addOrOom(self.items.len, count) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
+            return self.addManyAtAssumeCapacity(index, count);
         }
 
         /// Add `count` new elements at position `index`, which have
@@ -850,6 +878,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Extend the list by 1 element.
+        /// Does not resize the list. Does not invalidate pointers.
+        pub fn appendNoResize(self: *Self, item: T) error{CapacityExceeded}!void {
+            const new_item_ptr = try self.addOneNoResize();
+            new_item_ptr.* = item;
+        }
+
+        /// Extend the list by 1 element, but asserting `self.capacity`
+        /// is sufficient to hold an additional item.
         /// Never invalidates element pointers.
         /// Asserts that the list can hold one additional item.
         pub fn appendAssumeCapacity(self: *Self, item: T) void {
@@ -887,6 +923,13 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Invalidates element pointers if additional memory is needed.
         pub fn appendSlice(self: *Self, allocator: Allocator, items: []const T) Allocator.Error!void {
             try self.ensureUnusedCapacity(allocator, items.len);
+            self.appendSliceAssumeCapacity(items);
+        }
+
+        /// Append the slice of items to the list. Does not resize the list.
+        pub fn appendSliceNoResize(self: *Self, items: []const T) error{CapacityExceeded}!void {
+            const new_capacity = addOrOom(self.items.len, items.len) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
             self.appendSliceAssumeCapacity(items);
         }
 
@@ -1112,6 +1155,14 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return self.addOneAssumeCapacity();
         }
 
+        /// Increase length by 1, returning a pointer to the new item.
+        /// Does not resize the list. Does not invalidate pointers.
+        pub fn addOneNoResize(self: *Self) error{CapacityExceeded}!*T {
+            // Overflow can't happen because self.items.len can never hold the entire address space.
+            if (self.items.len + 1 > self.capacity) return error.CapacityExceeded;
+            return self.addOneAssumeCapacity();
+        }
+
         /// Increase length by 1, returning pointer to the new item.
         /// Never invalidates element pointers.
         /// The returned element pointer becomes invalid when the list is resized.
@@ -1134,6 +1185,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
+        /// Does not resize the list. Never invalidates pointers.
+        pub fn addManyAsArrayNoResize(self: *Self, comptime n: usize) error{CapacityExceeded}!*[n]T {
+            const new_capacity = addOrOom(self.items.len, n) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
+            return self.addManyAsArrayAssumeCapacity(n);
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is an array pointing to the newly allocated elements.
         /// Never invalidates element pointers.
         /// The returned pointer becomes invalid when the list is resized.
         /// Asserts that the list can hold the additional items.
@@ -1152,6 +1212,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const prev_len = self.items.len;
             try self.resize(allocator, try addOrOom(self.items.len, n));
             return self.items[prev_len..][0..n];
+        }
+
+        /// Resize the array, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the newly allocated elements.
+        /// Never resizes the list. Never invalidates pointers.
+        pub fn addManyAsSliceNoResize(self: *Self, n: usize) error{CapacityExceeded}![]T {
+            const new_capacity = addOrOom(self.items.len, n) catch return error.CapacityExceeded;
+            if (new_capacity > self.capacity) return error.CapacityExceeded;
+            return self.addManyAsSliceAssumeCapacity(n);
         }
 
         /// Resize the array, adding `n` new elements, which have `undefined` values.
@@ -2096,6 +2165,178 @@ test "ArrayList(u32).getLastOrNull()" {
     try list.append(2);
     const const_list = list;
     try testing.expectEqual(const_list.getLastOrNull().?, 2);
+}
+
+test "std.ArrayListUnmanaged(u32).insertNoResize()" {
+    var buffer: [4]u32 = undefined;
+    var list = ArrayListUnmanaged(u32).initBuffer(&buffer);
+
+    // usage modes
+
+    try list.insertNoResize(0, 42);
+    try testing.expectEqualSlices(u32, &.{42}, list.items);
+
+    try list.insertNoResize(0, 6);
+    try testing.expectEqualSlices(u32, &.{ 6, 42 }, list.items);
+
+    try list.insertNoResize(1, 8);
+    try testing.expectEqualSlices(u32, &.{ 6, 8, 42 }, list.items);
+
+    try list.insertNoResize(3, 37);
+    try testing.expectEqualSlices(u32, &.{ 6, 8, 42, 37 }, list.items);
+
+    // consistent failure
+    try testing.expectError(error.CapacityExceeded, list.insertNoResize(0, undefined));
+    try testing.expectError(error.CapacityExceeded, list.insertNoResize(list.items.len, undefined));
+    try testing.expectError(error.CapacityExceeded, list.insertNoResize(2, undefined));
+}
+
+test "std.ArrayListUnmanaged(u32).addManyAtNoResize()" {
+    var buffer: [16]u32 = undefined;
+    var list = ArrayListUnmanaged(u32).initBuffer(&buffer);
+
+    // usage modes
+
+    (try list.addManyAtNoResize(0, 1))[0] = 42;
+    try testing.expectEqualSlices(u32, &.{42}, list.items);
+
+    (try list.addManyAtNoResize(0, 2))[0..2].* = .{ 6, 8 };
+    try testing.expectEqualSlices(u32, &.{ 6, 8, 42 }, list.items);
+
+    (try list.addManyAtNoResize(2, 4))[0..4].* = .{ 4, 3, 82, 21 };
+    try testing.expectEqualSlices(u32, &.{ 6, 8, 4, 3, 82, 21, 42 }, list.items);
+
+    (try list.addManyAtNoResize(list.items.len, 9))[0..9].* = .{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 };
+    try testing.expectEqualSlices(u32, &.{ 6, 8, 4, 3, 82, 21, 42, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
+
+    // consistent failure
+    try testing.expectError(error.CapacityExceeded, list.addManyAtNoResize(0, 1));
+    try testing.expectError(error.CapacityExceeded, list.addManyAtNoResize(list.items.len, 1));
+    try testing.expectError(error.CapacityExceeded, list.addManyAtNoResize(2, 1));
+
+    // no-op
+    _ = try list.addManyAtNoResize(2, 0);
+}
+
+test "std.ArrayListUnmanaged(u32).addManyAsArrayNoResize()" {
+    var buffer: [16]u32 = undefined;
+    var list = ArrayListUnmanaged(u32).initBuffer(&buffer);
+
+    // usage modes
+
+    (try list.addManyAsArrayNoResize(1))[0] = 42;
+    try testing.expectEqualSlices(u32, &.{42}, list.items);
+
+    (try list.addManyAsArrayNoResize(2)).* = .{ 6, 8 };
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8 }, list.items);
+
+    (try list.addManyAsArrayNoResize(4)).* = .{ 4, 3, 82, 21 };
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21 }, list.items);
+
+    (try list.addManyAsArrayNoResize(9)).* = .{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 };
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
+
+    // consistent failure
+    try testing.expectError(error.CapacityExceeded, list.addManyAsArrayNoResize(1));
+    try testing.expectError(error.CapacityExceeded, list.addManyAsArrayNoResize(1));
+
+    // no-op
+    _ = try list.addManyAsArrayNoResize(0);
+}
+
+test "std.ArrayListUnmanaged(u32).addManyAsSliceNoResize()" {
+    var buffer: [16]u32 = undefined;
+    var list = ArrayListUnmanaged(u32).initBuffer(&buffer);
+
+    // usage modes
+
+    (try list.addManyAsSliceNoResize(1))[0] = 42;
+    try testing.expectEqualSlices(u32, &.{42}, list.items);
+
+    (try list.addManyAsSliceNoResize(2))[0..2].* = .{ 6, 8 };
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8 }, list.items);
+
+    (try list.addManyAsSliceNoResize(4))[0..4].* = .{ 4, 3, 82, 21 };
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21 }, list.items);
+
+    (try list.addManyAsSliceNoResize(9))[0..9].* = .{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 };
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
+
+    // consistent failure
+    try testing.expectError(error.CapacityExceeded, list.addManyAsSliceNoResize(1));
+    try testing.expectError(error.CapacityExceeded, list.addManyAsSliceNoResize(1));
+}
+
+test "std.ArrayListUnmanaged(u32).appendSliceNoResize()" {
+    var buffer: [16]u32 = undefined;
+    var list = ArrayListUnmanaged(u32).initBuffer(&buffer);
+
+    // usage modes
+
+    try list.appendSliceNoResize(&.{42});
+    try testing.expectEqualSlices(u32, &.{42}, list.items);
+
+    try list.appendSliceNoResize(&.{ 6, 8 });
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8 }, list.items);
+
+    try list.appendSliceNoResize(&.{ 4, 3, 82, 21 });
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21 }, list.items);
+
+    try list.appendSliceNoResize(&.{ 855, 160, 945, 407, 8439, 63, 238, 564, 9920 });
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 4, 3, 82, 21, 855, 160, 945, 407, 8439, 63, 238, 564, 9920 }, list.items);
+
+    // consistent failure
+    try testing.expectError(error.CapacityExceeded, list.appendSliceNoResize(&.{undefined}));
+    try testing.expectError(error.CapacityExceeded, list.appendSliceNoResize(&.{undefined}));
+
+    // no-op
+    _ = try list.appendSliceNoResize(&.{});
+}
+
+test "std.ArrayListUnmanaged(u32).appendNoResize()" {
+    var buffer: [4]u32 = undefined;
+    var list = ArrayListUnmanaged(u32).initBuffer(&buffer);
+
+    // usage modes
+
+    try list.appendNoResize(42);
+    try testing.expectEqualSlices(u32, &.{42}, list.items);
+
+    try list.appendNoResize(6);
+    try testing.expectEqualSlices(u32, &.{ 42, 6 }, list.items);
+
+    try list.appendNoResize(8);
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8 }, list.items);
+
+    try list.appendNoResize(37);
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 37 }, list.items);
+
+    // consistent failure
+    try testing.expectError(error.CapacityExceeded, list.appendNoResize(undefined));
+    try testing.expectError(error.CapacityExceeded, list.appendNoResize(undefined));
+}
+
+test "std.ArrayListUnmanaged(u32).addOneNoResize()" {
+    var buffer: [4]u32 = undefined;
+    var list = ArrayListUnmanaged(u32).initBuffer(&buffer);
+
+    // usage modes
+
+    (try list.addOneNoResize()).* = 42;
+    try testing.expectEqualSlices(u32, &.{42}, list.items);
+
+    (try list.addOneNoResize()).* = 6;
+    try testing.expectEqualSlices(u32, &.{ 42, 6 }, list.items);
+
+    (try list.addOneNoResize()).* = 8;
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8 }, list.items);
+
+    (try list.addOneNoResize()).* = 37;
+    try testing.expectEqualSlices(u32, &.{ 42, 6, 8, 37 }, list.items);
+
+    // consistent failure
+    try testing.expectError(error.CapacityExceeded, list.addOneNoResize());
+    try testing.expectError(error.CapacityExceeded, list.addOneNoResize());
 }
 
 test "return OutOfMemory when capacity would exceed maximum usize integer value" {
