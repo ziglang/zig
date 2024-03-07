@@ -383,8 +383,6 @@ pub const O = switch (native_arch) {
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
-pub usingnamespace @import("linux/io_uring.zig");
-
 /// Set by startup code, used by `getauxval`.
 pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 
@@ -4188,22 +4186,9 @@ pub const IORING_SETUP_SINGLE_ISSUER = 1 << 12;
 pub const IORING_SETUP_DEFER_TASKRUN = 1 << 13;
 
 /// IO submission data structure (Submission Queue Entry)
-pub const io_uring_sqe = extern struct {
-    opcode: IORING_OP,
-    flags: u8,
-    ioprio: u16,
-    fd: i32,
-    off: u64,
-    addr: u64,
-    len: u32,
-    rw_flags: u32,
-    user_data: u64,
-    buf_index: u16,
-    personality: u16,
-    splice_fd_in: i32,
-    addr3: u64,
-    resv: u64,
-};
+pub const io_uring_sqe = @import("linux/io_uring_sqe.zig").io_uring_sqe;
+
+pub const IoUring = @import("linux/IoUring.zig");
 
 /// If sqe->file_index is set to this for opcodes that instantiate a new
 /// direct descriptor (like openat/openat2/accept), then io_uring will allocate
