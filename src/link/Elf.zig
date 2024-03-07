@@ -5572,11 +5572,17 @@ pub fn gotAddress(self: *Elf) u64 {
 pub fn tpAddress(self: *Elf) u64 {
     const index = self.phdr_tls_index orelse return 0;
     const phdr = self.phdrs.items[index];
-    return mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align);
+    return switch (self.getTarget().cpu.arch) {
+        .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
+        .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
+        else => @panic("TODO implement getTpAddress for this arch"),
+    };
 }
 
 pub fn dtpAddress(self: *Elf) u64 {
-    return self.tlsAddress();
+    const index = self.phdr_tls_index orelse return 0;
+    const phdr = self.phdrs.items[index];
+    return phdr.p_vaddr;
 }
 
 pub fn tlsAddress(self: *Elf) u64 {
