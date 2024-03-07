@@ -119,7 +119,6 @@ fn serveDocsFile(
     const file_contents = try context.lib_dir.readFileAlloc(gpa, name, 10 * 1024 * 1024);
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
-        .status = .ok,
         .extra_headers = &.{
             .{ .name = "content-type", .value = content_type },
             cache_control_header,
@@ -128,9 +127,46 @@ fn serveDocsFile(
 }
 
 fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
-    _ = request;
-    _ = context;
-    @panic("TODO");
+    const gpa = context.gpa;
+
+    var send_buffer: [0x4000]u8 = undefined;
+    var response = request.respondStreaming(.{
+        .send_buffer = &send_buffer,
+        .respond_options = .{
+            .extra_headers = &.{
+                .{ .name = "content-type", .value = "application/x-tar" },
+                cache_control_header,
+            },
+        },
+    });
+    const w = response.writer();
+    try w.writeAll("tar header");
+
+    var std_dir = try context.lib_dir.openDir("std", .{ .iterate = true });
+    defer std_dir.close();
+
+    var walker = try std_dir.walk(gpa);
+    defer walker.deinit();
+
+    while (try walker.next()) |entry| {
+        switch (entry.kind) {
+            .file => {
+                if (!std.mem.endsWith(u8, entry.basename, ".zig"))
+                    continue;
+                if (std.mem.endsWith(u8, entry.basename, "test.zig"))
+                    continue;
+            },
+            else => continue,
+        }
+
+        try w.writeAll(entry.path);
+
+        var file = try std_dir.openFile(entry.path, .{});
+        defer file.close();
+
+        try w.writeFile(file);
+    }
+    try response.end();
 }
 
 fn serveWasm(
@@ -151,7 +187,6 @@ fn serveWasm(
     const file_contents = try std.fs.cwd().readFileAlloc(gpa, wasm_binary_path, 10 * 1024 * 1024);
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
-        .status = .ok,
         .extra_headers = &.{
             .{ .name = "content-type", .value = "application/wasm" },
             cache_control_header,
@@ -250,7 +285,7 @@ fn buildWasmBinary(
                 const EbpHdr = std.zig.Server.Message.EmitBinPath;
                 const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                 if (!ebp_hdr.flags.cache_hit) {
-                    std.log.info("source changes detected; rebuilding wasm component", .{});
+                    std.log.info("source changes detected; rebuilt wasm component", .{});
                 }
                 result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
             },
