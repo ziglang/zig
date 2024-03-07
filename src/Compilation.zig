@@ -3849,7 +3849,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
 
         const header_bytes = std.mem.asBytes(&file_header);
         const padding = p: {
-            const remainder = stat.size % 512;
+            const remainder: u16 = @intCast(stat.size % 512);
             const n = if (remainder > 0) 512 - remainder else 0;
             break :p padding_buffer[0..n];
         };
