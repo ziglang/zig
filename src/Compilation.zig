@@ -3330,6 +3330,13 @@ pub fn performAllTheWork(
     comp.work_queue_wait_group.reset();
     defer comp.work_queue_wait_group.wait();
 
+    if (!build_options.only_c and !build_options.only_core_functionality) {
+        if (comp.docs_emit != null) {
+            try taskDocsCopy(comp, &comp.work_queue_wait_group);
+            try taskDocsWasm(comp, &comp.work_queue_wait_group);
+        }
+    }
+
     {
         const astgen_frame = tracy.namedFrame("astgen");
         defer astgen_frame.end();
@@ -3742,6 +3749,46 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
             };
         },
     }
+}
+
+fn taskDocsCopy(comp: *Compilation, wg: *WaitGroup) !void {
+    wg.start();
+    errdefer wg.finish();
+    try comp.thread_pool.spawn(workerDocsCopy, .{ comp, wg });
+}
+
+fn taskDocsWasm(comp: *Compilation, wg: *WaitGroup) !void {
+    wg.start();
+    errdefer wg.finish();
+    try comp.thread_pool.spawn(workerDocsWasm, .{ comp, wg });
+}
+
+fn workerDocsCopy(comp: *Compilation, wg: *WaitGroup) void {
+    defer wg.finish();
+
+    const emit = comp.docs_emit.?;
+    var out_dir = emit.directory.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+        // TODO create an error to be reported instead of logging
+        log.err("unable to create output directory '{}{s}': {s}", .{
+            emit.directory, emit.sub_path, @errorName(err),
+        });
+        return;
+    };
+    defer out_dir.close();
+
+    for (&[_][]const u8{ "docs/main.js", "docs/index.html" }) |sub_path| {
+        const basename = std.fs.path.basename(sub_path);
+        comp.zig_lib_directory.handle.copyFile(sub_path, out_dir, basename, .{}) catch |err| {
+            log.err("unable to copy {s}: {s}", .{ sub_path, @errorName(err) });
+        };
+    }
+}
+
+fn workerDocsWasm(comp: *Compilation, wg: *WaitGroup) void {
+    defer wg.finish();
+
+    _ = comp;
+    log.err("TODO workerDocsWasm", .{});
 }
 
 const AstGenSrc = union(enum) {
