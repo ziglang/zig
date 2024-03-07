@@ -167,9 +167,8 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             const remainder = stat.size % 512;
             break :p if (remainder > 0) 512 - remainder else 0;
         };
-        comptime assert(@sizeOf(TarHeader) == 512);
 
-        var file_header = TarHeader.init();
+        var file_header = std.tar.output.Header.init();
         file_header.typeflag = .regular;
         try file_header.setPath("std", entry.path);
         try file_header.setSize(stat.size);
@@ -383,77 +382,3 @@ fn openBrowserTabThread(gpa: Allocator, url: []const u8) !void {
     try child.spawn();
     _ = try child.wait();
 }
-
-/// Forked from https://github.com/mattnite/tar/blob/main/src/main.zig which is
-/// MIT licensed.
-pub const TarHeader = extern struct {
-    name: [100]u8,
-    mode: [7:0]u8,
-    uid: [7:0]u8,
-    gid: [7:0]u8,
-    size: [11:0]u8,
-    mtime: [11:0]u8,
-    checksum: [7:0]u8,
-    typeflag: FileType,
-    linkname: [100]u8,
-    magic: [5:0]u8,
-    version: [2]u8,
-    uname: [31:0]u8,
-    gname: [31:0]u8,
-    devmajor: [7:0]u8,
-    devminor: [7:0]u8,
-    prefix: [155]u8,
-    pad: [12]u8,
-
-    const FileType = enum(u8) {
-        regular = '0',
-        hard_link = '1',
-        symbolic_link = '2',
-        character = '3',
-        block = '4',
-        directory = '5',
-        fifo = '6',
-        reserved = '7',
-        pax_global = 'g',
-        extended = 'x',
-        _,
-    };
-
-    fn init() TarHeader {
-        var ret = std.mem.zeroes(TarHeader);
-        ret.magic = [_:0]u8{ 'u', 's', 't', 'a', 'r' };
-        ret.version = [_:0]u8{ '0', '0' };
-        return ret;
-    }
-
-    fn setPath(self: *TarHeader, prefix: []const u8, path: []const u8) !void {
-        if (prefix.len + 1 + path.len > 100) {
-            var i: usize = 0;
-            while (i < path.len and path.len - i > 100) {
-                while (path[i] != '/') : (i += 1) {}
-            }
-
-            _ = try std.fmt.bufPrint(&self.prefix, "{s}/{s}", .{ prefix, path[0..i] });
-            _ = try std.fmt.bufPrint(&self.name, "{s}", .{path[i + 1 ..]});
-        } else {
-            _ = try std.fmt.bufPrint(&self.name, "{s}/{s}", .{ prefix, path });
-        }
-    }
-
-    fn setSize(self: *TarHeader, size: u64) !void {
-        _ = try std.fmt.bufPrint(&self.size, "{o:0>11}", .{size});
-    }
-
-    fn updateChecksum(self: *TarHeader) !void {
-        const offset = @offsetOf(TarHeader, "checksum");
-        var checksum: usize = 0;
-        for (std.mem.asBytes(self), 0..) |val, i| {
-            checksum += if (i >= offset and i < offset + @sizeOf(@TypeOf(self.checksum)))
-                ' '
-            else
-                val;
-        }
-
-        _ = try std.fmt.bufPrint(&self.checksum, "{o:0>7}", .{checksum});
-    }
-};

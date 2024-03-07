@@ -733,6 +733,7 @@ pub const MiscTask = enum {
     compiler_rt,
     zig_libc,
     analyze_mod,
+    docs_copy,
 
     @"musl crti.o",
     @"musl crtn.o",
@@ -3765,22 +3766,106 @@ fn taskDocsWasm(comp: *Compilation, wg: *WaitGroup) !void {
 
 fn workerDocsCopy(comp: *Compilation, wg: *WaitGroup) void {
     defer wg.finish();
+    docsCopyFallible(comp) catch |err| {
+        return comp.lockAndSetMiscFailure(
+            .docs_copy,
+            "unable to copy autodocs artifacts: {s}",
+            .{@errorName(err)},
+        );
+    };
+}
 
+fn docsCopyFallible(comp: *Compilation) anyerror!void {
     const emit = comp.docs_emit.?;
     var out_dir = emit.directory.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
-        // TODO create an error to be reported instead of logging
-        log.err("unable to create output directory '{}{s}': {s}", .{
-            emit.directory, emit.sub_path, @errorName(err),
-        });
-        return;
+        return comp.lockAndSetMiscFailure(
+            .docs_copy,
+            "unable to create output directory '{}{s}': {s}",
+            .{ emit.directory, emit.sub_path, @errorName(err) },
+        );
     };
     defer out_dir.close();
 
     for (&[_][]const u8{ "docs/main.js", "docs/index.html" }) |sub_path| {
         const basename = std.fs.path.basename(sub_path);
         comp.zig_lib_directory.handle.copyFile(sub_path, out_dir, basename, .{}) catch |err| {
-            log.err("unable to copy {s}: {s}", .{ sub_path, @errorName(err) });
+            comp.lockAndSetMiscFailure(.docs_copy, "unable to copy {s}: {s}", .{
+                sub_path,
+                @errorName(err),
+            });
+            return;
         };
+    }
+
+    var tar_file = out_dir.createFile("sources.tar", .{}) catch |err| {
+        return comp.lockAndSetMiscFailure(
+            .docs_copy,
+            "unable to create '{}{s}/sources.tar': {s}",
+            .{ emit.directory, emit.sub_path, @errorName(err) },
+        );
+    };
+    defer tar_file.close();
+
+    const root = comp.root_mod.root;
+    const root_mod_name = comp.root_mod.fully_qualified_name;
+    const sub_path = if (root.sub_path.len == 0) "." else root.sub_path;
+    var mod_dir = root.root_dir.handle.openDir(sub_path, .{ .iterate = true }) catch |err| {
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{}': {s}", .{
+            root, @errorName(err),
+        });
+    };
+
+    var walker = try mod_dir.walk(comp.gpa);
+    defer walker.deinit();
+
+    const padding_buffer = [1]u8{0} ** 512;
+
+    while (try walker.next()) |entry| {
+        switch (entry.kind) {
+            .file => {
+                if (!std.mem.endsWith(u8, entry.basename, ".zig")) continue;
+                if (std.mem.eql(u8, entry.basename, "test.zig")) continue;
+                if (std.mem.endsWith(u8, entry.basename, "_test.zig")) continue;
+            },
+            else => continue,
+        }
+
+        var file = mod_dir.openFile(entry.path, .{}) catch |err| {
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{}{s}': {s}", .{
+                root, entry.path, @errorName(err),
+            });
+        };
+        defer file.close();
+
+        const stat = file.stat() catch |err| {
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to stat '{}{s}': {s}", .{
+                root, entry.path, @errorName(err),
+            });
+        };
+
+        var file_header = std.tar.output.Header.init();
+        file_header.typeflag = .regular;
+        try file_header.setPath(root_mod_name, entry.path);
+        try file_header.setSize(stat.size);
+        try file_header.updateChecksum();
+
+        const header_bytes = std.mem.asBytes(&file_header);
+        const padding = p: {
+            const remainder = stat.size % 512;
+            const n = if (remainder > 0) 512 - remainder else 0;
+            break :p padding_buffer[0..n];
+        };
+
+        var header_and_trailer: [2]std.os.iovec_const = .{
+            .{ .iov_base = header_bytes.ptr, .iov_len = header_bytes.len },
+            .{ .iov_base = padding.ptr, .iov_len = padding.len },
+        };
+
+        try tar_file.writeFileAll(file, .{
+            .in_len = stat.size,
+            .headers_and_trailers = &header_and_trailer,
+            .header_count = 1,
+        });
     }
 }
 
