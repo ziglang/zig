@@ -734,6 +734,7 @@ pub const MiscTask = enum {
     zig_libc,
     analyze_mod,
     docs_copy,
+    docs_wasm,
 
     @"musl crti.o",
     @"musl crtn.o",
@@ -3322,6 +3323,9 @@ pub fn performAllTheWork(
     var zir_prog_node = main_progress_node.start("AST Lowering", 0);
     defer zir_prog_node.end();
 
+    var wasm_prog_node = main_progress_node.start("Compile Autodocs", 0);
+    defer wasm_prog_node.end();
+
     var c_obj_prog_node = main_progress_node.start("Compile C Objects", comp.c_source_files.len);
     defer c_obj_prog_node.end();
 
@@ -3334,7 +3338,7 @@ pub fn performAllTheWork(
     if (!build_options.only_c and !build_options.only_core_functionality) {
         if (comp.docs_emit != null) {
             try taskDocsCopy(comp, &comp.work_queue_wait_group);
-            try taskDocsWasm(comp, &comp.work_queue_wait_group);
+            comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, &wasm_prog_node });
         }
     }
 
@@ -3758,12 +3762,6 @@ fn taskDocsCopy(comp: *Compilation, wg: *WaitGroup) !void {
     try comp.thread_pool.spawn(workerDocsCopy, .{ comp, wg });
 }
 
-fn taskDocsWasm(comp: *Compilation, wg: *WaitGroup) !void {
-    wg.start();
-    errdefer wg.finish();
-    try comp.thread_pool.spawn(workerDocsWasm, .{ comp, wg });
-}
-
 fn workerDocsCopy(comp: *Compilation, wg: *WaitGroup) void {
     defer wg.finish();
     docsCopyFallible(comp) catch |err| {
@@ -3869,11 +3867,141 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     }
 }
 
-fn workerDocsWasm(comp: *Compilation, wg: *WaitGroup) void {
-    defer wg.finish();
+fn workerDocsWasm(comp: *Compilation, prog_node: *std.Progress.Node) void {
+    workerDocsWasmFallible(comp, prog_node) catch |err| {
+        comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
+            @errorName(err),
+        });
+    };
+}
 
-    _ = comp;
-    log.err("TODO workerDocsWasm", .{});
+fn workerDocsWasmFallible(comp: *Compilation, prog_node: *std.Progress.Node) anyerror!void {
+    const gpa = comp.gpa;
+
+    var arena_allocator = std.heap.ArenaAllocator.init(gpa);
+    defer arena_allocator.deinit();
+    const arena = arena_allocator.allocator();
+
+    const optimize_mode = std.builtin.OptimizeMode.ReleaseSmall;
+    const output_mode = std.builtin.OutputMode.Exe;
+    const resolved_target: Package.Module.ResolvedTarget = .{
+        .result = std.zig.system.resolveTargetQuery(.{
+            .cpu_arch = .wasm32,
+            .os_tag = .freestanding,
+            .cpu_features_add = std.Target.wasm.featureSet(&.{
+                .atomics,
+                .bulk_memory,
+                // .extended_const, not supported by Safari
+                .multivalue,
+                .mutable_globals,
+                .nontrapping_fptoint,
+                .reference_types,
+                //.relaxed_simd, not supported by Firefox or Safari
+                .sign_ext,
+                // observed to cause Error occured during wast conversion :
+                // Unknown operator: 0xfd058 in Firefox 117
+                //.simd128,
+                // .tail_call, not supported by Safari
+            }),
+        }) catch unreachable,
+
+        .is_native_os = false,
+        .is_native_abi = false,
+    };
+
+    const config = try Config.resolve(.{
+        .output_mode = output_mode,
+        .resolved_target = resolved_target,
+        .is_test = false,
+        .have_zcu = true,
+        .emit_bin = true,
+        .root_optimize_mode = optimize_mode,
+        .link_libc = false,
+        .rdynamic = true,
+    });
+
+    const src_basename = "main.zig";
+    const root_name = std.fs.path.stem(src_basename);
+
+    const root_mod = try Package.Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{
+                .root_dir = comp.zig_lib_directory,
+                .sub_path = "docs/wasm",
+            },
+            .root_src_path = src_basename,
+        },
+        .fully_qualified_name = root_name,
+        .inherited = .{
+            .resolved_target = resolved_target,
+            .optimize_mode = optimize_mode,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = null,
+        .builtin_mod = null,
+    });
+    const bin_basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = root_name,
+        .target = resolved_target.result,
+        .output_mode = output_mode,
+    });
+
+    const sub_compilation = try Compilation.create(gpa, arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .local_cache_directory = comp.global_cache_directory,
+        .zig_lib_directory = comp.zig_lib_directory,
+        .self_exe_path = comp.self_exe_path,
+        .config = config,
+        .root_mod = root_mod,
+        .entry = .disabled,
+        .cache_mode = .whole,
+        .root_name = root_name,
+        .thread_pool = comp.thread_pool,
+        .libc_installation = comp.libc_installation,
+        .emit_bin = .{
+            .directory = null, // Put it in the cache directory.
+            .basename = bin_basename,
+        },
+        .verbose_cc = comp.verbose_cc,
+        .verbose_link = comp.verbose_link,
+        .verbose_air = comp.verbose_air,
+        .verbose_intern_pool = comp.verbose_intern_pool,
+        .verbose_generic_instances = comp.verbose_intern_pool,
+        .verbose_llvm_ir = comp.verbose_llvm_ir,
+        .verbose_llvm_bc = comp.verbose_llvm_bc,
+        .verbose_cimport = comp.verbose_cimport,
+        .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
+    });
+    defer sub_compilation.destroy();
+
+    try comp.updateSubCompilation(sub_compilation, .docs_wasm, prog_node);
+
+    const emit = comp.docs_emit.?;
+    var out_dir = emit.directory.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+        return comp.lockAndSetMiscFailure(
+            .docs_copy,
+            "unable to create output directory '{}{s}': {s}",
+            .{ emit.directory, emit.sub_path, @errorName(err) },
+        );
+    };
+    defer out_dir.close();
+
+    sub_compilation.local_cache_directory.handle.copyFile(
+        sub_compilation.cache_use.whole.bin_sub_path.?,
+        out_dir,
+        "main.wasm",
+        .{},
+    ) catch |err| {
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{}{s}' to '{}{s}': {s}", .{
+            sub_compilation.local_cache_directory,
+            sub_compilation.cache_use.whole.bin_sub_path.?,
+            emit.directory,
+            emit.sub_path,
+            @errorName(err),
+        });
+    };
 }
 
 const AstGenSrc = union(enum) {
