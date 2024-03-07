@@ -327,7 +327,7 @@ fn buildWasmBinary(
                     "the following command exited with error code {d}:\n{s}",
                     .{ code, try std.Build.Step.allocPrintCmd(arena, null, argv.items) },
                 );
-                return error.AlreadyReported;
+                return error.WasmCompilationFailed;
             }
         },
         .Signal, .Stopped, .Unknown => {
@@ -335,7 +335,7 @@ fn buildWasmBinary(
                 "the following command terminated unexpectedly:\n{s}",
                 .{try std.Build.Step.allocPrintCmd(arena, null, argv.items)},
             );
-            return error.AlreadyReported;
+            return error.WasmCompilationFailed;
         },
     }
 
@@ -346,14 +346,14 @@ fn buildWasmBinary(
             result_error_bundle.errorMessageCount(),
             try std.Build.Step.allocPrintCmd(arena, null, argv.items),
         });
-        return error.AlreadyReported;
+        return error.WasmCompilationFailed;
     }
 
     return result orelse {
         std.log.err("child process failed to report result\n{s}", .{
             try std.Build.Step.allocPrintCmd(arena, null, argv.items),
         });
-        return error.AlreadyReported;
+        return error.WasmCompilationFailed;
     };
 }
 
