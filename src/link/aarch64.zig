@@ -95,6 +95,17 @@ pub fn writeBranchImm(disp: i28, code: *[4]u8) !void {
     mem.writeInt(u32, code, inst.toU32(), .little);
 }
 
+pub fn writeAddInst(value: u12, code: *[4]u8) !void {
+    var inst = Instruction{
+        .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
+            Instruction,
+            Instruction.add_subtract_immediate,
+        ), code),
+    };
+    inst.add_subtract_immediate.imm12 = value;
+    mem.writeInt(u32, code, inst.toU32(), .little);
+}
+
 const assert = std.debug.assert;
 const bits = @import("../arch/aarch64/bits.zig");
 const builtin = @import("builtin");

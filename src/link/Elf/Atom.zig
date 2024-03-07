@@ -1592,6 +1592,8 @@ const aarch64 = struct {
         _ = it;
 
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+        const is_dyn_lib = elf_file.base.isDynLib();
+
         switch (r_type) {
             .ABS64 => {
                 try atom.scanReloc(symbol, rel, dynAbsRelocAction(symbol, elf_file), elf_file);
@@ -1629,6 +1631,12 @@ const aarch64 = struct {
             .LDST128_ABS_LO12_NC,
             => {},
 
+            .TLSLE_ADD_TPREL_HI12,
+            .TLSLE_ADD_TPREL_LO12_NC,
+            => {
+                if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
+            },
+
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
@@ -1650,7 +1658,6 @@ const aarch64 = struct {
         const cwriter = stream.writer();
 
         const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
-        _ = TP;
         _ = DTP;
         _ = ZIG_GOT;
 
@@ -1734,6 +1741,17 @@ const aarch64 = struct {
                     else => unreachable,
                 };
                 try aarch64_util.writePageOffset(kind, taddr, code[r_offset..][0..4]);
+            },
+
+            .TLSLE_ADD_TPREL_HI12 => {
+                const value = math.cast(i12, (S + A - TP) >> 12) orelse
+                    return error.Overflow;
+                try aarch64_util.writeAddInst(@bitCast(value), code[rel.r_offset..][0..4]);
+            },
+
+            .TLSLE_ADD_TPREL_LO12_NC => {
+                const value: i12 = @truncate(S + A - TP);
+                try aarch64_util.writeAddInst(@bitCast(value), code[rel.r_offset..][0..4]);
             },
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
