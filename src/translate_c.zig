@@ -1654,6 +1654,19 @@ fn transCompoundStmtInline(
         var inner_stmt_break_target_transformations: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(*const GotoContext.Transformation)) = .{};
         defer inner_stmt_break_target_transformations.deinit(c.gpa);
 
+        var stmt_order: std.AutoHashMapUnmanaged(*const clang.Stmt, usize) = .{};
+        defer stmt_order.deinit(c.gpa);
+
+        var ite = it;
+        while (ite != end_it) : (ite += 1) {
+            try stmt_order.put(c.gpa, ite[0], @intFromPtr(ite));
+        }
+
+        var require_in_loop: std.AutoHashMapUnmanaged(*const clang.Stmt, void) = .{};
+        defer require_in_loop.deinit(c.gpa);
+        var loop_variables: std.ArrayListUnmanaged([]const u8) = .{};
+        defer loop_variables.deinit(c.gpa);
+
         for (transformations) |*transformation| {
             const variables = try inner_stmt_to_variables.getOrPut(c.gpa, transformation.inner_stmt);
             if (!variables.found_existing) {
@@ -1669,19 +1682,20 @@ fn transCompoundStmtInline(
                         break_target_transformations.value_ptr.* = .{};
                     }
                     try break_target_transformations.value_ptr.append(c.gpa, transformation);
+
+                    if (stmt_order.get(transformation.inner_stmt).? < stmt_order.get(break_target.from).?) {
+                        try require_in_loop.put(c.gpa, transformation.inner_stmt, {});
+                        try require_in_loop.put(c.gpa, break_target.from, {});
+
+                        try loop_variables.append(c.gpa, transformation.variable);
+                    }
                 },
             }
         }
 
-        var require_in_loop: std.AutoHashMapUnmanaged(*const clang.Stmt, void) = .{};
-        var loop_variables: std.ArrayListUnmanaged([]const u8) = .{};
-
         if (inner_stmt_break_target_transformations.size != 0) {
             var insert_if = false;
             var iter = it;
-
-            var upwards_label_to_goto: std.AutoArrayHashMapUnmanaged(*const clang.Stmt, *const clang.Stmt) = .{};
-            defer upwards_label_to_goto.deinit(c.gpa);
 
             while (iter != end_it) : (iter += 1) {
                 if (insert_if) {
@@ -1693,27 +1707,9 @@ fn transCompoundStmtInline(
                     insert_if = false;
                 }
 
-                // remove if downwards
-                _ = upwards_label_to_goto.swapRemove(iter[0]);
-
-                if (inner_stmt_break_target_transformations.getPtr(iter[0])) |break_target_transformations| {
-                    for (break_target_transformations.items) |transformation| {
-                        // If two gotos target to same upwards label, only the second is in interest
-                        try upwards_label_to_goto.put(c.gpa, transformation.inner_stmt, iter[0]);
-                    }
-
+                if (inner_stmt_break_target_transformations.contains(iter[0])) {
                     // Insert an if after this stmt
                     insert_if = true;
-                }
-            }
-
-            // Require every upwards goto and upwards label to be inside the loop
-            for (0..upwards_label_to_goto.count()) |i| {
-                try require_in_loop.put(c.gpa, upwards_label_to_goto.keys()[i], {});
-                try require_in_loop.put(c.gpa, upwards_label_to_goto.values()[i], {});
-
-                for (inner_stmt_break_target_transformations.getPtr(upwards_label_to_goto.values()[i]).?.items) |transformation| {
-                    try loop_variables.append(c.gpa, transformation.variable);
                 }
             }
         }
