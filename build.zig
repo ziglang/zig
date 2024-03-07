@@ -55,10 +55,12 @@ pub fn build(b: *std.Build) !void {
         b.getInstallStep().dependOn(&install_langref.step);
     }
 
-    const autodoc_test = b.addTest(.{
+    const autodoc_test = b.addObject(.{
+        .name = "std",
         .root_source_file = .{ .path = "lib/std/std.zig" },
         .target = target,
         .zig_lib_dir = .{ .path = "lib" },
+        .optimize = .Debug,
     });
     const install_std_docs = b.addInstallDirectory(.{
         .source_dir = autodoc_test.getEmittedDocs(),
