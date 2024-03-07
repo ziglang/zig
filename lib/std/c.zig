@@ -1863,16 +1863,14 @@ pub extern "c" fn setlogmask(maskpri: c_int) c_int;
 
 pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
-pub usingnamespace if (builtin.target.isAndroid()) struct {
-    // android bionic libc does not implement getcontext,
-    // and std.os.linux.getcontext also cannot be built for
-    // bionic libc currently.
-} else if (native_os == .linux and builtin.target.isMusl()) struct {
-    // musl does not implement getcontext
-    pub const getcontext = std.os.linux.getcontext;
-} else struct {
-    pub extern "c" fn getcontext(ucp: *std.os.ucontext_t) c_int;
-};
+pub const getcontext = if (builtin.target.isAndroid())
+    @compileError("android bionic libc does not implement getcontext")
+else if (native_os == .linux and builtin.target.isMusl())
+    std.os.linux.getcontext
+else
+    struct {
+        extern fn getcontext(ucp: *std.os.ucontext_t) c_int;
+    }.getcontext;
 
 pub const max_align_t = if (native_abi == .msvc)
     f64
