@@ -58,3 +58,14 @@ pub fn writeStruct(self: Self, value: anytype) anyerror!void {
     comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != .Auto);
     return self.writeAll(mem.asBytes(&value));
 }
+
+pub fn writeFile(self: Self, file: std.fs.File) anyerror!void {
+    // TODO: figure out how to adjust std lib abstractions so that this ends up
+    // doing sendfile or maybe even copy_file_range under the right conditions.
+    var buf: [4000]u8 = undefined;
+    while (true) {
+        const n = try file.readAll(&buf);
+        try self.writeAll(buf[0..n]);
+        if (n < buf.len) return;
+    }
+}
