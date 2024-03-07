@@ -36,25 +36,33 @@ pub fn main() !void {
         .zig_lib_directory = zig_lib_directory,
     };
 
-    var read_buffer: [8000]u8 = undefined;
-    accept: while (true) {
+    while (true) {
         const connection = try http_server.accept();
-        defer connection.stream.close();
+        _ = std.Thread.spawn(.{}, accept, .{ &context, connection }) catch |err| {
+            std.log.err("unable to accept connection: {s}", .{@errorName(err)});
+            connection.stream.close();
+            continue;
+        };
+    }
+}
 
-        var server = std.http.Server.init(connection, &read_buffer);
-        while (server.state == .ready) {
-            var request = server.receiveHead() catch |err| switch (err) {
-                error.HttpConnectionClosing => continue :accept,
-                else => {
-                    std.log.err("closing http connection: {s}", .{@errorName(err)});
-                    continue :accept;
-                },
-            };
-            serveRequest(&request, &context) catch |err| {
-                std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
-                continue :accept;
-            };
-        }
+fn accept(context: *Context, connection: std.net.Server.Connection) void {
+    defer connection.stream.close();
+
+    var read_buffer: [8000]u8 = undefined;
+    var server = std.http.Server.init(connection, &read_buffer);
+    while (server.state == .ready) {
+        var request = server.receiveHead() catch |err| switch (err) {
+            error.HttpConnectionClosing => return,
+            else => {
+                std.log.err("closing http connection: {s}", .{@errorName(err)});
+                return;
+            },
+        };
+        serveRequest(&request, context) catch |err| {
+            std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
+            return;
+        };
     }
 }
 
