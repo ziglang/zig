@@ -19,6 +19,7 @@ const Client = @This();
 const proto = @import("protocol.zig");
 
 pub const disable_tls = std.options.http_disable_tls;
+const TlsClient = if (disable_tls) void else std.crypto.tls.Client(net.Stream);
 
 /// Used for all client allocations. Must be thread-safe.
 allocator: Allocator,
@@ -192,7 +193,7 @@ pub const ConnectionPool = struct {
 pub const Connection = struct {
     stream: net.Stream,
     /// undefined unless protocol is tls.
-    tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
+    tls_client: *TlsClient,
 
     /// The protocol that this connection is using.
     protocol: Protocol,
@@ -215,13 +216,13 @@ pub const Connection = struct {
     read_buf: [buffer_size]u8 = undefined,
     write_buf: [buffer_size]u8 = undefined,
 
-    pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
+    pub const buffer_size = @sizeOf(std.crypto.tls.Plaintext) + std.crypto.tls.Plaintext.max_length;
     const BufferSize = std.math.IntFittingRange(0, buffer_size);
 
     pub const Protocol = enum { plain, tls };
 
     pub fn readvDirectTls(conn: *Connection, buffers: []std.os.iovec) ReadError!usize {
-        return conn.tls_client.readv(conn.stream, buffers) catch |err| {
+        return conn.tls_client.readv(buffers) catch |err| {
             // https://github.com/ziglang/zig/issues/2473
             if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
 
@@ -319,7 +320,7 @@ pub const Connection = struct {
     }
 
     pub fn writeAllDirectTls(conn: *Connection, buffer: []const u8) WriteError!void {
-        return conn.tls_client.writeAll(conn.stream, buffer) catch |err| switch (err) {
+        return conn.tls_client.writeAll(buffer) catch |err| switch (err) {
             error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
             else => return error.UnexpectedWriteFailure,
         };
@@ -387,7 +388,7 @@ pub const Connection = struct {
             if (disable_tls) unreachable;
 
             // try to cleanly close the TLS connection, for any server that cares.
-            _ = conn.tls_client.writeEnd(conn.stream, "", true) catch {};
+            _ = conn.tls_client.writeEnd("", true) catch {};
             allocator.destroy(conn.tls_client);
         }
 
@@ -1373,13 +1374,16 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     if (protocol == .tls) {
         if (disable_tls) unreachable;
 
-        conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
+        conn.data.tls_client = try client.allocator.create(TlsClient);
         errdefer client.allocator.destroy(conn.data.tls_client);
 
-        conn.data.tls_client.* = std.crypto.tls.Client.init(stream, client.ca_bundle, host) catch return error.TlsInitializationFailed;
-        // This is appropriate for HTTPS because the HTTP headers contain
-        // the content length which is used to detect truncation attacks.
-        conn.data.tls_client.allow_truncation_attacks = true;
+        conn.data.tls_client.* = TlsClient.init(&conn.data.stream, .{
+            .ca_bundle = client.ca_bundle,
+            .host = host,
+            // This is appropriate for HTTPS because the HTTP headers contain
+            // the content length which is used to detect truncation attacks.
+            .allow_truncation_attacks = true,
+        }) catch return error.TlsInitializationFailed;
     }
 
     client.connection_pool.addUsed(conn);

@@ -186,8 +186,6 @@ fn Kyber(comptime p: Params) type {
         pub const shared_length = common_shared_key_size;
         /// Length (in bytes) of a seed for deterministic encapsulation.
         pub const encaps_seed_length = common_encaps_seed_length;
-        /// Length (in bytes) of a seed for key generation.
-        pub const seed_length: usize = inner_seed_length + shared_length;
         /// Algorithm name.
         pub const name = p.name;
 
@@ -334,6 +332,9 @@ fn Kyber(comptime p: Params) type {
         pub const KeyPair = struct {
             secret_key: SecretKey,
             public_key: PublicKey,
+
+            /// Length (in bytes) of a seed for key generation.
+            pub const seed_length: usize = inner_seed_length + shared_length;
 
             /// Create a new key pair.
             /// If seed is null, a random seed will be generated.
