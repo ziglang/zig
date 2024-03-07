@@ -4062,7 +4062,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.plt_got_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.plt_got.size();
+        self.shdrs.items[index].sh_size = self.plt_got.size(self);
     }
 
     if (self.rela_dyn_section_index) |shndx| {
@@ -4747,7 +4747,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.plt_got_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size());
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size(self));
         defer buffer.deinit();
         try self.plt_got.write(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);

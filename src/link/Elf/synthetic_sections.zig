@@ -1130,23 +1130,24 @@ pub const PltGotSection = struct {
         try plt_got.symbols.append(gpa, sym_index);
     }
 
-    pub fn size(plt_got: PltGotSection) usize {
-        return plt_got.symbols.items.len * 16;
+    pub fn size(plt_got: PltGotSection, elf_file: *Elf) usize {
+        return plt_got.symbols.items.len * entrySize(elf_file.getTarget().cpu.arch);
+    }
+
+    pub fn entrySize(cpu_arch: std.Target.Cpu.Arch) usize {
+        return switch (cpu_arch) {
+            .x86_64 => 16,
+            .aarch64 => 4 * @sizeOf(u32),
+            else => @panic("TODO implement PltGotSection.entrySize for this arch"),
+        };
     }
 
     pub fn write(plt_got: PltGotSection, elf_file: *Elf, writer: anytype) !void {
-        for (plt_got.symbols.items) |sym_index| {
-            const sym = elf_file.symbol(sym_index);
-            const target_addr = sym.gotAddress(elf_file);
-            const source_addr = sym.pltGotAddress(elf_file);
-            const disp = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr + 6)) - 4;
-            var entry = [_]u8{
-                0xf3, 0x0f, 0x1e, 0xfa, // endbr64
-                0xff, 0x25, 0x00, 0x00, 0x00, 0x00, // jmp qword ptr [rip] -> .got[N]
-                0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc,
-            };
-            mem.writeInt(i32, entry[6..][0..4], @as(i32, @intCast(disp)), .little);
-            try writer.writeAll(&entry);
+        const cpu_arch = elf_file.getTarget().cpu.arch;
+        switch (cpu_arch) {
+            .x86_64 => try x86_64.write(plt_got, elf_file, writer),
+            .aarch64 => try aarch64.write(plt_got, elf_file, writer),
+            else => return error.UnsupportedCpuArch,
         }
     }
 
@@ -1175,6 +1176,50 @@ pub const PltGotSection = struct {
             };
         }
     }
+
+    const x86_64 = struct {
+        pub fn write(plt_got: PltGotSection, elf_file: *Elf, writer: anytype) !void {
+            for (plt_got.symbols.items) |sym_index| {
+                const sym = elf_file.symbol(sym_index);
+                const target_addr = sym.gotAddress(elf_file);
+                const source_addr = sym.pltGotAddress(elf_file);
+                const disp = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr + 6)) - 4;
+                var entry = [_]u8{
+                    0xf3, 0x0f, 0x1e, 0xfa, // endbr64
+                    0xff, 0x25, 0x00, 0x00, 0x00, 0x00, // jmp qword ptr [rip] -> .got[N]
+                    0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc,
+                };
+                mem.writeInt(i32, entry[6..][0..4], @as(i32, @intCast(disp)), .little);
+                try writer.writeAll(&entry);
+            }
+        }
+    };
+
+    const aarch64 = struct {
+        fn write(plt_got: PltGotSection, elf_file: *Elf, writer: anytype) !void {
+            for (plt_got.symbols.items) |sym_index| {
+                const sym = elf_file.symbol(sym_index);
+                const target_addr = sym.gotAddress(elf_file);
+                const source_addr = sym.pltGotAddress(elf_file);
+                const pages = try aarch64_util.calcNumberOfPages(source_addr, target_addr);
+                const off = try aarch64_util.calcPageOffset(.load_store_64, target_addr);
+                const insts = &[_]Instruction{
+                    Instruction.adrp(.x16, pages),
+                    Instruction.ldr(.x17, .x16, Instruction.LoadStoreOffset.imm(off)),
+                    Instruction.br(.x17),
+                    Instruction.nop(),
+                };
+                comptime assert(insts.len == 4);
+                for (insts) |inst| {
+                    try writer.writeInt(u32, inst.toU32(), .little);
+                }
+            }
+        }
+
+        const aarch64_util = @import("../aarch64.zig");
+        const Instruction = aarch64_util.Instruction;
+        const Register = aarch64_util.Register;
+    };
 };
 
 pub const CopyRelSection = struct {
