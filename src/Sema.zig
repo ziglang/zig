@@ -12304,6 +12304,7 @@ fn analyzeSwitchRuntimeBlock(
         extra_index += info.body_len;
 
         case_block.instructions.shrinkRetainingCapacity(0);
+        case_block.error_return_trace_index = child_block.error_return_trace_index;
 
         const item = case_vals.items[scalar_i];
         // `item` is already guaranteed to be constant known.
@@ -12361,6 +12362,7 @@ fn analyzeSwitchRuntimeBlock(
         case_val_idx += items_len;
 
         case_block.instructions.shrinkRetainingCapacity(0);
+        case_block.error_return_trace_index = child_block.error_return_trace_index;
 
         // Generate all possible cases as scalar prongs.
         if (info.is_inline) {
@@ -12392,6 +12394,7 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(item.toIntern());
 
                     case_block.instructions.shrinkRetainingCapacity(0);
+                    case_block.error_return_trace_index = child_block.error_return_trace_index;
 
                     if (emit_bb) sema.emitBackwardBranch(block, .unneeded) catch |err| switch (err) {
                         error.NeededSourceLocation => {
@@ -12431,6 +12434,7 @@ fn analyzeSwitchRuntimeBlock(
                 cases_len += 1;
 
                 case_block.instructions.shrinkRetainingCapacity(0);
+                case_block.error_return_trace_index = child_block.error_return_trace_index;
 
                 const analyze_body = if (union_originally) blk: {
                     const item_val = sema.resolveConstDefinedValue(block, .unneeded, item, undefined) catch unreachable;
@@ -12576,6 +12580,7 @@ fn analyzeSwitchRuntimeBlock(
             defer gpa.free(cond_body);
 
             case_block.instructions.shrinkRetainingCapacity(0);
+            case_block.error_return_trace_index = child_block.error_return_trace_index;
 
             const body = sema.code.bodySlice(extra_index, info.body_len);
             extra_index += info.body_len;
@@ -12636,6 +12641,7 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(item_val.toIntern());
 
                     case_block.instructions.shrinkRetainingCapacity(0);
+                    case_block.error_return_trace_index = child_block.error_return_trace_index;
 
                     const analyze_body = if (union_originally) blk: {
                         const field_ty = maybe_union_ty.unionFieldType(item_val, mod).?;
@@ -12686,6 +12692,7 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(item_val);
 
                     case_block.instructions.shrinkRetainingCapacity(0);
+                    case_block.error_return_trace_index = child_block.error_return_trace_index;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12716,6 +12723,7 @@ fn analyzeSwitchRuntimeBlock(
                     const item_ref = Air.internedToRef(cur);
 
                     case_block.instructions.shrinkRetainingCapacity(0);
+                    case_block.error_return_trace_index = child_block.error_return_trace_index;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12743,6 +12751,7 @@ fn analyzeSwitchRuntimeBlock(
                     cases_len += 1;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
+                    case_block.error_return_trace_index = child_block.error_return_trace_index;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12768,6 +12777,7 @@ fn analyzeSwitchRuntimeBlock(
                     cases_len += 1;
 
                     case_block.instructions.shrinkRetainingCapacity(0);
+                    case_block.error_return_trace_index = child_block.error_return_trace_index;
 
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
@@ -12796,6 +12806,7 @@ fn analyzeSwitchRuntimeBlock(
         };
 
         case_block.instructions.shrinkRetainingCapacity(0);
+        case_block.error_return_trace_index = child_block.error_return_trace_index;
 
         if (mod.backendSupportsFeature(.is_named_enum_value) and
             special.body.len != 0 and block.wantSafety() and
