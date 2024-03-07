@@ -25,26 +25,48 @@ pub fn main() !void {
         std.os.exit(1);
     }
     const zig_lib_dir = args[1];
+    var cli_args = args[2..];
+
+    var zig_integration = false;
+    if (cli_args.len > 0 and std.mem.eql(u8, cli_args[0], "--zig-integration")) {
+        zig_integration = true;
+        cli_args = args[3..];
+    }
+
+    var error_handler: ErrorHandler = switch (zig_integration) {
+        true => .{
+            .server = .{
+                .out = std.io.getStdOut(),
+                .in = undefined, // won't be receiving messages
+                .receive_fifo = undefined, // won't be receiving messages
+            },
+        },
+        false => .{
+            .tty = stderr_config,
+        },
+    };
 
     var options = options: {
         var cli_diagnostics = cli.Diagnostics.init(allocator);
         defer cli_diagnostics.deinit();
-        var options = cli.parse(allocator, args[2..], &cli_diagnostics) catch |err| switch (err) {
+        var options = cli.parse(allocator, cli_args, &cli_diagnostics) catch |err| switch (err) {
             error.ParseError => {
-                cli_diagnostics.renderToStdErr(args, stderr_config);
+                try error_handler.emitCliDiagnostics(allocator, cli_args, &cli_diagnostics);
                 std.os.exit(1);
             },
             else => |e| return e,
         };
         try options.maybeAppendRC(std.fs.cwd());
 
-        // print any warnings/notes
-        cli_diagnostics.renderToStdErr(args, stderr_config);
-        // If there was something printed, then add an extra newline separator
-        // so that there is a clear separation between the cli diagnostics and whatever
-        // gets printed after
-        if (cli_diagnostics.errors.items.len > 0) {
-            try stderr.writeAll("\n");
+        if (!zig_integration) {
+            // print any warnings/notes
+            cli_diagnostics.renderToStdErr(args, stderr_config);
+            // If there was something printed, then add an extra newline separator
+            // so that there is a clear separation between the cli diagnostics and whatever
+            // gets printed after
+            if (cli_diagnostics.errors.items.len > 0) {
+                try stderr.writeAll("\n");
+            }
         }
         break :options options;
     };
@@ -54,6 +76,9 @@ pub fn main() !void {
         try cli.writeUsage(stderr.writer(), "zig rc");
         return;
     }
+
+    // Don't allow verbose when integrating with Zig via stdout
+    options.verbose = false;
 
     const stdout_writer = std.io.getStdOut().writer();
     if (options.verbose) {
@@ -86,13 +111,13 @@ pub fn main() !void {
                 else => |e| {
                     switch (e) {
                         error.MsvcIncludesNotFound => {
-                            try renderErrorMessage(stderr.writer(), stderr_config, .err, "MSVC include paths could not be automatically detected", .{});
+                            try error_handler.emitMessage(allocator, .err, "MSVC include paths could not be automatically detected", .{});
                         },
                         error.MingwIncludesNotFound => {
-                            try renderErrorMessage(stderr.writer(), stderr_config, .err, "MinGW include paths could not be automatically detected", .{});
+                            try error_handler.emitMessage(allocator, .err, "MinGW include paths could not be automatically detected", .{});
                         },
                     }
-                    try renderErrorMessage(stderr.writer(), stderr_config, .note, "to disable auto includes, use the option /:auto-includes none", .{});
+                    try error_handler.emitMessage(allocator, .note, "to disable auto includes, use the option /:auto-includes none", .{});
                     std.os.exit(1);
                 },
             };
@@ -117,20 +142,16 @@ pub fn main() !void {
 
             preprocess.preprocess(&comp, preprocessed_buf.writer(), argv.items, maybe_dependencies_list) catch |err| switch (err) {
                 error.GeneratedSourceError => {
-                    // extra newline to separate this line from the aro errors
-                    try renderErrorMessage(stderr.writer(), stderr_config, .err, "failed during preprocessor setup (this is always a bug):\n", .{});
-                    aro.Diagnostics.render(&comp, stderr_config);
+                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessor setup (this is always a bug):", &comp);
                     std.os.exit(1);
                 },
                 // ArgError can occur if e.g. the .rc file is not found
                 error.ArgError, error.PreprocessError => {
-                    // extra newline to separate this line from the aro errors
-                    try renderErrorMessage(stderr.writer(), stderr_config, .err, "failed during preprocessing:\n", .{});
-                    aro.Diagnostics.render(&comp, stderr_config);
+                    try error_handler.emitAroDiagnostics(allocator, "failed during preprocessing:", &comp);
                     std.os.exit(1);
                 },
                 error.StreamTooLong => {
-                    try renderErrorMessage(stderr.writer(), stderr_config, .err, "failed during preprocessing: maximum file size exceeded", .{});
+                    try error_handler.emitMessage(allocator, .err, "failed during preprocessing: maximum file size exceeded", .{});
                     std.os.exit(1);
                 },
                 error.OutOfMemory => |e| return e,
@@ -139,7 +160,7 @@ pub fn main() !void {
             break :full_input try preprocessed_buf.toOwnedSlice();
         } else {
             break :full_input std.fs.cwd().readFileAlloc(allocator, options.input_filename, std.math.maxInt(usize)) catch |err| {
-                try renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to read input file path '{s}': {s}", .{ options.input_filename, @errorName(err) });
+                try error_handler.emitMessage(allocator, .err, "unable to read input file path '{s}': {s}", .{ options.input_filename, @errorName(err) });
                 std.os.exit(1);
             };
         }
@@ -159,14 +180,14 @@ pub fn main() !void {
 
     const final_input = removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings) catch |err| switch (err) {
         error.InvalidSourceMappingCollapse => {
-            try renderErrorMessage(stderr.writer(), stderr_config, .err, "failed during comment removal; this is a known bug", .{});
+            try error_handler.emitMessage(allocator, .err, "failed during comment removal; this is a known bug", .{});
             std.os.exit(1);
         },
         else => |e| return e,
     };
 
     var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
-        try renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
+        try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
         std.os.exit(1);
     };
     var output_file_closed = false;
@@ -193,7 +214,7 @@ pub fn main() !void {
         .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
     }) catch |err| switch (err) {
         error.ParseError, error.CompileError => {
-            diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
+            try error_handler.emitDiagnostics(allocator, std.fs.cwd(), final_input, &diagnostics, mapping_results.mappings);
             // Delete the output file on error
             output_file.close();
             output_file_closed = true;
@@ -207,12 +228,14 @@ pub fn main() !void {
     try output_buffered_stream.flush();
 
     // print any warnings/notes
-    diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
+    if (!zig_integration) {
+        diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
+    }
 
     // write the depfile
     if (options.depfile_path) |depfile_path| {
         var depfile = std.fs.cwd().createFile(depfile_path, .{}) catch |err| {
-            try renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to create depfile '{s}': {s}", .{ depfile_path, @errorName(err) });
+            try error_handler.emitMessage(allocator, .err, "unable to create depfile '{s}': {s}", .{ depfile_path, @errorName(err) });
             std.os.exit(1);
         };
         defer depfile.close();
@@ -296,3 +319,390 @@ fn getIncludePaths(arena: std.mem.Allocator, auto_includes_option: cli.Options.A
         }
     }
 }
+
+const ErrorBundle = std.zig.ErrorBundle;
+const SourceMappings = @import("source_mapping.zig").SourceMappings;
+
+const ErrorHandler = union(enum) {
+    server: std.zig.Server,
+    tty: std.io.tty.Config,
+
+    pub fn emitCliDiagnostics(
+        self: *ErrorHandler,
+        allocator: std.mem.Allocator,
+        args: []const []const u8,
+        diagnostics: *cli.Diagnostics,
+    ) !void {
+        switch (self.*) {
+            .server => |*server| {
+                var error_bundle = try cliDiagnosticsToErrorBundle(allocator, diagnostics);
+                defer error_bundle.deinit(allocator);
+
+                try server.serveErrorBundle(error_bundle);
+            },
+            .tty => {
+                diagnostics.renderToStdErr(args, self.tty);
+            },
+        }
+    }
+
+    pub fn emitAroDiagnostics(
+        self: *ErrorHandler,
+        allocator: std.mem.Allocator,
+        fail_msg: []const u8,
+        comp: *aro.Compilation,
+    ) !void {
+        switch (self.*) {
+            .server => |*server| {
+                var error_bundle = try aroDiagnosticsToErrorBundle(allocator, fail_msg, comp);
+                defer error_bundle.deinit(allocator);
+
+                try server.serveErrorBundle(error_bundle);
+            },
+            .tty => {
+                // extra newline to separate this line from the aro errors
+                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, .err, "{s}\n", .{fail_msg});
+                aro.Diagnostics.render(comp, self.tty);
+            },
+        }
+    }
+
+    pub fn emitDiagnostics(
+        self: *ErrorHandler,
+        allocator: std.mem.Allocator,
+        cwd: std.fs.Dir,
+        source: []const u8,
+        diagnostics: *Diagnostics,
+        mappings: SourceMappings,
+    ) !void {
+        switch (self.*) {
+            .server => |*server| {
+                var error_bundle = try diagnosticsToErrorBundle(allocator, source, diagnostics, mappings);
+                defer error_bundle.deinit(allocator);
+
+                try server.serveErrorBundle(error_bundle);
+            },
+            .tty => {
+                diagnostics.renderToStdErr(cwd, source, self.tty, mappings);
+            },
+        }
+    }
+
+    pub fn emitMessage(
+        self: *ErrorHandler,
+        allocator: std.mem.Allocator,
+        msg_type: @import("utils.zig").ErrorMessageType,
+        comptime format: []const u8,
+        args: anytype,
+    ) !void {
+        switch (self.*) {
+            .server => |*server| {
+                // only emit errors
+                if (msg_type != .err) return;
+
+                var error_bundle = try errorStringToErrorBundle(allocator, format, args);
+                defer error_bundle.deinit(allocator);
+
+                try server.serveErrorBundle(error_bundle);
+            },
+            .tty => {
+                try renderErrorMessage(std.io.getStdErr().writer(), self.tty, msg_type, format, args);
+            },
+        }
+    }
+};
+
+fn cliDiagnosticsToErrorBundle(
+    gpa: std.mem.Allocator,
+    diagnostics: *cli.Diagnostics,
+) !ErrorBundle {
+    @setCold(true);
+
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(gpa);
+    errdefer bundle.deinit();
+
+    try bundle.addRootErrorMessage(.{
+        .msg = try bundle.addString("invalid command line option(s)"),
+    });
+
+    var cur_err: ?ErrorBundle.ErrorMessage = null;
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    defer cur_notes.deinit(gpa);
+    for (diagnostics.errors.items) |err_details| {
+        switch (err_details.type) {
+            .err => {
+                if (cur_err) |err| {
+                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+                }
+                cur_err = .{
+                    .msg = try bundle.addString(err_details.msg.items),
+                };
+                cur_notes.clearRetainingCapacity();
+            },
+            .warning => cur_err = null,
+            .note => {
+                if (cur_err == null) continue;
+                cur_err.?.notes_len += 1;
+                try cur_notes.append(gpa, .{
+                    .msg = try bundle.addString(err_details.msg.items),
+                });
+            },
+        }
+    }
+    if (cur_err) |err| {
+        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+    }
+
+    return try bundle.toOwnedBundle("");
+}
+
+fn diagnosticsToErrorBundle(
+    gpa: std.mem.Allocator,
+    source: []const u8,
+    diagnostics: *Diagnostics,
+    mappings: SourceMappings,
+) !ErrorBundle {
+    @setCold(true);
+
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(gpa);
+    errdefer bundle.deinit();
+
+    var msg_buf: std.ArrayListUnmanaged(u8) = .{};
+    defer msg_buf.deinit(gpa);
+    var cur_err: ?ErrorBundle.ErrorMessage = null;
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    defer cur_notes.deinit(gpa);
+    for (diagnostics.errors.items) |err_details| {
+        switch (err_details.type) {
+            .hint => continue,
+            // Clear the current error so that notes don't bleed into unassociated errors
+            .warning => {
+                cur_err = null;
+                continue;
+            },
+            .note => if (cur_err == null) continue,
+            .err => {},
+        }
+        const corresponding_span = mappings.getCorrespondingSpan(err_details.token.line_number).?;
+        const err_line = corresponding_span.start_line;
+        const err_filename = mappings.files.get(corresponding_span.filename_offset);
+
+        const source_line_start = err_details.token.getLineStartForErrorDisplay(source);
+        // Treat tab stops as 1 column wide for error display purposes,
+        // and add one to get a 1-based column
+        const column = err_details.token.calculateColumn(source, 1, source_line_start) + 1;
+
+        msg_buf.clearRetainingCapacity();
+        try err_details.render(msg_buf.writer(gpa), source, diagnostics.strings.items);
+
+        const src_loc = src_loc: {
+            var src_loc: ErrorBundle.SourceLocation = .{
+                .src_path = try bundle.addString(err_filename),
+                .line = @intCast(err_line - 1), // 1-based -> 0-based
+                .column = @intCast(column - 1), // 1-based -> 0-based
+                .span_start = 0,
+                .span_main = 0,
+                .span_end = 0,
+            };
+            if (err_details.print_source_line) {
+                const source_line = err_details.token.getLineForErrorDisplay(source, source_line_start);
+                const visual_info = err_details.visualTokenInfo(source_line_start, source_line_start + source_line.len);
+                src_loc.span_start = @intCast(visual_info.point_offset - visual_info.before_len);
+                src_loc.span_main = @intCast(visual_info.point_offset);
+                src_loc.span_end = @intCast(visual_info.point_offset + 1 + visual_info.after_len);
+                src_loc.source_line = try bundle.addString(source_line);
+            }
+            break :src_loc try bundle.addSourceLocation(src_loc);
+        };
+
+        switch (err_details.type) {
+            .err => {
+                if (cur_err) |err| {
+                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+                }
+                cur_err = .{
+                    .msg = try bundle.addString(msg_buf.items),
+                    .src_loc = src_loc,
+                };
+                cur_notes.clearRetainingCapacity();
+            },
+            .note => {
+                cur_err.?.notes_len += 1;
+                try cur_notes.append(gpa, .{
+                    .msg = try bundle.addString(msg_buf.items),
+                    .src_loc = src_loc,
+                });
+            },
+            .warning, .hint => unreachable,
+        }
+    }
+    if (cur_err) |err| {
+        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+    }
+
+    return try bundle.toOwnedBundle("");
+}
+
+fn flushErrorMessageIntoBundle(wip: *ErrorBundle.Wip, msg: ErrorBundle.ErrorMessage, notes: []const ErrorBundle.ErrorMessage) !void {
+    try wip.addRootErrorMessage(msg);
+    const notes_start = try wip.reserveNotes(@intCast(notes.len));
+    for (notes_start.., notes) |i, note| {
+        wip.extra.items[i] = @intFromEnum(wip.addErrorMessageAssumeCapacity(note));
+    }
+}
+
+fn errorStringToErrorBundle(allocator: std.mem.Allocator, comptime format: []const u8, args: anytype) !ErrorBundle {
+    @setCold(true);
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(allocator);
+    errdefer bundle.deinit();
+    try bundle.addRootErrorMessage(.{
+        .msg = try bundle.printString(format, args),
+    });
+    return try bundle.toOwnedBundle("");
+}
+
+fn aroDiagnosticsToErrorBundle(
+    gpa: std.mem.Allocator,
+    fail_msg: []const u8,
+    comp: *aro.Compilation,
+) !ErrorBundle {
+    @setCold(true);
+
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(gpa);
+    errdefer bundle.deinit();
+
+    try bundle.addRootErrorMessage(.{
+        .msg = try bundle.addString(fail_msg),
+    });
+
+    var msg_writer = MsgWriter.init(gpa);
+    defer msg_writer.deinit();
+    var cur_err: ?ErrorBundle.ErrorMessage = null;
+    var cur_notes: std.ArrayListUnmanaged(ErrorBundle.ErrorMessage) = .{};
+    defer cur_notes.deinit(gpa);
+    for (comp.diagnostics.list.items) |msg| {
+        switch (msg.kind) {
+            // Clear the current error so that notes don't bleed into unassociated errors
+            .off, .warning => {
+                cur_err = null;
+                continue;
+            },
+            .note => if (cur_err == null) continue,
+            .@"fatal error", .@"error" => {},
+            .default => unreachable,
+        }
+        msg_writer.resetRetainingCapacity();
+        aro.Diagnostics.renderMessage(comp, &msg_writer, msg);
+
+        const src_loc = src_loc: {
+            if (msg_writer.path) |src_path| {
+                var src_loc: ErrorBundle.SourceLocation = .{
+                    .src_path = try bundle.addString(src_path),
+                    .line = msg_writer.line - 1, // 1-based -> 0-based
+                    .column = msg_writer.col - 1, // 1-based -> 0-based
+                    .span_start = 0,
+                    .span_main = 0,
+                    .span_end = 0,
+                };
+                if (msg_writer.source_line) |source_line| {
+                    src_loc.span_start = msg_writer.span_main;
+                    src_loc.span_main = msg_writer.span_main;
+                    src_loc.span_end = msg_writer.span_main;
+                    src_loc.source_line = try bundle.addString(source_line);
+                }
+                break :src_loc try bundle.addSourceLocation(src_loc);
+            }
+            break :src_loc ErrorBundle.SourceLocationIndex.none;
+        };
+
+        switch (msg.kind) {
+            .@"fatal error", .@"error" => {
+                if (cur_err) |err| {
+                    try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+                }
+                cur_err = .{
+                    .msg = try bundle.addString(msg_writer.buf.items),
+                    .src_loc = src_loc,
+                };
+                cur_notes.clearRetainingCapacity();
+            },
+            .note => {
+                cur_err.?.notes_len += 1;
+                try cur_notes.append(gpa, .{
+                    .msg = try bundle.addString(msg_writer.buf.items),
+                    .src_loc = src_loc,
+                });
+            },
+            .off, .warning, .default => unreachable,
+        }
+    }
+    if (cur_err) |err| {
+        try flushErrorMessageIntoBundle(&bundle, err, cur_notes.items);
+    }
+
+    return try bundle.toOwnedBundle("");
+}
+
+// Similar to aro.Diagnostics.MsgWriter but:
+// - Writers to an ArrayList
+// - Only prints the message itself (no location, source line, error: prefix, etc)
+// - Keeps track of source path/line/col instead
+const MsgWriter = struct {
+    buf: std.ArrayList(u8),
+    path: ?[]const u8 = null,
+    // 1-indexed
+    line: u32 = undefined,
+    col: u32 = undefined,
+    source_line: ?[]const u8 = null,
+    span_main: u32 = undefined,
+
+    fn init(allocator: std.mem.Allocator) MsgWriter {
+        return .{
+            .buf = std.ArrayList(u8).init(allocator),
+        };
+    }
+
+    fn deinit(m: *MsgWriter) void {
+        m.buf.deinit();
+    }
+
+    fn resetRetainingCapacity(m: *MsgWriter) void {
+        m.buf.clearRetainingCapacity();
+        m.path = null;
+        m.source_line = null;
+    }
+
+    pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {
+        m.buf.writer().print(fmt, args) catch {};
+    }
+
+    pub fn write(m: *MsgWriter, msg: []const u8) void {
+        m.buf.writer().writeAll(msg) catch {};
+    }
+
+    pub fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
+        _ = m;
+        _ = color;
+    }
+
+    pub fn location(m: *MsgWriter, path: []const u8, line: u32, col: u32) void {
+        m.path = path;
+        m.line = line;
+        m.col = col;
+    }
+
+    pub fn start(m: *MsgWriter, kind: aro.Diagnostics.Kind) void {
+        _ = m;
+        _ = kind;
+    }
+
+    pub fn end(m: *MsgWriter, maybe_line: ?[]const u8, col: u32, end_with_splice: bool) void {
+        _ = end_with_splice;
+        m.source_line = maybe_line;
+        m.span_main = col;
+    }
+};

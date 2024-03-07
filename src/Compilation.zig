@@ -4921,6 +4921,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         try argv.appendSlice(&.{
             self_exe_path,
             "rc",
+            "--zig-integration",
             "/:depfile",
             out_dep_path,
             "/:depfile-fmt",
@@ -4940,30 +4941,78 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         try argv.appendSlice(rc_src.extra_flags);
         try argv.appendSlice(&.{ "--", rc_src.src_path, out_res_path });
 
-        var child = std.ChildProcess.init(argv.items, arena);
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Pipe;
+        {
+            var child = std.ChildProcess.init(argv.items, arena);
+            child.stdin_behavior = .Ignore;
+            child.stdout_behavior = .Pipe;
+            child.stderr_behavior = .Pipe;
 
-        try child.spawn();
+            child.spawn() catch |err| {
+                return comp.failWin32Resource(win32_resource, "unable to spawn {s} rc: {s}", .{ argv.items[0], @errorName(err) });
+            };
 
-        const stderr_reader = child.stderr.?.reader();
-        const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
-        const term = child.wait() catch |err| {
-            return comp.failWin32Resource(win32_resource, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-        };
+            var poller = std.io.poll(comp.gpa, enum { stdout }, .{
+                .stdout = child.stdout.?,
+            });
+            defer poller.deinit();
 
-        switch (term) {
-            .Exited => |code| {
-                if (code != 0) {
-                    log.err("zig rc failed with stderr:\n{s}", .{stderr});
-                    return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
+            const stdout = poller.fifo(.stdout);
+
+            poll: while (true) {
+                while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) {
+                    if (!(try poller.poll())) break :poll;
                 }
-            },
-            else => {
-                log.err("zig rc terminated with stderr:\n{s}", .{stderr});
-                return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
-            },
+                const header = stdout.reader().readStruct(std.zig.Server.Message.Header) catch unreachable;
+                while (stdout.readableLength() < header.bytes_len) {
+                    if (!(try poller.poll())) break :poll;
+                }
+                const body = stdout.readableSliceOfLen(header.bytes_len);
+
+                switch (header.tag) {
+                    // We expect exactly one ErrorBundle, and if any error_bundle header is
+                    // sent then it's a fatal error.
+                    .error_bundle => {
+                        const EbHdr = std.zig.Server.Message.ErrorBundle;
+                        const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
+                        const extra_bytes =
+                            body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
+                        const string_bytes =
+                            body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
+                        const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
+                        const extra_array = try comp.gpa.alloc(u32, unaligned_extra.len);
+                        @memcpy(extra_array, unaligned_extra);
+                        const error_bundle = .{
+                            .string_bytes = try comp.gpa.dupe(u8, string_bytes),
+                            .extra = extra_array,
+                        };
+                        return comp.failWin32ResourceWithOwnedBundle(win32_resource, error_bundle);
+                    },
+                    else => {}, // ignore other messages
+                }
+
+                stdout.discard(body.len);
+            }
+
+            // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
+            const stderr_reader = child.stderr.?.reader();
+            const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+
+            const term = child.wait() catch |err| {
+                return comp.failWin32Resource(win32_resource, "unable to wait for {s} rc: {s}", .{ argv.items[0], @errorName(err) });
+            };
+
+            switch (term) {
+                .Exited => |code| {
+                    if (code != 0) {
+                        log.err("zig rc failed with stderr:\n{s}", .{stderr});
+                        return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
+                    }
+                },
+                else => {
+                    log.err("zig rc terminated with stderr:\n{s}", .{stderr});
+                    return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
+                },
+            }
         }
 
         // Read depfile and update cache manifest
