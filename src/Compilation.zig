@@ -3805,13 +3805,13 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     defer tar_file.close();
 
     const root = comp.root_mod.root;
-    const root_mod_name = comp.root_mod.fully_qualified_name;
     const sub_path = if (root.sub_path.len == 0) "." else root.sub_path;
     var mod_dir = root.root_dir.handle.openDir(sub_path, .{ .iterate = true }) catch |err| {
         return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{}': {s}", .{
             root, @errorName(err),
         });
     };
+    defer mod_dir.close();
 
     var walker = try mod_dir.walk(comp.gpa);
     defer walker.deinit();
@@ -3843,7 +3843,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
 
         var file_header = std.tar.output.Header.init();
         file_header.typeflag = .regular;
-        try file_header.setPath(root_mod_name, entry.path);
+        try file_header.setPath(comp.root_name, entry.path);
         try file_header.setSize(stat.size);
         try file_header.updateChecksum();
 
