@@ -3170,11 +3170,20 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     }
 
     // _GLOBAL_OFFSET_TABLE_
-    if (self.got_plt_section_index) |shndx| {
-        const shdr = &self.shdrs.items[shndx];
-        const symbol_ptr = self.symbol(self.got_index.?);
-        symbol_ptr.value = shdr.sh_addr;
-        symbol_ptr.output_section_index = shndx;
+    if (self.getTarget().cpu.arch == .x86_64) {
+        if (self.got_plt_section_index) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            const sym = self.symbol(self.got_index.?);
+            sym.value = shdr.sh_addr;
+            sym.output_section_index = shndx;
+        }
+    } else {
+        if (self.got_section_index) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            const sym = self.symbol(self.got_index.?);
+            sym.value = shdr.sh_addr;
+            sym.output_section_index = shndx;
+        }
     }
 
     // _PROCEDURE_LINKAGE_TABLE_
