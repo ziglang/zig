@@ -1,3 +1,4 @@
-Refactoring TLS client to handle fragments + send messages with structs
-Adding TLS server for testing
-Using https://tls13.xargs.org/ for unit tests
+store multiple fragments in buffer for less syscalls
+remove @panic's
+server dynamic transcript hash based on client cipher suites
+send alert on error

@@ -385,6 +385,7 @@ test "Parsed.checkHostName" {
 
 pub const ParseError = der.Element.ParseElementError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;
 
+/// Parse a DER format certificate.
 pub fn parse(cert: Certificate) ParseError!Parsed {
     const cert_bytes = cert.buffer;
     const certificate = try der.Element.parse(cert_bytes, cert.index);

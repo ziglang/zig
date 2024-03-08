@@ -161,19 +161,16 @@ pub fn Server(comptime StreamType: type) type {
             session_id: [32]u8,
             cipher_suite: tls.CipherSuite,
             key_share: tls.KeyShare,
+            sig_scheme: ?tls.SignatureScheme,
         };
 
         pub fn recv_hello(self: *Self) !ClientHello {
-            try self.stream.readFragment(.client_hello);
+            try self.stream.readFragment();
 
-            // TODO: verify this
-            const msg_len = try self.stream.read(u24);
-            std.debug.print("msg_len {d}\n", .{msg_len});
-            // > The value of TLSPlaintext.legacy_record_version MUST be ignored by all implementations.
             _ = try self.stream.read(tls.Version);
             const client_random = try self.stream.readAll(32);
             const session_id = try self.stream.readSmallArray(u8);
-            if (session_id.len != 32) return error.TlsUnexpectedMessage;
+            if (session_id.len > tls.ClientHello.session_id_max_len) return error.TlsUnexpectedMessage;
 
             var selected_suite: ?tls.CipherSuite = null;
 
@@ -197,6 +194,7 @@ pub fn Server(comptime StreamType: type) type {
             var tls_version: ?tls.Version = null;
             var key_share: ?tls.KeyShare = null;
             var ec_point_format: ?tls.EcPointFormat = null;
+            var sig_scheme: ?tls.SignatureScheme = null;
 
             var extension_iter = try self.stream.extensions();
             while (try extension_iter.next()) |ext| {
@@ -213,13 +211,11 @@ pub fn Server(comptime StreamType: type) type {
                     .key_share => {
                         if (key_share != null) return error.TlsUnexpectedMessage;
 
-                        var key_share_iter = try self.stream.iterator(tls.KeyShare.Header);
+                        var key_share_iter = try self.stream.iterator(tls.KeyShare);
                         while (try key_share_iter.next()) |ks| {
-                            const key = try self.stream.readAll(ks.len);
-                            if (ks.group == .x25519) {
-                                key_share = .{ .x25519 = undefined };
-                                if (ks.len != key_share.?.keyLen(true)) return error.TlsUnexpectedMessage;
-                                @memcpy(&key_share.?.x25519, key);
+                            switch (ks) {
+                                .x25519 => key_share = ks,
+                                else => {},
                             }
                         }
                     },
@@ -227,6 +223,12 @@ pub fn Server(comptime StreamType: type) type {
                         const formats = try self.stream.readSmallArray(tls.EcPointFormat);
                         for (formats) |f| {
                             if (f == .uncompressed) ec_point_format = .uncompressed;
+                        }
+                    },
+                    .signature_algorithms => {
+                        var algos_iter = try self.stream.iterator(tls.SignatureScheme);
+                        while (try algos_iter.next()) |algo| {
+                            if (algo == .rsa_pss_rsae_sha256) sig_scheme = algo;
                         }
                     },
                     else => {
@@ -244,6 +246,7 @@ pub fn Server(comptime StreamType: type) type {
                 .session_id = session_id[0..32].*,
                 .cipher_suite = selected_suite.?,
                 .key_share = key_share.?,
+                .sig_scheme = sig_scheme,
             };
         }
 
@@ -259,11 +262,11 @@ pub fn Server(comptime StreamType: type) type {
                 },
             };
             self.stream.version = .tls_1_2;
-            try self.stream.write(tls.ServerHello, hello);
+            _ = try self.stream.write(tls.Handshake, .{ .server_hello = hello });
             try self.stream.flush();
 
             self.stream.content_type = .change_cipher_spec;
-            try self.stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
+            _ = try self.stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
             try self.stream.flush();
 
             const shared_key = switch (client_hello.key_share) {
@@ -302,19 +305,66 @@ pub fn Server(comptime StreamType: type) type {
             self.stream.handshake_cipher = tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, &hello_hash);
             self.stream.handshake_cipher.?.print();
 
-            const extensions = tls.EncryptedExtensions{ .extensions = &.{} };
             self.stream.content_type = .handshake;
-            try self.stream.write(tls.EncryptedExtensions, extensions);
+            _ = try self.stream.write(tls.Handshake, .{ .encrypted_extensions = &.{} });
             try self.stream.flush();
 
-            try self.stream.write(tls.Certificate, self.options.certificate);
+            _ = try self.stream.write(tls.Handshake, .{ .certificate = self.options.certificate });
+            try self.stream.flush();
+
+            // RFC 8446 S4.4.3
+            // const signature_content = [_]u8{0x20} ** 64
+            //     ++ "TLS 1.3, server CertificateVerify\x00".*
+            //     ++ self.stream.transcript_hash.peek()
+            //     ;
+
+            // const cert = Certificate{ .buffer = self.options.certificate.entries[0].data, .index = 0 };
+            // const parsed = try cert.parse();
+            // const pub_key = parsed.pubKey();
+
+            // switch (client_hello.sig_scheme) {
+            //     .rsa_pss_rsae_sha256 => {
+            //         const rsa = Certificate.rsa;
+            //         const components = try rsa.PublicKey.parseDer(pub_key);
+            //         const exponent = components.exponent;
+            //         const modulus = components.modulus;
+            //         switch (modulus.len) {
+            //             inline 128, 256, 512 => |modulus_len| {
+            //                 const key = try rsa.PublicKey.fromBytes(exponent, modulus);
+            //                 const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
+            //                 try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
+            //             },
+            //             else => {
+            //                 return error.TlsBadRsaSignatureBitCount;
+            //             },
+            //         }
+            //     },
+            //     else => {}
+            // }
+        }
+
+        pub fn send_handshake_finish(self: *Self) !void {
+            const secret = self.stream.handshake_cipher.?.aes_256_gcm_sha384.server_finished_key;
+            const transcript_hash = self.stream.transcript_hash.peek();
+            tls.debugPrint("peek", transcript_hash);
+            const verify = switch (self.stream.handshake_cipher.?) {
+                inline
+                    .aes_256_gcm_sha384,
+                    => |v| brk: {
+                        const T = @TypeOf(v);
+                        break :brk tls.hmac(T.Hmac, &transcript_hash, secret);
+                    },
+                else => return error.TlsDecryptFailure,
+            };
+            tls.debugPrint("verify", verify);
+            _ = try self.stream.write(tls.Handshake, .{ .finished =  &verify });
             try self.stream.flush();
         }
     };
 }
 
 pub const Options = struct {
-    /// List of potential cipher suites in order of descending preference.
+    /// List of potential cipher suites in descending order of preference.
     cipher_suites: []const tls.CipherSuite = &tls.default_cipher_suites,
     certificate: tls.Certificate,
 };

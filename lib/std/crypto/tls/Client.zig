@@ -444,16 +444,14 @@ pub fn Client(comptime StreamType: type) type {
                 },
             };
 
-            self.stream.version = .tls_1_0;
-            try self.stream.write(tls.ClientHello, hello);
+            try self.stream.write(tls.Handshake, .{ .client_hello = hello });
             try self.stream.flush();
         }
 
         pub fn recv_hello(self: *Self, key_pairs: KeyPairs) !void {
-            try self.stream.readFragment(.server_hello);
+            self.stream.handshake_type = .server_hello;
+            try self.stream.readFragment();
 
-            // TODO: check spec to see if we should verify this
-            _ = try self.stream.read(u24);
             // > The value of TLSPlaintext.legacy_record_version MUST be ignored by all implementations.
             _ = try self.stream.read(tls.Version);
             const random = try self.stream.readAll(32);
@@ -540,7 +538,8 @@ pub fn Client(comptime StreamType: type) type {
             self.stream.content_type = .application_data;
             self.stream.handshake_cipher.?.print();
 
-            try self.stream.readFragment(.encrypted_extensions);
+            self.stream.handshake_type = .encrypted_extensions;
+            try self.stream.readFragment();
             iter = try self.stream.extensions();
             while (try iter.next()) |ext|  {
                 _ = try self.stream.readAll(ext.len);
