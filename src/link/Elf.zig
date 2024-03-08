@@ -2105,7 +2105,6 @@ fn scanRelocs(self: *Elf) !void {
         }
         if (sym.flags.needs_tlsdesc) {
             log.debug("'{s}' needs TLSDESC", .{sym.name(self)});
-            try self.dynsym.addSymbol(index, self);
             try self.got.addTlsDescSymbol(index, self);
         }
     }
@@ -4497,7 +4496,7 @@ fn writeAtoms(self: *Elf) !void {
         const buffer = try gpa.alloc(u8, sh_size);
         defer gpa.free(buffer);
         const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
-            shdr.sh_flags & elf.SHF_EXECINSTR != 0)
+            shdr.sh_flags & elf.SHF_EXECINSTR != 0 and self.getTarget().cpu.arch == .x86_64)
             0xcc // int3
         else
             0;

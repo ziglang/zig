@@ -1622,6 +1622,22 @@ const aarch64 = struct {
                 }
             },
 
+            .TLSLE_ADD_TPREL_HI12,
+            .TLSLE_ADD_TPREL_LO12_NC,
+            => {
+                if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
+            },
+
+            .TLSDESC_ADR_PAGE21,
+            .TLSDESC_LD64_LO12,
+            .TLSDESC_ADD_LO12,
+            => {
+                const should_relax = elf_file.base.isStatic() or (!is_dyn_lib and !symbol.flags.import);
+                if (!should_relax and true) { // TODO
+                    symbol.flags.needs_tlsdesc = true;
+                }
+            },
+
             .ADD_ABS_LO12_NC,
             .ADR_PREL_LO21,
             .LDST8_ABS_LO12_NC,
@@ -1629,13 +1645,8 @@ const aarch64 = struct {
             .LDST32_ABS_LO12_NC,
             .LDST64_ABS_LO12_NC,
             .LDST128_ABS_LO12_NC,
+            .TLSDESC_CALL,
             => {},
-
-            .TLSLE_ADD_TPREL_HI12,
-            .TLSLE_ADD_TPREL_LO12_NC,
-            => {
-                if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
-            },
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
@@ -1755,6 +1766,36 @@ const aarch64 = struct {
             .TLSLE_ADD_TPREL_LO12_NC => {
                 const value: i12 = @truncate(S + A - TP);
                 aarch64_util.writeAddImmInst(@bitCast(value), code[rel.r_offset..][0..4]);
+            },
+
+            .TLSDESC_ADR_PAGE21 => {
+                assert(target.flags.has_tlsdesc); // TODO relax
+                const S_: i64 = @intCast(target.tlsDescAddress(elf_file));
+                const saddr: u64 = @intCast(P);
+                const taddr: u64 = @intCast(S_ + A);
+                relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
+                const pages: u21 = @bitCast(try aarch64_util.calcNumberOfPages(saddr, taddr));
+                aarch64_util.writeAdrpInst(pages, code[rel.r_offset..][0..4]);
+            },
+
+            .TLSDESC_LD64_LO12 => {
+                const S_: i64 = @intCast(target.tlsDescAddress(elf_file));
+                const taddr: u64 = @intCast(S_ + A);
+                relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
+                const offset: u12 = try math.divExact(u12, @truncate(taddr), 8);
+                aarch64_util.writeLoadStoreRegInst(offset, code[rel.r_offset..][0..4]);
+            },
+
+            .TLSDESC_ADD_LO12 => {
+                const S_: i64 = @intCast(target.tlsDescAddress(elf_file));
+                const taddr: u64 = @intCast(S_ + A);
+                relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
+                const offset: u12 = @truncate(taddr);
+                aarch64_util.writeAddImmInst(offset, code[rel.r_offset..][0..4]);
+            },
+
+            .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
+                mem.writeInt(u32, code[rel.r_offset..][0..4], aarch64_util.Instruction.nop().toU32(), .little);
             },
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
