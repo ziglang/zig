@@ -4076,17 +4076,34 @@ pub fn scanNamespace(
     const gpa = zcu.gpa;
     const namespace = zcu.namespacePtr(namespace_index);
 
+    // For incremental updates, `scanDecl` wants to look up existing decls by their ZIR index rather
+    // than their name. We'll build an efficient mapping now, then discard the current `decls`.
+    var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, Decl.Index) = .{};
+    defer existing_by_inst.deinit(gpa);
+
+    try existing_by_inst.ensureTotalCapacity(namespace.decls.count());
+
+    for (namespace.decls.keys()) |decl_index| {
+        const decl = zcu.declPtr(decl_index);
+        existing_by_inst.putAssumeCapacityNoClobber(decl.zir_decl_index.unwrap().?, decl_index);
+    }
+
     var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
     defer seen_decls.deinit(gpa);
 
     try zcu.comp.work_queue.ensureUnusedCapacity(decls.len);
+
+    namespace.decls.clearRetainingCapacity();
     try namespace.decls.ensureTotalCapacity(gpa, decls.len);
+
+    namespace.usingnamespace_set.clearRetainingCapacity();
 
     var scan_decl_iter: ScanDeclIter = .{
         .zcu = zcu,
         .namespace_index = namespace_index,
         .parent_decl = parent_decl,
         .seen_decls = &seen_decls,
+        .existing_by_inst = &existing_by_inst,
         .pass = .named,
     };
     for (decls) |decl_inst| {
@@ -4118,6 +4135,7 @@ const ScanDeclIter = struct {
     namespace_index: Namespace.Index,
     parent_decl: *Decl,
     seen_decls: *std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
+    existing_by_inst: *const std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, Decl.Index),
     /// Decl scanning is run in two passes, so that we can detect when a generated
     /// name would clash with an explicit name and use a different one.
     pass: enum { named, unnamed },
@@ -4222,72 +4240,85 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         },
     };
 
-    if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
+    switch (kind) {
+        .@"usingnamespace" => try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1),
+        .@"test" => try zcu.test_functions.ensureUnusedCapacity(gpa, 1),
+        else => {},
+    }
 
     const tracked_inst = try ip.trackZir(gpa, iter.parent_decl.getFileScope(zcu), decl_inst);
 
     // We create a Decl for it regardless of analysis status.
-    const gop = try namespace.decls.getOrPutContextAdapted(
-        gpa,
-        decl_name,
-        DeclAdapter{ .zcu = zcu },
-        Namespace.DeclContext{ .zcu = zcu },
-    );
-    const comp = zcu.comp;
-    if (!gop.found_existing) {
+
+    const prev_exported, const decl_index = if (iter.existing_by_inst.get(tracked_inst)) |decl_index| decl_index: {
+        // We need only update this existing Decl.
+        const decl = zcu.declPtr(decl_index);
+        const was_exported = decl.is_exported;
+        assert(decl.kind == kind); // ZIR tracking should preserve this
+        assert(decl.alive);
+        decl.name = decl_name;
+        decl.src_node = decl_node;
+        decl.src_line = line;
+        decl.is_pub = declaration.flags.is_pub;
+        decl.is_exported = declaration.flags.is_export;
+        break :decl_index .{ was_exported, decl_index };
+    } else decl_index: {
+        // Create and set up a new Decl.
         const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node);
         const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
-        if (kind == .@"usingnamespace") {
-            namespace.usingnamespace_set.putAssumeCapacity(new_decl_index, declaration.flags.is_pub);
-        }
         new_decl.src_line = line;
-        gop.key_ptr.* = new_decl_index;
-        // Exported decls, comptime decls, usingnamespace decls, and
-        // test decls if in test mode, get analyzed.
-        const decl_mod = namespace.file_scope.mod;
-        const want_analysis = declaration.flags.is_export or switch (kind) {
-            .anon => unreachable,
-            .@"comptime", .@"usingnamespace" => true,
-            .named => false,
-            .@"test" => a: {
-                if (!comp.config.is_test) break :a false;
-                if (decl_mod != zcu.main_mod) break :a false;
-                if (is_named_test and comp.test_filters.len > 0) {
-                    const decl_fqn = ip.stringToSlice(try namespace.fullyQualifiedName(zcu, decl_name));
-                    for (comp.test_filters) |test_filter| {
-                        if (mem.indexOf(u8, decl_fqn, test_filter)) |_| break;
-                    } else break :a false;
-                }
-                try zcu.test_functions.put(gpa, new_decl_index, {});
-                break :a true;
-            },
-        };
-        if (want_analysis) {
-            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{s}' decl_index={d}", .{
-                namespace.file_scope.sub_file_path, ip.stringToSlice(decl_name), new_decl_index,
-            });
-            comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = new_decl_index });
-        }
         new_decl.is_pub = declaration.flags.is_pub;
         new_decl.is_exported = declaration.flags.is_export;
         new_decl.zir_decl_index = tracked_inst.toOptional();
-        new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
-        return;
-    }
-    const decl_index = gop.key_ptr.*;
-    const decl = zcu.declPtr(decl_index);
-    // Update the AST node of the decl; even if its contents are unchanged, it may
-    // have been re-ordered.
-    decl.src_node = decl_node;
-    decl.src_line = line;
+        new_decl.alive = true; // This Decl corresponds to an AST node and is therefore always alive.
+        break :decl_index .{ false, new_decl_index };
+    };
 
-    decl.is_pub = declaration.flags.is_pub;
-    decl.is_exported = declaration.flags.is_export;
-    decl.kind = kind;
-    decl.zir_decl_index = tracked_inst.toOptional();
+    const decl = zcu.declPtr(decl_index);
+
+    namespace.decls.putAssumeCapacityNoClobberContext(decl_index, {}, .{ .zcu = zcu });
+
+    const comp = zcu.comp;
+    const decl_mod = namespace.file_scope.mod;
+    const want_analysis = declaration.flags.is_export or switch (kind) {
+        .anon => unreachable,
+        .@"comptime" => true,
+        .@"usingnamespace" => a: {
+            namespace.usingnamespace_set.putNoClobber(decl_index, declaration.flags.is_pub);
+            break :a true;
+        },
+        .named => false,
+        .@"test" => a: {
+            if (!comp.config.is_test) break :a false;
+            if (decl_mod != zcu.main_mod) break :a false;
+            if (is_named_test and comp.test_filters.len > 0) {
+                const decl_fqn = ip.stringToSlice(try namespace.fullyQualifiedName(zcu, decl_name));
+                for (comp.test_filters) |test_filter| {
+                    if (mem.indexOf(u8, decl_fqn, test_filter)) |_| break;
+                } else break :a false;
+            }
+            zcu.test_functions.putAssumeCapacity(decl_index, {}); // may clobber on incremental update
+            break :a true;
+        },
+    };
+
+    if (want_analysis) {
+        // We will not queue analysis if the decl has been analyzed on a previous update and
+        // `is_export` is unchanged. In this case, the incremental update mechanism will handle
+        // re-analysis for us if necessary.
+        if (prev_exported != declaration.flags.is_export or decl.analysis == .unreferenced) {
+            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{s}' decl_index={d}", .{
+                namespace.file_scope.sub_file_path, ip.stringToSlice(decl_name), decl_index,
+            });
+            comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = decl_index });
+        }
+    }
+
     if (decl.getOwnedFunction(zcu) != null) {
+        // TODO this logic is insufficient; namespaces we don't re-scan may still require
+        // updated line numbers. Look into this!
         // TODO Look into detecting when this would be unnecessary by storing enough state
         // in `Decl` to notice that the line number did not change.
         comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
