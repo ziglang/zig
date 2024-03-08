@@ -634,8 +634,17 @@ pub const GotSection = struct {
                     }
                 },
                 .tlsdesc => {
-                    try writeInt(0, elf_file, writer);
-                    try writeInt(0, elf_file, writer);
+                    if (symbol.?.flags.import) {
+                        try writeInt(0, elf_file, writer);
+                        try writeInt(0, elf_file, writer);
+                    } else {
+                        try writeInt(0, elf_file, writer);
+                        const offset = if (apply_relocs)
+                            @as(i64, @intCast(symbol.?.address(.{}, elf_file))) - @as(i64, @intCast(elf_file.tlsAddress()))
+                        else
+                            0;
+                        try writeInt(offset, elf_file, writer);
+                    }
                 },
             }
         }
@@ -738,8 +747,9 @@ pub const GotSection = struct {
                     const offset = symbol.?.tlsDescAddress(elf_file);
                     elf_file.addRelaDynAssumeCapacity(.{
                         .offset = offset,
-                        .sym = extra.?.dynamic,
+                        .sym = if (symbol.?.flags.import) extra.?.dynamic else 0,
                         .type = relocation.encode(.tlsdesc, cpu_arch),
+                        .addend = if (symbol.?.flags.import) 0 else @intCast(symbol.?.address(.{}, elf_file) - elf_file.tlsAddress()),
                     });
                 },
             }
