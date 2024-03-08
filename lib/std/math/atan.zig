@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/atan.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
@@ -16,7 +17,7 @@ const expect = std.testing.expect;
 ///  - atan(+-inf) = +-pi/2
 pub fn atan(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.atan(x) else switch (T) {
         f32 => atan32(x),
         f64 => atan64(x),
         else => @compileError("atan not implemented for " ++ @typeName(T)),

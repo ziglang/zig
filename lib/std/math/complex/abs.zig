@@ -1,8 +1,7 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 /// Returns the absolute value (modulus) of z.
 pub fn abs(z: anytype) @TypeOf(z.re, z.im) {

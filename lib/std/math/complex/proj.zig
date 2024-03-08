@@ -1,8 +1,7 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 /// Returns the projection of z onto the riemann sphere.
 pub fn proj(z: anytype) Complex(@TypeOf(z.re, z.im)) {

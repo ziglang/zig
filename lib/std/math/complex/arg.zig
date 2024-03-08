@@ -1,8 +1,7 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 /// Returns the angular component (in radians) of z.
 pub fn arg(z: anytype) @TypeOf(z.re, z.im) {

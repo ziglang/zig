@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/asinh.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
@@ -18,7 +19,7 @@ const maxInt = std.math.maxInt;
 ///  - asinh(nan)   = nan
 pub fn asinh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.asinh(x) else switch (T) {
         f32 => asinh32(x),
         f64 => asinh64(x),
         else => @compileError("asinh not implemented for " ++ @typeName(T)),

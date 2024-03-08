@@ -1,12 +1,12 @@
 const std = @import("../../std.zig");
+const complex = @import("../complex.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
-/// Returns z raised to the complex power of c.
+/// Returns z raised to the complex power of s.
 pub fn pow(z: anytype, s: anytype) Complex(@TypeOf(z.re, z.im, s.re, s.im)) {
-    return cmath.exp(cmath.log(z).mul(s));
+    return complex.exp(complex.log(z).mul(s));
 }
 
 const epsilon = 0.0001;

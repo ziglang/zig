@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/sinh.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const expo2 = @import("expo2.zig").expo2;
@@ -18,7 +19,7 @@ const maxInt = std.math.maxInt;
 ///  - sinh(nan)   = nan
 pub fn sinh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.sinh(x) else switch (T) {
         f32 => sinh32(x),
         f64 => sinh64(x),
         else => @compileError("sinh not implemented for " ++ @typeName(T)),

@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/cosh.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const expo2 = @import("expo2.zig").expo2;
 const expect = std.testing.expect;
@@ -18,7 +19,7 @@ const maxInt = std.math.maxInt;
 ///  - cosh(nan)   = nan
 pub fn cosh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.cosh(x) else switch (T) {
         f32 => cosh32(x),
         f64 => cosh64(x),
         else => @compileError("cosh not implemented for " ++ @typeName(T)),

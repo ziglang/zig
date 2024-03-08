@@ -7,8 +7,7 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 /// Returns the arc-tangent of z.
 pub fn atan(z: anytype) Complex(@TypeOf(z.re, z.im)) {

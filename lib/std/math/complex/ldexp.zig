@@ -8,8 +8,7 @@ const std = @import("../../std.zig");
 const debug = std.debug;
 const math = std.math;
 const testing = std.testing;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 /// Returns exp(z) scaled to avoid overflow.
 pub fn ldexp_cexp(z: anytype, expt: i32) Complex(@TypeOf(z.re, z.im)) {

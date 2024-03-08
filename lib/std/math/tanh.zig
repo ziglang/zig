@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/tanh.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
@@ -19,7 +20,7 @@ const maxInt = std.math.maxInt;
 ///  - sinh(nan)   = nan
 pub fn tanh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.tanh(x) else switch (T) {
         f32 => tanh32(x),
         f64 => tanh64(x),
         else => @compileError("tanh not implemented for " ++ @typeName(T)),

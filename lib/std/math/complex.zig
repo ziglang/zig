@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const testing = std.testing;
 const math = std.math;
+const complex = @This();
 
 pub const abs = @import("complex/abs.zig").abs;
 pub const acosh = @import("complex/acosh.zig").acosh;
@@ -43,43 +44,51 @@ pub fn Complex(comptime T: type) type {
         }
 
         /// Returns the sum of two complex numbers.
-        pub fn add(self: Self, other: Self) Self {
-            return Self{
+        pub fn add(self: Self, other: anytype) Self {
+            return if (isComplex(@TypeOf(other))) .{
                 .re = self.re + other.re,
                 .im = self.im + other.im,
+            } else .{
+                .re = self.re + other,
+                .im = self.im,
             };
         }
 
         /// Returns the subtraction of two complex numbers.
-        pub fn sub(self: Self, other: Self) Self {
-            return Self{
+        pub fn sub(self: Self, other: anytype) Self {
+            return if (isComplex(@TypeOf(other))) .{
                 .re = self.re - other.re,
                 .im = self.im - other.im,
+            } else .{
+                .re = self.re - other,
+                .im = self.im,
             };
         }
 
         /// Returns the product of two complex numbers.
-        pub fn mul(self: Self, other: Self) Self {
-            return Self{
+        pub fn mul(self: Self, other: anytype) Self {
+            return if (isComplex(@TypeOf(other))) .{
                 .re = self.re * other.re - self.im * other.im,
                 .im = self.im * other.re + self.re * other.im,
+            } else .{
+                .re = self.re * other,
+                .im = self.im * other,
             };
         }
 
         /// Returns the quotient of two complex numbers.
-        pub fn div(self: Self, other: Self) Self {
-            const re_num = self.re * other.re + self.im * other.im;
-            const im_num = self.im * other.re - self.re * other.im;
-            const den = other.re * other.re + other.im * other.im;
-
-            return Self{
-                .re = re_num / den,
-                .im = im_num / den,
+        pub fn div(self: Self, other: anytype) Self {
+            return if (isComplex(@TypeOf(other))) .{
+                .re = (self.re * other.re + self.im * other.im) / abs2(other),
+                .im = (self.im * other.re - self.re * other.im) / abs2(other),
+            } else .{
+                .re = self.re / other,
+                .im = self.im / other,
             };
         }
 
-        /// Returns the complex conjugate of a number.
-        pub fn conjugate(self: Self) Self {
+        /// Returns the conjugate of a complex number.
+        pub fn conj(self: Self) Self {
             return Self{
                 .re = self.re,
                 .im = -self.im,
@@ -102,20 +111,42 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the reciprocal of a complex number.
-        pub fn reciprocal(self: Self) Self {
-            const m = self.re * self.re + self.im * self.im;
-            return Self{
-                .re = self.re / m,
-                .im = -self.im / m,
-            };
+        /// Returns the inverse of a complex number.
+        pub fn inv(self: Self) Self {
+            return self.conj().div(abs2(self));
         }
 
         /// Returns the magnitude of a complex number.
-        pub fn magnitude(self: Self) T {
-            return @sqrt(self.re * self.re + self.im * self.im);
+        pub fn abs(self: Self) T {
+            return complex.abs(self);
         }
     };
+}
+
+/// Evaluates the squared modulus of a complex number
+pub inline fn abs2(z: anytype) ScalarType(@TypeOf(z)) {
+    return if (isComplex(@TypeOf(z))) z.re * z.re + z.im * z.im else z * z;
+}
+
+/// Returns the underlying scalar type if it is a complex number,
+/// otherwise return the type (and hopefully trigger a compile error if it's unsupported);
+pub inline fn ScalarType(comptime T: type) type {
+    if (!isComplex(T)) return T;
+    const t: T = undefined;
+    return @TypeOf(t.re, t.im);
+}
+
+/// Checks whether the input value is a struct which has fields named "re" and "im" and decl "ScalarType"
+pub inline fn isComplex(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .Struct => @hasField(T, "re") and @hasField(T, "im"),
+        else => false,
+    };
+}
+
+test isComplex {
+    const C = Complex(f32);
+    try testing.expect(isComplex(C));
 }
 
 const epsilon = 0.0001;
@@ -124,38 +155,43 @@ test "add" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.add(b);
-
+    const d = c.add(1);
     try testing.expect(c.re == 7 and c.im == 10);
+    try testing.expect(d.re == 8 and d.im == 10);
 }
 
 test "sub" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.sub(b);
-
+    const d = c.sub(1);
     try testing.expect(c.re == 3 and c.im == -4);
+    try testing.expect(d.re == 2 and d.im == -4);
 }
 
 test "mul" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.mul(b);
-
+    const d = c.mul(2);
     try testing.expect(c.re == -11 and c.im == 41);
+    try testing.expect(d.re == -22 and d.im == 82);
 }
 
 test "div" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.div(b);
-
+    const d = c.div(2);
     try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 31) / 53, epsilon) and
         math.approxEqAbs(f32, c.im, @as(f32, -29) / 53, epsilon));
+    try testing.expect(math.approxEqAbs(f32, d.re, @as(f32, 31) / 106, epsilon) and
+        math.approxEqAbs(f32, d.im, @as(f32, -29) / 106, epsilon));
 }
 
-test "conjugate" {
+test "conj" {
     const a = Complex(f32).init(5, 3);
-    const c = a.conjugate();
+    const c = a.conj();
 
     try testing.expect(c.re == 5 and c.im == -3);
 }
@@ -174,17 +210,17 @@ test "mulbyi" {
     try testing.expect(c.re == -3 and c.im == 5);
 }
 
-test "reciprocal" {
+test "inv" {
     const a = Complex(f32).init(5, 3);
-    const c = a.reciprocal();
+    const c = a.inv();
 
     try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 5) / 34, epsilon) and
         math.approxEqAbs(f32, c.im, @as(f32, -3) / 34, epsilon));
 }
 
-test "magnitude" {
+test "abs" {
     const a = Complex(f32).init(5, 3);
-    const c = a.magnitude();
+    const c = a.abs();
 
     try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
 }

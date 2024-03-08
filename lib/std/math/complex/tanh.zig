@@ -7,8 +7,7 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 /// Returns the hyperbolic tangent of z.
 pub fn tanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {

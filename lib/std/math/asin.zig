@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/asin.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
@@ -15,7 +16,7 @@ const expect = std.testing.expect;
 ///  - asin(x)   = nan if x < -1 or x > 1
 pub fn asin(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.asin(x) else switch (T) {
         f32 => asin32(x),
         f64 => asin64(x),
         else => @compileError("asin not implemented for " ++ @typeName(T)),

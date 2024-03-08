@@ -4,6 +4,7 @@
 // https://golang.org/src/math/pow.go
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
@@ -31,6 +32,7 @@ const expect = std.testing.expect;
 ///  - pow(-inf, y)   = pow(-0, -y)
 ///  - pow(x, y)      = nan for finite x < 0 and finite non-integer y
 pub fn pow(comptime T: type, x: T, y: T) T {
+    if (complex.isComplex(T)) return complex.pow(x, y);
     if (@typeInfo(T) == .Int) {
         return math.powi(T, x, y) catch unreachable;
     }

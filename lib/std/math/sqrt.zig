@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const expect = std.testing.expect;
 const TypeId = std.builtin.TypeId;
@@ -14,6 +15,7 @@ const maxInt = std.math.maxInt;
 /// TODO Decide if all this logic should be implemented directly in the @sqrt builtin function.
 pub fn sqrt(x: anytype) Sqrt(@TypeOf(x)) {
     const T = @TypeOf(x);
+    if (complex.isComplex(T)) return complex.sqrt(x);
     switch (@typeInfo(T)) {
         .Float, .ComptimeFloat => return @sqrt(x),
         .ComptimeInt => comptime {
