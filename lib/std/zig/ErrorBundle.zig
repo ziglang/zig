@@ -433,7 +433,9 @@ pub const Wip = struct {
         // The ensureUnusedCapacity call above guarantees this.
         const notes_start = wip.reserveNotes(@intCast(other_list.len)) catch unreachable;
         for (notes_start.., other_list) |note, message| {
-            wip.extra.items[note] = @intFromEnum(wip.addOtherMessage(other, message) catch unreachable);
+            // This line can cause `wip.extra.items` to be resized.
+            const note_index = @intFromEnum(wip.addOtherMessage(other, message) catch unreachable);
+            wip.extra.items[note] = note_index;
         }
     }
 
@@ -522,7 +524,8 @@ pub const Wip = struct {
                     };
                     const loc = std.zig.findLineColumn(source, span.main);
 
-                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                    // This line can cause `wip.extra.items` to be resized.
+                    const note_index = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.addString(msg),
                         .src_loc = try eb.addSourceLocation(.{
                             .src_path = try eb.addString(src_path),
@@ -538,6 +541,7 @@ pub const Wip = struct {
                         }),
                         .notes_len = 0, // TODO rework this function to be recursive
                     }));
+                    eb.extra.items[note_i] = note_index;
                 }
             }
         }
