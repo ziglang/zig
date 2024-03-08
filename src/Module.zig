@@ -4128,6 +4128,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         .@"comptime" => info: {
             const i = iter.comptime_index;
             iter.comptime_index += 1;
+            // TODO: avoid collisions with named decls with this name
             break :info .{
                 try ip.getOrPutStringFmt(gpa, "comptime_{d}", .{i}),
                 .@"comptime",
@@ -4137,6 +4138,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         .@"usingnamespace" => info: {
             const i = iter.usingnamespace_index;
             iter.usingnamespace_index += 1;
+            // TODO: avoid collisions with named decls with this name
             break :info .{
                 try ip.getOrPutStringFmt(gpa, "usingnamespace_{d}", .{i}),
                 .@"usingnamespace",
@@ -4146,6 +4148,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         .unnamed_test => info: {
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
+            // TODO: avoid collisions with named decls with this name
             break :info .{
                 try ip.getOrPutStringFmt(gpa, "test_{d}", .{i}),
                 .@"test",
@@ -4155,6 +4158,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         .decltest => info: {
             assert(declaration.flags.has_doc_comment);
             const name = zir.nullTerminatedString(@enumFromInt(zir.extra[extra.end]));
+            // TODO: avoid collisions with named decls with this name
             break :info .{
                 try ip.getOrPutStringFmt(gpa, "decltest.{s}", .{name}),
                 .@"test",
@@ -4162,6 +4166,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
             };
         },
         _ => if (declaration.name.isNamedTest(zir)) .{
+            // TODO: avoid collisions with named decls with this name
             try ip.getOrPutStringFmt(gpa, "test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)}),
             .@"test",
             true,
@@ -4226,24 +4231,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     }
     const decl_index = gop.key_ptr.*;
     const decl = zcu.declPtr(decl_index);
-    if (kind == .@"test") {
-        const src_loc = SrcLoc{
-            .file_scope = decl.getFileScope(zcu),
-            .parent_decl_node = decl.src_node,
-            .lazy = .{ .token_offset = 1 },
-        };
-        const msg = try ErrorMsg.create(gpa, src_loc, "duplicate test name: {}", .{
-            decl_name.fmt(ip),
-        });
-        errdefer msg.destroy(gpa);
-        try zcu.failed_decls.putNoClobber(gpa, decl_index, msg);
-        const other_src_loc = SrcLoc{
-            .file_scope = namespace.file_scope,
-            .parent_decl_node = decl_node,
-            .lazy = .{ .token_offset = 1 },
-        };
-        try zcu.errNoteNonLazy(other_src_loc, msg, "other test here", .{});
-    }
     // Update the AST node of the decl; even if its contents are unchanged, it may
     // have been re-ordered.
     decl.src_node = decl_node;
