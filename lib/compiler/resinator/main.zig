@@ -46,6 +46,12 @@ pub fn main() !void {
         },
     };
 
+    if (zig_integration) {
+        // Send progress with an empty string to indicate that the building of the
+        // resinator binary is finished and we've moved on to actually compiling the .rc file
+        try error_handler.server.serveStringMessage(.progress, "");
+    }
+
     var options = options: {
         var cli_diagnostics = cli.Diagnostics.init(allocator);
         defer cli_diagnostics.deinit();

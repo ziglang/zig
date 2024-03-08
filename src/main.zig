@@ -291,11 +291,13 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "translate-c")) {
         return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "rc")) {
+        const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "resinator",
             .root_src_path = "resinator/main.zig",
             .depend_on_aro = true,
             .prepend_zig_lib_dir_path = true,
+            .server = use_server,
         });
     } else if (mem.eql(u8, cmd, "fmt")) {
         return jitCmd(gpa, arena, cmd_args, .{
@@ -5304,6 +5306,8 @@ const JitCmdOptions = struct {
     prepend_zig_exe_path: bool = false,
     depend_on_aro: bool = false,
     capture: ?*[]u8 = null,
+    /// Send progress and error bundles via std.zig.Server over stdout
+    server: bool = false,
 };
 
 fn jitCmd(
@@ -5449,10 +5453,52 @@ fn jitCmd(
         };
         defer comp.destroy();
 
-        updateModule(comp, color) catch |err| switch (err) {
-            error.SemanticAnalyzeFail => process.exit(2),
-            else => |e| return e,
-        };
+        if (options.server and !builtin.single_threaded) {
+            var reset: std.Thread.ResetEvent = .{};
+            var progress: std.Progress = .{
+                .terminal = null,
+                .root = .{
+                    .context = undefined,
+                    .parent = null,
+                    .name = "",
+                    .unprotected_estimated_total_items = 0,
+                    .unprotected_completed_items = 0,
+                },
+                .columns_written = 0,
+                .prev_refresh_timestamp = 0,
+                .timer = null,
+                .done = false,
+            };
+            const main_progress_node = &progress.root;
+            main_progress_node.context = &progress;
+            var server = std.zig.Server{
+                .out = std.io.getStdOut(),
+                .in = undefined, // won't be receiving messages
+                .receive_fifo = undefined, // won't be receiving messages
+            };
+
+            var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
+                &progress, &server, &reset,
+            });
+            defer {
+                reset.set();
+                progress_thread.join();
+            }
+
+            try comp.update(main_progress_node);
+
+            var error_bundle = try comp.getAllErrorsAlloc();
+            defer error_bundle.deinit(comp.gpa);
+            if (error_bundle.errorMessageCount() > 0) {
+                try server.serveErrorBundle(error_bundle);
+                process.exit(2);
+            }
+        } else {
+            updateModule(comp, color) catch |err| switch (err) {
+                error.SemanticAnalyzeFail => process.exit(2),
+                else => |e| return e,
+            };
+        }
 
         const exe_path = try global_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
         child_argv.appendAssumeCapacity(exe_path);

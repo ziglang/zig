@@ -4841,6 +4841,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             try argv.appendSlice(&.{
                 self_exe_path,
                 "rc",
+                "--zig-integration",
                 "/:no-preprocess",
                 "/x", // ignore INCLUDE environment variable
                 "/c65001", // UTF-8 codepage
@@ -4849,31 +4850,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             });
             try argv.appendSlice(&.{ "--", in_rc_path, out_res_path });
 
-            var child = std.ChildProcess.init(argv.items, arena);
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Ignore;
-            child.stderr_behavior = .Pipe;
-
-            try child.spawn();
-
-            const stderr_reader = child.stderr.?.reader();
-            const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
-            const term = child.wait() catch |err| {
-                return comp.failWin32Resource(win32_resource, "unable to spawn {s}: {s}", .{ argv.items[0], @errorName(err) });
-            };
-
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        log.err("zig rc failed with stderr:\n{s}", .{stderr});
-                        return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
-                    }
-                },
-                else => {
-                    log.err("zig rc terminated with stderr:\n{s}", .{stderr});
-                    return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
-                },
-            }
+            try spawnZigRc(comp, win32_resource, src_basename, arena, argv.items, &child_progress_node);
 
             break :blk digest;
         };
@@ -4941,79 +4918,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         try argv.appendSlice(rc_src.extra_flags);
         try argv.appendSlice(&.{ "--", rc_src.src_path, out_res_path });
 
-        {
-            var child = std.ChildProcess.init(argv.items, arena);
-            child.stdin_behavior = .Ignore;
-            child.stdout_behavior = .Pipe;
-            child.stderr_behavior = .Pipe;
-
-            child.spawn() catch |err| {
-                return comp.failWin32Resource(win32_resource, "unable to spawn {s} rc: {s}", .{ argv.items[0], @errorName(err) });
-            };
-
-            var poller = std.io.poll(comp.gpa, enum { stdout }, .{
-                .stdout = child.stdout.?,
-            });
-            defer poller.deinit();
-
-            const stdout = poller.fifo(.stdout);
-
-            poll: while (true) {
-                while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) {
-                    if (!(try poller.poll())) break :poll;
-                }
-                const header = stdout.reader().readStruct(std.zig.Server.Message.Header) catch unreachable;
-                while (stdout.readableLength() < header.bytes_len) {
-                    if (!(try poller.poll())) break :poll;
-                }
-                const body = stdout.readableSliceOfLen(header.bytes_len);
-
-                switch (header.tag) {
-                    // We expect exactly one ErrorBundle, and if any error_bundle header is
-                    // sent then it's a fatal error.
-                    .error_bundle => {
-                        const EbHdr = std.zig.Server.Message.ErrorBundle;
-                        const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
-                        const extra_bytes =
-                            body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
-                        const string_bytes =
-                            body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
-                        const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                        const extra_array = try comp.gpa.alloc(u32, unaligned_extra.len);
-                        @memcpy(extra_array, unaligned_extra);
-                        const error_bundle = .{
-                            .string_bytes = try comp.gpa.dupe(u8, string_bytes),
-                            .extra = extra_array,
-                        };
-                        return comp.failWin32ResourceWithOwnedBundle(win32_resource, error_bundle);
-                    },
-                    else => {}, // ignore other messages
-                }
-
-                stdout.discard(body.len);
-            }
-
-            // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
-            const stderr_reader = child.stderr.?.reader();
-            const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
-
-            const term = child.wait() catch |err| {
-                return comp.failWin32Resource(win32_resource, "unable to wait for {s} rc: {s}", .{ argv.items[0], @errorName(err) });
-            };
-
-            switch (term) {
-                .Exited => |code| {
-                    if (code != 0) {
-                        log.err("zig rc failed with stderr:\n{s}", .{stderr});
-                        return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
-                    }
-                },
-                else => {
-                    log.err("zig rc terminated with stderr:\n{s}", .{stderr});
-                    return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
-                },
-            }
-        }
+        try spawnZigRc(comp, win32_resource, src_basename, arena, argv.items, &child_progress_node);
 
         // Read depfile and update cache manifest
         {
@@ -5077,6 +4982,100 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             .lock = man.toOwnedLock(),
         },
     };
+}
+
+fn spawnZigRc(
+    comp: *Compilation,
+    win32_resource: *Win32Resource,
+    src_basename: []const u8,
+    arena: Allocator,
+    argv: []const []const u8,
+    child_progress_node: *std.Progress.Node,
+) !void {
+    var node_name: std.ArrayListUnmanaged(u8) = .{};
+    defer node_name.deinit(arena);
+
+    var child = std.ChildProcess.init(argv, arena);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Pipe;
+
+    child.spawn() catch |err| {
+        return comp.failWin32Resource(win32_resource, "unable to spawn {s} rc: {s}", .{ argv[0], @errorName(err) });
+    };
+
+    var poller = std.io.poll(comp.gpa, enum { stdout }, .{
+        .stdout = child.stdout.?,
+    });
+    defer poller.deinit();
+
+    const stdout = poller.fifo(.stdout);
+
+    poll: while (true) {
+        while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) {
+            if (!(try poller.poll())) break :poll;
+        }
+        const header = stdout.reader().readStruct(std.zig.Server.Message.Header) catch unreachable;
+        while (stdout.readableLength() < header.bytes_len) {
+            if (!(try poller.poll())) break :poll;
+        }
+        const body = stdout.readableSliceOfLen(header.bytes_len);
+
+        switch (header.tag) {
+            // We expect exactly one ErrorBundle, and if any error_bundle header is
+            // sent then it's a fatal error.
+            .error_bundle => {
+                const EbHdr = std.zig.Server.Message.ErrorBundle;
+                const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
+                const extra_bytes =
+                    body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
+                const string_bytes =
+                    body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
+                const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
+                const extra_array = try comp.gpa.alloc(u32, unaligned_extra.len);
+                @memcpy(extra_array, unaligned_extra);
+                const error_bundle = std.zig.ErrorBundle{
+                    .string_bytes = try comp.gpa.dupe(u8, string_bytes),
+                    .extra = extra_array,
+                };
+                return comp.failWin32ResourceWithOwnedBundle(win32_resource, error_bundle);
+            },
+            .progress => {
+                node_name.clearRetainingCapacity();
+                if (body.len > 0) {
+                    try node_name.appendSlice(arena, "build 'zig rc'... ");
+                    try node_name.appendSlice(arena, body);
+                    child_progress_node.setName(node_name.items);
+                } else {
+                    child_progress_node.setName(src_basename);
+                }
+            },
+            else => {}, // ignore other messages
+        }
+
+        stdout.discard(body.len);
+    }
+
+    // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
+    const stderr_reader = child.stderr.?.reader();
+    const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+
+    const term = child.wait() catch |err| {
+        return comp.failWin32Resource(win32_resource, "unable to wait for {s} rc: {s}", .{ argv[0], @errorName(err) });
+    };
+
+    switch (term) {
+        .Exited => |code| {
+            if (code != 0) {
+                log.err("zig rc failed with stderr:\n{s}", .{stderr});
+                return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
+            }
+        },
+        else => {
+            log.err("zig rc terminated with stderr:\n{s}", .{stderr});
+            return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
+        },
+    }
 }
 
 pub fn tmpFilePath(comp: *Compilation, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
