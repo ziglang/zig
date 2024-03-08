@@ -25989,41 +25989,35 @@ fn zirBuiltinExtern(
     }
     const ptr_info = ty.ptrInfo(mod);
 
-    // TODO check duplicate extern
-
     const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node);
     errdefer mod.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
-    new_decl.name = options.name;
-
-    new_decl.src_line = sema.owner_decl.src_line;
-    new_decl.ty = Type.fromInterned(ptr_info.child);
-    new_decl.val = Value.fromInterned(
-        if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
-            try ip.getExternFunc(sema.gpa, .{
-                .ty = ptr_info.child,
-                .decl = new_decl_index,
-                .lib_name = options.library_name,
-            })
-        else
-            try mod.intern(.{ .variable = .{
-                .ty = ptr_info.child,
-                .init = .none,
-                .decl = new_decl_index,
-                .lib_name = options.library_name,
-                .is_extern = true,
-                .is_const = ptr_info.flags.is_const,
-                .is_threadlocal = options.is_thread_local,
-                .is_weak_linkage = options.linkage == .Weak,
-            } }),
-    );
-    new_decl.alignment = .none;
-    new_decl.@"linksection" = .none;
-    new_decl.has_tv = true;
+    try mod.initNewAnonDecl(new_decl_index, sema.owner_decl.src_line, .{
+        .ty = Type.fromInterned(ptr_info.child),
+        .val = Value.fromInterned(
+            if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
+                try ip.getExternFunc(sema.gpa, .{
+                    .ty = ptr_info.child,
+                    .decl = new_decl_index,
+                    .lib_name = options.library_name,
+                })
+            else
+                try mod.intern(.{ .variable = .{
+                    .ty = ptr_info.child,
+                    .init = .none,
+                    .decl = new_decl_index,
+                    .lib_name = options.library_name,
+                    .is_extern = true,
+                    .is_const = ptr_info.flags.is_const,
+                    .is_threadlocal = options.is_thread_local,
+                    .is_weak_linkage = options.linkage == .Weak,
+                } }),
+        ),
+    }, options.name);
     new_decl.owns_tv = true;
-    new_decl.analysis = .complete;
-
-    try sema.ensureDeclAnalyzed(new_decl_index);
+    // Note that this will queue the anon decl for codegen, so that the backend can
+    // correctly handle the extern, including duplicate detection.
+    try mod.finalizeAnonDecl(new_decl_index);
 
     return Air.internedToRef((try mod.getCoerced(Value.fromInterned((try mod.intern(.{ .ptr = .{
         .ty = switch (ip.indexToKey(ty.toIntern())) {
