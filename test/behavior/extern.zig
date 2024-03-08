@@ -27,3 +27,21 @@ test "function extern symbol" {
 export fn a_mystery_function() i32 {
     return 4567;
 }
+
+test "function extern symbol matches extern decl" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        extern fn another_mystery_function() u32;
+        const same_thing = @extern(*const fn () callconv(.C) u32, .{ .name = "another_mystery_function" });
+    };
+    try expect(S.another_mystery_function() == 12345);
+    try expect(S.same_thing() == 12345);
+}
+
+export fn another_mystery_function() u32 {
+    return 12345;
+}
