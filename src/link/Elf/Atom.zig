@@ -1658,6 +1658,7 @@ const aarch64 = struct {
             .LDST32_ABS_LO12_NC,
             .LDST64_ABS_LO12_NC,
             .LDST128_ABS_LO12_NC,
+            .PREL32,
             => {},
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -1714,6 +1715,11 @@ const aarch64 = struct {
                     return;
                 };
                 aarch64_util.writeBranchImm(disp, code);
+            },
+
+            .PREL32 => {
+                const value = math.cast(i32, S + A - P) orelse return error.Overflow;
+                mem.writeInt(u32, code, @bitCast(value), .little);
             },
 
             .ADR_PREL_PG_HI21 => {
