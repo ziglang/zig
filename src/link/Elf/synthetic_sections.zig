@@ -1028,8 +1028,8 @@ pub const PltSection = struct {
                 // TODO: relax if possible
                 // .got.plt[2]
                 const pages = try aarch64_util.calcNumberOfPages(plt_addr + 4, got_plt_addr + 16);
-                const ldr_off = try aarch64_util.calcPageOffset(.load_store_64, got_plt_addr + 16);
-                const add_off = try aarch64_util.calcPageOffset(.arithmetic, got_plt_addr + 16);
+                const ldr_off = try math.divExact(u12, @truncate(got_plt_addr + 16), 8);
+                const add_off: u12 = @truncate(got_plt_addr + 16);
 
                 const preamble = &[_]Instruction{
                     Instruction.stp(
@@ -1057,8 +1057,8 @@ pub const PltSection = struct {
                 const target_addr = sym.gotPltAddress(elf_file);
                 const source_addr = sym.pltAddress(elf_file);
                 const pages = try aarch64_util.calcNumberOfPages(source_addr, target_addr);
-                const ldr_off = try aarch64_util.calcPageOffset(.load_store_64, target_addr);
-                const add_off = try aarch64_util.calcPageOffset(.arithmetic, target_addr);
+                const ldr_off = try math.divExact(u12, @truncate(target_addr), 8);
+                const add_off: u12 = @truncate(target_addr);
                 const insts = &[_]Instruction{
                     Instruction.adrp(.x16, pages),
                     Instruction.ldr(.x17, .x16, Instruction.LoadStoreOffset.imm(ldr_off)),
@@ -1202,7 +1202,7 @@ pub const PltGotSection = struct {
                 const target_addr = sym.gotAddress(elf_file);
                 const source_addr = sym.pltGotAddress(elf_file);
                 const pages = try aarch64_util.calcNumberOfPages(source_addr, target_addr);
-                const off = try aarch64_util.calcPageOffset(.load_store_64, target_addr);
+                const off = try math.divExact(u12, @truncate(target_addr), 8);
                 const insts = &[_]Instruction{
                     Instruction.adrp(.x16, pages),
                     Instruction.ldr(.x17, .x16, Instruction.LoadStoreOffset.imm(off)),
@@ -1758,6 +1758,7 @@ fn writeInt(value: anytype, elf_file: *Elf, writer: anytype) !void {
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const elf = std.elf;
+const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocation = @import("relocation.zig");

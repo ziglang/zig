@@ -101,7 +101,7 @@ pub const Thunk = struct {
             const taddr = sym.getAddress(.{}, macho_file);
             const pages = try aarch64.calcNumberOfPages(saddr, taddr);
             try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-            const off = try aarch64.calcPageOffset(.arithmetic, taddr);
+            const off: u12 = @truncate(taddr);
             try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
             try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
         }

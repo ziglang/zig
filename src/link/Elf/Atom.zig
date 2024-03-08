@@ -1689,7 +1689,7 @@ const aarch64 = struct {
                     });
                     return;
                 };
-                try aarch64_util.writeBranchImm(disp, code[r_offset..][0..4]);
+                aarch64_util.writeBranchImm(disp, code[r_offset..][0..4]);
             },
 
             .ADR_PREL_PG_HI21 => {
@@ -1697,14 +1697,14 @@ const aarch64 = struct {
                 const saddr = @as(u64, @intCast(P));
                 const taddr = @as(u64, @intCast(S + A));
                 const pages = @as(u21, @bitCast(try aarch64_util.calcNumberOfPages(saddr, taddr)));
-                try aarch64_util.writePages(pages, code[r_offset..][0..4]);
+                aarch64_util.writeAdrpInst(pages, code[r_offset..][0..4]);
             },
 
             .ADR_GOT_PAGE => if (target.flags.has_got) {
                 const saddr = @as(u64, @intCast(P));
                 const taddr = @as(u64, @intCast(G + GOT + A));
                 const pages = @as(u21, @bitCast(try aarch64_util.calcNumberOfPages(saddr, taddr)));
-                try aarch64_util.writePages(pages, code[r_offset..][0..4]);
+                aarch64_util.writeAdrpInst(pages, code[r_offset..][0..4]);
             } else {
                 // TODO: relax
                 var err = try elf_file.addErrorWithNotes(1);
@@ -1719,10 +1719,14 @@ const aarch64 = struct {
             .LD64_GOT_LO12_NC => {
                 assert(target.flags.has_got);
                 const taddr = @as(u64, @intCast(G + GOT + A));
-                try aarch64_util.writePageOffset(.load_store_64, taddr, code[r_offset..][0..4]);
+                aarch64_util.writeLoadStoreRegInst(@divExact(@as(u12, @truncate(taddr)), 8), code[rel.r_offset..][0..4]);
             },
 
-            .ADD_ABS_LO12_NC,
+            .ADD_ABS_LO12_NC => {
+                const taddr = @as(u64, @intCast(S + A));
+                aarch64_util.writeAddImmInst(@truncate(taddr), code[rel.r_offset..][0..4]);
+            },
+
             .LDST8_ABS_LO12_NC,
             .LDST16_ABS_LO12_NC,
             .LDST32_ABS_LO12_NC,
@@ -1731,27 +1735,26 @@ const aarch64 = struct {
             => {
                 // TODO: NC means no overflow check
                 const taddr = @as(u64, @intCast(S + A));
-                const kind: aarch64_util.PageOffsetInstKind = switch (r_type) {
-                    .ADD_ABS_LO12_NC => .arithmetic,
-                    .LDST8_ABS_LO12_NC => .load_store_8,
-                    .LDST16_ABS_LO12_NC => .load_store_16,
-                    .LDST32_ABS_LO12_NC => .load_store_32,
-                    .LDST64_ABS_LO12_NC => .load_store_64,
-                    .LDST128_ABS_LO12_NC => .load_store_128,
+                const offset: u12 = switch (r_type) {
+                    .LDST8_ABS_LO12_NC => @truncate(taddr),
+                    .LDST16_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 2),
+                    .LDST32_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 4),
+                    .LDST64_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 8),
+                    .LDST128_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 16),
                     else => unreachable,
                 };
-                try aarch64_util.writePageOffset(kind, taddr, code[r_offset..][0..4]);
+                aarch64_util.writeLoadStoreRegInst(offset, code[rel.r_offset..][0..4]);
             },
 
             .TLSLE_ADD_TPREL_HI12 => {
                 const value = math.cast(i12, (S + A - TP) >> 12) orelse
                     return error.Overflow;
-                try aarch64_util.writeAddInst(@bitCast(value), code[rel.r_offset..][0..4]);
+                aarch64_util.writeAddImmInst(@bitCast(value), code[rel.r_offset..][0..4]);
             },
 
             .TLSLE_ADD_TPREL_LO12_NC => {
                 const value: i12 = @truncate(S + A - TP);
-                try aarch64_util.writeAddInst(@bitCast(value), code[rel.r_offset..][0..4]);
+                aarch64_util.writeAddImmInst(@bitCast(value), code[rel.r_offset..][0..4]);
             },
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),

@@ -269,7 +269,7 @@ pub const StubsSection = struct {
                     // TODO relax if possible
                     const pages = try aarch64.calcNumberOfPages(source, target);
                     try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-                    const off = try aarch64.calcPageOffset(.load_store_64, target);
+                    const off = try math.divExact(u12, @truncate(target), 8);
                     try writer.writeInt(
                         u32,
                         aarch64.Instruction.ldr(.x16, .x16, aarch64.Instruction.LoadStoreOffset.imm(off)).toU32(),
@@ -413,7 +413,7 @@ pub const StubsHelperSection = struct {
                     // TODO relax if possible
                     const pages = try aarch64.calcNumberOfPages(sect.addr, dyld_private_addr);
                     try writer.writeInt(u32, aarch64.Instruction.adrp(.x17, pages).toU32(), .little);
-                    const off = try aarch64.calcPageOffset(.arithmetic, dyld_private_addr);
+                    const off: u12 = @truncate(dyld_private_addr);
                     try writer.writeInt(u32, aarch64.Instruction.add(.x17, .x17, off, false).toU32(), .little);
                 }
                 try writer.writeInt(u32, aarch64.Instruction.stp(
@@ -426,7 +426,7 @@ pub const StubsHelperSection = struct {
                     // TODO relax if possible
                     const pages = try aarch64.calcNumberOfPages(sect.addr + 12, dyld_stub_binder_addr);
                     try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-                    const off = try aarch64.calcPageOffset(.load_store_64, dyld_stub_binder_addr);
+                    const off = try math.divExact(u12, @truncate(dyld_stub_binder_addr), 8);
                     try writer.writeInt(u32, aarch64.Instruction.ldr(
                         .x16,
                         .x16,
@@ -681,7 +681,7 @@ pub const ObjcStubsSection = struct {
                         const source = addr;
                         const pages = try aarch64.calcNumberOfPages(source, target);
                         try writer.writeInt(u32, aarch64.Instruction.adrp(.x1, pages).toU32(), .little);
-                        const off = try aarch64.calcPageOffset(.load_store_64, target);
+                        const off = try math.divExact(u12, @truncate(target), 8);
                         try writer.writeInt(
                             u32,
                             aarch64.Instruction.ldr(.x1, .x1, aarch64.Instruction.LoadStoreOffset.imm(off)).toU32(),
@@ -694,7 +694,7 @@ pub const ObjcStubsSection = struct {
                         const source = addr + 2 * @sizeOf(u32);
                         const pages = try aarch64.calcNumberOfPages(source, target);
                         try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-                        const off = try aarch64.calcPageOffset(.load_store_64, target);
+                        const off = try math.divExact(u12, @truncate(target), 8);
                         try writer.writeInt(
                             u32,
                             aarch64.Instruction.ldr(.x16, .x16, aarch64.Instruction.LoadStoreOffset.imm(off)).toU32(),
