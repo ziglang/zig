@@ -89,7 +89,7 @@ pub fn print(
 
                 if (payload.tag) |tag| {
                     try print(.{
-                        .ty = Type.fromInterned(ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty),
+                        .ty = Type.fromInterned(ip.loadUnionType(ty.toIntern()).enum_tag_ty),
                         .val = tag,
                     }, writer, level - 1, mod);
                     try writer.writeAll(" = ");
@@ -247,7 +247,7 @@ pub fn print(
                 if (level == 0) {
                     return writer.writeAll("(enum)");
                 }
-                const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+                const enum_type = ip.loadEnumType(ty.toIntern());
                 if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
                     try writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
                     return;
@@ -398,7 +398,7 @@ pub fn print(
                                 }
                             },
                             .Union => {
-                                const field_name = mod.typeToUnion(container_ty).?.field_names.get(ip)[@intCast(field.index)];
+                                const field_name = mod.typeToUnion(container_ty).?.loadTagType(ip).names.get(ip)[@intCast(field.index)];
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Pointer => {
@@ -482,11 +482,7 @@ fn printAggregate(
         for (0..max_len) |i| {
             if (i != 0) try writer.writeAll(", ");
 
-            const field_name = switch (ip.indexToKey(ty.toIntern())) {
-                .struct_type => |x| x.fieldName(ip, i),
-                .anon_struct_type => |x| if (x.isTuple()) .none else x.names.get(ip)[i].toOptional(),
-                else => unreachable,
-            };
+            const field_name = ty.structFieldName(@intCast(i), mod);
 
             if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(ip)});
             try print(.{

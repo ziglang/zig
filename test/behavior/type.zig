@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Type = std.builtin.Type;
 const testing = std.testing;
+const assert = std.debug.assert;
 
 fn testTypes(comptime types: []const type) !void {
     inline for (types) |testType| {
@@ -733,4 +734,29 @@ test "struct field names sliced at comptime from larger string" {
         try testing.expectEqualStrings("f2", gen_fields[1].name);
         try testing.expectEqualStrings("f3", gen_fields[2].name);
     }
+}
+
+test "matching captures causes opaque equivalence" {
+    const S = struct {
+        fn UnsignedId(comptime I: type) type {
+            const U = @Type(.{ .Int = .{
+                .signedness = .unsigned,
+                .bits = @typeInfo(I).Int.bits,
+            } });
+            return opaque {
+                fn id(x: U) U {
+                    return x;
+                }
+            };
+        }
+    };
+
+    comptime assert(S.UnsignedId(u8) == S.UnsignedId(i8));
+    comptime assert(S.UnsignedId(u16) == S.UnsignedId(i16));
+    comptime assert(S.UnsignedId(u8) != S.UnsignedId(u16));
+
+    const a = S.UnsignedId(u8).id(123);
+    const b = S.UnsignedId(i8).id(123);
+    comptime assert(@TypeOf(a) == @TypeOf(b));
+    try testing.expect(a == b);
 }

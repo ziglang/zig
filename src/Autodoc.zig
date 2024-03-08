@@ -450,7 +450,7 @@ const Scope = struct {
         Zir.NullTerminatedString, // index into the current file's string table (decl name)
         *DeclStatus,
     ) = .{},
-
+    captures: []const Zir.Inst.Capture = &.{},
     enclosing_type: ?usize, // index into `types`, null = file top-level struct
 
     pub const DeclStatus = union(enum) {
@@ -458,6 +458,24 @@ const Scope = struct {
         Pending,
         NotRequested: u32, // instr_index
     };
+
+    fn getCapture(scope: Scope, idx: u16) struct {
+        union(enum) { inst: Zir.Inst.Index, decl: Zir.NullTerminatedString },
+        *Scope,
+    } {
+        const parent = scope.parent.?;
+        return switch (scope.captures[idx].unwrap()) {
+            .nested => |parent_idx| parent.getCapture(parent_idx),
+            .instruction => |inst| .{
+                .{ .inst = inst },
+                parent,
+            },
+            .decl_val, .decl_ref => |str| .{
+                .{ .decl = str },
+                parent,
+            },
+        };
+    }
 
     /// Returns a pointer so that the caller has a chance to modify the value
     /// in case they decide to start analyzing a previously not requested decl.
@@ -1150,29 +1168,6 @@ fn walkInstruction(
             return DocData.WalkResult{
                 .expr = .{ .comptimeExpr = 0 },
             };
-        },
-        .closure_get => {
-            const inst_node = data[@intFromEnum(inst)].inst_node;
-
-            const code = try self.getBlockSource(file, parent_src, inst_node.src_node);
-            const idx = self.comptime_exprs.items.len;
-            try self.exprs.append(self.arena, .{ .comptimeExpr = idx });
-            try self.comptime_exprs.append(self.arena, .{ .code = code });
-
-            return DocData.WalkResult{
-                .expr = .{ .comptimeExpr = idx },
-            };
-        },
-        .closure_capture => {
-            const un_tok = data[@intFromEnum(inst)].un_tok;
-            return try self.walkRef(
-                file,
-                parent_scope,
-                parent_src,
-                un_tok.operand,
-                need_type,
-                call_ctx,
-            );
         },
         .str => {
             const str = data[@intFromEnum(inst)].str.get(file.zir);
@@ -3395,10 +3390,22 @@ fn walkInstruction(
                         .enclosing_type = type_slot_index,
                     };
 
+                    const small: Zir.Inst.OpaqueDecl.Small = @bitCast(extended.small);
                     const extra = file.zir.extraData(Zir.Inst.OpaqueDecl, extended.operand);
                     var extra_index: usize = extra.end;
 
                     const src_info = try self.srcLocInfo(file, extra.data.src_node, parent_src);
+
+                    const captures_len = if (small.has_captures_len) blk: {
+                        const captures_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk captures_len;
+                    } else 0;
+
+                    if (small.has_decls_len) extra_index += 1;
+
+                    scope.captures = @ptrCast(file.zir.extra[extra_index..][0..captures_len]);
+                    extra_index += captures_len;
 
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -3503,6 +3510,12 @@ fn walkInstruction(
                         break :blk tag_ref;
                     } else null;
 
+                    const captures_len = if (small.has_captures_len) blk: {
+                        const captures_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk captures_len;
+                    } else 0;
+
                     const body_len = if (small.has_body_len) blk: {
                         const body_len = file.zir.extra[extra_index];
                         extra_index += 1;
@@ -3519,6 +3532,11 @@ fn walkInstruction(
                         .Auto => null,
                         else => .{ .enumLiteral = @tagName(small.layout) },
                     };
+
+                    if (small.has_decls_len) extra_index += 1;
+
+                    scope.captures = @ptrCast(file.zir.extra[extra_index..][0..captures_len]);
+                    extra_index += captures_len;
 
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -3631,6 +3649,12 @@ fn walkInstruction(
                         break :blk wr.expr;
                     } else null;
 
+                    const captures_len = if (small.has_captures_len) blk: {
+                        const captures_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk captures_len;
+                    } else 0;
+
                     const body_len = if (small.has_body_len) blk: {
                         const body_len = file.zir.extra[extra_index];
                         extra_index += 1;
@@ -3642,6 +3666,11 @@ fn walkInstruction(
                         extra_index += 1;
                         break :blk fields_len;
                     } else 0;
+
+                    if (small.has_decls_len) extra_index += 1;
+
+                    scope.captures = @ptrCast(file.zir.extra[extra_index..][0..captures_len]);
+                    extra_index += captures_len;
 
                     var decl_indexes: std.ArrayListUnmanaged(usize) = .{};
                     var priv_decl_indexes: std.ArrayListUnmanaged(usize) = .{};
@@ -3759,6 +3788,12 @@ fn walkInstruction(
 
                     const src_info = try self.srcLocInfo(file, extra.data.src_node, parent_src);
 
+                    const captures_len = if (small.has_captures_len) blk: {
+                        const captures_len = file.zir.extra[extra_index];
+                        extra_index += 1;
+                        break :blk captures_len;
+                    } else 0;
+
                     const fields_len = if (small.has_fields_len) blk: {
                         const fields_len = file.zir.extra[extra_index];
                         extra_index += 1;
@@ -3767,6 +3802,9 @@ fn walkInstruction(
 
                     // We don't care about decls yet
                     if (small.has_decls_len) extra_index += 1;
+
+                    scope.captures = @ptrCast(file.zir.extra[extra_index..][0..captures_len]);
+                    extra_index += captures_len;
 
                     var backing_int: ?DocData.Expr = null;
                     if (small.has_backing_int) {
@@ -4017,6 +4055,16 @@ fn walkInstruction(
                         .typeRef = .{ .type = @intFromEnum(Ref.type_type) },
                         .expr = .{ .cmpxchgIndex = cmpxchg_index },
                     };
+                },
+                .closure_get => {
+                    const captured, const scope = parent_scope.getCapture(extended.small);
+                    switch (captured) {
+                        .inst => |cap_inst| return self.walkInstruction(file, scope, parent_src, cap_inst, need_type, call_ctx),
+                        .decl => |str| {
+                            const decl_status = parent_scope.resolveDeclName(str, file, inst.toOptional());
+                            return .{ .expr = .{ .declRef = decl_status } };
+                        },
+                    }
                 },
             }
         },

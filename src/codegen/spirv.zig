@@ -1528,7 +1528,7 @@ const DeclGen = struct {
                         try self.type_map.put(self.gpa, ty.toIntern(), .{ .ty_ref = ty_ref });
                         return ty_ref;
                     },
-                    .struct_type => |struct_type| struct_type,
+                    .struct_type => ip.loadStructType(ty.toIntern()),
                     else => unreachable,
                 };
 
@@ -3633,7 +3633,8 @@ const DeclGen = struct {
                             index += 1;
                         }
                     },
-                    .struct_type => |struct_type| {
+                    .struct_type => {
+                        const struct_type = ip.loadStructType(result_ty.toIntern());
                         var it = struct_type.iterateRuntimeOrder(ip);
                         for (elements, 0..) |element, i| {
                             const field_index = it.next().?;
@@ -3901,36 +3902,33 @@ const DeclGen = struct {
         const mod = self.module;
         const ip = &mod.intern_pool;
         const union_ty = mod.typeToUnion(ty).?;
+        const tag_ty = Type.fromInterned(union_ty.enum_tag_ty);
 
         if (union_ty.getLayout(ip) == .Packed) {
             unreachable; // TODO
         }
 
-        const maybe_tag_ty = ty.unionTagTypeSafety(mod);
         const layout = self.unionLayout(ty);
 
         const tag_int = if (layout.tag_size != 0) blk: {
-            const tag_ty = maybe_tag_ty.?;
-            const union_field_name = union_ty.field_names.get(ip)[active_field];
-            const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
-            const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
+            const tag_val = try mod.enumValueFieldIndex(tag_ty, active_field);
             const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
             break :blk tag_int_val.toUnsignedInt(mod);
         } else 0;
 
         if (!layout.has_payload) {
-            const tag_ty_ref = try self.resolveType(maybe_tag_ty.?, .direct);
+            const tag_ty_ref = try self.resolveType(tag_ty, .direct);
             return try self.constInt(tag_ty_ref, tag_int);
         }
 
         const tmp_id = try self.alloc(ty, .{ .storage_class = .Function });
 
         if (layout.tag_size != 0) {
-            const tag_ty_ref = try self.resolveType(maybe_tag_ty.?, .direct);
-            const tag_ptr_ty_ref = try self.ptrType(maybe_tag_ty.?, .Function);
+            const tag_ty_ref = try self.resolveType(tag_ty, .direct);
+            const tag_ptr_ty_ref = try self.ptrType(tag_ty, .Function);
             const ptr_id = try self.accessChain(tag_ptr_ty_ref, tmp_id, &.{@as(u32, @intCast(layout.tag_index))});
             const tag_id = try self.constInt(tag_ty_ref, tag_int);
-            try self.store(maybe_tag_ty.?, ptr_id, tag_id, .{});
+            try self.store(tag_ty, ptr_id, tag_id, .{});
         }
 
         const payload_ty = Type.fromInterned(union_ty.field_types.get(ip)[active_field]);

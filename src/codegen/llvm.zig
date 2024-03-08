@@ -1997,7 +1997,7 @@ pub const Object = struct {
                     return debug_enum_type;
                 }
 
-                const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+                const enum_type = ip.loadEnumType(ty.toIntern());
 
                 const enumerators = try gpa.alloc(Builder.Metadata, enum_type.names.len);
                 defer gpa.free(enumerators);
@@ -2507,8 +2507,8 @@ pub const Object = struct {
                         try o.debug_type_map.put(gpa, ty, debug_struct_type);
                         return debug_struct_type;
                     },
-                    .struct_type => |struct_type| {
-                        if (!struct_type.haveFieldTypes(ip)) {
+                    .struct_type => {
+                        if (!ip.loadStructType(ty.toIntern()).haveFieldTypes(ip)) {
                             // This can happen if a struct type makes it all the way to
                             // flush() without ever being instantiated or referenced (even
                             // via pointer). The only reason we are hearing about it now is
@@ -2597,15 +2597,14 @@ pub const Object = struct {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
-                const union_type = ip.indexToKey(ty.toIntern()).union_type;
+                const union_type = ip.loadUnionType(ty.toIntern());
                 if (!union_type.haveFieldTypes(ip) or !ty.hasRuntimeBitsIgnoreComptime(mod)) {
                     const debug_union_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
                     try o.debug_type_map.put(gpa, ty, debug_union_type);
                     return debug_union_type;
                 }
 
-                const union_obj = ip.loadUnionType(union_type);
-                const layout = mod.getUnionLayout(union_obj);
+                const layout = mod.getUnionLayout(union_type);
 
                 const debug_fwd_ref = try o.builder.debugForwardReference();
 
@@ -2622,7 +2621,7 @@ pub const Object = struct {
                         ty.abiSize(mod) * 8,
                         ty.abiAlignment(mod).toByteUnits(0) * 8,
                         try o.builder.debugTuple(
-                            &.{try o.lowerDebugType(Type.fromInterned(union_obj.enum_tag_ty))},
+                            &.{try o.lowerDebugType(Type.fromInterned(union_type.enum_tag_ty))},
                         ),
                     );
 
@@ -2636,21 +2635,23 @@ pub const Object = struct {
                 var fields: std.ArrayListUnmanaged(Builder.Metadata) = .{};
                 defer fields.deinit(gpa);
 
-                try fields.ensureUnusedCapacity(gpa, union_obj.field_names.len);
+                try fields.ensureUnusedCapacity(gpa, union_type.loadTagType(ip).names.len);
 
                 const debug_union_fwd_ref = if (layout.tag_size == 0)
                     debug_fwd_ref
                 else
                     try o.builder.debugForwardReference();
 
-                for (0..union_obj.field_names.len) |field_index| {
-                    const field_ty = union_obj.field_types.get(ip)[field_index];
+                const tag_type = union_type.loadTagType(ip);
+
+                for (0..tag_type.names.len) |field_index| {
+                    const field_ty = union_type.field_types.get(ip)[field_index];
                     if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(mod)) continue;
 
                     const field_size = Type.fromInterned(field_ty).abiSize(mod);
-                    const field_align = mod.unionFieldNormalAlignment(union_obj, @intCast(field_index));
+                    const field_align = mod.unionFieldNormalAlignment(union_type, @intCast(field_index));
 
-                    const field_name = union_obj.field_names.get(ip)[field_index];
+                    const field_name = tag_type.names.get(ip)[field_index];
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(ip.stringToSlice(field_name)),
                         .none, // File
@@ -2706,7 +2707,7 @@ pub const Object = struct {
                     .none, // File
                     debug_fwd_ref,
                     0, // Line
-                    try o.lowerDebugType(Type.fromInterned(union_obj.enum_tag_ty)),
+                    try o.lowerDebugType(Type.fromInterned(union_type.enum_tag_ty)),
                     layout.tag_size * 8,
                     layout.tag_align.toByteUnits(0) * 8,
                     tag_offset * 8,
@@ -3321,8 +3322,10 @@ pub const Object = struct {
                     return o.builder.structType(.normal, fields[0..fields_len]);
                 },
                 .simple_type => unreachable,
-                .struct_type => |struct_type| {
+                .struct_type => {
                     if (o.type_map.get(t.toIntern())) |value| return value;
+
+                    const struct_type = ip.loadStructType(t.toIntern());
 
                     if (struct_type.layout == .Packed) {
                         const int_ty = try o.lowerType(Type.fromInterned(struct_type.backingIntType(ip).*));
@@ -3468,10 +3471,10 @@ pub const Object = struct {
                     }
                     return o.builder.structType(.normal, llvm_field_types.items);
                 },
-                .union_type => |union_type| {
+                .union_type => {
                     if (o.type_map.get(t.toIntern())) |value| return value;
 
-                    const union_obj = ip.loadUnionType(union_type);
+                    const union_obj = ip.loadUnionType(t.toIntern());
                     const layout = mod.getUnionLayout(union_obj);
 
                     if (union_obj.flagsPtr(ip).layout == .Packed) {
@@ -3545,17 +3548,16 @@ pub const Object = struct {
                     );
                     return ty;
                 },
-                .opaque_type => |opaque_type| {
+                .opaque_type => {
                     const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
                     if (!gop.found_existing) {
-                        const name = try o.builder.string(ip.stringToSlice(
-                            try mod.opaqueFullyQualifiedName(opaque_type),
-                        ));
+                        const decl = mod.declPtr(ip.loadOpaqueType(t.toIntern()).decl);
+                        const name = try o.builder.string(ip.stringToSlice(try decl.fullyQualifiedName(mod)));
                         gop.value_ptr.* = try o.builder.opaqueType(name);
                     }
                     return gop.value_ptr.*;
                 },
-                .enum_type => |enum_type| try o.lowerType(Type.fromInterned(enum_type.tag_ty)),
+                .enum_type => try o.lowerType(Type.fromInterned(ip.loadEnumType(t.toIntern()).tag_ty)),
                 .func_type => |func_type| try o.lowerTypeFn(func_type),
                 .error_set_type, .inferred_error_set_type => try o.errorIntType(),
                 // values, not types
@@ -4032,7 +4034,8 @@ pub const Object = struct {
                     else
                         struct_ty, vals);
                 },
-                .struct_type => |struct_type| {
+                .struct_type => {
+                    const struct_type = ip.loadStructType(ty.toIntern());
                     assert(struct_type.haveLayout(ip));
                     const struct_ty = try o.lowerType(ty);
                     if (struct_type.layout == .Packed) {
@@ -4596,7 +4599,7 @@ pub const Object = struct {
     fn getEnumTagNameFunction(o: *Object, enum_ty: Type) !Builder.Function.Index {
         const zcu = o.module;
         const ip = &zcu.intern_pool;
-        const enum_type = ip.indexToKey(enum_ty.toIntern()).enum_type;
+        const enum_type = ip.loadEnumType(enum_ty.toIntern());
 
         // TODO: detect when the type changes and re-emit this function.
         const gop = try o.decl_map.getOrPut(o.gpa, enum_type.decl);
@@ -9620,7 +9623,7 @@ pub const FuncGen = struct {
     fn getIsNamedEnumValueFunction(self: *FuncGen, enum_ty: Type) !Builder.Function.Index {
         const o = self.dg.object;
         const zcu = o.module;
-        const enum_type = zcu.intern_pool.indexToKey(enum_ty.toIntern()).enum_type;
+        const enum_type = zcu.intern_pool.loadEnumType(enum_ty.toIntern());
 
         // TODO: detect when the type changes and re-emit this function.
         const gop = try o.named_enum_map.getOrPut(o.gpa, enum_type.decl);
@@ -10092,7 +10095,7 @@ pub const FuncGen = struct {
 
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
-            const union_field_name = union_obj.field_names.get(ip)[extra.field_index];
+            const union_field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
             const enum_field_index = tag_ty.enumFieldIndex(union_field_name, mod).?;
             const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
             const tag_int_val = try tag_val.intFromEnum(tag_ty, mod);
@@ -11154,7 +11157,8 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
     if (first_non_integer == null or classes[first_non_integer.?] == .none) {
         assert(first_non_integer orelse classes.len == types_index);
         switch (ip.indexToKey(return_type.toIntern())) {
-            .struct_type => |struct_type| {
+            .struct_type => {
+                const struct_type = ip.loadStructType(return_type.toIntern());
                 assert(struct_type.haveLayout(ip));
                 const size: u64 = struct_type.size(ip).*;
                 assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
@@ -11446,7 +11450,8 @@ const ParamTypeIterator = struct {
                 return .byref;
             }
             switch (ip.indexToKey(ty.toIntern())) {
-                .struct_type => |struct_type| {
+                .struct_type => {
+                    const struct_type = ip.loadStructType(ty.toIntern());
                     assert(struct_type.haveLayout(ip));
                     const size: u64 = struct_type.size(ip).*;
                     assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
@@ -11562,7 +11567,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
                     }
                     return false;
                 },
-                .struct_type => |s| s,
+                .struct_type => ip.loadStructType(ty.toIntern()),
                 else => unreachable,
             };
 

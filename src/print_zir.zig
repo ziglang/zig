@@ -282,7 +282,6 @@ const Writer = struct {
 
             .ref,
             .ret_implicit,
-            .closure_capture,
             .validate_ref_ty,
             => try self.writeUnTok(stream, inst),
 
@@ -510,8 +509,6 @@ const Writer = struct {
 
             .dbg_stmt => try self.writeDbgStmt(stream, inst),
 
-            .closure_get => try self.writeInstNode(stream, inst),
-
             .@"defer" => try self.writeDefer(stream, inst),
             .defer_err_code => try self.writeDeferErrCode(stream, inst),
 
@@ -611,6 +608,7 @@ const Writer = struct {
             .ptr_cast_no_dest => try self.writePtrCastNoDest(stream, extended),
 
             .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
+            .closure_get => try self.writeClosureGet(stream, extended),
         }
     }
 
@@ -1401,6 +1399,12 @@ const Writer = struct {
 
         var extra_index: usize = extra.end;
 
+        const captures_len = if (small.has_captures_len) blk: {
+            const captures_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk captures_len;
+        } else 0;
+
         const fields_len = if (small.has_fields_len) blk: {
             const fields_len = self.code.extra[extra_index];
             extra_index += 1;
@@ -1419,12 +1423,26 @@ const Writer = struct {
 
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
 
-        if (small.layout == .Packed and small.has_backing_int) {
+        if (captures_len == 0) {
+            try stream.writeAll("{}, ");
+        } else {
+            try stream.writeAll("{ ");
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+            extra_index += 1;
+            for (1..captures_len) |_| {
+                try stream.writeAll(", ");
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+                extra_index += 1;
+            }
+            try stream.writeAll(" }, ");
+        }
+
+        if (small.has_backing_int) {
             const backing_int_body_len = self.code.extra[extra_index];
             extra_index += 1;
             try stream.writeAll("Packed(");
             if (backing_int_body_len == 0) {
-                const backing_int_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
+                const backing_int_ref: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
                 extra_index += 1;
                 try self.writeInstRef(stream, backing_int_ref);
             } else {
@@ -1601,6 +1619,12 @@ const Writer = struct {
             break :blk tag_type_ref;
         } else .none;
 
+        const captures_len = if (small.has_captures_len) blk: {
+            const captures_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk captures_len;
+        } else 0;
+
         const body_len = if (small.has_body_len) blk: {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
@@ -1623,6 +1647,20 @@ const Writer = struct {
             @tagName(small.name_strategy), @tagName(small.layout),
         });
         try self.writeFlag(stream, "autoenum, ", small.auto_enum_tag);
+
+        if (captures_len == 0) {
+            try stream.writeAll("{}, ");
+        } else {
+            try stream.writeAll("{ ");
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+            extra_index += 1;
+            for (1..captures_len) |_| {
+                try stream.writeAll(", ");
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+                extra_index += 1;
+            }
+            try stream.writeAll(" }, ");
+        }
 
         if (decls_len == 0) {
             try stream.writeAll("{}");
@@ -1748,6 +1786,12 @@ const Writer = struct {
             break :blk tag_type_ref;
         } else .none;
 
+        const captures_len = if (small.has_captures_len) blk: {
+            const captures_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk captures_len;
+        } else 0;
+
         const body_len = if (small.has_body_len) blk: {
             const body_len = self.code.extra[extra_index];
             extra_index += 1;
@@ -1768,6 +1812,20 @@ const Writer = struct {
 
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
         try self.writeFlag(stream, "nonexhaustive, ", small.nonexhaustive);
+
+        if (captures_len == 0) {
+            try stream.writeAll("{}, ");
+        } else {
+            try stream.writeAll("{ ");
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+            extra_index += 1;
+            for (1..captures_len) |_| {
+                try stream.writeAll(", ");
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+                extra_index += 1;
+            }
+            try stream.writeAll(" }, ");
+        }
 
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
@@ -1854,6 +1912,12 @@ const Writer = struct {
         const extra = self.code.extraData(Zir.Inst.OpaqueDecl, extended.operand);
         var extra_index: usize = extra.end;
 
+        const captures_len = if (small.has_captures_len) blk: {
+            const captures_len = self.code.extra[extra_index];
+            extra_index += 1;
+            break :blk captures_len;
+        } else 0;
+
         const decls_len = if (small.has_decls_len) blk: {
             const decls_len = self.code.extra[extra_index];
             extra_index += 1;
@@ -1861,6 +1925,20 @@ const Writer = struct {
         } else 0;
 
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
+
+        if (captures_len == 0) {
+            try stream.writeAll("{}, ");
+        } else {
+            try stream.writeAll("{ ");
+            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+            extra_index += 1;
+            for (1..captures_len) |_| {
+                try stream.writeAll(", ");
+                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
+                extra_index += 1;
+            }
+            try stream.writeAll(" }, ");
+        }
 
         if (decls_len == 0) {
             try stream.writeAll("{})");
@@ -2706,6 +2784,12 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
+    fn writeClosureGet(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const src = LazySrcLoc.nodeOffset(@bitCast(extended.operand));
+        try stream.print("{d})) ", .{extended.small});
+        try self.writeSrc(stream, src);
+    }
+
     fn writeInstRef(self: *Writer, stream: anytype, ref: Zir.Inst.Ref) !void {
         if (ref == .none) {
             return stream.writeAll(".none");
@@ -2720,6 +2804,19 @@ const Writer = struct {
     fn writeInstIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         _ = self;
         return stream.print("%{d}", .{@intFromEnum(inst)});
+    }
+
+    fn writeCapture(self: *Writer, stream: anytype, capture: Zir.Inst.Capture) !void {
+        switch (capture.unwrap()) {
+            .nested => |i| return stream.print("[{d}]", .{i}),
+            .instruction => |inst| return self.writeInstIndex(stream, inst),
+            .decl_val => |str| try stream.print("decl_val \"{}\"", .{
+                std.zig.fmtEscapes(self.code.nullTerminatedString(str)),
+            }),
+            .decl_ref => |str| try stream.print("decl_ref \"{}\"", .{
+                std.zig.fmtEscapes(self.code.nullTerminatedString(str)),
+            }),
+        }
     }
 
     fn writeOptionalInstRef(
