@@ -2987,6 +2987,15 @@ pub fn mapOldZirToNew(
     }
 }
 
+/// Like `ensureDeclAnalyzed`, but the Decl is a file's root Decl.
+pub fn ensureFileAnalyzed(zcu: *Zcu, file: *File) SemaError!void {
+    if (file.root_decl == .none) {
+        return zcu.semaFile(file);
+    } else {
+        return zcu.ensureDeclAnalyzed(file.root_decl);
+    }
+}
+
 /// This ensures that the Decl will have an up-to-date Type and Value populated.
 /// However the resolution status of the Type may not be fully resolved.
 /// For example an inferred error set is not resolved until after `analyzeFnBody`.
@@ -3008,12 +3017,14 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     // dependencies are all up-to-date.
 
     const decl_as_depender = InternPool.Depender.wrap(.{ .decl = decl_index });
-    const was_outdated = mod.outdated.swapRemove(decl_as_depender) or
+    const decl_was_outdated = mod.outdated.swapRemove(decl_as_depender) or
         mod.potentially_outdated.swapRemove(decl_as_depender);
 
-    if (was_outdated) {
+    if (decl_was_outdated) {
         _ = mod.outdated_ready.swapRemove(decl_as_depender);
     }
+
+    const was_outdated = mod.outdated_file_root.swapRemove(decl_index) or decl_was_outdated;
 
     switch (decl.analysis) {
         .in_progress => unreachable,
@@ -3050,6 +3061,14 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
             };
         }
 
+        if (mod.declIsRoot(decl_index)) {
+            const changed = try mod.semaFileUpdate(decl.getFileScope(mod), decl_was_outdated);
+            break :blk .{
+                .invalidate_decl_val = changed,
+                .invalidate_decl_ref = changed,
+            };
+        }
+
         break :blk mod.semaDecl(decl_index) catch |err| switch (err) {
             error.AnalysisFail => {
                 if (decl.analysis == .in_progress) {
@@ -3078,7 +3097,7 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     };
 
     // TODO: we do not yet have separate dependencies for decl values vs types.
-    if (was_outdated) {
+    if (decl_was_outdated) {
         if (sema_result.invalidate_decl_val or sema_result.invalidate_decl_ref) {
             // This dependency was marked as PO, meaning dependees were waiting
             // on its analysis result, and it has turned out to be outdated.
@@ -3359,13 +3378,70 @@ fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespa
     return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
 }
 
-/// Regardless of the file status, will create a `Decl` so that we
-/// can track dependencies and re-analyze when the file becomes outdated.
-pub fn semaFile(mod: *Module, file: *File) SemaError!void {
+/// Re-analyze the root Decl of a file on an incremental update.
+/// If `type_outdated`, the struct type itself is considered outdated and is
+/// reconstructed at a new InternPool index. Otherwise, the namespace is just
+/// re-analyzed. Returns whether the decl's tyval was invalidated.
+fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
+    assert(file.root_decl != .none);
+
+    const decl = zcu.declPtr(file.root_decl);
+
+    if (file.status != .success_zir) {
+        if (decl.analysis == .file_failure) {
+            return false;
+        } else {
+            decl.analysis = .file_failure;
+            return true;
+        }
+    }
+
+    if (decl.analysis == .file_failure) {
+        // No struct type currently exists. Create one!
+        _ = try zcu.getFileRootStruct(file.root_decl, decl.src_namespace, file);
+        return true;
+    }
+
+    assert(decl.has_tv);
+    assert(decl.owns_tv);
+
+    if (type_outdated) {
+        // Invalidate the existing type, reusing the decl and namespace.
+        try zcu.intern_pool.remove(decl.val.toIntern());
+        decl.val = undefined;
+        _ = try zcu.getFileRootStruct(file.root_decl, decl.src_namespace, file);
+        return true;
+    }
+
+    // Only the struct's namespace is outdated.
+    // Preserve the type - just scan the namespace again.
+
+    const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
+    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    extra_index += @intFromEnum(small.has_fields_len);
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const decls = file.zir.bodySlice(extra_index, decls_len);
+
+    if (!type_outdated) {
+        try zcu.scanNamespace(decl.src_namespace, decls, decl);
+    }
+
+    return false;
+}
+
+/// Regardless of the file status, will create a `Decl` if none exists so that we can track
+/// dependencies and re-analyze when the file becomes outdated.
+fn semaFile(mod: *Module, file: *File) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (file.root_decl != .none) return;
+    assert(file.root_decl == .none);
 
     const gpa = mod.gpa;
     log.debug("semaFile mod={s} sub_file_path={s}", .{
@@ -3432,9 +3508,6 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         },
         .incremental => {},
     }
-
-    // Since this is our first time analyzing this file, there can be no dependencies on
-    // its root Decl. Thus, we do not need to invalidate any dependencies.
 }
 
 const SemaDeclResult = packed struct {
@@ -3455,11 +3528,9 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         return error.AnalysisFail;
     }
 
-    if (mod.declIsRoot(decl_index)) {
-        // This comes from an `analyze_decl` job on an incremental update where
-        // this file changed.
-        @panic("TODO: update root Decl of modified file");
-    } else if (decl.owns_tv) {
+    assert(!mod.declIsRoot(decl_index));
+
+    if (decl.owns_tv) {
         // We are re-analyzing an owner Decl (for a function or a namespace type).
         @panic("TODO: update owner Decl");
     }

@@ -5883,7 +5883,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     mod.astGenFile(result.file) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
-    try mod.semaFile(result.file);
+    try mod.ensureFileAnalyzed(result.file);
     const file_root_decl_index = result.file.root_decl.unwrap().?;
     return sema.analyzeDeclVal(parent_block, src, file_root_decl_index);
 }
@@ -13705,7 +13705,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    try mod.semaFile(result.file);
+    try mod.ensureFileAnalyzed(result.file);
     const file_root_decl_index = result.file.root_decl.unwrap().?;
     return sema.analyzeDeclVal(block, operand_src, file_root_decl_index);
 }
