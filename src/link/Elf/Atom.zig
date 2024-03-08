@@ -1628,6 +1628,12 @@ const aarch64 = struct {
                 if (is_dyn_lib) try atom.reportPicError(symbol, rel, elf_file);
             },
 
+            .TLSIE_ADR_GOTTPREL_PAGE21,
+            .TLSIE_LD64_GOTTPREL_LO12_NC,
+            => {
+                symbol.flags.needs_gottp = true;
+            },
+
             .TLSDESC_ADR_PAGE21,
             .TLSDESC_LD64_LO12,
             .TLSDESC_ADD_LO12,
@@ -1767,6 +1773,23 @@ const aarch64 = struct {
             .TLSLE_ADD_TPREL_LO12_NC => {
                 const value: i12 = @truncate(S + A - TP);
                 aarch64_util.writeAddImmInst(@bitCast(value), code);
+            },
+
+            .TLSIE_ADR_GOTTPREL_PAGE21 => {
+                const S_: i64 = @intCast(target.gotTpAddress(elf_file));
+                const saddr: u64 = @intCast(P);
+                const taddr: u64 = @intCast(S_ + A);
+                relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
+                const pages: u21 = @bitCast(try aarch64_util.calcNumberOfPages(saddr, taddr));
+                aarch64_util.writeAdrpInst(pages, code);
+            },
+
+            .TLSIE_LD64_GOTTPREL_LO12_NC => {
+                const S_: i64 = @intCast(target.gotTpAddress(elf_file));
+                const taddr: u64 = @intCast(S_ + A);
+                relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
+                const offset: u12 = try math.divExact(u12, @truncate(taddr), 8);
+                aarch64_util.writeLoadStoreRegInst(offset, code);
             },
 
             .TLSDESC_ADR_PAGE21 => {
