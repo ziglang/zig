@@ -1634,9 +1634,16 @@ const aarch64 = struct {
                 symbol.flags.needs_gottp = true;
             },
 
+            .TLSGD_ADR_PAGE21,
+            .TLSGD_ADD_LO12_NC,
+            => {
+                symbol.flags.needs_tlsgd = true;
+            },
+
             .TLSDESC_ADR_PAGE21,
             .TLSDESC_LD64_LO12,
             .TLSDESC_ADD_LO12,
+            .TLSDESC_CALL,
             => {
                 const should_relax = elf_file.base.isStatic() or (!is_dyn_lib and !symbol.flags.import);
                 if (!should_relax) {
@@ -1651,7 +1658,6 @@ const aarch64 = struct {
             .LDST32_ABS_LO12_NC,
             .LDST64_ABS_LO12_NC,
             .LDST128_ABS_LO12_NC,
-            .TLSDESC_CALL,
             => {},
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -1790,6 +1796,23 @@ const aarch64 = struct {
                 relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
                 const offset: u12 = try math.divExact(u12, @truncate(taddr), 8);
                 aarch64_util.writeLoadStoreRegInst(offset, code);
+            },
+
+            .TLSGD_ADR_PAGE21 => {
+                const S_: i64 = @intCast(target.tlsGdAddress(elf_file));
+                const saddr: u64 = @intCast(P);
+                const taddr: u64 = @intCast(S_ + A);
+                relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
+                const pages: u21 = @bitCast(try aarch64_util.calcNumberOfPages(saddr, taddr));
+                aarch64_util.writeAdrpInst(pages, code);
+            },
+
+            .TLSGD_ADD_LO12_NC => {
+                const S_: i64 = @intCast(target.tlsGdAddress(elf_file));
+                const taddr: u64 = @intCast(S_ + A);
+                relocs_log.debug("      [{x} => {x}]", .{ P, taddr });
+                const offset: u12 = @truncate(taddr);
+                aarch64_util.writeAddImmInst(offset, code);
             },
 
             .TLSDESC_ADR_PAGE21 => {
