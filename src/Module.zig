@@ -362,7 +362,7 @@ pub const Decl = struct {
     src_line: u32,
     /// Index of the ZIR `declaration` instruction from which this `Decl` was created.
     /// For the root `Decl` of a `File` and legacy anonymous decls, this is `.none`.
-    zir_decl_index: Zir.Inst.OptionalIndex,
+    zir_decl_index: InternPool.TrackedInst.Index.Optional,
 
     /// Represents the "shallow" analysis status. For example, for decls that are functions,
     /// the function type is analyzed with this set to `in_progress`, however, the semantic
@@ -428,16 +428,9 @@ pub const Decl = struct {
     const Index = InternPool.DeclIndex;
     const OptionalIndex = InternPool.OptionalDeclIndex;
 
-    /// Asserts that `zir_decl_index` is not `.none`.
-    fn getDeclaration(decl: Decl, zir: Zir) Zir.Inst.Declaration {
-        const zir_index = decl.zir_decl_index.unwrap().?;
-        const pl_node = zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
-        return zir.extraData(Zir.Inst.Declaration, pl_node.payload_index).data;
-    }
-
     pub fn zirBodies(decl: Decl, zcu: *Zcu) Zir.Inst.Declaration.Bodies {
         const zir = decl.getFileScope(zcu).zir;
-        const zir_index = decl.zir_decl_index.unwrap().?;
+        const zir_index = decl.zir_decl_index.unwrap().?.resolve(&zcu.intern_pool);
         const pl_node = zir.instructions.items(.data)[@intFromEnum(zir_index)].pl_node;
         const extra = zir.extraData(Zir.Inst.Declaration, pl_node.payload_index);
         return extra.data.getBodies(@intCast(extra.end), zir);
@@ -3471,7 +3464,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         @panic("TODO: update owner Decl");
     }
 
-    const decl_inst = decl.zir_decl_index.unwrap().?;
+    const decl_inst = decl.zir_decl_index.unwrap().?.resolve(ip);
 
     const gpa = mod.gpa;
     const zir = decl.getFileScope(mod).zir;
@@ -4231,6 +4224,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
 
     if (kind == .@"usingnamespace") try namespace.usingnamespace_set.ensureUnusedCapacity(gpa, 1);
 
+    const tracked_inst = try ip.trackZir(gpa, iter.parent_decl.getFileScope(zcu), decl_inst);
+
     // We create a Decl for it regardless of analysis status.
     const gop = try namespace.decls.getOrPutContextAdapted(
         gpa,
@@ -4277,7 +4272,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         }
         new_decl.is_pub = declaration.flags.is_pub;
         new_decl.is_exported = declaration.flags.is_export;
-        new_decl.zir_decl_index = decl_inst.toOptional();
+        new_decl.zir_decl_index = tracked_inst.toOptional();
         new_decl.alive = true; // This Decl corresponds to an AST node and therefore always alive.
         return;
     }
@@ -4291,7 +4286,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     decl.is_pub = declaration.flags.is_pub;
     decl.is_exported = declaration.flags.is_export;
     decl.kind = kind;
-    decl.zir_decl_index = decl_inst.toOptional();
+    decl.zir_decl_index = tracked_inst.toOptional();
     if (decl.getOwnedFunction(zcu) != null) {
         // TODO Look into detecting when this would be unnecessary by storing enough state
         // in `Decl` to notice that the line number did not change.
