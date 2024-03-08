@@ -4083,6 +4083,9 @@ pub fn scanNamespace(
     const gpa = zcu.gpa;
     const namespace = zcu.namespacePtr(namespace_index);
 
+    var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+    defer seen_decls.deinit(gpa);
+
     try zcu.comp.work_queue.ensureUnusedCapacity(decls.len);
     try namespace.decls.ensureTotalCapacity(gpa, decls.len);
 
@@ -4090,7 +4093,13 @@ pub fn scanNamespace(
         .zcu = zcu,
         .namespace_index = namespace_index,
         .parent_decl = parent_decl,
+        .seen_decls = &seen_decls,
+        .pass = .named,
     };
+    for (decls) |decl_inst| {
+        try scanDecl(&scan_decl_iter, decl_inst);
+    }
+    scan_decl_iter.pass = .unnamed;
     for (decls) |decl_inst| {
         try scanDecl(&scan_decl_iter, decl_inst);
     }
@@ -4100,9 +4109,28 @@ const ScanDeclIter = struct {
     zcu: *Zcu,
     namespace_index: Namespace.Index,
     parent_decl: *Decl,
+    seen_decls: *std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void),
+    /// Decl scanning is run in two passes, so that we can detect when a generated
+    /// name would clash with an explicit name and use a different one.
+    pass: enum { named, unnamed },
     usingnamespace_index: usize = 0,
     comptime_index: usize = 0,
     unnamed_test_index: usize = 0,
+
+    fn avoidNameConflict(iter: *ScanDeclIter, comptime fmt: []const u8, args: anytype) !InternPool.NullTerminatedString {
+        const zcu = iter.zcu;
+        const gpa = zcu.gpa;
+        const ip = &zcu.intern_pool;
+        var name = try ip.getOrPutStringFmt(gpa, fmt, args);
+        var gop = try iter.seen_decls.getOrPut(gpa, name);
+        var next_suffix: u32 = 0;
+        while (gop.found_existing) {
+            name = try ip.getOrPutStringFmt(gpa, fmt ++ "_{d}", args ++ .{next_suffix});
+            gop = try iter.seen_decls.getOrPut(gpa, name);
+            next_suffix += 1;
+        }
+        return name;
+    }
 };
 
 fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void {
@@ -4126,54 +4154,63 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     // Every Decl needs a name.
     const decl_name: InternPool.NullTerminatedString, const kind: Decl.Kind, const is_named_test: bool = switch (declaration.name) {
         .@"comptime" => info: {
+            if (iter.pass != .unnamed) return;
             const i = iter.comptime_index;
             iter.comptime_index += 1;
-            // TODO: avoid collisions with named decls with this name
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "comptime_{d}", .{i}),
+                try iter.avoidNameConflict("comptime_{d}", .{i}),
                 .@"comptime",
                 false,
             };
         },
         .@"usingnamespace" => info: {
+            if (iter.pass != .unnamed) return;
             const i = iter.usingnamespace_index;
             iter.usingnamespace_index += 1;
-            // TODO: avoid collisions with named decls with this name
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "usingnamespace_{d}", .{i}),
+                try iter.avoidNameConflict("usingnamespace_{d}", .{i}),
                 .@"usingnamespace",
                 false,
             };
         },
         .unnamed_test => info: {
+            if (iter.pass != .unnamed) return;
             const i = iter.unnamed_test_index;
             iter.unnamed_test_index += 1;
-            // TODO: avoid collisions with named decls with this name
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "test_{d}", .{i}),
+                try iter.avoidNameConflict("test_{d}", .{i}),
                 .@"test",
                 false,
             };
         },
         .decltest => info: {
+            // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
+            if (iter.pass != .unnamed) return;
             assert(declaration.flags.has_doc_comment);
             const name = zir.nullTerminatedString(@enumFromInt(zir.extra[extra.end]));
-            // TODO: avoid collisions with named decls with this name
             break :info .{
-                try ip.getOrPutStringFmt(gpa, "decltest.{s}", .{name}),
+                try iter.avoidNameConflict("decltest.{s}", .{name}),
                 .@"test",
                 true,
             };
         },
-        _ => if (declaration.name.isNamedTest(zir)) .{
-            // TODO: avoid collisions with named decls with this name
-            try ip.getOrPutStringFmt(gpa, "test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)}),
-            .@"test",
-            true,
-        } else .{
-            try ip.getOrPutString(gpa, zir.nullTerminatedString(declaration.name.toString(zir).?)),
-            .named,
-            false,
+        _ => if (declaration.name.isNamedTest(zir)) info: {
+            // We consider these to be unnamed since the decl name can be adjusted to avoid conflicts if necessary.
+            if (iter.pass != .unnamed) return;
+            break :info .{
+                try iter.avoidNameConflict("test.{s}", .{zir.nullTerminatedString(declaration.name.toString(zir).?)}),
+                .@"test",
+                true,
+            };
+        } else info: {
+            if (iter.pass != .named) return;
+            const name = try ip.getOrPutString(gpa, zir.nullTerminatedString(declaration.name.toString(zir).?));
+            try iter.seen_decls.putNoClobber(gpa, name, {});
+            break :info .{
+                name,
+                .named,
+                false,
+            };
         },
     };
 
