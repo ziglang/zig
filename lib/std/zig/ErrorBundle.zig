@@ -567,6 +567,28 @@ pub const Wip = struct {
         if (index == .none) return .none;
         const other_sl = other.getSourceLocation(index);
 
+        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .{};
+        defer ref_traces.deinit(wip.gpa);
+
+        if (other_sl.reference_trace_len > 0) {
+            var ref_index = other.extraData(SourceLocation, @intFromEnum(index)).end;
+            for (0..other_sl.reference_trace_len) |_| {
+                const other_ref_trace_ed = other.extraData(ReferenceTrace, ref_index);
+                const other_ref_trace = other_ref_trace_ed.data;
+                ref_index = other_ref_trace_ed.end;
+
+                const ref_trace: ReferenceTrace = if (other_ref_trace.src_loc == .none) .{
+                    // sentinel ReferenceTrace does not store a string index in decl_name
+                    .decl_name = other_ref_trace.decl_name,
+                    .src_loc = .none,
+                } else .{
+                    .decl_name = try wip.addString(other.nullTerminatedString(other_ref_trace.decl_name)),
+                    .src_loc = try wip.addOtherSourceLocation(other, other_ref_trace.src_loc),
+                };
+                try ref_traces.append(wip.gpa, ref_trace);
+            }
+        }
+
         const src_loc = try wip.addSourceLocation(.{
             .src_path = try wip.addString(other.nullTerminatedString(other_sl.src_path)),
             .line = other_sl.line,
@@ -581,7 +603,9 @@ pub const Wip = struct {
             .reference_trace_len = other_sl.reference_trace_len,
         });
 
-        // TODO: also add the reference trace
+        for (ref_traces.items) |ref_trace| {
+            try wip.addReferenceTrace(ref_trace);
+        }
 
         return src_loc;
     }
@@ -615,3 +639,95 @@ pub const Wip = struct {
         }
     }
 };
+
+test "addBundleAsRoots" {
+    var bundle = bundle: {
+        var wip: ErrorBundle.Wip = undefined;
+        try wip.init(std.testing.allocator);
+        errdefer wip.deinit();
+
+        var ref_traces: [3]ReferenceTrace = undefined;
+        for (&ref_traces, 0..) |*ref_trace, i| {
+            if (i == ref_traces.len - 1) {
+                // sentinel reference trace
+                ref_trace.* = .{
+                    .decl_name = 3, // signifies 3 hidden references
+                    .src_loc = .none,
+                };
+            } else {
+                ref_trace.* = .{
+                    .decl_name = try wip.addString("foo"),
+                    .src_loc = try wip.addSourceLocation(.{
+                        .src_path = try wip.addString("foo"),
+                        .line = 1,
+                        .column = 2,
+                        .span_start = 3,
+                        .span_main = 4,
+                        .span_end = 5,
+                        .source_line = 0,
+                    }),
+                };
+            }
+        }
+
+        const src_loc = try wip.addSourceLocation(.{
+            .src_path = try wip.addString("foo"),
+            .line = 1,
+            .column = 2,
+            .span_start = 3,
+            .span_main = 4,
+            .span_end = 5,
+            .source_line = try wip.addString("some source code"),
+            .reference_trace_len = ref_traces.len,
+        });
+        for (&ref_traces) |ref_trace| {
+            try wip.addReferenceTrace(ref_trace);
+        }
+
+        try wip.addRootErrorMessage(ErrorMessage{
+            .msg = try wip.addString("hello world"),
+            .src_loc = src_loc,
+            .notes_len = 1,
+        });
+        const i = try wip.reserveNotes(1);
+        const note_index = @intFromEnum(wip.addErrorMessageAssumeCapacity(.{
+            .msg = try wip.addString("this is a note"),
+            .src_loc = try wip.addSourceLocation(.{
+                .src_path = try wip.addString("bar"),
+                .line = 1,
+                .column = 2,
+                .span_start = 3,
+                .span_main = 4,
+                .span_end = 5,
+                .source_line = try wip.addString("another line of source"),
+            }),
+        }));
+        wip.extra.items[i] = note_index;
+
+        break :bundle try wip.toOwnedBundle("");
+    };
+    defer bundle.deinit(std.testing.allocator);
+
+    const ttyconf: std.io.tty.Config = .no_color;
+
+    var bundle_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer bundle_buf.deinit();
+    try bundle.renderToWriter(.{ .ttyconf = ttyconf }, bundle_buf.writer());
+
+    var copy = copy: {
+        var wip: ErrorBundle.Wip = undefined;
+        try wip.init(std.testing.allocator);
+        errdefer wip.deinit();
+
+        try wip.addBundleAsRoots(bundle);
+
+        break :copy try wip.toOwnedBundle("");
+    };
+    defer copy.deinit(std.testing.allocator);
+
+    var copy_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer copy_buf.deinit();
+    try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_buf.writer());
+
+    try std.testing.expectEqualStrings(bundle_buf.items, copy_buf.items);
+}
