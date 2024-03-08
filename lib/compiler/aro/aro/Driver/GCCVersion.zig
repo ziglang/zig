@@ -98,6 +98,16 @@ pub fn order(a: GCCVersion, b: GCCVersion) Order {
     return .eq;
 }
 
+/// Used for determining __GNUC__ macro values
+/// This matches clang's logic for overflowing values
+pub fn toUnsigned(self: GCCVersion) u32 {
+    var result: u32 = 0;
+    if (self.major > 0) result = @as(u32, @intCast(self.major)) *% 10_000;
+    if (self.minor > 0) result +%= @as(u32, @intCast(self.minor)) *% 100;
+    if (self.patch > 0) result +%= @as(u32, @intCast(self.patch));
+    return result;
+}
+
 test parse {
     const versions = [10]GCCVersion{
         parse("5"),

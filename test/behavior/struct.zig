@@ -2127,3 +2127,26 @@ test "struct containing optional pointer to array of @This()" {
     _ = &s;
     try expect(s.x.?[0].x == null);
 }
+
+test "matching captures causes struct equivalence" {
+    const S = struct {
+        fn UnsignedWrapper(comptime I: type) type {
+            const bits = @typeInfo(I).Int.bits;
+            return struct {
+                x: @Type(.{ .Int = .{
+                    .signedness = .unsigned,
+                    .bits = bits,
+                } }),
+            };
+        }
+    };
+
+    comptime assert(S.UnsignedWrapper(u8) == S.UnsignedWrapper(i8));
+    comptime assert(S.UnsignedWrapper(u16) == S.UnsignedWrapper(i16));
+    comptime assert(S.UnsignedWrapper(u8) != S.UnsignedWrapper(u16));
+
+    const a: S.UnsignedWrapper(u8) = .{ .x = 10 };
+    const b: S.UnsignedWrapper(i8) = .{ .x = 10 };
+    comptime assert(@TypeOf(a) == @TypeOf(b));
+    try expect(a.x == b.x);
+}

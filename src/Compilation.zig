@@ -1034,6 +1034,7 @@ pub const CreateOptions = struct {
     linker_script: ?[]const u8 = null,
     version_script: ?[]const u8 = null,
     linker_allow_undefined_version: bool = false,
+    linker_enable_new_dtags: ?bool = null,
     soname: ?[]const u8 = null,
     linker_gc_sections: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
@@ -1325,6 +1326,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .global = options.config,
                 .parent = options.root_mod,
                 .builtin_mod = options.root_mod.getBuiltinDependency(),
+                .builtin_modules = null, // `builtin_mod` is set
             });
             try options.root_mod.deps.putNoClobber(arena, "compiler_rt", compiler_rt_mod);
         }
@@ -1429,6 +1431,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .global = options.config,
                 .parent = options.root_mod,
                 .builtin_mod = options.root_mod.getBuiltinDependency(),
+                .builtin_modules = null, // `builtin_mod` is set
             });
 
             const zcu = try arena.create(Module);
@@ -1581,6 +1584,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .image_base = options.image_base,
             .version_script = options.version_script,
             .allow_undefined_version = options.linker_allow_undefined_version,
+            .enable_new_dtags = options.linker_enable_new_dtags,
             .gc_sections = options.linker_gc_sections,
             .emit_relocs = options.link_emit_relocs,
             .soname = options.soname,
@@ -2460,7 +2464,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 12;
+pub const link_hash_implementation_version = 13;
 
 fn addNonIncrementalStuffToCacheManifest(
     comp: *Compilation,
@@ -2469,7 +2473,7 @@ fn addNonIncrementalStuffToCacheManifest(
 ) !void {
     const gpa = comp.gpa;
 
-    comptime assert(link_hash_implementation_version == 12);
+    comptime assert(link_hash_implementation_version == 13);
 
     if (comp.module) |mod| {
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
@@ -2541,6 +2545,7 @@ fn addNonIncrementalStuffToCacheManifest(
     try man.addOptionalFile(opts.linker_script);
     try man.addOptionalFile(opts.version_script);
     man.hash.add(opts.allow_undefined_version);
+    man.hash.addOptional(opts.enable_new_dtags);
 
     man.hash.addOptional(opts.stack_size);
     man.hash.addOptional(opts.image_base);
@@ -6104,6 +6109,7 @@ fn buildOutputFromZig(
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     });
     const root_name = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
     const target = comp.getTarget();
@@ -6216,6 +6222,7 @@ pub fn build_crt_file(
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     });
 
     for (c_source_files) |*item| {

@@ -264,6 +264,8 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
     assert(!file.zir.hasCompileErrors()); // builtin.zig must not have astgen errors
     file.zir_loaded = true;
     file.status = .success_zir;
+    // Note that whilst we set `zir_loaded` here, we populated `path_digest`
+    // all the way back in `Package.Module.create`.
 }
 
 fn writeFile(file: *File, mod: *Module) !void {

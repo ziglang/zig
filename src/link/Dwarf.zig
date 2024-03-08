@@ -311,7 +311,8 @@ pub const DeclState = struct {
                                 try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
                             }
                         },
-                        .struct_type => |struct_type| {
+                        .struct_type => {
+                            const struct_type = ip.loadStructType(ty.toIntern());
                             // DW.AT.name, DW.FORM.string
                             try ty.print(dbg_info_buffer.writer(), mod);
                             try dbg_info_buffer.append(0);
@@ -374,7 +375,7 @@ pub const DeclState = struct {
                 try ty.print(dbg_info_buffer.writer(), mod);
                 try dbg_info_buffer.append(0);
 
-                const enum_type = ip.indexToKey(ty.ip_index).enum_type;
+                const enum_type = ip.loadEnumType(ty.ip_index);
                 for (enum_type.names.get(ip), 0..) |field_name_index, field_i| {
                     const field_name = ip.stringToSlice(field_name_index);
                     // DW.AT.enumerator
@@ -442,7 +443,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.append(0);
                 }
 
-                for (union_obj.field_types.get(ip), union_obj.field_names.get(ip)) |field_ty, field_name| {
+                for (union_obj.field_types.get(ip), union_obj.loadTagType(ip).names.get(ip)) |field_ty, field_name| {
                     if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
                     // DW.AT.member
                     try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));

@@ -250,6 +250,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
                 .cc_argv = cc_argv,
                 .parent = null,
                 .builtin_mod = null,
+                .builtin_modules = null, // there is only one module in this compilation
             });
 
             const sub_compilation = try Compilation.create(comp.gpa, arena, .{

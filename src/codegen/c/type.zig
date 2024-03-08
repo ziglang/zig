@@ -1507,7 +1507,7 @@ pub const CType = extern union {
                     if (lookup.isMutable()) {
                         for (0..switch (zig_ty_tag) {
                             .Struct => ty.structFieldCount(mod),
-                            .Union => mod.typeToUnion(ty).?.field_names.len,
+                            .Union => mod.typeToUnion(ty).?.field_types.len,
                             else => unreachable,
                         }) |field_i| {
                             const field_ty = ty.structFieldType(field_i, mod);
@@ -1589,7 +1589,7 @@ pub const CType = extern union {
                             var is_packed = false;
                             for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => mod.typeToUnion(ty).?.field_names.len,
+                                .Union => mod.typeToUnion(ty).?.field_types.len,
                                 else => unreachable,
                             }) |field_i| {
                                 const field_ty = ty.structFieldType(field_i, mod);
@@ -1940,7 +1940,7 @@ pub const CType = extern union {
                     const zig_ty_tag = ty.zigTypeTag(mod);
                     const fields_len = switch (zig_ty_tag) {
                         .Struct => ty.structFieldCount(mod),
-                        .Union => mod.typeToUnion(ty).?.field_names.len,
+                        .Union => mod.typeToUnion(ty).?.field_types.len,
                         else => unreachable,
                     };
 
@@ -1967,7 +1967,7 @@ pub const CType = extern union {
                             else
                                 arena.dupeZ(u8, ip.stringToSlice(switch (zig_ty_tag) {
                                     .Struct => ty.legacyStructFieldName(field_i, mod),
-                                    .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
+                                    .Union => ip.loadUnionType(ty.toIntern()).loadTagType(ip).names.get(ip)[field_i],
                                     else => unreachable,
                                 })),
                             .type = store.set.typeToIndex(field_ty, mod, switch (kind) {
@@ -2097,7 +2097,7 @@ pub const CType = extern union {
                             var c_field_i: usize = 0;
                             for (0..switch (zig_ty_tag) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => mod.typeToUnion(ty).?.field_names.len,
+                                .Union => mod.typeToUnion(ty).?.field_types.len,
                                 else => unreachable,
                             }) |field_i_usize| {
                                 const field_i: u32 = @intCast(field_i_usize);
@@ -2120,7 +2120,7 @@ pub const CType = extern union {
                                     else
                                         ip.stringToSlice(switch (zig_ty_tag) {
                                             .Struct => ty.legacyStructFieldName(field_i, mod),
-                                            .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
+                                            .Union => ip.loadUnionType(ty.toIntern()).loadTagType(ip).names.get(ip)[field_i],
                                             else => unreachable,
                                         }),
                                     mem.span(c_field.name),
@@ -2226,7 +2226,7 @@ pub const CType = extern union {
                             const zig_ty_tag = ty.zigTypeTag(mod);
                             for (0..switch (ty.zigTypeTag(mod)) {
                                 .Struct => ty.structFieldCount(mod),
-                                .Union => mod.typeToUnion(ty).?.field_names.len,
+                                .Union => mod.typeToUnion(ty).?.field_types.len,
                                 else => unreachable,
                             }) |field_i_usize| {
                                 const field_i: u32 = @intCast(field_i_usize);
@@ -2245,7 +2245,7 @@ pub const CType = extern union {
                                 else
                                     mod.intern_pool.stringToSlice(switch (zig_ty_tag) {
                                         .Struct => ty.legacyStructFieldName(field_i, mod),
-                                        .Union => mod.typeToUnion(ty).?.field_names.get(ip)[field_i],
+                                        .Union => ip.loadUnionType(ty.toIntern()).loadTagType(ip).names.get(ip)[field_i],
                                         else => unreachable,
                                     }));
                                 autoHash(hasher, AlignAs.fieldAlign(ty, field_i, mod).@"align");

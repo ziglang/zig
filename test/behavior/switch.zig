@@ -930,3 +930,31 @@ test "prong with inline call to unreachable" {
         .bool => |ok| try expect(ok),
     }
 }
+
+test "block error return trace index is reset between prongs" {
+    const S = struct {
+        fn returnError() error{TestFailed} {
+            return error.TestFailed;
+        }
+    };
+
+    var x: u1 = 0;
+    _ = &x;
+
+    const result = switch (x) {
+        0 => {
+            const result: anyerror!i32 = blk: {
+                break :blk 1;
+            };
+            _ = &result;
+        },
+        1 => blk: {
+            const err = switch (x) {
+                0 => {},
+                1 => S.returnError(),
+            };
+            break :blk err;
+        },
+    };
+    try result;
+}

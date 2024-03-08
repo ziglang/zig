@@ -60,7 +60,8 @@ test "minUnsignedBits" {
 
     var comp = Compilation.init(std.testing.allocator);
     defer comp.deinit();
-    comp.target = (try std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-linux-gnu" })).toTarget();
+    const target_query = try std.Target.Query.parse(.{ .arch_os_abi = "x86_64-linux-gnu" });
+    comp.target = try std.zig.system.resolveTargetQuery(target_query);
 
     try Test.checkIntBits(&comp, 0, 0);
     try Test.checkIntBits(&comp, 1, 1);
@@ -94,7 +95,8 @@ test "minSignedBits" {
 
     var comp = Compilation.init(std.testing.allocator);
     defer comp.deinit();
-    comp.target = (try std.zig.CrossTarget.parse(.{ .arch_os_abi = "x86_64-linux-gnu" })).toTarget();
+    const target_query = try std.Target.Query.parse(.{ .arch_os_abi = "x86_64-linux-gnu" });
+    comp.target = try std.zig.system.resolveTargetQuery(target_query);
 
     try Test.checkIntBits(&comp, -1, 1);
     try Test.checkIntBits(&comp, -2, 2);
@@ -224,7 +226,7 @@ pub fn intCast(v: *Value, dest_ty: Type, comp: *Compilation) !void {
     v.* = try intern(comp, .{ .int = .{ .big_int = result_bigint.toConst() } });
 }
 
-/// Converts the stored value from an integer to a float.
+/// Converts the stored value to a float of the specified type
 /// `.none` value remains unchanged.
 pub fn floatCast(v: *Value, dest_ty: Type, comp: *Compilation) !void {
     if (v.opt_ref == .none) return;

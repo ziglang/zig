@@ -113,6 +113,9 @@ linker_allow_shlib_undefined: ?bool = null,
 /// Allow version scripts to refer to undefined symbols.
 linker_allow_undefined_version: ?bool = null,
 
+// Enable (or disable) the new DT_RUNPATH tag in the dynamic section.
+linker_enable_new_dtags: ?bool = null,
+
 /// Permit read-only relocations in read-only segments. Disallowed by default.
 link_z_notext: bool = false,
 
@@ -1488,6 +1491,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.linker_allow_undefined_version) |x| {
         try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
+    }
+
+    if (self.linker_enable_new_dtags) |enabled| {
+        try zig_args.append(if (enabled) "--enable-new-dtags" else "--disable-new-dtags");
     }
 
     if (self.kind == .@"test") {

@@ -3354,7 +3354,8 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 val.writeToMemory(ty, mod, &buf) catch unreachable;
                 return func.storeSimdImmd(buf);
             },
-            .struct_type => |struct_type| {
+            .struct_type => {
+                const struct_type = ip.loadStructType(ty.toIntern());
                 // non-packed structs are not handled in this function because they
                 // are by-ref types.
                 assert(struct_type.layout == .Packed);
@@ -5411,7 +5412,7 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const layout = union_ty.unionGetLayout(mod);
         const union_obj = mod.typeToUnion(union_ty).?;
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
-        const field_name = union_obj.field_names.get(ip)[extra.field_index];
+        const field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
 
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);

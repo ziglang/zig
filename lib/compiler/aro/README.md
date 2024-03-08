@@ -20,8 +20,7 @@ int main(void) {
     printf("Hello, world!\n");
     return 0;
 }
-$ zig build run -- hello.c -o hello
+$ zig build && ./zig-out/bin/arocc hello.c -o hello
 $ ./hello
 Hello, world!
-$
 ```

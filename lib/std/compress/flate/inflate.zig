@@ -17,8 +17,16 @@ pub fn decompress(comptime container: Container, reader: anytype, writer: anytyp
 }
 
 /// Inflate decompressor for the reader type.
-pub fn decompressor(comptime container: Container, reader: anytype) Inflate(container, @TypeOf(reader)) {
-    return Inflate(container, @TypeOf(reader)).init(reader);
+pub fn decompressor(comptime container: Container, reader: anytype) Decompressor(container, @TypeOf(reader)) {
+    return Decompressor(container, @TypeOf(reader)).init(reader);
+}
+
+pub fn Decompressor(comptime container: Container, comptime ReaderType: type) type {
+    // zlib has 4 bytes footer, lookahead of 4 bytes ensures that we will not overshoot.
+    // gzip has 8 bytes footer so we will not overshoot even with 8 bytes of lookahead.
+    // For raw deflate there is always possibility of overshot so we use 8 bytes lookahead.
+    const lookahead: type = if (container == .zlib) u32 else u64;
+    return Inflate(container, lookahead, ReaderType);
 }
 
 /// Inflate decompresses deflate bit stream. Reads compressed data from reader
@@ -40,9 +48,12 @@ pub fn decompressor(comptime container: Container, reader: anytype) Inflate(cont
 ///   * 64K for history (CircularBuffer)
 ///   * ~10K huffman decoders (Literal and DistanceDecoder)
 ///
-pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
+pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comptime ReaderType: type) type {
+    assert(LookaheadType == u32 or LookaheadType == u64);
+    const BitReaderType = BitReader(LookaheadType, ReaderType);
+
     return struct {
-        const BitReaderType = BitReader(ReaderType);
+        //const BitReaderType = BitReader(ReaderType);
         const F = BitReaderType.flag;
 
         bits: BitReaderType = .{},
@@ -219,9 +230,14 @@ pub fn Inflate(comptime container: Container, comptime ReaderType: type) type {
                 switch (sym.kind) {
                     .literal => self.hist.write(sym.symbol),
                     .match => { // Decode match backreference <length, distance>
-                        try self.bits.fill(5 + 15 + 13); // so we can use buffered reads
+                        // fill so we can use buffered reads
+                        if (LookaheadType == u32)
+                            try self.bits.fill(5 + 15)
+                        else
+                            try self.bits.fill(5 + 15 + 13);
                         const length = try self.decodeLength(sym.symbol);
                         const dsm = try self.decodeSymbol(&self.dst_dec);
+                        if (LookaheadType == u32) try self.bits.fill(13);
                         const distance = try self.decodeDistance(dsm.symbol);
                         try self.hist.writeMatch(length, distance);
                     },

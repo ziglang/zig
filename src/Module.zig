@@ -101,17 +101,6 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 /// is not yet implemented.
 intern_pool: InternPool = .{},
 
-/// The index type for this array is `CaptureScope.Index` and the elements here are
-/// the indexes of the parent capture scopes.
-/// Memory is owned by gpa; garbage collected.
-capture_scope_parents: std.ArrayListUnmanaged(CaptureScope.Index) = .{},
-/// Value is index of type
-/// Memory is owned by gpa; garbage collected.
-runtime_capture_scopes: std.AutoArrayHashMapUnmanaged(CaptureScope.Key, InternPool.Index) = .{},
-/// Value is index of value
-/// Memory is owned by gpa; garbage collected.
-comptime_capture_scopes: std.AutoArrayHashMapUnmanaged(CaptureScope.Key, InternPool.Index) = .{},
-
 /// To be eliminated in a future commit by moving more data into InternPool.
 /// Current uses that must be eliminated:
 /// * comptime pointer mutation
@@ -305,28 +294,6 @@ pub const Export = struct {
     }
 };
 
-pub const CaptureScope = struct {
-    pub const Key = extern struct {
-        zir_index: Zir.Inst.Index,
-        index: Index,
-    };
-
-    /// Index into `capture_scope_parents` which uniquely identifies a capture scope.
-    pub const Index = enum(u32) {
-        none = std.math.maxInt(u32),
-        _,
-
-        pub fn parent(i: Index, mod: *Module) Index {
-            return mod.capture_scope_parents.items[@intFromEnum(i)];
-        }
-    };
-};
-
-pub fn createCaptureScope(mod: *Module, parent: CaptureScope.Index) error{OutOfMemory}!CaptureScope.Index {
-    try mod.capture_scope_parents.append(mod.gpa, parent);
-    return @enumFromInt(mod.capture_scope_parents.items.len - 1);
-}
-
 const ValueArena = struct {
     state: std.heap.ArenaAllocator.State,
     state_acquired: ?*std.heap.ArenaAllocator.State = null,
@@ -385,9 +352,6 @@ pub const Decl = struct {
     /// corresponding to a file, this is the namespace of the struct, since
     /// there is no parent.
     src_namespace: Namespace.Index,
-
-    /// The scope which lexically contains this decl.
-    src_scope: CaptureScope.Index,
 
     /// The AST node index of this declaration.
     /// Must be recomputed when the corresponding source file is modified.
@@ -563,7 +527,7 @@ pub const Decl = struct {
 
     /// If the Decl owns its value and it is a union, return it,
     /// otherwise null.
-    pub fn getOwnedUnion(decl: Decl, zcu: *Zcu) ?InternPool.UnionType {
+    pub fn getOwnedUnion(decl: Decl, zcu: *Zcu) ?InternPool.LoadedUnionType {
         if (!decl.owns_tv) return null;
         if (decl.val.ip_index == .none) return null;
         return zcu.typeToUnion(decl.val.toType());
@@ -599,14 +563,15 @@ pub const Decl = struct {
     /// enum, or opaque.
     pub fn getInnerNamespaceIndex(decl: Decl, zcu: *Zcu) Namespace.OptionalIndex {
         if (!decl.has_tv) return .none;
+        const ip = &zcu.intern_pool;
         return switch (decl.val.ip_index) {
             .empty_struct_type => .none,
             .none => .none,
-            else => switch (zcu.intern_pool.indexToKey(decl.val.toIntern())) {
-                .opaque_type => |opaque_type| opaque_type.namespace.toOptional(),
-                .struct_type => |struct_type| struct_type.namespace,
-                .union_type => |union_type| union_type.namespace.toOptional(),
-                .enum_type => |enum_type| enum_type.namespace,
+            else => switch (ip.indexToKey(decl.val.toIntern())) {
+                .opaque_type => ip.loadOpaqueType(decl.val.toIntern()).namespace,
+                .struct_type => ip.loadStructType(decl.val.toIntern()).namespace,
+                .union_type => ip.loadUnionType(decl.val.toIntern()).namespace,
+                .enum_type => ip.loadEnumType(decl.val.toIntern()).namespace,
                 else => .none,
             },
         };
@@ -792,7 +757,6 @@ pub const Namespace = struct {
     /// These are only declarations named directly by the AST; anonymous
     /// declarations are not stored here.
     decls: std.ArrayHashMapUnmanaged(Decl.Index, void, DeclContext, true) = .{},
-
     /// Key is usingnamespace Decl itself. To find the namespace being included,
     /// the Decl Value has to be resolved as a Type which has a Namespace.
     /// Value is whether the usingnamespace decl is marked `pub`.
@@ -2140,10 +2104,6 @@ pub fn deinit(zcu: *Zcu) void {
 
     zcu.intern_pool.deinit(gpa);
     zcu.tmp_hack_arena.deinit();
-
-    zcu.capture_scope_parents.deinit(gpa);
-    zcu.runtime_capture_scopes.deinit(gpa);
-    zcu.comptime_capture_scopes.deinit(gpa);
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -3342,6 +3302,70 @@ pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     return mod.semaFile(file);
 }
 
+fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespace.Index, file: *File) Allocator.Error!InternPool.Index {
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
+    assert(extended.opcode == .struct_decl);
+    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+    assert(!small.has_captures_len);
+    assert(!small.has_backing_int);
+    assert(small.layout == .Auto);
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    const fields_len = if (small.has_fields_len) blk: {
+        const fields_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk fields_len;
+    } else 0;
+    const decls_len = if (small.has_decls_len) blk: {
+        const decls_len = file.zir.extra[extra_index];
+        extra_index += 1;
+        break :blk decls_len;
+    } else 0;
+    const decls = file.zir.bodySlice(extra_index, decls_len);
+    extra_index += decls_len;
+
+    const tracked_inst = try ip.trackZir(gpa, file, .main_struct_inst);
+    const wip_ty = switch (try ip.getStructType(gpa, .{
+        .layout = .Auto,
+        .fields_len = fields_len,
+        .known_non_opv = small.known_non_opv,
+        .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
+        .is_tuple = small.is_tuple,
+        .any_comptime_fields = small.any_comptime_fields,
+        .any_default_inits = small.any_default_inits,
+        .inits_resolved = false,
+        .any_aligned_fields = small.any_aligned_fields,
+        .has_namespace = true,
+        .key = .{ .declared = .{
+            .zir_index = tracked_inst,
+            .captures = &.{},
+        } },
+    })) {
+        .existing => unreachable, // we wouldn't be analysing the file root if this type existed
+        .wip => |wip| wip,
+    };
+    errdefer wip_ty.cancel(ip);
+
+    if (zcu.comp.debug_incremental) {
+        try ip.addDependency(
+            gpa,
+            InternPool.Depender.wrap(.{ .decl = decl_index }),
+            .{ .src_hash = tracked_inst },
+        );
+    }
+
+    const decl = zcu.declPtr(decl_index);
+    decl.val = Value.fromInterned(wip_ty.index);
+    decl.has_tv = true;
+    decl.owns_tv = true;
+    decl.analysis = .complete;
+
+    try zcu.scanNamespace(namespace_index, decls, decl);
+
+    return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
+}
+
 /// Regardless of the file status, will create a `Decl` so that we
 /// can track dependencies and re-analyze when the file becomes outdated.
 pub fn semaFile(mod: *Module, file: *File) SemaError!void {
@@ -3363,15 +3387,14 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
         .decl_index = undefined,
         .file_scope = file,
     });
-    const new_namespace = mod.namespacePtr(new_namespace_index);
     errdefer mod.destroyNamespace(new_namespace_index);
 
-    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0, .none);
+    const new_decl_index = try mod.allocateNewDecl(new_namespace_index, 0);
     const new_decl = mod.declPtr(new_decl_index);
     errdefer @panic("TODO error handling");
 
     file.root_decl = new_decl_index.toOptional();
-    new_namespace.decl_index = new_decl_index;
+    mod.namespacePtr(new_namespace_index).decl_index = new_decl_index;
 
     new_decl.name = try file.fullyQualifiedName(mod);
     new_decl.name_fully_qualified = true;
@@ -3390,54 +3413,10 @@ pub fn semaFile(mod: *Module, file: *File) SemaError!void {
     }
     assert(file.zir_loaded);
 
-    var sema_arena = std.heap.ArenaAllocator.init(gpa);
-    defer sema_arena.deinit();
-    const sema_arena_allocator = sema_arena.allocator();
+    const struct_ty = try mod.getFileRootStruct(new_decl_index, new_namespace_index, file);
+    errdefer mod.intern_pool.remove(struct_ty);
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
-    var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
-    defer comptime_err_ret_trace.deinit();
-
-    var sema: Sema = .{
-        .mod = mod,
-        .gpa = gpa,
-        .arena = sema_arena_allocator,
-        .code = file.zir,
-        .owner_decl = new_decl,
-        .owner_decl_index = new_decl_index,
-        .func_index = .none,
-        .func_is_naked = false,
-        .fn_ret_ty = Type.void,
-        .fn_ret_ty_ies = null,
-        .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
-        .comptime_err_ret_trace = &comptime_err_ret_trace,
-    };
-    defer sema.deinit();
-
-    const struct_ty = sema.getStructType(
-        new_decl_index,
-        new_namespace_index,
-        try mod.intern_pool.trackZir(gpa, file, .main_struct_inst),
-    ) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-    };
-    // TODO: figure out InternPool removals for incremental compilation
-    //errdefer ip.remove(struct_ty);
-    for (comptime_mutable_decls.items) |decl_index| {
-        const decl = mod.declPtr(decl_index);
-        _ = try decl.internValue(mod);
-    }
-
-    new_decl.val = Value.fromInterned(struct_ty);
-    new_decl.has_tv = true;
-    new_decl.owns_tv = true;
-    new_decl.analysis = .complete;
-
-    const comp = mod.comp;
-    switch (comp.cache_use) {
+    switch (mod.comp.cache_use) {
         .whole => |whole| if (whole.cache_manifest) |man| {
             const source = file.getSource(gpa) catch |err| {
                 try reportRetryableFileError(mod, file, "unable to load source: {s}", .{@errorName(err)});
@@ -3573,7 +3552,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -4205,7 +4183,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     );
     const comp = zcu.comp;
     if (!gop.found_existing) {
-        const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node, iter.parent_decl.src_scope);
+        const new_decl_index = try zcu.allocateNewDecl(namespace_index, decl_node);
         const new_decl = zcu.declPtr(new_decl_index);
         new_decl.kind = kind;
         new_decl.name = decl_name;
@@ -4438,7 +4416,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .sema = &sema,
         .src_decl = decl_index,
         .namespace = decl.src_namespace,
-        .wip_capture_scope = try mod.createCaptureScope(decl.src_scope),
         .instructions = .{},
         .inlining = null,
         .is_comptime = false,
@@ -4639,7 +4616,6 @@ pub fn allocateNewDecl(
     mod: *Module,
     namespace: Namespace.Index,
     src_node: Ast.Node.Index,
-    src_scope: CaptureScope.Index,
 ) !Decl.Index {
     const ip = &mod.intern_pool;
     const gpa = mod.gpa;
@@ -4657,7 +4633,6 @@ pub fn allocateNewDecl(
         .@"addrspace" = .generic,
         .analysis = .unreferenced,
         .zir_decl_index = .none,
-        .src_scope = src_scope,
         .is_pub = false,
         .is_exported = false,
         .alive = false,
@@ -4697,17 +4672,16 @@ pub fn errorSetBits(mod: *Module) u16 {
 
 pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
     const src_decl = mod.declPtr(block.src_decl);
-    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, block.wip_capture_scope, typed_value);
+    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, typed_value);
 }
 
 pub fn createAnonymousDeclFromDecl(
     mod: *Module,
     src_decl: *Decl,
     namespace: Namespace.Index,
-    src_scope: CaptureScope.Index,
     tv: TypedValue,
 ) !Decl.Index {
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node, src_scope);
+    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node);
     errdefer mod.destroyDecl(new_decl_index);
     const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
         src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
@@ -5276,7 +5250,7 @@ pub fn populateTestFunctions(
                     .len = test_decl_name.len,
                     .child = .u8_type,
                 });
-                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
+                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
                     .ty = test_name_decl_ty,
                     .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                         .ty = test_name_decl_ty.toIntern(),
@@ -5322,7 +5296,7 @@ pub fn populateTestFunctions(
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .none, .{
+        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
             .ty = array_decl_ty,
             .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = array_decl_ty.toIntern(),
@@ -5686,7 +5660,7 @@ pub fn enumValue(mod: *Module, ty: Type, tag_int: InternPool.Index) Allocator.Er
 pub fn enumValueFieldIndex(mod: *Module, ty: Type, field_index: u32) Allocator.Error!Value {
     const ip = &mod.intern_pool;
     const gpa = mod.gpa;
-    const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+    const enum_type = ip.loadEnumType(ty.toIntern());
 
     if (enum_type.values.len == 0) {
         // Auto-numbered fields.
@@ -5976,14 +5950,6 @@ pub fn atomicPtrAlignment(
     return .none;
 }
 
-pub fn opaqueSrcLoc(mod: *Module, opaque_type: InternPool.Key.OpaqueType) SrcLoc {
-    return mod.declPtr(opaque_type.decl).srcLoc(mod);
-}
-
-pub fn opaqueFullyQualifiedName(mod: *Module, opaque_type: InternPool.Key.OpaqueType) !InternPool.NullTerminatedString {
-    return mod.declPtr(opaque_type.decl).fullyQualifiedName(mod);
-}
-
 pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
     return mod.declPtr(decl_index).getFileScope(mod);
 }
@@ -5992,28 +5958,26 @@ pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(mod: *Module, ty: Type) ?InternPool.Key.StructType {
-    if (ty.ip_index == .none) return null;
-    return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-        .struct_type => |t| t,
-        else => null,
-    };
-}
-
-pub fn typeToPackedStruct(mod: *Module, ty: Type) ?InternPool.Key.StructType {
-    if (ty.ip_index == .none) return null;
-    return switch (mod.intern_pool.indexToKey(ty.ip_index)) {
-        .struct_type => |t| if (t.layout == .Packed) t else null,
-        else => null,
-    };
-}
-
-/// This asserts that the union's enum tag type has been resolved.
-pub fn typeToUnion(mod: *Module, ty: Type) ?InternPool.UnionType {
+pub fn typeToStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
     const ip = &mod.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
-        .union_type => |k| ip.loadUnionType(k),
+        .struct_type => ip.loadStructType(ty.ip_index),
+        else => null,
+    };
+}
+
+pub fn typeToPackedStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
+    const s = mod.typeToStruct(ty) orelse return null;
+    if (s.layout != .Packed) return null;
+    return s;
+}
+
+pub fn typeToUnion(mod: *Module, ty: Type) ?InternPool.LoadedUnionType {
+    if (ty.ip_index == .none) return null;
+    const ip = &mod.intern_pool;
+    return switch (ip.indexToKey(ty.ip_index)) {
+        .union_type => ip.loadUnionType(ty.ip_index),
         else => null,
     };
 }
@@ -6115,7 +6079,7 @@ pub const UnionLayout = struct {
     padding: u32,
 };
 
-pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
+pub fn getUnionLayout(mod: *Module, u: InternPool.LoadedUnionType) UnionLayout {
     const ip = &mod.intern_pool;
     assert(u.haveLayout(ip));
     var most_aligned_field: u32 = undefined;
@@ -6161,7 +6125,7 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
     const tag_size = Type.fromInterned(u.enum_tag_ty).abiSize(mod);
     const tag_align = Type.fromInterned(u.enum_tag_ty).abiAlignment(mod).max(.@"1");
     return .{
-        .abi_size = u.size,
+        .abi_size = u.size(ip).*,
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -6170,16 +6134,16 @@ pub fn getUnionLayout(mod: *Module, u: InternPool.UnionType) UnionLayout {
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = u.padding,
+        .padding = u.padding(ip).*,
     };
 }
 
-pub fn unionAbiSize(mod: *Module, u: InternPool.UnionType) u64 {
+pub fn unionAbiSize(mod: *Module, u: InternPool.LoadedUnionType) u64 {
     return mod.getUnionLayout(u).abi_size;
 }
 
 /// Returns 0 if the union is represented with 0 bits at runtime.
-pub fn unionAbiAlignment(mod: *Module, u: InternPool.UnionType) Alignment {
+pub fn unionAbiAlignment(mod: *Module, u: InternPool.LoadedUnionType) Alignment {
     const ip = &mod.intern_pool;
     const have_tag = u.flagsPtr(ip).runtime_tag.hasTag();
     var max_align: Alignment = .none;
@@ -6196,7 +6160,7 @@ pub fn unionAbiAlignment(mod: *Module, u: InternPool.UnionType) Alignment {
 /// Returns the field alignment, assuming the union is not packed.
 /// Keep implementation in sync with `Sema.unionFieldAlignment`.
 /// Prefer to call that function instead of this one during Sema.
-pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_index: u32) Alignment {
+pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.LoadedUnionType, field_index: u32) Alignment {
     const ip = &mod.intern_pool;
     const field_align = u.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
@@ -6205,12 +6169,11 @@ pub fn unionFieldNormalAlignment(mod: *Module, u: InternPool.UnionType, field_in
 }
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Module, u: InternPool.UnionType, enum_tag: Value) ?u32 {
+pub fn unionTagFieldIndex(mod: *Module, u: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
     assert(ip.typeOf(enum_tag.toIntern()) == u.enum_tag_ty);
-    const enum_type = ip.indexToKey(u.enum_tag_ty).enum_type;
-    return enum_type.tagValueIndex(ip, enum_tag.toIntern());
+    return u.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
 }
 
 /// Returns the field alignment of a non-packed struct in byte units.
@@ -6257,7 +6220,7 @@ pub fn structFieldAlignmentExtern(mod: *Module, field_ty: Type) Alignment {
 /// projects.
 pub fn structPackedFieldBitOffset(
     mod: *Module,
-    struct_type: InternPool.Key.StructType,
+    struct_type: InternPool.LoadedStructType,
     field_index: u32,
 ) u16 {
     const ip = &mod.intern_pool;

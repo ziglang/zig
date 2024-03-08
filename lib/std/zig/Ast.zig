@@ -661,7 +661,7 @@ pub fn firstToken(tree: Ast, node: Node.Index) TokenIndex {
         .container_field,
         => {
             const name_token = main_tokens[n];
-            if (token_tags[name_token] != .keyword_comptime and name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
+            if (name_token > 0 and token_tags[name_token - 1] == .keyword_comptime) {
                 end_offset += 1;
             }
             return name_token - end_offset;
@@ -2076,13 +2076,11 @@ fn fullContainerFieldComponents(tree: Ast, info: full.ContainerField.Components)
         .ast = info,
         .comptime_token = null,
     };
-    if (token_tags[info.main_token] == .keyword_comptime) {
+    if (info.main_token > 0 and token_tags[info.main_token - 1] == .keyword_comptime) {
         // comptime type = init,
-        // ^
-        result.comptime_token = info.main_token;
-    } else if (info.main_token > 0 and token_tags[info.main_token - 1] == .keyword_comptime) {
+        // ^        ^
         // comptime name: type = init,
-        // ^
+        // ^        ^
         result.comptime_token = info.main_token - 1;
     }
     return result;
@@ -2580,13 +2578,10 @@ pub const full = struct {
 
         pub fn convertToNonTupleLike(cf: *ContainerField, nodes: NodeList.Slice) void {
             if (!cf.ast.tuple_like) return;
-            if (cf.ast.type_expr == 0) return;
             if (nodes.items(.tag)[cf.ast.type_expr] != .identifier) return;
 
-            const ident = nodes.items(.main_token)[cf.ast.type_expr];
-            cf.ast.tuple_like = false;
-            cf.ast.main_token = ident;
             cf.ast.type_expr = 0;
+            cf.ast.tuple_like = false;
         }
     };
 

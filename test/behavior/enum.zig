@@ -1242,3 +1242,24 @@ test "Non-exhaustive enum backed by comptime_int" {
     e = @as(E, @enumFromInt(378089457309184723749));
     try expect(@intFromEnum(e) == 378089457309184723749);
 }
+
+test "matching captures causes enum equivalence" {
+    const S = struct {
+        fn Nonexhaustive(comptime I: type) type {
+            const UTag = @Type(.{ .Int = .{
+                .signedness = .unsigned,
+                .bits = @typeInfo(I).Int.bits,
+            } });
+            return enum(UTag) { _ };
+        }
+    };
+
+    comptime assert(S.Nonexhaustive(u8) == S.Nonexhaustive(i8));
+    comptime assert(S.Nonexhaustive(u16) == S.Nonexhaustive(i16));
+    comptime assert(S.Nonexhaustive(u8) != S.Nonexhaustive(u16));
+
+    const a: S.Nonexhaustive(u8) = @enumFromInt(123);
+    const b: S.Nonexhaustive(i8) = @enumFromInt(123);
+    comptime assert(@TypeOf(a) == @TypeOf(b));
+    try expect(@intFromEnum(a) == @intFromEnum(b));
+}

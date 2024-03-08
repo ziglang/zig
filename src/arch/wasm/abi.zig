@@ -76,7 +76,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
             }
             const layout = ty.unionGetLayout(mod);
             assert(layout.tag_size == 0);
-            if (union_obj.field_names.len > 1) return memory;
+            if (union_obj.field_types.len > 1) return memory;
             const first_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[0]);
             return classifyType(first_field_ty, mod);
         },

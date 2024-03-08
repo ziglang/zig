@@ -92,6 +92,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         .cc_argv = &common_flags,
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,

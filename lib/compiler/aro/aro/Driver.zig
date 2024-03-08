@@ -12,6 +12,7 @@ const Preprocessor = @import("Preprocessor.zig");
 const Source = @import("Source.zig");
 const Toolchain = @import("Toolchain.zig");
 const target_util = @import("target.zig");
+const GCCVersion = @import("Driver/GCCVersion.zig");
 
 pub const Linker = enum {
     ld,
@@ -43,6 +44,9 @@ verbose_pp: bool = false,
 verbose_ir: bool = false,
 verbose_linker_args: bool = false,
 color: ?bool = null,
+nobuiltininc: bool = false,
+nostdinc: bool = false,
+nostdlibinc: bool = false,
 
 /// Full path to the aro executable
 aro_name: []const u8 = "",
@@ -95,6 +99,7 @@ pub const usage =
     \\  -fcolor-diagnostics     Enable colors in diagnostics
     \\  -fno-color-diagnostics  Disable colors in diagnostics
     \\  -fdeclspec              Enable support for __declspec attributes
+    \\  -fgnuc-version=<value>  Controls value of __GNUC__ and related macros. Set to 0 or empty to disable them.
     \\  -fno-declspec           Disable support for __declspec attributes
     \\  -ffp-eval-method=[source|double|extended]
     \\                          Evaluation method to use for floating-point arithmetic
@@ -127,6 +132,10 @@ pub const usage =
     \\  -isystem                Add directory to SYSTEM include search path
     \\  --emulate=[clang|gcc|msvc]
     \\                          Select which C compiler to emulate (default clang)
+    \\  -nobuiltininc           Do not search the compiler's builtin directory for include files
+    \\  -nostdinc, --no-standard-includes
+    \\                          Do not search the standard system directories or compiler builtin directories for include files.
+    \\  -nostdlibinc            Do not search the standard system directories for include files, but do search compiler builtin include directories
     \\  -o <file>               Write output to <file>
     \\  -P, --no-line-commands  Disable linemarker output in -E mode
     \\  -pedantic               Warn on language extensions
@@ -180,6 +189,7 @@ pub fn parseArgs(
     var i: usize = 1;
     var comment_arg: []const u8 = "";
     var hosted: ?bool = null;
+    var gnuc_version: []const u8 = "4.2.1"; // default value set by clang
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (mem.startsWith(u8, arg, "-") and arg.len > 1) {
@@ -303,6 +313,10 @@ pub fn parseArgs(
                 d.only_syntax = true;
             } else if (mem.startsWith(u8, arg, "-fno-syntax-only")) {
                 d.only_syntax = false;
+            } else if (mem.eql(u8, arg, "-fgnuc-version=")) {
+                gnuc_version = "0";
+            } else if (option(arg, "-fgnuc-version=")) |version| {
+                gnuc_version = version;
             } else if (mem.startsWith(u8, arg, "-isystem")) {
                 var path = arg["-isystem".len..];
                 if (path.len == 0) {
@@ -421,6 +435,12 @@ pub fn parseArgs(
                 d.nodefaultlibs = true;
             } else if (mem.eql(u8, arg, "-nolibc")) {
                 d.nolibc = true;
+            } else if (mem.eql(u8, arg, "-nobuiltininc")) {
+                d.nobuiltininc = true;
+            } else if (mem.eql(u8, arg, "-nostdinc") or mem.eql(u8, arg, "--no-standard-includes")) {
+                d.nostdinc = true;
+            } else if (mem.eql(u8, arg, "-nostdlibinc")) {
+                d.nostdlibinc = true;
             } else if (mem.eql(u8, arg, "-nostdlib")) {
                 d.nostdlib = true;
             } else if (mem.eql(u8, arg, "-nostartfiles")) {
@@ -459,6 +479,11 @@ pub fn parseArgs(
             d.comp.target.os.tag = .freestanding;
         }
     }
+    const version = GCCVersion.parse(gnuc_version);
+    if (version.major == -1) {
+        return d.fatal("invalid value '{0s}' in '-fgnuc-version={0s}'", .{gnuc_version});
+    }
+    d.comp.langopts.gnuc_version = version.toUnsigned();
     return false;
 }
 
@@ -558,7 +583,8 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
         try d.comp.addDiagnostic(.{ .tag = .cli_unused_link_object, .extra = .{ .str = obj } }, &.{});
     };
 
-    d.comp.defineSystemIncludes(d.aro_name) catch |er| switch (er) {
+    try tc.discover();
+    tc.defineSystemIncludes() catch |er| switch (er) {
         error.OutOfMemory => return error.OutOfMemory,
         error.AroIncludeNotFound => return d.fatal("unable to find Aro builtin headers", .{}),
     };
@@ -763,8 +789,6 @@ fn dumpLinkerArgs(items: []const []const u8) !void {
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) !void {
-    try tc.discover();
-
     var argv = std.ArrayList([]const u8).init(d.comp.gpa);
     defer argv.deinit();
 
