@@ -253,7 +253,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             break :blk 0;
         }
         if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
-        const shdr = &elf_file.shdrs.items[st_shndx];
+        const shdr = elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
         break :blk symbol.address(.{ .plt = false }, elf_file);

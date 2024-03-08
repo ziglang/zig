@@ -206,6 +206,9 @@ num_ifunc_dynrelocs: usize = 0,
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 
+/// List of range extension thunks.
+thunks: std.ArrayListUnmanaged(Thunk) = .{},
+
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
 
@@ -255,7 +258,7 @@ pub fn createEmpty(
     };
 
     const page_size: u32 = switch (target.cpu.arch) {
-        .powerpc64le => 0x10000,
+        .aarch64, .powerpc64le => 0x10000,
         .sparc64 => 0x2000,
         else => 0x1000,
     };
@@ -488,6 +491,7 @@ pub fn deinit(self: *Elf) void {
     self.start_stop_indexes.deinit(gpa);
 
     self.atoms.deinit(gpa);
+    self.thunks.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
     }
@@ -3593,7 +3597,7 @@ fn sortInitFini(self: *Elf) !void {
         }
     };
 
-    for (self.shdrs.items, 0..) |*shdr, shndx| {
+    for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
 
         var is_init_fini = false;
@@ -4038,6 +4042,8 @@ fn updateSectionSizes(self: *Elf) !void {
     const target = self.base.comp.root_mod.resolved_target.result;
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
         const shdr = &self.shdrs.items[shndx];
+        if (atom_list.items.len == 0) continue;
+        if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         for (atom_list.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
@@ -4046,6 +4052,17 @@ fn updateSectionSizes(self: *Elf) !void {
             atom_ptr.value = offset;
             shdr.sh_size += padding + atom_ptr.size;
             shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
+        }
+    }
+
+    if (self.requiresThunks()) {
+        for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
+            const shdr = self.shdrs.items[shndx];
+            if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
+            if (atom_list.items.len == 0) continue;
+
+            // Create jump/branch range extenders if needed.
+            try thunks.createThunks(shndx, self);
         }
     }
 
@@ -4576,6 +4593,13 @@ pub fn updateSymtabSize(self: *Elf) !void {
         nlocals += 1;
     }
 
+    for (self.thunks.items) |*th| {
+        th.output_symtab_ctx.ilocal = nlocals + 1;
+        th.calcSymtabSize(self);
+        nlocals += th.output_symtab_ctx.nlocals;
+        strsize += th.output_symtab_ctx.strsize;
+    }
+
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
         const ctx = switch (file_ptr) {
@@ -4805,6 +4829,10 @@ pub fn writeSymtab(self: *Elf) !void {
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
     self.writeSectionSymbols();
+
+    for (self.thunks.items) |th| {
+        th.writeSymtab(self);
+    }
 
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self);
@@ -5401,6 +5429,18 @@ pub fn addAtom(self: *Elf) !Atom.Index {
     return index;
 }
 
+pub fn addThunk(self: *Elf) !Thunk.Index {
+    const index = @as(Thunk.Index, @intCast(self.thunks.items.len));
+    const th = try self.thunks.addOne(self.base.comp.gpa);
+    th.* = .{};
+    return index;
+}
+
+pub fn thunk(self: *Elf, index: Thunk.Index) *Thunk {
+    assert(index < self.thunks.items.len);
+    return &self.thunks.items[index];
+}
+
 pub fn file(self: *Elf, index: File.Index) ?File {
     const tag = self.files.items(.tags)[index];
     return switch (tag) {
@@ -5957,6 +5997,10 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
+    try writer.writeAll("thunks\n");
+    for (self.thunks.items, 0..) |th, index| {
+        try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+    }
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
@@ -6022,6 +6066,14 @@ pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
 
 pub fn getTarget(self: Elf) std.Target {
     return self.base.comp.root_mod.resolved_target.result;
+}
+
+fn requiresThunks(self: Elf) bool {
+    return switch (self.getTarget().cpu.arch) {
+        .aarch64 => true,
+        .x86_64, .riscv64 => false,
+        else => @panic("TODO unimplemented architecture"),
+    };
 }
 
 /// The following three values are only observed at compile-time and used to emit a compile error
@@ -6154,6 +6206,7 @@ const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
+const thunks = @import("Elf/thunks.zig");
 const trace = @import("../tracy.zig").trace;
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
@@ -6186,6 +6239,7 @@ const PltGotSection = synthetic_sections.PltGotSection;
 const SharedObject = @import("Elf/SharedObject.zig");
 const Symbol = @import("Elf/Symbol.zig");
 const StringTable = @import("StringTable.zig");
+const Thunk = thunks.Thunk;
 const TypedValue = @import("../TypedValue.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigGotSection = synthetic_sections.ZigGotSection;

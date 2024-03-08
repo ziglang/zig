@@ -31,6 +31,9 @@ rel_num: u32 = 0,
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
+/// Index of the thunk for this atom.
+thunk_index: Thunk.Index = 0,
+
 /// Flags we use for state tracking.
 flags: Flags = .{},
 
@@ -62,6 +65,10 @@ pub fn address(self: Atom, elf_file: *Elf) u64 {
 
 pub fn file(self: Atom, elf_file: *Elf) ?File {
     return elf_file.file(self.file_index);
+}
+
+pub fn thunk(self: Atom, elf_file: *Elf) *Thunk {
+    return elf_file.thunk(self.thunk_index);
 }
 
 pub fn inputShdr(self: Atom, elf_file: *Elf) elf.Elf64_Shdr {
@@ -1681,6 +1688,7 @@ const aarch64 = struct {
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
         const code = code_buffer[rel.r_offset..][0..4];
+        const file_ptr = atom.file(elf_file).?;
 
         const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
         _ = DTP;
@@ -1701,18 +1709,15 @@ const aarch64 = struct {
             .CALL26,
             .JUMP26,
             => {
-                // TODO: add thunk support
-                const disp: i28 = math.cast(i28, S + A - P) orelse {
-                    var err = try elf_file.addErrorWithNotes(1);
-                    try err.addMsg(elf_file, "TODO: branch relocation target ({s}) exceeds max jump distance", .{
-                        target.name(elf_file),
-                    });
-                    try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
-                        atom.file(elf_file).?.fmtPath(),
-                        atom.name(elf_file),
-                        r_offset,
-                    });
-                    return;
+                const disp: i28 = math.cast(i28, S + A - P) orelse blk: {
+                    const th = atom.thunk(elf_file);
+                    const target_index = switch (file_ptr) {
+                        .zig_object => |x| x.symbol(rel.r_sym()),
+                        .object => |x| x.symbols.items[rel.r_sym()],
+                        else => unreachable,
+                    };
+                    const S_: i64 = @intCast(th.targetAddress(target_index, elf_file));
+                    break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                 };
                 aarch64_util.writeBranchImm(disp, code);
             },
@@ -2173,3 +2178,4 @@ const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
+const Thunk = @import("thunks.zig").Thunk;
