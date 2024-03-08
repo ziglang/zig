@@ -894,11 +894,6 @@ comptime {
         std.debug.assert(@sizeOf(siginfo_t) == 136);
 }
 
-pub usingnamespace switch (builtin.cpu.arch) {
-    .x86_64 => struct {},
-    else => struct {},
-};
-
 pub const ucontext_t = switch (builtin.cpu.arch) {
     .x86_64 => extern struct {
         sc_rdi: c_long,

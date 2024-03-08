@@ -120,3 +120,7 @@ test "fadvise" {
     const ret = linux.fadvise(file.handle, 0, 0, linux.POSIX_FADV.SEQUENTIAL);
     try expectEqual(@as(usize, 0), ret);
 }
+
+test {
+    _ = linux.IoUring;
+}
