@@ -4103,6 +4103,21 @@ pub fn scanNamespace(
     for (decls) |decl_inst| {
         try scanDecl(&scan_decl_iter, decl_inst);
     }
+
+    if (seen_decls.count() != namespace.decls.count()) {
+        // Do a pass over the namespace contents and remove any decls from the last update
+        // which were removed in this one.
+        var i: usize = 0;
+        while (i < namespace.decls.count()) {
+            const decl_index = namespace.decls.keys()[i];
+            const decl = zcu.declPtr(decl_index);
+            if (!seen_decls.contains(decl.name)) {
+                // We must preserve namespace ordering for @typeInfo.
+                namespace.decls.orderedRemoveAt(i);
+                i -= 1;
+            }
+        }
+    }
 }
 
 const ScanDeclIter = struct {
