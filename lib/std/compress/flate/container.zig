@@ -154,6 +154,7 @@ pub const Container = enum {
     pub fn parseFooter(comptime wrap: Container, hasher: *Hasher(wrap), reader: anytype) !void {
         switch (wrap) {
             .gzip => {
+                try reader.fill(0);
                 if (try reader.read(u32) != hasher.chksum()) return error.WrongGzipChecksum;
                 if (try reader.read(u32) != hasher.bytesRead()) return error.WrongGzipSize;
             },

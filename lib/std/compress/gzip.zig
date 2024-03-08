@@ -8,7 +8,7 @@ pub fn decompress(reader: anytype, writer: anytype) !void {
 
 /// Decompressor type
 pub fn Decompressor(comptime ReaderType: type) type {
-    return inflate.Inflate(.gzip, ReaderType);
+    return inflate.Decompressor(.gzip, ReaderType);
 }
 
 /// Create Decompressor which will read compressed data from reader.
