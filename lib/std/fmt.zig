@@ -784,6 +784,10 @@ fn formatFloatValue(
     }
 }
 
+test {
+    _ = &ryu128;
+}
+
 pub const Case = enum { lower, upper };
 
 fn formatSliceHexImpl(comptime case: Case) type {

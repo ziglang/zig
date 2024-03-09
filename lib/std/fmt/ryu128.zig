@@ -959,9 +959,23 @@ const POW5_INV_ERRORS: [154]u64 = .{
 // zig fmt: on
 
 fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
+    const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+
     var buf: [6000]u8 = undefined;
+    const value_bits: I = @bitCast(value);
     const s = try format(&buf, value, .{});
     try std.testing.expectEqualStrings(expected, s);
+
+    if (@bitSizeOf(T) != 80) {
+        const o = try std.fmt.parseFloat(T, s);
+        const o_bits: I = @bitCast(o);
+
+        if (std.math.isNan(value)) {
+            try std.testing.expect(std.math.isNan(o));
+        } else {
+            try std.testing.expectEqual(value_bits, o_bits);
+        }
+    }
 }
 
 test "format f32" {
