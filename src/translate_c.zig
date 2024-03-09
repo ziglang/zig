@@ -7295,8 +7295,8 @@ fn createGotoContextCombineStmts(
     label_branch_count_before: usize,
     goto_branch_count_before: usize,
 ) Error!void {
-    var label_to_goto_target: std.StringHashMapUnmanaged(*?[]const u8) = .{};
-    defer label_to_goto_target.deinit(c.gpa);
+    var from_stmt_to_goto_target: std.AutoHashMapUnmanaged(*const clang.Stmt, *?[]const u8) = .{};
+    defer from_stmt_to_goto_target.deinit(c.gpa);
 
     var goto_branch_i: usize = goto_branch_count_before;
     while (goto_branch_i < goto_branches.items.len) {
@@ -7306,52 +7306,62 @@ fn createGotoContextCombineStmts(
         const label_str = try c.str(goto_stmt.getLabel().getName_bytes_begin());
         if (label_branches.getIndex(label_str)) |label_branch_i| {
             if (label_branch_i >= label_branch_count_before) {
-                if (label_to_goto_target.get(label_str)) |goto_target| {
-                    try goto_targets.put(c.arena, goto_stmt, goto_target);
-                } else {
-                    const label_branch = &label_branches.values()[label_branch_i];
+                const goto_target = try from_stmt_to_goto_target.getOrPut(c.gpa, goto_branch.getLast());
+                if (!goto_target.found_existing) {
+                    goto_target.value_ptr.* = try c.arena.create(?[]const u8);
+                    goto_target.value_ptr.*.* = null;
+                }
 
-                    assert(label_branch.items.len > 0);
+                try goto_targets.put(c.arena, goto_stmt, goto_target.value_ptr.*);
 
-                    const variable = try label_variable_names.getOrPut(c.arena, label_str);
-                    if (!variable.found_existing) {
-                        const bare_variable = try std.fmt.allocPrint(c.arena, "goto_{s}", .{label_str});
-                        variable.value_ptr.* = try block.makeMangledName(c, bare_variable);
+                // if (from_stmt_to_goto_target.get(goto_branch.getLast())) |goto_target| {
+                //     try goto_targets.put(c.arena, goto_stmt, goto_target);
+                // } else {
+                //     const goto_target = try c.arena.create(?[]const u8);
+                //     goto_target.* = null;
+
+                //     try from_stmt_to_goto_target.put(c.gpa, goto_branch.getLast(), goto_target);
+
+                const variable = try label_variable_names.getOrPut(c.arena, label_str);
+                if (!variable.found_existing) {
+                    const bare_variable = try std.fmt.allocPrint(c.arena, "goto_{s}", .{label_str});
+                    variable.value_ptr.* = try block.makeMangledName(c, bare_variable);
+                }
+
+                const label_branch = &label_branches.values()[label_branch_i];
+
+                assert(label_branch.items.len > 0);
+
+                const loop_transformation: GotoContext.Transformation = .{
+                    .variable = variable.value_ptr.*,
+                    .inner_stmt = label_branch.getLast(),
+                    .type = .{ .break_target = .{
+                        .label = goto_target.value_ptr.*,
+                        .from = goto_branch.getLast(),
+                    } },
+                };
+
+                const stmt_transformations = try transformations.getOrPut(c.gpa, stmt);
+                if (!stmt_transformations.found_existing) {
+                    stmt_transformations.value_ptr.* = .{};
+                }
+                try stmt_transformations.value_ptr.append(c.arena, loop_transformation);
+
+                for (0..(label_branch.items.len - 1)) |i| {
+                    const branch_transformations = try transformations.getOrPut(c.gpa, label_branch.items[i + 1]);
+                    if (!branch_transformations.found_existing) {
+                        branch_transformations.value_ptr.* = .{};
                     }
-
-                    const goto_target = try c.arena.create(?[]const u8);
-                    goto_target.* = null;
-
-                    const loop_transformation: GotoContext.Transformation = .{
+                    try branch_transformations.value_ptr.append(c.arena, GotoContext.Transformation{
                         .variable = variable.value_ptr.*,
-                        .inner_stmt = label_branch.getLast(),
-                        .type = .{ .break_target = .{
-                            .label = goto_target,
-                            .from = goto_branch.getLast(),
-                        } },
-                    };
+                        .inner_stmt = label_branch.items[i],
+                        .type = .{ .simple = {} },
+                    });
+                }
 
-                    try goto_targets.put(c.arena, goto_stmt, goto_target);
-                    try label_to_goto_target.put(c.gpa, label_str, goto_target);
-
-                    const stmt_transformations = try transformations.getOrPut(c.gpa, stmt);
-                    if (!stmt_transformations.found_existing) {
-                        stmt_transformations.value_ptr.* = .{};
-                    }
-                    try stmt_transformations.value_ptr.append(c.arena, loop_transformation);
-
-                    for (0..(label_branch.items.len - 1)) |i| {
-                        const branch_transformations = try transformations.getOrPut(c.gpa, label_branch.items[i + 1]);
-                        if (!branch_transformations.found_existing) {
-                            branch_transformations.value_ptr.* = .{};
-                        }
-                        try branch_transformations.value_ptr.append(c.arena, GotoContext.Transformation{
-                            .variable = variable.value_ptr.*,
-                            .inner_stmt = label_branch.items[i],
-                            .type = .{ .simple = {} },
-                        });
-                    }
-                    label_branch.clearRetainingCapacity();
+                if (label_branch.items.len > 1) {
+                    label_branch.items[0] = label_branch.pop();
+                    label_branch.shrinkRetainingCapacity(1);
                 }
 
                 // remove goto
