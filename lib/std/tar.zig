@@ -896,25 +896,23 @@ test "header parse mode" {
 }
 
 test "create file and symlink" {
-    // With test enabled this is hanging under windows:
-    // zig build test docs --zig-lib-dir .\lib\ -Dstatic-llvm -Dskip-non-native -Denable-symlinks-windows
-    const builtin = @import("builtin");
-    if (builtin.os.tag == .windows) return error.SkipZigTest;
-
     var root = std.testing.tmpDir(.{});
     defer root.cleanup();
 
-    _ = try createDirAndFile(root.dir, "file1");
-    _ = try createDirAndFile(root.dir, "a/b/c/file2");
+    var file = try createDirAndFile(root.dir, "file1");
+    file.close();
+    file = try createDirAndFile(root.dir, "a/b/c/file2");
+    file.close();
 
-    _ = createDirAndSymlink(root.dir, "a/b/c/file2", "symlink1") catch |err| {
+    createDirAndSymlink(root.dir, "a/b/c/file2", "symlink1") catch |err| {
         // On Windows when developer mode is not enabled
         if (err == error.AccessDenied) return error.SkipZigTest;
         return err;
     };
-    _ = try createDirAndSymlink(root.dir, "../../../file1", "d/e/f/symlink2");
+    try createDirAndSymlink(root.dir, "../../../file1", "d/e/f/symlink2");
 
     // Danglink symlnik, file created later
-    _ = try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
-    _ = try createDirAndFile(root.dir, "g/h/i/file4");
+    try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
+    file = try createDirAndFile(root.dir, "g/h/i/file4");
+    file.close();
 }
