@@ -3465,6 +3465,7 @@ pub const COORD = extern struct {
     Y: SHORT,
 };
 
+pub const DETACHED_PROCESS = 8;
 pub const CREATE_UNICODE_ENVIRONMENT = 1024;
 
 pub const TLS_OUT_OF_INDEXES = 4294967295;
