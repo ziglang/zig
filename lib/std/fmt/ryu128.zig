@@ -957,3 +957,161 @@ const POW5_INV_ERRORS: [154]u64 = .{
 };
 
 // zig fmt: on
+
+fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
+    var buf: [6000]u8 = undefined;
+    const s = try format(&buf, value, .{});
+    try std.testing.expectEqualStrings(expected, s);
+}
+
+test "format f32" {
+    try check(f32, 0.0, "0e0");
+    try check(f32, -0.0, "-0e0");
+    try check(f32, 1.0, "1e0");
+    try check(f32, -1.0, "-1e0");
+    try check(f32, std.math.nan(f32), "nan");
+    try check(f32, std.math.inf(f32), "inf");
+    try check(f32, -std.math.inf(f32), "-inf");
+    try check(f32, 1.1754944e-38, "1.1754944e-38");
+    try check(f32, @bitCast(@as(u32, 0x7f7fffff)), "3.4028235e38");
+    try check(f32, @bitCast(@as(u32, 1)), "1e-45");
+    try check(f32, 3.355445E7, "3.355445e7");
+    try check(f32, 8.999999e9, "9e9");
+    try check(f32, 3.4366717e10, "3.436672e10");
+    try check(f32, 3.0540412e5, "3.0540412e5");
+    try check(f32, 8.0990312e3, "8.0990312e3");
+    try check(f32, 2.4414062e-4, "2.4414062e-4");
+    try check(f32, 2.4414062e-3, "2.4414062e-3");
+    try check(f32, 4.3945312e-3, "4.3945312e-3");
+    try check(f32, 6.3476562e-3, "6.3476562e-3");
+    try check(f32, 4.7223665e21, "4.7223665e21");
+    try check(f32, 8388608.0, "8.388608e6");
+    try check(f32, 1.6777216e7, "1.6777216e7");
+    try check(f32, 3.3554436e7, "3.3554436e7");
+    try check(f32, 6.7131496e7, "6.7131496e7");
+    try check(f32, 1.9310392e-38, "1.9310392e-38");
+    try check(f32, -2.47e-43, "-2.47e-43");
+    try check(f32, 1.993244e-38, "1.993244e-38");
+    try check(f32, 4103.9003, "4.1039004e3");
+    try check(f32, 5.3399997e9, "5.3399997e9");
+    try check(f32, 6.0898e-39, "6.0898e-39");
+    try check(f32, 0.0010310042, "1.0310042e-3");
+    try check(f32, 2.8823261e17, "2.882326e17");
+    try check(f32, 7.038531e-26, "7.038531e-26");
+    try check(f32, 9.2234038e17, "9.223404e17");
+    try check(f32, 6.7108872e7, "6.710887e7");
+    try check(f32, 1.0e-44, "1e-44");
+    try check(f32, 2.816025e14, "2.816025e14");
+    try check(f32, 9.223372e18, "9.223372e18");
+    try check(f32, 1.5846085e29, "1.5846086e29");
+    try check(f32, 1.1811161e19, "1.1811161e19");
+    try check(f32, 5.368709e18, "5.368709e18");
+    try check(f32, 4.6143165e18, "4.6143166e18");
+    try check(f32, 0.007812537, "7.812537e-3");
+    try check(f32, 1.4e-45, "1e-45");
+    try check(f32, 1.18697724e20, "1.18697725e20");
+    try check(f32, 1.00014165e-36, "1.00014165e-36");
+    try check(f32, 200.0, "2e2");
+    try check(f32, 3.3554432e7, "3.3554432e7");
+
+    try check(f32, 1.0, "1e0");
+    try check(f32, 1.2, "1.2e0");
+    try check(f32, 1.23, "1.23e0");
+    try check(f32, 1.234, "1.234e0");
+    try check(f32, 1.2345, "1.2345e0");
+    try check(f32, 1.23456, "1.23456e0");
+    try check(f32, 1.234567, "1.234567e0");
+    try check(f32, 1.2345678, "1.2345678e0");
+    try check(f32, 1.23456735e-36, "1.23456735e-36");
+}
+
+test "format f64" {
+    try check(f64, 0.0, "0e0");
+    try check(f64, -0.0, "-0e0");
+    try check(f64, 1.0, "1e0");
+    try check(f64, -1.0, "-1e0");
+    try check(f64, std.math.nan(f64), "nan");
+    try check(f64, std.math.inf(f64), "inf");
+    try check(f64, -std.math.inf(f64), "-inf");
+    try check(f64, 2.2250738585072014e-308, "2.2250738585072014e-308");
+    try check(f64, @bitCast(@as(u64, 0x7fefffffffffffff)), "1.7976931348623157e308");
+    try check(f64, @bitCast(@as(u64, 1)), "5e-324");
+    try check(f64, 2.98023223876953125e-8, "2.9802322387695312e-8");
+    try check(f64, -2.109808898695963e16, "-2.109808898695963e16");
+    try check(f64, 4.940656e-318, "4.940656e-318");
+    try check(f64, 1.18575755e-316, "1.18575755e-316");
+    try check(f64, 2.989102097996e-312, "2.989102097996e-312");
+    try check(f64, 9.0608011534336e15, "9.0608011534336e15");
+    try check(f64, 4.708356024711512e18, "4.708356024711512e18");
+    try check(f64, 9.409340012568248e18, "9.409340012568248e18");
+    try check(f64, 1.2345678, "1.2345678e0");
+    try check(f64, @bitCast(@as(u64, 0x4830f0cf064dd592)), "5.764607523034235e39");
+    try check(f64, @bitCast(@as(u64, 0x4840f0cf064dd592)), "1.152921504606847e40");
+    try check(f64, @bitCast(@as(u64, 0x4850f0cf064dd592)), "2.305843009213694e40");
+
+    try check(f64, 1, "1e0");
+    try check(f64, 1.2, "1.2e0");
+    try check(f64, 1.23, "1.23e0");
+    try check(f64, 1.234, "1.234e0");
+    try check(f64, 1.2345, "1.2345e0");
+    try check(f64, 1.23456, "1.23456e0");
+    try check(f64, 1.234567, "1.234567e0");
+    try check(f64, 1.2345678, "1.2345678e0");
+    try check(f64, 1.23456789, "1.23456789e0");
+    try check(f64, 1.234567895, "1.234567895e0");
+    try check(f64, 1.2345678901, "1.2345678901e0");
+    try check(f64, 1.23456789012, "1.23456789012e0");
+    try check(f64, 1.234567890123, "1.234567890123e0");
+    try check(f64, 1.2345678901234, "1.2345678901234e0");
+    try check(f64, 1.23456789012345, "1.23456789012345e0");
+    try check(f64, 1.234567890123456, "1.234567890123456e0");
+    try check(f64, 1.2345678901234567, "1.2345678901234567e0");
+
+    try check(f64, 4.294967294, "4.294967294e0");
+    try check(f64, 4.294967295, "4.294967295e0");
+    try check(f64, 4.294967296, "4.294967296e0");
+    try check(f64, 4.294967297, "4.294967297e0");
+    try check(f64, 4.294967298, "4.294967298e0");
+}
+
+test "format f80" {
+    try check(f80, 0.0, "0e0");
+    try check(f80, -0.0, "-0e0");
+    try check(f80, 1.0, "1e0");
+    try check(f80, -1.0, "-1e0");
+    try check(f80, std.math.nan(f80), "nan");
+    try check(f80, std.math.inf(f80), "inf");
+    try check(f80, -std.math.inf(f80), "-inf");
+
+    try check(f80, 2.2250738585072014e-308, "2.2250738585072014e-308");
+    try check(f80, 2.98023223876953125e-8, "2.98023223876953125e-8");
+    try check(f80, -2.109808898695963e16, "-2.109808898695963e16");
+    try check(f80, 4.940656e-318, "4.940656e-318");
+    try check(f80, 1.18575755e-316, "1.18575755e-316");
+    try check(f80, 2.989102097996e-312, "2.989102097996e-312");
+    try check(f80, 9.0608011534336e15, "9.0608011534336e15");
+    try check(f80, 4.708356024711512e18, "4.708356024711512e18");
+    try check(f80, 9.409340012568248e18, "9.409340012568248e18");
+    try check(f80, 1.2345678, "1.2345678e0");
+}
+
+test "format f128" {
+    try check(f128, 0.0, "0e0");
+    try check(f128, -0.0, "-0e0");
+    try check(f128, 1.0, "1e0");
+    try check(f128, -1.0, "-1e0");
+    try check(f128, std.math.nan(f128), "nan");
+    try check(f128, std.math.inf(f128), "inf");
+    try check(f128, -std.math.inf(f128), "-inf");
+
+    try check(f128, 2.2250738585072014e-308, "2.2250738585072014e-308");
+    try check(f128, 2.98023223876953125e-8, "2.98023223876953125e-8");
+    try check(f128, -2.109808898695963e16, "-2.109808898695963e16");
+    try check(f128, 4.940656e-318, "4.940656e-318");
+    try check(f128, 1.18575755e-316, "1.18575755e-316");
+    try check(f128, 2.989102097996e-312, "2.989102097996e-312");
+    try check(f128, 9.0608011534336e15, "9.0608011534336e15");
+    try check(f128, 4.708356024711512e18, "4.708356024711512e18");
+    try check(f128, 9.409340012568248e18, "9.409340012568248e18");
+    try check(f128, 1.2345678, "1.2345678e0");
+}
