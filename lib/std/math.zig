@@ -682,15 +682,15 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        const ar: Log2Int(C) = @intCast(@mod(r, @typeInfo(C).Int.bits));
         return (x >> @splat(ar)) | (x << @splat(1 + ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
-        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
+        if (comptime isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar: Log2Int(T) = @intCast(@mod(r, @typeInfo(T).Int.bits));
             return x >> ar | x << (1 +% ~ar);
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -713,6 +713,7 @@ test "rotr" {
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
+    try testing.expect(rotr(u12, 0o7777, 1) == 0o7777);
     try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
     try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
 }
@@ -727,15 +728,15 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        const ar: Log2Int(C) = @intCast(@mod(r, @typeInfo(C).Int.bits));
         return (x << @splat(ar)) | (x >> @splat(1 +% ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
-        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
+        if (comptime isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar: Log2Int(T) = @intCast(@mod(r, @typeInfo(T).Int.bits));
             return x << ar | x >> 1 +% ~ar;
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -758,6 +759,7 @@ test "rotl" {
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
+    try testing.expect(rotl(u12, 0o7777, 1) == 0o7777);
     try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
     try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
