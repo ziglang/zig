@@ -36462,8 +36462,14 @@ fn resolveInferredErrorSet(
     const ip = &mod.intern_pool;
     const func_index = ip.iesFuncIndex(ies_index);
     const func = mod.funcInfo(func_index);
+
+    try sema.declareDependency(.{ .func_ies = func_index });
+
+    // TODO: during an incremental update this might not be `.none`, but the
+    // function might be out-of-date!
     const resolved_ty = func.resolvedErrorSet(ip).*;
     if (resolved_ty != .none) return resolved_ty;
+
     if (func.analysis(ip).state == .in_progress)
         return sema.fail(block, src, "unable to resolve inferred error set", .{});
 

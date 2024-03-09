@@ -2661,10 +2661,9 @@ pub fn markDependeeOutdated(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         }
         // If this is a Decl and was not previously PO, we must recursively
         // mark dependencies on its tyval as PO.
-        if (opt_po_entry == null) switch (depender.unwrap()) {
-            .decl => |decl_index| try zcu.markDeclDependenciesPotentiallyOutdated(decl_index),
-            .func => {},
-        };
+        if (opt_po_entry == null) {
+            try zcu.markTransitiveDependersPotentiallyOutdated(depender);
+        }
     }
 }
 
@@ -2694,15 +2693,19 @@ fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         // as no longer PO.
         switch (depender.unwrap()) {
             .decl => |decl_index| try zcu.markPoDependeeUpToDate(.{ .decl_val = decl_index }),
-            .func => {},
+            .func => |func_index| try zcu.markPoDependeeUpToDate(.{ .func_ies = func_index }),
         }
     }
 }
 
-/// Given a Decl which is newly outdated or PO, mark all dependers which depend
-/// on its tyval as PO.
-fn markDeclDependenciesPotentiallyOutdated(zcu: *Zcu, decl_index: Decl.Index) !void {
-    var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
+/// Given a Depender which is newly outdated or PO, mark all Dependers which may
+/// in turn be PO, due to a dependency on the original Depender's tyval or IES.
+fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: InternPool.Depender) !void {
+    var it = zcu.intern_pool.dependencyIterator(switch (maybe_outdated.unwrap()) {
+        .decl => |decl_index| .{ .decl_val = decl_index }, // TODO: also `decl_ref` deps when introduced
+        .func => |func_index| .{ .func_ies = func_index },
+    });
+
     while (it.next()) |po| {
         if (zcu.outdated.getPtr(po)) |po_dep_count| {
             // This dependency is already outdated, but it now has one more PO
@@ -2719,14 +2722,9 @@ fn markDeclDependenciesPotentiallyOutdated(zcu: *Zcu, decl_index: Decl.Index) !v
             continue;
         }
         try zcu.potentially_outdated.putNoClobber(zcu.gpa, po, 1);
-        // If this ia a Decl, we must recursively mark dependencies
-        // on its tyval as PO.
-        switch (po.unwrap()) {
-            .decl => |po_decl| try zcu.markDeclDependenciesPotentiallyOutdated(po_decl),
-            .func => {},
-        }
+        // This Depender was not already PO, so we must recursively mark its dependers as also PO.
+        try zcu.markTransitiveDependersPotentiallyOutdated(po);
     }
-    // TODO: repeat the above for `decl_ty` dependencies when they are introduced
 }
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?InternPool.Depender {
@@ -2852,10 +2850,7 @@ pub fn flushRetryableFailures(zcu: *Zcu) !void {
         // This Depender was not marked PO, but is now outdated. Mark it as
         // such, then recursively mark transitive dependencies as PO.
         try zcu.outdated.put(gpa, depender, 0);
-        switch (depender.unwrap()) {
-            .decl => |decl| try zcu.markDeclDependenciesPotentiallyOutdated(decl),
-            .func => {},
-        }
+        try zcu.markTransitiveDependersPotentiallyOutdated(depender);
     }
     zcu.retryable_failures.clearRetainingCapacity();
 }
@@ -3142,10 +3137,18 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
     // decl now refers to a different function, making this one orphaned. If
     // that's the case, we should remove this function from the binary.
     if (decl.val.ip_index != func_index) {
+        try zcu.markDependeeOutdated(.{ .func_ies = func_index });
         ip.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
         ip.remove(func_index);
         @panic("TODO: remove orphaned function from binary");
     }
+
+    // We'll want to remember what the IES used to be before the update for
+    // dependency invalidation purposes.
+    const old_resolved_ies = if (func.analysis(ip).inferred_error_set)
+        func.resolvedErrorSet(ip).*
+    else
+        .none;
 
     switch (decl.analysis) {
         .unreferenced => unreachable,
@@ -3202,6 +3205,20 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
         error.OutOfMemory => return error.OutOfMemory,
     };
     defer air.deinit(gpa);
+
+    const invalidate_ies_deps = i: {
+        if (!was_outdated) break :i false;
+        if (!func.analysis(ip).inferred_error_set) break :i true;
+        const new_resolved_ies = func.resolvedErrorSet(ip).*;
+        break :i new_resolved_ies != old_resolved_ies;
+    };
+    if (invalidate_ies_deps) {
+        log.debug("func IES invalidated ('{d}')", .{@intFromEnum(func_index)});
+        try zcu.markDependeeOutdated(.{ .func_ies = func_index });
+    } else if (was_outdated) {
+        log.debug("func IES up-to-date ('{d}')", .{@intFromEnum(func_index)});
+        try zcu.markPoDependeeUpToDate(.{ .func_ies = func_index });
+    }
 
     const comp = zcu.comp;
 
