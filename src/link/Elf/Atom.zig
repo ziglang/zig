@@ -1687,7 +1687,7 @@ const aarch64 = struct {
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
-        const code = code_buffer[rel.r_offset..][0..4];
+        const code = code_buffer[r_offset..][0..4];
         const file_ptr = atom.file(elf_file).?;
 
         const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
