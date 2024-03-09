@@ -7059,9 +7059,23 @@ fn createGotoContext(
     block: *Scope.Block,
 ) Error!GotoContext {
     var label_branches: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)) = .{};
+    defer {
+        for (label_branches.values()) |*label_branch| {
+            label_branch.deinit(c.gpa);
+        }
+        label_branches.deinit(c.gpa);
+    }
+
     var goto_branches: std.ArrayListUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)) = .{};
+    defer {
+        for (goto_branches.items) |*goto_branch| {
+            goto_branch.deinit(c.gpa);
+        }
+        goto_branches.deinit(c.gpa);
+    }
 
     var transformations: std.AutoArrayHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(GotoContext.Transformation)) = .{};
+    defer transformations.deinit(c.gpa);
 
     var goto: GotoContext = .{};
 
