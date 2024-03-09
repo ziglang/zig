@@ -22,8 +22,8 @@ pub const CoreRegistry = struct {
 };
 
 pub const ExtensionRegistry = struct {
-    copyright: [][]const u8,
-    version: u32,
+    copyright: ?[][]const u8 = null,
+    version: ?u32 = null,
     revision: u32,
     instructions: []Instruction,
     operand_kinds: []OperandKind = &[_]OperandKind{},
@@ -40,6 +40,8 @@ pub const Instruction = struct {
     opcode: u32,
     operands: []Operand = &[_]Operand{},
     capabilities: [][]const u8 = &[_][]const u8{},
+    // DebugModuleINTEL has this...
+    capability: ?[]const u8 = null,
     extensions: [][]const u8 = &[_][]const u8{},
     version: ?[]const u8 = null,
 
