@@ -762,14 +762,14 @@ pub const Namespace = struct {
         zcu: *Zcu,
 
         pub fn hash(ctx: @This(), decl_index: Decl.Index) u32 {
-            const decl = ctx.module.declPtr(decl_index);
+            const decl = ctx.zcu.declPtr(decl_index);
             return std.hash.uint32(@intFromEnum(decl.name));
         }
 
         pub fn eql(ctx: @This(), a_decl_index: Decl.Index, b_decl_index: Decl.Index, b_index: usize) bool {
             _ = b_index;
-            const a_decl = ctx.module.declPtr(a_decl_index);
-            const b_decl = ctx.module.declPtr(b_decl_index);
+            const a_decl = ctx.zcu.declPtr(a_decl_index);
+            const b_decl = ctx.zcu.declPtr(b_decl_index);
             return a_decl.name == b_decl.name;
         }
     };
@@ -2655,7 +2655,7 @@ pub fn markDependeeOutdated(zcu: *Zcu, dependee: InternPool.Dependee) !void {
             if (opt_po_entry) |e| e.value else 0,
         );
         log.debug("outdated: {}", .{depender});
-        if (opt_po_entry != null) {
+        if (opt_po_entry == null) {
             // This is a new entry with no PO dependencies.
             try zcu.outdated_ready.put(zcu.gpa, depender, {});
         }
@@ -2989,10 +2989,10 @@ pub fn mapOldZirToNew(
 
 /// Like `ensureDeclAnalyzed`, but the Decl is a file's root Decl.
 pub fn ensureFileAnalyzed(zcu: *Zcu, file: *File) SemaError!void {
-    if (file.root_decl == .none) {
-        return zcu.semaFile(file);
+    if (file.root_decl.unwrap()) |existing_root| {
+        return zcu.ensureDeclAnalyzed(existing_root);
     } else {
-        return zcu.ensureDeclAnalyzed(file.root_decl);
+        return zcu.semaFile(file);
     }
 }
 
@@ -3005,6 +3005,11 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     defer tracy.end();
 
     const decl = mod.declPtr(decl_index);
+
+    log.debug("ensureDeclAnalyzed '{d}' (name '{}')", .{
+        @intFromEnum(decl_index),
+        decl.name.fmt(&mod.intern_pool),
+    });
 
     // Determine whether or not this Decl is outdated, i.e. requires re-analysis
     // even if `complete`. If a Decl is PO, we pessismistically assume that it
@@ -3099,11 +3104,13 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     // TODO: we do not yet have separate dependencies for decl values vs types.
     if (decl_was_outdated) {
         if (sema_result.invalidate_decl_val or sema_result.invalidate_decl_ref) {
+            log.debug("Decl tv invalidated ('{d}')", .{@intFromEnum(decl_index)});
             // This dependency was marked as PO, meaning dependees were waiting
             // on its analysis result, and it has turned out to be outdated.
             // Update dependees accordingly.
             try mod.markDependeeOutdated(.{ .decl_val = decl_index });
         } else {
+            log.debug("Decl tv up-to-date ('{d}')", .{@intFromEnum(decl_index)});
             // This dependency was previously PO, but turned out to be up-to-date.
             // We do not need to queue successive analysis.
             try mod.markPoDependeeUpToDate(.{ .decl_val = decl_index });
@@ -3115,10 +3122,30 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
     const tracy = trace(@src());
     defer tracy.end();
 
+    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = zcu.declPtr(decl_index);
+
+    log.debug("ensureFuncBodyAnalyzed '{d}' (instance of '{}')", .{
+        @intFromEnum(func_index),
+        decl.name.fmt(ip),
+    });
+
+    // First, our owner decl must be up-to-date. This will always be the case
+    // during the first update, but may not on successive updates if we happen
+    // to get analyzed before our parent decl.
+    try zcu.ensureDeclAnalyzed(decl_index);
+
+    // On an update, it's possible this function changed such that our owner
+    // decl now refers to a different function, making this one orphaned. If
+    // that's the case, we should remove this function from the binary.
+    if (decl.val.ip_index != func_index) {
+        ip.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
+        ip.remove(func_index);
+        @panic("TODO: remove orphaned function from binary");
+    }
 
     switch (decl.analysis) {
         .unreferenced => unreachable,
@@ -3143,7 +3170,7 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
     }
 
     switch (func.analysis(ip).state) {
-        .success,
+        .success => if (!was_outdated) return,
         .sema_failure,
         .dependency_failure,
         .codegen_failure,
@@ -3153,7 +3180,10 @@ pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError
         .inline_only => unreachable, // don't queue work for this
     }
 
-    const gpa = zcu.gpa;
+    log.debug("analyze and generate fn body '{d}'; reason='{s}'", .{
+        @intFromEnum(func_index),
+        if (was_outdated) "outdated" else "never analyzed",
+    });
 
     var tmp_arena = std.heap.ArenaAllocator.init(gpa);
     defer tmp_arena.deinit();
@@ -3311,7 +3341,9 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 /// https://github.com/ziglang/zig/issues/14307
 pub fn semaPkg(mod: *Module, pkg: *Package.Module) !void {
     const file = (try mod.importPkg(pkg)).file;
-    return mod.semaFile(file);
+    if (file.root_decl == .none) {
+        return mod.semaFile(file);
+    }
 }
 
 fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespace.Index, file: *File) Allocator.Error!InternPool.Index {
@@ -3383,9 +3415,13 @@ fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespa
 /// reconstructed at a new InternPool index. Otherwise, the namespace is just
 /// re-analyzed. Returns whether the decl's tyval was invalidated.
 fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
-    assert(file.root_decl != .none);
+    const decl = zcu.declPtr(file.root_decl.unwrap().?);
 
-    const decl = zcu.declPtr(file.root_decl);
+    log.debug("semaFileUpdate mod={s} sub_file_path={s} type_outdated={}", .{
+        file.mod.fully_qualified_name,
+        file.sub_file_path,
+        type_outdated,
+    });
 
     if (file.status != .success_zir) {
         if (decl.analysis == .file_failure) {
@@ -3398,7 +3434,7 @@ fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
 
     if (decl.analysis == .file_failure) {
         // No struct type currently exists. Create one!
-        _ = try zcu.getFileRootStruct(file.root_decl, decl.src_namespace, file);
+        _ = try zcu.getFileRootStruct(file.root_decl.unwrap().?, decl.src_namespace, file);
         return true;
     }
 
@@ -3407,9 +3443,10 @@ fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
 
     if (type_outdated) {
         // Invalidate the existing type, reusing the decl and namespace.
-        try zcu.intern_pool.remove(decl.val.toIntern());
+        zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = file.root_decl.unwrap().? }));
+        zcu.intern_pool.remove(decl.val.toIntern());
         decl.val = undefined;
-        _ = try zcu.getFileRootStruct(file.root_decl, decl.src_namespace, file);
+        _ = try zcu.getFileRootStruct(file.root_decl.unwrap().?, decl.src_namespace, file);
         return true;
     }
 
@@ -3420,7 +3457,7 @@ fn semaFileUpdate(zcu: *Zcu, file: *File, type_outdated: bool) SemaError!bool {
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
     var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
-    extra_index += @intFromEnum(small.has_fields_len);
+    extra_index += @intFromBool(small.has_fields_len);
     const decls_len = if (small.has_decls_len) blk: {
         const decls_len = file.zir.extra[extra_index];
         extra_index += 1;
@@ -3530,10 +3567,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     assert(!mod.declIsRoot(decl_index));
 
-    if (decl.owns_tv) {
-        // We are re-analyzing an owner Decl (for a function or a namespace type).
-        @panic("TODO: update owner Decl");
+    if (decl.zir_decl_index == .none and decl.owns_tv) {
+        // We are re-analyzing an anonymous owner Decl (for a function or a namespace type).
+        return mod.semaAnonOwnerDecl(decl_index);
     }
+
+    log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
 
     const decl_inst = decl.zir_decl_index.unwrap().?.resolve(ip);
 
@@ -3825,6 +3864,42 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     }
 
     return result;
+}
+
+fn semaAnonOwnerDecl(zcu: *Zcu, decl_index: Decl.Index) !SemaDeclResult {
+    const decl = zcu.declPtr(decl_index);
+
+    assert(decl.has_tv);
+    assert(decl.owns_tv);
+
+    log.debug("semaAnonOwnerDecl '{d}'", .{@intFromEnum(decl_index)});
+
+    switch (decl.ty.zigTypeTag(zcu)) {
+        .Fn => @panic("TODO: update fn instance"),
+        .Type => {},
+        else => unreachable,
+    }
+
+    // We are the owner Decl of a type, and we were marked as outdated. That means the *structure*
+    // of this type changed; not just its namespace. Therefore, we need a new InternPool index.
+    //
+    // However, as soon as we make that, the context that created us will require re-analysis anyway
+    // (as it depends on this Decl's value), meaning the `struct_decl` (or equivalent) instruction
+    // will be analyzed again. Since Sema already needs to be able to reconstruct types like this,
+    // why should we bother implementing it here too when the Sema logic will be hit right after?
+    //
+    // So instead, let's just mark this Decl as failed - so that any remaining Decls which genuinely
+    // reference it (via `@This`) end up silently erroring too - and we'll let Sema make a new type
+    // with a new Decl.
+    //
+    // Yes, this does mean that any type owner Decl has a constant value for its entire lifetime.
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.remove(decl.val.toIntern());
+    decl.analysis = .dependency_failure;
+    return .{
+        .invalidate_decl_val = true,
+        .invalidate_decl_ref = true,
+    };
 }
 
 pub const ImportFileResult = struct {
@@ -4152,7 +4227,7 @@ pub fn scanNamespace(
     var existing_by_inst: std.AutoHashMapUnmanaged(InternPool.TrackedInst.Index, Decl.Index) = .{};
     defer existing_by_inst.deinit(gpa);
 
-    try existing_by_inst.ensureTotalCapacity(namespace.decls.count());
+    try existing_by_inst.ensureTotalCapacity(gpa, @intCast(namespace.decls.count()));
 
     for (namespace.decls.keys()) |decl_index| {
         const decl = zcu.declPtr(decl_index);
@@ -4357,7 +4432,7 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         .anon => unreachable,
         .@"comptime" => true,
         .@"usingnamespace" => a: {
-            namespace.usingnamespace_set.putNoClobber(decl_index, declaration.flags.is_pub);
+            namespace.usingnamespace_set.putAssumeCapacityNoClobber(decl_index, declaration.flags.is_pub);
             break :a true;
         },
         .named => false,
@@ -4532,6 +4607,11 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
+
+    // Every runtime function has a dependency on the source of the Decl it originates from.
+    // It also depends on the value of its owner Decl.
+    try sema.declareDependency(.{ .src_hash = decl.zir_decl_index.unwrap().? });
+    try sema.declareDependency(.{ .decl_val = decl_index });
 
     if (func.analysis(ip).inferred_error_set) {
         const ies = try arena.create(Sema.InferredErrorSet);

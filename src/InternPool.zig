@@ -7103,7 +7103,7 @@ pub fn getGeneratedTagEnumType(ip: *InternPool, gpa: Allocator, ini: GeneratedTa
     return @enumFromInt(gop.index);
 }
 
-pub const OpaqueTypeIni = struct {
+pub const OpaqueTypeInit = struct {
     has_namespace: bool,
     key: union(enum) {
         declared: struct {
@@ -7117,7 +7117,7 @@ pub const OpaqueTypeIni = struct {
     },
 };
 
-pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeIni) Allocator.Error!WipNamespaceType.Result {
+pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeInit) Allocator.Error!WipNamespaceType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .opaque_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
