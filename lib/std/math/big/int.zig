@@ -1236,7 +1236,9 @@ pub const Mutable = struct {
     /// r may alias with a or b.
     ///
     /// Asserts that r has enough limbs to store the result.
-    /// If a or b is positive, the upper bound is `@min(a.limbs.len, b.limbs.len)`.
+    /// If only a is positive, the upper bound is `a.limbs.len`.
+    /// If only b is positive, the upper bound is `b.limbs.len`.
+    /// If a and b are positive, the upper bound is `@min(a.limbs.len, b.limbs.len)`.
     /// If a and b are negative, the upper bound is `@max(a.limbs.len, b.limbs.len) + 1`.
     pub fn bitAnd(r: *Mutable, a: Const, b: Const) void {
         // Trivial cases, llsignedand does not support zero.
@@ -1250,10 +1252,10 @@ pub const Mutable = struct {
 
         if (a.limbs.len >= b.limbs.len) {
             r.positive = llsignedand(r.limbs, a.limbs, a.positive, b.limbs, b.positive);
-            r.normalize(if (a.positive or b.positive) b.limbs.len else a.limbs.len + 1);
+            r.normalize(if (b.positive) b.limbs.len else if (a.positive) a.limbs.len else a.limbs.len + 1);
         } else {
             r.positive = llsignedand(r.limbs, b.limbs, b.positive, a.limbs, a.positive);
-            r.normalize(if (a.positive or b.positive) a.limbs.len else b.limbs.len + 1);
+            r.normalize(if (a.positive) a.limbs.len else if (b.positive) b.limbs.len else b.limbs.len + 1);
         }
     }
 
@@ -3136,10 +3138,10 @@ pub const Managed = struct {
 
     /// r = a & b
     pub fn bitAnd(r: *Managed, a: *const Managed, b: *const Managed) !void {
-        const cap = if (a.isPositive() or b.isPositive())
-            @min(a.len(), b.len())
-        else
-            @max(a.len(), b.len()) + 1;
+        const cap = if (a.len() >= b.len())
+            if (b.isPositive()) b.len() else if (a.isPositive()) a.len() else a.len() + 1
+        else if (a.isPositive()) a.len() else if (b.isPositive()) b.len() else b.len() + 1;
+
         try r.ensureCapacity(cap);
         var m = r.toMutable();
         m.bitAnd(a.toConst(), b.toConst());
@@ -3885,7 +3887,7 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         // x & ~a can only clear bits, so (x & ~a) <= x, meaning (-b - 1) + 1 never overflows.
         assert(r_carry == 0);
 
-        // With b = 0 and b_borrow = 0, we get ~a & (-0 - 0) = ~a & 0 = 0.
+        // With b = 0 and b_borrow = 0, we get ~a & (0 - 0) = ~a & 0 = 0.
         // Omit setting the upper bytes, just deal with those when calling llsignedor.
 
         return false;
@@ -3922,7 +3924,7 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
         // for x = a - 1 and y = b - 1, the +1 term would never cause an overflow.
         assert(r_carry == 0);
 
-        // With b = 0 and b_borrow = 0 we get (-a - 1) & (-0 - 0) = (-a - 1) & 0 = 0.
+        // With b = 0 and b_borrow = 0 we get (-a - 1) & (0 - 0) = (-a - 1) & 0 = 0.
         // Omit setting the upper bytes, just deal with those when calling llsignedor.
         return false;
     }
@@ -3932,13 +3934,15 @@ fn llsignedor(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_p
 // r may alias.
 // a and b must not be 0.
 // Returns `true` when the result is positive.
-// When either or both of a and b are positive, r requires at least `b.len` limbs of storage.
-// When both a and b are negative, r requires at least `a.limbs.len + 1` limbs of storage.
+// We assume `a.len >= b.len` here, so:
+// 1. when b is positive, r requires at least `b.len` limbs of storage,
+// 2. when b is negative but a is positive, r requires at least `a.len` limbs of storage,
+// 3. when both a and b are negative, r requires at least `a.len + 1` limbs of storage.
 fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_positive: bool) bool {
     @setRuntimeSafety(debug_safety);
     assert(a.len != 0 and b.len != 0);
     assert(a.len >= b.len);
-    assert(r.len >= if (!a_positive and !b_positive) a.len + 1 else b.len);
+    assert(r.len >= if (b_positive) b.len else if (a_positive) a.len else a.len + 1);
 
     if (a_positive and b_positive) {
         // Trivial case, result is positive.
@@ -3987,9 +3991,12 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
 
         assert(b_borrow == 0); // b was 0
 
-        // With b = 0 and b_borrow = 0 we have a & ~(-0 - 0) = a & 0 = 0, so
-        // the upper bytes are zero.  Omit setting them here and simply discard
-        // them whenever llsignedand is called.
+        // With b = 0 and b_borrow = 0 we have a & ~(0 - 0) = a & ~0 = a, so
+        // the upper bytes are the same as those of a.
+
+        while (i < a.len) : (i += 1) {
+            r[i] = a[i];
+        }
 
         return true;
     } else {
@@ -4017,7 +4024,7 @@ fn llsignedand(r: []Limb, a: []const Limb, a_positive: bool, b: []const Limb, b_
         // b is at least 1, so this should never underflow.
         assert(b_borrow == 0); // b was 0
 
-        // With b = 0 and b_borrow = 0 we get (-a - 1) | (-0 - 0) = (-a - 1) | 0 = -a - 1.
+        // With b = 0 and b_borrow = 0 we get (-a - 1) | (0 - 0) = (-a - 1) | 0 = -a - 1.
         while (i < a.len) : (i += 1) {
             const ov1 = @subWithOverflow(a[i], a_borrow);
             a_borrow = ov1[1];
