@@ -8951,7 +8951,11 @@ fn zirOptionalPayload(
     try sema.requireRuntimeBlock(block, src, null);
     if (safety_check and block.wantSafety()) {
         const is_non_null = try block.addUnOp(.is_non_null, operand);
-        try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
+        if (Package.Module.runtime_safety.accessed_null_value != .none) {
+            try RuntimeSafety.checkAccessNullValue(sema, block, src, is_non_null);
+        } else {
+            try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
+        }
     }
     return block.addTyOp(.optional_payload, result_ty, operand);
 }
