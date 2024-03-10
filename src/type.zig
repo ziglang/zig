@@ -76,6 +76,39 @@ pub const Type = struct {
         };
     }
 
+    pub fn allowsSentinel(ty: Type, mod: *const Module) bool {
+        return switch (ty.zigTypeTag(mod)) {
+            .Int,
+            .Float,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .Bool,
+            .Type,
+            .Void,
+            .ErrorSet,
+            .Fn,
+            .Opaque,
+            .AnyFrame,
+            .Enum,
+            .EnumLiteral,
+            => true,
+
+            .Vector,
+            .NoReturn,
+            .Array,
+            .Struct,
+            .Undefined,
+            .Null,
+            .ErrorUnion,
+            .Union,
+            .Frame,
+            => false,
+
+            .Pointer => !ty.isSlice(mod),
+            .Optional => allowsSentinel(ty.optionalChild(mod), mod),
+        };
+    }
+
     /// If it is a function pointer, returns the function type. Otherwise returns null.
     pub fn castPtrToFn(ty: Type, mod: *const Module) ?Type {
         if (ty.zigTypeTag(mod) != .Pointer) return null;
