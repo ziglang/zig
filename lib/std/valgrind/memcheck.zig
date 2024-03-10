@@ -58,7 +58,7 @@ pub fn makeMemDefinedIfAddressable(qzz: []const u8) void {
 /// string which is included in any messages pertaining to addresses
 /// within the specified memory range.  Has no other effect on the
 /// properties of the memory range.
-pub fn createBlock(qzz: []const u8, desc: [*]const u8) usize {
+pub fn createBlock(qzz: []const u8, desc: [*:0]const u8) usize {
     return doMemCheckClientRequestExpr(0, // default return
         .CreateBlock, @intFromPtr(qzz.ptr), qzz.len, @intFromPtr(desc), 0, 0);
 }
