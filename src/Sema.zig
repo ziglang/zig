@@ -14138,7 +14138,11 @@ fn zirShr(
                 const bit_count_inst = Air.internedToRef(bit_count_val.toIntern());
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
             };
-            try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
+            if (Package.Module.runtime_safety.shift_amt_overflowed != .none) {
+                try RuntimeSafety.checkShiftAmountOverflow(sema, block, src, scalar_ty, rhs, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
+            }
         }
 
         if (air_tag == .shr_exact) {
@@ -14154,7 +14158,12 @@ fn zirShr(
                     } },
                 });
             } else try block.addBinOp(.cmp_eq, lhs, back);
-            try sema.addSafetyCheck(block, src, ok, .shr_overflow);
+
+            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, rhs, air_tag)) {
+                try RuntimeSafety.checkArithmeticOverflow(sema, block, src, scalar_ty, lhs, rhs, ok, air_tag);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .shr_overflow);
+            }
         }
     }
     return result;
