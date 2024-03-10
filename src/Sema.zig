@@ -13621,15 +13621,18 @@ fn maybeErrorUnwrap(
             .as_node => try sema.zirAsNode(block, inst),
             .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
-                if (!mod.comp.formatted_panics) {
-                    try sema.safetyPanic(block, operand_src, .unwrap_error);
-                    return true;
+                if (Package.Module.runtime_safety.unwrapped_error != .none) {
+                    try RuntimeSafety.panicUnwrappedError(sema, block, operand_src, operand);
+                } else {
+                    if (mod.comp.formatted_panics) {
+                        const panic_fn = try sema.getBuiltin("panicUnwrapError");
+                        const err_return_trace = try sema.getErrorReturnTrace(block);
+                        const args: [2]Air.Inst.Ref = .{ err_return_trace, operand };
+                        try sema.callBuiltin(block, operand_src, panic_fn, .auto, &args, .@"safety check");
+                    } else {
+                        try sema.safetyPanic(block, operand_src, .unwrap_error);
+                    }
                 }
-
-                const panic_fn = try sema.getBuiltin("panicUnwrapError");
-                const err_return_trace = try sema.getErrorReturnTrace(block);
-                const args: [2]Air.Inst.Ref = .{ err_return_trace, operand };
-                try sema.callBuiltin(block, operand_src, panic_fn, .auto, &args, .@"safety check");
                 return true;
             },
             .panic => {
