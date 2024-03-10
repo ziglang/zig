@@ -12899,7 +12899,11 @@ fn analyzeSwitchRuntimeBlock(
         {
             try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
             const ok = try case_block.addUnOp(.is_named_enum_value, operand);
-            try sema.addSafetyCheck(&case_block, src, ok, .corrupt_switch);
+            if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
+                try RuntimeSafety.checkCastToEnumFromInvalid(sema, &case_block, src, operand_ty, operand, ok);
+            } else {
+                try sema.addSafetyCheck(&case_block, src, ok, .corrupt_switch);
+            }
         }
 
         const analyze_body = if (union_originally and !special.is_inline)
@@ -12931,7 +12935,11 @@ fn analyzeSwitchRuntimeBlock(
             // that it is unreachable.
             if (case_block.wantSafety()) {
                 try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
-                try sema.safetyPanic(&case_block, src, .corrupt_switch);
+                if (Package.Module.runtime_safety.corrupt_switch != .none) {
+                    try RuntimeSafety.panicReachedUnreachable(sema, &case_block, src, .reached_unreachable);
+                } else {
+                    try sema.safetyPanic(&case_block, src, .corrupt_switch);
+                }
             } else {
                 _ = try case_block.addNoOp(.unreach);
             }
