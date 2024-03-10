@@ -297,7 +297,7 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 10, .minor = 3, .patch = 0 },
+            std.SemanticVersion{ .major = 10, .minor = 3, .patch = 0 },
         },
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
@@ -317,7 +317,7 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 10, .minor = 3, .patch = 9 },
+            std.SemanticVersion{ .major = 10, .minor = 3, .patch = 9 },
         },
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
@@ -339,7 +339,7 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 10, .minor = 15, .patch = 6 },
+            std.SemanticVersion{ .major = 10, .minor = 15, .patch = 6 },
         },
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
@@ -361,7 +361,7 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 11, .minor = 0, .patch = 0 },
+            std.SemanticVersion{ .major = 11, .minor = 0, .patch = 0 },
         },
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
@@ -383,7 +383,7 @@ test "detect" {
             \\</dict>
             \\</plist>
             ,
-            .{ .major = 11, .minor = 1, .patch = 0 },
+            std.SemanticVersion{ .major = 11, .minor = 1, .patch = 0 },
         },
     };
 
