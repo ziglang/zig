@@ -5042,12 +5042,18 @@ fn spawnZigRc(
             },
             .progress => {
                 node_name.clearRetainingCapacity();
-                if (body.len > 0) {
+                // <resinator> is a special string that indicates that the child
+                // process has reached resinator's main function
+                if (std.mem.eql(u8, body, "<resinator>")) {
+                    child_progress_node.setName(src_basename);
+                }
+                // Ignore 0-length strings since if multiple zig rc commands
+                // are executed at the same time, only one will send progress strings
+                // while the other(s) will send empty strings.
+                else if (body.len > 0) {
                     try node_name.appendSlice(arena, "build 'zig rc'... ");
                     try node_name.appendSlice(arena, body);
                     child_progress_node.setName(node_name.items);
-                } else {
-                    child_progress_node.setName(src_basename);
                 }
             },
             else => {}, // ignore other messages

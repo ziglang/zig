@@ -47,9 +47,9 @@ pub fn main() !void {
     };
 
     if (zig_integration) {
-        // Send progress with an empty string to indicate that the building of the
+        // Send progress with a special string to indicate that the building of the
         // resinator binary is finished and we've moved on to actually compiling the .rc file
-        try error_handler.server.serveStringMessage(.progress, "");
+        try error_handler.server.serveStringMessage(.progress, "<resinator>");
     }
 
     var options = options: {
