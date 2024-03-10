@@ -23104,7 +23104,11 @@ fn ptrCastFull(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
         } else is_non_zero;
-        try sema.addSafetyCheck(block, src, ok, .cast_to_null);
+        if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
+            try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, dest_ptr_ty, ptr_int, ok);
+        } else {
+            try sema.addSafetyCheck(block, src, ok, .cast_to_null);
+        }
     }
 
     if (block.wantSafety() and
@@ -23121,7 +23125,11 @@ fn ptrCastFull(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_aligned);
         } else is_aligned;
-        try sema.addSafetyCheck(block, src, ok, .incorrect_alignment);
+        if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
+            try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, dest_ptr_ty, ptr_int, ok);
+        } else {
+            try sema.addSafetyCheck(block, src, ok, .incorrect_alignment);
+        }
     }
 
     // If we're going from an array pointer to a slice, this will only be the pointer part!
