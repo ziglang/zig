@@ -25323,7 +25323,11 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
 
         if (block.wantSafety()) {
             const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
-            try sema.addSafetyCheck(block, src, ok, .memcpy_len_mismatch);
+            if (Package.Module.runtime_safety.mismatched_memcpy_argument_lengths != .none) {
+                try RuntimeSafety.checkMismatchedMemcpyArgumentLengths(sema, block, src, dest_len, src_len, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .memcpy_len_mismatch);
+            }
         }
     } else if (dest_len != .none) {
         if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
@@ -25416,7 +25420,11 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     } else if (dest_len == .none and len_val == null) {
         // Change the dest to a slice, since its type must have the length.
         const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
-        new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .unneeded, dest_src, dest_src, dest_src, false);
+        if (std.builtin.RuntimeSafety.analyze_slice2) {
+            new_dest_ptr = try RuntimeSafety.analyzeSlice2(sema, block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .none, .unneeded, dest_src, dest_src, dest_src, .slice_length);
+        } else {
+            new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .unneeded, dest_src, dest_src, dest_src, false);
+        }
         const new_src_ptr_ty = sema.typeOf(new_src_ptr);
         if (new_src_ptr_ty.isSlice(mod)) {
             new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
@@ -25465,7 +25473,11 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const ok1 = try block.addBinOp(.cmp_gte, raw_dest_ptr, src_plus_len);
         const ok2 = try block.addBinOp(.cmp_gte, new_src_ptr, dest_plus_len);
         const ok = try block.addBinOp(.bool_or, ok1, ok2);
-        try sema.addSafetyCheck(block, src, ok, .memcpy_alias);
+        if (Package.Module.runtime_safety.memcpy_argument_aliasing != .none) {
+            try RuntimeSafety.checkAliasingMemcpyArguments(sema, block, src, raw_dest_ptr, dest_plus_len, raw_src_ptr, src_plus_len, ok);
+        } else {
+            try sema.addSafetyCheck(block, src, ok, .memcpy_alias);
+        }
     }
 
     _ = try block.addInst(.{
