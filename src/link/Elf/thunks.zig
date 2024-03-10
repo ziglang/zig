@@ -103,7 +103,7 @@ pub const Thunk = struct {
     }
 
     pub fn write(thunk: Thunk, elf_file: *Elf, writer: anytype) !void {
-        switch (elf_file.options.cpu_arch.?) {
+        switch (elf_file.getTarget().cpu.arch) {
             .aarch64 => try aarch64.write(thunk, elf_file, writer),
             .x86_64, .riscv64 => unreachable,
             else => @panic("unhandled arch"),
