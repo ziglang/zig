@@ -274,11 +274,8 @@ fn Kyber(comptime p: Params) type {
                 g.update(&pk.hpk);
                 g.final(&kr);
 
-                // c = innerEncrypy(pk, m, r)
+                // c = innerEncrypt(pk, m, r)
                 const ct = pk.pk.encrypt(&m, kr[32..64]);
-
-                // Compute H(c) and put in second slot of kr, which will be (K', H(c)).
-                sha3.Sha3_256.hash(&ct, kr[32..], .{});
 
                 if (p.ml_kem) {
                     return EncapsulatedSecret{
@@ -286,6 +283,9 @@ fn Kyber(comptime p: Params) type {
                         .ciphertext = ct,
                     };
                 } else {
+                    // Compute H(c) and put in second slot of kr, which will be (K', H(c)).
+                    sha3.Sha3_256.hash(&ct, kr[32..], .{});
+
                     var ss: [shared_length]u8 = undefined;
                     sha3.Shake256.hash(&kr, &ss, .{});
                     return EncapsulatedSecret{
