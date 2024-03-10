@@ -10652,6 +10652,10 @@ fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (std.builtin.RuntimeSafety.analyze_slice2) {
+        return @call(.always_inline, RuntimeSafety.zirSliceStart, .{ sema, block, inst });
+    }
+
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.SliceStart, inst_data.payload_index).data;
@@ -10667,6 +10671,10 @@ fn zirSliceStart(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
 fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (std.builtin.RuntimeSafety.analyze_slice2) {
+        return @call(.always_inline, RuntimeSafety.zirSliceEnd, .{ sema, block, inst });
+    }
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
@@ -10684,6 +10692,10 @@ fn zirSliceEnd(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (std.builtin.RuntimeSafety.analyze_slice2) {
+        return @call(.always_inline, RuntimeSafety.zirSliceSentinel, .{ sema, block, inst });
+    }
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
@@ -10703,6 +10715,10 @@ fn zirSliceSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
+
+    if (std.builtin.RuntimeSafety.analyze_slice2) {
+        return @call(.always_inline, RuntimeSafety.zirSliceLength, .{ sema, block, inst });
+    }
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
