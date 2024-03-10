@@ -126,6 +126,9 @@ pub fn addCopyFile(wf: *WriteFile, source: std.Build.LazyPath, sub_path: []const
     return file.getPath();
 }
 
+/// Copy files matching the specified exclude/include patterns to the specified subdirectory
+/// relative to this step's generated directory.
+/// The returned value is a lazy path to the generated subdirectory.
 pub fn addCopyDirectory(
     wf: *WriteFile,
     source: std.Build.LazyPath,
