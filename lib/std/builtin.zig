@@ -31,32 +31,6 @@ pub const subsystem: ?std.Target.SubSystem = blk: {
 pub const StackTrace = struct {
     index: usize,
     instruction_addresses: []usize,
-
-    pub fn format(
-        self: StackTrace,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, self);
-
-        // TODO: re-evaluate whether to use format() methods at all.
-        // Until then, avoid an error when using GeneralPurposeAllocator with WebAssembly
-        // where it tries to call detectTTYConfig here.
-        if (builtin.os.tag == .freestanding) return;
-
-        _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
-        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-            return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
-        };
-        const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
-        try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
-            try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
-        };
-    }
 };
 
 /// This data structure is used by the Zig language code generation and
