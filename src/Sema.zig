@@ -4342,7 +4342,12 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             if (arg_len == .none) continue;
             if (i == len_idx) continue;
             const ok = try block.addBinOp(.cmp_eq, len, arg_len);
-            try sema.addSafetyCheck(block, src, ok, .for_len_mismatch);
+
+            if (Package.Module.runtime_safety.mismatched_for_loop_capture_lengths != .none) {
+                try RuntimeSafety.checkMismatchedForLoopCaptureLengths(sema, block, src, len, arg_len, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .for_len_mismatch);
+            }
         }
     }
 
