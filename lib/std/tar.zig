@@ -21,6 +21,50 @@ const testing = std.testing;
 
 pub const output = @import("tar/output.zig");
 
+/// Provide this to receive detailed error messages.
+/// When this is provided, some errors which would otherwise be returned
+/// immediately will instead be added to this structure. The API user must check
+/// the errors in diagnostics to know whether the operation succeeded or failed.
+pub const Diagnostics = struct {
+    allocator: std.mem.Allocator,
+    errors: std.ArrayListUnmanaged(Error) = .{},
+
+    pub const Error = union(enum) {
+        unable_to_create_sym_link: struct {
+            code: anyerror,
+            file_name: []const u8,
+            link_name: []const u8,
+        },
+        unable_to_create_file: struct {
+            code: anyerror,
+            file_name: []const u8,
+        },
+        unsupported_file_type: struct {
+            file_name: []const u8,
+            file_type: Header.Kind,
+        },
+    };
+
+    pub fn deinit(d: *Diagnostics) void {
+        for (d.errors.items) |item| {
+            switch (item) {
+                .unable_to_create_sym_link => |info| {
+                    d.allocator.free(info.file_name);
+                    d.allocator.free(info.link_name);
+                },
+                .unable_to_create_file => |info| {
+                    d.allocator.free(info.file_name);
+                },
+                .unsupported_file_type => |info| {
+                    d.allocator.free(info.file_name);
+                },
+            }
+        }
+        d.errors.deinit(d.allocator);
+        d.* = undefined;
+    }
+};
+
 /// pipeToFileSystem options
 pub const PipeOptions = struct {
     /// Number of directory levels to skip when extracting files.
@@ -29,10 +73,7 @@ pub const PipeOptions = struct {
     mode_mode: ModeMode = .executable_bit_only,
     /// Prevents creation of empty directories.
     exclude_empty_directories: bool = false,
-    /// Provide this to receive detailed error messages.
-    /// When this is provided, some errors which would otherwise be returned immediately
-    /// will instead be added to this structure. The API user must check the errors
-    /// in diagnostics to know whether the operation succeeded or failed.
+    /// Collects error messages during unpacking
     diagnostics: ?*Diagnostics = null,
 
     pub const ModeMode = enum {
@@ -43,46 +84,6 @@ pub const PipeOptions = struct {
         /// only. This bit is copied to the group and other executable bits.
         /// Other bits of the mode are left as the default when creating files.
         executable_bit_only,
-    };
-
-    pub const Diagnostics = struct {
-        allocator: std.mem.Allocator,
-        errors: std.ArrayListUnmanaged(Error) = .{},
-
-        pub const Error = union(enum) {
-            unable_to_create_sym_link: struct {
-                code: anyerror,
-                file_name: []const u8,
-                link_name: []const u8,
-            },
-            unable_to_create_file: struct {
-                code: anyerror,
-                file_name: []const u8,
-            },
-            unsupported_file_type: struct {
-                file_name: []const u8,
-                file_type: Header.Kind,
-            },
-        };
-
-        pub fn deinit(d: *Diagnostics) void {
-            for (d.errors.items) |item| {
-                switch (item) {
-                    .unable_to_create_sym_link => |info| {
-                        d.allocator.free(info.file_name);
-                        d.allocator.free(info.link_name);
-                    },
-                    .unable_to_create_file => |info| {
-                        d.allocator.free(info.file_name);
-                    },
-                    .unsupported_file_type => |info| {
-                        d.allocator.free(info.file_name);
-                    },
-                }
-            }
-            d.errors.deinit(d.allocator);
-            d.* = undefined;
-        }
     };
 };
 
@@ -246,13 +247,8 @@ pub const IteratorOptions = struct {
     file_name_buffer: []u8,
     /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
     link_name_buffer: []u8,
-    /// Provide this to receive detailed error messages.
-    /// When this is provided, some errors which would otherwise be returned immediately
-    /// will instead be added to this structure. The API user must check the errors
-    /// in diagnostics to know whether the operation succeeded or failed.
+    /// Collects error messages during unpacking
     diagnostics: ?*Diagnostics = null,
-
-    pub const Diagnostics = PipeOptions.Diagnostics;
 };
 
 /// Iterates over files in tar archive.
@@ -277,7 +273,7 @@ pub const FileKind = enum {
 pub fn Iterator(comptime ReaderType: type) type {
     return struct {
         reader: ReaderType,
-        diagnostics: ?*PipeOptions.Diagnostics = null,
+        diagnostics: ?*Diagnostics = null,
 
         // buffers for heeader and file attributes
         header_buffer: [Header.SIZE]u8 = undefined,
