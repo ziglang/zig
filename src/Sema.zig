@@ -21105,7 +21105,11 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (block.wantSafety() and sema.mod.backendSupportsFeature(.is_named_enum_value)) {
         const ok = try block.addUnOp(.is_named_enum_value, casted_operand);
-        try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+        if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
+            try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, enum_ty, casted_operand, ok);
+        } else {
+            try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+        }
     }
     // In case the value is runtime-known, we have an AIR instruction for this instead
     // of trying to lower it in Sema because an optimization pass may result in the operand
