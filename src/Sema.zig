@@ -13981,7 +13981,11 @@ fn zirShl(
                 const bit_count_inst = Air.internedToRef(bit_count_val.toIntern());
                 break :ok try block.addBinOp(.cmp_lt, rhs, bit_count_inst);
             };
-            try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
+            if (Package.Module.runtime_safety.shift_amt_overflowed != .none) {
+                try RuntimeSafety.checkShiftAmountOverflow(sema, block, src, lhs_ty, rhs, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .shift_rhs_too_big);
+            }
         }
 
         if (air_tag == .shl_exact) {
@@ -14010,7 +14014,11 @@ fn zirShl(
             const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
             const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-            try sema.addSafetyCheck(block, src, no_ov, .shl_overflow);
+            if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, new_rhs, air_tag)) {
+                try RuntimeSafety.checkArithmeticOverflow(sema, block, src, lhs_ty, lhs, new_rhs, no_ov, air_tag);
+            } else {
+                try sema.addSafetyCheck(block, src, no_ov, .shl_overflow);
+            }
             return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
         }
     }
