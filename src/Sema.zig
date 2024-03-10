@@ -28923,27 +28923,6 @@ fn coerceExtra(
                     else => {},
                 },
                 .One => switch (Type.fromInterned(dest_info.child).zigTypeTag(mod)) {
-                    .Union => {
-                        // pointer to anonymous struct to pointer to union
-                        if (inst_ty.isSinglePointer(mod) and
-                            inst_ty.childType(mod).isAnonStruct(mod) and
-                            sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
-                        {
-                            return sema.coerceAnonStructToUnionPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
-                        }
-                    },
-                    .Struct => {
-                        // pointer to anonymous struct to pointer to struct
-                        if (inst_ty.isSinglePointer(mod) and
-                            inst_ty.childType(mod).isAnonStruct(mod) and
-                            sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
-                        {
-                            return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src) catch |err| switch (err) {
-                                error.NotCoercible => break :pointer,
-                                else => |e| return e,
-                            };
-                        }
-                    },
                     .Array => {
                         // pointer to tuple to pointer to array
                         if (inst_ty.isSinglePointer(mod) and
@@ -29207,11 +29186,6 @@ fn coerceExtra(
         },
         .Union => switch (inst_ty.zigTypeTag(mod)) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),
-            .Struct => {
-                if (inst_ty.isAnonStruct(mod)) {
-                    return sema.coerceAnonStructToUnion(block, dest_ty, dest_ty_src, inst, inst_src);
-                }
-            },
             else => {},
         },
         .Array => switch (inst_ty.zigTypeTag(mod)) {
@@ -31896,96 +31870,6 @@ fn coerceEnumToUnion(
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
-}
-
-fn coerceAnonStructToUnion(
-    sema: *Sema,
-    block: *Block,
-    union_ty: Type,
-    union_ty_src: LazySrcLoc,
-    inst: Air.Inst.Ref,
-    inst_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const mod = sema.mod;
-    const ip = &mod.intern_pool;
-    const inst_ty = sema.typeOf(inst);
-    const field_info: union(enum) {
-        name: InternPool.NullTerminatedString,
-        count: usize,
-    } = switch (ip.indexToKey(inst_ty.toIntern())) {
-        .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 1)
-            .{ .name = anon_struct_type.names.get(ip)[0] }
-        else
-            .{ .count = anon_struct_type.names.len },
-        .struct_type => name: {
-            const field_names = ip.loadStructType(inst_ty.toIntern()).field_names.get(ip);
-            break :name if (field_names.len == 1)
-                .{ .name = field_names[0] }
-            else
-                .{ .count = field_names.len };
-        },
-        else => unreachable,
-    };
-    switch (field_info) {
-        .name => |field_name| {
-            const init = try sema.structFieldVal(block, inst_src, inst, field_name, inst_src, inst_ty);
-            return sema.unionInit(block, init, inst_src, union_ty, union_ty_src, field_name, inst_src);
-        },
-        .count => |field_count| {
-            assert(field_count != 1);
-            const msg = msg: {
-                const msg = if (field_count > 1) try sema.errMsg(
-                    block,
-                    inst_src,
-                    "cannot initialize multiple union fields at once; unions can only have one active field",
-                    .{},
-                ) else try sema.errMsg(
-                    block,
-                    inst_src,
-                    "union initializer must initialize one field",
-                    .{},
-                );
-                errdefer msg.destroy(sema.gpa);
-
-                // TODO add notes for where the anon struct was created to point out
-                // the extra fields.
-
-                try sema.addDeclaredHereNote(msg, union_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        },
-    }
-}
-
-fn coerceAnonStructToUnionPtrs(
-    sema: *Sema,
-    block: *Block,
-    ptr_union_ty: Type,
-    union_ty_src: LazySrcLoc,
-    ptr_anon_struct: Air.Inst.Ref,
-    anon_struct_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const mod = sema.mod;
-    const union_ty = ptr_union_ty.childType(mod);
-    const anon_struct = try sema.analyzeLoad(block, anon_struct_src, ptr_anon_struct, anon_struct_src);
-    const union_inst = try sema.coerceAnonStructToUnion(block, union_ty, union_ty_src, anon_struct, anon_struct_src);
-    return sema.analyzeRef(block, union_ty_src, union_inst);
-}
-
-fn coerceAnonStructToStructPtrs(
-    sema: *Sema,
-    block: *Block,
-    ptr_struct_ty: Type,
-    struct_ty_src: LazySrcLoc,
-    ptr_anon_struct: Air.Inst.Ref,
-    anon_struct_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const mod = sema.mod;
-    const struct_ty = ptr_struct_ty.childType(mod);
-    const anon_struct = try sema.analyzeLoad(block, anon_struct_src, ptr_anon_struct, anon_struct_src);
-    const struct_inst = try sema.coerceTupleToStruct(block, struct_ty, anon_struct, anon_struct_src);
-    return sema.analyzeRef(block, struct_ty_src, struct_inst);
 }
 
 /// If the lengths match, coerces element-wise.
