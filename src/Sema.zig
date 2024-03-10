@@ -8801,11 +8801,16 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     const result = try block.addTyOp(.intcast, dest_ty, operand);
+
     if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum(mod) and
         mod.backendSupportsFeature(.is_named_enum_value))
     {
         const ok = try block.addUnOp(.is_named_enum_value, result);
-        try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+        if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
+            try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, dest_ty, operand, ok);
+        } else {
+            try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+        }
     }
     return result;
 }
