@@ -157,8 +157,7 @@ fn createType(desc: TypeDescription, it: *TypeDescription.TypeIterator, comp: *c
                 .len = element_count,
                 .elem = child_ty,
             };
-            const vector_ty = .{ .specifier = .vector, .data = .{ .array = arr_ty } };
-            builder.specifier = Type.Builder.fromType(vector_ty);
+            builder.specifier = Type.Builder.fromType(.{ .specifier = .vector, .data = .{ .array = arr_ty } });
         },
         .q => {
             // Todo: scalable vector
