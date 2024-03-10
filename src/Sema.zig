@@ -31930,7 +31930,11 @@ fn coerceCompatiblePtrs(
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
         } else is_non_zero;
-        try sema.addSafetyCheck(block, inst_src, ok, .cast_to_null);
+        if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
+            try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, inst_src, dest_ty, ptr_int, ok);
+        } else {
+            try sema.addSafetyCheck(block, inst_src, ok, .cast_to_null);
+        }
     }
     const new_ptr = try sema.bitCast(block, dest_ty, inst, inst_src, null);
     try sema.checkKnownAllocPtr(inst, new_ptr);
