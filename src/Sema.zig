@@ -8433,6 +8433,11 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     const sentinel_val = try sema.resolveConstDefinedValue(block, sentinel_src, sentinel, .{
         .needed_comptime_reason = "array sentinel value must be comptime-known",
     });
+    if (!elem_type.allowsSentinel(sema.mod)) {
+        return sema.fail(block, sentinel_src, "sentinel not allowed for aggregate of non-scalar type '{}'", .{
+            elem_type.fmt(sema.mod),
+        });
+    }
     const array_ty = try sema.mod.arrayType(.{
         .len = len,
         .sentinel = sentinel_val.toIntern(),
@@ -19616,6 +19621,11 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const val = try sema.resolveConstDefinedValue(block, sentinel_src, coerced, .{
             .needed_comptime_reason = "pointer sentinel value must be comptime-known",
         });
+        if (!elem_ty.allowsSentinel(mod)) {
+            return sema.fail(block, sentinel_src, "sentinel not allowed for aggregate of non-scalar type '{}'", .{
+                elem_ty.fmt(mod),
+            });
+        }
         break :blk val.toIntern();
     } else .none;
 
@@ -21126,6 +21136,11 @@ fn zirReify(
                 if (!sentinel_val.isNull(mod)) {
                     if (ptr_size == .One or ptr_size == .C) {
                         return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
+                    }
+                    if (!elem_ty.allowsSentinel(mod)) {
+                        return sema.fail(block, src, "sentinel not allowed for aggregate of non-scalar type '{}'", .{
+                            elem_ty.fmt(mod),
+                        });
                     }
                     const sentinel_ptr_val = sentinel_val.optionalValue(mod).?;
                     const ptr_ty = try mod.singleMutPtrType(elem_ty);
@@ -33171,7 +33186,14 @@ fn analyzeSlice(
         }
         break :s null;
     };
-    const slice_sentinel = if (sentinel_opt != .none) sentinel else null;
+    const slice_sentinel = if (sentinel_opt != .none) blk: {
+        if (!elem_ty.allowsSentinel(sema.mod)) {
+            return sema.fail(block, src, "sentinel not allowed for slice of non-scalar type '{}'", .{
+                elem_ty.fmt(sema.mod),
+            });
+        }
+        break :blk sentinel;
+    } else null;
 
     var checked_start_lte_end = by_length;
     var runtime_src: ?LazySrcLoc = null;
