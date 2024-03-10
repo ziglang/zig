@@ -8609,7 +8609,11 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         const zero_val = Air.internedToRef((try mod.intValue(err_int_ty, 0)).toIntern());
         const is_non_zero = try block.addBinOp(.cmp_neq, operand, zero_val);
         const ok = try block.addBinOp(.bool_and, is_lt_len, is_non_zero);
-        try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+        if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
+            try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, Type.anyerror, err_int_ty, operand, ok);
+        } else {
+            try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+        }
     }
     return block.addInst(.{
         .tag = .bitcast,
