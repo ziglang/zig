@@ -15649,7 +15649,11 @@ fn addDivByZeroSafety(
         const zero = Air.internedToRef(scalar_zero.toIntern());
         break :ok try block.addBinOp(if (is_int) .cmp_neq else .cmp_neq_optimized, casted_rhs, zero);
     };
-    try sema.addSafetyCheck(block, src, ok, .divide_by_zero);
+    if (Package.Module.runtime_safety.divided_by_zero != .none) {
+        try RuntimeSafety.checkDivisionByZero(sema, block, src, ok);
+    } else {
+        try sema.addSafetyCheck(block, src, ok, .divide_by_zero);
+    }
 }
 
 fn airTag(block: *Block, is_int: bool, normal: Air.Inst.Tag, optimized: Air.Inst.Tag) Air.Inst.Tag {
