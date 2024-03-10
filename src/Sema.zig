@@ -10261,7 +10261,11 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
                     break :ok is_in_range;
                 };
-                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                if (Package.Module.runtime_safety.cast_truncated_data != .none) {
+                    try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
+                } else {
+                    try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                }
             }
         }
 
@@ -10323,7 +10327,11 @@ fn intCast(
                     break :ok is_in_range;
                 };
                 // TODO negative_to_unsigned?
-                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                if (Package.Module.runtime_safety.cast_truncated_data != .none) {
+                    try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
+                } else {
+                    try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                }
             } else {
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(diff, dest_max, .lte);
@@ -10339,7 +10347,11 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, diff, dest_max);
                     break :ok is_in_range;
                 };
-                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                if (Package.Module.runtime_safety.cast_truncated_data != .none) {
+                    try RuntimeSafety.checkCastTruncatedData(sema, block, src, dest_ty, operand_ty, operand, ok);
+                } else {
+                    try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                }
             }
         } else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
             // no shrinkage, yes sign loss
@@ -10362,7 +10374,11 @@ fn intCast(
                 const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
                 break :ok is_in_range;
             };
-            try sema.addSafetyCheck(block, src, ok, .negative_to_unsigned);
+            if (Package.Module.runtime_safety.cast_to_unsigned_from_negative != .none) {
+                try RuntimeSafety.checkCastToUnsignedFromNegative(sema, block, src, dest_ty, operand_ty, operand, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .negative_to_unsigned);
+            }
         }
     }
     return block.addTyOp(.intcast, dest_ty, operand);
