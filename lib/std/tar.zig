@@ -17,10 +17,12 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
+const testing = std.testing;
 
 pub const output = @import("tar/output.zig");
 
-pub const Options = struct {
+/// pipeToFileSystem options
+pub const PipeOptions = struct {
     /// Number of directory levels to skip when extracting files.
     strip_components: u32 = 0,
     /// How to handle the "mode" property of files from within the tar file.
@@ -84,14 +86,14 @@ pub const Options = struct {
     };
 };
 
-pub const Header = struct {
+const Header = struct {
     const SIZE = 512;
-    pub const MAX_NAME_SIZE = 100 + 1 + 155; // name(100) + separator(1) + prefix(155)
-    pub const LINK_NAME_SIZE = 100;
+    const MAX_NAME_SIZE = 100 + 1 + 155; // name(100) + separator(1) + prefix(155)
+    const LINK_NAME_SIZE = 100;
 
     bytes: *const [SIZE]u8,
 
-    pub const Kind = enum(u8) {
+    const Kind = enum(u8) {
         normal_alias = 0,
         normal = '0',
         hard_link = '1',
@@ -237,74 +239,53 @@ fn nullStr(str: []const u8) []const u8 {
     return str;
 }
 
+/// Options for iterator.
+/// Buffers should be provided by the caller.
 pub const IteratorOptions = struct {
     /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
     file_name_buffer: []u8,
     /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
     link_name_buffer: []u8,
+    /// Provide this to receive detailed error messages.
+    /// When this is provided, some errors which would otherwise be returned immediately
+    /// will instead be added to this structure. The API user must check the errors
+    /// in diagnostics to know whether the operation succeeded or failed.
     diagnostics: ?*Diagnostics = null,
 
-    pub const Diagnostics = Options.Diagnostics;
+    pub const Diagnostics = PipeOptions.Diagnostics;
 };
 
 /// Iterates over files in tar archive.
-/// `next` returns each file in `reader` tar archive.
-///
-/// Init iterator with tar archive reader and provided buffers:
-///
-///      var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-///      var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-///
-///      var iter = std.tar.iterator(archive.reader(), .{
-///          .file_name_buffer = &file_name_buffer,
-///          .link_name_buffer = &link_name_buffer,
-///      });
-///
-/// Iterate on each tar archive file:
-///
-///     while (try iter.next()) |file| {
-///        switch (file.kind) {
-///            .directory => {
-///                // try dir.makePath(file.name);
-///            },
-///            .file => {
-///                // try file.writeAll(writer);
-///            },
-///            .sym_link => {
-///                // try dir.symLink(file.link_name, file.name, .{});
-///            },
-///        }
-///    }
-///
+/// `next` returns each file in tar archive.
 pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
     return .{
         .reader = reader,
         .diagnostics = options.diagnostics,
-        .header_buffer = undefined,
         .file_name_buffer = options.file_name_buffer,
         .link_name_buffer = options.link_name_buffer,
-        .padding = 0,
     };
 }
 
+/// Type of the file returned by iterator `next` method.
 pub const FileKind = enum {
     directory,
     sym_link,
     file,
 };
 
-fn Iterator(comptime ReaderType: type) type {
+/// Iteartor over entries in the tar file represented by reader.
+pub fn Iterator(comptime ReaderType: type) type {
     return struct {
         reader: ReaderType,
-        diagnostics: ?*Options.Diagnostics,
+        diagnostics: ?*PipeOptions.Diagnostics = null,
 
         // buffers for heeader and file attributes
-        header_buffer: [Header.SIZE]u8,
+        header_buffer: [Header.SIZE]u8 = undefined,
         file_name_buffer: []u8,
         link_name_buffer: []u8,
 
         // bytes of padding to the end of the block
-        padding: usize,
+        padding: usize = 0,
         // not consumed bytes of file from last next iteration
         unread_file_bytes: u64 = 0,
 
@@ -316,18 +297,18 @@ fn Iterator(comptime ReaderType: type) type {
             kind: FileKind = .file,
 
             unread_bytes: *u64,
-            reader: ReaderType,
+            parent_reader: ReaderType,
 
-            pub const Reader = std.io.Reader(*Self, ReaderType.Error, read);
+            pub const Reader = std.io.Reader(File, ReaderType.Error, File.read);
 
-            pub fn reader(self: *Self) Reader {
+            pub fn reader(self: File) Reader {
                 return .{ .context = self };
             }
 
-            pub fn read(self: *Self, dest: []u8) ReaderType.Error!usize {
-                const buf = dest[0..@min(dest.len, self.unread_size.*)];
-                const n = try self.reader.read(buf);
-                self.unread_size.* -= n;
+            pub fn read(self: File, dest: []u8) ReaderType.Error!usize {
+                const buf = dest[0..@min(dest.len, self.unread_bytes.*)];
+                const n = try self.parent_reader.read(buf);
+                self.unread_bytes.* -= n;
                 return n;
             }
 
@@ -337,7 +318,7 @@ fn Iterator(comptime ReaderType: type) type {
 
                 while (self.unread_bytes.* > 0) {
                     const buf = buffer[0..@min(buffer.len, self.unread_bytes.*)];
-                    try self.reader.readNoEof(buf);
+                    try self.parent_reader.readNoEof(buf);
                     try writer.writeAll(buf);
                     self.unread_bytes.* -= buf.len;
                 }
@@ -369,7 +350,7 @@ fn Iterator(comptime ReaderType: type) type {
             return .{
                 .name = self.file_name_buffer[0..0],
                 .link_name = self.link_name_buffer[0..0],
-                .reader = self.reader,
+                .parent_reader = self.reader,
                 .unread_bytes = &self.unread_file_bytes,
             };
         }
@@ -594,7 +575,8 @@ fn PaxIterator(comptime ReaderType: type) type {
     };
 }
 
-pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: Options) !void {
+/// Saves tar file content to the file systems.
+pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) !void {
     switch (options.mode_mode) {
         .ignore => {},
         .executable_bit_only => {
@@ -699,7 +681,7 @@ fn stripComponents(path: []const u8, count: u32) []const u8 {
 }
 
 test "stripComponents" {
-    const expectEqualStrings = std.testing.expectEqualStrings;
+    const expectEqualStrings = testing.expectEqualStrings;
     try expectEqualStrings("a/b/c", stripComponents("a/b/c", 0));
     try expectEqualStrings("b/c", stripComponents("a/b/c", 1));
     try expectEqualStrings("c", stripComponents("a/b/c", 2));
@@ -810,24 +792,24 @@ test "PaxIterator" {
         var i: usize = 0;
         while (iter.next() catch |err| {
             if (case.err) |e| {
-                try std.testing.expectEqual(e, err);
+                try testing.expectEqual(e, err);
                 continue;
             }
             return err;
         }) |attr| : (i += 1) {
             const exp = case.attrs[i];
-            try std.testing.expectEqual(exp.kind, attr.kind);
+            try testing.expectEqual(exp.kind, attr.kind);
             const value = attr.value(&buffer) catch |err| {
                 if (exp.err) |e| {
-                    try std.testing.expectEqual(e, err);
+                    try testing.expectEqual(e, err);
                     break :outer;
                 }
                 return err;
             };
-            try std.testing.expectEqualStrings(exp.value, value);
+            try testing.expectEqualStrings(exp.value, value);
         }
-        try std.testing.expectEqual(case.attrs.len, i);
-        try std.testing.expect(case.err == null);
+        try testing.expectEqual(case.attrs.len, i);
+        try testing.expect(case.err == null);
     }
 }
 
@@ -863,9 +845,9 @@ test "header parse size" {
         @memcpy(bytes[124 .. 124 + case.in.len], case.in);
         var header = Header{ .bytes = &bytes };
         if (case.err) |err| {
-            try std.testing.expectError(err, header.size());
+            try testing.expectError(err, header.size());
         } else {
-            try std.testing.expectEqual(case.want, try header.size());
+            try testing.expectEqual(case.want, try header.size());
         }
     }
 }
@@ -888,15 +870,15 @@ test "header parse mode" {
         @memcpy(bytes[100 .. 100 + case.in.len], case.in);
         var header = Header{ .bytes = &bytes };
         if (case.err) |err| {
-            try std.testing.expectError(err, header.mode());
+            try testing.expectError(err, header.mode());
         } else {
-            try std.testing.expectEqual(case.want, try header.mode());
+            try testing.expectEqual(case.want, try header.mode());
         }
     }
 }
 
 test "create file and symlink" {
-    var root = std.testing.tmpDir(.{});
+    var root = testing.tmpDir(.{});
     defer root.cleanup();
 
     var file = try createDirAndFile(root.dir, "file1");
@@ -915,4 +897,121 @@ test "create file and symlink" {
     try createDirAndSymlink(root.dir, "../../../g/h/i/file4", "j/k/l/symlink3");
     file = try createDirAndFile(root.dir, "g/h/i/file4");
     file.close();
+}
+
+test iterator {
+    // Example tar file is created from this tree structure:
+    // $ tree example
+    //    example
+    //    ├── a
+    //    │   └── file
+    //    ├── b
+    //    │   └── symlink -> ../a/file
+    //    └── empty
+    // $ cat example/a/file
+    //   content
+    // $ tar -cf example.tar example
+    // $ tar -tvf example.tar
+    //    example/
+    //    example/b/
+    //    example/b/symlink -> ../a/file
+    //    example/a/
+    //    example/a/file
+    //    example/empty/
+
+    const data = @embedFile("tar/testdata/example.tar");
+    var fbs = std.io.fixedBufferStream(data);
+
+    // User provided buffers to the iterator
+    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    // Create iterator
+    var iter = iterator(fbs.reader(), .{
+        .file_name_buffer = &file_name_buffer,
+        .link_name_buffer = &link_name_buffer,
+    });
+    // Iterate over files in example.tar
+    var file_no: usize = 0;
+    while (try iter.next()) |file| : (file_no += 1) {
+        switch (file.kind) {
+            .directory => {
+                switch (file_no) {
+                    0 => try testing.expectEqualStrings("example/", file.name),
+                    1 => try testing.expectEqualStrings("example/b/", file.name),
+                    3 => try testing.expectEqualStrings("example/a/", file.name),
+                    5 => try testing.expectEqualStrings("example/empty/", file.name),
+                    else => unreachable,
+                }
+            },
+            .file => {
+                try testing.expectEqualStrings("example/a/file", file.name);
+                // Read file content
+                var buf: [16]u8 = undefined;
+                const n = try file.reader().readAll(&buf);
+                try testing.expectEqualStrings("content\n", buf[0..n]);
+            },
+            .sym_link => {
+                try testing.expectEqualStrings("example/b/symlink", file.name);
+                try testing.expectEqualStrings("../a/file", file.link_name);
+            },
+        }
+    }
+}
+
+test pipeToFileSystem {
+    // Example tar file is created from this tree structure:
+    // $ tree example
+    //    example
+    //    ├── a
+    //    │   └── file
+    //    ├── b
+    //    │   └── symlink -> ../a/file
+    //    └── empty
+    // $ cat example/a/file
+    //   content
+    // $ tar -cf example.tar example
+    // $ tar -tvf example.tar
+    //    example/
+    //    example/b/
+    //    example/b/symlink -> ../a/file
+    //    example/a/
+    //    example/a/file
+    //    example/empty/
+
+    const data = @embedFile("tar/testdata/example.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{ .no_follow = true });
+    defer tmp.cleanup();
+    const dir = tmp.dir;
+
+    // Save tar from `reader` to the file system `dir`
+    pipeToFileSystem(dir, reader, .{
+        .mode_mode = .ignore,
+        .strip_components = 1,
+        .exclude_empty_directories = true,
+    }) catch |err| {
+        // Skip on platform which don't support symlinks
+        if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+        return err;
+    };
+
+    try testing.expectError(error.FileNotFound, dir.statFile("empty"));
+    try testing.expect((try dir.statFile("a/file")).kind == .file);
+    try testing.expect((try dir.statFile("b/symlink")).kind == .file); // statFile follows symlink
+
+    var buf: [32]u8 = undefined;
+    try testing.expectEqualSlices(
+        u8,
+        "../a/file",
+        normalizePath(try dir.readLink("b/symlink", &buf)),
+    );
+}
+
+fn normalizePath(bytes: []u8) []u8 {
+    const canonical_sep = std.fs.path.sep_posix;
+    if (std.fs.path.sep == canonical_sep) return bytes;
+    std.mem.replaceScalar(u8, bytes, std.fs.path.sep, canonical_sep);
+    return bytes;
 }

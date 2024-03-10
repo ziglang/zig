@@ -385,8 +385,8 @@ test "run test cases" {
 test "pax/gnu long names with small buffer" {
     // should fail with insufficient buffer error
 
-    var min_file_name_buffer: [tar.Header.MAX_NAME_SIZE]u8 = undefined;
-    var min_link_name_buffer: [tar.Header.LINK_NAME_SIZE]u8 = undefined;
+    var min_file_name_buffer: [256]u8 = undefined;
+    var min_link_name_buffer: [100]u8 = undefined;
     const long_name_cases = [_]Case{ cases[11], cases[25], cases[28] };
 
     for (long_name_cases) |case| {
@@ -409,7 +409,7 @@ test "pax/gnu long names with small buffer" {
 
 test "insufficient buffer in Header name filed" {
     var min_file_name_buffer: [9]u8 = undefined;
-    var min_link_name_buffer: [tar.Header.LINK_NAME_SIZE]u8 = undefined;
+    var min_link_name_buffer: [100]u8 = undefined;
 
     var fsb = std.io.fixedBufferStream(cases[0].data);
     var iter = tar.iterator(fsb.reader(), .{
@@ -508,47 +508,4 @@ test "case sensitivity" {
     // on case sensitive os both files are created
     try testing.expect((try root.dir.statFile("alacritty/darkermatrix.yml")).kind == .file);
     try testing.expect((try root.dir.statFile("alacritty/Darkermatrix.yml")).kind == .file);
-}
-
-test "pipeToFileSystem" {
-    // $ tar tvf
-    //    pipe_to_file_system_test/
-    //    pipe_to_file_system_test/b/
-    //    pipe_to_file_system_test/b/symlink -> ../a/file
-    //    pipe_to_file_system_test/a/
-    //    pipe_to_file_system_test/a/file
-    //    pipe_to_file_system_test/empty/
-    const data = @embedFile("testdata/pipe_to_file_system_test.tar");
-    var fsb = std.io.fixedBufferStream(data);
-
-    var root = std.testing.tmpDir(.{ .no_follow = true });
-    defer root.cleanup();
-
-    tar.pipeToFileSystem(root.dir, fsb.reader(), .{
-        .mode_mode = .ignore,
-        .strip_components = 1,
-        .exclude_empty_directories = true,
-    }) catch |err| {
-        // Skip on platform which don't support symlinks
-        if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
-        return err;
-    };
-
-    try testing.expectError(error.FileNotFound, root.dir.statFile("empty"));
-    try testing.expect((try root.dir.statFile("a/file")).kind == .file);
-    try testing.expect((try root.dir.statFile("b/symlink")).kind == .file); // statFile follows symlink
-
-    var buf: [32]u8 = undefined;
-    try testing.expectEqualSlices(
-        u8,
-        "../a/file",
-        normalizePath(try root.dir.readLink("b/symlink", &buf)),
-    );
-}
-
-fn normalizePath(bytes: []u8) []u8 {
-    const canonical_sep = std.fs.path.sep_posix;
-    if (std.fs.path.sep == canonical_sep) return bytes;
-    std.mem.replaceScalar(u8, bytes, std.fs.path.sep, canonical_sep);
-    return bytes;
 }
