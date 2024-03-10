@@ -22369,7 +22369,11 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
         if (!is_vector) {
             if (block.wantSafety()) {
                 const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, operand, Air.internedToRef((try mod.floatValue(operand_ty, 0.0)).toIntern()));
-                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+                if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
+                } else {
+                    try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+                }
             }
             return Air.internedToRef((try mod.intValue(dest_ty, 0)).toIntern());
         }
@@ -22379,7 +22383,11 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
                 const idx_ref = try mod.intRef(Type.usize, i);
                 const elem_ref = try block.addBinOp(.array_elem_val, operand, idx_ref);
                 const ok = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_eq_optimized else .cmp_eq, elem_ref, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 0.0)).toIntern()));
-                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+                if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_scalar_ty, elem_ref, ok);
+                } else {
+                    try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+                }
             }
         }
         return Air.internedToRef(try mod.intern(.{ .aggregate = .{
@@ -22395,7 +22403,11 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
             const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_ty, 1.0)).toIntern()));
             const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_ty, -1.0)).toIntern()));
             const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
-            try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+            if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
+                try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+            }
         }
         return result;
     }
@@ -22411,7 +22423,11 @@ fn zirIntFromFloat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
             const ok_pos = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_lt_optimized else .cmp_lt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, 1.0)).toIntern()));
             const ok_neg = try block.addBinOp(if (block.float_mode == .Optimized) .cmp_gt_optimized else .cmp_gt, diff, Air.internedToRef((try mod.floatValue(operand_scalar_ty, -1.0)).toIntern()));
             const ok = try block.addBinOp(.bool_and, ok_pos, ok_neg);
-            try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+            if (Package.Module.runtime_safety.cast_to_int_from_invalid != .none) {
+                try RuntimeSafety.checkCastToIntFromInvalid(sema, block, src, dest_ty, operand_scalar_ty, old_elem, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .integer_part_out_of_bounds);
+            }
         }
         new_elem.* = result;
     }
