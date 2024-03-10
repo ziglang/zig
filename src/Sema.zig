@@ -15606,7 +15606,11 @@ fn addDivIntOverflowSafety(
         }
         assert(ok != .none);
     }
-    try sema.addSafetyCheck(block, src, ok, .integer_overflow);
+    if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, casted_rhs, .div_trunc)) {
+        try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, ok, .div_trunc);
+    } else {
+        try sema.addSafetyCheck(block, src, ok, .integer_overflow);
+    }
 }
 
 fn addDivByZeroSafety(
