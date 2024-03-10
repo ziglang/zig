@@ -1487,6 +1487,19 @@ test "bitAnd #10932" {
     try testing.expect((try res.to(i32)) == 0);
 }
 
+test "bit And #19235" {
+    var a = try Managed.initSet(testing.allocator, -0xffffffffffffffff);
+    defer a.deinit();
+    var b = try Managed.initSet(testing.allocator, 0x10000000000000000);
+    defer b.deinit();
+    var r = try Managed.init(testing.allocator);
+    defer r.deinit();
+
+    try r.bitAnd(&a, &b);
+
+    try testing.expect((try r.to(i128)) == 0x10000000000000000);
+}
+
 test "div floor single-single +/+" {
     const u: i32 = 5;
     const v: i32 = 3;
