@@ -9093,7 +9093,11 @@ fn analyzeErrUnionPayloadPtr(
     if (safety_check and block.wantSafety() and
         !err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod))
     {
-        try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
+        if (Package.Module.runtime_safety.unwrapped_error != .none) {
+            try RuntimeSafety.checkUnwrappedError(sema, block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
+        } else {
+            try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err_ptr, .is_non_err_ptr);
+        }
     }
 
     if (initializing) {
