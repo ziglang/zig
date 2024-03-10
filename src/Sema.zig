@@ -33484,13 +33484,17 @@ fn analyzeSlice(
 
     if (!checked_start_lte_end and block.wantSafety() and !block.is_comptime) {
         // requirement: start <= end
-        assert(!block.is_comptime);
-        try sema.requireRuntimeBlock(block, src, runtime_src.?);
-        const ok = try block.addBinOp(.cmp_lte, start, end);
-        if (!sema.mod.comp.formatted_panics) {
-            try sema.addSafetyCheck(block, src, ok, .start_index_greater_than_end);
+        if (Package.Module.runtime_safety.accessed_out_of_order != .none) {
+            try RuntimeSafety.checkAccessOutOfOrder(sema, block, src, start, end);
         } else {
-            try sema.safetyCheckFormatted(block, src, ok, "panicStartGreaterThanEnd", &.{ start, end });
+            assert(!block.is_comptime);
+            try sema.requireRuntimeBlock(block, src, runtime_src.?);
+            const ok = try block.addBinOp(.cmp_lte, start, end);
+            if (!sema.mod.comp.formatted_panics) {
+                try sema.addSafetyCheck(block, src, ok, .start_index_greater_than_end);
+            } else {
+                try sema.safetyCheckFormatted(block, src, ok, "panicStartGreaterThanEnd", &.{ start, end });
+            }
         }
     }
     const new_len = if (by_length)
@@ -33527,7 +33531,11 @@ fn analyzeSlice(
                 // requirement: slicing C ptr is non-null
                 if (ptr_ptr_child_ty.isCPtr(mod)) {
                     const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
-                    try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
+                    if (Package.Module.runtime_safety.accessed_null_value != .none) {
+                        try RuntimeSafety.checkAccessNullValue(sema, block, src, is_non_null);
+                    } else {
+                        try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
+                    }
                 }
 
                 if (slice_ty.isSlice(mod)) {
@@ -33541,12 +33549,23 @@ fn analyzeSlice(
                         try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src, true)
                     else
                         end;
-
-                    try sema.panicIndexOutOfBounds(block, src, actual_end, actual_len, .cmp_lte);
+                    if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
+                        try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, actual_end, actual_len, .cmp_lte);
+                    } else {
+                        try sema.panicIndexOutOfBounds(block, src, actual_end, actual_len, .cmp_lte);
+                    }
                 }
 
                 // requirement: result[new_len] == slice_sentinel
-                try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
+                if (Package.Module.runtime_safety.mismatched_sentinel != .none) {
+                    if (slice_sentinel) |expected| {
+                        const elem_ptr_ty: Type = try sema.mod.singleConstPtrType(elem_ty);
+                        const elem_ptr: Air.Inst.Ref = try block.addPtrElemPtr(result, new_len, elem_ptr_ty);
+                        try RuntimeSafety.checkMismatchedSentinel(sema, block, src, elem_ty, Air.internedToRef(expected.toIntern()), elem_ptr);
+                    }
+                } else {
+                    try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
+                }
             }
             return result;
         };
@@ -33584,7 +33603,11 @@ fn analyzeSlice(
         // requirement: slicing C ptr is non-null
         if (ptr_ptr_child_ty.isCPtr(mod)) {
             const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
-            try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
+            if (Package.Module.runtime_safety.accessed_null_value != .none) {
+                try RuntimeSafety.checkAccessNullValue(sema, block, src, is_non_null);
+            } else {
+                try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
+            }
         }
 
         // requirement: end <= len
@@ -33608,11 +33631,19 @@ fn analyzeSlice(
                 try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src, true)
             else
                 end;
-            try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
+            if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
+                try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, actual_end, len_inst, .cmp_lte);
+            } else {
+                try sema.panicIndexOutOfBounds(block, src, actual_end, len_inst, .cmp_lte);
+            }
         }
 
         // requirement: start <= end
-        try sema.panicIndexOutOfBounds(block, src, start, end, .cmp_lte);
+        if (Package.Module.runtime_safety.accessed_out_of_order != .none) {
+            try RuntimeSafety.checkAccessOutOfOrder(sema, block, src, start, end);
+        } else {
+            try sema.panicIndexOutOfBounds(block, src, start, end, .cmp_lte);
+        }
     }
     const result = try block.addInst(.{
         .tag = .slice,
@@ -33625,8 +33656,16 @@ fn analyzeSlice(
         } },
     });
     if (block.wantSafety()) {
-        // requirement: result[new_len] == slice_sentinel
-        try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
+        if (Package.Module.runtime_safety.mismatched_sentinel != .none) {
+            if (slice_sentinel) |expected| {
+                const elem_ptr_ty: Type = try sema.mod.singleConstPtrType(elem_ty);
+                const elem_ptr: Air.Inst.Ref = try block.addPtrElemPtr(result, new_len, elem_ptr_ty);
+                try RuntimeSafety.checkMismatchedSentinel(sema, block, src, elem_ty, Air.internedToRef(expected.toIntern()), elem_ptr);
+            }
+        } else {
+            // requirement: result[new_len] == slice_sentinel
+            try sema.panicSentinelMismatch(block, src, slice_sentinel, elem_ty, result, new_len);
+        }
     }
     return result;
 }
@@ -39433,7 +39472,6 @@ pub const RuntimeSafety = struct {
             .sema = sema,
             .src_decl = parent_block.src_decl,
             .namespace = parent_block.namespace,
-            .wip_capture_scope = parent_block.wip_capture_scope,
             .instructions = .{},
             .inlining = parent_block.inlining,
             .is_comptime = false,
