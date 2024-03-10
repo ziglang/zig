@@ -777,7 +777,11 @@ pub const Block = struct {
 
     fn addUnreachable(block: *Block, src: LazySrcLoc, safety_check: bool) !void {
         if (safety_check and block.wantSafety()) {
-            try block.sema.safetyPanic(block, src, .unreach);
+            if (Package.Module.runtime_safety.reached_unreachable != .none) {
+                try RuntimeSafety.panicReachedUnreachable(block.sema, block, src, .reached_unreachable);
+            } else {
+                try block.sema.safetyPanic(block, src, .unreach);
+            }
         } else {
             _ = try block.addNoOp(.unreach);
         }
