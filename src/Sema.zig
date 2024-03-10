@@ -22537,14 +22537,22 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         if (block.wantSafety() and (try sema.typeHasRuntimeBits(elem_ty) or elem_ty.zigTypeTag(mod) == .Fn)) {
             if (!ptr_ty.isAllowzeroPtr(mod)) {
                 const is_non_zero = try block.addBinOp(.cmp_neq, operand_coerced, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
+                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, operand_coerced, is_non_zero);
+                } else {
+                    try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
+                }
             }
             if (ptr_align.compare(.gt, .@"1")) {
                 const align_bytes_minus_1 = ptr_align.toByteUnitsOptional().? - 1;
                 const align_minus_1 = Air.internedToRef((try mod.intValue(Type.usize, align_bytes_minus_1)).toIntern());
                 const remainder = try block.addBinOp(.bit_and, operand_coerced, align_minus_1);
                 const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
+                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, operand_coerced, is_aligned);
+                } else {
+                    try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
+                }
             }
         }
         return block.addBitCast(dest_ty, operand_coerced);
@@ -22557,14 +22565,22 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             const elem_coerced = try block.addBinOp(.array_elem_val, operand_coerced, idx_ref);
             if (!ptr_ty.isAllowzeroPtr(mod)) {
                 const is_non_zero = try block.addBinOp(.cmp_neq, elem_coerced, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
+                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, elem_coerced, is_non_zero);
+                } else {
+                    try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
+                }
             }
             if (ptr_align.compare(.gt, .@"1")) {
                 const align_bytes_minus_1 = ptr_align.toByteUnitsOptional().? - 1;
                 const align_minus_1 = Air.internedToRef((try mod.intValue(Type.usize, align_bytes_minus_1)).toIntern());
                 const remainder = try block.addBinOp(.bit_and, elem_coerced, align_minus_1);
                 const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-                try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
+                if (Package.Module.runtime_safety.cast_to_ptr_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToPointerFromInvalid(sema, block, src, ptr_ty, elem_coerced, is_aligned);
+                } else {
+                    try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
+                }
             }
         }
     }
