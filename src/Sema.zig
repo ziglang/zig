@@ -5707,7 +5707,11 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
     if (block.is_comptime) {
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
-    try sema.panicWithMsg(block, src, coerced_msg, .@"@panic");
+    if (Package.Module.runtime_safety.message != .none) {
+        try RuntimeSafety.panicWithMsg(sema, block, src, coerced_msg, .@"@panic");
+    } else {
+        try sema.panicWithMsg(block, src, coerced_msg, .@"@panic");
+    }
 }
 
 fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
