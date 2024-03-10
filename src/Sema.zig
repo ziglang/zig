@@ -28579,7 +28579,11 @@ fn elemValArray(
         if (maybe_index_val == null) {
             const len_inst = try mod.intRef(Type.usize, array_len);
             const cmp_op: Air.Inst.Tag = if (array_sent != null) .cmp_lte else .cmp_lt;
-            try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
+            if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
+                try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
+            } else {
+                try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
+            }
         }
     }
     return block.addBinOp(.array_elem_val, array, elem_index);
