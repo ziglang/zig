@@ -16760,7 +16760,11 @@ fn analyzeArithmetic(
                 const zero_ov = Air.internedToRef((try mod.intValue(Type.u1, 0)).toIntern());
                 const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
-                try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
+                if (.none != try RuntimeSafety.resolveArithOverflowedPanicImpl(sema, casted_rhs, air_tag)) {
+                    try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, no_ov, air_tag);
+                } else {
+                    try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
+                }
                 return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
             }
         }
