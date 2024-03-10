@@ -12264,12 +12264,17 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         if (err_set and try sema.maybeErrorUnwrap(block, special.body, operand, operand_src, false)) {
             return .unreachable_value;
         }
-        if (mod.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and operand_ty.zigTypeTag(mod) == .Enum and
+        if (mod.backendSupportsFeature(.is_named_enum_value) and
+            block.wantSafety() and operand_ty.zigTypeTag(mod) == .Enum and
             (!operand_ty.isNonexhaustiveEnum(mod) or union_originally))
         {
             try sema.zirDbgStmt(block, cond_dbg_node_index);
             const ok = try block.addUnOp(.is_named_enum_value, operand);
-            try sema.addSafetyCheck(block, src, ok, .corrupt_switch);
+            if (Package.Module.runtime_safety.cast_to_enum_from_invalid != .none) {
+                try RuntimeSafety.checkCastToEnumFromInvalid(sema, block, src, operand_ty, operand, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .corrupt_switch);
+            }
         }
 
         return spa.resolveProngComptime(
