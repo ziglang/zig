@@ -28124,7 +28124,11 @@ fn unionFieldPtr(
         // TODO would it be better if get_union_tag supported pointers to unions?
         const union_val = try block.addTyOp(.load, union_ty, union_ptr);
         const active_tag = try block.addTyOp(.get_union_tag, Type.fromInterned(union_obj.enum_tag_ty), union_val);
-        try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
+        if (Package.Module.runtime_safety.accessed_inactive_field != .none) {
+            try RuntimeSafety.checkAccessInactiveUnionField(sema, block, src, active_tag, wanted_tag);
+        } else {
+            try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
+        }
     }
     if (field_ty.zigTypeTag(mod) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
