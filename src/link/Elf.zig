@@ -4565,6 +4565,16 @@ fn writeAtoms(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer, sh_offset);
     }
 
+    for (self.thunks.items) |th| {
+        const shdr = self.shdrs.items[th.output_section_index];
+        const offset = th.value + shdr.sh_offset;
+        const buffer = try gpa.alloc(u8, th.size(self));
+        defer gpa.free(buffer);
+        var stream = std.io.fixedBufferStream(buffer);
+        try th.write(self, stream.writer());
+        try self.base.file.?.pwriteAll(buffer, offset);
+    }
+
     try self.reportUndefinedSymbols(&undefs);
 
     if (has_reloc_errors) return error.FlushFailure;
