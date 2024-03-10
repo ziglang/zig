@@ -60,6 +60,18 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?
         else => std.os.abort(),
     }
 }
+/// TODO: Rename to `panic` when old interface is removed.
+pub fn panicNew(
+    comptime cause: std.builtin.PanicCause,
+    data: std.builtin.PanicData(cause),
+) noreturn {
+    if (builtin.is_test) {
+        @setCold(true);
+        std.debug.panic("{any}", .{data});
+    } else {
+        unreachable;
+    }
+}
 
 extern fn main(argc: c_int, argv: [*:null]?[*:0]u8) c_int;
 fn wasm_start() callconv(.C) void {
