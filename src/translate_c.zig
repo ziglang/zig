@@ -2239,8 +2239,10 @@ fn transStringLiteralInitializer(
             while (i < num_inits) : (i += 1) {
                 init_list[i] = try transCreateCharLitNode(c, false, stmt.getCodeUnit(i));
             }
-            const init_args = .{ .len = num_inits, .elem_type = elem_type };
-            const init_array_type = try if (array_type.tag() == .array_type) Tag.array_type.create(c.arena, init_args) else Tag.null_sentinel_array_type.create(c.arena, init_args);
+            const init_array_type = try if (array_type.tag() == .array_type)
+                Tag.array_type.create(c.arena, .{ .len = num_inits, .elem_type = elem_type })
+            else
+                Tag.null_sentinel_array_type.create(c.arena, .{ .len = num_inits, .elem_type = elem_type });
             break :blk try Tag.array_init.create(c.arena, .{
                 .cond = init_array_type,
                 .cases = init_list,
@@ -3830,11 +3832,10 @@ fn transCreateCompoundAssign(
 
         if ((is_mod or is_div) and is_signed) {
             if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
-            const operands = .{ .lhs = lhs_node, .rhs = rhs_node };
             const builtin = if (is_mod)
-                try Tag.signed_remainder.create(c.arena, operands)
+                try Tag.signed_remainder.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node })
             else
-                try Tag.div_trunc.create(c.arena, operands);
+                try Tag.div_trunc.create(c.arena, .{ .lhs = lhs_node, .rhs = rhs_node });
 
             return transCreateNodeInfixOp(c, .assign, lhs_node, builtin, .used);
         }
@@ -3869,11 +3870,10 @@ fn transCreateCompoundAssign(
     if (is_ptr_op_signed) rhs_node = try usizeCastForWrappingPtrArithmetic(c.arena, rhs_node);
     if ((is_mod or is_div) and is_signed) {
         if (requires_cast) rhs_node = try transCCast(c, scope, loc, lhs_qt, rhs_qt, rhs_node);
-        const operands = .{ .lhs = ref_node, .rhs = rhs_node };
         const builtin = if (is_mod)
-            try Tag.signed_remainder.create(c.arena, operands)
+            try Tag.signed_remainder.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node })
         else
-            try Tag.div_trunc.create(c.arena, operands);
+            try Tag.div_trunc.create(c.arena, .{ .lhs = ref_node, .rhs = rhs_node });
 
         const assign = try transCreateNodeInfixOp(c, .assign, ref_node, builtin, .used);
         try block_scope.statements.append(assign);
@@ -4697,20 +4697,23 @@ fn transType(c: *Context, scope: *Scope, ty: *const clang.Type, source_loc: clan
             const is_const = is_fn_proto or child_qt.isConstQualified();
             const is_volatile = child_qt.isVolatileQualified();
             const elem_type = try transQualType(c, scope, child_qt, source_loc);
-            const ptr_info = .{
-                .is_const = is_const,
-                .is_volatile = is_volatile,
-                .elem_type = elem_type,
-            };
             if (is_fn_proto or
                 typeIsOpaque(c, child_qt.getTypePtr(), source_loc) or
                 qualTypeWasDemotedToOpaque(c, child_qt))
             {
-                const ptr = try Tag.single_pointer.create(c.arena, ptr_info);
+                const ptr = try Tag.single_pointer.create(c.arena, .{
+                    .is_const = is_const,
+                    .is_volatile = is_volatile,
+                    .elem_type = elem_type,
+                });
                 return Tag.optional_type.create(c.arena, ptr);
             }
 
-            return Tag.c_pointer.create(c.arena, ptr_info);
+            return Tag.c_pointer.create(c.arena, .{
+                .is_const = is_const,
+                .is_volatile = is_volatile,
+                .elem_type = elem_type,
+            });
         },
         .ConstantArray => {
             const const_arr_ty = @as(*const clang.ConstantArrayType, @ptrCast(ty));

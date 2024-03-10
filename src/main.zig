@@ -30,7 +30,7 @@ const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
 
-pub const std_options = .{
+pub const std_options = std.Options{
     .wasiCwd = wasi_cwd,
     .logFn = log,
     .enable_segfault_handler = false,

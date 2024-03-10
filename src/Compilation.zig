@@ -2094,7 +2094,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
                 const handle = try comp.local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
                 errdefer handle.close();
 
-                break :d .{
+                break :d Directory{
                     .path = path,
                     .handle = handle,
                 };
@@ -2334,7 +2334,7 @@ fn flush(comp: *Compilation, arena: Allocator, prog_node: *std.Progress.Node) !v
 
         if (zcu.llvm_object) |llvm_object| {
             if (build_options.only_c) unreachable;
-            const default_emit = switch (comp.cache_use) {
+            try emitLlvmObject(comp, arena, switch (comp.cache_use) {
                 .whole => |whole| .{
                     .directory = whole.tmp_artifact_directory.?,
                     .sub_path = "dummy",
@@ -2343,8 +2343,7 @@ fn flush(comp: *Compilation, arena: Allocator, prog_node: *std.Progress.Node) !v
                     .directory = incremental.artifact_directory,
                     .sub_path = "dummy",
                 },
-            };
-            try emitLlvmObject(comp, arena, default_emit, null, llvm_object, prog_node);
+            }, null, llvm_object, prog_node);
         }
     }
 

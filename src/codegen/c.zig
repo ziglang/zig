@@ -2939,8 +2939,7 @@ pub fn genDecl(o: *Object) !void {
         if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
         if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection(\"{s}\", ", .{s});
-        const decl_c_value = .{ .decl = decl_index };
-        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.alignment, .complete);
+        try o.dg.renderTypeAndName(w, tv.ty, .{ .decl = decl_index }, .{}, decl.alignment, .complete);
         if (decl.@"linksection" != .none) try w.writeAll(", read, write)");
         try w.writeAll(" = ");
         try o.dg.renderValue(w, tv.ty, Value.fromInterned(variable.init), .StaticInitializer);
@@ -2948,8 +2947,7 @@ pub fn genDecl(o: *Object) !void {
         try o.indent_writer.insertNewline();
     } else {
         const is_global = o.dg.module.decl_exports.contains(decl_index);
-        const decl_c_value = .{ .decl = decl_index };
-        try genDeclValue(o, tv, is_global, decl_c_value, decl.alignment, decl.@"linksection");
+        try genDeclValue(o, tv, is_global, .{ .decl = decl_index }, decl.alignment, decl.@"linksection");
     }
 }
 
@@ -5242,7 +5240,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             const input_val = try f.resolveInst(input);
             try writer.print("{s}(", .{fmtStringLiteral(if (is_reg) "r" else constraint, null)});
             try f.writeCValue(writer, if (asmInputNeedsLocal(f, constraint, input_val)) local: {
-                const input_local = .{ .local = locals_index };
+                const input_local = CValue{ .local = locals_index };
                 locals_index += 1;
                 break :local input_local;
             } else input_val, .Other);
