@@ -9007,7 +9007,11 @@ fn analyzeErrUnionPayload(
     if (safety_check and block.wantSafety() and
         !err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod))
     {
-        try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
+        if (Package.Module.runtime_safety.unwrapped_error != .none) {
+            try RuntimeSafety.checkUnwrappedError(sema, block, src, operand, .unwrap_errunion_err, .is_non_err);
+        } else {
+            try sema.panicUnwrapError(block, src, operand, .unwrap_errunion_err, .is_non_err);
+        }
     }
 
     return block.addTyOp(.unwrap_errunion_payload, payload_ty, operand);
