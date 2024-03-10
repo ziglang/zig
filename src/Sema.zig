@@ -22711,21 +22711,32 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
             const err_code = try sema.analyzeErrUnionCode(block, operand_src, operand);
             const err_int = try block.addBitCast(err_int_ty, err_code);
             const zero_err = try mod.intRef(try mod.errorIntType(), 0);
-
             const is_zero = try block.addBinOp(.cmp_eq, err_int, zero_err);
             if (disjoint) {
                 // Error must be zero.
-                try sema.addSafetyCheck(block, src, is_zero, .invalid_error_code);
+                if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, err_code, is_zero);
+                } else {
+                    try sema.addSafetyCheck(block, src, is_zero, .invalid_error_code);
+                }
             } else {
                 // Error must be in destination set or zero.
                 const has_value = try block.addTyOp(.error_set_has_value, dest_ty, err_code);
                 const ok = try block.addBinOp(.bool_or, has_value, is_zero);
-                try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+                if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
+                    try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, err_code, ok);
+                } else {
+                    try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+                }
             }
         } else {
             const err_int_inst = try block.addBitCast(err_int_ty, operand);
             const ok = try block.addTyOp(.error_set_has_value, dest_ty, err_int_inst);
-            try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+            if (Package.Module.runtime_safety.cast_to_error_from_invalid != .none) {
+                try RuntimeSafety.checkCastToErrorFromInvalid(sema, block, src, dest_ty, operand_ty, operand, ok);
+            } else {
+                try sema.addSafetyCheck(block, src, ok, .invalid_error_code);
+            }
         }
     }
     return block.addBitCast(base_dest_ty, operand);
