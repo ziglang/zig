@@ -7820,7 +7820,11 @@ fn analyzeCall(
                     else => {},
                 }
             }
-            try sema.safetyPanic(block, call_src, .noreturn_returned);
+            if (Package.Module.runtime_safety.returned_noreturn != .none) {
+                try RuntimeSafety.panicReachedUnreachable(sema, block, call_src, .returned_noreturn);
+            } else {
+                try sema.safetyPanic(block, call_src, .noreturn_returned);
+            }
             return .unreachable_value;
         }
         if (func_ty_info.return_type == .noreturn_type) {
