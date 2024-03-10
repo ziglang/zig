@@ -91,7 +91,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 }
 
 fn testDeadStrip(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-dead-strip", opts);
+    const test_step = addTestStep(b, "dead-strip", opts);
 
     const obj = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
     \\#include <stdio.h>
@@ -172,7 +172,7 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
 }
 
 fn testDeadStripDylibs(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-dead-strip-dylibs", opts);
+    const test_step = addTestStep(b, "dead-strip-dylibs", opts);
 
     const main_o = addObject(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <objc/runtime.h>
@@ -221,7 +221,7 @@ fn testDeadStripDylibs(b: *Build, opts: Options) *Step {
 }
 
 fn testDylib(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-dylib", opts);
+    const test_step = addTestStep(b, "dylib", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
     \\#include<stdio.h>
@@ -258,7 +258,7 @@ fn testDylib(b: *Build, opts: Options) *Step {
 }
 
 fn testDylibVersionTbd(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-dylib-version-tbd", opts);
+    const test_step = addTestStep(b, "dylib-version-tbd", opts);
 
     const tbd = tbd: {
         const wf = WriteFile.create(b);
@@ -294,7 +294,7 @@ fn testDylibVersionTbd(b: *Build, opts: Options) *Step {
 }
 
 fn testEmptyObject(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-empty-object", opts);
+    const test_step = addTestStep(b, "empty-object", opts);
 
     const empty = addObject(b, opts, .{ .name = "empty", .c_source_bytes = "" });
 
@@ -314,7 +314,7 @@ fn testEmptyObject(b: *Build, opts: Options) *Step {
 }
 
 fn testEmptyZig(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-empty-zig", opts);
+    const test_step = addTestStep(b, "empty-zig", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "empty", .zig_source_bytes = "pub fn main() void {}" });
 
@@ -326,7 +326,7 @@ fn testEmptyZig(b: *Build, opts: Options) *Step {
 }
 
 fn testEntryPoint(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-entry-point", opts);
+    const test_step = addTestStep(b, "entry-point", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include<stdio.h>
@@ -357,7 +357,7 @@ fn testEntryPoint(b: *Build, opts: Options) *Step {
 }
 
 fn testEntryPointArchive(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-entry-point-archive", opts);
+    const test_step = addTestStep(b, "entry-point-archive", opts);
 
     const lib = addStaticLibrary(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
 
@@ -386,7 +386,7 @@ fn testEntryPointArchive(b: *Build, opts: Options) *Step {
 }
 
 fn testEntryPointDylib(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-entry-point-dylib", opts);
+    const test_step = addTestStep(b, "entry-point-dylib", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a" });
     addCSourceBytes(dylib,
@@ -440,7 +440,7 @@ fn testEntryPointDylib(b: *Build, opts: Options) *Step {
 }
 
 fn testHeaderpad(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-headerpad", opts);
+    const test_step = addTestStep(b, "headerpad", opts);
 
     const addExe = struct {
         fn addExe(bb: *Build, o: Options, name: []const u8) *Compile {
@@ -548,7 +548,7 @@ fn testHeaderpad(b: *Build, opts: Options) *Step {
 
 // Adapted from https://github.com/llvm/llvm-project/blob/main/lld/test/MachO/weak-header-flags.s
 fn testHeaderWeakFlags(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-header-weak-flags", opts);
+    const test_step = addTestStep(b, "header-weak-flags", opts);
 
     const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
     \\.globl _x
@@ -635,7 +635,7 @@ fn testHeaderWeakFlags(b: *Build, opts: Options) *Step {
 }
 
 fn testHelloC(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-hello-c", opts);
+    const test_step = addTestStep(b, "hello-c", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <stdio.h>
@@ -659,7 +659,7 @@ fn testHelloC(b: *Build, opts: Options) *Step {
 }
 
 fn testHelloZig(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-hello-zig", opts);
+    const test_step = addTestStep(b, "hello-zig", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
     \\const std = @import("std");
@@ -676,7 +676,7 @@ fn testHelloZig(b: *Build, opts: Options) *Step {
 }
 
 fn testLargeBss(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-large-bss", opts);
+    const test_step = addTestStep(b, "large-bss", opts);
 
     // TODO this test used use a 4GB zerofill section but this actually fails and causes every
     // linker I tried misbehave in different ways. This only happened on arm64. I thought that
@@ -697,7 +697,7 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
 }
 
 fn testLayout(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-layout", opts);
+    const test_step = addTestStep(b, "layout", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <stdio.h>
@@ -816,7 +816,7 @@ fn testLayout(b: *Build, opts: Options) *Step {
 }
 
 fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-link-directly-cpp-tbd", opts);
+    const test_step = addTestStep(b, "link-directly-cpp-tbd", opts);
 
     const sdk = std.zig.system.darwin.getSdk(b.allocator, opts.target.result) orelse
         @panic("macOS SDK is required to run the test");
@@ -887,7 +887,7 @@ fn testLinkingStaticLib(b: *Build, opts: Options) *Step {
 }
 
 fn testLinksection(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-linksection", opts);
+    const test_step = addTestStep(b, "linksection", opts);
 
     const obj = addObject(b, opts, .{ .name = "main", .zig_source_bytes = 
     \\export var test_global: u32 linksection("__DATA,__TestGlobal") = undefined;
@@ -914,7 +914,7 @@ fn testLinksection(b: *Build, opts: Options) *Step {
 }
 
 fn testMhExecuteHeader(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-mh-execute-header", opts);
+    const test_step = addTestStep(b, "mh-execute-header", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
 
@@ -927,7 +927,7 @@ fn testMhExecuteHeader(b: *Build, opts: Options) *Step {
 }
 
 fn testNoDeadStrip(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-no-dead-strip", opts);
+    const test_step = addTestStep(b, "no-dead-strip", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "name", .c_source_bytes = 
     \\__attribute__((used)) int bogus1 = 0;
@@ -954,7 +954,7 @@ fn testNoDeadStrip(b: *Build, opts: Options) *Step {
 }
 
 fn testNoExportsDylib(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-no-exports-dylib", opts);
+    const test_step = addTestStep(b, "no-exports-dylib", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = "static void abc() {}" });
 
@@ -967,7 +967,7 @@ fn testNoExportsDylib(b: *Build, opts: Options) *Step {
 }
 
 fn testNeededFramework(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-needed-framework", opts);
+    const test_step = addTestStep(b, "needed-framework", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
     exe.root_module.linkFramework("Cocoa", .{ .needed = true });
@@ -987,7 +987,7 @@ fn testNeededFramework(b: *Build, opts: Options) *Step {
 }
 
 fn testNeededLibrary(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-needed-library", opts);
+    const test_step = addTestStep(b, "needed-library", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = "int a = 42;" });
 
@@ -1011,7 +1011,7 @@ fn testNeededLibrary(b: *Build, opts: Options) *Step {
 }
 
 fn testObjc(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-objc", opts);
+    const test_step = addTestStep(b, "objc", opts);
 
     const lib = addStaticLibrary(b, opts, .{ .name = "a", .objc_source_bytes = 
     \\#import <Foundation/Foundation.h>
@@ -1058,7 +1058,7 @@ fn testObjc(b: *Build, opts: Options) *Step {
 }
 
 fn testObjcpp(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-objcpp", opts);
+    const test_step = addTestStep(b, "objcpp", opts);
 
     const foo_h = foo_h: {
         const wf = WriteFile.create(b);
@@ -1111,7 +1111,7 @@ fn testObjcpp(b: *Build, opts: Options) *Step {
 }
 
 fn testPagezeroSize(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-pagezero-size", opts);
+    const test_step = addTestStep(b, "pagezero-size", opts);
 
     {
         const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main () { return 0; }" });
@@ -1145,7 +1145,7 @@ fn testPagezeroSize(b: *Build, opts: Options) *Step {
 }
 
 fn testReexportsZig(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-reexports-zig", opts);
+    const test_step = addTestStep(b, "reexports-zig", opts);
 
     const lib = addStaticLibrary(b, opts, .{ .name = "a", .zig_source_bytes = 
     \\const x: i32 = 42;
@@ -1174,7 +1174,7 @@ fn testReexportsZig(b: *Build, opts: Options) *Step {
 }
 
 fn testRelocatable(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-relocatable", opts);
+    const test_step = addTestStep(b, "relocatable", opts);
 
     const a_o = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
     \\#include <stdexcept>
@@ -1242,7 +1242,7 @@ fn testRelocatable(b: *Build, opts: Options) *Step {
 }
 
 fn testRelocatableZig(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-relocatable-zig", opts);
+    const test_step = addTestStep(b, "relocatable-zig", opts);
 
     const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
     \\const std = @import("std");
@@ -1293,7 +1293,7 @@ fn testRelocatableZig(b: *Build, opts: Options) *Step {
 }
 
 fn testSearchStrategy(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-search-strategy", opts);
+    const test_step = addTestStep(b, "search-strategy", opts);
 
     const obj = addObject(b, opts, .{ .name = "a", .c_source_bytes = 
     \\#include<stdio.h>
@@ -1361,7 +1361,7 @@ fn testSearchStrategy(b: *Build, opts: Options) *Step {
 }
 
 fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-section-boundary-symbols", opts);
+    const test_step = addTestStep(b, "section-boundary-symbols", opts);
 
     const obj1 = addObject(b, opts, .{
         .name = "obj1",
@@ -1441,7 +1441,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
 }
 
 fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-segment-boundary-symbols", opts);
+    const test_step = addTestStep(b, "segment-boundary-symbols", opts);
 
     const obj1 = addObject(b, opts, .{ .name = "a", .cpp_source_bytes = 
     \\constexpr const char* MESSAGE __attribute__((used, section("__DATA_CONST_1,__message_ptr"))) = "codebase";
@@ -1509,7 +1509,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
 }
 
 fn testStackSize(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-stack-size", opts);
+    const test_step = addTestStep(b, "stack-size", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
     exe.stack_size = 0x100000000;
@@ -1528,7 +1528,7 @@ fn testStackSize(b: *Build, opts: Options) *Step {
 }
 
 fn testTbdv3(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-tbdv3", opts);
+    const test_step = addTestStep(b, "tbdv3", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = "int getFoo() { return 42; }" });
 
@@ -1566,7 +1566,7 @@ fn testTbdv3(b: *Build, opts: Options) *Step {
 }
 
 fn testTentative(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-tentative", opts);
+    const test_step = addTestStep(b, "tentative", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main" });
     addCSourceBytes(exe,
@@ -1592,7 +1592,7 @@ fn testTentative(b: *Build, opts: Options) *Step {
 }
 
 fn testThunks(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-thunks", opts);
+    const test_step = addTestStep(b, "thunks", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <stdio.h>
@@ -1621,7 +1621,7 @@ fn testThunks(b: *Build, opts: Options) *Step {
 }
 
 fn testTls(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-tls", opts);
+    const test_step = addTestStep(b, "tls", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
     \\_Thread_local int a;
@@ -1655,7 +1655,7 @@ fn testTls(b: *Build, opts: Options) *Step {
 }
 
 fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-tls-large-tbss", opts);
+    const test_step = addTestStep(b, "tls-large-tbss", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <stdio.h>
@@ -1676,7 +1676,7 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
 }
 
 fn testTwoLevelNamespace(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-two-level-namespace", opts);
+    const test_step = addTestStep(b, "two-level-namespace", opts);
 
     const liba = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
     \\#include <stdio.h>
@@ -1796,7 +1796,7 @@ fn testTwoLevelNamespace(b: *Build, opts: Options) *Step {
 }
 
 fn testUndefinedFlag(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-undefined-flag", opts);
+    const test_step = addTestStep(b, "undefined-flag", opts);
 
     const obj = addObject(b, opts, .{ .name = "a", .c_source_bytes = "int foo = 42;" });
 
@@ -1873,7 +1873,7 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
 }
 
 fn testUnwindInfo(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-unwind-info", opts);
+    const test_step = addTestStep(b, "unwind-info", opts);
 
     const all_h = all_h: {
         const wf = WriteFile.create(b);
@@ -2031,7 +2031,7 @@ fn testUnwindInfo(b: *Build, opts: Options) *Step {
 }
 
 fn testUnwindInfoNoSubsectionsArm64(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-unwind-info-no-subsections-arm64", opts);
+    const test_step = addTestStep(b, "unwind-info-no-subsections-arm64", opts);
 
     const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
     \\.globl _foo
@@ -2091,7 +2091,7 @@ fn testUnwindInfoNoSubsectionsArm64(b: *Build, opts: Options) *Step {
 }
 
 fn testUnwindInfoNoSubsectionsX64(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-unwind-info-no-subsections-x64", opts);
+    const test_step = addTestStep(b, "unwind-info-no-subsections-x64", opts);
 
     const a_o = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
     \\.globl _foo
@@ -2144,7 +2144,7 @@ fn testUnwindInfoNoSubsectionsX64(b: *Build, opts: Options) *Step {
 
 // Adapted from https://github.com/llvm/llvm-project/blob/main/lld/test/MachO/weak-binding.s
 fn testWeakBind(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-weak-bind", opts);
+    const test_step = addTestStep(b, "weak-bind", opts);
 
     const lib = addSharedLibrary(b, opts, .{ .name = "foo", .asm_source_bytes = 
     \\.globl _weak_dysym
@@ -2275,7 +2275,7 @@ fn testWeakBind(b: *Build, opts: Options) *Step {
 }
 
 fn testWeakFramework(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-weak-framework", opts);
+    const test_step = addTestStep(b, "weak-framework", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = "int main() { return 0; }" });
     exe.root_module.linkFramework("Cocoa", .{ .weak = true });
@@ -2294,7 +2294,7 @@ fn testWeakFramework(b: *Build, opts: Options) *Step {
 }
 
 fn testWeakLibrary(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-weak-library", opts);
+    const test_step = addTestStep(b, "weak-library", opts);
 
     const dylib = addSharedLibrary(b, opts, .{ .name = "a", .c_source_bytes = 
     \\#include<stdio.h>
@@ -2337,7 +2337,7 @@ fn testWeakLibrary(b: *Build, opts: Options) *Step {
 }
 
 fn testWeakRef(b: *Build, opts: Options) *Step {
-    const test_step = addTestStep(b, "macho-weak-ref", opts);
+    const test_step = addTestStep(b, "weak-ref", opts);
 
     const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
     \\#include <stdio.h>
@@ -2356,7 +2356,7 @@ fn testWeakRef(b: *Build, opts: Options) *Step {
 }
 
 fn addTestStep(b: *Build, comptime prefix: []const u8, opts: Options) *Step {
-    return link.addTestStep(b, "macho-" ++ prefix, opts);
+    return link.addTestStep(b, "" ++ prefix, opts);
 }
 
 const builtin = @import("builtin");
