@@ -183,6 +183,19 @@ panic_messages: [PanicId.len]Decl.OptionalIndex = .{.none} ** PanicId.len,
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
 
+safety: struct {
+    panic_cause_ty: Type = .{ .ip_index = .none },
+    panic_cast_ty: Type = .{ .ip_index = .none },
+    panic_fn_inst: Air.Inst.Ref = .none,
+    panic_extra_fn_inst: Air.Inst.Ref = .none,
+    null_st: InternPool.Index = .none,
+    null_addr: InternPool.Index = .none,
+
+    // ATTENTION Remove when testing is complete
+    is_named_enum_value_fn_inst: Air.Inst.Ref = .none,
+    error_set_has_value_fn_inst: Air.Inst.Ref = .none,
+} = .{},
+
 pub const PanicId = enum {
     unreach,
     unwrap_null,
