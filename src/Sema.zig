@@ -28204,7 +28204,11 @@ fn unionFieldVal(
         const wanted_tag_val = try mod.enumValueFieldIndex(Type.fromInterned(union_obj.enum_tag_ty), enum_field_index);
         const wanted_tag = Air.internedToRef(wanted_tag_val.toIntern());
         const active_tag = try block.addTyOp(.get_union_tag, Type.fromInterned(union_obj.enum_tag_ty), union_byval);
-        try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
+        if (Package.Module.runtime_safety.accessed_inactive_field != .none) {
+            try RuntimeSafety.checkAccessInactiveUnionField(sema, block, src, active_tag, wanted_tag);
+        } else {
+            try sema.panicInactiveUnionField(block, src, active_tag, wanted_tag);
+        }
     }
     if (field_ty.zigTypeTag(mod) == .NoReturn) {
         _ = try block.addNoOp(.unreach);
