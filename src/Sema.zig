@@ -28707,7 +28707,11 @@ fn elemValSlice(
         else
             try block.addTyOp(.slice_len, Type.usize, slice);
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
-        try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
+        if (Package.Module.runtime_safety.accessed_out_of_bounds != .none) {
+            try RuntimeSafety.checkAccessOutOfBounds(sema, block, src, elem_index, len_inst, cmp_op);
+        } else {
+            try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
+        }
     }
     try sema.queueFullTypeResolution(sema.typeOf(slice));
     return block.addBinOp(.slice_elem_val, slice, elem_index);
