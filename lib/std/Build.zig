@@ -1568,21 +1568,22 @@ pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *S
     return Step.ObjCopy.create(b, source, options);
 }
 
-///`dest_rel_path` is relative to install prefix path
+/// `dest_rel_path` is relative to install prefix path
 pub fn addInstallFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .prefix, dest_rel_path);
 }
 
-///`dest_rel_path` is relative to bin path
+/// `dest_rel_path` is relative to bin path
 pub fn addInstallBinFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .bin, dest_rel_path);
 }
 
-///`dest_rel_path` is relative to lib path
+/// `dest_rel_path` is relative to lib path
 pub fn addInstallLibFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .lib, dest_rel_path);
 }
 
+/// `dest_rel_path` is relative to header path
 pub fn addInstallHeaderFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
     return b.addInstallFileWithDir(source, .header, dest_rel_path);
 }

@@ -446,6 +446,9 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     return self;
 }
 
+/// Marks the specified header for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
 pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
     const installation: HeaderInstallation = .{ .file = .{
@@ -457,7 +460,10 @@ pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) 
     installation.getSource().addStepDependencies(&cs.step);
 }
 
-pub fn installHeaders(
+/// Marks headers from the specified directory for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
+pub fn installHeadersDirectory(
     cs: *Compile,
     source: LazyPath,
     dest_rel_path: []const u8,
@@ -474,10 +480,16 @@ pub fn installHeaders(
     installation.getSource().addStepDependencies(&cs.step);
 }
 
+/// Marks the specified config header for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
 pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void {
     cs.installHeader(config_header.getOutput(), config_header.include_path);
 }
 
+/// Forwards all headers marked for installation from `lib` to this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
 pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
     assert(lib.kind == .lib);
     const b = cs.step.owner;

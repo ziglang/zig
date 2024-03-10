@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
         \\}
     ) });
 
-    libfoo.installHeaders(.{ .path = "include" }, "foo", .{ .exclude_extensions = &.{".ignore_me.h"} });
+    libfoo.installHeadersDirectory(.{ .path = "include" }, "foo", .{ .exclude_extensions = &.{".ignore_me.h"} });
     libfoo.installHeader(b.addWriteFiles().add("d.h",
         \\#define FOO_D "D"
         \\
