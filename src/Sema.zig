@@ -15294,7 +15294,11 @@ fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 break :ok is_in_range;
             }
         };
-        try sema.addSafetyCheck(block, src, ok, .exact_division_remainder);
+        if (Package.Module.runtime_safety.div_with_remainder != .none) {
+            try RuntimeSafety.checkArithmeticOverflow(sema, block, src, resolved_type, casted_lhs, casted_rhs, ok, .div_exact);
+        } else {
+            try sema.addSafetyCheck(block, src, ok, .exact_division_remainder);
+        }
         return result;
     }
 
