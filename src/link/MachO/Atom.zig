@@ -700,7 +700,7 @@ fn resolveRelocInner(
                         const S_: i64 = @intCast(thunk.getTargetAddress(rel.target, macho_file));
                         break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                     };
-                    try aarch64.writeBranchImm(disp, code[rel_offset..][0..4]);
+                    aarch64.writeBranchImm(disp, code[rel_offset..][0..4]);
                 },
                 else => unreachable,
             }
@@ -771,7 +771,7 @@ fn resolveRelocInner(
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
             const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(source, target)));
-            try aarch64.writePages(pages, code[rel_offset..][0..4]);
+            aarch64.writeAdrpInst(pages, code[rel_offset..][0..4]);
         },
 
         .pageoff => {
@@ -780,8 +780,26 @@ fn resolveRelocInner(
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, S + A) orelse return error.Overflow;
             const inst_code = code[rel_offset..][0..4];
-            const kind = aarch64.classifyInst(inst_code);
-            try aarch64.writePageOffset(kind, target, inst_code);
+            if (aarch64.isArithmeticOp(inst_code)) {
+                aarch64.writeAddImmInst(@truncate(target), inst_code);
+            } else {
+                var inst = aarch64.Instruction{
+                    .load_store_register = mem.bytesToValue(std.meta.TagPayload(
+                        aarch64.Instruction,
+                        aarch64.Instruction.load_store_register,
+                    ), inst_code),
+                };
+                inst.load_store_register.offset = switch (inst.load_store_register.size) {
+                    0 => if (inst.load_store_register.v == 1)
+                        try math.divExact(u12, @truncate(target), 16)
+                    else
+                        @truncate(target),
+                    1 => try math.divExact(u12, @truncate(target), 2),
+                    2 => try math.divExact(u12, @truncate(target), 4),
+                    3 => try math.divExact(u12, @truncate(target), 8),
+                };
+                try writer.writeInt(u32, inst.toU32(), .little);
+            }
         },
 
         .got_load_pageoff => {
@@ -789,7 +807,7 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, G + A) orelse return error.Overflow;
-            try aarch64.writePageOffset(.load_store_64, target, code[rel_offset..][0..4]);
+            aarch64.writeLoadStoreRegInst(try math.divExact(u12, @truncate(target), 8), code[rel_offset..][0..4]);
         },
 
         .tlvp_pageoff => {
@@ -841,7 +859,7 @@ fn resolveRelocInner(
                 .load_store_register = .{
                     .rt = reg_info.rd,
                     .rn = reg_info.rn,
-                    .offset = try aarch64.calcPageOffset(.load_store_64, target),
+                    .offset = try math.divExact(u12, @truncate(target), 8),
                     .opc = 0b01,
                     .op1 = 0b01,
                     .v = 0,
@@ -851,7 +869,7 @@ fn resolveRelocInner(
                 .add_subtract_immediate = .{
                     .rd = reg_info.rd,
                     .rn = reg_info.rn,
-                    .imm12 = try aarch64.calcPageOffset(.arithmetic, target),
+                    .imm12 = @truncate(target),
                     .sh = 0,
                     .s = 0,
                     .op = 0,

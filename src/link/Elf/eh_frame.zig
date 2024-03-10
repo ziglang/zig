@@ -214,6 +214,7 @@ pub const Iterator = struct {
         const reader = stream.reader();
 
         const size = try reader.readInt(u32, .little);
+        if (size == 0) return null;
         if (size == 0xFFFFFFFF) @panic("TODO");
 
         const id = try reader.readInt(u32, .little);

@@ -371,17 +371,16 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
     const relocs_shndx = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_RELA => if (shdr.sh_info == shndx) break @as(u32, @intCast(i)),
         else => {},
-    } else {
-        // TODO: convert into an error
-        log.debug("{s}: missing reloc section for unwind info section", .{self.fmtPath()});
-        return;
-    };
+    } else null;
 
     const raw = try self.preadShdrContentsAlloc(allocator, handle, shndx);
     defer allocator.free(raw);
     const data_start = @as(u32, @intCast(self.eh_frame_data.items.len));
     try self.eh_frame_data.appendSlice(allocator, raw);
-    const relocs = try self.preadRelocsAlloc(allocator, handle, relocs_shndx);
+    const relocs = if (relocs_shndx) |index|
+        try self.preadRelocsAlloc(allocator, handle, index)
+    else
+        &[0]elf.Elf64_Rela{};
     defer allocator.free(relocs);
     const rel_start = @as(u32, @intCast(self.relocs.items.len));
     try self.relocs.appendUnalignedSlice(allocator, relocs);
