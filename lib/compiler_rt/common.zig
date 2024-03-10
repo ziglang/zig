@@ -67,11 +67,21 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test compiler-rt.
+/// TODO: Remove this.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = error_return_trace;
     if (builtin.is_test) {
         @setCold(true);
         std.debug.panic("{s}", .{msg});
+    } else {
+        unreachable;
+    }
+}
+/// TODO: Rename to `panic` when old interface is removed.
+pub fn panicNew(comptime cause: std.builtin.PanicCause, data: std.builtin.PanicData(cause)) noreturn {
+    if (builtin.is_test) {
+        @setCold(true);
+        std.debug.panic("{any}", .{data});
     } else {
         unreachable;
     }
