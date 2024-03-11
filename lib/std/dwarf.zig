@@ -1,3 +1,5 @@
+//! DWARF debugging data format.
+
 const builtin = @import("builtin");
 const std = @import("std.zig");
 const debug = std.debug;

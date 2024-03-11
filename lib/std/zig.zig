@@ -1,3 +1,7 @@
+//! Builds of the Zig compiler are distributed partly in source form. That
+//! source lives here. These APIs are provided as-is and have absolutely no API
+//! guarantees whatsoever.
+
 pub const ErrorBundle = @import("zig/ErrorBundle.zig");
 pub const Server = @import("zig/Server.zig");
 pub const Client = @import("zig/Client.zig");

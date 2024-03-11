@@ -1,3 +1,5 @@
+//! File System.
+
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const root = @import("root");

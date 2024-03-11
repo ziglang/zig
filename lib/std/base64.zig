@@ -1,3 +1,5 @@
+//! Base64 encoding/decoding.
+
 const std = @import("std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
