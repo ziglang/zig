@@ -853,6 +853,13 @@ pub fn addCliTests(b: *std.Build) *Step {
             \\    _ = error_return_trace;
             \\    zig_panic();
             \\}
+            \\pub fn panicNew(
+            \\    comptime panic_cause: @import("std").builtin.PanicCause,
+            \\    _: @import("std").builtin.PanicData(panic_cause),
+            \\) noreturn {
+            \\    zig_panic();
+            \\}
+            \\
         );
 
         // This is intended to be the exact CLI usage used by godbolt.org.
