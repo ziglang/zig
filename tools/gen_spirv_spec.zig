@@ -48,15 +48,12 @@ pub fn main() !void {
     const a = arena.allocator();
 
     const args = try std.process.argsAlloc(a);
-    if (args.len != 2) {
+    if (args.len != 3) {
         usageAndExit(args[0], 1);
     }
 
     const json_path = try std.fs.path.join(a, &.{ args[1], "include/spirv/unified1/" });
     const dir = try std.fs.cwd().openDir(json_path, .{ .iterate = true });
-
-    // const spec_path = try std.fs.path.join(a, &.{spirv_headers_dir_path, "spirv.core.grammar.json"});
-    // const core_spec = try std.fs.cwd().readFileAlloc(a, spec_path, std.math.maxInt(usize));
 
     const core_spec = try readRegistry(CoreRegistry, a, dir, "spirv.core.grammar.json");
     std.sort.block(Instruction, core_spec.instructions, CmpInst{}, CmpInst.lt);
@@ -65,22 +62,33 @@ pub fn main() !void {
 
     var it = dir.iterate();
     while (try it.next()) |entry| {
-        if (entry.kind != .file or !std.mem.startsWith(u8, entry.name, "extinst.")) {
+        if (entry.kind != .file) {
             continue;
         }
 
-        std.debug.assert(std.mem.endsWith(u8, entry.name, ".grammar.json"));
-        const name = entry.name["extinst.".len .. entry.name.len - ".grammar.json".len];
-        const spec = try readRegistry(ExtensionRegistry, a, dir, entry.name);
-
-        std.sort.block(Instruction, spec.instructions, CmpInst{}, CmpInst.lt);
-
-        try exts.append(.{ .name = try a.dupe(u8, name), .spec = spec });
+        try readExtRegistry(&exts, a, dir, entry.name);
     }
+
+    try readExtRegistry(&exts, a, std.fs.cwd(), args[2]);
 
     var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
     try render(bw.writer(), a, core_spec, exts.items);
     try bw.flush();
+}
+
+fn readExtRegistry(exts: *std.ArrayList(Extension), a: Allocator, dir: std.fs.Dir, sub_path: []const u8) !void {
+    const filename = std.fs.path.basename(sub_path);
+    if (!std.mem.startsWith(u8, filename, "extinst.")) {
+        return;
+    }
+
+    std.debug.assert(std.mem.endsWith(u8, filename, ".grammar.json"));
+    const name = filename["extinst.".len .. filename.len - ".grammar.json".len];
+    const spec = try readRegistry(ExtensionRegistry, a, dir, sub_path);
+
+    std.sort.block(Instruction, spec.instructions, CmpInst{}, CmpInst.lt);
+
+    try exts.append(.{ .name = try a.dupe(u8, name), .spec = spec });
 }
 
 fn readRegistry(comptime RegistryType: type, a: Allocator, dir: std.fs.Dir, path: []const u8) !RegistryType {
@@ -374,14 +382,19 @@ fn renderInstructionClass(writer: anytype, class: []const u8) !void {
 }
 
 fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
-    try writer.writeAll("pub const OperandKind = enum {\n");
+    try writer.writeAll(
+        \\pub const OperandKind = enum {
+        \\    Opcode,
+        \\
+    );
     for (operands) |operand| {
         try writer.print("{},\n", .{std.zig.fmtId(operand.kind)});
     }
     try writer.writeAll(
         \\
         \\pub fn category(self: OperandKind) OperandCategory {
-        \\return switch (self) {
+        \\    return switch (self) {
+        \\        .Opcode => .literal,
         \\
     );
     for (operands) |operand| {
@@ -395,10 +408,11 @@ fn renderOperandKind(writer: anytype, operands: []const OperandKind) !void {
         try writer.print(".{} => .{s},\n", .{ std.zig.fmtId(operand.kind), cat });
     }
     try writer.writeAll(
-        \\};
+        \\    };
         \\}
         \\pub fn enumerants(self: OperandKind) []const Enumerant {
-        \\return switch (self) {
+        \\    return switch (self) {
+        \\        .Opcode => unreachable,
         \\
     );
     for (operands) |operand| {
@@ -483,7 +497,9 @@ fn renderOpcodes(
         try writer.print("{} = {},\n", .{ std.zig.fmtId(inst.opname), inst.opcode });
     }
 
-    try writer.writeByte('\n');
+    try writer.writeAll(
+        \\
+    );
 
     for (aliases.items) |alias| {
         try writer.print("pub const {} = Opcode.{};\n", .{
@@ -495,7 +511,7 @@ fn renderOpcodes(
     try writer.writeAll(
         \\
         \\pub fn Operands(comptime self: Opcode) type {
-        \\return switch (self) {
+        \\    return switch (self) {
         \\
     );
 
@@ -505,10 +521,10 @@ fn renderOpcodes(
     }
 
     try writer.writeAll(
-        \\};
+        \\    };
         \\}
         \\pub fn class(self: Opcode) Class {
-        \\return switch (self) {
+        \\    return switch (self) {
         \\
     );
 
@@ -519,7 +535,12 @@ fn renderOpcodes(
         try writer.writeAll(",\n");
     }
 
-    try writer.writeAll("};\n}\n};\n");
+    try writer.writeAll(
+        \\   };
+        \\}
+        \\};
+        \\
+    );
 }
 
 fn renderOperandKinds(
@@ -844,7 +865,7 @@ fn parseHexInt(text: []const u8) !u31 {
 
 fn usageAndExit(arg0: []const u8, code: u8) noreturn {
     std.io.getStdErr().writer().print(
-        \\Usage: {s} <SPIRV-Headers repository path>
+        \\Usage: {s} <SPIRV-Headers repository path> <path/to/zig/src/codegen/spirv/extinst.zig.grammar.json>
         \\
         \\Generates Zig bindings for SPIR-V specifications found in the SPIRV-Headers
         \\repository. The result, printed to stdout, should be used to update

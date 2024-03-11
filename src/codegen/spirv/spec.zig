@@ -102,6 +102,7 @@ pub const Class = enum {
 };
 
 pub const OperandKind = enum {
+    Opcode,
     ImageOperands,
     FPFastMathMode,
     SelectionControl,
@@ -187,6 +188,7 @@ pub const OperandKind = enum {
 
     pub fn category(self: OperandKind) OperandCategory {
         return switch (self) {
+            .Opcode => .literal,
             .ImageOperands => .bit_enum,
             .FPFastMathMode => .bit_enum,
             .SelectionControl => .bit_enum,
@@ -273,6 +275,7 @@ pub const OperandKind = enum {
     }
     pub fn enumerants(self: OperandKind) []const Enumerant {
         return switch (self) {
+            .Opcode => unreachable,
             .ImageOperands => &[_]Enumerant{
                 .{ .name = "Bias", .value = 0x0001, .parameters = &[_]OperandKind{.IdRef} },
                 .{ .name = "Lod", .value = 0x0002, .parameters = &[_]OperandKind{.IdRef} },
@@ -2104,7 +2107,6 @@ pub const Opcode = enum(u16) {
     OpGroupLogicalXorKHR = 6408,
     OpMaskedGatherINTEL = 6428,
     OpMaskedScatterINTEL = 6429,
-
     pub const OpSDotKHR = Opcode.OpSDot;
     pub const OpUDotKHR = Opcode.OpUDot;
     pub const OpSUDotKHR = Opcode.OpSUDot;
@@ -5278,6 +5280,7 @@ pub const InstructionSet = enum {
     @"nonsemantic.debugprintf",
     @"spv-amd-shader-explicit-vertex-parameter",
     @"nonsemantic.debugbreak",
+    zig,
 
     pub fn instructions(self: InstructionSet) []const Instruction {
         return switch (self) {
@@ -16503,6 +16506,15 @@ pub const InstructionSet = enum {
                     .name = "DebugBreak",
                     .opcode = 1,
                     .operands = &[_]Operand{},
+                },
+            },
+            .zig => &[_]Instruction{
+                .{
+                    .name = "InvocationGlobal",
+                    .opcode = 0,
+                    .operands = &[_]Operand{
+                        .{ .kind = .IdRef, .quantifier = .required },
+                    },
                 },
             },
         };
