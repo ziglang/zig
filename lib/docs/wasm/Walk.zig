@@ -1,21 +1,26 @@
 //! Find and annotate identifiers with links to their declarations.
 pub var files: std.StringArrayHashMapUnmanaged(File) = .{};
 pub var decls: std.ArrayListUnmanaged(Decl) = .{};
-pub var packages: std.StringArrayHashMapUnmanaged(File.Index) = .{};
+pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .{};
 
-arena: std.mem.Allocator,
 file: File.Index,
 
 /// keep in sync with "CAT_" constants in main.js
 pub const Category = union(enum(u8)) {
     namespace: Ast.Node.Index,
     global_variable: Ast.Node.Index,
+    /// A function that has not been detected as returning a type.
     function: Ast.Node.Index,
     primitive: Ast.Node.Index,
     error_set: Ast.Node.Index,
     global_const: Ast.Node.Index,
     alias: Decl.Index,
+    /// A primitive identifier that is also a type.
     type,
+    /// Specifically it is the literal `type`.
+    type_type,
+    /// A function that returns a type.
+    type_function: Ast.Node.Index,
 
     pub const Tag = @typeInfo(Category).Union.tag_type.?;
 };
@@ -30,10 +35,21 @@ pub const File = struct {
     node_decls: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Decl.Index) = .{},
     /// Maps function declarations to doctests.
     doctests: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
+    /// root node => its namespace scope
+    /// struct/union/enum/opaque decl node => its namespace scope
+    /// local var decl node => its local variable scope
+    scopes: std.AutoArrayHashMapUnmanaged(Ast.Node.Index, *Scope) = .{},
 
     pub fn lookup_token(file: *File, token: Ast.TokenIndex) Decl.Index {
         const decl_node = file.ident_decls.get(token) orelse return .none;
         return file.node_decls.get(decl_node) orelse return .none;
+    }
+
+    pub fn field_count(file: *const File, node: Ast.Node.Index) u32 {
+        const scope = file.scopes.get(node) orelse return 0;
+        if (scope.tag != .namespace) return 0;
+        const namespace = @fieldParentPtr(Scope.Namespace, "base", scope);
+        return namespace.field_count;
     }
 
     pub const Index = enum(u32) {
@@ -90,16 +106,41 @@ pub const File = struct {
                 .fn_proto_one,
                 .fn_proto_simple,
                 .fn_decl,
-                => return .{ .function = node },
+                => {
+                    var buf: [1]Ast.Node.Index = undefined;
+                    const full = ast.fullFnProto(&buf, node).?;
+                    return categorize_func(file_index, node, full);
+                },
 
                 else => unreachable,
             }
         }
 
+        pub fn categorize_func(
+            file_index: File.Index,
+            node: Ast.Node.Index,
+            full: Ast.full.FnProto,
+        ) Category {
+            return switch (categorize_expr(file_index, full.ast.return_type)) {
+                .namespace, .error_set, .type_type => .{ .type_function = node },
+                else => .{ .function = node },
+            };
+        }
+
+        pub fn categorize_expr_deep(file_index: File.Index, node: Ast.Node.Index) Category {
+            return switch (categorize_expr(file_index, node)) {
+                .alias => |aliasee| aliasee.get().categorize(),
+                else => |result| result,
+            };
+        }
+
         pub fn categorize_expr(file_index: File.Index, node: Ast.Node.Index) Category {
+            const file = file_index.get();
             const ast = file_index.get_ast();
             const node_tags = ast.nodes.items(.tag);
             const node_datas = ast.nodes.items(.data);
+            const main_tokens = ast.nodes.items(.main_token);
+            //log.debug("categorize_expr tag {s}", .{@tagName(node_tags[node])});
             return switch (node_tags[node]) {
                 .container_decl,
                 .container_decl_trailing,
@@ -116,24 +157,43 @@ pub const File = struct {
                 => .{ .namespace = node },
 
                 .error_set_decl,
+                .merge_error_sets,
                 => .{ .error_set = node },
 
                 .identifier => {
                     const name_token = ast.nodes.items(.main_token)[node];
                     const ident_name = ast.tokenSlice(name_token);
-                    if (std.zig.primitives.isPrimitive(ident_name)) {
-                        return .{ .primitive = node };
-                    }
+                    if (std.mem.eql(u8, ident_name, "type"))
+                        return .type_type;
 
-                    const decl_index = file_index.get().lookup_token(name_token);
-                    if (decl_index != .none) return .{ .alias = decl_index };
+                    if (isPrimitiveNonType(ident_name))
+                        return .{ .primitive = node };
+
+                    if (std.zig.primitives.isPrimitive(ident_name))
+                        return .type;
+
+                    if (file.ident_decls.get(name_token)) |decl_node| {
+                        const decl_index = file.node_decls.get(decl_node) orelse .none;
+                        if (decl_index != .none) return .{ .alias = decl_index };
+                        return categorize_decl(file_index, decl_node);
+                    }
 
                     return .{ .global_const = node };
                 },
 
                 .field_access => {
-                    // TODO:
-                    //return .alias;
+                    const object_node = node_datas[node].lhs;
+                    const dot_token = main_tokens[node];
+                    const field_ident = dot_token + 1;
+                    const field_name = ast.tokenSlice(field_ident);
+
+                    switch (categorize_expr(file_index, object_node)) {
+                        .alias => |aliasee| if (aliasee.get().get_child(field_name)) |decl_index| {
+                            return .{ .alias = decl_index };
+                        },
+                        else => {},
+                    }
+
                     return .{ .global_const = node };
                 },
 
@@ -154,7 +214,74 @@ pub const File = struct {
                     return categorize_builtin_call(file_index, node, params);
                 },
 
+                .call_one,
+                .call_one_comma,
+                .async_call_one,
+                .async_call_one_comma,
+                .call,
+                .call_comma,
+                .async_call,
+                .async_call_comma,
+                => {
+                    var buf: [1]Ast.Node.Index = undefined;
+                    return categorize_call(file_index, node, ast.fullCall(&buf, node).?);
+                },
+
+                .if_simple,
+                .@"if",
+                => {
+                    const if_full = ast.fullIf(node).?;
+                    if (if_full.ast.else_expr != 0) {
+                        const then_cat = categorize_expr_deep(file_index, if_full.ast.then_expr);
+                        const else_cat = categorize_expr_deep(file_index, if_full.ast.else_expr);
+                        if (then_cat == .type_type and else_cat == .type_type) {
+                            return .type_type;
+                        } else if (then_cat == .error_set and else_cat == .error_set) {
+                            return .{ .error_set = node };
+                        } else if (then_cat == .type or else_cat == .type or
+                            then_cat == .namespace or else_cat == .namespace or
+                            then_cat == .error_set or else_cat == .error_set or
+                            then_cat == .type_function or else_cat == .type_function)
+                        {
+                            return .type;
+                        }
+                    }
+                    return .{ .global_const = node };
+                },
+
+                .@"switch", .switch_comma => return categorize_switch(file_index, node),
+
+                .optional_type,
+                .array_type,
+                .array_type_sentinel,
+                .ptr_type_aligned,
+                .ptr_type_sentinel,
+                .ptr_type,
+                .ptr_type_bit_range,
+                .anyframe_type,
+                => .type,
+
                 else => .{ .global_const = node },
+            };
+        }
+
+        fn categorize_call(
+            file_index: File.Index,
+            node: Ast.Node.Index,
+            call: Ast.full.Call,
+        ) Category {
+            return switch (categorize_expr(file_index, call.ast.fn_expr)) {
+                .type_function => .type,
+                .alias => |aliasee| categorize_decl_as_callee(aliasee, node),
+                else => .{ .global_const = node },
+            };
+        }
+
+        fn categorize_decl_as_callee(decl_index: Decl.Index, call_node: Ast.Node.Index) Category {
+            return switch (decl_index.get().categorize()) {
+                .type_function => .type,
+                .alias => |aliasee| categorize_decl_as_callee(aliasee, call_node),
+                else => .{ .global_const = call_node },
             };
         }
 
@@ -172,6 +299,9 @@ pub const File = struct {
                 const str_bytes = ast.tokenSlice(str_lit_token);
                 const file_path = std.zig.string_literal.parseAlloc(gpa, str_bytes) catch @panic("OOM");
                 defer gpa.free(file_path);
+                if (modules.get(file_path)) |imported_file_index| {
+                    return .{ .alias = File.Index.findRootDecl(imported_file_index) };
+                }
                 const base_path = file_index.path();
                 const resolved_path = std.fs.path.resolvePosix(gpa, &.{
                     base_path, "..", file_path,
@@ -180,8 +310,8 @@ pub const File = struct {
                 log.debug("from '{s}' @import '{s}' resolved='{s}'", .{
                     base_path, file_path, resolved_path,
                 });
-                if (Walk.files.getIndex(resolved_path)) |imported_file_index| {
-                    return .{ .alias = Walk.File.Index.findRootDecl(@enumFromInt(imported_file_index)) };
+                if (files.getIndex(resolved_path)) |imported_file_index| {
+                    return .{ .alias = File.Index.findRootDecl(@enumFromInt(imported_file_index)) };
                 } else {
                     log.warn("import target '{s}' did not resolve to any file", .{resolved_path});
                 }
@@ -195,10 +325,47 @@ pub const File = struct {
 
             return .{ .global_const = node };
         }
+
+        fn categorize_switch(file_index: File.Index, node: Ast.Node.Index) Category {
+            const ast = file_index.get_ast();
+            const node_datas = ast.nodes.items(.data);
+            const extra = ast.extraData(node_datas[node].rhs, Ast.Node.SubRange);
+            const case_nodes = ast.extra_data[extra.start..extra.end];
+            var all_type_type = true;
+            var all_error_set = true;
+            var any_type = false;
+            if (case_nodes.len == 0) return .{ .global_const = node };
+            for (case_nodes) |case_node| {
+                const case = ast.fullSwitchCase(case_node).?;
+                switch (categorize_expr_deep(file_index, case.ast.target_expr)) {
+                    .type_type => {
+                        any_type = true;
+                        all_error_set = false;
+                    },
+                    .error_set => {
+                        any_type = true;
+                        all_type_type = false;
+                    },
+                    .type, .namespace, .type_function => {
+                        any_type = true;
+                        all_error_set = false;
+                        all_type_type = false;
+                    },
+                    else => {
+                        all_error_set = false;
+                        all_type_type = false;
+                    },
+                }
+            }
+            if (all_type_type) return .type_type;
+            if (all_error_set) return .{ .error_set = node };
+            if (any_type) return .type;
+            return .{ .global_const = node };
+        }
     };
 };
 
-pub const PackageIndex = enum(u32) {
+pub const ModuleIndex = enum(u32) {
     _,
 };
 
@@ -208,28 +375,25 @@ pub fn add_file(file_name: []const u8, bytes: []u8) !File.Index {
     try files.put(gpa, file_name, .{ .ast = ast });
 
     if (ast.errors.len > 0) {
-        // TODO: expose this in the UI
         log.err("can't index '{s}' because it has syntax errors", .{file_index.path()});
         return file_index;
     }
 
-    var arena_instance = std.heap.ArenaAllocator.init(gpa);
-    defer arena_instance.deinit();
-
     var w: Walk = .{
-        .arena = arena_instance.allocator(),
         .file = file_index,
     };
-    var scope: Scope = .{ .tag = .top };
+    const scope = try gpa.create(Scope);
+    scope.* = .{ .tag = .top };
 
     const decl_index = try file_index.add_decl(0, .none);
-    try struct_decl(&w, &scope, decl_index, ast.containerDeclRoot());
+    try struct_decl(&w, scope, decl_index, 0, ast.containerDeclRoot());
 
     const file = file_index.get();
     shrinkToFit(&file.ident_decls);
     shrinkToFit(&file.token_parents);
     shrinkToFit(&file.node_decls);
     shrinkToFit(&file.doctests);
+    shrinkToFit(&file.scopes);
 
     return file_index;
 }
@@ -250,7 +414,7 @@ fn parse(source: []u8) Oom!Ast {
     return Ast.parse(gpa, adjusted_source, .zig);
 }
 
-const Scope = struct {
+pub const Scope = struct {
     tag: Tag,
 
     const Tag = enum { top, local, namespace };
@@ -267,6 +431,7 @@ const Scope = struct {
         names: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .{},
         doctests: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .{},
         decl_index: Decl.Index,
+        field_count: u32,
     };
 
     fn getNamespaceDecl(start_scope: *Scope) Decl.Index {
@@ -284,7 +449,17 @@ const Scope = struct {
         };
     }
 
-    fn lookup(start_scope: *Scope, ast: *const Ast, name: []const u8) ?Ast.Node.Index {
+    pub fn get_child(scope: *Scope, name: []const u8) ?Ast.Node.Index {
+        switch (scope.tag) {
+            .top, .local => return null,
+            .namespace => {
+                const namespace = @fieldParentPtr(Namespace, "base", scope);
+                return namespace.names.get(name);
+            },
+        }
+    }
+
+    pub fn lookup(start_scope: *Scope, ast: *const Ast, name: []const u8) ?Ast.Node.Index {
         const main_tokens = ast.nodes.items(.main_token);
         var it: *Scope = start_scope;
         while (true) switch (it.tag) {
@@ -314,17 +489,21 @@ fn struct_decl(
     w: *Walk,
     scope: *Scope,
     parent_decl: Decl.Index,
+    node: Ast.Node.Index,
     container_decl: Ast.full.ContainerDecl,
 ) Oom!void {
     const ast = w.file.get_ast();
     const node_tags = ast.nodes.items(.tag);
     const node_datas = ast.nodes.items(.data);
 
-    var namespace: Scope.Namespace = .{
+    const namespace = try gpa.create(Scope.Namespace);
+    namespace.* = .{
         .parent = scope,
         .decl_index = parent_decl,
+        .field_count = 0,
     };
-    try w.scanDecls(&namespace, container_decl.ast.members);
+    try w.file.get().scopes.putNoClobber(gpa, node, &namespace.base);
+    try w.scanDecls(namespace, container_decl.ast.members);
 
     for (container_decl.ast.members) |member| switch (node_tags[member]) {
         .container_field_init,
@@ -584,7 +763,8 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
         => {
             const full = ast.fullAsm(node).?;
             for (full.ast.items) |n| {
-                // TODO handle .asm_input, .asm_output
+                // There is a missing call here to expr() for .asm_input and
+                // .asm_output nodes.
                 _ = n;
             }
             try expr(w, scope, parent_decl, full.ast.template);
@@ -701,7 +881,7 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
         .tagged_union_two_trailing,
         => {
             var buf: [2]Ast.Node.Index = undefined;
-            return struct_decl(w, scope, parent_decl, ast.fullContainerDecl(&buf, node).?);
+            return struct_decl(w, scope, parent_decl, node, ast.fullContainerDecl(&buf, node).?);
         },
 
         .array_type_sentinel => {
@@ -803,7 +983,6 @@ fn block(
     statements: []const Ast.Node.Index,
 ) Oom!void {
     const ast = w.file.get_ast();
-    const arena = w.arena;
     const node_tags = ast.nodes.items(.tag);
     const node_datas = ast.nodes.items(.data);
 
@@ -818,16 +997,17 @@ fn block(
             => {
                 const full = ast.fullVarDecl(node).?;
                 try global_var_decl(w, scope, parent_decl, full);
-                const local = try arena.create(Scope.Local);
+                const local = try gpa.create(Scope.Local);
                 local.* = .{
                     .parent = scope,
                     .var_node = node,
                 };
+                try w.file.get().scopes.putNoClobber(gpa, node, &local.base);
                 scope = &local.base;
             },
 
             .assign_destructure => {
-                // TODO
+                log.debug("walk assign_destructure not implemented yet", .{});
             },
 
             .grouped_expression => try expr(w, scope, parent_decl, node_datas[node].lhs),
@@ -849,7 +1029,6 @@ fn while_expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, full: Ast.full.W
 }
 
 fn scanDecls(w: *Walk, namespace: *Scope.Namespace, members: []const Ast.Node.Index) Oom!void {
-    const arena = w.arena;
     const ast = w.file.get_ast();
     const node_tags = ast.nodes.items(.tag);
     const main_tokens = ast.nodes.items(.main_token);
@@ -880,8 +1059,16 @@ fn scanDecls(w: *Walk, namespace: *Scope.Namespace, members: []const Ast.Node.In
                 const is_doctest = token_tags[ident_token] == .identifier;
                 if (is_doctest) {
                     const token_bytes = ast.tokenSlice(ident_token);
-                    try namespace.doctests.put(arena, token_bytes, member_node);
+                    try namespace.doctests.put(gpa, token_bytes, member_node);
                 }
+                continue;
+            },
+
+            .container_field_init,
+            .container_field_align,
+            .container_field,
+            => {
+                namespace.field_count += 1;
                 continue;
             },
 
@@ -889,8 +1076,15 @@ fn scanDecls(w: *Walk, namespace: *Scope.Namespace, members: []const Ast.Node.In
         };
 
         const token_bytes = ast.tokenSlice(name_token);
-        try namespace.names.put(arena, token_bytes, member_node);
+        try namespace.names.put(gpa, token_bytes, member_node);
     }
+}
+
+pub fn isPrimitiveNonType(name: []const u8) bool {
+    return std.mem.eql(u8, name, "undefined") or
+        std.mem.eql(u8, name, "null") or
+        std.mem.eql(u8, name, "true") or
+        std.mem.eql(u8, name, "false");
 }
 
 //test {

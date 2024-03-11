@@ -111,8 +111,35 @@ pub fn categorize(decl: *const Decl) Walk.Category {
     return decl.file.categorize_decl(decl.ast_node);
 }
 
+/// Looks up a direct child of `decl` by name.
+pub fn get_child(decl: *const Decl, name: []const u8) ?Decl.Index {
+    switch (decl.categorize()) {
+        .alias => |aliasee| return aliasee.get().get_child(name),
+        .namespace => |node| {
+            const file = decl.file.get();
+            const scope = file.scopes.get(node) orelse return null;
+            const child_node = scope.get_child(name) orelse return null;
+            return file.node_decls.get(child_node);
+        },
+        else => return null,
+    }
+}
+
+/// Looks up a decl by name accessible in `decl`'s namespace.
+pub fn lookup(decl: *const Decl, name: []const u8) ?Decl.Index {
+    const namespace_node = switch (decl.categorize()) {
+        .namespace => |node| node,
+        else => decl.parent.get().ast_node,
+    };
+    const file = decl.file.get();
+    const scope = file.scopes.get(namespace_node) orelse return null;
+    const resolved_node = scope.lookup(&file.ast, name) orelse return null;
+    return file.node_decls.get(resolved_node);
+}
+
+/// Appends the fully qualified name to `out`.
 pub fn fqn(decl: *const Decl, out: *std.ArrayListUnmanaged(u8)) Oom!void {
-    try decl.reset_with_path(out);
+    try decl.append_path(out);
     if (decl.parent != .none) {
         try append_parent_ns(out, decl.parent);
         try out.appendSlice(gpa, decl.extra_info().name);
@@ -123,9 +150,13 @@ pub fn fqn(decl: *const Decl, out: *std.ArrayListUnmanaged(u8)) Oom!void {
 
 pub fn reset_with_path(decl: *const Decl, list: *std.ArrayListUnmanaged(u8)) Oom!void {
     list.clearRetainingCapacity();
+    try append_path(decl, list);
+}
 
-    // Prefer the package name alias.
-    for (Walk.packages.keys(), Walk.packages.values()) |pkg_name, pkg_file| {
+pub fn append_path(decl: *const Decl, list: *std.ArrayListUnmanaged(u8)) Oom!void {
+    const start = list.items.len;
+    // Prefer the module name alias.
+    for (Walk.modules.keys(), Walk.modules.values()) |pkg_name, pkg_file| {
         if (pkg_file == decl.file) {
             try list.ensureUnusedCapacity(gpa, pkg_name.len + 1);
             list.appendSliceAssumeCapacity(pkg_name);
@@ -137,7 +168,7 @@ pub fn reset_with_path(decl: *const Decl, list: *std.ArrayListUnmanaged(u8)) Oom
     const file_path = decl.file.path();
     try list.ensureUnusedCapacity(gpa, file_path.len + 1);
     list.appendSliceAssumeCapacity(file_path);
-    for (list.items) |*byte| switch (byte.*) {
+    for (list.items[start..]) |*byte| switch (byte.*) {
         '/' => byte.* = '.',
         else => continue,
     };
@@ -168,6 +199,21 @@ pub fn findFirstDocComment(ast: *const Ast, token: Ast.TokenIndex) Ast.TokenInde
         }
     }
     return it;
+}
+
+/// Successively looks up each component.
+pub fn find(search_string: []const u8) Decl.Index {
+    var path_components = std.mem.splitScalar(u8, search_string, '.');
+    const file = Walk.modules.get(path_components.first()) orelse return .none;
+    var current_decl_index = file.findRootDecl();
+    while (path_components.next()) |component| {
+        while (true) switch (current_decl_index.get().categorize()) {
+            .alias => |aliasee| current_decl_index = aliasee,
+            else => break,
+        };
+        current_decl_index = current_decl_index.get().get_child(component) orelse return .none;
+    }
+    return current_decl_index;
 }
 
 const Decl = @This();

@@ -112,13 +112,8 @@ pub fn Renderer(comptime Writer: type, comptime Context: type) type {
                     try writer.print("</h{}>\n", .{data.heading.level});
                 },
                 .code_block => {
-                    const tag = doc.string(data.code_block.tag);
                     const content = doc.string(data.code_block.content);
-                    if (tag.len > 0) {
-                        try writer.print("<pre><code class=\"{}\">{}</code></pre>\n", .{ fmtHtml(tag), fmtHtml(content) });
-                    } else {
-                        try writer.print("<pre><code>{}</code></pre>\n", .{fmtHtml(content)});
-                    }
+                    try writer.print("<pre><code>{}</code></pre>\n", .{fmtHtml(content)});
                 },
                 .blockquote => {
                     try writer.writeAll("<blockquote>\n");

@@ -12,6 +12,9 @@
       .hidden {
         display: none;
       }
+      table {
+        width: 100%;
+      }
       a {
         color: #2A6286;
       }
@@ -25,13 +28,17 @@
       }
       code {
         font-family:"Source Code Pro",monospace;
-        font-size:1em;
+        font-size: 0.9em;
       }
       code a {
         color: #000000;
       }
-      #listFields > div {
+      #listFields > div, #listParams > div {
         margin-bottom: 1em;
+      }
+      #hdrName a {
+        font-size: 0.7em;
+        padding-left: 1em;
       }
       .fieldDocs {
         border: 1px solid #F5F5F5;
@@ -39,11 +46,20 @@
         padding: 1px 1em;
       }
 
+      #logo {
+        width: 8em;
+        padding: 0.5em 1em;
+      }
 
       #navWrap {
-        float: left;
-        width: 47em;
-        margin-left: 1em;
+        width: -moz-available;
+        width: -webkit-fill-available;
+        width: stretch;
+        margin-left: 11em;
+      }
+
+      #search {
+        width: 100%;
       }
 
       nav {
@@ -102,15 +118,6 @@
         color: #000;
       }
 
-      #logo {
-        width: 8em;
-        padding: 0.5em 1em;
-      }
-
-      #search {
-        width: 100%;
-      }
-
       #helpDialog {
         width: 21em;
         height: 21em;
@@ -154,6 +161,12 @@
         font-weight: bold;
       }
 
+      dl > div {
+          padding: 0.5em;
+          border: 1px solid #c0c0c0;
+          margin-top: 0.5em;
+      }
+
       td {
         vertical-align: top;
         margin: 0;
@@ -161,6 +174,10 @@
         max-width: 20em;
         text-overflow: ellipsis;
         overflow-x: hidden;
+      }
+
+      ul.columns {
+        column-width: 20em;
       }
 
       .tok-kw {
@@ -193,18 +210,19 @@
       }
 
       @media (prefers-color-scheme: dark) {
-        body{
+        body {
           background-color: #111;
           color: #bbb;
+        }
+        pre {
+          background-color: #222;
+          color: #ccc;
         }
         a {
           color: #88f;
         }
         code a {
-          color: #bbb;
-        }
-        pre{
-          background-color:#2A2A2A;
+          color: #ccc;
         }
         .fieldDocs {
           border-color:#2A2A2A;
@@ -229,6 +247,9 @@
         #listSearchResults li.selected a {
           color: #fff;
         }
+        dl > div {
+          border-color: #373737;
+        }
         .tok-kw {
             color: #eee;
         }
@@ -242,7 +263,7 @@
             color: #aa7;
         }
         .tok-fn {
-            color: #e33;
+            color: #B1A0F8;
         }
         .tok-null {
             color: #ff8080;
@@ -258,7 +279,7 @@
   </head>
   <body>
     <nav>
-      <div class="logo">
+      <a class="logo" href="#">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
         <g fill="#F7A41D">
           <g>
@@ -297,7 +318,7 @@
           </g>
         </g>
         </svg>
-      </div>
+      </a>
     </nav>
     <div id="navWrap">
       <input type="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
@@ -305,11 +326,16 @@
     </div>
     <section>
     <p id="status">Loading...</p>
+    <h1 id="hdrName" class="hidden"><span></span><a href="#">[src]</a></h1>
     <div id="fnProto" class="hidden">
       <pre><code id="fnProtoCode"></code></pre>
     </div>
-    <h1 id="hdrName" class="hidden"></h1>
     <div id="tldDocs" class="hidden"></div>
+    <div id="sectParams" class="hidden">
+      <h2>Parameters</h2>
+      <div id="listParams">
+      </div>
+    </div>
     <div id="sectFnErrors" class="hidden">
       <h2>Errors</h2>
       <div id="fnErrorsAnyError">
@@ -332,12 +358,12 @@
     </div>
     <div id="sectTypes" class="hidden">
       <h2>Types</h2>
-      <ul id="listTypes">
+      <ul id="listTypes" class="columns">
       </ul>
     </div>
     <div id="sectNamespaces" class="hidden">
       <h2>Namespaces</h2>
-      <ul id="listNamespaces">
+      <ul id="listNamespaces" class="columns">
       </ul>
     </div>
     <div id="sectGlobalVars" class="hidden">
@@ -347,11 +373,6 @@
         </tbody>
       </table>
     </div>
-    <div id="sectFns" class="hidden">
-      <h2>Functions</h2>
-      <dl id="listFns">
-      </dl>
-    </div>
     <div id="sectValues" class="hidden">
       <h2>Values</h2>
       <table>
@@ -359,9 +380,14 @@
         </tbody>
       </table>
     </div>
+    <div id="sectFns" class="hidden">
+      <h2>Functions</h2>
+      <dl id="listFns">
+      </dl>
+    </div>
     <div id="sectErrSets" class="hidden">
       <h2>Error Sets</h2>
-      <ul id="listErrSets">
+      <ul id="listErrSets" class="columns">
       </ul>
     </div>
     <div id="sectDocTests" class="hidden">

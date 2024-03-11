@@ -610,7 +610,8 @@ const TableRowStart = struct {
 };
 
 fn startTableRow(unindented_line: []const u8) ?TableRowStart {
-    if (!mem.startsWith(u8, unindented_line, "|") or
+    if (unindented_line.len < 2 or
+        !mem.startsWith(u8, unindented_line, "|") or
         mem.endsWith(u8, unindented_line, "\\|") or
         !mem.endsWith(u8, unindented_line, "|")) return null;
 

@@ -517,6 +517,10 @@ test "tables require leading and trailing pipes" {
         \\
         \\| But | this | is |
         \\
+        \\Also not a table:
+        \\|
+        \\     |
+        \\
     ,
         \\<p>Not | a | table</p>
         \\<table>
@@ -526,6 +530,9 @@ test "tables require leading and trailing pipes" {
         \\<td>is</td>
         \\</tr>
         \\</table>
+        \\<p>Also not a table:
+        \\|
+        \\|</p>
         \\
     );
 }
@@ -584,7 +591,7 @@ test "code blocks" {
         \\<pre><code>Hello, world!
         \\This is some code.
         \\</code></pre>
-        \\<pre><code class="zig test">const std = @import(&quot;std&quot;);
+        \\<pre><code>const std = @import(&quot;std&quot;);
         \\
         \\test {
         \\    try std.testing.expect(2 + 2 == 4);
