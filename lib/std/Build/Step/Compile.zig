@@ -28,7 +28,7 @@ linker_script: ?LazyPath = null,
 version_script: ?LazyPath = null,
 out_filename: []const u8,
 out_lib_filename: []const u8,
-linkage: ?Linkage = null,
+linkage: ?std.builtin.LinkMode = null,
 version: ?std.SemanticVersion,
 kind: Kind,
 major_only_filename: ?[]const u8,
@@ -223,7 +223,7 @@ pub const Options = struct {
     name: []const u8,
     root_module: Module.CreateOptions,
     kind: Kind,
-    linkage: ?Linkage = null,
+    linkage: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filters: []const []const u8 = &.{},
@@ -245,8 +245,6 @@ pub const Kind = enum {
     obj,
     @"test",
 };
-
-pub const Linkage = enum { dynamic, static };
 
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
@@ -283,10 +281,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .obj => .Obj,
             .exe, .@"test" => .Exe,
         },
-        .link_mode = if (options.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
-            .dynamic => .Dynamic,
-            .static => .Static,
-        }) else null,
+        .link_mode = options.linkage,
         .version = options.version,
     }) catch @panic("OOM");
 
@@ -531,11 +526,11 @@ pub fn dependsOnSystemLibrary(self: *const Compile, name: []const u8) bool {
 }
 
 pub fn isDynamicLibrary(self: *const Compile) bool {
-    return self.kind == .lib and self.linkage == Linkage.dynamic;
+    return self.kind == .lib and self.linkage == .dynamic;
 }
 
 pub fn isStaticLibrary(self: *const Compile) bool {
-    return self.kind == .lib and self.linkage != Linkage.dynamic;
+    return self.kind == .lib and self.linkage != .dynamic;
 }
 
 pub fn producesPdbFile(self: *Compile) bool {
@@ -988,7 +983,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
         var prev_search_strategy: Module.SystemLib.SearchStrategy = .paths_first;
-        var prev_preferred_link_mode: std.builtin.LinkMode = .Dynamic;
+        var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
         // Track the number of positional arguments so that a nice error can be
         // emitted if there is nothing to link.
         var total_linker_objects: usize = @intFromBool(self.root_module.root_source_file != null);
@@ -1053,16 +1048,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         {
                             switch (system_lib.search_strategy) {
                                 .no_fallback => switch (system_lib.preferred_link_mode) {
-                                    .Dynamic => try zig_args.append("-search_dylibs_only"),
-                                    .Static => try zig_args.append("-search_static_only"),
+                                    .dynamic => try zig_args.append("-search_dylibs_only"),
+                                    .static => try zig_args.append("-search_static_only"),
                                 },
                                 .paths_first => switch (system_lib.preferred_link_mode) {
-                                    .Dynamic => try zig_args.append("-search_paths_first"),
-                                    .Static => try zig_args.append("-search_paths_first_static"),
+                                    .dynamic => try zig_args.append("-search_paths_first"),
+                                    .static => try zig_args.append("-search_paths_first_static"),
                                 },
                                 .mode_first => switch (system_lib.preferred_link_mode) {
-                                    .Dynamic => try zig_args.append("-search_dylibs_first"),
-                                    .Static => try zig_args.append("-search_static_first"),
+                                    .dynamic => try zig_args.append("-search_dylibs_first"),
+                                    .static => try zig_args.append("-search_static_first"),
                                 },
                             }
                             prev_search_strategy = system_lib.search_strategy;
@@ -1138,7 +1133,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                                 try zig_args.append(full_path_lib);
                                 total_linker_objects += 1;
 
-                                if (other.linkage == Linkage.dynamic and
+                                if (other.linkage == .dynamic and
                                     self.rootModuleTarget().os.tag != .windows)
                                 {
                                     if (fs.path.dirname(full_path_lib)) |dirname| {

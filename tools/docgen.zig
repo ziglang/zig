@@ -629,7 +629,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         } else if (mem.eql(u8, end_tag_name, "link_libc")) {
                             link_libc = true;
                         } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
-                            link_mode = .Dynamic;
+                            link_mode = .dynamic;
                         } else if (mem.eql(u8, end_tag_name, "additonal_option")) {
                             _ = try eatToken(tokenizer, .separator);
                             const option = try eatToken(tokenizer, .tag_content);
@@ -1793,11 +1793,11 @@ fn genHtml(
                         }
                         if (code.link_mode) |link_mode| {
                             switch (link_mode) {
-                                .Static => {
+                                .static => {
                                     try test_args.append("-static");
                                     try shell_out.print("-static ", .{});
                                 },
-                                .Dynamic => {
+                                .dynamic => {
                                     try test_args.append("-dynamic");
                                     try shell_out.print("-dynamic ", .{});
                                 },

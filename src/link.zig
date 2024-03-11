@@ -287,8 +287,8 @@ pub const File = struct {
         switch (output_mode) {
             .Obj => return,
             .Lib => switch (link_mode) {
-                .Static => return,
-                .Dynamic => {},
+                .static => return,
+                .dynamic => {},
             },
             .Exe => {},
         }
@@ -582,7 +582,7 @@ pub const File = struct {
         const use_lld = build_options.have_llvm and comp.config.use_lld;
         const output_mode = comp.config.output_mode;
         const link_mode = comp.config.link_mode;
-        if (use_lld and output_mode == .Lib and link_mode == .Static) {
+        if (use_lld and output_mode == .Lib and link_mode == .static) {
             return base.linkAsArchive(arena, prog_node);
         }
         switch (base.tag) {
@@ -957,8 +957,8 @@ pub const File = struct {
         const executable_mode = if (builtin.target.os.tag == .windows) 0 else 0o777;
         switch (effectiveOutputMode(use_lld, output_mode)) {
             .Lib => return switch (link_mode) {
-                .Dynamic => executable_mode,
-                .Static => fs.File.default_mode,
+                .dynamic => executable_mode,
+                .static => fs.File.default_mode,
             },
             .Exe => return executable_mode,
             .Obj => return fs.File.default_mode,
@@ -966,7 +966,7 @@ pub const File = struct {
     }
 
     pub fn isStatic(self: File) bool {
-        return self.comp.config.link_mode == .Static;
+        return self.comp.config.link_mode == .static;
     }
 
     pub fn isObject(self: File) bool {

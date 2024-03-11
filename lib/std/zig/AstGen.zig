@@ -175,7 +175,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
             &gen_scope.base,
             0,
             tree.containerDeclRoot(),
-            .Auto,
+            .auto,
             0,
         )) |struct_decl_ref| {
             assert(struct_decl_ref.toIndex().? == .main_struct_inst);
@@ -4907,7 +4907,7 @@ fn structDeclInner(
     var backing_int_body_len: usize = 0;
     const backing_int_ref: Zir.Inst.Ref = blk: {
         if (backing_int_node != 0) {
-            if (layout != .Packed) {
+            if (layout != .@"packed") {
                 return astgen.failNode(backing_int_node, "non-packed struct does not support backing integer type", .{});
             } else {
                 const backing_int_ref = try typeExpr(&block_scope, &namespace.base, backing_int_node);
@@ -4958,9 +4958,9 @@ fn structDeclInner(
     } else false;
 
     if (is_tuple) switch (layout) {
-        .Auto => {},
-        .Extern => return astgen.failNode(node, "extern tuples are not supported", .{}),
-        .Packed => return astgen.failNode(node, "packed tuples are not supported", .{}),
+        .auto => {},
+        .@"extern" => return astgen.failNode(node, "extern tuples are not supported", .{}),
+        .@"packed" => return astgen.failNode(node, "packed tuples are not supported", .{}),
     };
 
     if (is_tuple) for (container_decl.ast.members) |member_node| {
@@ -5055,9 +5055,9 @@ fn structDeclInner(
 
         if (is_comptime) {
             switch (layout) {
-                .Packed => return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{}),
-                .Extern => return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{}),
-                .Auto => any_comptime_fields = true,
+                .@"packed" => return astgen.failTok(member.comptime_token.?, "packed struct fields cannot be marked comptime", .{}),
+                .@"extern" => return astgen.failTok(member.comptime_token.?, "extern struct fields cannot be marked comptime", .{}),
+                .auto => any_comptime_fields = true,
             }
         } else {
             known_non_opv = known_non_opv or
@@ -5082,7 +5082,7 @@ fn structDeclInner(
         }
 
         if (have_align) {
-            if (layout == .Packed) {
+            if (layout == .@"packed") {
                 try astgen.appendErrorNode(member.ast.align_expr, "unable to override alignment of packed struct fields", .{});
             }
             any_aligned_fields = true;
@@ -5229,12 +5229,11 @@ fn unionDeclInner(
     const decl_count = try astgen.scanDecls(&namespace, members);
     const field_count: u32 = @intCast(members.len - decl_count);
 
-    if (layout != .Auto and (auto_enum_tok != null or arg_node != 0)) {
-        const layout_str = if (layout == .Extern) "extern" else "packed";
+    if (layout != .auto and (auto_enum_tok != null or arg_node != 0)) {
         if (arg_node != 0) {
-            return astgen.failNode(arg_node, "{s} union does not support enum tag type", .{layout_str});
+            return astgen.failNode(arg_node, "{s} union does not support enum tag type", .{@tagName(layout)});
         } else {
-            return astgen.failTok(auto_enum_tok.?, "{s} union does not support enum tag type", .{layout_str});
+            return astgen.failTok(auto_enum_tok.?, "{s} union does not support enum tag type", .{@tagName(layout)});
         }
     }
 
@@ -5429,21 +5428,21 @@ fn containerDecl(
 
     switch (token_tags[container_decl.ast.main_token]) {
         .keyword_struct => {
-            const layout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
-                .keyword_packed => std.builtin.Type.ContainerLayout.Packed,
-                .keyword_extern => std.builtin.Type.ContainerLayout.Extern,
+            const layout: std.builtin.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
+                .keyword_packed => .@"packed",
+                .keyword_extern => .@"extern",
                 else => unreachable,
-            } else std.builtin.Type.ContainerLayout.Auto;
+            } else .auto;
 
             const result = try structDeclInner(gz, scope, node, container_decl, layout, container_decl.ast.arg);
             return rvalue(gz, ri, result, node);
         },
         .keyword_union => {
-            const layout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
-                .keyword_packed => std.builtin.Type.ContainerLayout.Packed,
-                .keyword_extern => std.builtin.Type.ContainerLayout.Extern,
+            const layout: std.builtin.Type.ContainerLayout = if (container_decl.layout_token) |t| switch (token_tags[t]) {
+                .keyword_packed => .@"packed",
+                .keyword_extern => .@"extern",
                 else => unreachable,
-            } else std.builtin.Type.ContainerLayout.Auto;
+            } else .auto;
 
             const result = try unionDeclInner(gz, scope, node, container_decl.ast.members, layout, container_decl.ast.arg, container_decl.ast.enum_token);
             return rvalue(gz, ri, result, node);
@@ -8588,7 +8587,7 @@ fn numberLiteral(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index, source_node:
                 .positive => unsigned_float_number,
             };
             // If the value fits into a f64 without losing any precision, store it that way.
-            @setFloatMode(.Strict);
+            @setFloatMode(.strict);
             const smaller_float: f64 = @floatCast(float_number);
             const bigger_again: f128 = smaller_float;
             if (bigger_again == float_number) {

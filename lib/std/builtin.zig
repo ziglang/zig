@@ -64,10 +64,10 @@ pub const StackTrace = struct {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const GlobalLinkage = enum {
-    Internal,
-    Strong,
-    Weak,
-    LinkOnce,
+    internal,
+    strong,
+    weak,
+    link_once,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -81,12 +81,12 @@ pub const SymbolVisibility = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AtomicOrder = enum {
-    Unordered,
-    Monotonic,
-    Acquire,
-    Release,
-    AcqRel,
-    SeqCst,
+    unordered,
+    monotonic,
+    acquire,
+    release,
+    acq_rel,
+    seq_cst,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -334,9 +334,9 @@ pub const Type = union(enum) {
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
     pub const ContainerLayout = enum(u2) {
-        Auto,
-        Extern,
-        Packed,
+        auto,
+        @"extern",
+        @"packed",
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -353,7 +353,7 @@ pub const Type = union(enum) {
     /// therefore must be kept in sync with the compiler implementation.
     pub const Struct = struct {
         layout: ContainerLayout,
-        /// Only valid if layout is .Packed
+        /// Only valid if layout is .@"packed"
         backing_integer: ?type = null,
         fields: []const StructField,
         decls: []const Declaration,
@@ -471,8 +471,8 @@ pub const Type = union(enum) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const FloatMode = enum {
-    Strict,
-    Optimized,
+    strict,
+    optimized,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -500,8 +500,8 @@ pub const OutputMode = enum {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const LinkMode = enum {
-    Static,
-    Dynamic,
+    static,
+    dynamic,
 };
 
 /// This data structure is used by the Zig language code generation and
@@ -659,7 +659,7 @@ pub const PrefetchOptions = struct {
 /// therefore must be kept in sync with the compiler implementation.
 pub const ExportOptions = struct {
     name: []const u8,
-    linkage: GlobalLinkage = .Strong,
+    linkage: GlobalLinkage = .strong,
     section: ?[]const u8 = null,
     visibility: SymbolVisibility = .default,
 };
@@ -669,7 +669,7 @@ pub const ExportOptions = struct {
 pub const ExternOptions = struct {
     name: []const u8,
     library_name: ?[]const u8 = null,
-    linkage: GlobalLinkage = .Strong,
+    linkage: GlobalLinkage = .strong,
     is_thread_local: bool = false,
 };
 

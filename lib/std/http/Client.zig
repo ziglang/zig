@@ -1642,7 +1642,7 @@ pub fn open(
 
     const host = uri.host orelse return error.UriMissingHost;
 
-    if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .Acquire)) {
+    if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
         if (disable_tls) unreachable;
 
         client.ca_bundle_mutex.lock();
@@ -1650,7 +1650,7 @@ pub fn open(
 
         if (client.next_https_rescan_certs) {
             client.ca_bundle.rescan(client.allocator) catch return error.CertificateBundleLoadFailure;
-            @atomicStore(bool, &client.next_https_rescan_certs, false, .Release);
+            @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
         }
     }
 

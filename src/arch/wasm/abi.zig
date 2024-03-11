@@ -29,7 +29,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             const struct_type = mod.typeToStruct(ty).?;
-            if (struct_type.layout == .Packed) {
+            if (struct_type.layout == .@"packed") {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
@@ -70,7 +70,7 @@ pub fn classifyType(ty: Type, mod: *Module) [2]Class {
         },
         .Union => {
             const union_obj = mod.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) == .Packed) {
+            if (union_obj.getLayout(ip) == .@"packed") {
                 if (ty.bitSize(mod) <= 64) return direct;
                 return .{ .direct, .direct };
             }
@@ -113,7 +113,7 @@ pub fn scalarType(ty: Type, mod: *Module) Type {
         },
         .Union => {
             const union_obj = mod.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) != .Packed) {
+            if (union_obj.getLayout(ip) != .@"packed") {
                 const layout = mod.getUnionLayout(union_obj);
                 if (layout.payload_size == 0 and layout.tag_size != 0) {
                     return scalarType(ty.unionTagTypeSafety(mod).?, mod);

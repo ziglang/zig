@@ -50,7 +50,7 @@ comptime {
             }
         }
     } else {
-        if (builtin.output_mode == .Lib and builtin.link_mode == .Dynamic) {
+        if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
             if (native_os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
                 @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
             }

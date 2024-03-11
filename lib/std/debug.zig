@@ -461,7 +461,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
         0 => {
             panic_stage = 1;
 
-            _ = panicking.fetchAdd(1, .SeqCst);
+            _ = panicking.fetchAdd(1, .seq_cst);
 
             // Make sure to release the mutex when done
             {
@@ -503,7 +503,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
 /// Must be called only after adding 1 to `panicking`. There are three callsites.
 fn waitForOtherThreadToFinishPanicking() void {
-    if (panicking.fetchSub(1, .SeqCst) != 1) {
+    if (panicking.fetchSub(1, .seq_cst) != 1) {
         // Another thread is panicking, wait for the last one to finish
         // and call abort()
         if (builtin.single_threaded) unreachable;
@@ -2587,7 +2587,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;
-            _ = panicking.fetchAdd(1, .SeqCst);
+            _ = panicking.fetchAdd(1, .seq_cst);
 
             {
                 panic_mutex.lock();
@@ -2663,7 +2663,7 @@ fn handleSegfaultWindowsExtra(
         nosuspend switch (panic_stage) {
             0 => {
                 panic_stage = 1;
-                _ = panicking.fetchAdd(1, .SeqCst);
+                _ = panicking.fetchAdd(1, .seq_cst);
 
                 {
                     panic_mutex.lock();

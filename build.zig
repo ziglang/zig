@@ -855,7 +855,7 @@ fn addCMakeLibraryList(exe: *std.Build.Step.Compile, list: []const u8) void {
 }
 
 const CMakeConfig = struct {
-    llvm_linkage: std.Build.Step.Compile.Linkage,
+    llvm_linkage: std.builtin.LinkMode,
     cmake_binary_dir: []const u8,
     cmake_prefix_path: []const u8,
     cmake_static_library_prefix: []const u8,

@@ -1599,11 +1599,11 @@ pub fn updateExports(
             }
         }
 
-        if (exp.opts.linkage == .LinkOnce) {
+        if (exp.opts.linkage == .link_once) {
             try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                 gpa,
                 exp.getSrcLoc(mod),
-                "Unimplemented: GlobalLinkage.LinkOnce",
+                "Unimplemented: GlobalLinkage.link_once",
                 .{},
             ));
             continue;
@@ -1633,11 +1633,11 @@ pub fn updateExports(
         sym.type = atom.getSymbol(self).type;
 
         switch (exp.opts.linkage) {
-            .Strong => {
+            .strong => {
                 sym.storage_class = .EXTERNAL;
             },
-            .Internal => @panic("TODO Internal"),
-            .Weak => @panic("TODO WeakExternal"),
+            .internal => @panic("TODO Internal"),
+            .weak => @panic("TODO WeakExternal"),
             else => unreachable,
         }
 
@@ -2275,7 +2275,7 @@ fn writeHeader(self: *Coff) !void {
         .p32 => flags.@"32BIT_MACHINE" = 1,
         .p64 => flags.LARGE_ADDRESS_AWARE = 1,
     }
-    if (self.base.comp.config.output_mode == .Lib and self.base.comp.config.link_mode == .Dynamic) {
+    if (self.base.comp.config.output_mode == .Lib and self.base.comp.config.link_mode == .dynamic) {
         flags.DLL = 1;
     }
 

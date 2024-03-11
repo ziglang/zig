@@ -269,12 +269,12 @@ test containerLayout {
         a: u8,
     };
 
-    try testing.expect(containerLayout(S1) == .Auto);
-    try testing.expect(containerLayout(S2) == .Packed);
-    try testing.expect(containerLayout(S3) == .Extern);
-    try testing.expect(containerLayout(U1) == .Auto);
-    try testing.expect(containerLayout(U2) == .Packed);
-    try testing.expect(containerLayout(U3) == .Extern);
+    try testing.expect(containerLayout(S1) == .auto);
+    try testing.expect(containerLayout(S2) == .@"packed");
+    try testing.expect(containerLayout(S3) == .@"extern");
+    try testing.expect(containerLayout(U1) == .auto);
+    try testing.expect(containerLayout(U2) == .@"packed");
+    try testing.expect(containerLayout(U3) == .@"extern");
 }
 
 /// Instead of this function, prefer to use e.g. `@typeInfo(foo).Struct.decls`
@@ -1025,7 +1025,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
     return @Type(.{
         .Struct = .{
             .is_tuple = true,
-            .layout = .Auto,
+            .layout = .auto,
             .decls = &.{},
             .fields = &tuple_fields,
         },

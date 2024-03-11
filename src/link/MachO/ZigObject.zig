@@ -1216,11 +1216,11 @@ pub fn updateExports(
                 continue;
             }
         }
-        if (exp.opts.linkage == .LinkOnce) {
+        if (exp.opts.linkage == .link_once) {
             try mod.failed_exports.putNoClobber(mod.gpa, exp, try Module.ErrorMsg.create(
                 gpa,
                 exp.getSrcLoc(mod),
-                "Unimplemented: GlobalLinkage.LinkOnce",
+                "Unimplemented: GlobalLinkage.link_once",
                 .{},
             ));
             continue;
@@ -1242,12 +1242,12 @@ pub fn updateExports(
         self.symtab.items(.atom)[global_nlist_index] = self.symtab.items(.atom)[nlist_idx];
 
         switch (exp.opts.linkage) {
-            .Internal => {
+            .internal => {
                 // Symbol should be hidden, or in MachO lingo, private extern.
                 global_nlist.n_type |= macho.N_PEXT;
             },
-            .Strong => {},
-            .Weak => {
+            .strong => {},
+            .weak => {
                 // Weak linkage is specified as part of n_desc field.
                 // Symbol's n_type is like for a symbol with strong linkage.
                 global_nlist.n_desc |= macho.N_WEAK_DEF;

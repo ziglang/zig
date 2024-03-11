@@ -2518,7 +2518,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node)
     // When the target os is WASI, we allow linking with WASI-LIBC
     if (target.os.tag == .wasi) {
         const is_exe_or_dyn_lib = output_mode == .Exe or
-            (output_mode == .Lib and link_mode == .Dynamic);
+            (output_mode == .Lib and link_mode == .dynamic);
         if (is_exe_or_dyn_lib) {
             for (comp.wasi_emulated_libs) |crt_file| {
                 try positionals.append(try comp.get_libc_crt_file(
@@ -3549,7 +3549,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
             try argv.append("--allow-undefined");
         }
 
-        if (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic) {
+        if (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic) {
             try argv.append("--shared");
         }
         if (comp.config.pie) {
@@ -3569,7 +3569,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: *std.Progress.Node) !vo
 
         if (target.os.tag == .wasi) {
             const is_exe_or_dyn_lib = comp.config.output_mode == .Exe or
-                (comp.config.output_mode == .Lib and comp.config.link_mode == .Dynamic);
+                (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
             if (is_exe_or_dyn_lib) {
                 for (comp.wasi_emulated_libs) |crt_file| {
                     try argv.append(try comp.get_libc_crt_file(

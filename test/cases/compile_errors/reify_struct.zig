@@ -1,6 +1,6 @@
 comptime {
     @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &.{.{
             .name = "foo",
             .type = u32,
@@ -14,7 +14,7 @@ comptime {
 }
 comptime {
     @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &.{.{
             .name = "3",
             .type = u32,
@@ -28,7 +28,7 @@ comptime {
 }
 comptime {
     @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = &.{.{
             .name = "0",
             .type = u32,
@@ -42,7 +42,7 @@ comptime {
 }
 comptime {
     @Type(.{ .Struct = .{
-        .layout = .Extern,
+        .layout = .@"extern",
         .fields = &.{.{
             .name = "0",
             .type = u32,
@@ -56,7 +56,7 @@ comptime {
 }
 comptime {
     @Type(.{ .Struct = .{
-        .layout = .Packed,
+        .layout = .@"packed",
         .fields = &.{.{
             .name = "0",
             .type = u32,

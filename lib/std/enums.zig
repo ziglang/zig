@@ -22,7 +22,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
         }};
     }
     return @Type(.{ .Struct = .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields = fields,
         .decls = &.{},
         .is_tuple = false,

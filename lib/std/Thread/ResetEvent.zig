@@ -96,7 +96,7 @@ const FutexImpl = struct {
 
     fn isSet(self: *const Impl) bool {
         // Acquire barrier ensures memory accesses before set() happen before we return true.
-        return self.state.load(.Acquire) == is_set;
+        return self.state.load(.acquire) == is_set;
     }
 
     fn wait(self: *Impl, timeout: ?u64) error{Timeout}!void {
@@ -112,9 +112,9 @@ const FutexImpl = struct {
         // Try to set the state from `unset` to `waiting` to indicate
         // to the set() thread that others are blocked on the ResetEvent.
         // We avoid using any strict barriers until the end when we know the ResetEvent is set.
-        var state = self.state.load(.Monotonic);
+        var state = self.state.load(.monotonic);
         if (state == unset) {
-            state = self.state.cmpxchgStrong(state, waiting, .Monotonic, .Monotonic) orelse waiting;
+            state = self.state.cmpxchgStrong(state, waiting, .monotonic, .monotonic) orelse waiting;
         }
 
         // Wait until the ResetEvent is set since the state is waiting.
@@ -124,7 +124,7 @@ const FutexImpl = struct {
                 const wait_result = futex_deadline.wait(&self.state, waiting);
 
                 // Check if the ResetEvent was set before possibly reporting error.Timeout below.
-                state = self.state.load(.Monotonic);
+                state = self.state.load(.monotonic);
                 if (state != waiting) {
                     break;
                 }
@@ -135,25 +135,25 @@ const FutexImpl = struct {
 
         // Acquire barrier ensures memory accesses before set() happen before we return.
         assert(state == is_set);
-        self.state.fence(.Acquire);
+        self.state.fence(.acquire);
     }
 
     fn set(self: *Impl) void {
         // Quick check if the ResetEvent is already set before doing the atomic swap below.
         // set() could be getting called quite often and multiple threads calling swap() increases contention unnecessarily.
-        if (self.state.load(.Monotonic) == is_set) {
+        if (self.state.load(.monotonic) == is_set) {
             return;
         }
 
         // Mark the ResetEvent as set and unblock all waiters waiting on it if any.
         // Release barrier ensures memory accesses before set() happen before the ResetEvent is observed to be "set".
-        if (self.state.swap(is_set, .Release) == waiting) {
+        if (self.state.swap(is_set, .release) == waiting) {
             Futex.wake(&self.state, std.math.maxInt(u32));
         }
     }
 
     fn reset(self: *Impl) void {
-        self.state.store(unset, .Monotonic);
+        self.state.store(unset, .monotonic);
     }
 };
 
@@ -254,7 +254,7 @@ test "broadcast" {
         counter: std.atomic.Value(usize) = std.atomic.Value(usize).init(num_threads),
 
         fn wait(self: *@This()) void {
-            if (self.counter.fetchSub(1, .AcqRel) == 1) {
+            if (self.counter.fetchSub(1, .acq_rel) == 1) {
                 self.event.set();
             }
         }

@@ -414,7 +414,7 @@ pub const LinkSystemLibraryOptions = struct {
     needed: bool = false,
     weak: bool = false,
     use_pkg_config: SystemLib.UsePkgConfig = .yes,
-    preferred_link_mode: std.builtin.LinkMode = .Dynamic,
+    preferred_link_mode: std.builtin.LinkMode = .dynamic,
     search_strategy: SystemLib.SearchStrategy = .paths_first,
 };
 

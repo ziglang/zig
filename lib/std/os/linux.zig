@@ -394,7 +394,7 @@ const extern_getauxval = switch (builtin.zig_backend) {
 
 comptime {
     if (extern_getauxval) {
-        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .Weak });
+        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
     }
 }
 
@@ -1334,7 +1334,7 @@ const vdso_clock_gettime_ty = *align(1) const fn (i32, *timespec) callconv(.C) u
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
-        const ptr = @atomicLoad(?*const anyopaque, &vdso_clock_gettime, .Unordered);
+        const ptr = @atomicLoad(?*const anyopaque, &vdso_clock_gettime, .unordered);
         if (ptr) |fn_ptr| {
             const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));
             const rc = f(clk_id, tp);
@@ -1351,7 +1351,7 @@ fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
     const ptr = @as(?*const anyopaque, @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM)));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
-    @atomicStore(?*const anyopaque, &vdso_clock_gettime, ptr, .Monotonic);
+    @atomicStore(?*const anyopaque, &vdso_clock_gettime, ptr, .monotonic);
     // Call into the VDSO if available
     if (ptr) |fn_ptr| {
         const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));

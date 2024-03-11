@@ -979,7 +979,7 @@ const DeclGen = struct {
                 },
                 .struct_type => {
                     const struct_type = mod.typeToStruct(ty).?;
-                    if (struct_type.layout == .Packed) {
+                    if (struct_type.layout == .@"packed") {
                         return self.todo("packed struct constants", .{});
                     }
 
@@ -1275,7 +1275,7 @@ const DeclGen = struct {
         const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
 
-        if (union_obj.getLayout(ip) == .Packed) {
+        if (union_obj.getLayout(ip) == .@"packed") {
             return self.todo("packed union types", .{});
         }
 
@@ -1532,7 +1532,7 @@ const DeclGen = struct {
                     else => unreachable,
                 };
 
-                if (struct_type.layout == .Packed) {
+                if (struct_type.layout == .@"packed") {
                     return try self.resolveType(Type.fromInterned(struct_type.backingIntType(ip).*), .direct);
                 }
 
@@ -3904,7 +3904,7 @@ const DeclGen = struct {
         const union_ty = mod.typeToUnion(ty).?;
         const tag_ty = Type.fromInterned(union_ty.enum_tag_ty);
 
-        if (union_ty.getLayout(ip) == .Packed) {
+        if (union_ty.getLayout(ip) == .@"packed") {
             unreachable; // TODO
         }
 
@@ -3984,11 +3984,11 @@ const DeclGen = struct {
 
         switch (object_ty.zigTypeTag(mod)) {
             .Struct => switch (object_ty.containerLayout(mod)) {
-                .Packed => unreachable, // TODO
+                .@"packed" => unreachable, // TODO
                 else => return try self.extractField(field_ty, object_id, field_index),
             },
             .Union => switch (object_ty.containerLayout(mod)) {
-                .Packed => unreachable, // TODO
+                .@"packed" => unreachable, // TODO
                 else => {
                     // Store, ptr-elem-ptr, pointer-cast, load
                     const layout = self.unionLayout(object_ty);
@@ -4058,13 +4058,13 @@ const DeclGen = struct {
         const object_ty = object_ptr_ty.childType(mod);
         switch (object_ty.zigTypeTag(mod)) {
             .Struct => switch (object_ty.containerLayout(mod)) {
-                .Packed => unreachable, // TODO
+                .@"packed" => unreachable, // TODO
                 else => {
                     return try self.accessChain(result_ty_ref, object_ptr, &.{field_index});
                 },
             },
             .Union => switch (object_ty.containerLayout(mod)) {
-                .Packed => unreachable, // TODO
+                .@"packed" => unreachable, // TODO
                 else => {
                     const layout = self.unionLayout(object_ty);
                     if (!layout.has_payload) {

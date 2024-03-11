@@ -279,7 +279,7 @@ pub const Export = struct {
 
     pub const Options = struct {
         name: InternPool.NullTerminatedString,
-        linkage: std.builtin.GlobalLinkage = .Strong,
+        linkage: std.builtin.GlobalLinkage = .strong,
         section: InternPool.OptionalNullTerminatedString = .none,
         visibility: std.builtin.SymbolVisibility = .default,
     };
@@ -3310,7 +3310,7 @@ fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespa
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
     assert(!small.has_captures_len);
     assert(!small.has_backing_int);
-    assert(small.layout == .Auto);
+    assert(small.layout == .auto);
     var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
     const fields_len = if (small.has_fields_len) blk: {
         const fields_len = file.zir.extra[extra_index];
@@ -3327,7 +3327,7 @@ fn getFileRootStruct(zcu: *Zcu, decl_index: Decl.Index, namespace_index: Namespa
 
     const tracked_inst = try ip.trackZir(gpa, file, .main_struct_inst);
     const wip_ty = switch (try ip.getStructType(gpa, .{
-        .layout = .Auto,
+        .layout = .auto,
         .fields_len = fields_len,
         .known_non_opv = small.known_non_opv,
         .requires_comptime = if (small.known_comptime_only) .yes else .unknown,
@@ -5969,7 +5969,7 @@ pub fn typeToStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
 
 pub fn typeToPackedStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
     const s = mod.typeToStruct(ty) orelse return null;
-    if (s.layout != .Packed) return null;
+    if (s.layout != .@"packed") return null;
     return s;
 }
 
@@ -6185,18 +6185,18 @@ pub fn structFieldAlignment(
     field_ty: Type,
     layout: std.builtin.Type.ContainerLayout,
 ) Alignment {
-    assert(layout != .Packed);
+    assert(layout != .@"packed");
     if (explicit_alignment != .none) return explicit_alignment;
     switch (layout) {
-        .Packed => unreachable,
-        .Auto => {
+        .@"packed" => unreachable,
+        .auto => {
             if (mod.getTarget().ofmt == .c) {
                 return structFieldAlignmentExtern(mod, field_ty);
             } else {
                 return field_ty.abiAlignment(mod);
             }
         },
-        .Extern => return structFieldAlignmentExtern(mod, field_ty),
+        .@"extern" => return structFieldAlignmentExtern(mod, field_ty),
     }
 }
 
@@ -6224,7 +6224,7 @@ pub fn structPackedFieldBitOffset(
     field_index: u32,
 ) u16 {
     const ip = &mod.intern_pool;
-    assert(struct_type.layout == .Packed);
+    assert(struct_type.layout == .@"packed");
     assert(struct_type.haveLayout(ip));
     var bit_sum: u64 = 0;
     for (0..struct_type.field_types.len) |i| {

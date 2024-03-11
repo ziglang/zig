@@ -30,7 +30,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         return @ptrCast(addr);
     }
 
-    const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .Unordered);
+    const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .unordered);
     const slice = os.mmap(
         hint,
         aligned_len,
@@ -41,7 +41,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     ) catch return null;
     assert(mem.isAligned(@intFromPtr(slice.ptr), mem.page_size));
     const new_hint: [*]align(mem.page_size) u8 = @alignCast(slice.ptr + aligned_len);
-    _ = @cmpxchgStrong(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, hint, new_hint, .Monotonic, .Monotonic);
+    _ = @cmpxchgStrong(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, hint, new_hint, .monotonic, .monotonic);
     return slice.ptr;
 }
 

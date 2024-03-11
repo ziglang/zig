@@ -155,9 +155,9 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .coff => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, t.exeFileExt() }),
             .Lib => {
-                const suffix = switch (options.link_mode orelse .Static) {
-                    .Static => ".lib",
-                    .Dynamic => ".dll",
+                const suffix = switch (options.link_mode orelse .static) {
+                    .static => ".lib",
+                    .dynamic => ".dll",
                 };
                 return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, suffix });
             },
@@ -166,11 +166,11 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .elf => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
-                switch (options.link_mode orelse .Static) {
-                    .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
+                switch (options.link_mode orelse .static) {
+                    .static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                         t.libPrefix(), root_name,
                     }),
-                    .Dynamic => {
+                    .dynamic => {
                         if (options.version) |ver| {
                             return std.fmt.allocPrint(allocator, "{s}{s}.so.{d}.{d}.{d}", .{
                                 t.libPrefix(), root_name, ver.major, ver.minor, ver.patch,
@@ -188,11 +188,11 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .macho => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
-                switch (options.link_mode orelse .Static) {
-                    .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
+                switch (options.link_mode orelse .static) {
+                    .static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                         t.libPrefix(), root_name,
                     }),
-                    .Dynamic => {
+                    .dynamic => {
                         if (options.version) |ver| {
                             return std.fmt.allocPrint(allocator, "{s}{s}.{d}.{d}.{d}.dylib", .{
                                 t.libPrefix(), root_name, ver.major, ver.minor, ver.patch,
@@ -210,11 +210,11 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .wasm => switch (options.output_mode) {
             .Exe => return std.fmt.allocPrint(allocator, "{s}{s}", .{ root_name, t.exeFileExt() }),
             .Lib => {
-                switch (options.link_mode orelse .Static) {
-                    .Static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
+                switch (options.link_mode orelse .static) {
+                    .static => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                         t.libPrefix(), root_name,
                     }),
-                    .Dynamic => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
+                    .dynamic => return std.fmt.allocPrint(allocator, "{s}.wasm", .{root_name}),
                 }
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.o", .{root_name}),

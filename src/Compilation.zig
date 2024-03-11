@@ -1201,7 +1201,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     const output_mode = options.config.output_mode;
     const is_dyn_lib = switch (output_mode) {
         .Obj, .Exe => false,
-        .Lib => options.config.link_mode == .Dynamic,
+        .Lib => options.config.link_mode == .dynamic,
     };
     const is_exe_or_dyn_lib = switch (output_mode) {
         .Obj => false,
@@ -1806,8 +1806,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .{ .musl_crt_file = .scrt1_o },
                 .{ .musl_crt_file = .rcrt1_o },
                 switch (comp.config.link_mode) {
-                    .Static => .{ .musl_crt_file = .libc_a },
-                    .Dynamic => .{ .musl_crt_file = .libc_so },
+                    .static => .{ .musl_crt_file = .libc_a },
+                    .dynamic => .{ .musl_crt_file = .libc_so },
                 },
             });
         }
@@ -6087,7 +6087,7 @@ pub fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const
 fn wantBuildLibCFromSource(comp: Compilation) bool {
     const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
         .Obj => false,
-        .Lib => comp.config.link_mode == .Dynamic,
+        .Lib => comp.config.link_mode == .dynamic,
         .Exe => true,
     };
     const ofmt = comp.root_mod.resolved_target.result.ofmt;
@@ -6116,7 +6116,7 @@ fn wantBuildMinGWFromSource(comp: Compilation) bool {
 fn wantBuildLibUnwindFromSource(comp: *Compilation) bool {
     const is_exe_or_dyn_lib = switch (comp.config.output_mode) {
         .Obj => false,
-        .Lib => comp.config.link_mode == .Dynamic,
+        .Lib => comp.config.link_mode == .dynamic,
         .Exe => true,
     };
     const ofmt = comp.root_mod.resolved_target.result.ofmt;
@@ -6310,7 +6310,7 @@ fn buildOutputFromZig(
 
     const config = try Config.resolve(.{
         .output_mode = output_mode,
-        .link_mode = .Static,
+        .link_mode = .static,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = true,

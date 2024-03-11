@@ -755,8 +755,8 @@ const SystemLib = struct {
     fn fallbackMode(this: SystemLib) std.builtin.LinkMode {
         assert(this.search_strategy != .no_fallback);
         return switch (this.preferred_mode) {
-            .Dynamic => .Static,
-            .Static => .Dynamic,
+            .dynamic => .static,
+            .static => .dynamic,
         };
     }
 };
@@ -892,7 +892,7 @@ fn buildOutputType(
     var entitlements: ?[]const u8 = null;
     var pagezero_size: ?u64 = null;
     var lib_search_strategy: SystemLib.SearchStrategy = .paths_first;
-    var lib_preferred_mode: std.builtin.LinkMode = .Dynamic;
+    var lib_preferred_mode: std.builtin.LinkMode = .dynamic;
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
@@ -1166,22 +1166,22 @@ fn buildOutputType(
                         };
                     } else if (mem.eql(u8, arg, "-search_paths_first")) {
                         lib_search_strategy = .paths_first;
-                        lib_preferred_mode = .Dynamic;
+                        lib_preferred_mode = .dynamic;
                     } else if (mem.eql(u8, arg, "-search_paths_first_static")) {
                         lib_search_strategy = .paths_first;
-                        lib_preferred_mode = .Static;
+                        lib_preferred_mode = .static;
                     } else if (mem.eql(u8, arg, "-search_dylibs_first")) {
                         lib_search_strategy = .mode_first;
-                        lib_preferred_mode = .Dynamic;
+                        lib_preferred_mode = .dynamic;
                     } else if (mem.eql(u8, arg, "-search_static_first")) {
                         lib_search_strategy = .mode_first;
-                        lib_preferred_mode = .Static;
+                        lib_preferred_mode = .static;
                     } else if (mem.eql(u8, arg, "-search_dylibs_only")) {
                         lib_search_strategy = .no_fallback;
-                        lib_preferred_mode = .Dynamic;
+                        lib_preferred_mode = .dynamic;
                     } else if (mem.eql(u8, arg, "-search_static_only")) {
                         lib_search_strategy = .no_fallback;
-                        lib_preferred_mode = .Static;
+                        lib_preferred_mode = .static;
                     } else if (mem.eql(u8, arg, "-headerpad")) {
                         const next_arg = args_iter.nextOrFatal();
                         headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -1478,12 +1478,12 @@ fn buildOutputType(
                         emit_implib = .no;
                         emit_implib_arg_provided = true;
                     } else if (mem.eql(u8, arg, "-dynamic")) {
-                        create_module.opts.link_mode = .Dynamic;
-                        lib_preferred_mode = .Dynamic;
+                        create_module.opts.link_mode = .dynamic;
+                        lib_preferred_mode = .dynamic;
                         lib_search_strategy = .mode_first;
                     } else if (mem.eql(u8, arg, "-static")) {
-                        create_module.opts.link_mode = .Static;
-                        lib_preferred_mode = .Static;
+                        create_module.opts.link_mode = .static;
+                        lib_preferred_mode = .static;
                         lib_search_strategy = .no_fallback;
                     } else if (mem.eql(u8, arg, "-fdll-export-fns")) {
                         create_module.opts.dll_export_fns = true;
@@ -1904,7 +1904,7 @@ fn buildOutputType(
                     },
                     .nostdlib_cpp => create_module.opts.ensure_libcpp_on_non_freestanding = false,
                     .shared => {
-                        create_module.opts.link_mode = .Dynamic;
+                        create_module.opts.link_mode = .dynamic;
                         is_shared_lib = true;
                     },
                     .rdynamic => create_module.opts.rdynamic = true,
@@ -1961,20 +1961,20 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-call_shared"))
                             {
                                 lib_search_strategy = .no_fallback;
-                                lib_preferred_mode = .Dynamic;
+                                lib_preferred_mode = .dynamic;
                             } else if (mem.eql(u8, linker_arg, "-Bstatic") or
                                 mem.eql(u8, linker_arg, "-dn") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
                                 mem.eql(u8, linker_arg, "-static"))
                             {
                                 lib_search_strategy = .no_fallback;
-                                lib_preferred_mode = .Static;
+                                lib_preferred_mode = .static;
                             } else if (mem.eql(u8, linker_arg, "-search_paths_first")) {
                                 lib_search_strategy = .paths_first;
-                                lib_preferred_mode = .Dynamic;
+                                lib_preferred_mode = .dynamic;
                             } else if (mem.eql(u8, linker_arg, "-search_dylibs_first")) {
                                 lib_search_strategy = .mode_first;
-                                lib_preferred_mode = .Dynamic;
+                                lib_preferred_mode = .dynamic;
                             } else {
                                 try linker_args.append(linker_arg);
                             }
@@ -3033,7 +3033,7 @@ fn buildOutputType(
 
     const is_exe_or_dyn_lib = switch (create_module.resolved_options.output_mode) {
         .Obj => false,
-        .Lib => create_module.resolved_options.link_mode == .Dynamic,
+        .Lib => create_module.resolved_options.link_mode == .dynamic,
         .Exe => true,
     };
     // Note that cmake when targeting Windows will try to execute
@@ -3770,8 +3770,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -3804,8 +3804,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -3838,8 +3838,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -3862,8 +3862,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -4145,8 +4145,8 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
                     buf.appendSlice("... ") catch {};
                 }
                 need_ellipse = false;
-                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
-                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
+                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
+                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
                 const current_item = completed_items + 1;
                 if (node.name.len != 0 or eti > 0) {
                     if (node.name.len != 0) {
@@ -4163,7 +4163,7 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
                         need_ellipse = false;
                     }
                 }
-                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .Acquire);
+                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .acquire);
             }
         }
 
@@ -6842,7 +6842,7 @@ fn accessLibPath(
 ) !bool {
     const sep = fs.path.sep_str;
 
-    if (target.isDarwin() and link_mode == .Dynamic) tbd: {
+    if (target.isDarwin() and link_mode == .dynamic) tbd: {
         // Prefer .tbd over .dylib.
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "lib{s}.tbd", .{ lib_dir_path, lib_name });
@@ -6863,8 +6863,8 @@ fn accessLibPath(
             target.libPrefix(),
             lib_name,
             switch (link_mode) {
-                .Static => target.staticLibSuffix(),
-                .Dynamic => target.dynamicLibSuffix(),
+                .static => target.staticLibSuffix(),
+                .dynamic => target.dynamicLibSuffix(),
             },
         });
         try checked_paths.writer().print("\n  {s}", .{test_path.items});
@@ -6879,7 +6879,7 @@ fn accessLibPath(
 
     // In the case of Darwin, the main check will be .dylib, so here we
     // additionally check for .so files.
-    if (target.isDarwin() and link_mode == .Dynamic) so: {
+    if (target.isDarwin() and link_mode == .dynamic) so: {
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, lib_name });
         try checked_paths.writer().print("\n  {s}", .{test_path.items});
@@ -6894,7 +6894,7 @@ fn accessLibPath(
 
     // In the case of MinGW, the main check will be .lib but we also need to
     // look for `libfoo.a`.
-    if (target.isMinGW() and link_mode == .Static) mingw: {
+    if (target.isMinGW() and link_mode == .static) mingw: {
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "lib{s}.a", .{
             lib_dir_path, lib_name,
