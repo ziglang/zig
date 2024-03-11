@@ -3941,6 +3941,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: *std.Progress.Node) any
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     });
     const bin_basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
