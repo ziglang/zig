@@ -154,8 +154,9 @@ fn render(writer: anytype, a: Allocator, registry: CoreRegistry, extensions: []c
         \\};
         \\
         \\pub const Word = u32;
-        \\pub const IdResult = struct{
-        \\    id: Word,
+        \\pub const IdResult = enum(Word) {
+        \\   none,
+        \\   _,
         \\};
         \\pub const IdResultType = IdResult;
         \\pub const IdRef = IdResult;

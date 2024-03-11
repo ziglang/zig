@@ -215,12 +215,12 @@ pub fn deinit(self: *Module) void {
 
 pub fn allocId(self: *Module) spec.IdResult {
     defer self.next_result_id += 1;
-    return .{ .id = self.next_result_id };
+    return @enumFromInt(self.next_result_id);
 }
 
 pub fn allocIds(self: *Module, n: u32) spec.IdResult {
     defer self.next_result_id += n;
-    return .{ .id = self.next_result_id };
+    return @enumFromInt(self.next_result_id);
 }
 
 pub fn idBound(self: Module) Word {

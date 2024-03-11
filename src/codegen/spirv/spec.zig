@@ -12,8 +12,9 @@ pub const Version = packed struct(Word) {
 };
 
 pub const Word = u32;
-pub const IdResult = struct {
-    id: Word,
+pub const IdResult = enum(Word) {
+    none,
+    _,
 };
 pub const IdResultType = IdResult;
 pub const IdRef = IdResult;

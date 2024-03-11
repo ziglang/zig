@@ -5158,7 +5158,7 @@ const DeclGen = struct {
                 const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
 
-                const label = IdRef{ .id = @intCast(first_case_label.id + case_i) };
+                const label: IdRef = @enumFromInt(@intFromEnum(first_case_label) + case_i);
 
                 for (items) |item| {
                     const value = (try self.air.value(item, mod)) orelse unreachable;
@@ -5172,7 +5172,7 @@ const DeclGen = struct {
                         else => unreachable,
                     };
                     const int_lit: spec.LiteralContextDependentNumber = switch (cond_words) {
-                        1 => .{ .uint32 = @as(u32, @intCast(int_val)) },
+                        1 => .{ .uint32 = @intCast(int_val) },
                         2 => .{ .uint64 = int_val },
                         else => unreachable,
                     };
@@ -5197,7 +5197,7 @@ const DeclGen = struct {
             const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
             extra_index = case.end + case.data.items_len + case_body.len;
 
-            const label = IdResult{ .id = @intCast(first_case_label.id + case_i) };
+            const label: IdResult = @enumFromInt(@intFromEnum(first_case_label) + case_i);
 
             try self.beginSpvBlock(label);
 
