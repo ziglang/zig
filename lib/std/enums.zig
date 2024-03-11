@@ -14,20 +14,19 @@ const eval_branch_quota_cushion = 5;
 /// default, which may be undefined.
 pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_default: ?Data) type {
     @setEvalBranchQuota(@typeInfo(E).Enum.fields.len + eval_branch_quota_cushion);
-    const StructField = std.builtin.Type.StructField;
-    var fields: []const StructField = &[_]StructField{};
-    for (@typeInfo(E).Enum.fields) |field| {
-        fields = fields ++ &[_]StructField{.{
-            .name = field.name ++ "",
+    var struct_fields: [@typeInfo(E).Enum.fields.len]std.builtin.Type.StructField = undefined;
+    for (&struct_fields, @typeInfo(E).Enum.fields) |*struct_field, enum_field| {
+        struct_field.* = .{
+            .name = enum_field.name ++ "",
             .type = Data,
             .default_value = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,
             .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
-        }};
+        };
     }
     return @Type(.{ .Struct = .{
         .layout = .auto,
-        .fields = fields,
+        .fields = &struct_fields,
         .decls = &.{},
         .is_tuple = false,
     } });
