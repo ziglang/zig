@@ -24,25 +24,72 @@ pub const Inst = struct {
     data: Data,
 
     pub const Tag = enum(u16) {
-        add,
         addi,
+        jalr,
+        lui,
+        mv,
+
+        unimp,
+        ebreak,
+        ecall,
+
+        /// Addition
+        add,
+        /// Subtraction
+        sub,
+
+        jal,
+
+        // TODO: Maybe create a special data for compares that includes the ops
+        /// Compare equal, uses r_type
+        cmp_eq,
+        /// Compare greater than, uses r_type
+        cmp_gt,
+
+        /// Branch if equal Uses b_type
+        beq,
+        /// Branch if not eql Uses b_type
+        bne,
+
+        nop,
+        ret,
+
+        /// Load double (64 bits)
+        ld,
+        /// Store double (64 bits)
+        sd,
+        /// Load word (32 bits)
+        lw,
+        /// Store word (32 bits)
+        sw,
+        /// Load half (16 bits)
+        lh,
+        /// Store half (16 bits)
+        sh,
+        /// Load byte (8 bits)
+        lb,
+        /// Store byte (8 bits)
+        sb,
+
         /// Pseudo-instruction: End of prologue
         dbg_prologue_end,
         /// Pseudo-instruction: Beginning of epilogue
         dbg_epilogue_begin,
         /// Pseudo-instruction: Update debug line
         dbg_line,
-        unimp,
-        ebreak,
-        ecall,
-        jalr,
-        ld,
-        lui,
-        mv,
-        nop,
-        ret,
-        sd,
-        sub,
+
+        /// Psuedo-instruction that will generate a backpatched
+        /// function prologue.
+        psuedo_prologue,
+        /// Jumps. Uses `inst` payload.
+        psuedo_jump,
+
+        // TODO: add description
+        load_symbol,
+
+        // TODO: add description
+        // this is bad, remove this
+        ldr_ptr_stack,
     };
 
     /// The position of an MIR instruction within the `Mir` instructions array.
@@ -63,7 +110,11 @@ pub const Inst = struct {
         /// A 16-bit immediate value.
         ///
         /// Used by e.g. svc
-        imm16: u16,
+        imm16: i16,
+        /// A 12-bit immediate value.
+        ///
+        /// Used by e.g. psuedo_prologue
+        imm12: i12,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         ///
         /// Used by e.g. load_memory
@@ -95,6 +146,21 @@ pub const Inst = struct {
             rs1: Register,
             rs2: Register,
         },
+        /// B-Type
+        ///
+        /// Used by e.g. beq
+        b_type: struct {
+            rs1: Register,
+            rs2: Register,
+            imm12: i13,
+        },
+        /// J-Type
+        ///
+        /// Used by e.g. jal
+        j_type: struct {
+            rd: Register,
+            imm21: i21,
+        },
         /// U-Type
         ///
         /// Used by e.g. lui
@@ -111,10 +177,19 @@ pub const Inst = struct {
         },
     };
 
+    const CompareOp = enum {
+        eq,
+        neq,
+        gt,
+        gte,
+        lt,
+        lte,
+    };
+
     // Make sure we don't accidentally make instructions bigger than expected.
-    // Note that in safety builds, Zig is allowed to insert a secret field for safety checks.
+    // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     // comptime {
-    //     if (!std.debug.runtime_safety) {
+    //     if (builtin.mode != .Debug) {
     //         assert(@sizeOf(Inst) == 8);
     //     }
     // }
@@ -145,3 +220,9 @@ pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end
         .end = i,
     };
 }
+
+pub const LoadSymbolPayload = struct {
+    register: u32,
+    atom_index: u32,
+    sym_index: u32,
+};
