@@ -1,3 +1,5 @@
+//! Compression algorithms.
+
 const std = @import("std.zig");
 
 pub const flate = @import("compress/flate.zig");

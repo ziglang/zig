@@ -1,3 +1,5 @@
+//! Cross-platform networking abstractions.
+
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;

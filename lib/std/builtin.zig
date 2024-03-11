@@ -1,3 +1,5 @@
+//! Types and values provided by the Zig language.
+
 const builtin = @import("builtin");
 
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,

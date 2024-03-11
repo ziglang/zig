@@ -1,3 +1,5 @@
+//! Cryptography.
+
 const root = @import("root");
 
 /// Authenticated Encryption with Associated Data

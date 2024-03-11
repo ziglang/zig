@@ -98,6 +98,7 @@ const normal_usage =
     \\
     \\  env              Print lib path, std path, cache directory, and version
     \\  help             Print this help and exit
+    \\  std              View standard library documentation in a browser
     \\  libc             Display native libc paths file or validate one
     \\  targets          List available compilation targets
     \\  version          Print version number and exit
@@ -308,6 +309,14 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .cmd_name = "libc",
             .root_src_path = "libc.zig",
             .prepend_zig_lib_dir_path = true,
+        });
+    } else if (mem.eql(u8, cmd, "std")) {
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "std",
+            .root_src_path = "std-docs.zig",
+            .prepend_zig_lib_dir_path = true,
+            .prepend_zig_exe_path = true,
+            .prepend_global_cache_path = true,
         });
     } else if (mem.eql(u8, cmd, "init")) {
         return cmdInit(gpa, arena, cmd_args);
@@ -5556,6 +5565,8 @@ const JitCmdOptions = struct {
     cmd_name: []const u8,
     root_src_path: []const u8,
     prepend_zig_lib_dir_path: bool = false,
+    prepend_global_cache_path: bool = false,
+    prepend_zig_exe_path: bool = false,
     depend_on_aro: bool = false,
     capture: ?*[]u8 = null,
 };
@@ -5714,6 +5725,10 @@ fn jitCmd(
 
     if (options.prepend_zig_lib_dir_path)
         child_argv.appendAssumeCapacity(zig_lib_directory.path.?);
+    if (options.prepend_zig_exe_path)
+        child_argv.appendAssumeCapacity(self_exe_path);
+    if (options.prepend_global_cache_path)
+        child_argv.appendAssumeCapacity(global_cache_directory.path.?);
 
     child_argv.appendSliceAssumeCapacity(args);
 

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const WaitGroup = @This();
@@ -42,4 +43,25 @@ pub fn isDone(wg: *WaitGroup) bool {
     assert(state & is_waiting == 0);
 
     return (state / one_pending) == 0;
+}
+
+// Spawns a new thread for the task. This is appropriate when the callee
+// delegates all work.
+pub fn spawnManager(
+    wg: *WaitGroup,
+    comptime func: anytype,
+    args: anytype,
+) void {
+    if (builtin.single_threaded) {
+        @call(.auto, func, args);
+        return;
+    }
+    const Manager = struct {
+        fn run(wg_inner: *WaitGroup, args_inner: @TypeOf(args)) void {
+            defer wg_inner.finish();
+            @call(.auto, func, args_inner);
+        }
+    };
+    wg.start();
+    _ = std.Thread.spawn(.{}, Manager.run, .{ wg, args }) catch Manager.run(wg, args);
 }
