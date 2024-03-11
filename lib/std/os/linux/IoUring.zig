@@ -1,5 +1,5 @@
 const IoUring = @This();
-const std = @import("../../std.zig");
+const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -1457,28 +1457,6 @@ pub const CompletionQueue = struct {
 /// Depending on the rate of arrival of data, it is possible that a given buffer
 /// group will run out of buffers before those in CQEs can be put back to the
 /// kernel. If this happens, a `cqe.err()` will have ENOBUFS as the error value.
-///
-/// Example:
-///     // setup buffer group
-///     const group_id: u16 = 0;
-///     const buffers_count: u16 = 256;
-///     const buffer_size: u32 = 4096;
-///     const buffers = try allocator.alloc(u8, buffers_count * buffers_size);
-///     var buf_grp = try BufferGroup.init.ring(&ring, group_id, buffers, buffer_size, buffers_count);
-///
-///     // prepare recv on fd with buffer picked from group
-///     _ = try buf_grp.recv(user_data, fd, 0);
-///
-///     // ... when we have completion for recv operation
-///     // (assuming cqe.err() == .SUCCESS)
-///     const buffer_id = try cqe.buffer_id();
-///     const len = @as(usize, @intCast(cqe.res));
-///     var buf = buf_grp.get(buffer_id)[0..len];
-///     // ... use buf
-///     buf_grp.release(buffer_id);
-///
-///     // ...
-///     buf_grp.deinit();
 ///
 pub const BufferGroup = struct {
     /// Parent ring for which this group is registered.
@@ -3914,6 +3892,76 @@ inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
     if (required.order(current) == .gt) return error.SkipZigTest;
 }
 
+test BufferGroup {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+
+    // Init IoUring
+    var ring = IoUring.init(16, 0) catch |err| switch (err) {
+        error.SystemOutdated => return error.SkipZigTest,
+        error.PermissionDenied => return error.SkipZigTest,
+        else => return err,
+    };
+    defer ring.deinit();
+
+    // Init buffer group for ring
+    const group_id: u16 = 1; // buffers group id
+    const buffers_count: u16 = 1; // number of buffers in buffer group
+    const buffer_size: usize = 128; // size of each buffer in group
+    const buffers = try testing.allocator.alloc(u8, buffers_count * buffer_size);
+    defer testing.allocator.free(buffers);
+    var buf_grp = BufferGroup.init(
+        &ring,
+        group_id,
+        buffers,
+        buffer_size,
+        buffers_count,
+    ) catch |err| switch (err) {
+        // kernel older than 5.19
+        error.ArgumentsInvalid => return error.SkipZigTest,
+        else => return err,
+    };
+    defer buf_grp.deinit();
+
+    // Create client/server fds
+    const fds = try createSocketTestHarness(&ring);
+    defer fds.close();
+    const data = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0xa, 0xb, 0xc, 0xd, 0xe };
+
+    // Client sends data
+    {
+        _ = try ring.send(1, fds.client, data[0..], 0);
+        const submitted = try ring.submit();
+        try testing.expectEqual(1, submitted);
+        const cqe_send = try ring.copy_cqe();
+        if (cqe_send.err() == .INVAL) return error.SkipZigTest;
+        try testing.expectEqual(linux.io_uring_cqe{ .user_data = 1, .res = data.len, .flags = 0 }, cqe_send);
+    }
+
+    // Server uses buffer group receive
+    {
+        // Submit recv operation, buffer will be choosen from buffer group
+        _ = try buf_grp.recv(2, fds.server, 0);
+        const submitted = try ring.submit();
+        try testing.expectEqual(1, submitted);
+
+        // ... when we have completion for recv operation
+        const cqe = try ring.copy_cqe();
+        try testing.expectEqual(2, cqe.user_data); // matches submitted user_data
+        try testing.expect(cqe.res >= 0); // success
+        try testing.expectEqual(os.E.SUCCESS, cqe.err());
+        try testing.expectEqual(data.len, @as(usize, @intCast(cqe.res))); // cqe.res holds received data len
+
+        // Read buffer_id and used buffer len from cqe
+        const buffer_id = try cqe.buffer_id();
+        const len: usize = @intCast(cqe.res);
+        // Get buffer from pool
+        const buf = buf_grp.get(buffer_id)[0..len];
+        try testing.expectEqualSlices(u8, &data, buf);
+        // Releaase buffer to the kernel when application is done with it
+        buf_grp.put(buffer_id);
+    }
+}
+
 test "ring mapped buffers recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
@@ -4126,6 +4174,7 @@ test "ring mapped buffers multishot recv" {
             // on kernel (tested with v6.5.0, v6.5.7)
             //   cqe_cancel.err() == .SUCCESS
             //   cqe_recv.err() == .CANCELED
+            // Upstream reference: https://github.com/axboe/liburing/issues/984
 
             // cancel operation is success (or NOENT on older kernels)
             try testing.expectEqual(cancel_user_data, cqe_cancel.user_data);
