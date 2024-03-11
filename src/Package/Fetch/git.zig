@@ -1111,24 +1111,21 @@ fn indexPackFirstPass(
     index_entries: *std.AutoHashMapUnmanaged(Oid, IndexEntry),
     pending_deltas: *std.ArrayListUnmanaged(IndexEntry),
 ) ![Sha1.digest_length]u8 {
-    var pack_counting_writer = std.io.countingWriter(std.io.null_writer);
-    var pack_hashed_writer = std.compress.hashedWriter(pack_counting_writer.writer(), Sha1.init(.{}));
-    var entry_crc32_writer = std.compress.hashedWriter(pack_hashed_writer.writer(), std.hash.Crc32.init());
-    var pack_buffered_reader = std.io.bufferedTee(4096, 8, pack.reader(), entry_crc32_writer.writer());
-    const pack_reader = pack_buffered_reader.reader();
+    var pack_buffered_reader = std.io.bufferedReader(pack.reader());
+    var pack_counting_reader = std.io.countingReader(pack_buffered_reader.reader());
+    var pack_hashed_reader = std.compress.hashedReader(pack_counting_reader.reader(), Sha1.init(.{}));
+    const pack_reader = pack_hashed_reader.reader();
 
     const pack_header = try PackHeader.read(pack_reader);
-    try pack_buffered_reader.flush();
 
     var current_entry: u32 = 0;
     while (current_entry < pack_header.total_objects) : (current_entry += 1) {
-        const entry_offset = pack_counting_writer.bytes_written;
-        entry_crc32_writer.hasher = std.hash.Crc32.init(); // reset hasher
-        const entry_header = try EntryHeader.read(pack_reader);
-
+        const entry_offset = pack_counting_reader.bytes_read;
+        var entry_crc32_reader = std.compress.hashedReader(pack_reader, std.hash.Crc32.init());
+        const entry_header = try EntryHeader.read(entry_crc32_reader.reader());
         switch (entry_header) {
             .commit, .tree, .blob, .tag => |object| {
-                var entry_decompress_stream = std.compress.zlib.decompressor(pack_reader);
+                var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
                 var entry_hashed_writer = hashedWriter(std.io.null_writer, Sha1.init(.{}));
                 const entry_writer = entry_hashed_writer.writer();
@@ -1141,33 +1138,29 @@ fn indexPackFirstPass(
                     return error.InvalidObject;
                 }
                 const oid = entry_hashed_writer.hasher.finalResult();
-                pack_buffered_reader.putBack(entry_decompress_stream.unreadBytes());
-                try pack_buffered_reader.flush();
                 try index_entries.put(allocator, oid, .{
                     .offset = entry_offset,
-                    .crc32 = entry_crc32_writer.hasher.final(),
+                    .crc32 = entry_crc32_reader.hasher.final(),
                 });
             },
             inline .ofs_delta, .ref_delta => |delta| {
-                var entry_decompress_stream = std.compress.zlib.decompressor(pack_reader);
+                var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
                 var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
                 try fifo.pump(entry_counting_reader.reader(), std.io.null_writer);
                 if (entry_counting_reader.bytes_read != delta.uncompressed_length) {
                     return error.InvalidObject;
                 }
-                pack_buffered_reader.putBack(entry_decompress_stream.unreadBytes());
-                try pack_buffered_reader.flush();
                 try pending_deltas.append(allocator, .{
                     .offset = entry_offset,
-                    .crc32 = entry_crc32_writer.hasher.final(),
+                    .crc32 = entry_crc32_reader.hasher.final(),
                 });
             },
         }
     }
 
-    const pack_checksum = pack_hashed_writer.hasher.finalResult();
-    const recorded_checksum = try pack_reader.readBytesNoEof(Sha1.digest_length);
+    const pack_checksum = pack_hashed_reader.hasher.finalResult();
+    const recorded_checksum = try pack_buffered_reader.reader().readBytesNoEof(Sha1.digest_length);
     if (!mem.eql(u8, &pack_checksum, &recorded_checksum)) {
         return error.CorruptedPack;
     }
