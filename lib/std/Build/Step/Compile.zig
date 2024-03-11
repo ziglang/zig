@@ -1003,8 +1003,6 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             }
         }
 
-        var cli_named_modules = try CliNamedModules.init(arena, &self.root_module);
-
         // For this loop, don't chase dynamic libraries because their link
         // objects are already linked.
         var it = self.root_module.iterateDependencies(self, false);
@@ -1230,40 +1228,40 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                     },
                 }
             }
+        }
 
-            // We need to emit the --mod argument here so that the above link objects
-            // have the correct parent module, but only if the module is part of
-            // this compilation.
-            if (cli_named_modules.modules.getIndex(module)) |module_cli_index| {
-                const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
-                try module.appendZigProcessFlags(&zig_args, step);
+        // We need to emit the --mod argument here so that the above link objects
+        // have the correct parent module, but only if the module is part of
+        // this compilation.
+        var cli_named_modules = try CliNamedModules.init(arena, &self.root_module);
+        for (cli_named_modules.names.keys(), cli_named_modules.modules.keys()) |module_cli_name, module| {
+            try module.appendZigProcessFlags(&zig_args, step);
 
-                // --dep arguments
-                try zig_args.ensureUnusedCapacity(module.import_table.count() * 2);
-                for (module.import_table.keys(), module.import_table.values()) |name, dep| {
-                    const dep_index = cli_named_modules.modules.getIndex(dep).?;
-                    const dep_cli_name = cli_named_modules.names.keys()[dep_index];
-                    zig_args.appendAssumeCapacity("--dep");
-                    if (std.mem.eql(u8, dep_cli_name, name)) {
-                        zig_args.appendAssumeCapacity(dep_cli_name);
-                    } else {
-                        zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, dep_cli_name }));
-                    }
+            // --dep arguments
+            try zig_args.ensureUnusedCapacity(module.import_table.count() * 2);
+            for (module.import_table.keys(), module.import_table.values()) |name, dep| {
+                const dep_index = cli_named_modules.modules.getIndex(dep).?;
+                const dep_cli_name = cli_named_modules.names.keys()[dep_index];
+                zig_args.appendAssumeCapacity("--dep");
+                if (std.mem.eql(u8, dep_cli_name, name)) {
+                    zig_args.appendAssumeCapacity(dep_cli_name);
+                } else {
+                    zig_args.appendAssumeCapacity(b.fmt("{s}={s}", .{ name, dep_cli_name }));
                 }
+            }
 
-                // When the CLI sees a -M argument, it determines whether it
-                // implies the existence of a Zig compilation unit based on
-                // whether there is a root source file. If there is no root
-                // source file, then this is not a zig compilation unit - it is
-                // perhaps a set of linker objects, or C source files instead.
-                // Linker objects are added to the CLI globally, while C source
-                // files must have a module parent.
-                if (module.root_source_file) |lp| {
-                    const src = lp.getPath2(module.owner, step);
-                    try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
-                } else if (moduleNeedsCliArg(module)) {
-                    try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));
-                }
+            // When the CLI sees a -M argument, it determines whether it
+            // implies the existence of a Zig compilation unit based on
+            // whether there is a root source file. If there is no root
+            // source file, then this is not a zig compilation unit - it is
+            // perhaps a set of linker objects, or C source files instead.
+            // Linker objects are added to the CLI globally, while C source
+            // files must have a module parent.
+            if (module.root_source_file) |lp| {
+                const src = lp.getPath2(module.owner, step);
+                try zig_args.append(b.fmt("-M{s}={s}", .{ module_cli_name, src }));
+            } else if (moduleNeedsCliArg(module)) {
+                try zig_args.append(b.fmt("-M{s}", .{module_cli_name}));
             }
         }
 
