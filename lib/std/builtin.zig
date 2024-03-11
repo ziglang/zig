@@ -727,13 +727,6 @@ else if (@hasDecl(root, "os") and @hasDecl(root.os, "panic"))
 else
     std.debug.panicImpl;
 
-/// This function is used by the Zig language code generation and
-/// therefore must be kept in sync with the compiler implementation.
-pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @setCold(true);
-    std.debug.panicImpl(msg, error_return_trace, ret_addr);
-}
-
 pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void {
     if (!std.meta.eql(expected, actual)) {
         panicSentinelMismatch(expected, actual);
@@ -1037,14 +1030,15 @@ pub const RuntimeSafety = packed struct(u64) {
 pub const panicNew = if (@hasDecl(root, "panicNew")) root.panicNew else panicNew_default;
 
 // TODO: Rename to `panicImpl` when the old interface is removed.
+//
+//       The backend/os logic is not here, because this function is a combination
+//       of all the special handler functions `panic*`, which also never checked
+//       the backend/os before attempting to write error messages.
 pub fn panicNew_default(comptime cause: PanicCause, data: PanicData(cause)) noreturn {
     @setCold(true);
     @setRuntimeSafety(false);
-    if (@field(builtin.runtime_safety, @tagName(cause)) == .none) {
-        @compileError("unreachable");
-    }
     if (cause != .message and
-        @field(builtin.runtime_safety, @tagName(cause)) != .extra)
+        @field(builtin.runtime_safety, @tagName(cause)) == .check)
     {
         std.debug.panicImpl(@tagName(cause), null, @returnAddress());
     }
@@ -1263,7 +1257,7 @@ pub fn panicCastToErrorFromInvalid(
         ptr += 1;
     } else {
         ptr[7] = '\'';
-        ptr = mem.cpyEqu2(ptr + 8, @typeName(From));
+        ptr = mem.cpyEqu(ptr + 8, @typeName(From));
         ptr[0..2].* = "' ".*;
         ptr = fmt.AnyFormat(.{}, From).write(ptr + 2, value);
     }
@@ -1299,7 +1293,7 @@ pub fn panicCastTruncatedData(
     @setCold(true);
     @setRuntimeSafety(false);
     if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(From) > 64) {
-        std.debug.panicImpl("cast truncated bits", null, ret_addr);
+        return std.debug.panicImpl("cast truncated bits", null, ret_addr);
     }
     var buf: [256]u8 = undefined;
     const yn: bool = value < 0;
@@ -1320,7 +1314,7 @@ pub fn panicCastToUnsignedFromNegative(
     @setCold(true);
     @setRuntimeSafety(false);
     if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(From) > 64) {
-        std.debug.panicImpl("cast to unsigned from negative", null, ret_addr);
+        return std.debug.panicImpl("cast to unsigned from negative", null, ret_addr);
     }
     var buf: [256]u8 = undefined;
     var ptr: [*]u8 = writeCastToFrom(&buf, to_type_name, from_type_name);
@@ -1339,16 +1333,16 @@ pub fn panicMismatchedSentinel(
     @setCold(true);
     @setRuntimeSafety(false);
     if (builtin.zig_backend != .stage2_llvm and
-        @bitSizeOf(Number) > 64 or @typeInfo(Number) == .Float)
+        (@bitSizeOf(Number) > 64 or @typeInfo(Number) == .Float))
     {
-        std.debug.panicImpl("mismatched sentinel", null, ret_addr);
+        return std.debug.panicImpl("mismatched sentinel", null, ret_addr);
     }
     var buf: [256]u8 = undefined;
     var ptr: [*]u8 = mem.cpyEqu(&buf, type_name);
     ptr[0..29].* = " sentinel mismatch: expected ".*;
-    ptr = fmt.formatIntDec(ptr[29..][0..32], expected);
+    ptr = fmt.formatAny(ptr[29..][0..32], expected);
     ptr[0..8].* = ", found ".*;
-    ptr = fmt.formatIntDec(ptr[8..][0..32], found);
+    ptr = fmt.formatAny(ptr[8..][0..32], found);
     std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
 }
 pub fn panicAccessedInactiveField(
@@ -1356,6 +1350,8 @@ pub fn panicAccessedInactiveField(
     found: []const u8,
     ret_addr: usize,
 ) noreturn {
+    @setCold(true);
+    @setRuntimeSafety(false);
     var buf: [256]u8 = undefined;
     buf[0..23].* = "access of union field '".*;
     var ptr: [*]u8 = mem.cpyEqu(buf[23..], found);
@@ -1373,7 +1369,7 @@ pub fn panicExactDivisionWithRemainder(
     @setCold(true);
     @setRuntimeSafety(false);
     if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-        std.debug.panicImpl("exact division with remainder", null, ret_addr);
+        return std.debug.panicImpl("exact division with remainder", null, ret_addr);
     }
     var buf: [256]u8 = undefined;
     buf[0..31].* = "exact division with remainder: ".*;
@@ -1416,6 +1412,8 @@ pub fn writeAboveOrBelowLimit(
 pub fn panicArithOverflow(comptime Number: type) type {
     const T = struct {
         const Absolute = @TypeOf(@abs(@as(Number, undefined)));
+        const feature_limited: bool = builtin.zig_backend != .stage2_llvm and
+            @bitSizeOf(Number) > @bitSizeOf(usize);
         pub fn add(
             type_name: []const u8,
             extrema: math.BestExtrema(Number),
@@ -1425,8 +1423,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("add overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("add overflowed", null, ret_addr);
             }
             const yn: bool = rhs < 0;
             var buf: [256]u8 = undefined;
@@ -1442,8 +1440,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("add overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("add overflowed", null, ret_addr);
             }
             var buf: [256]u8 = undefined;
             var ptr: [*]u8 = writeOverflowed(&buf, "add overflowed ", type_name, " + ", lhs, 1, &@addWithOverflow(lhs, 1));
@@ -1459,8 +1457,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("sub overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("sub overflowed", null, ret_addr);
             }
             const yn: bool = rhs > 0;
             var buf: [256]u8 = undefined;
@@ -1476,8 +1474,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("sub overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("sub overflowed", null, ret_addr);
             }
             var buf: [256]u8 = undefined;
             var ptr: [*]u8 = writeOverflowed(&buf, "sub overflowed ", type_name, " - ", lhs, 1, &@subWithOverflow(lhs, 1));
@@ -1493,8 +1491,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("mul overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("mul overflowed", null, ret_addr);
             }
             var buf: [256]u8 = undefined;
             var ptr: [*]u8 = writeOverflowed(&buf, "mul overflowed ", type_name, " * ", lhs, rhs, &@mulWithOverflow(lhs, rhs));
@@ -1514,8 +1512,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("div overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("div overflowed", null, ret_addr);
             }
             const yn: bool = rhs < 0;
             var buf: [256]u8 = undefined;
@@ -1533,7 +1531,7 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
+            if (feature_limited) {
                 std.debug.panicImpl(switch (pc) {
                     .add_overflowed => "add overflowed",
                     .sub_overflowed => "sub overflowed",
@@ -1570,14 +1568,14 @@ pub fn panicArithOverflow(comptime Number: type) type {
         pub fn shl(
             type_name: []const u8,
             value: Number,
-            shift_amt: i16,
+            shift_amt: u16,
             mask: Absolute,
             ret_addr: usize,
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("shl overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("shl overflowed", null, ret_addr);
             }
             const absolute: Absolute = @bitCast(value);
             const ov_bits: u16 = @popCount(absolute & mask) -% @popCount((absolute << @intCast(shift_amt)) & mask);
@@ -1600,8 +1598,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("shr overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("shr overflowed", null, ret_addr);
             }
             const absolute: Absolute = @bitCast(value);
             const ov_bits: u16 = @popCount(absolute & mask) -% @popCount((absolute << @intCast(shift_amt)) & mask);
@@ -1623,8 +1621,8 @@ pub fn panicArithOverflow(comptime Number: type) type {
         ) noreturn {
             @setCold(true);
             @setRuntimeSafety(false);
-            if (builtin.zig_backend != .stage2_llvm and @bitSizeOf(Number) > 64) {
-                std.debug.panicImpl("shift RHS overflowed", null, ret_addr);
+            if (feature_limited) {
+                return std.debug.panicImpl("shift RHS overflowed", null, ret_addr);
             }
             var buf: [256]u8 = undefined;
             var ptr: [*]u8 = mem.cpyEqu(&buf, type_name);
@@ -1634,6 +1632,7 @@ pub fn panicArithOverflow(comptime Number: type) type {
             ptr = fmt.formatIntDec(ptr[3..][0..32], bit_count);
             std.debug.panicImpl(buf[0 .. @intFromPtr(ptr) -% @intFromPtr(&buf)], null, ret_addr);
         }
+        const Overflow = struct { Number, u1 };
         pub fn writeOverflowed(
             buf: [*]u8,
             op_name: *const [15]u8,
@@ -1641,7 +1640,7 @@ pub fn panicArithOverflow(comptime Number: type) type {
             op_sym: *const [3]u8,
             lhs: Number,
             rhs: Number,
-            res: *const struct { Number, u1 },
+            res: *const Overflow,
         ) [*]u8 {
             @setCold(true);
             @setRuntimeSafety(false);
@@ -1663,7 +1662,6 @@ pub fn panicArithOverflow(comptime Number: type) type {
             buf: [*]u8,
             ov_bits: u16,
         ) [*]u8 {
-            @setCold(true);
             @setRuntimeSafety(false);
             buf[0..13].* = " shifted out ".*;
             var ptr: [*]u8 = fmt.formatIntDec(buf[13..][0..32], ov_bits);
@@ -1843,23 +1841,23 @@ const math = struct {
 const fmt = struct {
     fn formatAny(buf: []u8, value: anytype) [*]u8 {
         var fbs = std.io.fixedBufferStream(buf);
-        std.fmt.format(fbs.writer(), "{any}", .{value}) catch unreachable;
+        std.fmt.format(fbs.writer(), "{any}", .{value}) catch return buf.ptr;
         return buf.ptr + fbs.pos;
     }
     fn formatIntDec(buf: []u8, value: anytype) [*]u8 {
         var fbs = std.io.fixedBufferStream(buf);
-        std.fmt.formatInt(value, 10, .lower, .{}, fbs.writer()) catch unreachable;
+        std.fmt.formatInt(value, 10, .lower, .{}, fbs.writer()) catch return buf.ptr;
         return buf.ptr + fbs.pos;
     }
     fn formatIntHex(buf: []u8, value: anytype) [*]u8 {
         var fbs = std.io.fixedBufferStream(buf);
-        std.fmt.formatInt(value, 16, .lower, .{}, fbs.writer()) catch unreachable;
+        std.fmt.formatInt(value, 16, .lower, .{}, fbs.writer()) catch return buf.ptr;
         return buf.ptr + fbs.pos;
     }
-    fn formatFloatDec(ptr: []u8, value: anytype) [*]u8 {
-        var fbs = std.io.fixedBufferStream(ptr[0..32]);
-        std.fmt.formatFloatDecimal(value, .{}, fbs.writer()) catch unreachable;
-        return ptr.ptr + fbs.pos;
+    fn formatFloatDec(buf: []u8, value: anytype) [*]u8 {
+        var fbs = std.io.fixedBufferStream(buf[0..32]);
+        std.fmt.formatFloatDecimal(value, .{}, fbs.writer()) catch return buf.ptr;
+        return buf.ptr + fbs.pos;
     }
 };
 
