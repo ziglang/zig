@@ -1685,26 +1685,6 @@ pub inline fn io_uring_buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16
     @atomicStore(u16, &br.tail, tail, .Release);
 }
 
-pub fn io_uring_prep_recv_multishot(
-    sqe: *linux.io_uring_sqe,
-    fd: os.fd_t,
-    buffer: []u8,
-    flags: u32,
-) void {
-    io_uring_prep_recv(sqe, fd, buffer, flags);
-    sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
-}
-
-pub fn io_uring_prep_recvmsg_multishot(
-    sqe: *linux.io_uring_sqe,
-    fd: os.fd_t,
-    msg: *os.msghdr,
-    flags: u32,
-) void {
-    io_uring_prep_recvmsg(sqe, fd, msg, flags);
-    sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
-}
-
 test "structs/offsets/entries" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
@@ -4023,7 +4003,7 @@ test "ring mapped buffers recv" {
 test "ring mapped buffers multishot recv" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
 
-    var ring = IO_Uring.init(16, 0) catch |err| switch (err) {
+    var ring = IoUring.init(16, 0) catch |err| switch (err) {
         error.SystemOutdated => return error.SkipZigTest,
         error.PermissionDenied => return error.SkipZigTest,
         else => return err,
@@ -4121,7 +4101,7 @@ test "ring mapped buffers multishot recv" {
 
         // cancel pending multishot recv operation
         {
-            var cancel_user_data = rnd.int(u64);
+            const cancel_user_data = rnd.int(u64);
             _ = try ring.cancel(cancel_user_data, recv_user_data, 0);
             try testing.expectEqual(@as(u32, 1), try ring.submit());
 
@@ -4180,7 +4160,7 @@ fn expect_buf_grp_recv(
 }
 
 fn expect_buf_grp_cqe(
-    ring: *IO_Uring,
+    ring: *IoUring,
     buf_grp: *BufferGroup,
     user_data: u64,
     expected: []const u8,

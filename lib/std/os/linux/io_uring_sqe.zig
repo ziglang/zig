@@ -200,6 +200,36 @@ pub const io_uring_sqe = extern struct {
         sqe.rw_flags = flags;
     }
 
+    pub fn prep_recv_multishot(
+        sqe: *linux.io_uring_sqe,
+        fd: os.fd_t,
+        buffer: []u8,
+        flags: u32,
+    ) void {
+        sqe.prep_recv(fd, buffer, flags);
+        sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
+    }
+
+    pub fn prep_recvmsg(
+        sqe: *linux.io_uring_sqe,
+        fd: os.fd_t,
+        msg: *os.msghdr,
+        flags: u32,
+    ) void {
+        sqe.prep_rw(.RECVMSG, fd, @intFromPtr(msg), 1, 0);
+        sqe.rw_flags = flags;
+    }
+
+    pub fn prep_recvmsg_multishot(
+        sqe: *linux.io_uring_sqe,
+        fd: os.fd_t,
+        msg: *os.msghdr,
+        flags: u32,
+    ) void {
+        sqe.prep_recvmsg(fd, msg, flags);
+        sqe.ioprio |= linux.IORING_RECV_MULTISHOT;
+    }
+
     pub fn prep_send(sqe: *linux.io_uring_sqe, fd: os.fd_t, buffer: []const u8, flags: u32) void {
         sqe.prep_rw(.SEND, fd, @intFromPtr(buffer.ptr), buffer.len, 0);
         sqe.rw_flags = flags;
@@ -225,16 +255,6 @@ pub const io_uring_sqe = extern struct {
     ) void {
         prep_sendmsg(sqe, fd, msg, flags);
         sqe.opcode = .SENDMSG_ZC;
-    }
-
-    pub fn prep_recvmsg(
-        sqe: *linux.io_uring_sqe,
-        fd: os.fd_t,
-        msg: *os.msghdr,
-        flags: u32,
-    ) void {
-        sqe.prep_rw(.RECVMSG, fd, @intFromPtr(msg), 1, 0);
-        sqe.rw_flags = flags;
     }
 
     pub fn prep_sendmsg(
