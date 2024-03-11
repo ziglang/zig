@@ -431,7 +431,7 @@ pub fn panicExtra(
             break :blk &buf;
         },
     };
-    std.builtin.panic(msg, trace, ret_addr);
+    panicImpl(msg, trace, ret_addr);
 }
 
 /// Non-zero whenever the program triggered a panic.
@@ -445,11 +445,55 @@ var panic_mutex = std.Thread.Mutex{};
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
 
-// `panicImpl` could be useful in implementing a custom panic handler which
-// calls the default handler (on supported platforms)
-pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
-    @setCold(true);
-
+fn panicImplWasi(msg: []const u8) noreturn {
+    std.debug.print("{s}", .{msg});
+    std.os.abort();
+}
+fn panicImplPlan9(msg: []const u8) noreturn {
+    var status: [std.os.plan9.ERRMAX]u8 = undefined;
+    const len = @min(msg.len, status.len - 1);
+    @memcpy(status[0..len], msg[0..len]);
+    status[len] = 0;
+    std.os.plan9.exits(status[0..len :0]);
+}
+fn panicImplUefi(msg: []const u8) noreturn {
+    const uefi = std.os.uefi;
+    const ExitData = struct {
+        pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
+            // Need boot services for pool allocation
+            if (uefi.system_table.boot_services == null) {
+                return error.BootServicesUnavailable;
+            }
+            // ExitData buffer must be allocated using boot_services.allocatePool
+            var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
+            errdefer uefi.raw_pool_allocator.free(utf16);
+            if (exit_msg.len > 255) {
+                return error.MessageTooLong;
+            }
+            var fmt: [256]u8 = undefined;
+            const slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
+            const len = try std.unicode.utf8ToUtf16Le(utf16, slice);
+            utf16[len] = 0;
+            exit_size.* = 256;
+            return @as([*:0]u16, @ptrCast(utf16.ptr));
+        }
+    };
+    var exit_size: usize = 0;
+    const exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+    if (exit_data) |data| {
+        if (uefi.system_table.std_err) |out| {
+            _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
+            _ = out.outputString(data);
+            _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+        }
+    }
+    if (uefi.system_table.boot_services) |bs| {
+        _ = bs.exit(uefi.handle, .Aborted, exit_size, exit_data);
+    }
+    // Didn't have boot_services, just fallback to whatever.
+    std.os.abort();
+}
+fn panicImplDefault(msg: []const u8, trace: ?*const std.builtin.StackTrace, first_trace_addr: usize) noreturn {
     if (enable_segfault_handler) {
         // If a segfault happens while panicking, we want it to actually segfault, not trigger
         // the handler.
@@ -497,10 +541,34 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
             // Panicked while printing "Panicked during a panic."
         },
     };
-
-    os.abort();
+    std.os.abort();
 }
-
+pub fn panicImpl(msg: []const u8, trace: ?*const std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    @setCold(true);
+    // For backends that cannot handle the language features depended on by the
+    // default panic handler, we have a simpler panic handler:
+    if (builtin.zig_backend == .stage2_wasm or
+        builtin.zig_backend == .stage2_arm or
+        builtin.zig_backend == .stage2_aarch64 or
+        builtin.zig_backend == .stage2_x86 or
+        (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
+        builtin.zig_backend == .stage2_riscv64 or
+        builtin.zig_backend == .stage2_sparc64 or
+        builtin.zig_backend == .stage2_spirv64)
+    {
+        while (true) @breakpoint();
+    }
+    if (builtin.os.tag == .freestanding) {
+        while (true) @breakpoint();
+    }
+    switch (builtin.os.tag) {
+        .cuda, .amdhsa => std.os.abort(),
+        .wasi => return panicImplWasi(msg),
+        .uefi => return panicImplUefi(msg),
+        .plan9 => return panicImplPlan9(msg),
+        else => return panicImplDefault(msg, trace, ret_addr orelse @returnAddress()),
+    }
+}
 /// Must be called only after adding 1 to `panicking`. There are three callsites.
 fn waitForOtherThreadToFinishPanicking() void {
     if (panicking.fetchSub(1, .SeqCst) != 1) {
