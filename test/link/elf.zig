@@ -2671,36 +2671,56 @@ fn testStrip(b: *Build, opts: Options) *Step {
 fn testThunks(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "thunks", opts);
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
-    \\#include <stdio.h>
-    \\__attribute__((aligned(0x8000000))) int bar() {
-    \\  return 42;
-    \\}
-    \\int foobar();
-    \\int foo() {
-    \\  return bar() - foobar();
-    \\}
-    \\__attribute__((aligned(0x8000000))) int foobar() {
-    \\  return 42;
-    \\}
-    \\int main() {
-    \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
-    \\  return foo();
-    \\}
-    });
-    exe.link_function_sections = true;
-    exe.linkLibC();
+    const src =
+        \\#include <stdio.h>
+        \\__attribute__((aligned(0x8000000))) int bar() {
+        \\  return 42;
+        \\}
+        \\int foobar();
+        \\int foo() {
+        \\  return bar() - foobar();
+        \\}
+        \\__attribute__((aligned(0x8000000))) int foobar() {
+        \\  return 42;
+        \\}
+        \\int main() {
+        \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
+        \\  return foo();
+        \\}
+    ;
 
-    const run = addRunArtifact(exe);
-    run.expectStdOutEqual("bar=42, foo=0, foobar=42");
-    run.expectExitCode(0);
-    test_step.dependOn(&run.step);
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = src });
+        exe.link_function_sections = true;
+        exe.linkLibC();
 
-    const check = exe.checkObject();
-    check.max_bytes = std.math.maxInt(u32);
-    check.checkInSymtab();
-    check.checkContains("_libc_start_main$thunk");
-    test_step.dependOn(&check.step);
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.max_bytes = std.math.maxInt(u32);
+        check.checkInSymtab();
+        check.checkContains("__libc_start_main$thunk");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2", .c_source_bytes = src });
+        exe.linkLibC();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
+        run.expectExitCode(0);
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.max_bytes = std.math.maxInt(u32);
+        check.checkInSymtab();
+        check.checkContains("__libc_start_main$thunk");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
