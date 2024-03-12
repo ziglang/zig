@@ -13448,7 +13448,18 @@ fn validateSwitchItemSparse(
     src_node_offset: i32,
     switch_prong_src: Module.SwitchProngSrc,
 ) CompileError!Air.Inst.Ref {
-    const item = try sema.resolveSwitchItemVal(block, item_ref, operand_ty, src_node_offset, switch_prong_src, .none);
+    const mod = sema.mod;
+    const item = sema.resolveSwitchItemVal(block, item_ref, operand_ty, src_node_offset, switch_prong_src, .none) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            if (operand_ty.zigTypeTag(mod) == .Pointer) {
+                const operand_src: LazySrcLoc = .{ .node_offset_switch_operand = src_node_offset };
+                try sema.errNote(block, operand_src, msg, "consider using '.*'", .{});
+            }
+            return err;
+        },
+        else => |e| return e,
+    };
     const kv = (try seen_values.fetchPut(sema.gpa, item.val, switch_prong_src)) orelse return item.ref;
     try sema.validateSwitchDupe(block, kv.value, switch_prong_src, src_node_offset);
     unreachable;
