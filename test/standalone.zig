@@ -176,6 +176,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/dep_shared_builtin/build.zig"),
     },
     .{
+        .build_root = "test/standalone/dep_duplicate_module",
+        .import = @import("standalone/dep_duplicate_module/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/dirname",
         .import = @import("standalone/dirname/build.zig"),
     },
