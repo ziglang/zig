@@ -1660,7 +1660,7 @@ pub fn buf_ring_add(
 /// `io_uring_buf_ring_add` has been called `count` times to fill in new buffers.
 pub fn buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16) void {
     const tail: u16 = br.tail +% count;
-    @atomicStore(u16, &br.tail, tail, .Release);
+    @atomicStore(u16, &br.tail, tail, .release);
 }
 
 test "structs/offsets/entries" {
