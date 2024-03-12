@@ -1483,17 +1483,17 @@ pub const BufferGroup = struct {
     ) !BufferGroup {
         assert(buffers.len == buffers_count * buffer_size);
 
-        const br = try io_uring_setup_buf_ring(ring.fd, buffers_count, group_id);
-        io_uring_buf_ring_init(br);
+        const br = try setup_buf_ring(ring.fd, buffers_count, group_id);
+        buf_ring_init(br);
 
-        const mask = io_uring_buf_ring_mask(buffers_count);
+        const mask = buf_ring_mask(buffers_count);
         var i: u16 = 0;
         while (i < buffers_count) : (i += 1) {
             const start = buffer_size * i;
             const buf = buffers[start .. start + buffer_size];
-            io_uring_buf_ring_add(br, buf, i, mask, i);
+            buf_ring_add(br, buf, i, mask, i);
         }
-        io_uring_buf_ring_advance(br, buffers_count);
+        buf_ring_advance(br, buffers_count);
 
         return BufferGroup{
             .ring = ring,
@@ -1538,10 +1538,10 @@ pub const BufferGroup = struct {
 
     // Release buffer to the kernel.
     pub fn put(self: *BufferGroup, buffer_id: u16) void {
-        const mask = io_uring_buf_ring_mask(self.buffers_count);
+        const mask = buf_ring_mask(self.buffers_count);
         const buffer = self.get(buffer_id);
-        io_uring_buf_ring_add(self.br, buffer, buffer_id, mask, 0);
-        io_uring_buf_ring_advance(self.br, 1);
+        buf_ring_add(self.br, buffer, buffer_id, mask, 0);
+        buf_ring_advance(self.br, 1);
     }
 
     // Release buffer from CQE to the kernel.
@@ -1550,7 +1550,7 @@ pub const BufferGroup = struct {
     }
 
     pub fn deinit(self: *BufferGroup) void {
-        io_uring_free_buf_ring(self.ring.fd, self.br, self.buffers_count, self.group_id);
+        free_buf_ring(self.ring.fd, self.br, self.buffers_count, self.group_id);
     }
 };
 
@@ -1559,7 +1559,7 @@ pub const BufferGroup = struct {
 /// `fd` is IO_Uring.fd for which the provided buffer ring is being registered.
 /// `entries` is the number of entries requested in the buffer ring, must be power of 2.
 /// `group_id` is the chosen buffer group ID, unique in IO_Uring.
-pub fn io_uring_setup_buf_ring(fd: os.fd_t, entries: u16, group_id: u16) !*align(mem.page_size) linux.io_uring_buf_ring {
+pub fn setup_buf_ring(fd: os.fd_t, entries: u16, group_id: u16) !*align(mem.page_size) linux.io_uring_buf_ring {
     if (entries == 0 or entries > 1 << 15) return error.EntriesNotInRange;
     if (!std.math.isPowerOfTwo(entries)) return error.EntriesNotPowerOfTwo;
 
@@ -1576,11 +1576,11 @@ pub fn io_uring_setup_buf_ring(fd: os.fd_t, entries: u16, group_id: u16) !*align
     assert(mmap.len == mmap_size);
 
     const br: *align(mem.page_size) linux.io_uring_buf_ring = @ptrCast(mmap.ptr);
-    try io_uring_register_buf_ring(fd, @intFromPtr(br), entries, group_id);
+    try register_buf_ring(fd, @intFromPtr(br), entries, group_id);
     return br;
 }
 
-fn io_uring_register_buf_ring(fd: os.fd_t, addr: u64, entries: u32, group_id: u16) !void {
+fn register_buf_ring(fd: os.fd_t, addr: u64, entries: u32, group_id: u16) !void {
     var reg = mem.zeroInit(linux.io_uring_buf_reg, .{
         .ring_addr = addr,
         .ring_entries = entries,
@@ -1595,7 +1595,7 @@ fn io_uring_register_buf_ring(fd: os.fd_t, addr: u64, entries: u32, group_id: u1
     try handle_register_buf_ring_result(res);
 }
 
-fn io_uring_unregister_buf_ring(fd: os.fd_t, group_id: u16) !void {
+fn unregister_buf_ring(fd: os.fd_t, group_id: u16) !void {
     var reg = mem.zeroInit(linux.io_uring_buf_reg, .{
         .bgid = group_id,
     });
@@ -1617,8 +1617,8 @@ fn handle_register_buf_ring_result(res: usize) !void {
 }
 
 // Unregisters a previously registered shared buffer ring, returned from io_uring_setup_buf_ring.
-pub fn io_uring_free_buf_ring(fd: os.fd_t, br: *align(mem.page_size) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
-    io_uring_unregister_buf_ring(fd, group_id) catch {};
+pub fn free_buf_ring(fd: os.fd_t, br: *align(mem.page_size) linux.io_uring_buf_ring, entries: u32, group_id: u16) void {
+    unregister_buf_ring(fd, group_id) catch {};
     var mmap: []align(mem.page_size) u8 = undefined;
     mmap.ptr = @ptrCast(br);
     mmap.len = entries * @sizeOf(linux.io_uring_buf);
@@ -1626,13 +1626,13 @@ pub fn io_uring_free_buf_ring(fd: os.fd_t, br: *align(mem.page_size) linux.io_ur
 }
 
 /// Initialises `br` so that it is ready to be used.
-pub inline fn io_uring_buf_ring_init(br: *linux.io_uring_buf_ring) void {
+pub fn buf_ring_init(br: *linux.io_uring_buf_ring) void {
     br.tail = 0;
 }
 
 /// Calculates the appropriate size mask for a buffer ring.
 /// `entries` is the ring entries as specified in io_uring_register_buf_ring.
-pub inline fn io_uring_buf_ring_mask(entries: u16) u16 {
+pub fn buf_ring_mask(entries: u16) u16 {
     return entries - 1;
 }
 
@@ -1641,7 +1641,7 @@ pub inline fn io_uring_buf_ring_mask(entries: u16) u16 {
 /// `buffer_offset` is the offset to insert at from the current tail.
 /// If just one buffer is provided before the ring tail is committed with advance then offset should be 0.
 /// If buffers are provided in a loop before being committed, the offset must be incremented by one for each buffer added.
-pub inline fn io_uring_buf_ring_add(
+pub fn buf_ring_add(
     br: *linux.io_uring_buf_ring,
     buffer: []u8,
     buffer_id: u16,
@@ -1658,7 +1658,7 @@ pub inline fn io_uring_buf_ring_add(
 
 /// Make `count` new buffers visible to the kernel. Called after
 /// `io_uring_buf_ring_add` has been called `count` times to fill in new buffers.
-pub inline fn io_uring_buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16) void {
+pub fn buf_ring_advance(br: *linux.io_uring_buf_ring, count: u16) void {
     const tail: u16 = br.tail +% count;
     @atomicStore(u16, &br.tail, tail, .Release);
 }
