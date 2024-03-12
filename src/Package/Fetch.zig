@@ -1147,7 +1147,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
     const eb = &f.error_bundle;
     const gpa = f.arena.child_allocator;
 
-    var diagnostics: std.tar.Options.Diagnostics = .{ .allocator = gpa };
+    var diagnostics: std.tar.Diagnostics = .{ .allocator = gpa };
     defer diagnostics.deinit();
 
     std.tar.pipeToFileSystem(out_dir, reader, .{

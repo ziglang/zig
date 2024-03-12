@@ -767,7 +767,7 @@ fn unpack_inner(tar_bytes: []u8) !void {
     });
     while (try it.next()) |tar_file| {
         switch (tar_file.kind) {
-            .normal => {
+            .file => {
                 if (tar_file.size == 0 and tar_file.name.len == 0) break;
                 if (std.mem.endsWith(u8, tar_file.name, ".zig")) {
                     log.debug("found file: '{s}'", .{tar_file.name});
@@ -790,7 +790,6 @@ fn unpack_inner(tar_bytes: []u8) !void {
                         tar_file.name,
                     });
                 }
-                try tar_file.skip();
             },
             else => continue,
         }
