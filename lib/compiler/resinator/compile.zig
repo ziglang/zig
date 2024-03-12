@@ -321,10 +321,7 @@ pub const Compiler = struct {
 
                         return buf.toOwnedSlice();
                     },
-                    else => {
-                        std.debug.print("unexpected filename token type: {}\n", .{literal_node.token});
-                        unreachable; // no other token types should be in a filename literal node
-                    },
+                    else => unreachable, // no other token types should be in a filename literal node
                 }
             },
             .binary_expression => {
@@ -404,6 +401,72 @@ pub const Compiler = struct {
         return first_error orelse error.FileNotFound;
     }
 
+    pub fn parseDlgIncludeString(self: *Compiler, token: Token) ![]u8 {
+        // For the purposes of parsing, we want to strip the L prefix
+        // if it exists since we want escaped integers to be limited to
+        // their ascii string range.
+        //
+        // We keep track of whether or not there was an L prefix, though,
+        // since there's more weirdness to come.
+        var bytes = self.sourceBytesForToken(token);
+        var was_wide_string = false;
+        if (bytes.slice[0] == 'L' or bytes.slice[0] == 'l') {
+            was_wide_string = true;
+            bytes.slice = bytes.slice[1..];
+        }
+
+        var buf = try std.ArrayList(u8).initCapacity(self.allocator, bytes.slice.len);
+        errdefer buf.deinit();
+
+        var iterative_parser = literals.IterativeStringParser.init(bytes, .{
+            .start_column = token.calculateColumn(self.source, 8, null),
+            .diagnostics = .{ .diagnostics = self.diagnostics, .token = token },
+        });
+
+        // No real idea what's going on here, but this matches the rc.exe behavior
+        while (try iterative_parser.next()) |parsed| {
+            const c = parsed.codepoint;
+            switch (was_wide_string) {
+                true => {
+                    switch (c) {
+                        0...0x7F, 0xA0...0xFF => try buf.append(@intCast(c)),
+                        0x80...0x9F => {
+                            if (windows1252.bestFitFromCodepoint(c)) |_| {
+                                try buf.append(@intCast(c));
+                            } else {
+                                try buf.append('?');
+                            }
+                        },
+                        else => {
+                            if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
+                                try buf.append(best_fit);
+                            } else if (c < 0x10000 or c == code_pages.Codepoint.invalid) {
+                                try buf.append('?');
+                            } else {
+                                try buf.appendSlice("??");
+                            }
+                        },
+                    }
+                },
+                false => {
+                    if (parsed.from_escaped_integer) {
+                        try buf.append(@truncate(c));
+                    } else {
+                        if (windows1252.bestFitFromCodepoint(c)) |best_fit| {
+                            try buf.append(best_fit);
+                        } else if (c < 0x10000 or c == code_pages.Codepoint.invalid) {
+                            try buf.append('?');
+                        } else {
+                            try buf.appendSlice("??");
+                        }
+                    }
+                },
+            }
+        }
+
+        return buf.toOwnedSlice();
+    }
+
     pub fn writeResourceExternal(self: *Compiler, node: *Node.ResourceExternal, writer: anytype) !void {
         // Init header with data size zero for now, will need to fill it in later
         var header = try self.resourceHeader(node.id, node.type, .{});
@@ -414,13 +477,16 @@ pub const Compiler = struct {
         // DLGINCLUDE has special handling that doesn't actually need the file to exist
         if (maybe_predefined_type != null and maybe_predefined_type.? == .DLGINCLUDE) {
             const filename_token = node.filename.cast(.literal).?.token;
-            const parsed_filename = try self.parseQuotedStringAsAsciiString(filename_token);
+            const parsed_filename = try self.parseDlgIncludeString(filename_token);
             defer self.allocator.free(parsed_filename);
 
+            // NUL within the parsed string acts as a terminator
+            const parsed_filename_terminated = std.mem.sliceTo(parsed_filename, 0);
+
             header.applyMemoryFlags(node.common_resource_attributes, self.source);
-            header.data_size = @intCast(parsed_filename.len + 1);
+            header.data_size = @intCast(parsed_filename_terminated.len + 1);
             try header.write(writer, .{ .diagnostics = self.diagnostics, .token = node.id });
-            try writer.writeAll(parsed_filename);
+            try writer.writeAll(parsed_filename_terminated);
             try writer.writeByte(0);
             try writeDataPadding(writer, header.data_size);
             return;
@@ -1141,10 +1207,7 @@ pub const Compiler = struct {
                         errdefer self.allocator.free(parsed_string);
                         return .{ .wide_string = parsed_string };
                     },
-                    else => {
-                        std.debug.print("unexpected token in literal node: {}\n", .{literal_node.token});
-                        unreachable; // no other token types should be in a data literal node
-                    },
+                    else => unreachable, // no other token types should be in a data literal node
                 }
             },
             .binary_expression, .grouped_expression => {
@@ -1152,10 +1215,7 @@ pub const Compiler = struct {
                 return .{ .number = result };
             },
             .not_expression => unreachable,
-            else => {
-                std.debug.print("{}\n", .{expression_node.id});
-                @panic("TODO: evaluateDataExpression");
-            },
+            else => unreachable,
         }
     }
 
@@ -1669,6 +1729,7 @@ pub const Compiler = struct {
             };
         }
 
+        // We know the data_buffer len is limited to u32 max.
         const data_size: u32 = @intCast(data_buffer.items.len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
@@ -1966,6 +2027,7 @@ pub const Compiler = struct {
         try data_writer.writeInt(u16, 1, .little);
         try data_writer.writeInt(u16, button_width.asWord(), .little);
         try data_writer.writeInt(u16, button_height.asWord(), .little);
+        // Number of buttons is guaranteed by the parser to be within maxInt(u16).
         try data_writer.writeInt(u16, @as(u16, @intCast(node.buttons.len)), .little);
 
         for (node.buttons) |button_or_sep| {
@@ -2806,19 +2868,6 @@ pub const Compiler = struct {
         );
     }
 
-    /// Helper that calls parseQuotedStringAsAsciiString with the relevant context
-    /// Resulting slice is allocated by `self.allocator`.
-    pub fn parseQuotedStringAsAsciiString(self: *Compiler, token: Token) ![]u8 {
-        return literals.parseQuotedStringAsAsciiString(
-            self.allocator,
-            self.sourceBytesForToken(token),
-            .{
-                .start_column = token.calculateColumn(self.source, 8, null),
-                .diagnostics = .{ .diagnostics = self.diagnostics, .token = token },
-            },
-        );
-    }
-
     fn addErrorDetails(self: *Compiler, details: ErrorDetails) Allocator.Error!void {
         try self.diagnostics.append(details);
     }
@@ -3356,7 +3405,7 @@ test "StringTable" {
         }
         break :ids buf;
     };
-    var prng = std.Random.DefaultPrng.init(0);
+    var prng = std.rand.DefaultPrng.init(0);
     var random = prng.random();
     random.shuffle(u16, &ids);
 

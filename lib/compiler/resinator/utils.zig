@@ -82,9 +82,11 @@ pub fn isNonAsciiDigit(c: u21) bool {
     };
 }
 
+pub const ErrorMessageType = enum { err, warning, note };
+
 /// Used for generic colored errors/warnings/notes, more context-specific error messages
 /// are handled elsewhere.
-pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, msg_type: enum { err, warning, note }, comptime format: []const u8, args: anytype) !void {
+pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, msg_type: ErrorMessageType, comptime format: []const u8, args: anytype) !void {
     switch (msg_type) {
         .err => {
             try config.setColor(writer, .bold);
@@ -109,4 +111,14 @@ pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, msg_type: 
     try writer.print(format, args);
     try writer.writeByte('\n');
     try config.setColor(writer, .reset);
+}
+
+pub fn isLineEndingPair(first: u8, second: u8) bool {
+    if (first != '\r' and first != '\n') return false;
+    if (second != '\r' and second != '\n') return false;
+
+    // can't be \n\n or \r\r
+    if (first == second) return false;
+
+    return true;
 }

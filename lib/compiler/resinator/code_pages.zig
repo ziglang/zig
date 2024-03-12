@@ -279,6 +279,9 @@ pub const CodePage = enum(u16) {
 pub const Utf8 = struct {
     /// Implements decoding with rejection of ill-formed UTF-8 sequences based on section
     /// D92 of Chapter 3 of the Unicode standard (Table 3-7 specifically).
+    ///
+    /// Note: This does not match "U+FFFD Substitution of Maximal Subparts", but instead
+    ///       matches the behavior of the Windows RC compiler.
     pub const WellFormedDecoder = struct {
         /// Like std.unicode.utf8ByteSequenceLength, but:
         /// - Rejects non-well-formed first bytes, i.e. C0-C1, F5-FF
@@ -347,9 +350,6 @@ pub const Utf8 = struct {
                     // Only include the byte in the invalid sequence if it's in the range
                     // of a continuation byte. All other values should not be included in the
                     // invalid sequence.
-                    //
-                    // Note: This is how the Windows RC compiler handles this, this may not
-                    //       be the correct-as-according-to-the-Unicode-standard way to do it.
                     if (isContinuationByte(byte)) len += 1;
                     return .{ .value = Codepoint.invalid, .byte_len = len };
                 }
@@ -436,6 +436,19 @@ test "codepointAt invalid utf8" {
             .byte_len = 1,
         }, CodePage.utf8.codepointAt(1, invalid_utf8).?);
         try std.testing.expectEqual(@as(?Codepoint, null), CodePage.windows1252.codepointAt(2, invalid_utf8));
+    }
+
+    {
+        // encoded high surrogate
+        const invalid_utf8 = "\xED\xA0\xBD";
+        try std.testing.expectEqual(Codepoint{
+            .value = Codepoint.invalid,
+            .byte_len = 2,
+        }, CodePage.utf8.codepointAt(0, invalid_utf8).?);
+        try std.testing.expectEqual(Codepoint{
+            .value = Codepoint.invalid,
+            .byte_len = 1,
+        }, CodePage.utf8.codepointAt(2, invalid_utf8).?);
     }
 }
 

@@ -291,7 +291,14 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "translate-c")) {
         return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "rc")) {
-        return cmdRc(gpa, arena, args[1..]);
+        const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "resinator",
+            .root_src_path = "resinator/main.zig",
+            .depend_on_aro = true,
+            .prepend_zig_lib_dir_path = true,
+            .server = use_server,
+        });
     } else if (mem.eql(u8, cmd, "fmt")) {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "fmt",
@@ -4625,276 +4632,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     }
 }
 
-fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    const resinator = @import("resinator.zig");
-
-    const stderr = std.io.getStdErr();
-    const stderr_config = std.io.tty.detectConfig(stderr);
-
-    var options = options: {
-        var cli_diagnostics = resinator.cli.Diagnostics.init(gpa);
-        defer cli_diagnostics.deinit();
-        var options = resinator.cli.parse(gpa, args, &cli_diagnostics) catch |err| switch (err) {
-            error.ParseError => {
-                cli_diagnostics.renderToStdErr(args, stderr_config);
-                process.exit(1);
-            },
-            else => |e| return e,
-        };
-        try options.maybeAppendRC(std.fs.cwd());
-
-        // print any warnings/notes
-        cli_diagnostics.renderToStdErr(args, stderr_config);
-        // If there was something printed, then add an extra newline separator
-        // so that there is a clear separation between the cli diagnostics and whatever
-        // gets printed after
-        if (cli_diagnostics.errors.items.len > 0) {
-            std.debug.print("\n", .{});
-        }
-        break :options options;
-    };
-    defer options.deinit();
-
-    if (options.print_help_and_exit) {
-        try resinator.cli.writeUsage(stderr.writer(), "zig rc");
-        return;
-    }
-
-    const stdout_writer = std.io.getStdOut().writer();
-    if (options.verbose) {
-        try options.dumpVerbose(stdout_writer);
-        try stdout_writer.writeByte('\n');
-    }
-
-    const full_input = full_input: {
-        if (options.preprocess != .no) {
-            if (!build_options.have_llvm) {
-                fatal("clang not available: compiler built without LLVM extensions", .{});
-            }
-
-            var argv = std.ArrayList([]const u8).init(gpa);
-            defer argv.deinit();
-
-            const self_exe_path = try introspect.findZigExePath(arena);
-            var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-                try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to find zig installation directory: {s}", .{@errorName(err)});
-                process.exit(1);
-            };
-            defer zig_lib_directory.handle.close();
-
-            const include_args = detectRcIncludeDirs(arena, zig_lib_directory.path.?, options.auto_includes) catch |err| {
-                try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to detect system include directories: {s}", .{@errorName(err)});
-                process.exit(1);
-            };
-
-            try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
-
-            const clang_target = clang_target: {
-                if (include_args.target_abi) |abi| {
-                    break :clang_target try std.fmt.allocPrint(arena, "x86_64-unknown-windows-{s}", .{abi});
-                }
-                break :clang_target "x86_64-unknown-windows";
-            };
-            try resinator.preprocess.appendClangArgs(arena, &argv, options, .{
-                .clang_target = clang_target,
-                .system_include_paths = include_args.include_paths,
-                .needs_gnu_workaround = if (include_args.target_abi) |abi| std.mem.eql(u8, abi, "gnu") else false,
-                .nostdinc = true,
-            });
-
-            try argv.append(options.input_filename);
-
-            if (options.verbose) {
-                try stdout_writer.writeAll("Preprocessor: zig clang\n");
-                for (argv.items[0 .. argv.items.len - 1]) |arg| {
-                    try stdout_writer.print("{s} ", .{arg});
-                }
-                try stdout_writer.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
-            }
-
-            if (process.can_spawn) {
-                const result = std.ChildProcess.run(.{
-                    .allocator = gpa,
-                    .argv = argv.items,
-                    .max_output_bytes = std.math.maxInt(u32),
-                }) catch |err| {
-                    try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to spawn preprocessor child process: {s}", .{@errorName(err)});
-                    process.exit(1);
-                };
-                errdefer gpa.free(result.stdout);
-                defer gpa.free(result.stderr);
-
-                switch (result.term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "the preprocessor failed with exit code {}:", .{code});
-                            try stderr.writeAll(result.stderr);
-                            try stderr.writeAll("\n");
-                            process.exit(1);
-                        }
-                    },
-                    .Signal, .Stopped, .Unknown => {
-                        try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "the preprocessor terminated unexpectedly ({s}):", .{@tagName(result.term)});
-                        try stderr.writeAll(result.stderr);
-                        try stderr.writeAll("\n");
-                        process.exit(1);
-                    },
-                }
-
-                break :full_input result.stdout;
-            } else {
-                // need to use an intermediate file
-                const rand_int = std.crypto.random.int(u64);
-                const preprocessed_path = try std.fmt.allocPrint(gpa, "resinator{x}.rcpp", .{rand_int});
-                defer gpa.free(preprocessed_path);
-                defer std.fs.cwd().deleteFile(preprocessed_path) catch {};
-
-                try argv.appendSlice(&.{ "-o", preprocessed_path });
-                const exit_code = try clangMain(arena, argv.items);
-                if (exit_code != 0) {
-                    try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "the preprocessor failed with exit code {}:", .{exit_code});
-                    process.exit(1);
-                }
-                break :full_input std.fs.cwd().readFileAlloc(gpa, preprocessed_path, std.math.maxInt(usize)) catch |err| {
-                    try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to read preprocessed file path '{s}': {s}", .{ preprocessed_path, @errorName(err) });
-                    process.exit(1);
-                };
-            }
-        } else {
-            break :full_input std.fs.cwd().readFileAlloc(gpa, options.input_filename, std.math.maxInt(usize)) catch |err| {
-                try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to read input file path '{s}': {s}", .{ options.input_filename, @errorName(err) });
-                process.exit(1);
-            };
-        }
-    };
-    defer gpa.free(full_input);
-
-    if (options.preprocess == .only) {
-        std.fs.cwd().writeFile(options.output_filename, full_input) catch |err| {
-            try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to write output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
-            process.exit(1);
-        };
-        return cleanExit();
-    }
-
-    var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(gpa, full_input, full_input, .{ .initial_filename = options.input_filename });
-    defer mapping_results.mappings.deinit(gpa);
-
-    const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
-
-    var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
-        try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
-        process.exit(1);
-    };
-    var output_file_closed = false;
-    defer if (!output_file_closed) output_file.close();
-
-    var diagnostics = resinator.errors.Diagnostics.init(gpa);
-    defer diagnostics.deinit();
-
-    var output_buffered_stream = std.io.bufferedWriter(output_file.writer());
-
-    resinator.compile.compile(gpa, final_input, output_buffered_stream.writer(), .{
-        .cwd = std.fs.cwd(),
-        .diagnostics = &diagnostics,
-        .source_mappings = &mapping_results.mappings,
-        .dependencies_list = null,
-        .ignore_include_env_var = options.ignore_include_env_var,
-        .extra_include_paths = options.extra_include_paths.items,
-        .default_language_id = options.default_language_id,
-        .default_code_page = options.default_code_page orelse .windows1252,
-        .verbose = options.verbose,
-        .null_terminate_string_table_strings = options.null_terminate_string_table_strings,
-        .max_string_literal_codepoints = options.max_string_literal_codepoints,
-        .silent_duplicate_control_ids = options.silent_duplicate_control_ids,
-        .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
-    }) catch |err| switch (err) {
-        error.ParseError, error.CompileError => {
-            diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
-            // Delete the output file on error
-            output_file.close();
-            output_file_closed = true;
-            // Failing to delete is not really a big deal, so swallow any errors
-            std.fs.cwd().deleteFile(options.output_filename) catch {};
-            process.exit(1);
-        },
-        else => |e| return e,
-    };
-
-    try output_buffered_stream.flush();
-
-    // print any warnings/notes
-    diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
-
-    return cleanExit();
-}
-
-const RcIncludeArgs = struct {
-    include_paths: []const []const u8 = &.{},
-    target_abi: ?[]const u8 = null,
-};
-
-fn detectRcIncludeDirs(arena: Allocator, zig_lib_dir: []const u8, auto_includes: @import("resinator.zig").cli.Options.AutoIncludes) !RcIncludeArgs {
-    if (auto_includes == .none) return .{};
-    var cur_includes = auto_includes;
-    if (builtin.target.os.tag != .windows) {
-        switch (cur_includes) {
-            // MSVC can't be found when the host isn't Windows, so short-circuit.
-            .msvc => return error.WindowsSdkNotFound,
-            // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
-            .any => cur_includes = .gnu,
-            .gnu => {},
-            .none => unreachable,
-        }
-    }
-    while (true) {
-        switch (cur_includes) {
-            .any, .msvc => {
-                const target_query: std.Target.Query = .{
-                    .os_tag = .windows,
-                    .abi = .msvc,
-                };
-                const target = std.zig.resolveTargetQueryOrFatal(target_query);
-                const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = std.zig.LibCDirs.detect(arena, zig_lib_dir, target, is_native_abi, true, null) catch |err| {
-                    if (cur_includes == .any) {
-                        // fall back to mingw
-                        cur_includes = .gnu;
-                        continue;
-                    }
-                    return err;
-                };
-                if (detected_libc.libc_include_dir_list.len == 0) {
-                    if (cur_includes == .any) {
-                        // fall back to mingw
-                        cur_includes = .gnu;
-                        continue;
-                    }
-                    return error.WindowsSdkNotFound;
-                }
-                return .{
-                    .include_paths = detected_libc.libc_include_dir_list,
-                    .target_abi = "msvc",
-                };
-            },
-            .gnu => {
-                const target_query: std.Target.Query = .{
-                    .os_tag = .windows,
-                    .abi = .gnu,
-                };
-                const target = std.zig.resolveTargetQueryOrFatal(target_query);
-                const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = try std.zig.LibCDirs.detect(arena, zig_lib_dir, target, is_native_abi, true, null);
-                return .{
-                    .include_paths = detected_libc.libc_include_dir_list,
-                    .target_abi = "gnu",
-                };
-            },
-            .none => unreachable,
-        }
-    }
-}
-
 const usage_init =
     \\Usage: zig init
     \\
@@ -5569,6 +5306,8 @@ const JitCmdOptions = struct {
     prepend_zig_exe_path: bool = false,
     depend_on_aro: bool = false,
     capture: ?*[]u8 = null,
+    /// Send progress and error bundles via std.zig.Server over stdout
+    server: bool = false,
 };
 
 fn jitCmd(
@@ -5714,10 +5453,52 @@ fn jitCmd(
         };
         defer comp.destroy();
 
-        updateModule(comp, color) catch |err| switch (err) {
-            error.SemanticAnalyzeFail => process.exit(2),
-            else => |e| return e,
-        };
+        if (options.server and !builtin.single_threaded) {
+            var reset: std.Thread.ResetEvent = .{};
+            var progress: std.Progress = .{
+                .terminal = null,
+                .root = .{
+                    .context = undefined,
+                    .parent = null,
+                    .name = "",
+                    .unprotected_estimated_total_items = 0,
+                    .unprotected_completed_items = 0,
+                },
+                .columns_written = 0,
+                .prev_refresh_timestamp = 0,
+                .timer = null,
+                .done = false,
+            };
+            const main_progress_node = &progress.root;
+            main_progress_node.context = &progress;
+            var server = std.zig.Server{
+                .out = std.io.getStdOut(),
+                .in = undefined, // won't be receiving messages
+                .receive_fifo = undefined, // won't be receiving messages
+            };
+
+            var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
+                &progress, &server, &reset,
+            });
+            defer {
+                reset.set();
+                progress_thread.join();
+            }
+
+            try comp.update(main_progress_node);
+
+            var error_bundle = try comp.getAllErrorsAlloc();
+            defer error_bundle.deinit(comp.gpa);
+            if (error_bundle.errorMessageCount() > 0) {
+                try server.serveErrorBundle(error_bundle);
+                process.exit(2);
+            }
+        } else {
+            updateModule(comp, color) catch |err| switch (err) {
+                error.SemanticAnalyzeFail => process.exit(2),
+                else => |e| return e,
+            };
+        }
 
         const exe_path = try global_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
         child_argv.appendAssumeCapacity(exe_path);

@@ -50,8 +50,14 @@ pub const usage_string_after_command_name =
     \\  /:auto-includes <value>   Set the automatic include path detection behavior.
     \\    any                     (default) Use MSVC if available, fall back to MinGW
     \\    msvc                    Use MSVC include paths (must be present on the system)
-    \\    gnu                     Use MinGW include paths (requires Zig as the preprocessor)
+    \\    gnu                     Use MinGW include paths
     \\    none                    Do not use any autodetected include paths
+    \\  /:depfile <path>          Output a file containing a list of all the files that
+    \\                            the .rc includes or otherwise depends on.
+    \\  /:depfile-fmt <value>     Output format of the depfile, if /:depfile is set.
+    \\    json                    (default) A top-level JSON array of paths
+    \\  /:mingw-includes <path>   Path to a directory containing MinGW include files. If
+    \\                            not specified, bundled MinGW include files will be used.
     \\
     \\Note: For compatibility reasons, all custom options start with :
     \\
@@ -140,8 +146,12 @@ pub const Options = struct {
     debug: bool = false,
     print_help_and_exit: bool = false,
     auto_includes: AutoIncludes = .any,
+    depfile_path: ?[]const u8 = null,
+    depfile_fmt: DepfileFormat = .json,
+    mingw_includes_dir: ?[]const u8 = null,
 
     pub const AutoIncludes = enum { any, msvc, gnu, none };
+    pub const DepfileFormat = enum { json };
     pub const Preprocess = enum { no, yes, only };
     pub const SymbolAction = enum { define, undefine };
     pub const SymbolValue = union(SymbolAction) {
@@ -207,7 +217,7 @@ pub const Options = struct {
             cwd.access(options.input_filename, .{}) catch |err| switch (err) {
                 error.FileNotFound => {
                     var filename_bytes = try options.allocator.alloc(u8, options.input_filename.len + 3);
-                    @memcpy(filename_bytes[0 .. filename_bytes.len - 3], options.input_filename);
+                    @memcpy(filename_bytes[0..options.input_filename.len], options.input_filename);
                     @memcpy(filename_bytes[filename_bytes.len - 3 ..], ".rc");
                     options.allocator.free(options.input_filename);
                     options.input_filename = filename_bytes;
@@ -230,6 +240,12 @@ pub const Options = struct {
             entry.value_ptr.deinit(self.allocator);
         }
         self.symbols.deinit(self.allocator);
+        if (self.depfile_path) |depfile_path| {
+            self.allocator.free(depfile_path);
+        }
+        if (self.mingw_includes_dir) |mingw_includes_dir| {
+            self.allocator.free(mingw_includes_dir);
+        }
     }
 
     pub fn dumpVerbose(self: *const Options, writer: anytype) !void {
@@ -394,7 +410,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
     var output_filename: ?[]const u8 = null;
     var output_filename_context: Arg.Context = undefined;
 
-    var arg_i: usize = 1; // start at 1 to skip past the exe name
+    var arg_i: usize = 0;
     next_arg: while (arg_i < args.len) {
         var arg = Arg.fromString(args[arg_i]) orelse break;
         if (arg.name().len == 0) {
@@ -424,6 +440,24 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             if (std.ascii.startsWithIgnoreCase(arg_name, ":no-preprocess")) {
                 options.preprocess = .no;
                 arg.name_offset += ":no-preprocess".len;
+            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":mingw-includes")) {
+                const value = arg.value(":mingw-includes".len, arg_i, args) catch {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
+                    var msg_writer = err_details.msg.writer(allocator);
+                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":mingw-includes".len) });
+                    try diagnostics.append(err_details);
+                    arg_i += 1;
+                    break :next_arg;
+                };
+                if (options.mingw_includes_dir) |overwritten_path| {
+                    allocator.free(overwritten_path);
+                    options.mingw_includes_dir = null;
+                }
+                const path = try allocator.dupe(u8, value.slice);
+                errdefer allocator.free(path);
+                options.mingw_includes_dir = path;
+                arg_i += value.index_increment;
+                continue :next_arg;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":auto-includes")) {
                 const value = arg.value(":auto-includes".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
@@ -440,6 +474,42 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     try diagnostics.append(err_details);
                     break :blk options.auto_includes;
                 };
+                arg_i += value.index_increment;
+                continue :next_arg;
+            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":depfile-fmt")) {
+                const value = arg.value(":depfile-fmt".len, arg_i, args) catch {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
+                    var msg_writer = err_details.msg.writer(allocator);
+                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile-fmt".len) });
+                    try diagnostics.append(err_details);
+                    arg_i += 1;
+                    break :next_arg;
+                };
+                options.depfile_fmt = std.meta.stringToEnum(Options.DepfileFormat, value.slice) orelse blk: {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
+                    var msg_writer = err_details.msg.writer(allocator);
+                    try msg_writer.print("invalid depfile format setting: {s} ", .{value.slice});
+                    try diagnostics.append(err_details);
+                    break :blk options.depfile_fmt;
+                };
+                arg_i += value.index_increment;
+                continue :next_arg;
+            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":depfile")) {
+                const value = arg.value(":depfile".len, arg_i, args) catch {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
+                    var msg_writer = err_details.msg.writer(allocator);
+                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile".len) });
+                    try diagnostics.append(err_details);
+                    arg_i += 1;
+                    break :next_arg;
+                };
+                if (options.depfile_path) |overwritten_path| {
+                    allocator.free(overwritten_path);
+                    options.depfile_path = null;
+                }
+                const path = try allocator.dupe(u8, value.slice);
+                errdefer allocator.free(path);
+                options.depfile_path = path;
                 arg_i += value.index_increment;
                 continue :next_arg;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "nologo")) {
@@ -837,7 +907,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
         try diagnostics.append(err_details);
 
         const last_arg = args[args.len - 1];
-        if (arg_i > 1 and last_arg.len > 0 and last_arg[0] == '/' and std.ascii.endsWithIgnoreCase(last_arg, ".rc")) {
+        if (arg_i > 0 and last_arg.len > 0 and last_arg[0] == '/' and std.ascii.endsWithIgnoreCase(last_arg, ".rc")) {
             var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i - 1 };
             var note_writer = note_details.msg.writer(allocator);
             try note_writer.writeAll("if this argument was intended to be the input filename, then -- should be specified in front of it to exclude it from option parsing");
@@ -1116,7 +1186,7 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
 }
 
 test "parse errors: basic" {
-    try testParseError(&.{ "foo.exe", "/" },
+    try testParseError(&.{"/"},
         \\<cli>: error: invalid option: /
         \\ ... /
         \\     ^
@@ -1124,7 +1194,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "/ln" },
+    try testParseError(&.{"/ln"},
         \\<cli>: error: missing language tag after /ln option
         \\ ... /ln
         \\     ~~~~^
@@ -1132,7 +1202,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "-vln" },
+    try testParseError(&.{"-vln"},
         \\<cli>: error: missing language tag after -ln option
         \\ ... -vln
         \\     ~ ~~~^
@@ -1140,7 +1210,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "/_not-an-option" },
+    try testParseError(&.{"/_not-an-option"},
         \\<cli>: error: invalid option: /_not-an-option
         \\ ... /_not-an-option
         \\     ~^~~~~~~~~~~~~~
@@ -1148,7 +1218,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "-_not-an-option" },
+    try testParseError(&.{"-_not-an-option"},
         \\<cli>: error: invalid option: -_not-an-option
         \\ ... -_not-an-option
         \\     ~^~~~~~~~~~~~~~
@@ -1156,7 +1226,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "--_not-an-option" },
+    try testParseError(&.{"--_not-an-option"},
         \\<cli>: error: invalid option: --_not-an-option
         \\ ... --_not-an-option
         \\     ~~^~~~~~~~~~~~~~
@@ -1164,7 +1234,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "/v_not-an-option" },
+    try testParseError(&.{"/v_not-an-option"},
         \\<cli>: error: invalid option: /_not-an-option
         \\ ... /v_not-an-option
         \\     ~ ^~~~~~~~~~~~~~
@@ -1172,7 +1242,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "-v_not-an-option" },
+    try testParseError(&.{"-v_not-an-option"},
         \\<cli>: error: invalid option: -_not-an-option
         \\ ... -v_not-an-option
         \\     ~ ^~~~~~~~~~~~~~
@@ -1180,7 +1250,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "--v_not-an-option" },
+    try testParseError(&.{"--v_not-an-option"},
         \\<cli>: error: invalid option: --_not-an-option
         \\ ... --v_not-an-option
         \\     ~~ ^~~~~~~~~~~~~~
@@ -1188,7 +1258,7 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "/some/absolute/path/parsed/as/an/option.rc" },
+    try testParseError(&.{"/some/absolute/path/parsed/as/an/option.rc"},
         \\<cli>: error: the /s option is unsupported
         \\ ... /some/absolute/path/parsed/as/an/option.rc
         \\     ~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1202,13 +1272,13 @@ test "parse errors: basic" {
 }
 
 test "parse errors: /ln" {
-    try testParseError(&.{ "foo.exe", "/ln", "invalid", "foo.rc" },
+    try testParseError(&.{ "/ln", "invalid", "foo.rc" },
         \\<cli>: error: invalid language tag: invalid
         \\ ... /ln invalid ...
         \\     ~~~~^~~~~~~
         \\
     );
-    try testParseError(&.{ "foo.exe", "/lninvalid", "foo.rc" },
+    try testParseError(&.{ "/lninvalid", "foo.rc" },
         \\<cli>: error: invalid language tag: invalid
         \\ ... /lninvalid ...
         \\     ~~~^~~~~~~
@@ -1218,7 +1288,7 @@ test "parse errors: /ln" {
 
 test "parse: options" {
     {
-        var options = try testParse(&.{ "foo.exe", "/v", "foo.rc" });
+        var options = try testParse(&.{ "/v", "foo.rc" });
         defer options.deinit();
 
         try std.testing.expectEqual(true, options.verbose);
@@ -1226,16 +1296,7 @@ test "parse: options" {
         try std.testing.expectEqualStrings("foo.res", options.output_filename);
     }
     {
-        var options = try testParse(&.{ "foo.exe", "/vx", "foo.rc" });
-        defer options.deinit();
-
-        try std.testing.expectEqual(true, options.verbose);
-        try std.testing.expectEqual(true, options.ignore_include_env_var);
-        try std.testing.expectEqualStrings("foo.rc", options.input_filename);
-        try std.testing.expectEqualStrings("foo.res", options.output_filename);
-    }
-    {
-        var options = try testParse(&.{ "foo.exe", "/xv", "foo.rc" });
+        var options = try testParse(&.{ "/vx", "foo.rc" });
         defer options.deinit();
 
         try std.testing.expectEqual(true, options.verbose);
@@ -1244,7 +1305,16 @@ test "parse: options" {
         try std.testing.expectEqualStrings("foo.res", options.output_filename);
     }
     {
-        var options = try testParse(&.{ "foo.exe", "/xvFObar.res", "foo.rc" });
+        var options = try testParse(&.{ "/xv", "foo.rc" });
+        defer options.deinit();
+
+        try std.testing.expectEqual(true, options.verbose);
+        try std.testing.expectEqual(true, options.ignore_include_env_var);
+        try std.testing.expectEqualStrings("foo.rc", options.input_filename);
+        try std.testing.expectEqualStrings("foo.res", options.output_filename);
+    }
+    {
+        var options = try testParse(&.{ "/xvFObar.res", "foo.rc" });
         defer options.deinit();
 
         try std.testing.expectEqual(true, options.verbose);
@@ -1256,23 +1326,21 @@ test "parse: options" {
 
 test "parse: define and undefine" {
     {
-        var options = try testParse(&.{ "foo.exe", "/dfoo", "foo.rc" });
+        var options = try testParse(&.{ "/dfoo", "foo.rc" });
         defer options.deinit();
 
         const action = options.symbols.get("foo").?;
-        try std.testing.expectEqual(Options.SymbolAction.define, action);
         try std.testing.expectEqualStrings("1", action.define);
     }
     {
-        var options = try testParse(&.{ "foo.exe", "/dfoo=bar", "/dfoo=baz", "foo.rc" });
+        var options = try testParse(&.{ "/dfoo=bar", "/dfoo=baz", "foo.rc" });
         defer options.deinit();
 
         const action = options.symbols.get("foo").?;
-        try std.testing.expectEqual(Options.SymbolAction.define, action);
         try std.testing.expectEqualStrings("baz", action.define);
     }
     {
-        var options = try testParse(&.{ "foo.exe", "/ufoo", "foo.rc" });
+        var options = try testParse(&.{ "/ufoo", "foo.rc" });
         defer options.deinit();
 
         const action = options.symbols.get("foo").?;
@@ -1280,7 +1348,7 @@ test "parse: define and undefine" {
     }
     {
         // Once undefined, future defines are ignored
-        var options = try testParse(&.{ "foo.exe", "/ufoo", "/dfoo", "foo.rc" });
+        var options = try testParse(&.{ "/ufoo", "/dfoo", "foo.rc" });
         defer options.deinit();
 
         const action = options.symbols.get("foo").?;
@@ -1288,7 +1356,7 @@ test "parse: define and undefine" {
     }
     {
         // Undefined always takes precedence
-        var options = try testParse(&.{ "foo.exe", "/dfoo", "/ufoo", "/dfoo", "foo.rc" });
+        var options = try testParse(&.{ "/dfoo", "/ufoo", "/dfoo", "foo.rc" });
         defer options.deinit();
 
         const action = options.symbols.get("foo").?;
@@ -1297,7 +1365,7 @@ test "parse: define and undefine" {
     {
         // Warn + ignore invalid identifiers
         var options = try testParseWarning(
-            &.{ "foo.exe", "/dfoo bar", "/u", "0leadingdigit", "foo.rc" },
+            &.{ "/dfoo bar", "/u", "0leadingdigit", "foo.rc" },
             \\<cli>: warning: symbol "foo bar" is not a valid identifier and therefore cannot be defined
             \\ ... /dfoo bar ...
             \\     ~~^~~~~~~
@@ -1314,7 +1382,7 @@ test "parse: define and undefine" {
 }
 
 test "parse: /sl" {
-    try testParseError(&.{ "foo.exe", "/sl", "0", "foo.rc" },
+    try testParseError(&.{ "/sl", "0", "foo.rc" },
         \\<cli>: error: percent out of range: 0 (parsed from '0')
         \\ ... /sl 0 ...
         \\     ~~~~^
@@ -1322,7 +1390,7 @@ test "parse: /sl" {
         \\
         \\
     );
-    try testParseError(&.{ "foo.exe", "/sl", "abcd", "foo.rc" },
+    try testParseError(&.{ "/sl", "abcd", "foo.rc" },
         \\<cli>: error: invalid percent format 'abcd'
         \\ ... /sl abcd ...
         \\     ~~~~^~~~
@@ -1331,25 +1399,25 @@ test "parse: /sl" {
         \\
     );
     {
-        var options = try testParse(&.{ "foo.exe", "foo.rc" });
+        var options = try testParse(&.{"foo.rc"});
         defer options.deinit();
 
         try std.testing.expectEqual(@as(u15, lex.default_max_string_literal_codepoints), options.max_string_literal_codepoints);
     }
     {
-        var options = try testParse(&.{ "foo.exe", "/sl100", "foo.rc" });
+        var options = try testParse(&.{ "/sl100", "foo.rc" });
         defer options.deinit();
 
         try std.testing.expectEqual(@as(u15, max_string_literal_length_100_percent), options.max_string_literal_codepoints);
     }
     {
-        var options = try testParse(&.{ "foo.exe", "-SL33", "foo.rc" });
+        var options = try testParse(&.{ "-SL33", "foo.rc" });
         defer options.deinit();
 
         try std.testing.expectEqual(@as(u15, 2703), options.max_string_literal_codepoints);
     }
     {
-        var options = try testParse(&.{ "foo.exe", "/sl15", "foo.rc" });
+        var options = try testParse(&.{ "/sl15", "foo.rc" });
         defer options.deinit();
 
         try std.testing.expectEqual(@as(u15, 1228), options.max_string_literal_codepoints);
@@ -1357,7 +1425,7 @@ test "parse: /sl" {
 }
 
 test "parse: unsupported MUI-related options" {
-    try testParseError(&.{ "foo.exe", "/q", "blah", "/g1", "-G2", "blah", "/fm", "blah", "/g", "blah", "foo.rc" },
+    try testParseError(&.{ "/q", "blah", "/g1", "-G2", "blah", "/fm", "blah", "/g", "blah", "foo.rc" },
         \\<cli>: error: the /q option is unsupported
         \\ ... /q ...
         \\     ~^
@@ -1378,7 +1446,7 @@ test "parse: unsupported MUI-related options" {
 }
 
 test "parse: unsupported LCX/LCE-related options" {
-    try testParseError(&.{ "foo.exe", "/t", "/tp:", "/tp:blah", "/tm", "/tc", "/tw", "-TEti", "/ta", "/tn", "blah", "foo.rc" },
+    try testParseError(&.{ "/t", "/tp:", "/tp:blah", "/tm", "/tc", "/tw", "-TEti", "/ta", "/tn", "blah", "foo.rc" },
         \\<cli>: error: the /t option is unsupported
         \\ ... /t ...
         \\     ~^
@@ -1420,7 +1488,7 @@ test "maybeAppendRC" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var options = try testParse(&.{ "foo.exe", "foo" });
+    var options = try testParse(&.{"foo"});
     defer options.deinit();
     try std.testing.expectEqualStrings("foo", options.input_filename);
 
