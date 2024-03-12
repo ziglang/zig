@@ -50,35 +50,39 @@ pub fn Server(comptime StreamType: type) type {
         };
 
         pub fn recv_hello(self: *Self) !ClientHello {
-            try self.stream.expectFragment(.handshake, .client_hello);
-            var reader = self.stream.reader();
+            var stream = &self.stream;
+            var reader = stream.reader();
 
-            _ = try self.stream.read(tls.Version);
+            try stream.expectFragment(.handshake, .client_hello);
+
+            _ = try stream.read(tls.Version);
             var client_random: [32]u8 = undefined;
             try reader.readNoEof(&client_random);
 
             var session_id: [tls.ClientHello.session_id_max_len]u8 = undefined;
-            const session_id_len = try self.stream.read(u8);
-            if (session_id_len > tls.ClientHello.session_id_max_len) return error.TlsUnexpectedMessage;
+            const session_id_len = try stream.read(u8);
+            if (session_id_len > tls.ClientHello.session_id_max_len)
+                return stream.writeError(.illegal_parameter);
             try reader.readNoEof(session_id[0..session_id_len]);
 
             const cipher_suite: tls.CipherSuite = brk: {
-                var cipher_suite_iter = try self.stream.iterator(u16, tls.CipherSuite);
+                var cipher_suite_iter = try stream.iterator(u16, tls.CipherSuite);
                 var res: ?tls.CipherSuite = null;
                 while (try cipher_suite_iter.next()) |suite| {
                     for (self.options.cipher_suites) |s| {
                         if (s == suite and res == null) res = s;
                     }
                 }
-                if (res == null) return error.TlsUnexpectedMessage;
+                if (res == null) return stream.writeError(.illegal_parameter);
                 break :brk res.?;
             };
-            try self.stream.transcript_hash.setActive(cipher_suite);
+            stream.transcript_hash.setActive(cipher_suite);
 
             {
                 var compression_methods: [2]u8 = undefined;
                 try reader.readNoEof(&compression_methods);
-                if (!std.mem.eql(u8, &compression_methods, &[_]u8{ 1, 0 })) return error.TlsUnexpectedMessage;
+                if (!std.mem.eql(u8, &compression_methods, &[_]u8{ 1, 0 }))
+                    return stream.writeError(.illegal_parameter);
             }
 
             var tls_version: ?tls.Version = null;
@@ -86,21 +90,21 @@ pub fn Server(comptime StreamType: type) type {
             var ec_point_format: ?tls.EcPointFormat = null;
             var sig_scheme: ?tls.SignatureScheme = null;
 
-            var extension_iter = try self.stream.extensions();
+            var extension_iter = try stream.extensions();
             while (try extension_iter.next()) |ext| {
                 switch (ext.type) {
                     .supported_versions => {
-                        if (tls_version != null) return error.TlsUnexpectedMessage;
-                        var versions_iter = try self.stream.iterator(u8, tls.Version);
+                        if (tls_version != null) return stream.writeError(.illegal_parameter);
+                        var versions_iter = try stream.iterator(u8, tls.Version);
                         while (try versions_iter.next()) |v| {
                             if (v == .tls_1_3) tls_version = v;
                         }
                     },
                     // TODO: use supported_groups instead
                     .key_share => {
-                        if (key_share != null) return error.TlsUnexpectedMessage;
+                        if (key_share != null) return stream.writeError(.illegal_parameter);
 
-                        var key_share_iter = try self.stream.iterator(u16, tls.KeyShare);
+                        var key_share_iter = try stream.iterator(u16, tls.KeyShare);
                         while (try key_share_iter.next()) |ks| {
                             switch (ks) {
                                 .x25519 => key_share = ks,
@@ -109,13 +113,13 @@ pub fn Server(comptime StreamType: type) type {
                         }
                     },
                     .ec_point_formats => {
-                        var format_iter = try self.stream.iterator(u8, tls.EcPointFormat);
+                        var format_iter = try stream.iterator(u8, tls.EcPointFormat);
                         while (try format_iter.next()) |f| {
                             if (f == .uncompressed) ec_point_format = .uncompressed;
                         }
                     },
                     .signature_algorithms => {
-                        var algos_iter = try self.stream.iterator(u16, tls.SignatureScheme);
+                        var algos_iter = try stream.iterator(u16, tls.SignatureScheme);
                         while (try algos_iter.next()) |algo| {
                             if (algo == .rsa_pss_rsae_sha256) sig_scheme = algo;
                         }
@@ -126,9 +130,9 @@ pub fn Server(comptime StreamType: type) type {
                 }
             }
 
-            if (tls_version == null) return error.TlsUnexpectedMessage;
-            if (key_share == null) return error.TlsUnexpectedMessage;
-            if (ec_point_format == null) return error.TlsUnexpectedMessage;
+            if (tls_version == null)  return stream.writeError(.protocol_version);
+            if (key_share == null) return stream.writeError(.missing_extension);
+            if (ec_point_format == null) return stream.writeError(.missing_extension);
 
             return .{
                 .random = client_random,
@@ -142,6 +146,8 @@ pub fn Server(comptime StreamType: type) type {
 
         /// `key_pair`'s active member MUST match `client_hello.key_share`
         pub fn send_hello(self: *Self, client_hello: ClientHello, key_pair: KeyPair) !void {
+            var stream = &self.stream;
+
             const hello = tls.ServerHello{
                 .random = key_pair.random,
                 .session_id = &client_hello.session_id,
@@ -151,15 +157,15 @@ pub fn Server(comptime StreamType: type) type {
                     .{ .key_share = &[_]tls.KeyShare{key_pair.pair.toKeyShare()} },
                 },
             };
-            self.stream.version = .tls_1_2;
-            _ = try self.stream.write(tls.Handshake, .{ .server_hello = hello });
-            try self.stream.flush();
+            stream.version = .tls_1_2;
+            _ = try stream.write(tls.Handshake, .{ .server_hello = hello });
+            try stream.flush();
 
             // > if the client sends a non-empty session ID, the server MUST send the change_cipher_spec
             if (hello.session_id.len > 0) {
-                self.stream.content_type = .change_cipher_spec;
-                _ = try self.stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
-                try self.stream.flush();
+                stream.content_type = .change_cipher_spec;
+                _ = try stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
+                try stream.flush();
             }
 
             const shared_key = switch (client_hello.key_share) {
@@ -169,7 +175,7 @@ pub fn Server(comptime StreamType: type) type {
                     const shared_point = T.X25519.scalarmult(
                         ks.x25519,
                         pair.x25519.secret_key,
-                    ) catch return error.TlsDecryptFailure;
+                    ) catch return stream.writeError(.decrypt_error);
                     // pair.kyber768d00.secret_key
                     // ks.kyber768d00
                     const encaps = ks.kyber768d00.encaps(null).ciphertext;
@@ -180,94 +186,75 @@ pub fn Server(comptime StreamType: type) type {
                     const shared_point = tls.NamedGroupT(.x25519).scalarmult(
                         key_pair.pair.x25519.secret_key,
                         ks,
-                    ) catch return error.TlsDecryptFailure;
+                    ) catch  return stream.writeError(.decrypt_error);
                     break :brk &shared_point;
                 },
                 .secp256r1 => |ks| brk: {
                     const mul = ks.p.mulPublic(
                         key_pair.pair.secp256r1.secret_key.bytes,
                         .big,
-                    ) catch
-                        return error.TlsDecryptFailure;
+                    ) catch return stream.writeError(.decrypt_error);
                     break :brk &mul.affineCoordinates().x.toBytes(.big);
                 },
-                else => return error.TlsIllegalParameter,
+                else =>  return stream.writeError(.illegal_parameter),
             };
 
-            const hello_hash = self.stream.transcript_hash.peek();
-            self.stream.handshake_cipher = try tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, hello_hash);
+            const hello_hash = stream.transcript_hash.peek();
+            stream.handshake_cipher = tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, hello_hash) catch return stream.writeError(.illegal_parameter);
 
-            self.stream.content_type = .handshake;
-            _ = try self.stream.write(tls.Handshake, .{ .encrypted_extensions = &.{} });
-            try self.stream.flush();
+            stream.content_type = .handshake;
+            _ = try stream.write(tls.Handshake, .{ .encrypted_extensions = &.{} });
+            try stream.flush();
 
-            _ = try self.stream.write(tls.Handshake, .{ .certificate = self.options.certificate });
-            try self.stream.flush();
-
-            // RFC 8446 S4.4.3
-            // const signature_content = [_]u8{0x20} ** 64
-            //     ++ "TLS 1.3, server CertificateVerify\x00".*
-            //     ++ self.stream.transcript_hash.peek()
-            //     ;
-
-            // const cert = Certificate{ .buffer = self.options.certificate.entries[0].data, .index = 0 };
-            // const parsed = try cert.parse();
-            // const pub_key = parsed.pubKey();
-
-            // switch (client_hello.sig_scheme) {
-            //     .rsa_pss_rsae_sha256 => {
-            //         const rsa = Certificate.rsa;
-            //         const components = try rsa.PublicKey.parseDer(pub_key);
-            //         const exponent = components.exponent;
-            //         const modulus = components.modulus;
-            //         switch (modulus.len) {
-            //             inline 128, 256, 512 => |modulus_len| {
-            //                 const key = try rsa.PublicKey.fromBytes(exponent, modulus);
-            //                 const sig = rsa.PSSSignature.fromBytes(modulus_len, encoded_sig);
-            //                 try rsa.PSSSignature.verify(modulus_len, sig, verify_bytes, key, Hash);
-            //             },
-            //             else => {
-            //                 return error.TlsBadRsaSignatureBitCount;
-            //             },
-            //         }
-            //     },
-            //     else => {}
-            // }
+            _ = try stream.write(tls.Handshake, .{ .certificate = self.options.certificate });
+            try stream.flush();
         }
 
-        pub fn send_handshake_finish(self: *Self) !void {
-            const verify_data = switch (self.stream.handshake_cipher.?) {
+        pub fn send_finished(self: *Self) !void {
+            var stream = &self.stream;
+            const verify_data = switch (stream.handshake_cipher.?) {
                 inline
                     .aes_256_gcm_sha384,
                     => |v| brk: {
                         const T = @TypeOf(v);
                         const secret = v.server_finished_key;
-                        const transcript_hash = self.stream.transcript_hash.peek();
+                        const transcript_hash = stream.transcript_hash.peek();
 
                         break :brk tls.hmac(T.Hmac, transcript_hash, secret);
                     },
-                else => return error.TlsDecryptFailure,
+                else =>  return stream.writeError(.illegal_parameter),
             };
-            _ = try self.stream.write(tls.Handshake, .{ .finished =  &verify_data });
-            try self.stream.flush();
+            _ = try stream.write(tls.Handshake, .{ .finished =  &verify_data });
+            try stream.flush();
 
-            self.stream.application_cipher = tls.ApplicationCipher.init(
-                self.stream.handshake_cipher.?,
-                self.stream.transcript_hash.peek(),
+            stream.application_cipher = tls.ApplicationCipher.init(
+                stream.handshake_cipher.?,
+                stream.transcript_hash.peek(),
             );
         }
 
-        pub fn recv_finish(self: *Self) !void {
-            try self.stream.expectFragment(.handshake, .finished);
-            var reader = self.stream.reader();
+        pub fn recv_finished(self: *Self) !void {
+            var stream = &self.stream;
+            var reader = stream.reader();
+            const cipher = stream.handshake_cipher.?;
 
-            var verify_data: [48]u8 = undefined;
-            try reader.readNoEof(&verify_data);
+            const expected = switch (cipher) {
+                .empty_renegotiation_info_scsv => return stream.writeError(.decode_error),
+                inline else => |p| brk: {
+                    const P = @TypeOf(p);
+                    const digest = stream.transcript_hash.peek();
+                    break :brk &tls.hmac(P.Hmac, digest, p.client_finished_key);
+                }
+            };
 
-            // TODO: verify
-            _ = .{ verify_data };
-            self.stream.content_type = .application_data;
-            self.stream.handshake_type = null;
+            try stream.expectFragment(.handshake, .finished);
+            const actual = stream.view;
+            try reader.skipBytes(stream.view.len, .{});
+
+            if (!mem.eql(u8, expected, actual)) return stream.writeError(.decode_error);
+
+            stream.content_type = .application_data;
+            stream.handshake_type = null;
         }
     };
 }

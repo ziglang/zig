@@ -138,6 +138,11 @@ pub const Handshake = union(HandshakeType) {
         }
         return res;
     }
+
+    pub const Header = struct {
+        type: HandshakeType,
+        len: u24,
+    };
 };
 
 pub const Certificate = struct {
@@ -148,9 +153,10 @@ pub const Certificate = struct {
 
     pub const Entry = struct {
         /// Either ASN1_subjectPublicKeyInfo or cert_data based on CertificateType.
-        /// Max len 2^24-1
         data: []const u8,
         extensions: []const Extension = &.{},
+
+        pub const max_data_len = 1 << 24 - 1;
 
         pub fn write(self: @This(), stream: anytype) !usize {
             var res: usize = 0;
@@ -172,8 +178,9 @@ pub const Certificate = struct {
 
 pub const CertificateVerify = struct {
     algorithm: SignatureScheme,
-    /// Max len 2^16 - 1
     signature: []const u8,
+
+    pub const max_signature_length = 1 << 16 - 1;
 
     pub fn write(self: @This(), stream: anytype) !usize {
         var res: usize = 0;
@@ -242,110 +249,32 @@ pub const ExtensionType = enum(u16) {
     _,
 };
 
+/// Matching error set for Alert.Description.
 pub const Error = error{
-    /// An inappropriate message (e.g., the wrong
-    /// handshake message, premature Application Data, etc.) was received.
-    /// This alert should never be observed in communication between
-    /// proper implementations.
     TlsUnexpectedMessage,
-    /// This alert is returned if a record is received which
-    /// cannot be deprotected.  Because AEAD algorithms combine decryption
-    /// and verification, and also to avoid side-channel attacks, this
-    /// alert is used for all deprotection failures.  This alert should
-    /// never be observed in communication between proper implementations,
-    /// except when messages were corrupted in the network.
     TlsBadRecordMac,
-    /// A TLSCiphertext record was received that had a
-    /// length more than 2^14 + 256 bytes, or a record decrypted to a
-    /// TLSPlaintext record with more than 2^14 bytes (or some other
-    /// negotiated limit).  This alert should never be observed in
-    /// communication between proper implementations, except when messages
-    /// were corrupted in the network.
     TlsRecordOverflow,
-    /// Receipt of a "handshake_failure" alert message
-    /// indicates that the sender was unable to negotiate an acceptable
-    /// set of security parameters given the options available.
     TlsHandshakeFailure,
-    /// A certificate was corrupt, contained signatures
-    /// that did not verify correctly, etc.
     TlsBadCertificate,
-    /// A certificate was of an unsupported type.
     TlsUnsupportedCertificate,
-    /// A certificate was revoked by its signer.
     TlsCertificateRevoked,
-    /// A certificate has expired or is not currently valid.
     TlsCertificateExpired,
-    /// Some other (unspecified) issue arose in processing the certificate, rendering it unacceptable.
     TlsCertificateUnknown,
-    /// A field in the handshake was incorrect or
-    /// inconsistent with other fields.  This alert is used for errors
-    /// which conform to the formal protocol syntax but are otherwise
-    /// incorrect.
     TlsIllegalParameter,
-    /// A valid certificate chain or partial chain was received,
-    /// but the certificate was not accepted because the CA certificate
-    /// could not be located or could not be matched with a known trust
-    /// anchor.
     TlsUnknownCa,
-    /// A valid certificate or PSK was received, but when
-    /// access control was applied, the sender decided not to proceed with
-    /// negotiation.
     TlsAccessDenied,
-    /// A message could not be decoded because some field was
-    /// out of the specified range or the length of the message was
-    /// incorrect.  This alert is used for errors where the message does
-    /// not conform to the formal protocol syntax.  This alert should
-    /// never be observed in communication between proper implementations,
-    /// except when messages were corrupted in the network.
     TlsDecodeError,
-    /// A handshake (not record layer) cryptographic
-    /// operation failed, including being unable to correctly verify a
-    /// signature or validate a Finished message or a PSK binder.
     TlsDecryptError,
-    /// The protocol version the peer has attempted to
-    /// negotiate is recognized but not supported (see Appendix D).
     TlsProtocolVersion,
-    /// Returned instead of "handshake_failure" when
-    /// a negotiation has failed specifically because the server requires
-    /// parameters more secure than those supported by the client.
     TlsInsufficientSecurity,
-    /// An internal error unrelated to the peer or the
-    /// correctness of the protocol (such as a memory allocation failure)
-    /// makes it impossible to continue.
     TlsInternalError,
-    /// Sent by a server in response to an invalid
-    /// connection retry attempt from a client (see [RFC7507]).
     TlsInappropriateFallback,
-    /// Sent by endpoints that receive a handshake
-    /// message not containing an extension that is mandatory to send for
-    /// the offered TLS version or other negotiated parameters.
     TlsMissingExtension,
-    /// Sent by endpoints receiving any handshake
-    /// message containing an extension known to be prohibited for
-    /// inclusion in the given handshake message, or including any
-    /// extensions in a ServerHello or Certificate not first offered in
-    /// the corresponding ClientHello or CertificateRequest.
     TlsUnsupportedExtension,
-    /// Sent by servers when no server exists identified
-    /// by the name provided by the client via the "server_name" extension
-    /// (see [RFC6066]).
     TlsUnrecognizedName,
-    /// Sent by clients when an invalid or
-    /// unacceptable OCSP response is provided by the server via the
-    /// "status_request" extension (see [RFC6066]).
     TlsBadCertificateStatusResponse,
-    /// Sent by servers when PSK key establishment is
-    /// desired but no acceptable PSK identity is provided by the client.
-    /// Sending this alert is OPTIONAL; servers MAY instead choose to send
-    /// a "decrypt_error" alert to merely indicate an invalid PSK
-    /// identity.
     TlsUnknownPskIdentity,
-    /// Sent by servers when a client certificate is
-    /// desired but none was provided by the client.
     TlsCertificateRequired,
-    /// Sent by servers when a client
-    /// "application_layer_protocol_negotiation" extension advertises only
-    /// protocols that the server does not support (see [RFC7301]).
     TlsNoApplicationProtocol,
     TlsUnknown,
 };
@@ -362,32 +291,114 @@ pub const Alert = struct {
         _,
     };
     pub const Description = enum(u8) {
+        /// Stream is closing.
         close_notify = 0,
+        /// An inappropriate message (e.g., the wrong
+        /// handshake message, premature Application Data, etc.) was received.
+        /// This alert should never be observed in communication between
+        /// proper implementations.
         unexpected_message = 10,
+        /// This alert is returned if a record is received which
+        /// cannot be deprotected.  Because AEAD algorithms combine decryption
+        /// and verification, and also to avoid side-channel attacks, this
+        /// alert is used for all deprotection failures.  This alert should
+        /// never be observed in communication between proper implementations,
+        /// except when messages were corrupted in the network.
         bad_record_mac = 20,
+        /// A TLSCiphertext record was received that had a
+        /// length more than 2^14 + 256 bytes, or a record decrypted to a
+        /// TLSPlaintext record with more than 2^14 bytes (or some other
+        /// negotiated limit).  This alert should never be observed in
+        /// communication between proper implementations, except when messages
+        /// were corrupted in the network.
         record_overflow = 22,
+        /// Receipt of a "handshake_failure" alert message
+        /// indicates that the sender was unable to negotiate an acceptable
+        /// set of security parameters given the options available.
         handshake_failure = 40,
+        /// A certificate was corrupt, contained signatures
+        /// that did not verify correctly, etc.
         bad_certificate = 42,
+        /// A certificate was of an unsupported type.
         unsupported_certificate = 43,
+        /// A certificate was revoked by its signer.
         certificate_revoked = 44,
+        /// A certificate has expired or is not currently valid.
         certificate_expired = 45,
+        /// Some other (unspecified) issue arose in processing the certificate,
+        /// rendering it unacceptable.
         certificate_unknown = 46,
+        /// A field in the handshake was incorrect or
+        /// inconsistent with other fields.  This alert is used for errors
+        /// which conform to the formal protocol syntax but are otherwise
+        /// incorrect.
         illegal_parameter = 47,
+        /// A valid certificate chain or partial chain was received,
+        /// but the certificate was not accepted because the CA certificate
+        /// could not be located or could not be matched with a known trust
+        /// anchor.
         unknown_ca = 48,
+        /// A valid certificate or PSK was received, but when
+        /// access control was applied, the sender decided not to proceed with
+        /// negotiation.
         access_denied = 49,
+        /// A message could not be decoded because some field was
+        /// out of the specified range or the length of the message was
+        /// incorrect.  This alert is used for errors where the message does
+        /// not conform to the formal protocol syntax.  This alert should
+        /// never be observed in communication between proper implementations,
+        /// except when messages were corrupted in the network.
         decode_error = 50,
+        /// A handshake (not record layer) cryptographic
+        /// operation failed, including being unable to correctly verify a
+        /// signature or validate a Finished message or a PSK binder.
         decrypt_error = 51,
+        /// The protocol version the peer has attempted to
+        /// negotiate is recognized but not supported (see Appendix D).
         protocol_version = 70,
+        /// Returned instead of "handshake_failure" when
+        /// a negotiation has failed specifically because the server requires
+        /// parameters more secure than those supported by the client.
         insufficient_security = 71,
+        /// An internal error unrelated to the peer or the
+        /// correctness of the protocol (such as a memory allocation failure)
+        /// makes it impossible to continue.
         internal_error = 80,
+        /// Sent by a server in response to an invalid
+        /// connection retry attempt from a client (see [RFC7507]).
         inappropriate_fallback = 86,
+        /// User cancelled handshake.
         user_canceled = 90,
+        /// Sent by endpoints that receive a handshake
+        /// message not containing an extension that is mandatory to send for
+        /// the offered TLS version or other negotiated parameters.
         missing_extension = 109,
+        /// Sent by endpoints receiving any handshake
+        /// message containing an extension known to be prohibited for
+        /// inclusion in the given handshake message, or including any
+        /// extensions in a ServerHello or Certificate not first offered in
+        /// the corresponding ClientHello or CertificateRequest.
         unsupported_extension = 110,
+        /// Sent by servers when no server exists identified
+        /// by the name provided by the client via the "server_name" extension
+        /// (see [RFC6066]).
         unrecognized_name = 112,
+        /// Sent by clients when an invalid or
+        /// unacceptable OCSP response is provided by the server via the
+        /// "status_request" extension (see [RFC6066]).
         bad_certificate_status_response = 113,
+        /// Sent by servers when PSK key establishment is
+        /// desired but no acceptable PSK identity is provided by the client.
+        /// Sending this alert is OPTIONAL; servers MAY instead choose to send
+        /// a "decrypt_error" alert to merely indicate an invalid PSK
+        /// identity.
         unknown_psk_identity = 115,
+        /// Sent by servers when a client certificate is
+        /// desired but none was provided by the client.
         certificate_required = 116,
+        /// Sent by servers when a client
+        /// "application_layer_protocol_negotiation" extension advertises only
+        /// protocols that the server does not support (see [RFC7301]).
         no_application_protocol = 120,
         _,
 
@@ -700,7 +711,7 @@ pub const HandshakeCipher = union(CipherSuite) {
 
     const Self = @This();
 
-    pub fn init(suite: CipherSuite, shared_key: []const u8, hello_hash: []const u8) !Self {
+    pub fn init(suite: CipherSuite, shared_key: []const u8, hello_hash: []const u8) Error!Self {
         switch (suite) {
             inline .aes_128_gcm_sha256,
             .aes_256_gcm_sha384,
@@ -741,7 +752,7 @@ pub const HandshakeCipher = union(CipherSuite) {
                 return res;
             },
             .empty_renegotiation_info_scsv => return .{ .empty_renegotiation_info_scsv = {} },
-            _ => return error.TlsIllegalParameter,
+            _ => return Error.TlsIllegalParameter,
         }
     }
 
@@ -1050,7 +1061,7 @@ pub const StreamInterface = struct {
 ///   * Fragmentation
 ///   * Encryption and decryption of handshake and application data messages
 ///   * Reading and writing prefix length arrays
-///   * TLS Alerts
+///   * Alerts
 pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
     // TODO: Support RFC 6066 MaxFragmentLength and give fragment_size option to Client+Server.
     if (fragment_size > std.math.maxInt(u16)) @compileError("choose a smaller fragment_size");
@@ -1150,7 +1161,9 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
             if (self.application_cipher == null) {
                 switch (self.content_type) {
                     .change_cipher_spec, .alert => {},
-                    else => self.transcript_hash.update(self.view),
+                    else => {
+                        self.transcript_hash.update(self.view);
+                    }
                 }
             }
 
@@ -1209,7 +1222,8 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
             self.flush() catch {};
 
             self.close();
-            return err.toError();
+            @panic("writeError");
+            // return err.toError();
         }
 
         pub fn close(self: *Self) void {
@@ -1347,7 +1361,8 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
                                 const ciphertext = self.view[0..self.view.len - tag_len];
                                 const tag = self.view[self.view.len - tag_len..][0..tag_len].*;
                                 const out: []u8 = @constCast(self.view[0..ciphertext.len]);
-                                try p.decrypt(ciphertext, &plaintext_header, tag, self.is_client, out);
+                                p.decrypt(ciphertext, &plaintext_header, tag, self.is_client, out) catch
+                                    return self.writeError(.bad_record_mac);
                                 const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
                                 if (padding_start) |s| {
                                     res = @enumFromInt(self.view[s]);
@@ -1395,14 +1410,21 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
             const actual_content = try self.readFragment();
             if (expected_content != actual_content) {
                 std.debug.print("expected {} got {}\n", .{ expected_content, actual_content });
-                return self.writeError(.decode_error);
             }
             if (expected_handshake) |expected| {
                 const actual_handshake = try self.read(HandshakeType);
                 if (actual_handshake != expected) return self.writeError(.decode_error);
-                // TODO: verify this?
-                _ = try self.read(u24);
+                const stated_len = try self.read(u24);
+                if (stated_len != self.view.len) return self.writeError(.decode_error);
             }
+        }
+
+        pub fn expectHandshake(self: *Self) ReadError!Handshake.Header {
+            try self.expectFragment(.handshake, null);
+            const ty = try self.read(HandshakeType);
+            const len = try self.read(u24);
+            if (self.view.len != len) return self.writeError(.decode_error);
+            return .{ .type = ty, .len = len };
         }
 
         pub fn read(self: *Self, comptime T: type) ReadError!T {
@@ -1513,6 +1535,7 @@ pub const MultiHash = struct {
     active: enum { all, sha256, sha384, sha512 } = .all,
 
     const sha2 = crypto.hash.sha2;
+    pub const max_digest_len = sha2.Sha512.digest_length;
     const Self = @This();
 
     pub fn update(self: *Self, bytes: []const u8) void {
@@ -1528,12 +1551,13 @@ pub const MultiHash = struct {
         }
     }
 
-    pub fn setActive(self: *Self, cipher_suite: CipherSuite) Error!void {
+    pub fn setActive(self: *Self, cipher_suite: CipherSuite) void {
         self.active = switch (cipher_suite) {
             .aes_128_gcm_sha256, .chacha20_poly1305_sha256, .aegis_128l_sha256 => .sha256,
             .aes_256_gcm_sha384 => .sha384,
             .aegis_256_sha512 => .sha512,
-            else => return Error.TlsIllegalParameter,
+            .empty_renegotiation_info_scsv => .all,
+            _ => .all,
         };
     }
 
@@ -1700,11 +1724,11 @@ fn ApplicationCipherT(comptime suite: CipherSuite) type {
             tag: [AEAD.tag_length]u8,
             is_client: bool,
             out: []u8,
-        ) Error!void {
+        ) !void {
             const key = if (is_client) self.server_key else self.client_key;
             const iv = if (is_client) self.server_iv else self.client_iv;
             const nonce = nonce_for_len(AEAD.nonce_length, iv, self.read_seq);
-            AEAD.decrypt(out, data, tag, additional, nonce, key) catch return Error.TlsBadRecordMac;
+            try AEAD.decrypt(out, data, tag, additional, nonce, key);
             self.read_seq += 1;
         }
 
@@ -1770,6 +1794,19 @@ pub fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) 
     Hmac.create(&result, message, &key);
     return result;
 }
+
+/// Slice of stack allocated signature content from RFC 8446 S4.4.3
+pub inline fn sigContent(digest: []const u8) []const u8 {
+    const max_digest_len = MultiHash.max_digest_len;
+    var buf = [_]u8{0x20} ** 64
+        ++ "TLS 1.3, server CertificateVerify\x00".*
+        ++ @as([max_digest_len]u8, undefined)
+        ;
+    @memcpy(buf[buf.len - max_digest_len..][0..digest.len], digest);
+
+    return buf[0..buf.len - (max_digest_len - digest.len)];
+}
+
 
 fn fieldsLen(comptime T: type) comptime_int {
     var res: comptime_int = 0;
@@ -1881,7 +1918,7 @@ test "tls client and server handshake, data, and close_notify" {
             .stream = &inner_stream,
             .is_client = true,
         },
-        .options = .{ .host = host, .ca_bundle = null },
+        .options = .{ .host = host, .ca_bundle = null, .allocator = allocator },
     };
 
     const server_der = @embedFile("./testdata/server.der");
@@ -2101,7 +2138,7 @@ test "tls client and server handshake, data, and close_notify" {
     } });
     try server.stream.flush();
 
-    try server.send_handshake_finish();
+    try server.send_finished();
     {
         const buf = tmp_buf[0..inner_stream.buffer.len()];
         try inner_stream.peek(buf);
@@ -2254,9 +2291,8 @@ test "tls client and server handshake, data, and close_notify" {
         try std.testing.expectEqualSlices(u8, &expected, buf);
     }
 
+    try client.stream.expectFragment(.handshake, .server_hello);
     try client.recv_hello(key_pairs);
-
-    // Test that ALL shared keys are identical
     {
         const s = server.stream.handshake_cipher.?.aes_256_gcm_sha384;
         const c = client.stream.handshake_cipher.?.aes_256_gcm_sha384;
@@ -2272,6 +2308,20 @@ test "tls client and server handshake, data, and close_notify" {
         const client_iv = [_]u8{ 0x42,0x56,0xd2,0xe0,0xe8,0x8b,0xab,0xdd,0x05,0xeb,0x2f,0x27 };
         try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
+    try client.stream.expectFragment(.handshake, .encrypted_extensions);
+    try client.recv_encrypted_extensions();
+    try client.stream.expectFragment(.handshake, .certificate);
+    const cert = try client.recv_certificate();
+   defer allocator.free(cert.certificate.buffer);
+
+    var digest = client.stream.transcript_hash.peek();
+    try client.stream.expectFragment(.handshake, .certificate_verify);
+    try client.recv_certificate_verify(digest, cert);
+
+    digest = client.stream.transcript_hash.peek();
+    try client.stream.expectFragment(.handshake, .finished);
+    try client.recv_finished(digest);
+
     {
         const s = server.stream.application_cipher.?.aes_256_gcm_sha384;
         const c = client.stream.application_cipher.?.aes_256_gcm_sha384;
@@ -2312,7 +2362,7 @@ test "tls client and server handshake, data, and close_notify" {
             ;
         try std.testing.expectEqualSlices(u8, &expected, buf);
     }
-    try server.recv_finish();
+    try server.recv_finished();
 
     _ = try client.stream.writer().writeAll("ping");
     try client.stream.flush();

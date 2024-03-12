@@ -3,7 +3,7 @@
 [x] 3. Client recv_hello secp256r1  key share
 [x] 4. remove @panic's
 [x] 5. better errors than spammy TlsDecodeError. map new errors to TLS alerts. send alert on error.
-6. verify certs and sigs
+6. verify certs and [x] sigs
 7. KeyShare kyber read
 8. StreamInterface `readv` instead of `readAll`
 
