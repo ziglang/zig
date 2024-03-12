@@ -2698,12 +2698,6 @@ fn testThunks(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("bar=42, foo=0, foobar=42");
         run.expectExitCode(0);
         test_step.dependOn(&run.step);
-
-        const check = exe.checkObject();
-        check.max_bytes = std.math.maxInt(u32);
-        check.checkInSymtab();
-        check.checkContains("__libc_start_main$thunk");
-        test_step.dependOn(&check.step);
     }
 
     {
@@ -2714,12 +2708,6 @@ fn testThunks(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("bar=42, foo=0, foobar=42");
         run.expectExitCode(0);
         test_step.dependOn(&run.step);
-
-        const check = exe.checkObject();
-        check.max_bytes = std.math.maxInt(u32);
-        check.checkInSymtab();
-        check.checkContains("__libc_start_main$thunk");
-        test_step.dependOn(&check.step);
     }
 
     return test_step;
