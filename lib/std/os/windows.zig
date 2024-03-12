@@ -153,6 +153,24 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     }
 }
 
+pub fn GetCurrentProcess() HANDLE {
+    const process_pseudo_handle: usize = @bitCast(@as(isize, -1));
+    return @ptrFromInt(process_pseudo_handle);
+}
+
+pub fn GetCurrentProcessId() DWORD {
+    return @truncate(@intFromPtr(teb().ClientId.UniqueProcess));
+}
+
+pub fn GetCurrentThread() HANDLE {
+    const thread_pseudo_handle: usize = @bitCast(@as(isize, -2));
+    return @ptrFromInt(thread_pseudo_handle);
+}
+
+pub fn GetCurrentThreadId() DWORD {
+    return @truncate(@intFromPtr(teb().ClientId.UniqueThread));
+}
+
 pub const CreatePipeError = error{ Unexpected, SystemResources };
 
 var npfs: ?HANDLE = null;
@@ -259,12 +277,12 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
     var write: HANDLE = undefined;
     switch (ntdll.NtCreateFile(
         &write,
-        FILE_GENERIC_WRITE,
+        GENERIC_WRITE | SYNCHRONIZE | FILE_READ_ATTRIBUTES,
         &attrs,
         &iosb,
         null,
         0,
-        FILE_SHARE_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
         FILE_OPEN,
         FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
         null,
@@ -4309,7 +4327,11 @@ pub const THREAD_BASIC_INFORMATION = extern struct {
 };
 
 pub const TEB = extern struct {
-    Reserved1: [12]PVOID,
+    NtTib: NT_TIB,
+    EnvironmentPointer: PVOID,
+    ClientId: CLIENT_ID,
+    ActiveRpcHandle: PVOID,
+    ThreadLocalStoragePointer: PVOID,
     ProcessEnvironmentBlock: *PEB,
     Reserved2: [399]PVOID,
     Reserved3: [1952]u8,
@@ -4320,6 +4342,25 @@ pub const TEB = extern struct {
     Reserved6: [4]PVOID,
     TlsExpansionSlots: PVOID,
 };
+
+comptime {
+    // Offsets taken from WinDbg info and Geoff Chappell[1] (RIP)
+    // [1]: https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/pebteb/teb/index.htm
+    assert(@offsetOf(TEB, "NtTib") == 0x00);
+    if (@sizeOf(usize) == 4) {
+        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x1C);
+        assert(@offsetOf(TEB, "ClientId") == 0x20);
+        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
+        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
+        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+    } else if (@sizeOf(usize) == 8) {
+        assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
+        assert(@offsetOf(TEB, "ClientId") == 0x40);
+        assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
+        assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
+        assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+    }
+}
 
 pub const EXCEPTION_REGISTRATION_RECORD = extern struct {
     Next: ?*EXCEPTION_REGISTRATION_RECORD,

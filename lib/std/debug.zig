@@ -814,7 +814,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
     }
 
-    const tib = @as(*const windows.NT_TIB, @ptrCast(&windows.teb().Reserved1));
+    const tib = &windows.teb().NtTib;
 
     var context: windows.CONTEXT = undefined;
     if (existing_context) |context_ptr| {
