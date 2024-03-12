@@ -40115,28 +40115,22 @@ pub const RuntimeSafety = struct {
         return analyzeSlice2(sema, block, src, array_ptr, start, end, len, sentinel, ptr_src, start_src, end_src, sentinel_src, .slice_length);
     }
     const SliceAnalysis = packed struct(u32) {
-        values: Values,
-        checks: Checks,
-        const Checks = packed struct(u16) {
-            start_le_len: State,
-            start_le_end: State,
-            end_le_len: State,
-            eq_sentinel: State,
-            ptr_ne_null: State,
-            reserved: u6 = 0,
-        };
-        // TODO: Add `src_mem_len` for length of containing decl? This is
+        // TODO: Add `mem_len` for length of containing decl? This is
         //       modeled by the test suite.
-        pub const Values = packed struct(u16) {
-            src_ptr: State,
-            src_len: State,
-            src_sent: State,
-            dest_ptr: State,
-            dest_start: State,
-            dest_end: State,
-            dest_len: State,
-            dest_sent: State,
-        };
+        src_ptr: State,
+        src_len: State,
+        src_sent: State,
+        dest_ptr: State,
+        dest_start: State,
+        dest_end: State,
+        dest_len: State,
+        dest_sent: State,
+        start_le_len: State,
+        start_le_end: State,
+        end_le_len: State,
+        eq_sentinel: State,
+        ptr_ne_null: State,
+        _: u6 = 0,
         const State = enum(u2) {
             unknown = 0,
             variable = 1,
@@ -40277,29 +40271,25 @@ pub const RuntimeSafety = struct {
         // use the same logic.
         const src_ptr_ty_is_allowzero: bool = src_ptr_ty.ptrInfo(sema.mod).flags.is_allowzero;
         // Initial state of values and safety checks (4 bytes):
-        var sa: SliceAnalysis = .{
-            .checks = .{
-                .start_le_len = .unknown,
-                .start_le_end = .unknown,
-                .end_le_len = .unknown,
-                .eq_sentinel = .unknown,
-                .ptr_ne_null = .unknown,
-            },
-            .values = .{
-                .src_ptr = .variable,
-                .src_len = .unknown,
-                .src_sent = .unknown,
-                .dest_ptr = .variable,
-                .dest_start = .variable,
-                .dest_end = .unknown,
-                .dest_len = .unknown,
-                .dest_sent = .unknown,
-            },
+        var sa: SliceAnalysis = SliceAnalysis{
+            .src_ptr = .variable,
+            .src_len = .unknown,
+            .src_sent = .unknown,
+            .dest_ptr = .variable,
+            .dest_start = .variable,
+            .dest_end = .unknown,
+            .dest_len = .unknown,
+            .dest_sent = .unknown,
+            .start_le_len = .unknown,
+            .start_le_end = .unknown,
+            .end_le_len = .unknown,
+            .eq_sentinel = .unknown,
+            .ptr_ne_null = .unknown,
         };
         // The base pointer is not optional so `unknown` means it is undefined.
         const src_ptr_val: Value = blk: {
             if (try sema.resolveValue(src_ptr)) |val| {
-                sa.values.src_ptr = if (val.isUndef(sema.mod)) .unknown else .known;
+                sa.src_ptr = if (val.isUndef(sema.mod)) .unknown else .known;
                 break :blk val;
             }
             break :blk Value.undef;
@@ -40310,7 +40300,7 @@ pub const RuntimeSafety = struct {
                 break :blk Value.undef;
             }
             if (ptr_child_ty.sentinel(sema.mod)) |val| {
-                sa.values.src_sent = .known;
+                sa.src_sent = .known;
                 break :blk val;
             }
             break :blk Value.undef;
@@ -40324,12 +40314,12 @@ pub const RuntimeSafety = struct {
                 try sema.mod.intRef(Type.usize, ptr_child_ty.arrayLen(sema.mod))
             else
                 Air.Inst.Ref.one,
-            .Slice => if (sa.values.src_ptr == .unknown)
+            .Slice => if (sa.src_ptr == .unknown)
                 Air.Inst.Ref.zero
             else
                 try sema.analyzeSliceLen(block, operand_src, src_ptr),
             .C, .Many => blk: {
-                if (feature_prevent_inval_ptr and sa.values.src_ptr == .known) {
+                if (feature_prevent_inval_ptr and sa.src_ptr == .known) {
                     // This safety measure is a work-in-progress.
                     if (try abiSizeOfContainingDecl(sema, block, src, src_ptr_val)) |memsz_int| {
                         const src_len_int: u64 = memsz_int / elem_ty.abiSize(sema.mod);
@@ -40342,9 +40332,9 @@ pub const RuntimeSafety = struct {
         // Attempt to resolve the pointer length.
         const src_len_val: Value = blk: {
             if (uncasted_src_len_opt != .none) {
-                sa.values.src_len = .variable;
+                sa.src_len = .variable;
                 if (try sema.resolveDefinedValue(block, operand_src, uncasted_src_len_opt)) |val| {
-                    sa.values.src_len = .known;
+                    sa.src_len = .known;
                     break :blk val;
                 }
             }
@@ -40355,7 +40345,7 @@ pub const RuntimeSafety = struct {
         const dest_start: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_start, dest_start_src);
         const dest_start_val: Value = blk: {
             if (try sema.resolveDefinedValue(block, dest_start_src, dest_start)) |val| {
-                sa.values.dest_start = if (try sema.compareAll(val, .eq, Value.zero_usize, Type.usize)) .unknown else .known;
+                sa.dest_start = if (try sema.compareAll(val, .eq, Value.zero_usize, Type.usize)) .unknown else .known;
                 break :blk val;
             }
             break :blk Value.undef;
@@ -40378,14 +40368,14 @@ pub const RuntimeSafety = struct {
             }
             if (uncasted_dest_end_opt != .none) {
                 const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
-                if (sa.values.dest_start != .unknown) {
+                if (sa.dest_start != .unknown) {
                     break :blk try sema.analyzeArithmetic(block, .subwrap, dest_end, dest_start, src, dest_end_src, dest_start_src, false);
                 }
                 break :blk dest_end;
             }
             if (uncasted_src_len_opt != .none) {
                 const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len_opt, operand_src);
-                if (sa.values.dest_start != .unknown) {
+                if (sa.dest_start != .unknown) {
                     break :blk try sema.analyzeArithmetic(block, .subwrap, src_len, dest_start, src, operand_src, dest_start_src, false);
                 }
                 break :blk src_len;
@@ -40395,9 +40385,9 @@ pub const RuntimeSafety = struct {
         // Attempt to resolve the value of the destination length.
         const dest_len_val: Value = blk: {
             if (dest_len != .none) {
-                sa.values.dest_len = .variable;
+                sa.dest_len = .variable;
                 if (try sema.resolveDefinedValue(block, src, dest_len)) |val| {
-                    sa.values.dest_len = .known;
+                    sa.dest_len = .known;
                     break :blk val;
                 }
             }
@@ -40406,9 +40396,9 @@ pub const RuntimeSafety = struct {
         // Attempt to resolve the value of the end index.
         const dest_end_val: Value = blk: {
             if (uncasted_dest_end_opt != .none) {
-                sa.values.dest_end = .variable;
+                sa.dest_end = .variable;
                 if (try sema.resolveDefinedValue(block, dest_end_src, uncasted_dest_end_opt)) |val| {
-                    sa.values.dest_end = .known;
+                    sa.dest_end = .known;
                     break :blk val;
                 }
             }
@@ -40422,7 +40412,7 @@ pub const RuntimeSafety = struct {
                         elem_ty.fmt(sema.mod),
                     });
                 }
-                sa.values.dest_sent = .known;
+                sa.dest_sent = .known;
                 const dest_sent: Air.Inst.Ref = try sema.coerce(block, elem_ty, dest_sent_opt, dest_sent_src);
                 if (try sema.resolveDefinedValue(block, dest_sent_src, dest_sent)) |val| {
                     break :blk val;
@@ -40433,21 +40423,21 @@ pub const RuntimeSafety = struct {
         };
         // Variants such as ptr[0..] and ptr[0..][0..1] are allowed for *T.
         if (src_ptr_ty_size == .One and ptr_child_ty_tag != .Array) {
-            if (sa.values.dest_start == .variable) {
+            if (sa.dest_start == .variable) {
                 return sema.fail(block, dest_start_src, "start index of slice of pointer-to-one must be comptime-known", .{});
             }
-            if (sa.values.dest_end == .variable) {
+            if (sa.dest_end == .variable) {
                 return sema.fail(block, dest_end_src, "end index of slice of pointer-to-one must be comptime-known", .{});
             }
         }
         // ATTENTION: Remove with `feature_allow_limited_slice_of_undefined`.
         //            Clarify behaviour of slices of constant undefined
         //            pointers. This is far too much logic to enable a foot-gun.
-        if (sa.values.src_ptr == .unknown) {
+        if (sa.src_ptr == .unknown) {
             if (!feature_allow_limited_slice_of_undefined) {
                 return sema.fail(block, src, "slice of undefined pointer causes undefined behaviour", .{});
             }
-            if (sa.values.dest_len == .known) {
+            if (sa.dest_len == .known) {
                 if (try sema.compareAll(dest_len_val, .neq, Value.zero_comptime_int, Type.comptime_int)) {
                     return sema.fail(block, src, "non-zero ({}) length slice of undefined pointer", .{
                         dest_len_val.fmtValue(Type.comptime_int, sema.mod),
@@ -40456,7 +40446,7 @@ pub const RuntimeSafety = struct {
             } else {
                 return sema.fail(block, src, "slice of undefined pointer with runtime length causes undefined behaviour", .{});
             }
-            if (sa.values.dest_sent == .known) {
+            if (sa.dest_sent == .known) {
                 return sema.fail(block, src, "sentinel not allowed for slice of undefined pointer", .{});
             }
         }
@@ -40474,7 +40464,7 @@ pub const RuntimeSafety = struct {
             },
         };
         const dest_ptr: Air.Inst.Ref = blk: {
-            if (sa.values.dest_start != .unknown) {
+            if (sa.dest_start != .unknown) {
                 break :blk try sema.analyzePtrArithmetic(block, src, new_ptr, dest_start, .ptr_add, operand_src, dest_start_src);
             }
             break :blk new_ptr;
@@ -40484,7 +40474,7 @@ pub const RuntimeSafety = struct {
         // case @as([*]T, undefined).
         const dest_ptr_val: Value = blk: {
             if (try sema.resolveValue(dest_ptr)) |val| {
-                sa.values.dest_ptr = if (val.isUndef(sema.mod)) .unknown else .known;
+                sa.dest_ptr = if (val.isUndef(sema.mod)) .unknown else .known;
                 break :blk val;
             }
             break :blk Value.undef;
@@ -40493,14 +40483,14 @@ pub const RuntimeSafety = struct {
         // SAFETY CHECKS:
         //
         // Determine bounds checks:
-        if (feature_allow_limited_slice_of_undefined and sa.values.src_ptr == .unknown) {
+        if (feature_allow_limited_slice_of_undefined and sa.src_ptr == .unknown) {
             // ATTENTION: Remove this (no-op) branch with `feature_allow_limited_slice_of_undefined`
             //            Skip bounds checks if source pointer is known to be
             //            undefined.
         } else {
-            sa.checks.start_le_end = sa.values.dest_start.min(sa.values.dest_end);
-            sa.checks.start_le_len = sa.values.dest_start.min(sa.values.src_len);
-            sa.checks.end_le_len = sa.values.dest_end.min(sa.values.src_len);
+            sa.start_le_end = sa.dest_start.min(sa.dest_end);
+            sa.start_le_len = sa.dest_start.min(sa.src_len);
+            sa.end_le_len = sa.dest_end.min(sa.src_len);
         }
         // Optimise `slice_length` and `slice_end` to only check `start_le_len`
         // at compile time. It is impossible for `dest_end` to be in bounds if
@@ -40510,29 +40500,31 @@ pub const RuntimeSafety = struct {
         //
         // A compile time check is desirable because `dest_len` might be
         // runtime-known, meaning `dest_end` is also runtime-known.
-        if (uncasted_dest_end_opt != .none and sa.checks.start_le_len == .variable) {
-            sa.checks.start_le_len = .unknown;
+        if (uncasted_dest_end_opt != .none and
+            sa.start_le_end == .known and sa.start_le_len == .variable)
+        {
+            sa.start_le_len = .unknown;
         }
         // This should never happen, but there is no harm leaving the compile-time
         // check active while testing.
-        if (kind == .slice_length and sa.checks.start_le_end == .variable) {
-            sa.checks.start_le_end = .unknown;
+        if (kind == .slice_length and sa.start_le_end == .variable) {
+            sa.start_le_end = .unknown;
         }
         // Determine nullptr check:
         if (src_ptr_ty_size == .C) {
-            sa.checks.ptr_ne_null = sa.values.src_ptr;
+            sa.ptr_ne_null = sa.src_ptr;
         }
         // Determine sentinel check:
         if (uncasted_dest_end_opt != .none) {
-            sa.checks.eq_sentinel = sa.values.src_ptr.min(sa.values.dest_end).min(sa.values.dest_sent);
+            sa.eq_sentinel = sa.src_ptr.min(sa.dest_end).min(sa.dest_sent);
         } else if (uncasted_dest_len_opt != .none) {
-            sa.checks.eq_sentinel = sa.values.dest_ptr.min(sa.values.dest_len).min(sa.values.dest_sent);
+            sa.eq_sentinel = sa.dest_ptr.min(sa.dest_len).min(sa.dest_sent);
         } else if (src_ptr_ty_size == .One or src_ptr_ty_size == .Slice) {
-            if (sa.values.dest_sent == .known and sa.values.src_sent == .unknown) {
+            if (sa.dest_sent == .known and sa.src_sent == .unknown) {
                 return sema.fail(block, dest_sent_src, "sentinel index of unbounded slice without sentinel is always out of bounds", .{});
             }
-            if (sa.values.dest_sent == .known) {
-                sa.checks.eq_sentinel = sa.values.src_ptr.min(sa.values.src_len);
+            if (sa.dest_sent == .known) {
+                sa.eq_sentinel = sa.src_ptr.min(sa.src_len);
             }
         }
         //
@@ -40540,13 +40532,13 @@ pub const RuntimeSafety = struct {
         //
         // Attempt to resolve a pointer to the destination sentinel element:
         const actual_sent_ptr_val: Value = blk: {
-            if (sa.checks.eq_sentinel == .known) {
+            if (sa.eq_sentinel == .known) {
                 var idx_val: Value = src_len_val;
                 var ptr_inst: Air.Inst.Ref = new_ptr;
                 if (uncasted_dest_end_opt != .none) {
                     idx_val = dest_end_val;
                 }
-                if (uncasted_dest_len_opt != .none and sa.values.dest_len == .known) {
+                if (uncasted_dest_len_opt != .none and sa.dest_len == .known) {
                     ptr_inst = dest_ptr;
                     idx_val = dest_len_val;
                 }
@@ -40568,8 +40560,8 @@ pub const RuntimeSafety = struct {
                 break :blk uncasted_src_len_opt;
             }
             if (feature_allow_slice_to_sentinel and
-                sa.values.src_sent == .known and
-                sa.values.dest_sent == .unknown)
+                sa.src_sent == .known and
+                sa.dest_sent == .unknown)
             {
                 break :blk try sema.analyzeArithmetic(block, .add, uncasted_src_len_opt, .one, src, operand_src, dest_sent_src, src_ptr_ty_is_allowzero);
             }
@@ -40589,8 +40581,8 @@ pub const RuntimeSafety = struct {
         // COMPILE-TIME SAFETY CHECKS:
         //
         // Execute comptime bounds checks:
-        if (sa.checks.end_le_len == .known) {
-            if (sa.values.dest_sent == .known and sa.values.src_sent == .unknown and
+        if (sa.end_le_len == .known) {
+            if (sa.dest_sent == .known and sa.src_sent == .unknown and
                 !try sema.compareScalar(dest_end_val, .lt, src_len2_val, Type.usize))
             {
                 if (!src_ptr_explicit_len) {
@@ -40618,7 +40610,7 @@ pub const RuntimeSafety = struct {
                 }
             }
         }
-        if (sa.checks.start_le_end == .known) {
+        if (sa.start_le_end == .known) {
             if (!try sema.compareScalar(dest_start_val, .lte, dest_end_val, Type.usize)) {
                 return sema.fail(block, dest_start_src, "bounds out of order: start {}, end {}", .{
                     dest_start_val.fmtValue(Type.usize, sema.mod),
@@ -40626,8 +40618,8 @@ pub const RuntimeSafety = struct {
                 });
             }
         }
-        if (sa.checks.start_le_len == .known) {
-            if (sa.values.dest_sent == .known and sa.values.src_sent == .unknown and
+        if (sa.start_le_len == .known) {
+            if (sa.dest_sent == .known and sa.src_sent == .unknown and
                 !try sema.compareScalar(dest_start_val, .lt, src_len2_val, Type.usize))
             {
                 if (!src_ptr_explicit_len) {
@@ -40656,13 +40648,13 @@ pub const RuntimeSafety = struct {
             }
         }
         // Execute comptime nullptr check:
-        if (sa.checks.ptr_ne_null == .known) {
+        if (sa.ptr_ne_null == .known) {
             if (src_ptr_val.isNull(sema.mod)) {
                 return sema.fail(block, operand_src, "slice of null pointer", .{});
             }
         }
         // Attempt comptime sentinel check else fallback to runtime check:
-        if (sa.checks.eq_sentinel == .known) {
+        if (sa.eq_sentinel == .known) {
             if (try sema.pointerDeref(block, src, actual_sent_ptr_val, elem_ptr_ty)) |actual_sent_val| {
                 if (!dest_sent_val.eql(actual_sent_val, elem_ty, sema.mod)) {
                     return sema.fail(block, dest_sent_src, "mismatched sentinel: expected {}, found {}", .{
@@ -40671,14 +40663,14 @@ pub const RuntimeSafety = struct {
                     });
                 }
             } else {
-                sa.checks.eq_sentinel = .variable;
+                sa.eq_sentinel = .variable;
             }
         }
         // TODO: Removing `slice_start` (with sentinel) would make this unreachable.
         if (feature_prevent_impossible_sent and !src_ptr_explicit_len and
-            sa.values.dest_start == .known and
-            sa.values.dest_sent == .known and
-            sa.values.src_len == .known)
+            sa.dest_start == .known and
+            sa.dest_sent == .known and
+            sa.src_len == .known)
         {
             if (try sema.compareScalar(dest_start_val, .eq, src_len2_val, Type.usize)) {
                 return sema.fail(block, dest_sent_src, "sentinel out of bounds of reinterpreted memory: start {}(+1), length {}", .{
@@ -40687,10 +40679,10 @@ pub const RuntimeSafety = struct {
                 });
             }
         }
-        if (sa.values.src_ptr == .variable) try sema.requireRuntimeBlock(block, src, operand_src);
-        if (sa.values.dest_start == .variable) try sema.requireRuntimeBlock(block, src, dest_start_src);
-        if (sa.values.dest_end == .variable or
-            sa.values.dest_len == .variable) try sema.requireRuntimeBlock(block, src, dest_end_src);
+        if (sa.src_ptr == .variable) try sema.requireRuntimeBlock(block, src, operand_src);
+        if (sa.dest_start == .variable) try sema.requireRuntimeBlock(block, src, dest_start_src);
+        if (sa.dest_end == .variable or
+            sa.dest_len == .variable) try sema.requireRuntimeBlock(block, src, dest_end_src);
         if (feature_prevent_inval_ptr and src_ptr_explicit_len) {
             // TODO: Remove the false branch if `feature_prevent_inval_ptr` is
             //       declined. The purpose is to disable all runtime safety
@@ -40698,9 +40690,9 @@ pub const RuntimeSafety = struct {
             //       create an inconsistent behaviour for constant
             //       pointers-to-many.
         } else {
-            if (sa.checks.end_le_len == .variable) sa.checks.end_le_len = .unknown;
-            if (sa.checks.start_le_len == .variable) sa.checks.start_le_len = .unknown;
-            if (sa.checks.start_le_end == .variable) sa.checks.start_le_end = .unknown;
+            if (sa.end_le_len == .variable) sa.end_le_len = .unknown;
+            if (sa.start_le_len == .variable) sa.start_le_len = .unknown;
+            if (sa.start_le_end == .variable) sa.start_le_end = .unknown;
         }
         //
         // RUNTIME SAFETY CHECKS:
@@ -40708,18 +40700,18 @@ pub const RuntimeSafety = struct {
         if (!block.is_comptime and block.wantSafety()) {
             // Execute bounds checks:
             if (Package.Module.runtime_safety.accessed_out_of_order != .none) {
-                const cmp_op: Air.Inst.Tag = if (sa.values.dest_sent == .known and sa.values.src_sent == .unknown) .cmp_lt else .cmp_lte;
-                if (sa.checks.start_le_len == .variable) {
+                const cmp_op: Air.Inst.Tag = if (sa.dest_sent == .known and sa.src_sent == .unknown) .cmp_lt else .cmp_lte;
+                if (sa.start_le_len == .variable) {
                     const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len2_opt, operand_src);
                     try checkAccessOutOfOrder(sema, block, src, dest_start, src_len);
-                } else if (sa.checks.start_le_end == .variable and sa.checks.end_le_len == .variable) {
+                } else if (sa.start_le_end == .variable and sa.end_le_len == .variable) {
                     const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
                     const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len2_opt, operand_src);
                     try checkAccessOutOfOrderExtra(sema, block, src, dest_start, dest_end, src_len, cmp_op);
-                } else if (sa.checks.start_le_end == .variable) {
+                } else if (sa.start_le_end == .variable) {
                     const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
                     try checkAccessOutOfOrder(sema, block, src, dest_start, dest_end);
-                } else if (sa.checks.end_le_len == .variable) {
+                } else if (sa.end_le_len == .variable) {
                     const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
                     const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len2_opt, operand_src);
                     try checkAccessOutOfBounds(sema, block, src, dest_end, src_len, cmp_op);
@@ -40727,14 +40719,14 @@ pub const RuntimeSafety = struct {
             }
             // Execute nullptr check:
             if (Package.Module.runtime_safety.accessed_null_value != .none) {
-                if (sa.checks.ptr_ne_null == .variable) {
+                if (sa.ptr_ne_null == .variable) {
                     const ok: Air.Inst.Ref = try sema.analyzeIsNull(block, operand_src, src_ptr, true);
                     try checkAccessNullValue(sema, block, src, ok);
                 }
             }
             // Execute sentinel check:
             if (Package.Module.runtime_safety.mismatched_sentinel != .none) {
-                if (sa.checks.eq_sentinel == .variable) {
+                if (sa.eq_sentinel == .variable) {
                     const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, dest_len, dest_end_src);
                     const actual_sent_ptr: Air.Inst.Ref = try block.addPtrElemPtr(dest_ptr, dest_end, elem_ptr_ty);
                     if (elem_ty.ip_index == Type.u8.ip_index and dest_sent_val.eql(Value.zero_u8, Type.u8, sema.mod)) {
@@ -40751,20 +40743,20 @@ pub const RuntimeSafety = struct {
         //
         // Deciding whether the return type is allowed to assert a sentinel value:
         const dest_sent_ip: InternPool.Index = blk: {
-            if (sa.values.dest_sent == .known) {
+            if (sa.dest_sent == .known) {
                 break :blk Value.toIntern(dest_sent_val);
             }
             if (kind == .slice_start) {
-                if (sa.values.src_sent == .known) {
-                    sa.values.dest_sent = .known;
+                if (sa.src_sent == .known) {
+                    sa.dest_sent = .known;
                     break :blk Value.toIntern(src_sent_val);
                 }
             } else {
-                if (sa.values.src_sent == .known and
-                    sa.values.src_len.min(sa.values.dest_end) == .known and
+                if (sa.src_sent == .known and
+                    sa.src_len.min(sa.dest_end) == .known and
                     try sema.compareScalar(src_len_val, .eq, dest_end_val, Type.usize))
                 {
-                    sa.values.dest_sent = .known;
+                    sa.dest_sent = .known;
                     break :blk Value.toIntern(src_sent_val);
                 }
             }
@@ -40779,7 +40771,7 @@ pub const RuntimeSafety = struct {
         //       type for pointer sizes Many and C for `slice_start` and
         //       `slice_sentinel` (start).
         const dest_ptr_ty_omit_len: bool = !src_ptr_explicit_len and uncasted_dest_end_opt == .none;
-        const dest_ptr_ty_want_sent: bool = src_ptr_ty_size != .C or sa.values.dest_sent == .known;
+        const dest_ptr_ty_want_sent: bool = src_ptr_ty_size != .C or sa.dest_sent == .known;
         // Factors determining pointer size:
         // * The destination length is known at compile time
         //   => pointer-to-one Array
@@ -40790,7 +40782,7 @@ pub const RuntimeSafety = struct {
         const dest_ptr_size: std.builtin.Type.Pointer.Size = blk: {
             const size_before_sent: std.builtin.Type.Pointer.Size = if (dest_ptr_ty_omit_len)
                 src_ptr_ty_size
-            else switch (sa.values.dest_len) {
+            else switch (sa.dest_len) {
                 .known => .One,
                 .variable => .Slice,
                 .unknown => src_ptr_ty_size,
@@ -40818,6 +40810,7 @@ pub const RuntimeSafety = struct {
             .One => try sema.ptrType(.{
                 .child = Type.toIntern(try sema.mod.arrayType(.{
                     .child = Type.toIntern(elem_ty),
+                    // ATTENTION
                     .len = try sema.usizeCast(block, dest_end_src, dest_len_val.toUnsignedInt(sema.mod)),
                     .sentinel = dest_sent_ip,
                 })),
@@ -40834,7 +40827,7 @@ pub const RuntimeSafety = struct {
         //
         if (dest_ptr_size != .Slice) {
             // Returning a new constant pointer:
-            if (sa.values.dest_ptr == .known) {
+            if (sa.dest_ptr == .known) {
                 const interned_val: Value = Value.fromInterned((try dest_ptr_val.intern(dest_ptr_ty, sema.mod)));
                 const casted_val: Value = try sema.mod.getCoerced(interned_val, return_ty);
                 return Air.internedToRef(Value.toIntern(casted_val));
