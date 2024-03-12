@@ -3,24 +3,26 @@ const tls = std.crypto.tls;
 const net = std.net;
 const mem = std.mem;
 const crypto = std.crypto;
+const io = std.io;
 const assert = std.debug.assert;
 const Certificate = std.crypto.Certificate;
-
-pub const TranscriptHash = std.crypto.hash.sha2.Sha384;
+const Allocator = std.mem.Allocator;
 
 /// `StreamType` must conform to `tls.StreamInterface`.
 pub fn Server(comptime StreamType: type) type {
     return struct {
-        stream: tls.Stream(tls.Plaintext.max_length, StreamType, TranscriptHash),
+        stream: Stream,
         options: Options,
+        /// Only used during handshake for messages larger than tls.Plaintext.max_length.
+        // allocator: Allocator,
 
+        const Stream = tls.Stream(tls.Plaintext.max_length, StreamType);
         const Self = @This();
 
         /// Initiates a TLS handshake and establishes a TLSv1.3 session
         pub fn init(stream: *StreamType, options: Options) !Self {
-            var stream_ = tls.Stream(tls.Plaintext.max_length, StreamType, TranscriptHash){
+            var stream_ = tls.Stream(tls.Plaintext.max_length, StreamType){
                 .stream = stream,
-                .transcript_hash = TranscriptHash.init(.{}),
                 .is_client = false,
             };
             var res = Self{ .stream = stream_, .options = options };
@@ -38,126 +40,9 @@ pub fn Server(comptime StreamType: type) type {
             return res;
         }
 
-        /// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
-        /// Returns the number of plaintext bytes sent, which may be fewer than `bytes.len`.
-        pub fn write(self: *Self, bytes: []const u8) !usize {
-            return self.writeEnd(bytes, false);
-        }
-
-        /// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
-        pub fn writeAll(self: *Self, bytes: []const u8) !void {
-            var index: usize = 0;
-            while (index < bytes.len) {
-                index += try self.write(bytes[index..]);
-            }
-        }
-
-        /// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
-        /// If `end` is true, then this function additionally sends a `close_notify` alert,
-        /// which is necessary for the server to distinguish between a properly finished
-        /// TLS session, or a truncation attack.
-        pub fn writeAllEnd(self: *Self, bytes: []const u8, end: bool) !void {
-            var index: usize = 0;
-            while (index < bytes.len) {
-                index += try self.writeEnd(bytes[index..], end);
-            }
-        }
-
-        /// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
-        /// Returns the number of plaintext bytes sent, which may be fewer than `bytes.len`.
-        /// If `end` is true, then this function additionally sends a `close_notify` alert,
-        /// which is necessary for the server to distinguish between a properly finished
-        /// TLS session, or a truncation attack.
-        pub fn writeEnd(self: *Self, bytes: []const u8, end: bool) !usize {
-            try self.stream.writeAll(bytes);
-            if (end) {
-                const alert = tls.Alert{
-                    .level = .fatal,
-                    .description = .close_notify,
-                };
-                try self.stream.write(tls.Alert, alert);
-                try self.stream.flush();
-            }
-            return bytes.len;
-        }
-
-        /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-        /// Returns the number of bytes read, calling the underlying read function the
-        /// minimal number of times until the buffer has at least `len` bytes filled.
-        /// If the number read is less than `len` it means the stream reached the end.
-        /// Reaching the end of the stream is not an error condition.
-        pub fn readAtLeast(self: *Self, buffer: []u8, len: usize) !usize {
-            var iovecs = [1]std.os.iovec{.{ .iov_base = buffer.ptr, .iov_len = buffer.len }};
-            return self.readvAtLeast(&iovecs, len);
-        }
-
-        /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-        pub fn read(self: *Self, buffer: []u8) !usize {
-            return self.readAtLeast(buffer, 1);
-        }
-
-        /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-        /// Returns the number of bytes read. If the number read is smaller than
-        /// `buffer.len`, it means the stream reached the end. Reaching the end of the
-        /// stream is not an error condition.
-        pub fn readAll(self: *Self, buffer: []u8) !usize {
-            return self.readAtLeast(buffer, buffer.len);
-        }
-
-        /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-        /// Returns the number of bytes read. If the number read is less than the space
-        /// provided it means the stream reached the end. Reaching the end of the
-        /// stream is not an error condition.
-        /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-        /// order to handle partial reads from the underlying stream layer.
-        pub fn readv(self: *Self, iovecs: []std.os.iovec) !usize {
-            return self.readvAtLeast(iovecs, 1);
-        }
-
-        /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-        /// Returns the number of bytes read, calling the underlying read function the
-        /// minimal number of times until the iovecs have at least `len` bytes filled.
-        /// If the number read is less than `len` it means the stream reached the end.
-        /// Reaching the end of the stream is not an error condition.
-        /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-        /// order to handle partial reads from the underlying stream layer.
-        pub fn readvAtLeast(self: *Self, iovecs: []std.os.iovec, len: usize) !usize {
-            if (self.eof()) return 0;
-
-            var off_i: usize = 0;
-            var vec_i: usize = 0;
-            while (true) {
-                var amt = try self.readvAdvanced(iovecs[vec_i..]);
-                off_i += amt;
-                if (self.eof() or off_i >= len) return off_i;
-                while (amt >= iovecs[vec_i].iov_len) {
-                    amt -= iovecs[vec_i].iov_len;
-                    vec_i += 1;
-                }
-                iovecs[vec_i].iov_base += amt;
-                iovecs[vec_i].iov_len -= amt;
-            }
-        }
-
-        /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-        /// Returns number of bytes that have been read, populated inside `iovecs`. A
-        /// return value of zero bytes does not mean end of stream. Instead, check the `eof()`
-        /// for the end of stream. The `eof()` may be true after any call to
-        /// `read`, including when greater than zero bytes are returned, and this
-        /// function asserts that `eof()` is `false`.
-        /// See `readv` for a higher level function that has the same, familiar API as
-        /// other read functions, such as `std.fs.File.read`.
-        pub fn readvAdvanced(self: *Self, iovecs: []const std.os.iovec) !usize {
-            _ = .{ self, iovecs };
-            return 0;
-        }
-
-        pub fn eof(self: *Self) bool {
-            return self.stream.eof();
-        }
-
         const ClientHello = struct {
             random: [32]u8,
+            session_id_len: u8,
             session_id: [32]u8,
             cipher_suite: tls.CipherSuite,
             key_share: tls.KeyShare,
@@ -165,31 +50,36 @@ pub fn Server(comptime StreamType: type) type {
         };
 
         pub fn recv_hello(self: *Self) !ClientHello {
-            try self.stream.readFragment();
+            try self.stream.expectFragment(.handshake, .client_hello);
+            var reader = self.stream.reader();
 
             _ = try self.stream.read(tls.Version);
-            const client_random = try self.stream.readAll(32);
-            const session_id = try self.stream.readSmallArray(u8);
-            if (session_id.len > tls.ClientHello.session_id_max_len) return error.TlsUnexpectedMessage;
+            var client_random: [32]u8 = undefined;
+            try reader.readNoEof(&client_random);
 
-            var selected_suite: ?tls.CipherSuite = null;
+            var session_id: [tls.ClientHello.session_id_max_len]u8 = undefined;
+            const session_id_len = try self.stream.read(u8);
+            if (session_id_len > tls.ClientHello.session_id_max_len) return error.TlsUnexpectedMessage;
+            try reader.readNoEof(session_id[0..session_id_len]);
 
-            var cipher_suite_iter = try self.stream.iterator(tls.CipherSuite);
-            while (try cipher_suite_iter.next()) |suite| {
-                if (selected_suite == null) brk: {
+            const cipher_suite: tls.CipherSuite = brk: {
+                var cipher_suite_iter = try self.stream.iterator(u16, tls.CipherSuite);
+                var res: ?tls.CipherSuite = null;
+                while (try cipher_suite_iter.next()) |suite| {
                     for (self.options.cipher_suites) |s| {
-                        if (s == suite) {
-                            selected_suite = s;
-                            break :brk;
-                        }
+                        if (s == suite and res == null) res = s;
                     }
                 }
+                if (res == null) return error.TlsUnexpectedMessage;
+                break :brk res.?;
+            };
+            try self.stream.transcript_hash.setActive(cipher_suite);
+
+            {
+                var compression_methods: [2]u8 = undefined;
+                try reader.readNoEof(&compression_methods);
+                if (!std.mem.eql(u8, &compression_methods, &[_]u8{ 1, 0 })) return error.TlsUnexpectedMessage;
             }
-
-            if (selected_suite == null) return error.TlsUnexpectedMessage;
-
-            const compression_methods = try self.stream.readAll(2);
-            if (!std.mem.eql(u8, compression_methods, &[_]u8{ 1, 0 })) return error.TlsUnexpectedMessage;
 
             var tls_version: ?tls.Version = null;
             var key_share: ?tls.KeyShare = null;
@@ -201,9 +91,8 @@ pub fn Server(comptime StreamType: type) type {
                 switch (ext.type) {
                     .supported_versions => {
                         if (tls_version != null) return error.TlsUnexpectedMessage;
-                        const versions = try self.stream.readSmallArray(tls.Version);
-                        for (versions) |v| {
-                            std.debug.print("version {}\n", .{v});
+                        var versions_iter = try self.stream.iterator(u8, tls.Version);
+                        while (try versions_iter.next()) |v| {
                             if (v == .tls_1_3) tls_version = v;
                         }
                     },
@@ -211,7 +100,7 @@ pub fn Server(comptime StreamType: type) type {
                     .key_share => {
                         if (key_share != null) return error.TlsUnexpectedMessage;
 
-                        var key_share_iter = try self.stream.iterator(tls.KeyShare);
+                        var key_share_iter = try self.stream.iterator(u16, tls.KeyShare);
                         while (try key_share_iter.next()) |ks| {
                             switch (ks) {
                                 .x25519 => key_share = ks,
@@ -220,19 +109,19 @@ pub fn Server(comptime StreamType: type) type {
                         }
                     },
                     .ec_point_formats => {
-                        const formats = try self.stream.readSmallArray(tls.EcPointFormat);
-                        for (formats) |f| {
+                        var format_iter = try self.stream.iterator(u8, tls.EcPointFormat);
+                        while (try format_iter.next()) |f| {
                             if (f == .uncompressed) ec_point_format = .uncompressed;
                         }
                     },
                     .signature_algorithms => {
-                        var algos_iter = try self.stream.iterator(tls.SignatureScheme);
+                        var algos_iter = try self.stream.iterator(u16, tls.SignatureScheme);
                         while (try algos_iter.next()) |algo| {
                             if (algo == .rsa_pss_rsae_sha256) sig_scheme = algo;
                         }
                     },
                     else => {
-                        _ = try self.stream.readAll(ext.len);
+                        try reader.skipBytes(ext.len, .{});
                     },
                 }
             }
@@ -242,9 +131,10 @@ pub fn Server(comptime StreamType: type) type {
             if (ec_point_format == null) return error.TlsUnexpectedMessage;
 
             return .{
-                .random = client_random[0..32].*,
-                .session_id = session_id[0..32].*,
-                .cipher_suite = selected_suite.?,
+                .random = client_random,
+                .session_id_len = session_id_len,
+                .session_id = session_id,
+                .cipher_suite = cipher_suite,
                 .key_share = key_share.?,
                 .sig_scheme = sig_scheme,
             };
@@ -265,9 +155,12 @@ pub fn Server(comptime StreamType: type) type {
             _ = try self.stream.write(tls.Handshake, .{ .server_hello = hello });
             try self.stream.flush();
 
-            self.stream.content_type = .change_cipher_spec;
-            _ = try self.stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
-            try self.stream.flush();
+            // > if the client sends a non-empty session ID, the server MUST send the change_cipher_spec
+            if (hello.session_id.len > 0) {
+                self.stream.content_type = .change_cipher_spec;
+                _ = try self.stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
+                try self.stream.flush();
+            }
 
             const shared_key = switch (client_hello.key_share) {
                 .x25519_kyber768d00 => |ks| brk: {
@@ -302,8 +195,7 @@ pub fn Server(comptime StreamType: type) type {
             };
 
             const hello_hash = self.stream.transcript_hash.peek();
-            self.stream.handshake_cipher = tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, &hello_hash);
-            self.stream.handshake_cipher.?.print();
+            self.stream.handshake_cipher = try tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, hello_hash);
 
             self.stream.content_type = .handshake;
             _ = try self.stream.write(tls.Handshake, .{ .encrypted_extensions = &.{} });
@@ -344,21 +236,38 @@ pub fn Server(comptime StreamType: type) type {
         }
 
         pub fn send_handshake_finish(self: *Self) !void {
-            const secret = self.stream.handshake_cipher.?.aes_256_gcm_sha384.server_finished_key;
-            const transcript_hash = self.stream.transcript_hash.peek();
-            tls.debugPrint("peek", transcript_hash);
-            const verify = switch (self.stream.handshake_cipher.?) {
+            const verify_data = switch (self.stream.handshake_cipher.?) {
                 inline
                     .aes_256_gcm_sha384,
                     => |v| brk: {
                         const T = @TypeOf(v);
-                        break :brk tls.hmac(T.Hmac, &transcript_hash, secret);
+                        const secret = v.server_finished_key;
+                        const transcript_hash = self.stream.transcript_hash.peek();
+
+                        break :brk tls.hmac(T.Hmac, transcript_hash, secret);
                     },
                 else => return error.TlsDecryptFailure,
             };
-            tls.debugPrint("verify", verify);
-            _ = try self.stream.write(tls.Handshake, .{ .finished =  &verify });
+            _ = try self.stream.write(tls.Handshake, .{ .finished =  &verify_data });
             try self.stream.flush();
+
+            self.stream.application_cipher = tls.ApplicationCipher.init(
+                self.stream.handshake_cipher.?,
+                self.stream.transcript_hash.peek(),
+            );
+        }
+
+        pub fn recv_finish(self: *Self) !void {
+            try self.stream.expectFragment(.handshake, .finished);
+            var reader = self.stream.reader();
+
+            var verify_data: [48]u8 = undefined;
+            try reader.readNoEof(&verify_data);
+
+            // TODO: verify
+            _ = .{ verify_data };
+            self.stream.content_type = .application_data;
+            self.stream.handshake_type = null;
         }
     };
 }

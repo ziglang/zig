@@ -82,7 +82,7 @@ pub const Handshake = union(HandshakeType) {
     server_hello: ServerHello,
     /// Deprecated.
     hello_verify_request: void,
-    new_session_ticket: NewSessionTicket,
+    new_session_ticket: void,
     end_of_early_data: void,
     /// Deprecated.
     hello_retry_request: void,
@@ -90,7 +90,7 @@ pub const Handshake = union(HandshakeType) {
     certificate: Certificate,
     /// Deprecated.
     server_key_exchange: void,
-    certificate_request: CertificateRequest,
+    certificate_request: void,
     /// Deprecated.
     server_hello_done: void,
     certificate_verify: CertificateVerify,
@@ -103,7 +103,7 @@ pub const Handshake = union(HandshakeType) {
     certificate_status: void,
     /// Deprecated.
     supplemental_data: void,
-    key_update: KeyUpdate,
+    key_update: void,
     message_hash: void,
 
     // If `HandshakeCipherT.encode` accepts iovecs for the message this can be moved
@@ -113,7 +113,7 @@ pub const Handshake = union(HandshakeType) {
         res += try stream.write(HandshakeType, self);
         switch (self) {
             .finished => |verification| {
-                res += try stream.writeArray(3, u8, verification);
+                res += try stream.writeArray(u24, u8, verification);
             },
             inline else => |value| {
                 var len: usize = 0;
@@ -123,12 +123,12 @@ pub const Handshake = union(HandshakeType) {
                         res += try stream.write(u24, @intCast(len));
                     },
                     .Pointer => |info| {
-                        len += try stream.arrayLength(2, info.child, value);
+                        len += stream.arrayLength(u16, info.child, value);
                         res += try stream.write(u24, @intCast(len));
-                        res += try stream.writeArray(2, info.child, value);
+                        res += try stream.writeArray(u16, info.child, value);
                     },
                     .Struct => {
-                        len += try stream.length(T, value);
+                        len += stream.length(T, value);
                         res += try stream.write(u24, @intCast(len));
                         res += try stream.write(T, value);
                     },
@@ -140,47 +140,22 @@ pub const Handshake = union(HandshakeType) {
     }
 };
 
-pub const NewSessionTicket = struct {
-    ticket_lifetime: u32,
-    ticket_age_add: u32,
-    /// max len 255
-    ticket_nonce: []const u8,
-    /// Should have at least one
-    ticket: []const u8,
-    extensions: []const Extension,
-
-    pub fn write(self: @This(), stream: anytype) !usize {
-        _ = .{ self, stream };
-        @panic("TODO");
-    }
-};
-
-pub const CertificateRequest = struct {
-    /// Max len 255
-    context: []const u8,
-    /// At least 2
-    extensions: []const Extension,
-
-    pub fn write(self: @This(), stream: anytype) !usize {
-        _ = .{ self, stream };
-        @panic("TODO");
-    }
-};
-
 pub const Certificate = struct {
-    /// Max len 255
     context: []const u8 = "",
     entries: []const Entry,
 
+    pub const max_context_len = 255;
+
     pub const Entry = struct {
-        /// Either ASN1_subjectPublicKeyInfo or cert_data based on CertificateType
+        /// Either ASN1_subjectPublicKeyInfo or cert_data based on CertificateType.
+        /// Max len 2^24-1
         data: []const u8,
         extensions: []const Extension = &.{},
 
         pub fn write(self: @This(), stream: anytype) !usize {
             var res: usize = 0;
-            res += try stream.writeArray(3, u8, self.data);
-            res += try stream.writeArray(2, Extension, self.extensions);
+            res += try stream.writeArray(u24, u8, self.data);
+            res += try stream.writeArray(u16, Extension, self.extensions);
             return res;
         }
     };
@@ -189,8 +164,8 @@ pub const Certificate = struct {
 
     pub fn write(self: Self, stream: anytype) !usize {
         var res: usize = 0;
-        res += try stream.writeArray(1, u8, self.context);
-        res += try stream.writeArray(3, Entry, self.entries);
+        res += try stream.writeArray(u8, u8, self.context);
+        res += try stream.writeArray(u24, Entry, self.entries);
         return res;
     }
 };
@@ -203,23 +178,8 @@ pub const CertificateVerify = struct {
     pub fn write(self: @This(), stream: anytype) !usize {
         var res: usize = 0;
         res += try stream.write(SignatureScheme, self.algorithm);
-        res += try stream.writeArray(2, u8, self.signature);
+        res += try stream.writeArray(u16, u8, self.signature);
         return res;
-    }
-};
-
-pub const KeyUpdate = struct {
-    request: Request,
-
-    pub const Request = enum(u8) {
-        update_not_requested = 0,
-        update_requested = 1,
-        _,
-    };
-
-    pub fn write(self: @This(), stream: anytype) !usize {
-        _ = .{ self, stream };
-        @panic("TODO");
     }
 };
 
@@ -282,6 +242,114 @@ pub const ExtensionType = enum(u16) {
     _,
 };
 
+pub const Error = error{
+    /// An inappropriate message (e.g., the wrong
+    /// handshake message, premature Application Data, etc.) was received.
+    /// This alert should never be observed in communication between
+    /// proper implementations.
+    TlsUnexpectedMessage,
+    /// This alert is returned if a record is received which
+    /// cannot be deprotected.  Because AEAD algorithms combine decryption
+    /// and verification, and also to avoid side-channel attacks, this
+    /// alert is used for all deprotection failures.  This alert should
+    /// never be observed in communication between proper implementations,
+    /// except when messages were corrupted in the network.
+    TlsBadRecordMac,
+    /// A TLSCiphertext record was received that had a
+    /// length more than 2^14 + 256 bytes, or a record decrypted to a
+    /// TLSPlaintext record with more than 2^14 bytes (or some other
+    /// negotiated limit).  This alert should never be observed in
+    /// communication between proper implementations, except when messages
+    /// were corrupted in the network.
+    TlsRecordOverflow,
+    /// Receipt of a "handshake_failure" alert message
+    /// indicates that the sender was unable to negotiate an acceptable
+    /// set of security parameters given the options available.
+    TlsHandshakeFailure,
+    /// A certificate was corrupt, contained signatures
+    /// that did not verify correctly, etc.
+    TlsBadCertificate,
+    /// A certificate was of an unsupported type.
+    TlsUnsupportedCertificate,
+    /// A certificate was revoked by its signer.
+    TlsCertificateRevoked,
+    /// A certificate has expired or is not currently valid.
+    TlsCertificateExpired,
+    /// Some other (unspecified) issue arose in processing the certificate, rendering it unacceptable.
+    TlsCertificateUnknown,
+    /// A field in the handshake was incorrect or
+    /// inconsistent with other fields.  This alert is used for errors
+    /// which conform to the formal protocol syntax but are otherwise
+    /// incorrect.
+    TlsIllegalParameter,
+    /// A valid certificate chain or partial chain was received,
+    /// but the certificate was not accepted because the CA certificate
+    /// could not be located or could not be matched with a known trust
+    /// anchor.
+    TlsUnknownCa,
+    /// A valid certificate or PSK was received, but when
+    /// access control was applied, the sender decided not to proceed with
+    /// negotiation.
+    TlsAccessDenied,
+    /// A message could not be decoded because some field was
+    /// out of the specified range or the length of the message was
+    /// incorrect.  This alert is used for errors where the message does
+    /// not conform to the formal protocol syntax.  This alert should
+    /// never be observed in communication between proper implementations,
+    /// except when messages were corrupted in the network.
+    TlsDecodeError,
+    /// A handshake (not record layer) cryptographic
+    /// operation failed, including being unable to correctly verify a
+    /// signature or validate a Finished message or a PSK binder.
+    TlsDecryptError,
+    /// The protocol version the peer has attempted to
+    /// negotiate is recognized but not supported (see Appendix D).
+    TlsProtocolVersion,
+    /// Returned instead of "handshake_failure" when
+    /// a negotiation has failed specifically because the server requires
+    /// parameters more secure than those supported by the client.
+    TlsInsufficientSecurity,
+    /// An internal error unrelated to the peer or the
+    /// correctness of the protocol (such as a memory allocation failure)
+    /// makes it impossible to continue.
+    TlsInternalError,
+    /// Sent by a server in response to an invalid
+    /// connection retry attempt from a client (see [RFC7507]).
+    TlsInappropriateFallback,
+    /// Sent by endpoints that receive a handshake
+    /// message not containing an extension that is mandatory to send for
+    /// the offered TLS version or other negotiated parameters.
+    TlsMissingExtension,
+    /// Sent by endpoints receiving any handshake
+    /// message containing an extension known to be prohibited for
+    /// inclusion in the given handshake message, or including any
+    /// extensions in a ServerHello or Certificate not first offered in
+    /// the corresponding ClientHello or CertificateRequest.
+    TlsUnsupportedExtension,
+    /// Sent by servers when no server exists identified
+    /// by the name provided by the client via the "server_name" extension
+    /// (see [RFC6066]).
+    TlsUnrecognizedName,
+    /// Sent by clients when an invalid or
+    /// unacceptable OCSP response is provided by the server via the
+    /// "status_request" extension (see [RFC6066]).
+    TlsBadCertificateStatusResponse,
+    /// Sent by servers when PSK key establishment is
+    /// desired but no acceptable PSK identity is provided by the client.
+    /// Sending this alert is OPTIONAL; servers MAY instead choose to send
+    /// a "decrypt_error" alert to merely indicate an invalid PSK
+    /// identity.
+    TlsUnknownPskIdentity,
+    /// Sent by servers when a client certificate is
+    /// desired but none was provided by the client.
+    TlsCertificateRequired,
+    /// Sent by servers when a client
+    /// "application_layer_protocol_negotiation" extension advertises only
+    /// protocols that the server does not support (see [RFC7301]).
+    TlsNoApplicationProtocol,
+    TlsUnknown,
+};
+
 pub const Alert = struct {
     /// > In TLS 1.3, the severity is implicit in the type of alert being sent
     /// > and the "level" field can safely be ignored.
@@ -294,35 +362,6 @@ pub const Alert = struct {
         _,
     };
     pub const Description = enum(u8) {
-        pub const Error = error{
-            TlsAlertUnexpectedMessage,
-            TlsAlertBadRecordMac,
-            TlsAlertRecordOverflow,
-            TlsAlertHandshakeFailure,
-            TlsAlertBadCertificate,
-            TlsAlertUnsupportedCertificate,
-            TlsAlertCertificateRevoked,
-            TlsAlertCertificateExpired,
-            TlsAlertCertificateUnknown,
-            TlsAlertIllegalParameter,
-            TlsAlertUnknownCa,
-            TlsAlertAccessDenied,
-            TlsAlertDecodeError,
-            TlsAlertDecryptError,
-            TlsAlertProtocolVersion,
-            TlsAlertInsufficientSecurity,
-            TlsAlertInternalError,
-            TlsAlertInappropriateFallback,
-            TlsAlertMissingExtension,
-            TlsAlertUnsupportedExtension,
-            TlsAlertUnrecognizedName,
-            TlsAlertBadCertificateStatusResponse,
-            TlsAlertUnknownPskIdentity,
-            TlsAlertCertificateRequired,
-            TlsAlertNoApplicationProtocol,
-            TlsAlertUnknown,
-        };
-
         close_notify = 0,
         unexpected_message = 10,
         bad_record_mac = 20,
@@ -354,34 +393,33 @@ pub const Alert = struct {
 
         pub fn toError(alert: @This()) Error {
             return switch (alert) {
-                .close_notify => {}, // not an error
-                .unexpected_message => error.TlsAlertUnexpectedMessage,
-                .bad_record_mac => error.TlsAlertBadRecordMac,
-                .record_overflow => error.TlsAlertRecordOverflow,
-                .handshake_failure => error.TlsAlertHandshakeFailure,
-                .bad_certificate => error.TlsAlertBadCertificate,
-                .unsupported_certificate => error.TlsAlertUnsupportedCertificate,
-                .certificate_revoked => error.TlsAlertCertificateRevoked,
-                .certificate_expired => error.TlsAlertCertificateExpired,
-                .certificate_unknown => error.TlsAlertCertificateUnknown,
-                .illegal_parameter => error.TlsAlertIllegalParameter,
-                .unknown_ca => error.TlsAlertUnknownCa,
-                .access_denied => error.TlsAlertAccessDenied,
-                .decode_error => error.TlsAlertDecodeError,
-                .decrypt_error => error.TlsAlertDecryptError,
-                .protocol_version => error.TlsAlertProtocolVersion,
-                .insufficient_security => error.TlsAlertInsufficientSecurity,
-                .internal_error => error.TlsAlertInternalError,
-                .inappropriate_fallback => error.TlsAlertInappropriateFallback,
-                .user_canceled => {}, // not an error
-                .missing_extension => error.TlsAlertMissingExtension,
-                .unsupported_extension => error.TlsAlertUnsupportedExtension,
-                .unrecognized_name => error.TlsAlertUnrecognizedName,
-                .bad_certificate_status_response => error.TlsAlertBadCertificateStatusResponse,
-                .unknown_psk_identity => error.TlsAlertUnknownPskIdentity,
-                .certificate_required => error.TlsAlertCertificateRequired,
-                .no_application_protocol => error.TlsAlertNoApplicationProtocol,
-                _ => error.TlsAlertUnknown,
+                .close_notify, .user_canceled => unreachable, // not an error
+                .unexpected_message => Error.TlsUnexpectedMessage,
+                .bad_record_mac => Error.TlsBadRecordMac,
+                .record_overflow => Error.TlsRecordOverflow,
+                .handshake_failure => Error.TlsHandshakeFailure,
+                .bad_certificate => Error.TlsBadCertificate,
+                .unsupported_certificate => Error.TlsUnsupportedCertificate,
+                .certificate_revoked => Error.TlsCertificateRevoked,
+                .certificate_expired => Error.TlsCertificateExpired,
+                .certificate_unknown => Error.TlsCertificateUnknown,
+                .illegal_parameter => Error.TlsIllegalParameter,
+                .unknown_ca => Error.TlsUnknownCa,
+                .access_denied => Error.TlsAccessDenied,
+                .decode_error => Error.TlsDecodeError,
+                .decrypt_error => Error.TlsDecryptError,
+                .protocol_version => Error.TlsProtocolVersion,
+                .insufficient_security => Error.TlsInsufficientSecurity,
+                .internal_error => Error.TlsInternalError,
+                .inappropriate_fallback => Error.TlsInappropriateFallback,
+                .missing_extension => Error.TlsMissingExtension,
+                .unsupported_extension => Error.TlsUnsupportedExtension,
+                .unrecognized_name => Error.TlsUnrecognizedName,
+                .bad_certificate_status_response => Error.TlsBadCertificateStatusResponse,
+                .unknown_psk_identity => Error.TlsUnknownPskIdentity,
+                .certificate_required => Error.TlsCertificateRequired,
+                .no_application_protocol => Error.TlsNoApplicationProtocol,
+                _ => Error.TlsUnknown,
             };
         }
     };
@@ -553,7 +591,7 @@ pub const KeyPair = union(NamedGroup) {
         };
     }
 };
-/// The public key portion of a KeyPair. Saves bytes.
+/// The public portion of a KeyPair.
 pub const KeyShare = union(NamedGroup) {
     invalid: void,
     secp256r1: NamedGroupT(.secp256r1).PublicKey,
@@ -573,20 +611,24 @@ pub const KeyShare = union(NamedGroup) {
     const Self = @This();
 
     pub fn read(stream: anytype) !Self {
+        var reader = stream.reader();
         const group = try stream.read(NamedGroup);
         const len = try stream.read(u16);
-        const key = try stream.readAll(len);
         switch (group) {
             // .x25519_kyber768d00 => {
             //     const expected_len = if (stream.is_client) @TypeOf(k).bytes_length else X25519Kyber768Draft.Kyber768.ciphertext_length;
             // },
             inline .secp256r1, .secp384r1 =>  |k| {
-                return @unionInit(Self, @tagName(k), try NamedGroupT(k).PublicKey.fromSec1(key));
+                const T = NamedGroupT(k).PublicKey;
+                var buf: [T.compressed_sec1_encoded_length]u8 = undefined;
+                try reader.readNoEof(&buf);
+                const val = T.fromSec1(&buf) catch return Error.TlsDecryptError;
+                return @unionInit(Self, @tagName(k), val);
             },
             .x25519 =>  {
                 var res = Self{ .x25519 = undefined };
-                if (res.x25519.len != key.len) return error.TlsDecodeError;
-                @memcpy(&res.x25519, key);
+                if (res.x25519.len != len) return Error.TlsDecodeError;
+                try reader.readNoEof(&res.x25519);
                 return res;
             },
             else => {},
@@ -604,7 +646,7 @@ pub const KeyShare = union(NamedGroup) {
             .x25519 => |k| &k,
             else => "",
         };
-        res += try stream.writeArray(2, u8, public);
+        res += try stream.writeArray(u16, u8, public);
         return res;
     }
 };
@@ -658,11 +700,8 @@ pub const HandshakeCipher = union(CipherSuite) {
 
     const Self = @This();
 
-    pub fn init(suite: CipherSuite, shared_key: []const u8, hello_hash: []const u8) Self {
-        debugPrint("hello_hash", hello_hash);
-        debugPrint("shared_key", shared_key);
+    pub fn init(suite: CipherSuite, shared_key: []const u8, hello_hash: []const u8) !Self {
         switch (suite) {
-            else => unreachable,
             inline .aes_128_gcm_sha256,
             .aes_256_gcm_sha384,
             .chacha20_poly1305_sha256,
@@ -672,12 +711,12 @@ pub const HandshakeCipher = union(CipherSuite) {
                 var res = @unionInit(Self, @tagName(tag), .{
                     .handshake_secret = undefined,
                     .master_secret = undefined,
-                    .client_handshake_key = undefined,
-                    .server_handshake_key = undefined,
                     .client_finished_key = undefined,
                     .server_finished_key = undefined,
-                    .client_handshake_iv = undefined,
-                    .server_handshake_iv = undefined,
+                    .client_key = undefined,
+                    .server_key = undefined,
+                    .client_iv = undefined,
+                    .server_iv = undefined,
                 });
                 const P = std.meta.TagPayloadByName(Self, @tagName(tag));
                 const p = &@field(res, @tagName(tag));
@@ -686,81 +725,23 @@ pub const HandshakeCipher = union(CipherSuite) {
                 const early_secret = P.Hkdf.extract(&[1]u8{0}, &zeroes);
                 const empty_hash = emptyHash(P.Hash);
 
-                const derived_secret = hkdfExpandLabel(
-                    P.Hkdf,
-                    early_secret,
-                    "derived",
-                    &empty_hash,
-                    P.Hash.digest_length,
-                );
+                const derived_secret = hkdfExpandLabel(P.Hkdf, early_secret, "derived", &empty_hash, P.Hash.digest_length);
                 p.handshake_secret = P.Hkdf.extract(&derived_secret, shared_key);
-                const ap_derived_secret = hkdfExpandLabel(
-                    P.Hkdf,
-                    p.handshake_secret,
-                    "derived",
-                    &empty_hash,
-                    P.Hash.digest_length,
-                );
+                const ap_derived_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "derived", &empty_hash, P.Hash.digest_length);
                 p.master_secret = P.Hkdf.extract(&ap_derived_secret, &zeroes);
-                const client_secret = hkdfExpandLabel(
-                    P.Hkdf,
-                    p.handshake_secret,
-                    "c hs traffic",
-                    hello_hash,
-                    P.Hash.digest_length,
-                );
-                const server_secret = hkdfExpandLabel(
-                    P.Hkdf,
-                    p.handshake_secret,
-                    "s hs traffic",
-                    hello_hash,
-                    P.Hash.digest_length,
-                );
-                p.client_finished_key = hkdfExpandLabel(
-                    P.Hkdf,
-                    client_secret,
-                    "finished",
-                    "",
-                    P.Hmac.key_length,
-                );
-                p.server_finished_key = hkdfExpandLabel(
-                    P.Hkdf,
-                    server_secret,
-                    "finished",
-                    "",
-                    P.Hmac.key_length,
-                );
-                p.client_handshake_key = hkdfExpandLabel(
-                    P.Hkdf,
-                    client_secret,
-                    "key",
-                    "",
-                    P.AEAD.key_length,
-                );
-                p.server_handshake_key = hkdfExpandLabel(
-                    P.Hkdf,
-                    server_secret,
-                    "key",
-                    "",
-                    P.AEAD.key_length,
-                );
-                p.client_handshake_iv = hkdfExpandLabel(
-                    P.Hkdf,
-                    client_secret,
-                    "iv",
-                    "",
-                    P.AEAD.nonce_length,
-                );
-                p.server_handshake_iv = hkdfExpandLabel(
-                    P.Hkdf,
-                    server_secret,
-                    "iv",
-                    "",
-                    P.AEAD.nonce_length,
-                );
+                const client_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "c hs traffic", hello_hash, P.Hash.digest_length);
+                const server_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "s hs traffic", hello_hash, P.Hash.digest_length);
+                p.client_finished_key = hkdfExpandLabel(P.Hkdf, client_secret, "finished", "", P.Hmac.key_length);
+                p.server_finished_key = hkdfExpandLabel(P.Hkdf, server_secret, "finished", "", P.Hmac.key_length);
+                p.client_key = hkdfExpandLabel(P.Hkdf, client_secret, "key", "", P.AEAD.key_length);
+                p.server_key = hkdfExpandLabel(P.Hkdf, server_secret, "key", "", P.AEAD.key_length);
+                p.client_iv = hkdfExpandLabel(P.Hkdf, client_secret, "iv", "", P.AEAD.nonce_length);
+                p.server_iv = hkdfExpandLabel(P.Hkdf, server_secret, "iv", "", P.AEAD.nonce_length);
 
                 return res;
             },
+            .empty_renegotiation_info_scsv => return .{ .empty_renegotiation_info_scsv = {} },
+            _ => return error.TlsIllegalParameter,
         }
     }
 
@@ -779,6 +760,52 @@ pub const ApplicationCipher = union(CipherSuite) {
     aegis_256_sha512: ApplicationCipherT(.aegis_256_sha512),
     aegis_128l_sha256: ApplicationCipherT(.aegis_128l_sha256),
     empty_renegotiation_info_scsv: void,
+
+    const Self = @This();
+
+    pub fn init(handshake_cipher: HandshakeCipher, handshake_hash: []const u8) Self {
+        switch (handshake_cipher) {
+            inline .aes_128_gcm_sha256,
+            .aes_256_gcm_sha384,
+            .chacha20_poly1305_sha256,
+            .aegis_256_sha512,
+            .aegis_128l_sha256,
+            => |c, tag| {
+                var res = @unionInit(Self, @tagName(tag), .{
+                    .client_secret = undefined,
+                    .server_secret = undefined,
+                    .client_key = undefined,
+                    .server_key = undefined,
+                    .client_iv = undefined,
+                    .server_iv = undefined,
+                });
+                const P = std.meta.TagPayloadByName(Self, @tagName(tag));
+                const p = &@field(res, @tagName(tag));
+
+                const zeroes = [1]u8{0} ** P.Hash.digest_length;
+                const empty_hash = emptyHash(P.Hash);
+
+                const derived_secret = hkdfExpandLabel(P.Hkdf, c.handshake_secret, "derived", &empty_hash, P.Hash.digest_length);
+                const master_secret = P.Hkdf.extract(&derived_secret, &zeroes);
+                p.client_secret = hkdfExpandLabel(P.Hkdf, master_secret, "c ap traffic", handshake_hash, P.Hash.digest_length);
+                p.server_secret = hkdfExpandLabel(P.Hkdf, master_secret, "s ap traffic", handshake_hash, P.Hash.digest_length);
+                p.client_key = hkdfExpandLabel(P.Hkdf, p.client_secret, "key", "", P.AEAD.key_length);
+                p.server_key = hkdfExpandLabel(P.Hkdf, p.server_secret, "key", "", P.AEAD.key_length);
+                p.client_iv = hkdfExpandLabel(P.Hkdf, p.client_secret, "iv", "", P.AEAD.nonce_length);
+                p.server_iv = hkdfExpandLabel(P.Hkdf, p.server_secret, "iv", "", P.AEAD.nonce_length);
+
+                return res;
+            },
+            .empty_renegotiation_info_scsv => unreachable,
+        }
+    }
+
+    pub fn print(self: Self) void {
+        switch (self) {
+            .empty_renegotiation_info_scsv => {},
+            inline else => |v| v.print(),
+        }
+    }
 };
 
 /// RFC 8446 S4.1.2
@@ -803,10 +830,10 @@ pub const ClientHello = struct {
         var res: usize = 0;
         res += try stream.write(Version, self.version);
         res += try stream.writeAll(&self.random);
-        res += try stream.writeArray(1, u8, self.session_id);
-        res += try stream.writeArray(2, CipherSuite, self.cipher_suites);
-        res += try stream.writeArray(1, u8, &self.compression_methods);
-        res += try stream.writeArray(2, Extension, self.extensions);
+        res += try stream.writeArray(u8, u8, self.session_id);
+        res += try stream.writeArray(u16, CipherSuite, self.cipher_suites);
+        res += try stream.writeArray(u8, u8, &self.compression_methods);
+        res += try stream.writeArray(u16, Extension, self.extensions);
         return res;
     }
 };
@@ -835,10 +862,10 @@ pub const ServerHello = struct {
         var res: usize = 0;
         res += try stream.write(Version, self.version);
         res += try stream.writeAll(&self.random);
-        res += try stream.writeArray(1, u8, self.session_id);
+        res += try stream.writeArray(u8, u8, self.session_id);
         res += try stream.write(CipherSuite, self.cipher_suite);
         res += try stream.write(u8, self.compression_method);
-        res += try stream.writeArray(2, Extension, self.extensions);
+        res += try stream.writeArray(u16, Extension, self.extensions);
         return res;
     }
 };
@@ -849,7 +876,7 @@ pub const EncryptedExtensions = struct {
     const Self = @This();
 
     pub fn write(self: Self, stream: anytype) !usize {
-        return try stream.writeArray(2, Extension, self.extensions);
+        return try stream.writeArray(u16, Extension, self.extensions);
     }
 };
 
@@ -887,32 +914,43 @@ pub const Extension = union(ExtensionType) {
     const Self = @This();
 
     pub fn write(self: Self, stream: anytype) !usize {
-        const prefix_len: u8 = if (stream.is_client) switch (self) {
+        const PrefixLen = enum { zero, one, two };
+        const prefix_len: PrefixLen = if (stream.is_client) switch (self) {
             .supported_versions,
             .ec_point_formats,
-            .psk_key_exchange_modes => 1,
+            .psk_key_exchange_modes => .one,
             .server_name,
             .supported_groups,
             .signature_algorithms,
-            .key_share => 2,
-            else => 0,
-        } else 0;
+            .key_share => .two,
+            else => .zero,
+        } else .zero;
 
         var res: usize  = 0;
         res += try stream.write(ExtensionType, self);
 
         switch (self) {
             inline else => |items| {
-                switch (@typeInfo(@TypeOf(items))) {
+                const T = @TypeOf(items);
+                switch (@typeInfo(T)) {
                     .Void => {
                         res += try stream.write(u16, 0);
                     },
                     .Pointer => |info| {
-                        const len = try stream.arrayLength(prefix_len, info.child, items);
-                        res += try stream.write(u16, @intCast(len));
-                        res += try stream.writeArray(prefix_len, info.child, items);
+                        switch (prefix_len) {
+                            inline else => |t| {
+                                const PrefixT = switch (t) {
+                                    .zero => void,
+                                    .one => u8,
+                                    .two => u16,
+                                };
+                                const len = stream.arrayLength(PrefixT, info.child, items);
+                                res += try stream.write(u16, @intCast(len));
+                                res += try stream.writeArray(PrefixT, info.child, items);
+                            }
+                        }
                     },
-                    else => |t| @compileError("implement writing " ++ @tagName(t)),
+                    else => |t| @compileError("unsupported type " ++ @typeName(T) ++ " for member " ++ @tagName(t)),
                 }
             },
         }
@@ -923,7 +961,7 @@ pub const Extension = union(ExtensionType) {
         type: ExtensionType,
         len: u16,
 
-        pub fn read(stream: anytype) !@This() {
+        pub fn read(stream: anytype) @TypeOf(stream.*).ReadError!@This() {
             const ty = try stream.read(ExtensionType);
             const length = try stream.read(u16);
             return .{ .type = ty, .len = length };
@@ -953,7 +991,7 @@ pub const ServerName = struct {
     pub fn write(self: @This(), stream: anytype) !usize {
         var res: usize = 0;
         res += try stream.write(NameType, self.type);
-        res += try stream.writeArray(2, u8, self.host_name);
+        res += try stream.writeArray(u16, u8, self.host_name);
         return res;
     }
 };
@@ -1005,20 +1043,15 @@ pub const StreamInterface = struct {
     }
 };
 
-/// Abstraction over TLS record layer that handles fragmentation (RFC 8446 S5).
-/// It also encrypts and decrypts .application_data messages.
-/// This makes it suitable for both clients and servers.
-///
-/// StreamType MUST satisfy `StreamInterface`.
-/// StreamType MUST satisfy:
-///     * fn update(self: @This(), bytes: []const u8) void
-///     * fn peek(self: @This()) [_]u8
+/// Abstraction over TLS record layer (RFC 8446 S5). StreamType MUST satisfy `StreamInterface`.
 /// Cannot read and write at the same time.
-pub fn Stream(
-    comptime fragment_size: usize,
-    comptime StreamType: type,
-    comptime TranscriptHash: type,
-) type {
+///
+/// Handles:
+///   * Fragmentation
+///   * Encryption and decryption of handshake and application data messages
+///   * Reading and writing prefix length arrays
+///   * TLS Alerts
+pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
     // TODO: Support RFC 6066 MaxFragmentLength and give fragment_size option to Client+Server.
     if (fragment_size > std.math.maxInt(u16)) @compileError("choose a smaller fragment_size");
 
@@ -1031,16 +1064,14 @@ pub fn Stream(
         /// > EncryptedExtensions, server CertificateRequest, server Certificate,
         /// > server CertificateVerify, server Finished, EndOfEarlyData, client
         /// > Certificate, client CertificateVerify, client Finished.
-        transcript_hash: TranscriptHash,
-        /// Used for both reading and writing. Cannot be doing both at the same time. Must be twice
-        /// fragment size to handle `readAll(fragment_size)`. In practice this is only approachable for
-        /// the SNI hostname which may be up to 8KB.
-        buffer: [fragment_size * 2]u8 = undefined,
-        /// Unflushed part of `buffer`.
+        transcript_hash: MultiHash = .{},
+        /// Used for both reading and writing. Cannot be doing both at the same time.
+        buffer: [fragment_size]u8 = undefined,
+        /// Unread or unwritten view of `buffer`.
         view: []const u8 = "",
 
         /// When sending this is the record type that will be sent.
-        /// If a cipher is in use it will be encrypted in `inner_content_type`.
+        /// When receiving this is the next fragment's expected record type.
         content_type: ContentType = .handshake,
 
         /// When receiving fragments this is the next expected fragment type.
@@ -1051,71 +1082,27 @@ pub fn Stream(
         /// Used to encrypt and decrypt .application_data messages.
         application_cipher: ?ApplicationCipher = null,
 
-        /// True when we send or receive `close_notify`
+        /// True when we send or receive a close_notify alert.
         closed: bool = false,
 
         /// Version to send out in record headers
         version: Version = .tls_1_0,
 
-        /// True if we're being used as a client. Certain shared struct types serialize differently
-        /// based on this.
+        /// True if we're being used as a client. This changes:
+        ///     * Certain shared struct formats (like Extension)
+        ///     * Which keys are used for encoding/decoding handshake and application messages.
         is_client: bool,
 
         /// When > 0 won't actually do anything with writes.
-        /// This is to discover prefix lengths for sequential writing.
-        /// It would be nice to write in reverse sequence,
-        /// but the spec defines fragments as being sent in forward sequence.
+        /// This is to discover prefix lengths for record level spec-adherant sequential writing.
         nocommit: usize = 0,
 
        const Self = @This();
 
-        pub const ReadError = StreamType.ReadError || error{
-            EndOfStream,
-            InsufficientEntropy,
-            DiskQuota,
-            LockViolation,
-            NotOpenForWriting,
-            TlsUnexpectedMessage,
-            TlsIllegalParameter,
-            TlsDecryptFailure,
-            TlsRecordOverflow,
-            TlsBadRecordMac,
-            CertificateFieldHasInvalidLength,
-            CertificateHostMismatch,
-            CertificatePublicKeyInvalid,
-            CertificateExpired,
-            CertificateFieldHasWrongDataType,
-            CertificateIssuerMismatch,
-            CertificateNotYetValid,
-            CertificateSignatureAlgorithmMismatch,
-            CertificateSignatureAlgorithmUnsupported,
-            CertificateSignatureInvalid,
-            CertificateSignatureInvalidLength,
-            CertificateSignatureNamedCurveUnsupported,
-            CertificateSignatureUnsupportedBitCount,
-            TlsCertificateNotVerified,
-            TlsBadSignatureScheme,
-            TlsBadRsaSignatureBitCount,
-            InvalidEncoding,
-            IdentityElement,
-            SignatureVerificationFailed,
-            TlsDecryptError,
-            TlsConnectionTruncated,
-            TlsDecodeError,
-            UnsupportedCertificateVersion,
-            CertificateTimeInvalid,
-            CertificateHasUnrecognizedObjectId,
-            CertificateHasInvalidBitString,
-            MessageTooLong,
-            NegativeIntoUnsigned,
-            TargetTooSmall,
-            BufferTooSmall,
-            InvalidSignature,
-            NotSquare,
-            NonCanonical,
-            WeakPublicKey,
+        pub const ReadError = StreamType.ReadError || Error || error{EndOfStream};
+        pub const WriteError = StreamType.WriteError || error{
+            TlsEncodeError,
         };
-        pub const WriteError = StreamType.WriteError;
 
         fn ciphertextOverhead(self: Self) usize {
             if (self.application_cipher) |a| {
@@ -1137,42 +1124,69 @@ pub fn Stream(
             return fragment_size - self.ciphertextOverhead();
         }
 
+        const EncryptionMethod = enum { none, handshake, application };
+        fn encryptionMethod(self: Self) EncryptionMethod {
+            switch (self.content_type) {
+                .change_cipher_spec => {},
+                .handshake => {
+                    if (self.handshake_cipher != null) return .handshake;
+                },
+                else => {
+                    if (self.application_cipher != null) return .application;
+                },
+            }
+
+            return .none;
+        }
+
         pub fn flush(self: *Self) WriteError!void {
-            const aead_overhead = self.ciphertextOverhead();
-            const plaintext = Plaintext{
-                .type = if (aead_overhead > 0) .application_data else self.content_type,
+            if (self.view.len == 0) return;
+            var plaintext = Plaintext{
+                .type = self.content_type,
                 .version = self.version,
-                .length = @intCast(self.view.len + aead_overhead),
+                .length = @intCast(self.view.len),
             };
-            const header = Encoder.encode(Plaintext, plaintext);
 
             if (self.application_cipher == null) {
-                switch (plaintext.type) {
+                switch (self.content_type) {
                     .change_cipher_spec, .alert => {},
                     else => self.transcript_hash.update(self.view),
                 }
             }
 
+            var header: [fieldsLen(Plaintext)]u8 = undefined;
             var aead: []const u8 = "";
-            if (self.application_cipher) |*a| {
-                switch (a.*) {
-                    .empty_renegotiation_info_scsv => {},
-                    inline else => |*c| {
-                        std.debug.assert(self.view.ptr == &self.buffer);
-                        self.buffer[self.view.len] = @intFromEnum(self.content_type);
-                        self.view = self.buffer[0..self.view.len + 1];
-                        aead = &c.encrypt(self.view, &header, self.is_client, @constCast(self.view));
-                    },
-                }
-            } else if (self.handshake_cipher) |*a| {
-                switch (a.*) {
-                    .empty_renegotiation_info_scsv => {},
-                    inline else => |*c| {
-                        std.debug.assert(self.view.ptr == &self.buffer);
-                        self.buffer[self.view.len] = @intFromEnum(self.content_type);
-                        self.view = self.buffer[0..self.view.len + 1];
-                        aead = &c.encrypt(self.view, &header, self.is_client, @constCast(self.view));
-                    },
+            switch (self.encryptionMethod()) {
+                .none => {
+                    header = Encoder.encode(Plaintext, plaintext);
+                },
+                .handshake => {
+                    plaintext.type = .application_data;
+                    plaintext.length += @intCast(self.ciphertextOverhead());
+                    header = Encoder.encode(Plaintext, plaintext);
+                    if (self.handshake_cipher) |*a| switch (a.*) {
+                        .empty_renegotiation_info_scsv => {},
+                        inline else => |*c| {
+                            std.debug.assert(self.view.ptr == &self.buffer);
+                            self.buffer[self.view.len] = @intFromEnum(self.content_type);
+                            self.view = self.buffer[0..self.view.len + 1];
+                            aead = &c.encrypt(self.view, &header, self.is_client, @constCast(self.view));
+                        },
+                    };
+                },
+                .application => {
+                    plaintext.type = .application_data;
+                    plaintext.length += @intCast(self.ciphertextOverhead());
+                    header = Encoder.encode(Plaintext, plaintext);
+                    if (self.application_cipher) |*a| switch (a.*) {
+                        .empty_renegotiation_info_scsv => {},
+                        inline else => |*c| {
+                            std.debug.assert(self.view.ptr == &self.buffer);
+                            self.buffer[self.view.len] = @intFromEnum(self.content_type);
+                            self.view = self.buffer[0..self.view.len + 1];
+                            aead = &c.encrypt(self.view, &header, self.is_client, @constCast(self.view));
+                        },
+                    };
                 }
             }
 
@@ -1185,20 +1199,38 @@ pub fn Stream(
             self.view = self.buffer[0..0];
         }
 
-        /// Write bytes with backpressure for fragment size. All other write functions end up here.
+        /// Write an alert to stream and call `close_notify` after. Returns Zig error.
+        pub fn writeError(self: *Self, err: Alert.Description) Error {
+            const alert = Alert{ .level = .fatal, .description = err };
+
+            self.view = self.buffer[0..0];
+            self.content_type = .alert;
+            _ = self.write(Alert, alert) catch {};
+            self.flush() catch {};
+
+            self.close();
+            return err.toError();
+        }
+
+        pub fn close(self: *Self) void {
+            const alert = Alert{ .level = .fatal, .description = .close_notify };
+            _ = self.write(Alert, alert) catch {};
+            self.content_type = .alert;
+            self.flush() catch {};
+            self.closed = true;
+        }
+
+        /// Write bytes to `stream`, potentially flushing once `self.buffer` is full.
         pub fn writeBytes(self: *Self, bytes: []const u8) WriteError!usize {
             if (self.nocommit > 0) return bytes.len;
-
-            if (self.view.len + bytes.len >= self.maxFragmentSize()) {
-                // TODO: copy before flush to consume as many bytes as possible
-                try self.flush();
-            }
 
             const available = self.buffer.len - self.view.len;
             const to_consume = bytes[0..@min(available, bytes.len)];
 
             @memcpy(self.buffer[self.view.len..][0..bytes.len], to_consume);
             self.view = self.buffer[0 .. self.view.len + to_consume.len];
+
+            if (self.view.len == self.buffer.len) try self.flush();
 
             return to_consume.len;
         }
@@ -1211,18 +1243,18 @@ pub fn Stream(
             return index;
         }
 
-        pub fn writeArray(self: *Self, prefix_bytes: u8, comptime T: type, values: []const T) WriteError!usize {
+        pub fn writeArray(self: *Self, comptime PrefixT: type, comptime T: type, values: []const T) WriteError!usize {
             var res: usize = 0;
-            for (values) |v| res += try self.length(T, v);
+            for (values) |v| res += self.length(T, v);
 
-            if (prefix_bytes != 0) {
-                switch (prefix_bytes) {
-                    1 => res += try self.write(u8, @intCast(res)),
-                    2 => res += try self.write(u16, @intCast(res)),
-                    3 => res += try self.write(u24, @intCast(res)),
-                    else => @panic("unsupported prefix len"),
+            if (PrefixT != void) {
+                if (res > std.math.maxInt(PrefixT)) {
+                    self.close();
+                    return error.TlsEncodeError; // Prefix length overflow
                 }
+                res += try self.write(PrefixT, @intCast(res));
             }
+
             for (values) |v| _ = try self.write(T, v);
 
             return res;
@@ -1237,152 +1269,148 @@ pub fn Stream(
                 .Struct, .Union => {
                     return try T.write(value, self);
                 },
-                .Void => {},
+                .Void => return 0,
                 else => @compileError("cannot write " ++ @typeName(T)),
             }
         }
 
-        pub fn length(self: *Self, comptime T: type, value: T) WriteError!usize {
+        pub fn length(self: *Self, comptime T: type, value: T) usize {
+            if (T == void) return 0;
             self.nocommit += 1;
             defer self.nocommit -= 1;
-            return try self.write(T, value);
+            return self.write(T, value) catch unreachable;
         }
 
-        pub fn arrayLength(self: *Self, prefix_len: u8, comptime T: type, values: []const T) WriteError!usize {
-            var res: usize = prefix_len;
-            for (values) |v| res += try self.length(T, v);
+        pub fn arrayLength(self: *Self, comptime PrefixT: type, comptime T: type, values: []const T,) usize {
+            var res: usize = if (PrefixT == void) 0 else @divExact(@typeInfo(PrefixT).Int.bits, 8);
+            for (values) |v| res += self.length(T, v);
             return res;
         }
 
-        /// Returns slice that is valid until next `readAll` call.
-        pub fn readAll(self: *Self, len: usize) ReadError![]const u8 {
-            if (len >= self.maxFragmentSize()) {
-                // Only workaround is to use an allocator for self.buffer
-                return error.TlsRecordOverflow;
-            } else {
-                if (len <= self.view.len) {
-                    defer self.view = self.view[len..];
-                    return self.view[0..len];
-                } else {
-                    // We need another fragment.
-                    // Copy last (hopefully small) portion of buffer to start. It may alias.
-                    std.mem.copyForwards(u8, &self.buffer, self.view);
-                    self.view = self.buffer[0..self.view.len];
-                    try self.readFragment();
-                    return try self.readAll(len);
-                }
+        /// Reads bytes from `view`, potentially reading more fragments from `stream`.
+        /// A return value of 0 indicates EOF.
+        pub fn readBytes(self: *Self, buf: []u8) ReadError!usize {
+            // > Any data received after a closure alert has been received MUST be ignored.
+            if (self.eof()) return 0;
+
+            var bytes_read: usize = 0;
+            while (bytes_read != buf.len) {
+                if (self.view.len == 0) try self.expectFragment(self.content_type, self.handshake_type);
+
+                const to_read = @min(buf.len, self.view.len);
+                @memcpy(buf[0..to_read], self.view[0..to_read]);
+
+                self.view = self.view[to_read..];
+                bytes_read += to_read;
             }
+
+            return bytes_read;
         }
 
-        /// Read fragment from `self.stream` into `self.buffer`.
-        /// Checks message `content_type` matches `self.content_type`.
-        /// Checks message `handshake_type` matches `self.handshake_type`.
-        pub fn readFragment(self: *Self) ReadError!void {
+        /// Read fragment from `stream` into `buffer` and updates `self.view`. Returns message type.
+        pub fn readFragment(self: *Self) ReadError!ContentType {
+            std.debug.assert(self.view.len == 0); // last read should have completed
             var plaintext_header: [fieldsLen(Plaintext)]u8 = undefined;
             var n_read: usize = 0;
 
-            var ty: ContentType = .invalid;
+            var res: ContentType = .invalid;
             var len: u16 = 0;
 
             while (true) {
                 n_read = try self.stream.readAll(&plaintext_header);
-                if (n_read != plaintext_header.len) return error.TlsConnectionTruncated;
-                self.view = &plaintext_header;
-                ty = try self.read(ContentType);
-                _ = try self.read(Version);
-                len = try self.read(u16);
+                if (n_read != plaintext_header.len) return self.writeError(.decode_error);
 
-                switch (ty) {
+                // Take advantage of our `read` parsing code by setting view outside `self.buffer`.
+                {
+                    self.view = &plaintext_header;
+                    errdefer self.view = self.buffer[0..0];
+                    res = try self.read(ContentType);
+                    _ = try self.read(Version);
+                    len = try self.read(u16);
+                    if (len > self.maxFragmentSize()) return self.writeError(.record_overflow);
+                }
+
+                self.view = self.buffer[0..len];
+                n_read = try self.stream.readAll(@constCast(self.view));
+                if (n_read != len) return self.writeError(.decode_error);
+
+                const encryption_method = if (res == .application_data) self.encryptionMethod() else .none;
+                switch (encryption_method) {
+                    .none => {},
+                    inline .handshake, .application => |t| {
+                        switch (if (comptime t == .handshake) self.handshake_cipher.? else self.application_cipher.?) {
+                            .empty_renegotiation_info_scsv => {},
+                            inline else => |*p| {
+                                const P = @TypeOf(p.*);
+                                const tag_len = P.AEAD.tag_length;
+
+                                const ciphertext = self.view[0..self.view.len - tag_len];
+                                const tag = self.view[self.view.len - tag_len..][0..tag_len].*;
+                                const out: []u8 = @constCast(self.view[0..ciphertext.len]);
+                                try p.decrypt(ciphertext, &plaintext_header, tag, self.is_client, out);
+                                const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
+                                if (padding_start) |s| {
+                                    res = @enumFromInt(self.view[s]);
+                                    self.view = self.view[0..s];
+                                } else {
+                                    return self.writeError(.decode_error);
+                                }
+                            },
+                        }
+                    },
+                }
+
+                switch (res) {
                     .alert => {
                         const level = try self.read(Alert.Level);
                         const description = try self.read(Alert.Description);
                         std.log.debug("TLS alert {} {}", .{ level, description });
 
-                        return error.TlsUnexpectedMessage;
+                        if (description == .close_notify) {
+                            self.closed = true;
+                            return res;
+                        }
+                        if (level == .fatal) return self.writeError(.unexpected_message);
+                        continue;
                     },
-                    // An implementation may receive an unencrypted record of type
-                    // change_cipher_spec consisting of the single byte value 0x01 at any
-                    // time after the first ClientHello message has been sent or received
-                    // and before the peer's Finished message has been received and MUST
-                    // simply drop it without further processing.
+                    // > An implementation may receive an unencrypted record of type
+                    // > change_cipher_spec consisting of the single byte value 0x01 at any
+                    // > time after the first ClientHello message has been sent or received
+                    // > and before the peer's Finished message has been received and MUST
+                    // > simply drop it without further processing.
                     .change_cipher_spec => {
-                        if (self.application_cipher != null) return error.TlsUnexpectedMessage;
-                        var next_byte: [1]u8 = undefined;
-                        n_read = try self.stream.readAll(&next_byte);
-                        if (len != 1 or n_read != 1 or next_byte[0] != 1) return error.TlsIllegalParameter;
+                        if (!std.mem.eql(u8, self.view, &[_]u8{1})) return self.writeError(.unexpected_message);
+                        continue;
                     },
-                    else => break,
-                }
-            }
-            if (ty != self.content_type) return error.TlsDecodeError;
-
-            if (len > self.maxFragmentSize()) return error.TlsRecordOverflow;
-            if (self.view.len > self.maxFragmentSize()) return error.TlsDecodeError; // Should have read more before calling readFragment again.
-
-            const dest = self.buffer[self.view.len..][0..len];
-            n_read = try self.stream.readAll(dest);
-            if (n_read != len) return error.TlsConnectionTruncated;
-
-            self.view = self.buffer[0 .. self.view.len + len];
-
-            if (ty == .application_data and self.handshake_cipher != null) {
-                switch (self.handshake_cipher.?) {
-                    .empty_renegotiation_info_scsv => {},
-                    inline else => |*p| {
-                        const P = @TypeOf(p.*);
-                        const tag_len = P.AEAD.tag_length;
-
-                        const ciphertext = self.view[0..self.view.len - tag_len];
-                        debugPrint("ciphertext", ciphertext);
-                        const tag = self.view[self.view.len - tag_len..][0..tag_len].*;
-                        debugPrint("tag", tag);
-
-                        try p.decrypt(
-                            ciphertext,
-                            &plaintext_header,
-                            tag,
-                            self.is_client,
-                            self.buffer[0..ciphertext.len],
-                        );
-                        self.view = self.buffer[0..ciphertext.len];
-                    },
+                    else => {},
                 }
 
                 self.transcript_hash.update(self.view);
-            } else {
-                self.transcript_hash.update(self.view);
-            }
 
-            if (self.handshake_type) |expected| {
-                const actual = try self.read(HandshakeType);
-                if (actual != expected) return error.TlsDecodeError;
+                return res;
+            }
+        }
+
+        pub fn expectFragment(self: *Self, expected_content: ContentType, expected_handshake: ?HandshakeType,) ReadError!void {
+            const actual_content = try self.readFragment();
+            if (expected_content != actual_content) {
+                std.debug.print("expected {} got {}\n", .{ expected_content, actual_content });
+                return self.writeError(.decode_error);
+            }
+            if (expected_handshake) |expected| {
+                const actual_handshake = try self.read(HandshakeType);
+                if (actual_handshake != expected) return self.writeError(.decode_error);
                 // TODO: verify this?
-                const handshake_len = try self.read(u24);
-                std.debug.print("handshake_len {d}\n", .{ handshake_len });
+                _ = try self.read(u24);
             }
         }
 
         pub fn read(self: *Self, comptime T: type) ReadError!T {
+            comptime std.debug.assert(@sizeOf(T) < fragment_size);
             switch (@typeInfo(T)) {
-                .Int => |info| switch (info.bits) {
-                    8 => {
-                        const byte = try self.readAll(1);
-                        return byte[0];
-                    },
-                    16 => {
-                        const bytes = try self.readAll(2);
-                        const b0: u16 = bytes[0];
-                        const b1: u16 = bytes[1];
-                        return (b0 << 8) | b1;
-                    },
-                    24 => {
-                        const bytes = try self.readAll(3);
-                        const b0: u24 = bytes[0];
-                        const b1: u24 = bytes[1];
-                        const b2: u24 = bytes[2];
-                        return (b0 << 16) | (b1 << 8) | b2;
-                    },
-                    else => @compileError("unsupported int type: " ++ @typeName(T)),
+                .Int => return self.reader().readInt(T, .big) catch |err| switch (err) {
+                    error.EndOfStream => return self.writeError(.decode_error),
+                    else => |e| return e,
                 },
                 .Enum => |info| {
                     if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
@@ -1390,64 +1418,134 @@ pub fn Stream(
                     return @enumFromInt(int);
                 },
                 else => {
-                    return try T.read(self);
+                    return T.read(self) catch |err| switch (err) {
+                        error.EndOfStream, error.Full, error.ReadLengthInvalid => return self.writeError(.decode_error),
+                        error.TlsUnexpectedMessage => return self.writeError(.unexpected_message),
+                        error.TlsBadRecordMac => return self.writeError(.bad_record_mac),
+                        error.TlsRecordOverflow => return self.writeError(.record_overflow),
+                        error.TlsHandshakeFailure => return self.writeError(.handshake_failure),
+                        error.TlsBadCertificate => return self.writeError(.bad_certificate),
+                        error.TlsUnsupportedCertificate => return self.writeError(.unsupported_certificate),
+                        error.TlsCertificateRevoked => return self.writeError(.certificate_revoked),
+                        error.TlsCertificateExpired => return self.writeError(.certificate_expired),
+                        error.TlsCertificateUnknown => return self.writeError(.certificate_unknown),
+                        error.TlsIllegalParameter => return self.writeError(.illegal_parameter),
+                        error.TlsUnknownCa => return self.writeError(.unknown_ca),
+                        error.TlsAccessDenied => return self.writeError(.access_denied),
+                        error.TlsDecodeError => return self.writeError(.decode_error),
+                        error.TlsDecryptError => return self.writeError(.decrypt_error),
+                        error.TlsProtocolVersion => return self.writeError(.protocol_version),
+                        error.TlsInsufficientSecurity => return self.writeError(.insufficient_security),
+                        error.TlsInternalError => return self.writeError(.internal_error),
+                        error.TlsInappropriateFallback => return self.writeError(.inappropriate_fallback),
+                        error.TlsMissingExtension => return self.writeError(.missing_extension),
+                        error.TlsUnsupportedExtension => return self.writeError(.unsupported_extension),
+                        error.TlsUnrecognizedName => return self.writeError(.unrecognized_name),
+                        error.TlsBadCertificateStatusResponse => return self.writeError(.bad_certificate_status_response),
+                        error.TlsUnknownPskIdentity => return self.writeError(.unknown_psk_identity),
+                        error.TlsCertificateRequired => return self.writeError(.certificate_required),
+                        error.TlsNoApplicationProtocol => return self.writeError(.no_application_protocol),
+                        error.TlsUnknown => |e| {
+                            self.close();
+                            return e;
+                        },
+                    };
                 },
             }
-        }
-
-        /// Read a u8 prefixed array. Valid until next `read`.
-        pub fn readSmallArray(self: *Self, comptime T: type) ReadError![]align(1) const T {
-            if (std.math.maxInt(u8) > self.maxFragmentSize()) @panic("increase fragment_size");
-            const len = try self.read(u8);
-            const old_view = self.view;
-            var bytes = try self.readAll(len);
-            if (@sizeOf(T) > 1) {
-                self.view = old_view;
-                for (0..len / @sizeOf(T)) |i| {
-                    const val_bytes = @constCast(bytes[i * @sizeOf(T) ..][0..@sizeOf(T)]);
-                    var val = try self.read(T);
-                    @memcpy(val_bytes, std.mem.asBytes(&val));
-                }
-            }
-            return std.mem.bytesAsSlice(T, bytes);
         }
 
         fn Iterator(comptime T: type) type {
             return struct {
                 stream: *Self,
-                expected_len: usize,
-                start: usize,
+                end: usize,
 
-                pub fn next(self: *@This()) !?T {
-                    const cur = @intFromPtr(self.stream.view.ptr) - @intFromPtr(&self.stream.buffer);
-                    const len = cur - self.start;
-                    if (len > self.expected_len) return error.TlsUnexpectedMessage; // overread
-                    if (len == self.expected_len) return null;
-
+                pub fn next(self: *@This()) ReadError!?T {
+                    const cur_offset = self.stream.buffer.len - self.stream.view.len;
+                    if (cur_offset > self.end) return null;
                     return try self.stream.read(T);
                 }
             };
         }
 
-        pub fn iterator(self: *Self, comptime Tag: type) !Iterator(Tag) {
-            const expected_len = try self.read(u16);
-            const start = @intFromPtr(self.view.ptr) - @intFromPtr(&self.buffer);
+        pub fn iterator(self: *Self, comptime Len: type, comptime Tag: type) ReadError!Iterator(Tag) {
+            const offset = self.buffer.len - self.view.len;
+            const len = try self.read(Len);
             return Iterator(Tag){
                 .stream = self,
-                .expected_len = expected_len,
-                .start = start,
+                .end = offset + len,
             };
         }
 
-        pub fn extensions(self: *Self) !Iterator(Extension.Header) {
-            return self.iterator(Extension.Header);
+        pub fn extensions(self: *Self) ReadError!Iterator(Extension.Header) {
+            return self.iterator(u16, Extension.Header);
         }
 
         pub fn eof(self: Self) bool {
             return self.closed and self.view.len == 0;
         }
+
+        pub const Reader = std.io.Reader(*Self, ReadError, readBytes);
+        pub const Writer = std.io.Writer(*Self, WriteError, writeBytes);
+
+        pub fn reader(self: *Self) Reader {
+            return .{ .context = self };
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
+        }
     };
 }
+
+/// One of these potential hashes will be selected after receiving the other party's hello.
+///
+/// We init them before sending any messages to avoid having to store our first message until the
+/// other party's handshake message returns. This message is usually larger than
+/// `@sizeOf(MultiHash)` = 560
+///
+/// A nice benefit is decreased latency on hosts where one round trip takes longer than calling
+/// `update` on each hashes.
+pub const MultiHash = struct {
+    sha256: sha2.Sha256 = sha2.Sha256.init(.{}),
+    sha384: sha2.Sha384 = sha2.Sha384.init(.{}),
+    sha512: sha2.Sha512 = sha2.Sha512.init(.{}),
+    /// Chosen during handshake.
+    active: enum { all, sha256, sha384, sha512 } = .all,
+
+    const sha2 = crypto.hash.sha2;
+    const Self = @This();
+
+    pub fn update(self: *Self, bytes: []const u8) void {
+        switch (self.active) {
+            .all => {
+                self.sha256.update(bytes);
+                self.sha384.update(bytes);
+                self.sha512.update(bytes);
+            },
+            .sha256 => self.sha256.update(bytes),
+            .sha384 => self.sha384.update(bytes),
+            .sha512 => self.sha512.update(bytes),
+        }
+    }
+
+    pub fn setActive(self: *Self, cipher_suite: CipherSuite) Error!void {
+        self.active = switch (cipher_suite) {
+            .aes_128_gcm_sha256, .chacha20_poly1305_sha256, .aegis_128l_sha256 => .sha256,
+            .aes_256_gcm_sha384 => .sha384,
+            .aegis_256_sha512 => .sha512,
+            else => return Error.TlsIllegalParameter,
+        };
+    }
+
+    pub inline fn peek(self: Self) []const u8 {
+        return &switch (self.active) {
+            .all => [_]u8{},
+            .sha256 => self.sha256.peek(),
+            .sha384 => self.sha384.peek(),
+            .sha512 => self.sha512.peek(),
+        };
+    }
+};
 
 const Encoder = struct {
     fn RetType(comptime T: type) type {
@@ -1513,19 +1611,16 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
 
         handshake_secret: [Hkdf.prk_length]u8,
         master_secret: [Hkdf.prk_length]u8,
-        client_handshake_key: [AEAD.key_length]u8,
-        server_handshake_key: [AEAD.key_length]u8,
         client_finished_key: [Hmac.key_length]u8,
         server_finished_key: [Hmac.key_length]u8,
-        client_handshake_iv: [AEAD.nonce_length]u8,
-        server_handshake_iv: [AEAD.nonce_length]u8,
-        seq: usize = 0,
+        client_key: [AEAD.key_length]u8,
+        server_key: [AEAD.key_length]u8,
+        client_iv: [AEAD.nonce_length]u8,
+        server_iv: [AEAD.nonce_length]u8,
+        read_seq: usize = 0,
+        write_seq: usize = 0,
 
         const Self = @This();
-
-        pub fn nonce(self: Self) [AEAD.nonce_length]u8 {
-            return nonce_for_len(AEAD.nonce_length, self.server_handshake_iv, self.seq);
-        }
 
         fn encrypt(
             self: *Self,
@@ -1535,9 +1630,11 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
             out: []u8,
         ) [AEAD.tag_length]u8 {
             var res: [AEAD.tag_length]u8 = undefined;
-            const key = if (is_client) self.client_handshake_key else self.server_handshake_key;
-            AEAD.encrypt(out, &res, data, additional, self.nonce(), key);
-            self.seq += 1;
+            const key = if (is_client) self.client_key else self.server_key;
+            const iv = if (is_client) self.client_iv else self.server_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.write_seq);
+            AEAD.encrypt(out, &res, data, additional, nonce, key);
+            self.write_seq += 1;
             return res;
         }
 
@@ -1548,10 +1645,12 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
             tag: [AEAD.tag_length]u8,
             is_client: bool,
             out: []u8,
-        ) !void {
-            const key = if (is_client) self.server_handshake_key else self.client_handshake_key;
-            AEAD.decrypt(out, data, tag, additional, self.nonce(), key) catch return error.TlsBadRecordMac;
-            self.seq += 1;
+        ) Error!void {
+            const key = if (is_client) self.server_key else self.client_key;
+            const iv = if (is_client) self.server_iv else self.client_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.read_seq);
+            AEAD.decrypt(out, data, tag, additional, nonce, key) catch return Error.TlsBadRecordMac;
+            self.read_seq += 1;
         }
 
         pub fn print(self: Self) void {
@@ -1573,17 +1672,10 @@ fn ApplicationCipherT(comptime suite: CipherSuite) type {
         server_key: [AEAD.key_length]u8,
         client_iv: [AEAD.nonce_length]u8,
         server_iv: [AEAD.nonce_length]u8,
-        seq: usize = 0,
+        read_seq: usize = 0,
+        write_seq: usize = 0,
 
         const Self = @This();
-
-        pub fn client_nonce(self: Self) [AEAD.nonce_length]u8 {
-            return nonce_for_len(AEAD.nonce_length, self.client_iv, self.seq);
-        }
-
-        pub fn server_nonce(self: Self) [AEAD.nonce_length]u8 {
-            return nonce_for_len(AEAD.nonce_length, self.server_iv, self.seq);
-        }
 
         fn encrypt(
             self: *Self,
@@ -1593,11 +1685,31 @@ fn ApplicationCipherT(comptime suite: CipherSuite) type {
             out: []u8,
         ) [AEAD.tag_length]u8 {
             var res: [AEAD.tag_length]u8 = undefined;
-            const nonce = if (is_client) self.client_nonce() else self.server_nonce();
             const key = if (is_client) self.client_key else self.server_key;
+            const iv = if (is_client) self.client_iv else self.server_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.write_seq);
             AEAD.encrypt(out, &res, data, additional, nonce, key);
-            self.seq += 1;
+            self.write_seq += 1;
             return res;
+        }
+
+        fn decrypt(
+            self: *Self,
+            data: []const u8,
+            additional: []const u8,
+            tag: [AEAD.tag_length]u8,
+            is_client: bool,
+            out: []u8,
+        ) Error!void {
+            const key = if (is_client) self.server_key else self.client_key;
+            const iv = if (is_client) self.server_iv else self.client_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.read_seq);
+            AEAD.decrypt(out, data, tag, additional, nonce, key) catch return Error.TlsBadRecordMac;
+            self.read_seq += 1;
+        }
+
+        pub fn print(self: Self) void {
+            inline for (std.meta.fields(Self)) |f| debugPrint(f.name, @field(self, f.name));
         }
     };
 }
@@ -1765,9 +1877,8 @@ test "tls client and server handshake, data, and close_notify" {
 
     const host = "example.ulfheim.net";
     var client = Client(@TypeOf(inner_stream)){
-        .stream = Stream(Plaintext.max_length, TestStream, client_mod.MultiHash){
+        .stream = Stream(Plaintext.max_length, TestStream){
             .stream = &inner_stream,
-            .transcript_hash = .{},
             .is_client = true,
         },
         .options = .{ .host = host, .ca_bundle = null },
@@ -1775,9 +1886,8 @@ test "tls client and server handshake, data, and close_notify" {
 
     const server_der = @embedFile("./testdata/server.der");
     var server = Server(@TypeOf(inner_stream)){
-        .stream = Stream(Plaintext.max_length, TestStream, server_mod.TranscriptHash){
+        .stream = Stream(Plaintext.max_length, TestStream){
             .stream = &inner_stream,
-            .transcript_hash = server_mod.TranscriptHash.init(.{}),
             .is_client = false,
         },
         .options = .{
@@ -1817,6 +1927,7 @@ test "tls client and server handshake, data, and close_notify" {
         session_id,
         client_x25519_seed ++ client_x25519_seed,
         client_x25519_seed,
+        client_x25519_seed ++ [_]u8{0} ** (48-32),
         client_x25519_seed,
     );
     {
@@ -2034,7 +2145,7 @@ test "tls client and server handshake, data, and close_notify" {
             [_]u8{
             0x14, // ChangeCipherSpec
             0x03, 0x03, // tls 1.2
-            0x00, 0x01, // Handshake len
+            0x00, 0x01, // len
             0x01, // .change_cipher_spec
         } ++ [_]u8{
             0x17, // application data (lie for tls 1.2 compat)
@@ -2145,21 +2256,108 @@ test "tls client and server handshake, data, and close_notify" {
 
     try client.recv_hello(key_pairs);
 
-    // Test that all 8 shared keys are identical
-    // If one of these isn't true, check that the earlier transcript_hashes match.
+    // Test that ALL shared keys are identical
     {
         const s = server.stream.handshake_cipher.?.aes_256_gcm_sha384;
         const c = client.stream.handshake_cipher.?.aes_256_gcm_sha384;
 
         try std.testing.expectEqualSlices(u8, &s.handshake_secret, &c.handshake_secret);
         try std.testing.expectEqualSlices(u8, &s.master_secret, &c.master_secret);
-        try std.testing.expectEqualSlices(u8, &s.server_handshake_key, &c.server_handshake_key);
-        try std.testing.expectEqualSlices(u8, &s.client_handshake_key, &c.client_handshake_key);
         try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
         try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
-        try std.testing.expectEqualSlices(u8, &s.server_handshake_iv, &c.server_handshake_iv);
-        try std.testing.expectEqualSlices(u8, &s.client_handshake_iv, &c.client_handshake_iv);
+        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+        const client_iv = [_]u8{ 0x42,0x56,0xd2,0xe0,0xe8,0x8b,0xab,0xdd,0x05,0xeb,0x2f,0x27 };
+        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
+    {
+        const s = server.stream.application_cipher.?.aes_256_gcm_sha384;
+        const c = client.stream.application_cipher.?.aes_256_gcm_sha384;
+
+        try std.testing.expectEqualSlices(u8, &s.client_secret, &c.client_secret);
+        try std.testing.expectEqualSlices(u8, &s.server_secret, &c.server_secret);
+        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+        const client_iv = [_]u8{ 0xbb,0x00,0x79,0x56,0xf4,0x74,0xb2,0x5d,0xe9,0x02,0x43,0x2f, };
+        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
+    }
+
+    try client.send_finished();
+    {
+        const buf = tmp_buf[0..inner_stream.buffer.len()];
+        try inner_stream.peek(buf);
+
+        const expected = [_]u8{
+            0x14, // ChangeCipherSpec
+            0x03, 0x03, // tls 1.2
+            0x00, 0x01, // len
+            0x01, // .change_cipher_spec
+        }
+       ++ [_]u8{
+           0x17, // app data (lie for TLS 1.2)
+           0x03, 0x03, // tls 1.2
+           0x00, 0x45, // len
+           0x9f, 0xf9, 0xb0, 0x63, 0x17, 0x51, 0x77, 0x32, 0x2a, 0x46, 0xdd, 0x98, 0x96, 0xf3, 0xc3, 0xbb,
+           0x82, 0x0a, 0xb5, 0x17, 0x43, 0xeb, 0xc2, 0x5f, 0xda, 0xdd, 0x53, 0x45, 0x4b, 0x73, 0xde, 0xb5,
+           0x4c, 0xc7, 0x24, 0x8d, 0x41, 0x1a, 0x18, 0xbc, 0xcf, 0x65, 0x7a, 0x96, 0x08, 0x24, 0xe9, 0xa1,
+           0x93, 0x64, 0x83, 0x7c, // encrypted data
+           0x35, // handshake
+           0x0a, 0x69, 0xa8, 0x8d, 0x4b, 0xf6, 0x35, 0xc8, // auth tag
+           0x5e, 0xb8, 0x74, 0xae, 0xbc, 0x9d, 0xfd, 0xe8, // auth tag
+       }
+            ;
+        try std.testing.expectEqualSlices(u8, &expected, buf);
+    }
+    try server.recv_finish();
+
+    _ = try client.stream.writer().writeAll("ping");
+    try client.stream.flush();
+    {
+        const buf = tmp_buf[0..inner_stream.buffer.len()];
+        try inner_stream.peek(buf);
+
+        const expected = [_]u8{
+           0x17, // app data (FOR REAL THIS TIME)
+           0x03, 0x03, // tls 1.2
+           0x00, 0x15, // len
+            0x82, 0x81, 0x39, 0xcb, // ping
+           0x7b, // app data (exciting!)
+            0x73, 0xaa, 0xab, 0xf5, 0xb8, 0x2f, 0xbf, 0x9a, // auth tag
+            0x29, 0x61, 0xbc, 0xde, 0x10, 0x03, 0x8a, 0x32, // auth tag
+       }
+            ;
+        try std.testing.expectEqualSlices(u8, &expected, buf);
+    }
+
+    var recv_ping: [4]u8 = undefined;
+    _ = try server.stream.reader().readAll(&recv_ping);
+    try std.testing.expectEqualStrings("ping", &recv_ping);
+
+    server.stream.close();
+    try std.testing.expect(server.stream.closed);
+    {
+        const buf = tmp_buf[0..inner_stream.buffer.len()];
+        try inner_stream.peek(buf);
+
+        const expected = [_]u8{
+           0x17, // app data (lie to encrypt)
+           0x03, 0x03, // tls 1.2
+           0x00, 0x13, // len
+            0x3e, 0x2d, // alert
+            0x99, // encrypted message type
+            0x26, 0xbb, 0xfe, 0x1f, 0x46, 0xfb, 0x4e, 0xe2, // auth tag
+            0x75, 0x1e, 0x53, 0xbf, 0xfc, 0x7e, 0x65, 0x16, // auth tag
+       }
+            ;
+        try std.testing.expectEqualSlices(u8, &expected, buf);
+    }
+
+    _ = try client.stream.readFragment();
+    try std.testing.expect(client.stream.closed);
 }
 
 test {
