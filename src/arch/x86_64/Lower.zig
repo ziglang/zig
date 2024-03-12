@@ -329,7 +329,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
     const is_obj_or_static_lib = switch (lower.output_mode) {
         .Exe => false,
         .Obj => true,
-        .Lib => lower.link_mode == .Static,
+        .Lib => lower.link_mode == .static,
     };
 
     const emit_prefix = prefix;
@@ -477,8 +477,9 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rri_s, .rri_u => inst.data.rri.fixes,
         .ri_s, .ri_u => inst.data.ri.fixes,
         .ri64, .rm, .rmi_s, .mr => inst.data.rx.fixes,
-        .mrr, .rrm => inst.data.rrx.fixes,
+        .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
+        .rrmr => inst.data.rrrx.fixes,
         .rrmi => inst.data.rrix.fixes,
         .mi_u, .mi_s => inst.data.x.fixes,
         .m => inst.data.x.fixes,
@@ -565,6 +566,11 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rx.r1 },
             .{ .mem = lower.mem(inst.data.rx.payload) },
         },
+        .rmr => &.{
+            .{ .reg = inst.data.rrx.r1 },
+            .{ .mem = lower.mem(inst.data.rrx.payload) },
+            .{ .reg = inst.data.rrx.r2 },
+        },
         .rmi => &.{
             .{ .reg = inst.data.rix.r1 },
             .{ .mem = lower.mem(inst.data.rix.payload) },
@@ -596,6 +602,12 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rrx.r1 },
             .{ .reg = inst.data.rrx.r2 },
             .{ .mem = lower.mem(inst.data.rrx.payload) },
+        },
+        .rrmr => &.{
+            .{ .reg = inst.data.rrrx.r1 },
+            .{ .reg = inst.data.rrrx.r2 },
+            .{ .mem = lower.mem(inst.data.rrrx.payload) },
+            .{ .reg = inst.data.rrrx.r3 },
         },
         .rrmi => &.{
             .{ .reg = inst.data.rrix.r1 },

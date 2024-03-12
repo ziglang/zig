@@ -1,7 +1,9 @@
-//! This module provides functions for working conveniently with SIMD (Single Instruction; Multiple Data),
-//! which may offer a potential boost in performance on some targets by performing the same operations on
-//! multiple elements at once.
-//! Please be aware that some functions are known to not work on MIPS.
+//! SIMD (Single Instruction; Multiple Data) convenience functions.
+//!
+//! May offer a potential boost in performance on some targets by performing
+//! the same operations on multiple elements at once.
+//!
+//! Some functions are known to not work on MIPS.
 
 const std = @import("std");
 const builtin = @import("builtin");

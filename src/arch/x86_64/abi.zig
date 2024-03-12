@@ -10,6 +10,7 @@ pub const Class = enum {
     win_i128,
     float,
     float_combine,
+    integer_per_element,
 };
 
 pub fn classifyWindows(ty: Type, mod: *Module) Class {
@@ -41,7 +42,7 @@ pub fn classifyWindows(ty: Type, mod: *Module) Class {
             1, 2, 4, 8 => return .integer,
             else => switch (ty.zigTypeTag(mod)) {
                 .Int => return .win_i128,
-                .Struct, .Union => if (ty.containerLayout(mod) == .Packed) {
+                .Struct, .Union => if (ty.containerLayout(mod) == .@"packed") {
                     return .win_i128;
                 } else {
                     return .memory;
@@ -161,6 +162,31 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
         .Vector => {
             const elem_ty = ty.childType(mod);
             const bits = elem_ty.bitSize(mod) * ty.arrayLen(mod);
+            if (elem_ty.toIntern() == .bool_type) {
+                if (bits <= 32) return .{
+                    .integer, .none, .none, .none,
+                    .none,    .none, .none, .none,
+                };
+                if (bits <= 64) return .{
+                    .sse,  .none, .none, .none,
+                    .none, .none, .none, .none,
+                };
+                if (ctx == .arg) {
+                    if (bits <= 128) return .{
+                        .integer_per_element, .none, .none, .none,
+                        .none,                .none, .none, .none,
+                    };
+                    if (bits <= 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{
+                        .integer_per_element, .none, .none, .none,
+                        .none,                .none, .none, .none,
+                    };
+                    if (bits <= 512 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{
+                        .integer_per_element, .none, .none, .none,
+                        .none,                .none, .none, .none,
+                    };
+                }
+                return memory_class;
+            }
             if (bits <= 64) return .{
                 .sse,  .none, .none, .none,
                 .none, .none, .none, .none,
@@ -212,7 +238,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // separately.".
             const struct_type = mod.typeToStruct(ty).?;
             const ty_size = ty.abiSize(mod);
-            if (struct_type.layout == .Packed) {
+            if (struct_type.layout == .@"packed") {
                 assert(ty_size <= 16);
                 result[0] = .integer;
                 if (ty_size > 8) result[1] = .integer;
@@ -330,7 +356,7 @@ pub fn classifySystemV(ty: Type, mod: *Module, ctx: Context) [8]Class {
             // separately.".
             const union_obj = mod.typeToUnion(ty).?;
             const ty_size = mod.unionAbiSize(union_obj);
-            if (union_obj.getLayout(ip) == .Packed) {
+            if (union_obj.getLayout(ip) == .@"packed") {
                 assert(ty_size <= 16);
                 result[0] = .integer;
                 if (ty_size > 8) result[1] = .integer;
@@ -570,4 +596,4 @@ const Module = @import("../../Module.zig");
 const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");

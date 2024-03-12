@@ -162,7 +162,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
 fn getPrefixSubpath(allocator: Allocator, prefix: []const u8, path: []u8) ![]u8 {
     const relative = try std.fs.path.relative(allocator, prefix, path);
     errdefer allocator.free(relative);
-    var component_iterator = std.fs.path.NativeUtf8ComponentIterator.init(relative) catch {
+    var component_iterator = std.fs.path.NativeComponentIterator.init(relative) catch {
         return error.NotASubPath;
     };
     if (component_iterator.root() != null) {
@@ -243,6 +243,11 @@ pub const HashHelper = struct {
     pub fn addListOfBytes(hh: *HashHelper, list_of_bytes: []const []const u8) void {
         hh.add(list_of_bytes.len);
         for (list_of_bytes) |bytes| hh.addBytes(bytes);
+    }
+
+    pub fn addOptionalListOfBytes(hh: *HashHelper, optional_list_of_bytes: ?[]const []const u8) void {
+        hh.add(optional_list_of_bytes != null);
+        hh.addListOfBytes(optional_list_of_bytes orelse return);
     }
 
     /// Convert the input value into bytes and record it as a dependency of the process being cached.

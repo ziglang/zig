@@ -1,6 +1,6 @@
 const std = @import("std");
 const Type = @import("type.zig").Type;
-const Value = @import("value.zig").Value;
+const Value = @import("Value.zig");
 const Module = @import("Module.zig");
 const Allocator = std.mem.Allocator;
 const TypedValue = @This();
@@ -89,7 +89,7 @@ pub fn print(
 
                 if (payload.tag) |tag| {
                     try print(.{
-                        .ty = Type.fromInterned(ip.indexToKey(ty.toIntern()).union_type.enum_tag_ty),
+                        .ty = Type.fromInterned(ip.loadUnionType(ty.toIntern()).enum_tag_ty),
                         .val = tag,
                     }, writer, level - 1, mod);
                     try writer.writeAll(" = ");
@@ -247,7 +247,7 @@ pub fn print(
                 if (level == 0) {
                     return writer.writeAll("(enum)");
                 }
-                const enum_type = ip.indexToKey(ty.toIntern()).enum_type;
+                const enum_type = ip.loadEnumType(ty.toIntern());
                 if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
                     try writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
                     return;
@@ -310,11 +310,6 @@ pub fn print(
                 return writer.writeAll(" }");
             },
             .ptr => |ptr| {
-                if (ptr.addr == .int) {}
-
-                const ptr_ty = ip.indexToKey(ty.toIntern()).ptr_type;
-                if (ptr_ty.flags.size == .Slice) {}
-
                 switch (ptr.addr) {
                     .decl => |decl_index| {
                         const decl = mod.declPtr(decl_index);
@@ -348,7 +343,14 @@ pub fn print(
                             .val = Value.fromInterned(field_val_ip),
                         }, writer, level - 1, mod);
                     },
-                    .int => unreachable,
+                    .int => |int_ip| {
+                        try writer.writeAll("@ptrFromInt(");
+                        try print(.{
+                            .ty = Type.usize,
+                            .val = Value.fromInterned(int_ip),
+                        }, writer, level - 1, mod);
+                        try writer.writeByte(')');
+                    },
                     .eu_payload => |eu_ip| {
                         try writer.writeAll("(payload of ");
                         try print(.{
@@ -365,18 +367,26 @@ pub fn print(
                         try writer.writeAll(".?");
                     },
                     .elem => |elem| {
-                        try print(.{
-                            .ty = Type.fromInterned(ip.typeOf(elem.base)),
-                            .val = Value.fromInterned(elem.base),
-                        }, writer, level - 1, mod);
+                        if (level == 0) {
+                            try writer.writeAll("(...)");
+                        } else {
+                            try print(.{
+                                .ty = Type.fromInterned(ip.typeOf(elem.base)),
+                                .val = Value.fromInterned(elem.base),
+                            }, writer, level - 1, mod);
+                        }
                         try writer.print("[{}]", .{elem.index});
                     },
                     .field => |field| {
                         const ptr_container_ty = Type.fromInterned(ip.typeOf(field.base));
-                        try print(.{
-                            .ty = ptr_container_ty,
-                            .val = Value.fromInterned(field.base),
-                        }, writer, level - 1, mod);
+                        if (level == 0) {
+                            try writer.writeAll("(...)");
+                        } else {
+                            try print(.{
+                                .ty = ptr_container_ty,
+                                .val = Value.fromInterned(field.base),
+                            }, writer, level - 1, mod);
+                        }
 
                         const container_ty = ptr_container_ty.childType(mod);
                         switch (container_ty.zigTypeTag(mod)) {
@@ -388,7 +398,7 @@ pub fn print(
                                 }
                             },
                             .Union => {
-                                const field_name = mod.typeToUnion(container_ty).?.field_names.get(ip)[@intCast(field.index)];
+                                const field_name = mod.typeToUnion(container_ty).?.loadTagType(ip).names.get(ip)[@intCast(field.index)];
                                 try writer.print(".{i}", .{field_name.fmt(ip)});
                             },
                             .Pointer => {
@@ -472,11 +482,7 @@ fn printAggregate(
         for (0..max_len) |i| {
             if (i != 0) try writer.writeAll(", ");
 
-            const field_name = switch (ip.indexToKey(ty.toIntern())) {
-                .struct_type => |x| x.fieldName(ip, i),
-                .anon_struct_type => |x| if (x.isTuple()) .none else x.names.get(ip)[i].toOptional(),
-                else => unreachable,
-            };
+            const field_name = ty.structFieldName(@intCast(i), mod);
 
             if (field_name.unwrap()) |name| try writer.print(".{} = ", .{name.fmt(ip)});
             try print(.{

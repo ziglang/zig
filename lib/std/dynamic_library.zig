@@ -8,7 +8,7 @@ const windows = std.os.windows;
 const system = std.os.system;
 
 pub const DynLib = switch (builtin.os.tag) {
-    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .Static)
+    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .static)
         ElfDynLib
     else
         DlDynLib,
@@ -56,7 +56,7 @@ const RDebug = extern struct {
 /// TODO make it possible to reference this same external symbol 2x so we don't need this
 /// helper function.
 pub fn get_DYNAMIC() ?[*]elf.Dyn {
-    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .Weak });
+    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
 }
 
 pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
@@ -115,7 +115,7 @@ pub const ElfDynLib = struct {
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) !ElfDynLib {
-        const fd = try os.open(path, 0, os.O.RDONLY | os.O.CLOEXEC);
+        const fd = try os.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
         defer os.close(fd);
 
         const stat = try os.fstat(fd);
@@ -127,7 +127,7 @@ pub const ElfDynLib = struct {
             null,
             mem.alignForward(usize, size, mem.page_size),
             os.PROT.READ,
-            os.MAP.PRIVATE,
+            .{ .TYPE = .PRIVATE },
             fd,
             0,
         );
@@ -165,7 +165,7 @@ pub const ElfDynLib = struct {
             null,
             virt_addr_end,
             os.PROT.NONE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         );
@@ -197,7 +197,7 @@ pub const ElfDynLib = struct {
                                 ptr,
                                 extended_memsz,
                                 prot,
-                                os.MAP.PRIVATE | os.MAP.FIXED,
+                                .{ .TYPE = .PRIVATE, .FIXED = true },
                                 fd,
                                 ph.p_offset - extra_bytes,
                             );
@@ -206,7 +206,7 @@ pub const ElfDynLib = struct {
                                 ptr,
                                 extended_memsz,
                                 prot,
-                                os.MAP.PRIVATE | os.MAP.FIXED | os.MAP.ANONYMOUS,
+                                .{ .TYPE = .PRIVATE, .FIXED = true, .ANONYMOUS = true },
                                 -1,
                                 0,
                             );

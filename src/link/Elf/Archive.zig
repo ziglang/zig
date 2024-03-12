@@ -1,8 +1,5 @@
-path: []const u8,
-data: []const u8,
-
 objects: std.ArrayListUnmanaged(Object) = .{},
-strtab: []const u8 = &[0]u8{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
 
 pub fn isArchive(path: []const u8) !bool {
     const file = try std.fs.cwd().openFile(path, .{});
@@ -14,68 +11,75 @@ pub fn isArchive(path: []const u8) !bool {
 }
 
 pub fn deinit(self: *Archive, allocator: Allocator) void {
-    allocator.free(self.path);
-    allocator.free(self.data);
     self.objects.deinit(allocator);
+    self.strtab.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, elf_file: *Elf) !void {
+pub fn parse(self: *Archive, elf_file: *Elf, path: []const u8, handle_index: File.HandleIndex) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
+    const handle = elf_file.fileHandle(handle_index);
+    const size = (try handle.stat()).size;
 
-    var stream = std.io.fixedBufferStream(self.data);
-    const reader = stream.reader();
-    _ = try reader.readBytesNoEof(elf.ARMAG.len);
-
+    var pos: usize = elf.ARMAG.len;
     while (true) {
-        if (stream.pos >= self.data.len) break;
-        if (!mem.isAligned(stream.pos, 2)) stream.pos += 1;
+        if (pos >= size) break;
+        if (!mem.isAligned(pos, 2)) pos += 1;
 
-        const hdr = try reader.readStruct(elf.ar_hdr);
+        var hdr_buffer: [@sizeOf(elf.ar_hdr)]u8 = undefined;
+        {
+            const amt = try handle.preadAll(&hdr_buffer, pos);
+            if (amt != @sizeOf(elf.ar_hdr)) return error.InputOutput;
+        }
+        const hdr = @as(*align(1) const elf.ar_hdr, @ptrCast(&hdr_buffer)).*;
+        pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
-            try elf_file.reportParseError(self.path, "invalid archive header delimiter: {s}", .{
+            try elf_file.reportParseError(path, "invalid archive header delimiter: {s}", .{
                 std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
             });
             return error.MalformedArchive;
         }
 
-        const size = try hdr.size();
-        defer {
-            _ = stream.seekBy(size) catch {};
-        }
+        const obj_size = try hdr.size();
+        defer pos += obj_size;
 
         if (hdr.isSymtab() or hdr.isSymtab64()) continue;
         if (hdr.isStrtab()) {
-            self.strtab = self.data[stream.pos..][0..size];
+            try self.strtab.resize(gpa, obj_size);
+            const amt = try handle.preadAll(self.strtab.items, pos);
+            if (amt != obj_size) return error.InputOutput;
             continue;
         }
         if (hdr.isSymdef() or hdr.isSymdefSorted()) continue;
 
         const name = if (hdr.name()) |name|
-            try gpa.dupe(u8, name)
+            name
         else if (try hdr.nameOffset()) |off|
-            try gpa.dupe(u8, self.getString(off))
+            self.getString(off)
         else
             unreachable;
 
         const object = Object{
-            .archive = try gpa.dupe(u8, self.path),
-            .path = name,
-            .data = try gpa.dupe(u8, self.data[stream.pos..][0..size]),
+            .archive = .{
+                .path = try gpa.dupe(u8, path),
+                .offset = pos,
+            },
+            .path = try gpa.dupe(u8, name),
+            .file_handle = handle_index,
             .index = undefined,
             .alive = false,
         };
 
-        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, self.path });
+        log.debug("extracting object '{s}' from archive '{s}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }
 }
 
 fn getString(self: Archive, off: u32) []const u8 {
-    assert(off < self.strtab.len);
-    const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(self.strtab.ptr + off)), 0);
+    assert(off < self.strtab.items.len);
+    const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
     return name[0 .. name.len - 1];
 }
 
@@ -86,7 +90,7 @@ pub fn setArHdr(opts: struct {
         name: []const u8,
         name_off: u32,
     },
-    size: u32,
+    size: usize,
 }) elf.ar_hdr {
     var hdr: elf.ar_hdr = .{
         .ar_name = undefined,

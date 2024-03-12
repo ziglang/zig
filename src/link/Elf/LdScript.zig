@@ -139,6 +139,7 @@ const Parser = struct {
             } else return error.UnexpectedToken;
         };
         if (std.mem.eql(u8, value, "elf64-x86-64")) return .x86_64;
+        if (std.mem.eql(u8, value, "elf64-littleaarch64")) return .aarch64;
         return error.UnknownCpuArch;
     }
 

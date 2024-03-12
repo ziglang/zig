@@ -12,7 +12,7 @@ CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.12.0-dev.203+d3bc1cfc4"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v2.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-6.1.0.1/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-8.2.1/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -25,8 +25,7 @@ rm -rf zig-out
 cc -o bootstrap bootstrap.c
 ./bootstrap
 ./zig2 build -Dno-lib
-# In order to run these behavior tests we need to move the `@cImport` ones to somewhere else.
-# ./zig-out/bin/zig test test/behavior.zig
+./zig-out/bin/zig test test/behavior.zig
 
 export CC="$ZIG cc -target $TARGET -mcpu=$MCPU"
 export CXX="$ZIG c++ -target $TARGET -mcpu=$MCPU"
@@ -125,11 +124,11 @@ unset CXX
 
 ninja install
 
-stage3/bin/zig test ../test/behavior.zig -I../test
+stage3/bin/zig test ../test/behavior.zig
 stage3/bin/zig build -p stage4 \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   -Dno-lib \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$(pwd)/../lib"
-stage4/bin/zig test ../test/behavior.zig -I../test
+stage4/bin/zig test ../test/behavior.zig

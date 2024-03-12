@@ -6,7 +6,7 @@ export fn entry() void {
         d,
     };
     var x: E = .a;
-    _ = @atomicRmw(E, &x, .Add, .b, .SeqCst);
+    _ = @atomicRmw(E, &x, .Add, .b, .seq_cst);
 }
 
 // error

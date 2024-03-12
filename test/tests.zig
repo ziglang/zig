@@ -15,8 +15,8 @@ const run_translated_c = @import("run_translated_c.zig");
 const link = @import("link.zig");
 
 // Implementations
-pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
-pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
+pub const TranslateCContext = @import("src/TranslateC.zig");
+pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 
@@ -619,7 +619,7 @@ const c_abi_targets = [_]CAbiTarget{
 
 pub fn addCompareOutputTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     optimize_modes: []const OptimizeMode,
 ) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch @panic("OOM");
@@ -627,7 +627,7 @@ pub fn addCompareOutputTests(
         .b = b,
         .step = b.step("test-compare-output", "Run the compare output tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .optimize_modes = optimize_modes,
     };
 
@@ -638,7 +638,7 @@ pub fn addCompareOutputTests(
 
 pub fn addStackTraceTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     optimize_modes: []const OptimizeMode,
 ) *Step {
     const check_exe = b.addExecutable(.{
@@ -653,7 +653,7 @@ pub fn addStackTraceTests(
         .b = b,
         .step = b.step("test-stack-traces", "Run the stack trace tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .optimize_modes = optimize_modes,
         .check_exe = check_exe,
     };
@@ -983,13 +983,13 @@ pub fn addCliTests(b: *std.Build) *Step {
     return step;
 }
 
-pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize_modes: []const OptimizeMode) *Step {
+pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, optimize_modes: []const OptimizeMode) *Step {
     const cases = b.allocator.create(CompareOutputContext) catch @panic("OOM");
     cases.* = CompareOutputContext{
         .b = b,
         .step = b.step("test-asm-link", "Run the assemble and link tests"),
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .optimize_modes = optimize_modes,
     };
 
@@ -998,48 +998,49 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filter: ?[]const u8, optimize
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, test_filter: ?[]const u8) *Step {
+pub fn addTranslateCTests(b: *std.Build, parent_step: *std.Build.Step, test_filters: []const []const u8) void {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
-        .step = b.step("test-translate-c", "Run the C translation tests"),
+        .step = parent_step,
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
     };
 
     translate_c.addCases(cases);
 
-    return cases.step;
+    return;
 }
 
 pub fn addRunTranslatedCTests(
     b: *std.Build,
-    test_filter: ?[]const u8,
+    parent_step: *std.Build.Step,
+    test_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
-) *Step {
+) void {
     const cases = b.allocator.create(RunTranslatedCContext) catch @panic("OOM");
     cases.* = .{
         .b = b,
-        .step = b.step("test-run-translated-c", "Run the Run-Translated-C tests"),
+        .step = parent_step,
         .test_index = 0,
-        .test_filter = test_filter,
+        .test_filters = test_filters,
         .target = target,
     };
 
     run_translated_c.addCases(cases);
 
-    return cases.step;
+    return;
 }
 
 const ModuleTestOptions = struct {
-    test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
     optimize_modes: []const OptimizeMode,
+    include_paths: []const []const u8,
     skip_single_threaded: bool,
     skip_non_native: bool,
-    skip_cross_glibc: bool,
     skip_libc: bool,
     max_rss: usize = 0,
 };
@@ -1057,10 +1058,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
         const target = resolved_target.result;
-
-        if (options.skip_cross_glibc and !test_target.target.isNative() and
-            target.isGnuLibC() and test_target.link_libc == true)
-            continue;
 
         if (options.skip_libc and test_target.link_libc == true)
             continue;
@@ -1119,7 +1116,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .optimize = test_target.optimize_mode,
             .target = resolved_target,
             .max_rss = max_rss,
-            .filter = options.test_filter,
+            .filters = options.test_filters,
             .link_libc = test_target.link_libc,
             .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
@@ -1140,12 +1137,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
-        these_tests.addIncludePath(.{ .path = "test" });
-
-        if (target.os.tag == .wasi) {
-            // WASI's default stack size can be too small for some big tests.
-            these_tests.stack_size = 2 * 1024 * 1024;
-        }
+        for (options.include_paths) |include_path| these_tests.addIncludePath(.{ .path = include_path });
 
         const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}", .{
             options.name,
@@ -1295,8 +1287,10 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
 pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
-    opt_test_filter: ?[]const u8,
+    test_filters: []const []const u8,
     check_case_exe: *std.Build.Step.Compile,
+    target: std.Build.ResolvedTarget,
+    translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
 ) !void {
     const arena = b.allocator;
@@ -1310,11 +1304,13 @@ pub fn addCases(
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
 
+    cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
+
     const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(
         b,
         parent_step,
-        opt_test_filter,
+        test_filters,
         cases_dir_path,
         check_case_exe,
     );

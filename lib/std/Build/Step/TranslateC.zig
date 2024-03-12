@@ -55,7 +55,7 @@ pub const AddExecutableOptions = struct {
     version: ?std.SemanticVersion = null,
     target: ?std.Build.ResolvedTarget = null,
     optimize: ?std.builtin.OptimizeMode = null,
-    linkage: ?Step.Compile.Linkage = null,
+    linkage: ?std.builtin.LinkMode = null,
 };
 
 pub fn getOutput(self: *TranslateC) std.Build.LazyPath {

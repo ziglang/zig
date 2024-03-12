@@ -1,6 +1,6 @@
 export fn entry() void {
     var x = false;
-    _ = @atomicRmw(bool, &x, .Add, true, .SeqCst);
+    _ = @atomicRmw(bool, &x, .Add, true, .seq_cst);
 }
 
 // error

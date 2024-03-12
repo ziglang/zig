@@ -29,7 +29,7 @@ pub fn countingWriter(child_stream: anytype) CountingWriter(@TypeOf(child_stream
     return .{ .bytes_written = 0, .child_stream = child_stream };
 }
 
-test "io.CountingWriter" {
+test CountingWriter {
     var counting_stream = countingWriter(std.io.null_writer);
     const stream = counting_stream.writer();
 

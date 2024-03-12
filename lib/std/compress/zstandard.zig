@@ -1,5 +1,4 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
 const RingBuffer = std.RingBuffer;
 
 const types = @import("zstandard/types.zig");
@@ -8,31 +7,40 @@ pub const compressed_block = types.compressed_block;
 
 pub const decompress = @import("zstandard/decompress.zig");
 
-pub const DecompressStreamOptions = struct {
+pub const DecompressorOptions = struct {
     verify_checksum: bool = true,
-    window_size_max: usize = 1 << 23, // 8MiB default maximum window size
+    window_buffer: []u8,
+
+    /// Recommended amount by the standard. Lower than this may result
+    /// in inability to decompress common streams.
+    pub const default_window_buffer_len = 8 * 1024 * 1024;
 };
 
-pub fn DecompressStream(
-    comptime ReaderType: type,
-    comptime options: DecompressStreamOptions,
-) type {
+pub fn Decompressor(comptime ReaderType: type) type {
     return struct {
         const Self = @This();
 
-        allocator: Allocator,
+        const table_size_max = types.compressed_block.table_size_max;
+
         source: std.io.CountingReader(ReaderType),
         state: enum { NewFrame, InFrame, LastBlock },
         decode_state: decompress.block.DecodeState,
         frame_context: decompress.FrameContext,
-        buffer: RingBuffer,
-        literal_fse_buffer: []types.compressed_block.Table.Fse,
-        match_fse_buffer: []types.compressed_block.Table.Fse,
-        offset_fse_buffer: []types.compressed_block.Table.Fse,
-        literals_buffer: []u8,
-        sequence_buffer: []u8,
-        checksum: if (options.verify_checksum) ?u32 else void,
+        buffer: WindowBuffer,
+        literal_fse_buffer: [table_size_max.literal]types.compressed_block.Table.Fse,
+        match_fse_buffer: [table_size_max.match]types.compressed_block.Table.Fse,
+        offset_fse_buffer: [table_size_max.offset]types.compressed_block.Table.Fse,
+        literals_buffer: [types.block_size_max]u8,
+        sequence_buffer: [types.block_size_max]u8,
+        verify_checksum: bool,
+        checksum: ?u32,
         current_frame_decompressed_size: usize,
+
+        const WindowBuffer = struct {
+            data: []u8 = undefined,
+            read_index: usize = 0,
+            write_index: usize = 0,
+        };
 
         pub const Error = ReaderType.Error || error{
             ChecksumFailure,
@@ -44,19 +52,19 @@ pub fn DecompressStream(
 
         pub const Reader = std.io.Reader(*Self, Error, read);
 
-        pub fn init(allocator: Allocator, source: ReaderType) Self {
-            return Self{
-                .allocator = allocator,
+        pub fn init(source: ReaderType, options: DecompressorOptions) Self {
+            return .{
                 .source = std.io.countingReader(source),
                 .state = .NewFrame,
                 .decode_state = undefined,
                 .frame_context = undefined,
-                .buffer = undefined,
+                .buffer = .{ .data = options.window_buffer },
                 .literal_fse_buffer = undefined,
                 .match_fse_buffer = undefined,
                 .offset_fse_buffer = undefined,
                 .literals_buffer = undefined,
                 .sequence_buffer = undefined,
+                .verify_checksum = options.verify_checksum,
                 .checksum = undefined,
                 .current_frame_decompressed_size = undefined,
             };
@@ -72,68 +80,25 @@ pub fn DecompressStream(
                 .zstandard => |header| {
                     const frame_context = try decompress.FrameContext.init(
                         header,
-                        options.window_size_max,
-                        options.verify_checksum,
+                        self.buffer.data.len,
+                        self.verify_checksum,
                     );
-
-                    const literal_fse_buffer = try self.allocator.alloc(
-                        types.compressed_block.Table.Fse,
-                        types.compressed_block.table_size_max.literal,
-                    );
-                    errdefer self.allocator.free(literal_fse_buffer);
-
-                    const match_fse_buffer = try self.allocator.alloc(
-                        types.compressed_block.Table.Fse,
-                        types.compressed_block.table_size_max.match,
-                    );
-                    errdefer self.allocator.free(match_fse_buffer);
-
-                    const offset_fse_buffer = try self.allocator.alloc(
-                        types.compressed_block.Table.Fse,
-                        types.compressed_block.table_size_max.offset,
-                    );
-                    errdefer self.allocator.free(offset_fse_buffer);
 
                     const decode_state = decompress.block.DecodeState.init(
-                        literal_fse_buffer,
-                        match_fse_buffer,
-                        offset_fse_buffer,
+                        &self.literal_fse_buffer,
+                        &self.match_fse_buffer,
+                        &self.offset_fse_buffer,
                     );
-                    const buffer = try RingBuffer.init(self.allocator, frame_context.window_size);
-
-                    const literals_data = try self.allocator.alloc(u8, options.window_size_max);
-                    errdefer self.allocator.free(literals_data);
-
-                    const sequence_data = try self.allocator.alloc(u8, options.window_size_max);
-                    errdefer self.allocator.free(sequence_data);
-
-                    self.literal_fse_buffer = literal_fse_buffer;
-                    self.match_fse_buffer = match_fse_buffer;
-                    self.offset_fse_buffer = offset_fse_buffer;
-                    self.literals_buffer = literals_data;
-                    self.sequence_buffer = sequence_data;
-
-                    self.buffer = buffer;
 
                     self.decode_state = decode_state;
                     self.frame_context = frame_context;
 
-                    self.checksum = if (options.verify_checksum) null else {};
+                    self.checksum = null;
                     self.current_frame_decompressed_size = 0;
 
                     self.state = .InFrame;
                 },
             }
-        }
-
-        pub fn deinit(self: *Self) void {
-            if (self.state == .NewFrame) return;
-            self.allocator.free(self.decode_state.literal_fse_buffer);
-            self.allocator.free(self.decode_state.match_fse_buffer);
-            self.allocator.free(self.decode_state.offset_fse_buffer);
-            self.allocator.free(self.literals_buffer);
-            self.allocator.free(self.sequence_buffer);
-            self.buffer.deinit(self.allocator);
         }
 
         pub fn reader(self: *Self) Reader {
@@ -153,7 +118,6 @@ pub fn DecompressStream(
                             0
                         else
                             error.MalformedFrame,
-                        error.OutOfMemory => return error.OutOfMemory,
                         else => return error.MalformedFrame,
                     };
                 }
@@ -165,20 +129,30 @@ pub fn DecompressStream(
         fn readInner(self: *Self, buffer: []u8) Error!usize {
             std.debug.assert(self.state != .NewFrame);
 
+            var ring_buffer = RingBuffer{
+                .data = self.buffer.data,
+                .read_index = self.buffer.read_index,
+                .write_index = self.buffer.write_index,
+            };
+            defer {
+                self.buffer.read_index = ring_buffer.read_index;
+                self.buffer.write_index = ring_buffer.write_index;
+            }
+
             const source_reader = self.source.reader();
-            while (self.buffer.isEmpty() and self.state != .LastBlock) {
+            while (ring_buffer.isEmpty() and self.state != .LastBlock) {
                 const header_bytes = source_reader.readBytesNoEof(3) catch
                     return error.MalformedFrame;
                 const block_header = decompress.block.decodeBlockHeader(&header_bytes);
 
                 decompress.block.decodeBlockReader(
-                    &self.buffer,
+                    &ring_buffer,
                     source_reader,
                     block_header,
                     &self.decode_state,
                     self.frame_context.block_size_max,
-                    self.literals_buffer,
-                    self.sequence_buffer,
+                    &self.literals_buffer,
+                    &self.sequence_buffer,
                 ) catch
                     return error.MalformedBlock;
 
@@ -186,12 +160,12 @@ pub fn DecompressStream(
                     if (self.current_frame_decompressed_size > size) return error.MalformedFrame;
                 }
 
-                const size = self.buffer.len();
+                const size = ring_buffer.len();
                 self.current_frame_decompressed_size += size;
 
                 if (self.frame_context.hasher_opt) |*hasher| {
                     if (size > 0) {
-                        const written_slice = self.buffer.sliceLast(size);
+                        const written_slice = ring_buffer.sliceLast(size);
                         hasher.update(written_slice.first);
                         hasher.update(written_slice.second);
                     }
@@ -201,7 +175,7 @@ pub fn DecompressStream(
                     if (self.frame_context.has_checksum) {
                         const checksum = source_reader.readInt(u32, .little) catch
                             return error.MalformedFrame;
-                        if (comptime options.verify_checksum) {
+                        if (self.verify_checksum) {
                             if (self.frame_context.hasher_opt) |*hasher| {
                                 if (checksum != decompress.computeChecksum(hasher))
                                     return error.ChecksumFailure;
@@ -216,43 +190,28 @@ pub fn DecompressStream(
                 }
             }
 
-            const size = @min(self.buffer.len(), buffer.len);
+            const size = @min(ring_buffer.len(), buffer.len);
             if (size > 0) {
-                self.buffer.readFirstAssumeLength(buffer, size);
+                ring_buffer.readFirstAssumeLength(buffer, size);
             }
-            if (self.state == .LastBlock and self.buffer.len() == 0) {
+            if (self.state == .LastBlock and ring_buffer.len() == 0) {
                 self.state = .NewFrame;
-                self.allocator.free(self.literal_fse_buffer);
-                self.allocator.free(self.match_fse_buffer);
-                self.allocator.free(self.offset_fse_buffer);
-                self.allocator.free(self.literals_buffer);
-                self.allocator.free(self.sequence_buffer);
-                self.buffer.deinit(self.allocator);
             }
             return size;
         }
     };
 }
 
-pub fn decompressStreamOptions(
-    allocator: Allocator,
-    reader: anytype,
-    comptime options: DecompressStreamOptions,
-) DecompressStream(@TypeOf(reader, options)) {
-    return DecompressStream(@TypeOf(reader), options).init(allocator, reader);
-}
-
-pub fn decompressStream(
-    allocator: Allocator,
-    reader: anytype,
-) DecompressStream(@TypeOf(reader), .{}) {
-    return DecompressStream(@TypeOf(reader), .{}).init(allocator, reader);
+pub fn decompressor(reader: anytype, options: DecompressorOptions) Decompressor(@TypeOf(reader)) {
+    return Decompressor(@TypeOf(reader)).init(reader, options);
 }
 
 fn testDecompress(data: []const u8) ![]u8 {
+    const window_buffer = try std.testing.allocator.alloc(u8, 1 << 23);
+    defer std.testing.allocator.free(window_buffer);
+
     var in_stream = std.io.fixedBufferStream(data);
-    var zstd_stream = decompressStream(std.testing.allocator, in_stream.reader());
-    defer zstd_stream.deinit();
+    var zstd_stream = decompressor(in_stream.reader(), .{ .window_buffer = window_buffer });
     const result = zstd_stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
     return result;
 }
@@ -263,7 +222,7 @@ fn testReader(data: []const u8, comptime expected: []const u8) !void {
     try std.testing.expectEqualSlices(u8, expected, buf);
 }
 
-test "zstandard decompression" {
+test "decompression" {
     const uncompressed = @embedFile("testdata/rfc8478.txt");
     const compressed3 = @embedFile("testdata/rfc8478.txt.zst.3");
     const compressed19 = @embedFile("testdata/rfc8478.txt.zst.19");
@@ -275,6 +234,7 @@ test "zstandard decompression" {
     try std.testing.expectEqual(uncompressed.len, res3);
     try std.testing.expectEqualSlices(u8, uncompressed, buffer);
 
+    @memset(buffer, undefined);
     const res19 = try decompress.decode(buffer, compressed19, true);
     try std.testing.expectEqual(uncompressed.len, res19);
     try std.testing.expectEqualSlices(u8, uncompressed, buffer);
@@ -284,32 +244,32 @@ test "zstandard decompression" {
 }
 
 fn expectEqualDecoded(expected: []const u8, input: []const u8) !void {
-    const allocator = std.testing.allocator;
-
     {
-        const result = try decompress.decodeAlloc(allocator, input, false, 1 << 23);
-        defer allocator.free(result);
+        const result = try decompress.decodeAlloc(std.testing.allocator, input, false, 1 << 23);
+        defer std.testing.allocator.free(result);
         try std.testing.expectEqualStrings(expected, result);
     }
 
     {
-        var buffer = try allocator.alloc(u8, 2 * expected.len);
-        defer allocator.free(buffer);
+        var buffer = try std.testing.allocator.alloc(u8, 2 * expected.len);
+        defer std.testing.allocator.free(buffer);
 
         const size = try decompress.decode(buffer, input, false);
         try std.testing.expectEqualStrings(expected, buffer[0..size]);
     }
+}
 
-    {
-        var in_stream = std.io.fixedBufferStream(input);
-        var stream = decompressStream(allocator, in_stream.reader());
-        defer stream.deinit();
+fn expectEqualDecodedStreaming(expected: []const u8, input: []const u8) !void {
+    const window_buffer = try std.testing.allocator.alloc(u8, 1 << 23);
+    defer std.testing.allocator.free(window_buffer);
 
-        const result = try stream.reader().readAllAlloc(allocator, std.math.maxInt(usize));
-        defer allocator.free(result);
+    var in_stream = std.io.fixedBufferStream(input);
+    var stream = decompressor(in_stream.reader(), .{ .window_buffer = window_buffer });
 
-        try std.testing.expectEqualStrings(expected, result);
-    }
+    const result = try stream.reader().readAllAlloc(std.testing.allocator, std.math.maxInt(usize));
+    defer std.testing.allocator.free(result);
+
+    try std.testing.expectEqualStrings(expected, result);
 }
 
 test "zero sized block" {
@@ -326,4 +286,6 @@ test "zero sized block" {
 
     try expectEqualDecoded("", input_raw);
     try expectEqualDecoded("", input_rle);
+    try expectEqualDecodedStreaming("", input_raw);
+    try expectEqualDecodedStreaming("", input_rle);
 }

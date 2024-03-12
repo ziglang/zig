@@ -36,7 +36,7 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 
 const SpvModule = @import("../codegen/spirv/Module.zig");
 const spec = @import("../codegen/spirv/spec.zig");
@@ -85,8 +85,6 @@ pub fn createEmpty(
         .opencl, .glsl450, .vulkan => {},
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
-
-    assert(target.abi != .none); // Caught by Compilation.Config.resolve.
 
     return self;
 }
@@ -158,10 +156,27 @@ pub fn updateExports(
         },
     };
     const decl = mod.declPtr(decl_index);
-    if (decl.val.isFuncBody(mod) and decl.ty.fnCallingConvention(mod) == .Kernel) {
+    if (decl.val.isFuncBody(mod)) {
+        const target = mod.getTarget();
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
-        for (exports) |exp| {
-            try self.object.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.opts.name));
+        const execution_model = switch (decl.ty.fnCallingConvention(mod)) {
+            .Vertex => spec.ExecutionModel.Vertex,
+            .Fragment => spec.ExecutionModel.Fragment,
+            .Kernel => spec.ExecutionModel.Kernel,
+            else => return,
+        };
+        const is_vulkan = target.os.tag == .vulkan;
+
+        if ((!is_vulkan and execution_model == .Kernel) or
+            (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
+        {
+            for (exports) |exp| {
+                try self.object.spv.declareEntryPoint(
+                    spv_decl_index,
+                    mod.intern_pool.stringToSlice(exp.opts.name),
+                    execution_model,
+                );
+            }
         }
     }
 
@@ -224,16 +239,16 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
         .extension = error_info.items,
     });
 
-    try spv.flush(self.base.file.?);
+    try spv.flush(self.base.file.?, target);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     const gpa = spv.gpa;
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .GenericPointer },
+        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
         .glsl450 => &.{.Shader},
-        .vulkan => &.{.Shader},
+        .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
         else => unreachable, // TODO
     };
 
@@ -264,8 +279,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
         else => unreachable,
     };
 
-    // TODO: Put this in a proper section.
-    try spv.sections.extensions.emit(gpa, .OpMemoryModel, .{
+    try spv.sections.memory_model.emit(gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });

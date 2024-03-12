@@ -250,7 +250,7 @@ test "type info: union info" {
 fn testUnion() !void {
     const typeinfo_info = @typeInfo(Type);
     try expect(typeinfo_info == .Union);
-    try expect(typeinfo_info.Union.layout == .Auto);
+    try expect(typeinfo_info.Union.layout == .auto);
     try expect(typeinfo_info.Union.tag_type.? == TypeId);
     try expect(typeinfo_info.Union.fields.len == 24);
     try expect(typeinfo_info.Union.fields[4].type == @TypeOf(@typeInfo(u8).Int));
@@ -264,7 +264,7 @@ fn testUnion() !void {
     const notag_union_info = @typeInfo(TestNoTagUnion);
     try expect(notag_union_info == .Union);
     try expect(notag_union_info.Union.tag_type == null);
-    try expect(notag_union_info.Union.layout == .Auto);
+    try expect(notag_union_info.Union.layout == .auto);
     try expect(notag_union_info.Union.fields.len == 2);
     try expect(notag_union_info.Union.fields[0].alignment == @alignOf(void));
     try expect(notag_union_info.Union.fields[1].type == u32);
@@ -275,7 +275,7 @@ fn testUnion() !void {
     };
 
     const extern_union_info = @typeInfo(TestExternUnion);
-    try expect(extern_union_info.Union.layout == .Extern);
+    try expect(extern_union_info.Union.layout == .@"extern");
     try expect(extern_union_info.Union.tag_type == null);
     try expect(extern_union_info.Union.fields[0].type == *anyopaque);
 }
@@ -310,7 +310,7 @@ fn testPackedStruct() !void {
     const struct_info = @typeInfo(TestPackedStruct);
     try expect(struct_info == .Struct);
     try expect(struct_info.Struct.is_tuple == false);
-    try expect(struct_info.Struct.layout == .Packed);
+    try expect(struct_info.Struct.layout == .@"packed");
     try expect(struct_info.Struct.backing_integer == u128);
     try expect(struct_info.Struct.fields.len == 4);
     try expect(struct_info.Struct.fields[0].alignment == 0);

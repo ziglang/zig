@@ -10,7 +10,7 @@ const os = std.os;
 
 /// We use this as a layer of indirection because global const pointers cannot
 /// point to thread-local variables.
-pub const interface = std.rand.Random{
+pub const interface = std.Random{
     .ptr = undefined,
     .fillFn = tlsCsprngFill,
 };
@@ -43,7 +43,7 @@ const maybe_have_wipe_on_fork = builtin.os.isAtLeast(.linux, .{
 }) orelse true;
 const is_haiku = builtin.os.tag == .haiku;
 
-const Rng = std.rand.DefaultCsprng;
+const Rng = std.Random.DefaultCsprng;
 
 const Context = struct {
     init_state: enum(u8) { uninitialized = 0, initialized, failed },
@@ -83,7 +83,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
                 null,
                 @sizeOf(Context),
                 os.PROT.READ | os.PROT.WRITE,
-                os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+                .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
                 -1,
                 0,
             ) catch {

@@ -120,7 +120,7 @@ fn atan64(z: Complex(f64)) Complex(f64) {
 
 const epsilon = 0.0001;
 
-test "complex.catan32" {
+test atan32 {
     const a = Complex(f32).init(5, 3);
     const c = atan(a);
 
@@ -128,7 +128,7 @@ test "complex.catan32" {
     try testing.expect(math.approxEqAbs(f32, c.im, 0.086569, epsilon));
 }
 
-test "complex.catan64" {
+test atan64 {
     const a = Complex(f64).init(5, 3);
     const c = atan(a);
 

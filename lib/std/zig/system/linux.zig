@@ -71,6 +71,53 @@ test "cpuinfo: SPARC" {
     );
 }
 
+const RiscvCpuinfoImpl = struct {
+    model: ?*const Target.Cpu.Model = null,
+
+    const cpu_names = .{
+        .{ "sifive,u54", &Target.riscv.cpu.sifive_u54 },
+        .{ "sifive,u7", &Target.riscv.cpu.sifive_7_series },
+        .{ "sifive,u74", &Target.riscv.cpu.sifive_u74 },
+        .{ "sifive,u74-mc", &Target.riscv.cpu.sifive_u74 },
+    };
+
+    fn line_hook(self: *RiscvCpuinfoImpl, key: []const u8, value: []const u8) !bool {
+        if (mem.eql(u8, key, "uarch")) {
+            inline for (cpu_names) |pair| {
+                if (mem.eql(u8, value, pair[0])) {
+                    self.model = pair[1];
+                    break;
+                }
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    fn finalize(self: *const RiscvCpuinfoImpl, arch: Target.Cpu.Arch) ?Target.Cpu {
+        const model = self.model orelse return null;
+        return Target.Cpu{
+            .arch = arch,
+            .model = model,
+            .features = model.features,
+        };
+    }
+};
+
+const RiscvCpuinfoParser = CpuinfoParser(RiscvCpuinfoImpl);
+
+test "cpuinfo: RISC-V" {
+    try testParser(RiscvCpuinfoParser, .riscv64, &Target.riscv.cpu.sifive_u74,
+        \\processor	: 0
+        \\hart		: 1
+        \\isa		: rv64imafdc
+        \\mmu		: sv39
+        \\isa-ext       :
+        \\uarch		: sifive,u74-mc
+    );
+}
+
 const PowerpcCpuinfoImpl = struct {
     model: ?*const Target.Cpu.Model = null,
 
@@ -328,7 +375,7 @@ fn CpuinfoParser(comptime impl: anytype) type {
 }
 
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
-    var f = fs.openFileAbsolute("/proc/cpuinfo", .{ .intended_io_mode = .blocking }) catch |err| switch (err) {
+    var f = fs.openFileAbsolute("/proc/cpuinfo", .{}) catch |err| switch (err) {
         else => return null,
     };
     defer f.close();
@@ -343,6 +390,9 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => {
             return PowerpcCpuinfoParser.parse(current_arch, f.reader()) catch null;
+        },
+        .riscv64, .riscv32 => {
+            return RiscvCpuinfoParser.parse(current_arch, f.reader()) catch null;
         },
         else => {},
     }

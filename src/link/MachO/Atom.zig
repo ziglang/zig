@@ -58,7 +58,7 @@ pub fn getData(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     assert(buffer.len == self.size);
     switch (self.getFile(macho_file)) {
         .internal => |x| try x.getAtomData(self, buffer),
-        .object => |x| try x.getAtomData(self, buffer),
+        .object => |x| try x.getAtomData(macho_file, self, buffer),
         .zig_object => |x| try x.getAtomData(macho_file, self, buffer),
         else => unreachable,
     }
@@ -119,12 +119,9 @@ pub fn getThunk(self: Atom, macho_file: *MachO) *Thunk {
 
 pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     const segname, const sectname, const flags = blk: {
-        const segname = sect.segName();
-        const sectname = sect.sectName();
-
         if (sect.isCode()) break :blk .{
             "__TEXT",
-            sectname,
+            "__text",
             macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         };
 
@@ -135,32 +132,36 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
             => break :blk .{ "__TEXT", "__const", macho.S_REGULAR },
 
             macho.S_CSTRING_LITERALS => {
-                if (mem.startsWith(u8, sectname, "__objc")) break :blk .{
-                    segname, sectname, macho.S_REGULAR,
+                if (mem.startsWith(u8, sect.sectName(), "__objc")) break :blk .{
+                    sect.segName(), sect.sectName(), macho.S_REGULAR,
                 };
                 break :blk .{ "__TEXT", "__cstring", macho.S_CSTRING_LITERALS };
             },
 
             macho.S_MOD_INIT_FUNC_POINTERS,
             macho.S_MOD_TERM_FUNC_POINTERS,
-            macho.S_LITERAL_POINTERS,
-            => break :blk .{ "__DATA_CONST", sectname, sect.flags },
+            => break :blk .{ "__DATA_CONST", sect.sectName(), sect.flags },
 
+            macho.S_LITERAL_POINTERS,
             macho.S_ZEROFILL,
             macho.S_GB_ZEROFILL,
             macho.S_THREAD_LOCAL_VARIABLES,
             macho.S_THREAD_LOCAL_VARIABLE_POINTERS,
             macho.S_THREAD_LOCAL_REGULAR,
             macho.S_THREAD_LOCAL_ZEROFILL,
-            => break :blk .{ "__DATA", sectname, sect.flags },
+            => break :blk .{ sect.segName(), sect.sectName(), sect.flags },
 
-            // TODO: do we need this check here?
-            macho.S_COALESCED => break :blk .{ segname, sectname, macho.S_REGULAR },
+            macho.S_COALESCED => break :blk .{
+                sect.segName(),
+                sect.sectName(),
+                macho.S_REGULAR,
+            },
 
             macho.S_REGULAR => {
+                const segname = sect.segName();
+                const sectname = sect.sectName();
                 if (mem.eql(u8, segname, "__DATA")) {
-                    if (mem.eql(u8, sectname, "__const") or
-                        mem.eql(u8, sectname, "__cfstring") or
+                    if (mem.eql(u8, sectname, "__cfstring") or
                         mem.eql(u8, sectname, "__objc_classlist") or
                         mem.eql(u8, sectname, "__objc_imageinfo")) break :blk .{
                         "__DATA_CONST",
@@ -171,7 +172,7 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
                 break :blk .{ segname, sectname, sect.flags };
             },
 
-            else => break :blk .{ segname, sectname, sect.flags },
+            else => break :blk .{ sect.segName(), sect.sectName(), sect.flags },
         }
     };
     const osec = macho_file.getSectionByName(segname, sectname) orelse try macho_file.addSection(
@@ -699,14 +700,7 @@ fn resolveRelocInner(
                         const S_: i64 = @intCast(thunk.getTargetAddress(rel.target, macho_file));
                         break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                     };
-                    var inst = aarch64.Instruction{
-                        .unconditional_branch_immediate = mem.bytesToValue(std.meta.TagPayload(
-                            aarch64.Instruction,
-                            aarch64.Instruction.unconditional_branch_immediate,
-                        ), code[rel_offset..][0..4]),
-                    };
-                    inst.unconditional_branch_immediate.imm26 = @as(u26, @truncate(@as(u28, @bitCast(disp >> 2))));
-                    try writer.writeInt(u32, inst.toU32(), .little);
+                    aarch64.writeBranchImm(disp, code[rel_offset..][0..4]);
                 },
                 else => unreachable,
             }
@@ -776,16 +770,8 @@ fn resolveRelocInner(
                 };
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
-            const pages = @as(u21, @bitCast(try Relocation.calcNumberOfPages(source, target)));
-            var inst = aarch64.Instruction{
-                .pc_relative_address = mem.bytesToValue(std.meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.pc_relative_address,
-                ), code[rel_offset..][0..4]),
-            };
-            inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
-            inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
-            try writer.writeInt(u32, inst.toU32(), .little);
+            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(source, target)));
+            aarch64.writeAdrpInst(pages, code[rel_offset..][0..4]);
         },
 
         .pageoff => {
@@ -794,16 +780,8 @@ fn resolveRelocInner(
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, S + A) orelse return error.Overflow;
             const inst_code = code[rel_offset..][0..4];
-            if (Relocation.isArithmeticOp(inst_code)) {
-                const off = try Relocation.calcPageOffset(target, .arithmetic);
-                var inst = aarch64.Instruction{
-                    .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.add_subtract_immediate,
-                    ), inst_code),
-                };
-                inst.add_subtract_immediate.imm12 = off;
-                try writer.writeInt(u32, inst.toU32(), .little);
+            if (aarch64.isArithmeticOp(inst_code)) {
+                aarch64.writeAddImmInst(@truncate(target), inst_code);
             } else {
                 var inst = aarch64.Instruction{
                     .load_store_register = mem.bytesToValue(std.meta.TagPayload(
@@ -811,16 +789,15 @@ fn resolveRelocInner(
                         aarch64.Instruction.load_store_register,
                     ), inst_code),
                 };
-                const off = try Relocation.calcPageOffset(target, switch (inst.load_store_register.size) {
+                inst.load_store_register.offset = switch (inst.load_store_register.size) {
                     0 => if (inst.load_store_register.v == 1)
-                        Relocation.PageOffsetInstKind.load_store_128
+                        try math.divExact(u12, @truncate(target), 16)
                     else
-                        Relocation.PageOffsetInstKind.load_store_8,
-                    1 => .load_store_16,
-                    2 => .load_store_32,
-                    3 => .load_store_64,
-                });
-                inst.load_store_register.offset = off;
+                        @truncate(target),
+                    1 => try math.divExact(u12, @truncate(target), 2),
+                    2 => try math.divExact(u12, @truncate(target), 4),
+                    3 => try math.divExact(u12, @truncate(target), 8),
+                };
                 try writer.writeInt(u32, inst.toU32(), .little);
             }
         },
@@ -830,15 +807,7 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, G + A) orelse return error.Overflow;
-            const off = try Relocation.calcPageOffset(target, .load_store_64);
-            var inst: aarch64.Instruction = .{
-                .load_store_register = mem.bytesToValue(std.meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.load_store_register,
-                ), code[rel_offset..][0..4]),
-            };
-            inst.load_store_register.offset = off;
-            try writer.writeInt(u32, inst.toU32(), .little);
+            aarch64.writeLoadStoreRegInst(try math.divExact(u12, @truncate(target), 8), code[rel_offset..][0..4]);
         },
 
         .tlvp_pageoff => {
@@ -863,7 +832,7 @@ fn resolveRelocInner(
 
             const inst_code = code[rel_offset..][0..4];
             const reg_info: RegInfo = blk: {
-                if (Relocation.isArithmeticOp(inst_code)) {
+                if (aarch64.isArithmeticOp(inst_code)) {
                     const inst = mem.bytesToValue(std.meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.add_subtract_immediate,
@@ -890,7 +859,7 @@ fn resolveRelocInner(
                 .load_store_register = .{
                     .rt = reg_info.rd,
                     .rn = reg_info.rn,
-                    .offset = try Relocation.calcPageOffset(target, .load_store_64),
+                    .offset = try math.divExact(u12, @truncate(target), 8),
                     .opc = 0b01,
                     .op1 = 0b01,
                     .v = 0,
@@ -900,7 +869,7 @@ fn resolveRelocInner(
                 .add_subtract_immediate = .{
                     .rd = reg_info.rd,
                     .rn = reg_info.rn,
-                    .imm12 = try Relocation.calcPageOffset(target, .arithmetic),
+                    .imm12 = @truncate(target),
                     .sh = 0,
                     .s = 0,
                     .op = 0,
@@ -1183,7 +1152,7 @@ pub const Loc = struct {
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
-const aarch64 = @import("../../arch/aarch64/bits.zig");
+const aarch64 = @import("../aarch64.zig");
 const assert = std.debug.assert;
 const bind = @import("dyld_info/bind.zig");
 const macho = std.macho;

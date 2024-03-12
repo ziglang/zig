@@ -14,6 +14,7 @@ pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedL
 pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").LogToWriterAllocator;
 pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
+pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocator.zig").Config;
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
 pub const Check = @import("heap/general_purpose_allocator.zig").Check;
 pub const WasmAllocator = @import("heap/WasmAllocator.zig");
@@ -196,7 +197,16 @@ fn rawCResize(
 ) bool {
     _ = log2_old_align;
     _ = ret_addr;
-    return new_len <= buf.len;
+
+    if (new_len <= buf.len)
+        return true;
+
+    if (CAllocator.supports_malloc_size) {
+        const full_len = CAllocator.malloc_size(buf.ptr);
+        if (new_len <= full_len) return true;
+    }
+
+    return false;
 }
 
 fn rawCFree(
@@ -293,11 +303,11 @@ pub const HeapAllocator = switch (builtin.os.tag) {
 
             const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
             const amt = n + ptr_align - 1 + @sizeOf(usize);
-            const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, .SeqCst);
+            const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, .seq_cst);
             const heap_handle = optional_heap_handle orelse blk: {
                 const options = if (builtin.single_threaded) os.windows.HEAP_NO_SERIALIZE else 0;
                 const hh = os.windows.kernel32.HeapCreate(options, amt, 0) orelse return null;
-                const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, .SeqCst, .SeqCst) orelse break :blk hh;
+                const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, .seq_cst, .seq_cst) orelse break :blk hh;
                 os.windows.HeapDestroy(hh);
                 break :blk other_hh.?; // can't be null because of the cmpxchg
             };
@@ -472,13 +482,13 @@ pub const FixedBufferAllocator = struct {
         const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
         _ = ra;
         const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
-        var end_index = @atomicLoad(usize, &self.end_index, .SeqCst);
+        var end_index = @atomicLoad(usize, &self.end_index, .seq_cst);
         while (true) {
             const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;
             const adjusted_index = end_index + adjust_off;
             const new_end_index = adjusted_index + n;
             if (new_end_index > self.buffer.len) return null;
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .SeqCst, .SeqCst) orelse
+            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .seq_cst, .seq_cst) orelse
                 return self.buffer[adjusted_index..new_end_index].ptr;
         }
     }

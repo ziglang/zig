@@ -13,7 +13,7 @@ const Step = std.Build.Step;
 pub const dependencies = @import("@dependencies");
 
 pub fn main() !void {
-    // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
+    // Here we use an ArenaAllocator backed by a page allocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
     // bytes into. So we free everything all at once at the very end.
     var single_threaded_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -420,7 +420,7 @@ fn runStepNames(
 
     const starting_steps = try arena.dupe(*Step, step_stack.keys());
 
-    var rng = std.rand.DefaultPrng.init(seed);
+    var rng = std.Random.DefaultPrng.init(seed);
     const rand = rng.random();
     rand.shuffle(*Step, starting_steps);
 
@@ -836,7 +836,7 @@ fn constructGraphAndCheckForDependencyLoop(
     b: *std.Build,
     s: *Step,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
-    rand: std.rand.Random,
+    rand: std.Random,
 ) !void {
     switch (s.state) {
         .precheck_started => {
@@ -892,10 +892,10 @@ fn workerMakeOneStep(
     // then we return without doing the step, relying on another worker to
     // queue this step up again when dependencies are met.
     for (s.dependencies.items) |dep| {
-        switch (@atomicLoad(Step.State, &dep.state, .SeqCst)) {
+        switch (@atomicLoad(Step.State, &dep.state, .seq_cst)) {
             .success, .skipped => continue,
             .failure, .dependency_failure, .skipped_oom => {
-                @atomicStore(Step.State, &s.state, .dependency_failure, .SeqCst);
+                @atomicStore(Step.State, &s.state, .dependency_failure, .seq_cst);
                 return;
             },
             .precheck_done, .running => {
@@ -929,7 +929,7 @@ fn workerMakeOneStep(
         s.state = .running;
     } else {
         // Avoid running steps twice.
-        if (@cmpxchgStrong(Step.State, &s.state, .precheck_done, .running, .SeqCst, .SeqCst) != null) {
+        if (@cmpxchgStrong(Step.State, &s.state, .precheck_done, .running, .seq_cst, .seq_cst) != null) {
             // Another worker got the job.
             return;
         }
@@ -956,13 +956,13 @@ fn workerMakeOneStep(
 
     handle_result: {
         if (make_result) |_| {
-            @atomicStore(Step.State, &s.state, .success, .SeqCst);
+            @atomicStore(Step.State, &s.state, .success, .seq_cst);
         } else |err| switch (err) {
             error.MakeFailed => {
-                @atomicStore(Step.State, &s.state, .failure, .SeqCst);
+                @atomicStore(Step.State, &s.state, .failure, .seq_cst);
                 break :handle_result;
             },
-            error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .SeqCst),
+            error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .seq_cst),
         }
 
         // Successful completion of a step, so we queue up its dependants as well.

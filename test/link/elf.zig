@@ -10,124 +10,161 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         .cpu_arch = .x86_64, // TODO relax this once ELF linker is able to handle other archs
         .os_tag = .linux,
     });
-    const musl_target = b.resolveTargetQuery(.{
+    const x86_64_musl = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .linux,
         .abi = .musl,
     });
-    const glibc_target = b.resolveTargetQuery(.{
+    const x86_64_gnu = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .linux,
         .abi = .gnu,
     });
+    // const aarch64_musl = b.resolveTargetQuery(.{
+    //     .cpu_arch = .aarch64,
+    //     .os_tag = .linux,
+    //     .abi = .musl,
+    // });
+    // const aarch64_gnu = b.resolveTargetQuery(.{
+    //     .cpu_arch = .aarch64,
+    //     .os_tag = .linux,
+    //     .abi = .gnu,
+    // });
+    const riscv64_musl = b.resolveTargetQuery(.{
+        .cpu_arch = .riscv64,
+        .os_tag = .linux,
+        .abi = .musl,
+    });
 
-    // Exercise linker in -r mode
-    elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = musl_target }));
-    elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
-    elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
-    elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
-    elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
+    // Common tests
+    for (&[_]std.Target.Cpu.Arch{
+        .x86_64,
+        .aarch64,
+    }) |cpu_arch| {
+        const musl_target = b.resolveTargetQuery(.{
+            .cpu_arch = cpu_arch,
+            .os_tag = .linux,
+            .abi = .musl,
+        });
+        const gnu_target = b.resolveTargetQuery(.{
+            .cpu_arch = cpu_arch,
+            .os_tag = .linux,
+            .abi = .gnu,
+        });
 
-    // Exercise linker in ar mode
-    elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
-    elf_step.dependOn(testEmitStaticLibZig(b, .{ .use_llvm = false, .target = musl_target }));
+        // Exercise linker in -r mode
+        elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
+        elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
+        elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
+        elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
 
-    // Exercise linker with self-hosted backend (no LLVM)
+        // Exercise linker in ar mode
+        elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
+
+        // Exercise linker with LLVM backend
+        // musl tests
+        elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
+        elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
+        elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
+        elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
+        elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
+        elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
+        elf_step.dependOn(testImageBase(b, .{ .target = musl_target }));
+        elf_step.dependOn(testInitArrayOrder(b, .{ .target = musl_target }));
+        elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = musl_target }));
+        // https://github.com/ziglang/zig/issues/17449
+        // elf_step.dependOn(testLargeBss(b, .{ .target = musl_target }));
+        elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
+        elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
+        elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
+        // https://github.com/ziglang/zig/issues/17451
+        // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = musl_target }));
+        elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
+        elf_step.dependOn(testStrip(b, .{ .target = musl_target }));
+
+        // glibc tests
+        elf_step.dependOn(testAsNeeded(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/17430
+        // elf_step.dependOn(testCanonicalPlt(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testCopyrel(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/17430
+        // elf_step.dependOn(testCopyrelAlias(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/17430
+        // elf_step.dependOn(testCopyrelAlignment(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testDsoPlt(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testDsoUndef(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testExportDynamic(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/17430
+        // elf_step.dependOn(testFuncAddress(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testHiddenWeakUndef(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testIFuncAlias(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/17430
+        // elf_step.dependOn(testIFuncDlopen(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testIFuncDso(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testIFuncDynamic(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testIFuncExport(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testIFuncFuncPtr(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testIFuncNoPlt(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/17430 ??
+        // elf_step.dependOn(testIFuncStatic(b, .{ .target = gnu_target }));
+        // elf_step.dependOn(testIFuncStaticPie(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testInitArrayOrder(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLargeBss(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLinkOrder(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLdScript(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLdScriptPathError(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testLdScriptAllowUndefinedVersion(b, .{ .target = gnu_target, .use_lld = true }));
+        elf_step.dependOn(testLdScriptDisallowUndefinedVersion(b, .{ .target = gnu_target, .use_lld = true }));
+        // https://github.com/ziglang/zig/issues/17451
+        // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testPie(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testPltGot(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testPreinitArray(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testSharedAbsSymbol(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsDfStaticTls(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsDso(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsGd(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsGdNoPlt(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsGdToIe(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsIe(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsLargeAlignment(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsLargeTbss(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsLargeStaticImage(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsLd(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsLdDso(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = gnu_target }));
+        // https://github.com/ziglang/zig/issues/17430
+        // elf_step.dependOn(testTlsNoPic(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsPic(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testUnknownFileTypeError(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testUnresolvedError(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testWeakExports(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testWeakUndefsDso(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testZNow(b, .{ .target = gnu_target }));
+        elf_step.dependOn(testZStackSize(b, .{ .target = gnu_target }));
+    }
+
+    // x86_64 specific tests
+    elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = x86_64_musl }));
+    elf_step.dependOn(testZText(b, .{ .target = x86_64_gnu }));
+
+    // x86_64 self-hosted backend
+    elf_step.dependOn(testEmitRelocatable(b, .{ .use_llvm = false, .target = x86_64_musl }));
+    elf_step.dependOn(testEmitStaticLibZig(b, .{ .use_llvm = false, .target = x86_64_musl }));
     elf_step.dependOn(testGcSectionsZig(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingObj(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = default_target }));
     elf_step.dependOn(testLinkingZig(b, .{ .use_llvm = false, .target = default_target }));
-    elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = glibc_target }));
-    elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = musl_target }));
+    elf_step.dependOn(testImportingDataDynamic(b, .{ .use_llvm = false, .target = x86_64_gnu }));
+    elf_step.dependOn(testImportingDataStatic(b, .{ .use_llvm = false, .target = x86_64_musl }));
 
-    // Exercise linker with LLVM backend
-    // musl tests
-    elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
-    elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
-    elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
-    elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
-    elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
-    elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
-    elf_step.dependOn(testImageBase(b, .{ .target = musl_target }));
-    elf_step.dependOn(testInitArrayOrder(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = musl_target }));
-    // https://github.com/ziglang/zig/issues/17449
-    // elf_step.dependOn(testLargeBss(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLinkingC(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLinkingCpp(b, .{ .target = musl_target }));
-    elf_step.dependOn(testLinkingZig(b, .{ .target = musl_target }));
-    // https://github.com/ziglang/zig/issues/17451
-    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = musl_target }));
-    elf_step.dependOn(testTlsStatic(b, .{ .target = musl_target }));
-    elf_step.dependOn(testStrip(b, .{ .target = musl_target }));
-
-    // glibc tests
-    elf_step.dependOn(testAsNeeded(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testCanonicalPlt(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testCopyrel(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testCopyrelAlias(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testCopyrelAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testDsoPlt(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testDsoUndef(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testExportDynamic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testExportSymbolsFromExe(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testFuncAddress(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testHiddenWeakUndef(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncAlias(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testIFuncDlopen(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncDynamic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncExport(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncFuncPtr(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testIFuncNoPlt(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17430 ??
-    // elf_step.dependOn(testIFuncStatic(b, .{ .target = glibc_target }));
-    // elf_step.dependOn(testIFuncStaticPie(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testInitArrayOrder(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLargeAlignmentDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLargeBss(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLinkOrder(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLdScript(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLdScriptPathError(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testLdScriptAllowUndefinedVersion(b, .{ .target = glibc_target, .use_lld = true }));
-    elf_step.dependOn(testLdScriptDisallowUndefinedVersion(b, .{ .target = glibc_target, .use_lld = true }));
-    elf_step.dependOn(testMismatchedCpuArchitectureError(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17451
-    // elf_step.dependOn(testNoEhFrameHdr(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testPie(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testPltGot(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testPreinitArray(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testSharedAbsSymbol(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsDfStaticTls(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsGd(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsGdNoPlt(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsGdToIe(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsIe(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLargeAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLargeTbss(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLargeStaticImage(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLd(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLdDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsLdNoPlt(b, .{ .target = glibc_target }));
-    // https://github.com/ziglang/zig/issues/17430
-    // elf_step.dependOn(testTlsNoPic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsOffsetAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsPic(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testTlsSmallAlignment(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testUnknownFileTypeError(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testUnresolvedError(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testWeakExports(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testWeakUndefsDso(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testZNow(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testZStackSize(b, .{ .target = glibc_target }));
-    elf_step.dependOn(testZText(b, .{ .target = glibc_target }));
+    // riscv64 linker backend is currently not complete enough to support more
+    elf_step.dependOn(testLinkingC(b, .{ .target = riscv64_musl }));
 
     return elf_step;
 }
@@ -222,8 +259,6 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -252,8 +287,6 @@ fn testAsNeeded(b: *Build, opts: Options) *Step {
         exe.addLibraryPath(libbaz.getEmittedBinDirectory());
         exe.addRPath(libbaz.getEmittedBinDirectory());
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -472,8 +505,6 @@ fn testCopyrel(b: *Build, opts: Options) *Step {
     });
     exe.linkLibrary(dso);
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 5\n");
@@ -639,8 +670,6 @@ fn testDsoPlt(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello WORLD\n");
@@ -678,8 +707,6 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -772,8 +799,8 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
         \\}
         \\export var strongBar: usize = 100;
         \\comptime {
-        \\    @export(weakFoo, .{ .name = "weakFoo", .linkage = .Weak });
-        \\    @export(strongBar, .{ .name = "strongBarAlias", .linkage = .Strong });
+        \\    @export(weakFoo, .{ .name = "weakFoo", .linkage = .weak });
+        \\    @export(strongBar, .{ .name = "strongBarAlias", .linkage = .strong });
         \\}
         ,
     });
@@ -1263,8 +1290,6 @@ fn testIFuncAlias(b: *Build, opts: Options) *Step {
     , &.{});
     exe.root_module.pic = true;
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -1379,8 +1404,6 @@ fn testIFuncDynamic(b: *Build, opts: Options) *Step {
         addCSourceBytes(exe, main_c, &.{});
         exe.linkLibC();
         exe.link_z_lazy = true;
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("Hello world\n");
@@ -1390,8 +1413,6 @@ fn testIFuncDynamic(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, opts, .{ .name = "other" });
         addCSourceBytes(exe, main_c, &.{});
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("Hello world\n");
@@ -1455,8 +1476,6 @@ fn testIFuncFuncPtr(b: *Build, opts: Options) *Step {
     , &.{});
     exe.root_module.pic = true;
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3\n");
@@ -1486,8 +1505,6 @@ fn testIFuncNoPlt(b: *Build, opts: Options) *Step {
     , &.{"-fno-plt"});
     exe.root_module.pic = true;
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world\n");
@@ -1817,8 +1834,6 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world");
@@ -1853,8 +1868,6 @@ fn testLargeAlignmentExe(b: *Build, opts: Options) *Step {
     , &.{});
     exe.link_function_sections = true;
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const check = exe.checkObject();
     check.checkInSymtab();
@@ -1883,8 +1896,6 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -1978,8 +1989,6 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     exe.addLibraryPath(dso.getEmittedBinDirectory());
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -2331,8 +2340,6 @@ fn testPltGot(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dso);
     exe.root_module.pic = true;
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("Hello world\n");
@@ -2735,8 +2742,6 @@ fn testTlsDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("5 3 5 3 5 3\n");
@@ -2895,8 +2900,6 @@ fn testTlsGdNoPlt(b: *Build, opts: Options) *Step {
         exe.linkLibrary(a_so);
         exe.linkLibrary(b_so);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3 4 5 6\n");
@@ -2910,8 +2913,6 @@ fn testTlsGdNoPlt(b: *Build, opts: Options) *Step {
         exe.linkLibrary(b_so);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3 4 5 6\n");
@@ -2959,8 +2960,6 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3\n");
@@ -2976,8 +2975,6 @@ fn testTlsGdToIe(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("1 2 3\n");
@@ -3059,8 +3056,6 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -3073,8 +3068,6 @@ fn testTlsIe(b: *Build, opts: Options) *Step {
         exe.linkLibrary(dso);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -3130,8 +3123,6 @@ fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(c_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42 1 2 3\n");
@@ -3144,8 +3135,6 @@ fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.addObject(c_o);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42 1 2 3\n");
@@ -3179,8 +3168,6 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 0 5 0 0 0\n");
@@ -3203,8 +3190,6 @@ fn testTlsLargeStaticImage(b: *Build, opts: Options) *Step {
     , &.{});
     exe.root_module.pic = true;
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("1 2 3 0 5\n");
@@ -3249,8 +3234,6 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
         exe.addObject(main_o);
         exe.addObject(a_o);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -3263,8 +3246,6 @@ fn testTlsLd(b: *Build, opts: Options) *Step {
         exe.addObject(a_o);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual(exp_stdout);
@@ -3298,8 +3279,6 @@ fn testTlsLdDso(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("1 2\n");
@@ -3343,8 +3322,6 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
         exe.addObject(a_o);
         exe.addObject(b_o);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("3 5 3 5\n");
@@ -3357,8 +3334,6 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.linkLibC();
         // exe.link_relax = false; // TODO
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("3 5 3 5\n");
@@ -3444,8 +3419,6 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
     exe.root_module.pic = true;
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -3482,8 +3455,6 @@ fn testTlsPic(b: *Build, opts: Options) *Step {
     , &.{});
     exe.addObject(obj);
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 5 3 5\n");
@@ -3531,8 +3502,6 @@ fn testTlsSmallAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(b_o);
         exe.addObject(c_o);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -3548,8 +3517,6 @@ fn testTlsSmallAlignment(b: *Build, opts: Options) *Step {
         exe.addObject(c_o);
         exe.linkLibrary(dso);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("42\n");
@@ -3700,8 +3667,6 @@ fn testWeakExports(b: *Build, opts: Options) *Step {
         const exe = addExecutable(b, opts, .{ .name = "main" });
         exe.addObject(obj);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const check = exe.checkObject();
         check.checkInDynamicSymtab();
@@ -3734,8 +3699,6 @@ fn testWeakUndefsDso(b: *Build, opts: Options) *Step {
         , &.{});
         exe.linkLibrary(dso);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("bar=-1\n");
@@ -3752,8 +3715,6 @@ fn testWeakUndefsDso(b: *Build, opts: Options) *Step {
         , &.{});
         exe.linkLibrary(dso);
         exe.linkLibC();
-        // https://github.com/ziglang/zig/issues/17619
-        exe.pie = true;
 
         const run = addRunArtifact(exe);
         run.expectStdOutEqual("bar=5\n");
@@ -3868,8 +3829,6 @@ fn testZText(b: *Build, opts: Options) *Step {
     , &.{});
     exe.linkLibrary(dso);
     exe.linkLibC();
-    // https://github.com/ziglang/zig/issues/17619
-    exe.pie = true;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3\n");

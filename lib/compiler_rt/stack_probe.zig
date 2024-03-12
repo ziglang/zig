@@ -8,8 +8,8 @@ const is_test = builtin.is_test;
 const is_gnu = abi.isGnu();
 const is_mingw = os_tag == .windows and is_gnu;
 
-const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Weak;
-const strong_linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .Internal else .Strong;
+const linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .weak;
+const strong_linkage: std.builtin.GlobalLinkage = if (builtin.is_test) .internal else .strong;
 pub const panic = @import("common.zig").panic;
 
 comptime {

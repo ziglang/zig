@@ -14,36 +14,13 @@ pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*an
 
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) usize;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: u32) c_int;
+pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
 pub extern "c" fn sysconf(sc: c_int) i64;
 pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
 pub extern "c" fn madvise(address: [*]u8, len: usize, advise: u32) c_int;
 
-pub const pthread_mutex_t = extern struct {
-    flag1: u16 = 0,
-    flag2: u8 = 0,
-    ceiling: u8 = 0,
-    type: u16 = 0,
-    magic: u16 = 0x4d58,
-    lock: u64 = 0,
-    data: u64 = 0,
-};
-pub const pthread_cond_t = extern struct {
-    flag: [4]u8 = [_]u8{0} ** 4,
-    type: u16 = 0,
-    magic: u16 = 0x4356,
-    data: u64 = 0,
-};
-pub const pthread_rwlock_t = extern struct {
-    readers: i32 = 0,
-    type: u16 = 0,
-    magic: u16 = 0x5257,
-    mutex: pthread_mutex_t = .{},
-    readercv: pthread_cond_t = .{},
-    writercv: pthread_cond_t = .{},
-};
 pub const pthread_attr_t = extern struct {
     mutexattr: ?*anyopaque = null,
 };
@@ -266,17 +243,13 @@ pub const MAXNAMLEN = 511;
 
 pub const dirent = extern struct {
     /// Inode number of entry.
-    d_ino: ino_t,
+    ino: ino_t,
     /// Offset of this entry on disk.
-    d_off: off_t,
+    off: off_t,
     /// Length of this record.
-    d_reclen: u16,
+    reclen: u16,
     /// File name.
-    d_name: [MAXNAMLEN:0]u8,
-
-    pub fn reclen(self: dirent) u16 {
-        return self.d_reclen;
-    }
+    name: [MAXNAMLEN:0]u8,
 };
 
 pub const SOCK = struct {
@@ -523,27 +496,6 @@ pub const CLOCK = struct {
     pub const PROF = THREAD_CPUTIME_ID;
 };
 
-pub const MAP = struct {
-    pub const FAILED = @as(*anyopaque, @ptrFromInt(maxInt(usize)));
-    pub const SHARED = 0x0001;
-    pub const PRIVATE = 0x0002;
-    pub const TYPE = 0x000f;
-
-    pub const FILE = 0x0000;
-    pub const FIXED = 0x0010;
-    // Unimplemented
-    pub const RENAME = 0x0020;
-    pub const NORESERVE = 0x0040;
-    /// Force mapping in lower 4G address space
-    pub const @"32BIT" = 0x0080;
-
-    pub const ANON = 0x0100;
-    pub const ANONYMOUS = ANON;
-    pub const ALIGN = 0x0200;
-    pub const TEXT = 0x0400;
-    pub const INITDATA = 0x0800;
-};
-
 pub const MSF = struct {
     pub const ASYNC = 1;
     pub const INVALIDATE = 2;
@@ -729,32 +681,6 @@ pub const F = struct {
     pub const RMDNY = 0x4;
 };
 
-pub const O = struct {
-    pub const RDONLY = 0;
-    pub const WRONLY = 1;
-    pub const RDWR = 2;
-    pub const SEARCH = 0x200000;
-    pub const EXEC = 0x400000;
-    pub const NDELAY = 0x04;
-    pub const APPEND = 0x08;
-    pub const SYNC = 0x10;
-    pub const DSYNC = 0x40;
-    pub const RSYNC = 0x8000;
-    pub const NONBLOCK = 0x80;
-    pub const LARGEFILE = 0x2000;
-
-    pub const CREAT = 0x100;
-    pub const TRUNC = 0x200;
-    pub const EXCL = 0x400;
-    pub const NOCTTY = 0x800;
-    pub const XATTR = 0x4000;
-    pub const NOFOLLOW = 0x20000;
-    pub const NOLINKS = 0x40000;
-    pub const CLOEXEC = 0x800000;
-    pub const DIRECTORY = 0x1000000;
-    pub const DIRECT = 0x2000000;
-};
-
 pub const LOCK = struct {
     pub const SH = 1;
     pub const EX = 2;
@@ -770,20 +696,6 @@ pub const SEEK = struct {
     pub const END = 2;
     pub const DATA = 3;
     pub const HOLE = 4;
-};
-
-pub const tcflag_t = c_uint;
-pub const cc_t = u8;
-pub const speed_t = c_uint;
-
-pub const NCCS = 19;
-
-pub const termios = extern struct {
-    c_iflag: tcflag_t,
-    c_oflag: tcflag_t,
-    c_cflag: tcflag_t,
-    c_lflag: tcflag_t,
-    c_cc: [NCCS]cc_t,
 };
 
 fn tioc(t: u16, num: u8) u16 {
@@ -1449,23 +1361,6 @@ pub const S = struct {
     pub fn ISPORT(m: u32) bool {
         return m & IFMT == IFPORT;
     }
-};
-
-pub const AT = struct {
-    /// Magic value that specify the use of the current working directory
-    /// to determine the target of relative file paths in the openat() and
-    /// similar syscalls.
-    pub const FDCWD = @as(fd_t, @bitCast(@as(u32, 0xffd19553)));
-
-    /// Do not follow symbolic links
-    pub const SYMLINK_NOFOLLOW = 0x1000;
-    /// Follow symbolic link
-    pub const SYMLINK_FOLLOW = 0x2000;
-    /// Remove directory instead of file
-    pub const REMOVEDIR = 0x1;
-    pub const TRIGGER = 0x2;
-    /// Check access using effective user and group ID
-    pub const EACCESS = 0x4;
 };
 
 pub const POSIX_FADV = struct {
