@@ -3113,13 +3113,18 @@ pub fn ensureDeclAnalyzed(mod: *Module, decl_index: Decl.Index) SemaError!void {
     }
 }
 
-pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, func_index: InternPool.Index) SemaError!void {
+pub fn ensureFuncBodyAnalyzed(zcu: *Zcu, maybe_coerced_func_index: InternPool.Index) SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const func = zcu.funcInfo(func_index);
+
+    // We only care about the uncoerced function.
+    // We need to do this for the "orphaned function" check below to be valid.
+    const func_index = ip.unwrapCoercedFunc(maybe_coerced_func_index);
+
+    const func = zcu.funcInfo(maybe_coerced_func_index);
     const decl_index = func.owner_decl;
     const decl = zcu.declPtr(decl_index);
 

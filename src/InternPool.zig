@@ -9223,7 +9223,7 @@ pub fn funcTypeParamsLen(ip: *const InternPool, i: Index) u32 {
     return ip.extra.items[start + std.meta.fieldIndex(Tag.TypeFunction, "params_len").?];
 }
 
-fn unwrapCoercedFunc(ip: *const InternPool, i: Index) Index {
+pub fn unwrapCoercedFunc(ip: *const InternPool, i: Index) Index {
     const tags = ip.items.items(.tag);
     return switch (tags[@intFromEnum(i)]) {
         .func_coerced => {
