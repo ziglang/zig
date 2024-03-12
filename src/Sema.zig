@@ -25421,7 +25421,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         // Change the dest to a slice, since its type must have the length.
         const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
         if (std.builtin.RuntimeSafety.analyze_slice2) {
-            new_dest_ptr = try RuntimeSafety.analyzeSlice2(sema, block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .none, .unneeded, dest_src, dest_src, dest_src, .slice_length);
+            new_dest_ptr = try RuntimeSafety.analyzeSlice2(sema, block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .none, dest_src, dest_src, dest_src, .unneeded, .slice_end);
         } else {
             new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, .unneeded, dest_src, dest_src, dest_src, false);
         }
@@ -40067,9 +40067,9 @@ pub const RuntimeSafety = struct {
         const src: LazySrcLoc = inst_data.src();
         const extra: Zir.Inst.SliceStart = sema.code.extraData(Zir.Inst.SliceStart, inst_data.payload_index).data;
         const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const start: Air.Inst.Ref = try sema.resolveInst(extra.start);
-        const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
         const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
+        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
+        const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
         const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
         return analyzeSlice2(sema, block, src, array_ptr, start, .none, .none, .none, ptr_src, start_src, end_src, .unneeded, .slice_start);
     }
@@ -40078,10 +40078,10 @@ pub const RuntimeSafety = struct {
         const src: LazySrcLoc = inst_data.src();
         const extra: Zir.Inst.SliceEnd = sema.code.extraData(Zir.Inst.SliceEnd, inst_data.payload_index).data;
         const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const start: Air.Inst.Ref = try sema.resolveInst(extra.start);
+        const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
+        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
         const end: Air.Inst.Ref = try sema.resolveInst(extra.end);
         const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
-        const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
         const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
         return analyzeSlice2(sema, block, src, array_ptr, start, end, .none, .none, ptr_src, start_src, end_src, .unneeded, .slice_end);
     }
@@ -40090,11 +40090,11 @@ pub const RuntimeSafety = struct {
         const src = inst_data.src();
         const extra: Zir.Inst.SliceSentinel = sema.code.extraData(Zir.Inst.SliceSentinel, inst_data.payload_index).data;
         const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const start: Air.Inst.Ref = try sema.resolveInst(extra.start);
+        const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
+        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
         const end: Air.Inst.Ref = if (extra.end == .none) .none else try sema.resolveInst(extra.end);
         const sentinel: Air.Inst.Ref = try sema.resolveInst(extra.sentinel);
         const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
-        const start_src: LazySrcLoc = .{ .node_offset_slice_start = inst_data.src_node };
         const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
         const sentinel_src: LazySrcLoc = .{ .node_offset_slice_sentinel = inst_data.src_node };
         return analyzeSlice2(sema, block, src, array_ptr, start, end, .none, sentinel, ptr_src, start_src, end_src, sentinel_src, .slice_sentinel);
@@ -40104,14 +40104,14 @@ pub const RuntimeSafety = struct {
         const src = inst_data.src();
         const extra: Zir.Inst.SliceLength = sema.code.extraData(Zir.Inst.SliceLength, inst_data.payload_index).data;
         const array_ptr: Air.Inst.Ref = try sema.resolveInst(extra.lhs);
-        const start: Air.Inst.Ref = try sema.resolveInst(extra.start);
         const len: Air.Inst.Ref = try sema.resolveInst(extra.len);
         const ptr_src: LazySrcLoc = .{ .node_offset_slice_ptr = inst_data.src_node };
         const start_src: LazySrcLoc = .{ .node_offset_slice_start = extra.start_src_node_offset };
-        const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
+        const start: Air.Inst.Ref = try sema.coerce(block, Type.usize, try sema.resolveInst(extra.start), start_src);
         const sentinel: Air.Inst.Ref = if (extra.sentinel == .none) .none else try sema.resolveInst(extra.sentinel);
         const sentinel_src: LazySrcLoc = if (sentinel == .none) .unneeded else .{ .node_offset_slice_sentinel = inst_data.src_node };
-        const end: Air.Inst.Ref = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
+        const end_src: LazySrcLoc = .{ .node_offset_slice_end = inst_data.src_node };
+        const end: Air.Inst.Ref = try sema.analyzeArithmetic(block, .addwrap, start, len, src, start_src, end_src, false);
         return analyzeSlice2(sema, block, src, array_ptr, start, end, len, sentinel, ptr_src, start_src, end_src, sentinel_src, .slice_length);
     }
     const SliceAnalysis = packed struct(u32) {
@@ -40208,7 +40208,7 @@ pub const RuntimeSafety = struct {
         block: *Block,
         src: LazySrcLoc,
         operand: Air.Inst.Ref,
-        uncasted_dest_start: Air.Inst.Ref,
+        dest_start: Air.Inst.Ref,
         uncasted_dest_end_opt: Air.Inst.Ref,
         uncasted_dest_len_opt: Air.Inst.Ref,
         dest_sent_opt: Air.Inst.Ref,
@@ -40309,13 +40309,13 @@ pub const RuntimeSafety = struct {
         // * Use the type information `Array.len` if Array.
         // * Use the value `ptr.len` if Slice.
         // * Use the base/parent type and offset if comptime-known `Many` or `C`.
-        const uncasted_src_len_opt: Air.Inst.Ref = switch (src_ptr_ty_size) {
+        const src_len: Air.Inst.Ref = switch (src_ptr_ty_size) {
             .One => if (ptr_child_ty_tag == .Array)
                 try sema.mod.intRef(Type.usize, ptr_child_ty.arrayLen(sema.mod))
             else
-                Air.Inst.Ref.one,
+                Air.Inst.Ref.one_usize,
             .Slice => if (sa.src_ptr == .unknown)
-                Air.Inst.Ref.zero
+                Air.Inst.Ref.zero_usize
             else
                 try sema.analyzeSliceLen(block, operand_src, src_ptr),
             .C, .Many => blk: {
@@ -40331,9 +40331,9 @@ pub const RuntimeSafety = struct {
         };
         // Attempt to resolve the pointer length.
         const src_len_val: Value = blk: {
-            if (uncasted_src_len_opt != .none) {
+            if (src_len != .none) {
                 sa.src_len = .variable;
-                if (try sema.resolveDefinedValue(block, operand_src, uncasted_src_len_opt)) |val| {
+                if (try sema.resolveDefinedValue(block, operand_src, src_len)) |val| {
                     sa.src_len = .known;
                     break :blk val;
                 }
@@ -40342,11 +40342,28 @@ pub const RuntimeSafety = struct {
         };
         // The start index is not optional, so `unknown` means that start is
         // equivalent to `Value.zero_usize`.
-        const dest_start: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_start, dest_start_src);
         const dest_start_val: Value = blk: {
             if (try sema.resolveDefinedValue(block, dest_start_src, dest_start)) |val| {
                 sa.dest_start = if (try sema.compareAll(val, .eq, Value.zero_usize, Type.usize)) .unknown else .known;
                 break :blk val;
+            }
+            break :blk Value.undef;
+        };
+        // Coerce end operand.
+        const dest_end: Air.Inst.Ref = blk: {
+            if (uncasted_dest_end_opt != .none) {
+                break :blk try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
+            }
+            break :blk .none;
+        };
+        // Attempt to resolve the value of the end index.
+        const dest_end_val: Value = blk: {
+            if (dest_end != .none) {
+                sa.dest_end = .variable;
+                if (try sema.resolveDefinedValue(block, dest_end_src, dest_end)) |val| {
+                    sa.dest_end = .known;
+                    break :blk val;
+                }
             }
             break :blk Value.undef;
         };
@@ -40367,14 +40384,12 @@ pub const RuntimeSafety = struct {
                 break :blk try sema.coerce(block, Type.usize, uncasted_dest_len_opt, dest_end_src);
             }
             if (uncasted_dest_end_opt != .none) {
-                const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
                 if (sa.dest_start != .unknown) {
                     break :blk try sema.analyzeArithmetic(block, .subwrap, dest_end, dest_start, src, dest_end_src, dest_start_src, false);
                 }
                 break :blk dest_end;
             }
-            if (uncasted_src_len_opt != .none) {
-                const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len_opt, operand_src);
+            if (src_len != .none) {
                 if (sa.dest_start != .unknown) {
                     break :blk try sema.analyzeArithmetic(block, .subwrap, src_len, dest_start, src, operand_src, dest_start_src, false);
                 }
@@ -40388,17 +40403,6 @@ pub const RuntimeSafety = struct {
                 sa.dest_len = .variable;
                 if (try sema.resolveDefinedValue(block, src, dest_len)) |val| {
                     sa.dest_len = .known;
-                    break :blk val;
-                }
-            }
-            break :blk Value.undef;
-        };
-        // Attempt to resolve the value of the end index.
-        const dest_end_val: Value = blk: {
-            if (uncasted_dest_end_opt != .none) {
-                sa.dest_end = .variable;
-                if (try sema.resolveDefinedValue(block, dest_end_src, uncasted_dest_end_opt)) |val| {
-                    sa.dest_end = .known;
                     break :blk val;
                 }
             }
@@ -40500,9 +40504,7 @@ pub const RuntimeSafety = struct {
         //
         // A compile time check is desirable because `dest_len` might be
         // runtime-known, meaning `dest_end` is also runtime-known.
-        if (uncasted_dest_end_opt != .none and
-            sa.start_le_end == .known and sa.start_le_len == .variable)
-        {
+        if (uncasted_dest_end_opt != .none and sa.start_le_len == .variable) {
             sa.start_le_len = .unknown;
         }
         // This should never happen, but there is no harm leaving the compile-time
@@ -40552,26 +40554,26 @@ pub const RuntimeSafety = struct {
         };
         // ATTENTION: Remove `feature_allow_slice_to_sentinel`.
         //            Compute sentinel-extended source pointer length.
-        const uncasted_src_len2_opt: Air.Inst.Ref = blk: {
+        const src_len2: Air.Inst.Ref = blk: {
             // `slice_start` preserves the source sentinel for all source
             // pointer sizes with an explicit length. The length can never be
             // extended.
             if (kind == .slice_start and src_ptr_explicit_len) {
-                break :blk uncasted_src_len_opt;
+                break :blk src_len;
             }
             if (feature_allow_slice_to_sentinel and
                 sa.src_sent == .known and
                 sa.dest_sent == .unknown)
             {
-                break :blk try sema.analyzeArithmetic(block, .add, uncasted_src_len_opt, .one, src, operand_src, dest_sent_src, src_ptr_ty_is_allowzero);
+                break :blk try sema.analyzeArithmetic(block, .add, src_len, .one, src, operand_src, dest_sent_src, src_ptr_ty_is_allowzero);
             }
-            break :blk uncasted_src_len_opt;
+            break :blk src_len;
         };
         // ATTENTION: Remove with `feature_allow_slice_to_sentinel`.
         //            Attempt to resolve sentinel-extended source pointer length.
         const src_len2_val: Value = blk: {
-            if (uncasted_src_len2_opt != .none) {
-                if (try sema.resolveDefinedValue(block, operand_src, uncasted_src_len2_opt)) |val| {
+            if (src_len2 != .none) {
+                if (try sema.resolveDefinedValue(block, operand_src, src_len2)) |val| {
                     break :blk val;
                 }
             }
@@ -40702,19 +40704,14 @@ pub const RuntimeSafety = struct {
             if (Package.Module.runtime_safety.accessed_out_of_order != .none) {
                 const cmp_op: Air.Inst.Tag = if (sa.dest_sent == .known and sa.src_sent == .unknown) .cmp_lt else .cmp_lte;
                 if (sa.start_le_len == .variable) {
-                    const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len2_opt, operand_src);
-                    try checkAccessOutOfOrder(sema, block, src, dest_start, src_len);
-                } else if (sa.start_le_end == .variable and sa.end_le_len == .variable) {
-                    const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
-                    const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len2_opt, operand_src);
-                    try checkAccessOutOfOrderExtra(sema, block, src, dest_start, dest_end, src_len, cmp_op);
+                    try checkAccessOutOfOrder(sema, block, src, dest_start, src_len2);
+                }
+                if (sa.start_le_end == .variable and sa.end_le_len == .variable) {
+                    try checkAccessOutOfOrderExtra(sema, block, src, dest_start, dest_end, src_len2, cmp_op);
                 } else if (sa.start_le_end == .variable) {
-                    const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
                     try checkAccessOutOfOrder(sema, block, src, dest_start, dest_end);
                 } else if (sa.end_le_len == .variable) {
-                    const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_dest_end_opt, dest_end_src);
-                    const src_len: Air.Inst.Ref = try sema.coerce(block, Type.usize, uncasted_src_len2_opt, operand_src);
-                    try checkAccessOutOfBounds(sema, block, src, dest_end, src_len, cmp_op);
+                    try checkAccessOutOfBounds(sema, block, src, dest_end, src_len2, cmp_op);
                 }
             }
             // Execute nullptr check:
@@ -40727,8 +40724,7 @@ pub const RuntimeSafety = struct {
             // Execute sentinel check:
             if (Package.Module.runtime_safety.mismatched_sentinel != .none) {
                 if (sa.eq_sentinel == .variable) {
-                    const dest_end: Air.Inst.Ref = try sema.coerce(block, Type.usize, dest_len, dest_end_src);
-                    const actual_sent_ptr: Air.Inst.Ref = try block.addPtrElemPtr(dest_ptr, dest_end, elem_ptr_ty);
+                    const actual_sent_ptr: Air.Inst.Ref = try block.addPtrElemPtr(dest_ptr, dest_len, elem_ptr_ty);
                     if (elem_ty.ip_index == Type.u8.ip_index and dest_sent_val.eql(Value.zero_u8, Type.u8, sema.mod)) {
                         try checkMismatchedNullTerminator(sema, block, src, elem_ty, actual_sent_ptr);
                     } else {
@@ -40751,14 +40747,12 @@ pub const RuntimeSafety = struct {
                     sa.dest_sent = .known;
                     break :blk Value.toIntern(src_sent_val);
                 }
-            } else {
-                if (sa.src_sent == .known and
-                    sa.src_len.min(sa.dest_end) == .known and
-                    try sema.compareScalar(src_len_val, .eq, dest_end_val, Type.usize))
-                {
-                    sa.dest_sent = .known;
-                    break :blk Value.toIntern(src_sent_val);
-                }
+            } else if (sa.src_sent == .known and
+                sa.src_len.min(sa.dest_end) == .known and
+                try sema.compareScalar(src_len_val, .eq, dest_end_val, Type.usize))
+            {
+                sa.dest_sent = .known;
+                break :blk Value.toIntern(src_sent_val);
             }
             break :blk .none;
         };
