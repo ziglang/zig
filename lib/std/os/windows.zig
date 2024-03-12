@@ -153,14 +153,131 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     }
 }
 
-pub const CreatePipeError = error{Unexpected};
+pub const CreatePipeError = error{ Unexpected, SystemResources };
 
+var npfs: ?HANDLE = null;
+
+/// A Zig wrapper around `NtCreateNamedPipeFile` and `NtCreateFile` syscalls.
+/// It implements similar behavior to `CreatePipe` and is meant to serve
+/// as a direct substitute for that call.
 pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) CreatePipeError!void {
-    if (kernel32.CreatePipe(rd, wr, sattr, 0) == 0) {
-        switch (kernel32.GetLastError()) {
-            else => |err| return unexpectedError(err),
+    // Up to NT 5.2 (Windows XP/Server 2003), `CreatePipe` would generate a pipe similar to:
+    //
+    //      \??\pipe\Win32Pipes.{pid}.{count}
+    //
+    // where `pid` is the process id and count is a incrementing counter.
+    // The implementation was changed after NT 6.0 (Vista) to open a handle to the Named Pipe File System
+    // and use that as the root directory for `NtCreateNamedPipeFile`.
+    // This object is visible under the NPFS but has no filename attached to it.
+    //
+    // This implementation replicates how `CreatePipe` works in modern Windows versions.
+    const opt_dev_handle = @atomicLoad(?HANDLE, &npfs, .seq_cst);
+    const dev_handle = opt_dev_handle orelse blk: {
+        const str = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\NamedPipe\\");
+        const len: u16 = @truncate(str.len * @sizeOf(u16));
+        const name = UNICODE_STRING{
+            .Length = len,
+            .MaximumLength = len,
+            .Buffer = @constCast(@ptrCast(str)),
+        };
+        const attrs = OBJECT_ATTRIBUTES{
+            .ObjectName = @constCast(&name),
+            .Length = @sizeOf(OBJECT_ATTRIBUTES),
+            .RootDirectory = null,
+            .Attributes = 0,
+            .SecurityDescriptor = null,
+            .SecurityQualityOfService = null,
+        };
+
+        var iosb: IO_STATUS_BLOCK = undefined;
+        var handle: HANDLE = undefined;
+        switch (ntdll.NtCreateFile(
+            &handle,
+            GENERIC_READ | SYNCHRONIZE,
+            @constCast(&attrs),
+            &iosb,
+            null,
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_OPEN,
+            FILE_SYNCHRONOUS_IO_NONALERT,
+            null,
+            0,
+        )) {
+            .SUCCESS => {},
+            // Judging from the ReactOS sources this is technically possible.
+            .INSUFFICIENT_RESOURCES => return error.SystemResources,
+            .INVALID_PARAMETER => unreachable,
+            else => |e| return unexpectedStatus(e),
         }
+        if (@cmpxchgStrong(?HANDLE, &npfs, null, handle, .seq_cst, .seq_cst)) |xchg| {
+            CloseHandle(handle);
+            break :blk xchg.?;
+        } else break :blk handle;
+    };
+
+    const name = UNICODE_STRING{ .Buffer = null, .Length = 0, .MaximumLength = 0 };
+    var attrs = OBJECT_ATTRIBUTES{
+        .ObjectName = @constCast(&name),
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = dev_handle,
+        .Attributes = OBJ_CASE_INSENSITIVE,
+        .SecurityDescriptor = sattr.lpSecurityDescriptor,
+        .SecurityQualityOfService = null,
+    };
+    if (sattr.bInheritHandle != 0) attrs.Attributes |= OBJ_INHERIT;
+
+    // 120 second relative timeout in 100ns units.
+    const default_timeout: LARGE_INTEGER = (-120 * std.time.ns_per_s) / 100;
+    var iosb: IO_STATUS_BLOCK = undefined;
+    var read: HANDLE = undefined;
+    switch (ntdll.NtCreateNamedPipeFile(
+        &read,
+        GENERIC_READ | FILE_WRITE_ATTRIBUTES | SYNCHRONIZE,
+        &attrs,
+        &iosb,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_CREATE,
+        FILE_SYNCHRONOUS_IO_NONALERT,
+        FILE_PIPE_BYTE_STREAM_TYPE,
+        FILE_PIPE_BYTE_STREAM_MODE,
+        FILE_PIPE_QUEUE_OPERATION,
+        1,
+        4096,
+        4096,
+        @constCast(&default_timeout),
+    )) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        else => |e| return unexpectedStatus(e),
     }
+    errdefer CloseHandle(read);
+
+    attrs.RootDirectory = read;
+
+    var write: HANDLE = undefined;
+    switch (ntdll.NtCreateFile(
+        &write,
+        FILE_GENERIC_WRITE,
+        &attrs,
+        &iosb,
+        null,
+        0,
+        FILE_SHARE_READ,
+        FILE_OPEN,
+        FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE,
+        null,
+        0,
+    )) {
+        .SUCCESS => {},
+        .INVALID_PARAMETER => unreachable,
+        .INSUFFICIENT_RESOURCES => return error.SystemResources,
+        else => |e| return unexpectedStatus(e),
+    }
+
+    rd.* = read;
+    wr.* = write;
 }
 
 pub fn CreateEventEx(attributes: ?*SECURITY_ATTRIBUTES, name: []const u8, flags: DWORD, desired_access: DWORD) !HANDLE {
@@ -1050,35 +1167,32 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @as(u64, @bitCast(result));
 }
 
-pub fn QueryObjectName(
-    handle: HANDLE,
-    out_buffer: []u16,
-) ![]u16 {
+pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) ![]u16 {
     const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
 
     const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
-    //buffer size is specified in bytes
+    // buffer size is specified in bytes
     const out_buffer_len = std.math.cast(ULONG, out_buffer_aligned.len * 2) orelse std.math.maxInt(ULONG);
-    //last argument would return the length required for full_buffer, not exposed here
-    const rc = ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null);
-    switch (rc) {
-        .SUCCESS => {
+    // last argument would return the length required for full_buffer, not exposed here
+    return switch (ntdll.NtQueryObject(handle, .ObjectNameInformation, info, out_buffer_len, null)) {
+        .SUCCESS => blk: {
             // info.Name.Buffer from ObQueryNameString is documented to be null (and MaximumLength == 0)
             // if the object was "unnamed", not sure if this can happen for file handles
-            if (info.Name.MaximumLength == 0) return error.Unexpected;
+            if (info.Name.MaximumLength == 0) break :blk error.Unexpected;
             // resulting string length is specified in bytes
             const path_length_unterminated = @divExact(info.Name.Length, 2);
-            return info.Name.Buffer[0..path_length_unterminated];
+            break :blk info.Name.Buffer.?[0..path_length_unterminated];
         },
-        .ACCESS_DENIED => return error.AccessDenied,
-        .INVALID_HANDLE => return error.InvalidHandle,
+        .ACCESS_DENIED => error.AccessDenied,
+        .INVALID_HANDLE => error.InvalidHandle,
         // triggered when the buffer is too small for the OBJECT_NAME_INFORMATION object (.INFO_LENGTH_MISMATCH),
         // or if the buffer is too small for the file path returned (.BUFFER_OVERFLOW, .BUFFER_TOO_SMALL)
-        .INFO_LENGTH_MISMATCH, .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => return error.NameTooLong,
-        else => |e| return unexpectedStatus(e),
-    }
+        .INFO_LENGTH_MISMATCH, .BUFFER_OVERFLOW, .BUFFER_TOO_SMALL => error.NameTooLong,
+        else => |e| unexpectedStatus(e),
+    };
 }
-test "QueryObjectName" {
+
+test QueryObjectName {
     if (builtin.os.tag != .windows)
         return;
 
@@ -3186,6 +3300,25 @@ pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
 pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;
 pub const FILE_ATTRIBUTE_VIRTUAL = 0x10000;
 
+pub const FILE_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x1ff;
+pub const FILE_GENERIC_READ = STANDARD_RIGHTS_READ | FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | SYNCHRONIZE;
+pub const FILE_GENERIC_WRITE = STANDARD_RIGHTS_WRITE | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES | FILE_WRITE_EA | FILE_APPEND_DATA | SYNCHRONIZE;
+pub const FILE_GENERIC_EXECUTE = STANDARD_RIGHTS_EXECUTE | FILE_READ_ATTRIBUTES | FILE_EXECUTE | SYNCHRONIZE;
+
+// Flags for NtCreateNamedPipeFile
+// NamedPipeType
+pub const FILE_PIPE_BYTE_STREAM_TYPE = 0x0;
+pub const FILE_PIPE_MESSAGE_TYPE = 0x1;
+pub const FILE_PIPE_ACCEPT_REMOTE_CLIENTS = 0x0;
+pub const FILE_PIPE_REJECT_REMOTE_CLIENTS = 0x2;
+pub const FILE_PIPE_TYPE_VALID_MASK = 0x3;
+// CompletionMode
+pub const FILE_PIPE_QUEUE_OPERATION = 0x0;
+pub const FILE_PIPE_COMPLETE_OPERATION = 0x1;
+// ReadMode
+pub const FILE_PIPE_BYTE_STREAM_MODE = 0x0;
+pub const FILE_PIPE_MESSAGE_MODE = 0x1;
+
 // flags for CreateEvent
 pub const CREATE_EVENT_INITIAL_SET = 0x00000002;
 pub const CREATE_EVENT_MANUAL_RESET = 0x00000001;
@@ -4151,7 +4284,7 @@ pub const OBJ_VALID_ATTRIBUTES = 0x000003F2;
 pub const UNICODE_STRING = extern struct {
     Length: c_ushort,
     MaximumLength: c_ushort,
-    Buffer: [*]WCHAR,
+    Buffer: ?[*]WCHAR,
 };
 
 pub const ACTIVATION_CONTEXT_DATA = opaque {};
