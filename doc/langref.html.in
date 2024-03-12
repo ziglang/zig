@@ -3115,7 +3115,7 @@ test "field parent pointer" {
 
 // You can return a struct from a function. This is how we do generics
 // in Zig:
-fn LinkedList(comptime T: type) type {
+fn LinkedList(T: type) type {
     return struct {
         pub const Node = struct {
             prev: ?*Node,
@@ -3433,7 +3433,7 @@ pub fn main() void {
     std.debug.print("function: {s}\n", .{@typeName(List(i32))});
 }
 
-fn List(comptime T: type) type {
+fn List(T: type) type {
     return struct {
         x: T,
     };
@@ -4213,7 +4213,7 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
 
-fn isFieldOptional(comptime T: type, field_index: usize) !bool {
+fn isFieldOptional(T: type, field_index: usize) !bool {
     const fields = @typeInfo(T).Struct.fields;
     return switch (field_index) {
         // This prong is analyzed twice with `idx` being a
@@ -4246,7 +4246,7 @@ fn isFieldOptionalUnrolled(field_index: usize) !bool {
       {#code_end#}
       <p>The {#syntax#}inline{#endsyntax#} keyword may also be combined with ranges:</p>
       {#code_begin|syntax|inline_prong_range#}
-fn isFieldOptional(comptime T: type, field_index: usize) !bool {
+fn isFieldOptional(T: type, field_index: usize) !bool {
     const fields = @typeInfo(T).Struct.fields;
     return switch (field_index) {
         inline 0...fields.len - 1 => |idx| @typeInfo(fields[idx].type) == .Optional,
@@ -4577,7 +4577,7 @@ test "inline while loop" {
     try expect(sum == 9);
 }
 
-fn typeNameLength(comptime T: type) usize {
+fn typeNameLength(T: type) usize {
     return @typeName(T).len;
 }
       {#code_end#}
@@ -4739,7 +4739,7 @@ test "inline for loop" {
     try expect(sum == 9);
 }
 
-fn typeNameLength(comptime T: type) usize {
+fn typeNameLength(T: type) usize {
     return @typeName(T).len;
 }
       {#code_end#}
@@ -5837,14 +5837,14 @@ test "merge error sets" {
       </p>
       {#code_begin|test|test_inferred_error_sets#}
 // With an inferred error set
-pub fn add_inferred(comptime T: type, a: T, b: T) !T {
+pub fn add_inferred(T: type, a: T, b: T) !T {
     const ov = @addWithOverflow(a, b);
     if (ov[1] != 0) return error.Overflow;
     return ov[0];
 }
 
 // With an explicit error set
-pub fn add_explicit(comptime T: type, a: T, b: T) Error!T {
+pub fn add_explicit(T: type, a: T, b: T) Error!T {
     const ov = @addWithOverflow(a, b);
     if (ov[1] != 0) return error.Overflow;
     return ov[0];
@@ -6859,7 +6859,7 @@ pub usingnamespace @cImport({
       Compile-time parameters is how Zig implements generics. It is compile-time duck typing.
       </p>
       {#code_begin|syntax|compile-time_duck_typing#}
-fn max(comptime T: type, a: T, b: T) T {
+fn max(T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
 fn gimmeTheBiggerFloat(a: f32, b: f32) f32 {
@@ -6885,7 +6885,7 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
       For example, if we were to introduce another function to the above snippet:
       </p>
       {#code_begin|test_err|test_unresolved_comptime_value|unable to resolve comptime value#}
-fn max(comptime T: type, a: T, b: T) T {
+fn max(T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
 test "try to pass a runtime type" {
@@ -6911,7 +6911,7 @@ fn foo(condition: bool) void {
       For example:
       </p>
       {#code_begin|test_err|test_comptime_mismatched_type|operator > not allowed for type 'bool'#}
-fn max(comptime T: type, a: T, b: T) T {
+fn max(T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
 test "try to compare bools" {
@@ -6924,7 +6924,7 @@ test "try to compare bools" {
       if we wanted to:
       </p>
       {#code_begin|test|test_comptime_max_with_bool#}
-fn max(comptime T: type, a: T, b: T) T {
+fn max(T: type, a: T, b: T) T {
     if (T == bool) {
         return a or b;
     } else if (a > b) {
@@ -7236,7 +7236,7 @@ test "variable values" {
 			Here is an example of a generic {#syntax#}List{#endsyntax#} data structure.
       </p>
       {#code_begin|syntax|generic_data_structure#}
-fn List(comptime T: type) type {
+fn List(T: type) type {
     return struct {
         items: []T,
         len: usize,
@@ -7729,7 +7729,7 @@ test "global assembly" {
 
       {#header_close#}
       {#header_open|@alignOf#}
-      <pre>{#syntax#}@alignOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <pre>{#syntax#}@alignOf(T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the number of bytes that this type should be aligned to
       for the current target to match the C ABI. When the child type of a pointer has
@@ -7747,7 +7747,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@as#}
-      <pre>{#syntax#}@as(comptime T: type, expression) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@as(T: type, expression) T{#endsyntax#}</pre>
       <p>
       Performs {#link|Type Coercion#}. This cast is allowed when the conversion is unambiguous and safe,
       and is the preferred way to convert between types, whenever possible.
@@ -7755,7 +7755,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@atomicLoad#}
-      <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@atomicLoad(T: type, ptr: *const T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
       <p>
       This builtin function atomically dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
       </p>
@@ -7768,7 +7768,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@atomicRmw#}
-      <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: AtomicRmwOp, operand: T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@atomicRmw(T: type, ptr: *T, comptime op: AtomicRmwOp, operand: T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
       <p>
       This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically
       modifies the value and returns the previous value.
@@ -7783,7 +7783,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@atomicStore#}
-      <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: AtomicOrder) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@atomicStore(T: type, ptr: *T, value: T, comptime ordering: AtomicOrder) void{#endsyntax#}</pre>
       <p>
       This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically stores the given value.
       </p>
@@ -7820,7 +7820,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@bitOffsetOf#}
-      <pre>{#syntax#}@bitOffsetOf(comptime T: type, comptime field_name: []const u8) comptime_int{#endsyntax#}</pre>
+      <pre>{#syntax#}@bitOffsetOf(T: type, comptime field_name: []const u8) comptime_int{#endsyntax#}</pre>
       <p>
       Returns the bit offset of a field relative to its containing struct.
       </p>
@@ -7833,7 +7833,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@bitSizeOf#}
-      <pre>{#syntax#}@bitSizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <pre>{#syntax#}@bitSizeOf(T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the number of bits it takes to store {#syntax#}T{#endsyntax#} in memory if the type
       were a field in a packed struct/union.
@@ -7860,7 +7860,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@mulAdd#}
-      <pre>{#syntax#}@mulAdd(comptime T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@mulAdd(T: type, a: T, b: T, c: T) T{#endsyntax#}</pre>
       <p>
       Fused multiply-add, similar to {#syntax#}(a * b) + c{#endsyntax#}, except
       only rounds once, and is thus more accurate.
@@ -7901,7 +7901,7 @@ comptime {
       {#header_close#}
 
       {#header_open|@offsetOf#}
-      <pre>{#syntax#}@offsetOf(comptime T: type, comptime field_name: []const u8) comptime_int{#endsyntax#}</pre>
+      <pre>{#syntax#}@offsetOf(T: type, comptime field_name: []const u8) comptime_int{#endsyntax#}</pre>
       <p>
       Returns the byte offset of a field relative to its containing struct.
       </p>
@@ -8042,14 +8042,14 @@ pub const CallModifier = enum {
       {#header_close#}
 
       {#header_open|@cmpxchgStrong#}
-      <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
+      <pre>{#syntax#}@cmpxchgStrong(T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
       if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#code_begin|syntax|not_atomic_cmpxchgStrong#}
-fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {
+fn cmpxchgStrongButNotAtomic(T: type, ptr: *T, expected_value: T, new_value: T) ?T {
     const old_value = ptr.*;
     if (old_value == expected_value) {
         ptr.* = new_value;
@@ -8073,14 +8073,14 @@ fn cmpxchgStrongButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_v
       {#header_close#}
 
       {#header_open|@cmpxchgWeak#}
-      <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
+      <pre>{#syntax#}@cmpxchgWeak(T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
       if the current value is not the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
-fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {
+fn cmpxchgWeakButNotAtomic(T: type, ptr: *T, expected_value: T, new_value: T) ?T {
     const old_value = ptr.*;
     if (old_value == expected_value and usuallyTrueButSometimesFalse()) {
         ptr.* = new_value;
@@ -8190,7 +8190,7 @@ test "main" {
       {#header_close#}
 
       {#header_open|@cVaArg#}
-      <pre>{#syntax#}@cVaArg(operand: *std.builtin.VaList, comptime T: type) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@cVaArg(operand: *std.builtin.VaList, T: type) T{#endsyntax#}</pre>
       <p>
       Implements the C macro {#syntax#}va_arg{#endsyntax#}.
       </p>
@@ -8881,7 +8881,7 @@ test "@wasmMemoryGrow" {
       {#header_close#}
 
       {#header_open|@select#}
-      <pre>{#syntax#}@select(comptime T: type, pred: @Vector(len, bool), a: @Vector(len, T), b: @Vector(len, T)) @Vector(len, T){#endsyntax#}</pre>
+      <pre>{#syntax#}@select(T: type, pred: @Vector(len, bool), a: @Vector(len, T), b: @Vector(len, T)) @Vector(len, T){#endsyntax#}</pre>
       <p>
       Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
       </p>
@@ -9047,7 +9047,7 @@ test "@setRuntimeSafety" {
       {#header_close#}
 
       {#header_open|@shuffle#}
-      <pre>{#syntax#}@shuffle(comptime E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
+      <pre>{#syntax#}@shuffle(E: type, a: @Vector(a_len, E), b: @Vector(b_len, E), comptime mask: @Vector(mask_len, i32)) @Vector(mask_len, E){#endsyntax#}</pre>
       <p>
       Constructs a new {#link|vector|Vectors#} by selecting elements from {#syntax#}a{#endsyntax#} and
       {#syntax#}b{#endsyntax#} based on {#syntax#}mask{#endsyntax#}.
@@ -9104,7 +9104,7 @@ test "vector @shuffle" {
       {#header_close#}
 
       {#header_open|@sizeOf#}
-      <pre>{#syntax#}@sizeOf(comptime T: type) comptime_int{#endsyntax#}</pre>
+      <pre>{#syntax#}@sizeOf(T: type) comptime_int{#endsyntax#}</pre>
       <p>
       This function returns the number of bytes it takes to store {#syntax#}T{#endsyntax#} in memory.
       The result is a target-specific compile time constant.
@@ -9388,7 +9388,7 @@ test "@This()" {
     try expect(list.length() == 4);
 }
 
-fn List(comptime T: type) type {
+fn List(T: type) type {
     return struct {
         const Self = @This();
 
@@ -9483,7 +9483,7 @@ test "integer truncation" {
       </ul>
       {#header_close#}
       {#header_open|@typeInfo#}
-      <pre>{#syntax#}@typeInfo(comptime T: type) std.builtin.Type{#endsyntax#}</pre>
+      <pre>{#syntax#}@typeInfo(T: type) std.builtin.Type{#endsyntax#}</pre>
       <p>
       Provides type reflection.
       </p>
@@ -9529,7 +9529,7 @@ test "no runtime side effects" {
     try expect(data == 0);
 }
 
-fn foo(comptime T: type, ptr: *T) T {
+fn foo(T: type, ptr: *T) T {
     ptr.* += 1;
     return ptr.*;
 }
@@ -11297,7 +11297,7 @@ fn ListTemplateFunction(comptime ChildType: type, comptime fixed_size: usize) ty
     return List(ChildType, fixed_size);
 }
 
-fn ShortList(comptime T: type, comptime n: usize) type {
+fn ShortList(T: type, comptime n: usize) type {
     return struct {
         field_name: [n]T,
         fn methodName() void {}
