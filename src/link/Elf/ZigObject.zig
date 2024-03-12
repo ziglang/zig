@@ -1436,10 +1436,10 @@ pub fn updateExports(
             }
         }
         const stb_bits: u8 = switch (exp.opts.linkage) {
-            .Internal => elf.STB_LOCAL,
-            .Strong => elf.STB_GLOBAL,
-            .Weak => elf.STB_WEAK,
-            .LinkOnce => {
+            .internal => elf.STB_LOCAL,
+            .strong => elf.STB_GLOBAL,
+            .weak => elf.STB_WEAK,
+            .link_once => {
                 try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
                 mod.failed_exports.putAssumeCapacityNoClobber(exp, try Module.ErrorMsg.create(
                     gpa,

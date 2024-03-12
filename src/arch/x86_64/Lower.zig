@@ -329,7 +329,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
     const is_obj_or_static_lib = switch (lower.output_mode) {
         .Exe => false,
         .Obj => true,
-        .Lib => lower.link_mode == .Static,
+        .Lib => lower.link_mode == .static,
     };
 
     const emit_prefix = prefix;

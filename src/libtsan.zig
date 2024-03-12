@@ -27,7 +27,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
 
     const root_name = "tsan";
     const output_mode = .Lib;
-    const link_mode = .Static;
+    const link_mode = .static;
     const target = comp.getTarget();
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,

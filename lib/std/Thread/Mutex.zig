@@ -72,23 +72,23 @@ const DebugImpl = struct {
     inline fn tryLock(self: *@This()) bool {
         const locking = self.impl.tryLock();
         if (locking) {
-            self.locking_thread.store(Thread.getCurrentId(), .Unordered);
+            self.locking_thread.store(Thread.getCurrentId(), .unordered);
         }
         return locking;
     }
 
     inline fn lock(self: *@This()) void {
         const current_id = Thread.getCurrentId();
-        if (self.locking_thread.load(.Unordered) == current_id and current_id != 0) {
+        if (self.locking_thread.load(.unordered) == current_id and current_id != 0) {
             @panic("Deadlock detected");
         }
         self.impl.lock();
-        self.locking_thread.store(current_id, .Unordered);
+        self.locking_thread.store(current_id, .unordered);
     }
 
     inline fn unlock(self: *@This()) void {
-        assert(self.locking_thread.load(.Unordered) == Thread.getCurrentId());
-        self.locking_thread.store(0, .Unordered);
+        assert(self.locking_thread.load(.unordered) == Thread.getCurrentId());
+        self.locking_thread.store(0, .unordered);
         self.impl.unlock();
     }
 };
@@ -167,12 +167,12 @@ const FutexImpl = struct {
         // - `lock bts` is smaller instruction-wise which makes it better for inlining
         if (comptime builtin.target.cpu.arch.isX86()) {
             const locked_bit = @ctz(locked);
-            return self.state.bitSet(locked_bit, .Acquire) == 0;
+            return self.state.bitSet(locked_bit, .acquire) == 0;
         }
 
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        return self.state.cmpxchgWeak(unlocked, locked, .Acquire, .Monotonic) == null;
+        return self.state.cmpxchgWeak(unlocked, locked, .acquire, .monotonic) == null;
     }
 
     fn lockSlow(self: *@This()) void {
@@ -180,7 +180,7 @@ const FutexImpl = struct {
 
         // Avoid doing an atomic swap below if we already know the state is contended.
         // An atomic swap unconditionally stores which marks the cache-line as modified unnecessarily.
-        if (self.state.load(.Monotonic) == contended) {
+        if (self.state.load(.monotonic) == contended) {
             Futex.wait(&self.state, contended);
         }
 
@@ -193,7 +193,7 @@ const FutexImpl = struct {
         //
         // Acquire barrier ensures grabbing the lock happens before the critical section
         // and that the previous lock holder's critical section happens before we grab the lock.
-        while (self.state.swap(contended, .Acquire) != unlocked) {
+        while (self.state.swap(contended, .acquire) != unlocked) {
             Futex.wait(&self.state, contended);
         }
     }
@@ -206,7 +206,7 @@ const FutexImpl = struct {
         //
         // Release barrier ensures the critical section happens before we let go of the lock
         // and that our critical section happens before the next lock holder grabs the lock.
-        const state = self.state.swap(unlocked, .Release);
+        const state = self.state.swap(unlocked, .release);
         assert(state != unlocked);
 
         if (state == contended) {

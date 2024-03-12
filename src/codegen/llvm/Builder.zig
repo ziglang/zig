@@ -8398,7 +8398,7 @@ pub const Metadata = enum(u32) {
             fmt_str = fmt_str ++ ")\n";
 
             var fmt_args: @Type(.{ .Struct = .{
-                .layout = .Auto,
+                .layout = .auto,
                 .fields = &fields,
                 .decls = &.{},
                 .is_tuple = false,

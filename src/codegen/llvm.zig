@@ -1278,7 +1278,7 @@ pub const Object = struct {
 
         const reloc_mode: llvm.RelocMode = if (pic)
             .PIC
-        else if (self.module.comp.config.link_mode == .Dynamic)
+        else if (self.module.comp.config.link_mode == .dynamic)
             llvm.RelocMode.DynamicNoPIC
         else
             .Static;
@@ -1873,10 +1873,10 @@ pub const Object = struct {
         if (comp.config.dll_export_fns)
             global_index.setDllStorageClass(.dllexport, &o.builder);
         global_index.setLinkage(switch (exports[0].opts.linkage) {
-            .Internal => unreachable,
-            .Strong => .external,
-            .Weak => .weak_odr,
-            .LinkOnce => .linkonce_odr,
+            .internal => unreachable,
+            .strong => .external,
+            .weak => .weak_odr,
+            .link_once => .linkonce_odr,
         }, &o.builder);
         global_index.setVisibility(switch (exports[0].opts.visibility) {
             .default => .default,
@@ -3327,7 +3327,7 @@ pub const Object = struct {
 
                     const struct_type = ip.loadStructType(t.toIntern());
 
-                    if (struct_type.layout == .Packed) {
+                    if (struct_type.layout == .@"packed") {
                         const int_ty = try o.lowerType(Type.fromInterned(struct_type.backingIntType(ip).*));
                         try o.type_map.put(o.gpa, t.toIntern(), int_ty);
                         return int_ty;
@@ -3477,7 +3477,7 @@ pub const Object = struct {
                     const union_obj = ip.loadUnionType(t.toIntern());
                     const layout = mod.getUnionLayout(union_obj);
 
-                    if (union_obj.flagsPtr(ip).layout == .Packed) {
+                    if (union_obj.flagsPtr(ip).layout == .@"packed") {
                         const int_ty = try o.builder.intType(@intCast(t.bitSize(mod)));
                         try o.type_map.put(o.gpa, t.toIntern(), int_ty);
                         return int_ty;
@@ -4038,7 +4038,7 @@ pub const Object = struct {
                     const struct_type = ip.loadStructType(ty.toIntern());
                     assert(struct_type.haveLayout(ip));
                     const struct_ty = try o.lowerType(ty);
-                    if (struct_type.layout == .Packed) {
+                    if (struct_type.layout == .@"packed") {
                         comptime assert(Type.packed_struct_layout_version == 2);
                         var running_int = try o.builder.intConst(struct_ty, 0);
                         var running_bits: u16 = 0;
@@ -4154,7 +4154,7 @@ pub const Object = struct {
                 const payload = if (un.tag != .none) p: {
                     const field_index = mod.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
                     const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
-                    if (container_layout == .Packed) {
+                    if (container_layout == .@"packed") {
                         if (!field_ty.hasRuntimeBits(mod)) return o.builder.intConst(union_ty, 0);
                         const small_int_val = try o.builder.castConst(
                             if (field_ty.isPtrAtRuntime(mod)) .ptrtoint else .bitcast,
@@ -4190,7 +4190,7 @@ pub const Object = struct {
                 } else p: {
                     assert(layout.tag_size == 0);
                     const union_val = try o.lowerValue(un.val);
-                    if (container_layout == .Packed) {
+                    if (container_layout == .@"packed") {
                         const bitcast_val = try o.builder.castConst(
                             .bitcast,
                             union_val,
@@ -4324,7 +4324,7 @@ pub const Object = struct {
                 const field_index: u32 = @intCast(field_ptr.index);
                 switch (parent_ty.zigTypeTag(mod)) {
                     .Union => {
-                        if (parent_ty.containerLayout(mod) == .Packed) {
+                        if (parent_ty.containerLayout(mod) == .@"packed") {
                             return parent_ptr;
                         }
 
@@ -6531,7 +6531,7 @@ pub const FuncGen = struct {
             assert(!isByRef(field_ty, mod));
             switch (struct_ty.zigTypeTag(mod)) {
                 .Struct => switch (struct_ty.containerLayout(mod)) {
-                    .Packed => {
+                    .@"packed" => {
                         const struct_type = mod.typeToStruct(struct_ty).?;
                         const bit_offset = mod.structPackedFieldBitOffset(struct_type, field_index);
                         const containing_int = struct_llvm_val;
@@ -6558,7 +6558,7 @@ pub const FuncGen = struct {
                     },
                 },
                 .Union => {
-                    assert(struct_ty.containerLayout(mod) == .Packed);
+                    assert(struct_ty.containerLayout(mod) == .@"packed");
                     const containing_int = struct_llvm_val;
                     const elem_llvm_ty = try o.lowerType(field_ty);
                     if (field_ty.zigTypeTag(mod) == .Float or field_ty.zigTypeTag(mod) == .Vector) {
@@ -6581,7 +6581,7 @@ pub const FuncGen = struct {
         switch (struct_ty.zigTypeTag(mod)) {
             .Struct => {
                 const layout = struct_ty.containerLayout(mod);
-                assert(layout != .Packed);
+                assert(layout != .@"packed");
                 const struct_llvm_ty = try o.lowerType(struct_ty);
                 const llvm_field_index = o.llvmFieldIndex(struct_ty, field_index).?;
                 const field_ptr =
@@ -9995,7 +9995,7 @@ pub const FuncGen = struct {
                     return running_int;
                 }
 
-                assert(result_ty.containerLayout(mod) != .Packed);
+                assert(result_ty.containerLayout(mod) != .@"packed");
 
                 if (isByRef(result_ty, mod)) {
                     // TODO in debug builds init to undef so that the padding will be 0xaa
@@ -10080,7 +10080,7 @@ pub const FuncGen = struct {
         const layout = union_ty.unionGetLayout(mod);
         const union_obj = mod.typeToUnion(union_ty).?;
 
-        if (union_obj.getLayout(ip) == .Packed) {
+        if (union_obj.getLayout(ip) == .@"packed") {
             const big_bits = union_ty.bitSize(mod);
             const int_llvm_ty = try o.builder.intType(@intCast(big_bits));
             const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
@@ -10420,7 +10420,7 @@ pub const FuncGen = struct {
         const struct_ty = struct_ptr_ty.childType(mod);
         switch (struct_ty.zigTypeTag(mod)) {
             .Struct => switch (struct_ty.containerLayout(mod)) {
-                .Packed => {
+                .@"packed" => {
                     const result_ty = self.typeOfIndex(inst);
                     const result_ty_info = result_ty.ptrInfo(mod);
                     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(mod);
@@ -10462,7 +10462,7 @@ pub const FuncGen = struct {
             },
             .Union => {
                 const layout = struct_ty.unionGetLayout(mod);
-                if (layout.payload_size == 0 or struct_ty.containerLayout(mod) == .Packed) return struct_ptr;
+                if (layout.payload_size == 0 or struct_ty.containerLayout(mod) == .@"packed") return struct_ptr;
                 const payload_index = @intFromBool(layout.tag_align.compare(.gte, layout.payload_align));
                 const union_llvm_ty = try o.lowerType(struct_ty);
                 return self.wip.gepStruct(union_llvm_ty, struct_ptr, payload_index, "");
@@ -10801,12 +10801,12 @@ pub const FuncGen = struct {
 
 fn toLlvmAtomicOrdering(atomic_order: std.builtin.AtomicOrder) Builder.AtomicOrdering {
     return switch (atomic_order) {
-        .Unordered => .unordered,
-        .Monotonic => .monotonic,
-        .Acquire => .acquire,
-        .Release => .release,
-        .AcqRel => .acq_rel,
-        .SeqCst => .seq_cst,
+        .unordered => .unordered,
+        .monotonic => .monotonic,
+        .acquire => .acquire,
+        .release => .release,
+        .acq_rel => .acq_rel,
+        .seq_cst => .seq_cst,
     };
 }
 
@@ -11572,7 +11572,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
             };
 
             // Packed structs are represented to LLVM as integers.
-            if (struct_type.layout == .Packed) return false;
+            if (struct_type.layout == .@"packed") return false;
 
             const field_types = struct_type.field_types.get(ip);
             var it = struct_type.iterateRuntimeOrder(ip);
@@ -11586,7 +11586,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
             return false;
         },
         .Union => switch (ty.containerLayout(mod)) {
-            .Packed => return false,
+            .@"packed" => return false,
             else => return ty.hasRuntimeBits(mod),
         },
         .ErrorUnion => {
@@ -11624,8 +11624,8 @@ fn isScalar(mod: *Module, ty: Type) bool {
         .Vector,
         => true,
 
-        .Struct => ty.containerLayout(mod) == .Packed,
-        .Union => ty.containerLayout(mod) == .Packed,
+        .Struct => ty.containerLayout(mod) == .@"packed",
+        .Union => ty.containerLayout(mod) == .@"packed",
         else => false,
     };
 }

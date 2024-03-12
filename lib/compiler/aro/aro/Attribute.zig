@@ -653,7 +653,7 @@ pub const Arguments = blk: {
 
     break :blk @Type(.{
         .Union = .{
-            .layout = .Auto,
+            .layout = .auto,
             .tag_type = null,
             .fields = &union_fields,
             .decls = &.{},

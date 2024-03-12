@@ -8,7 +8,7 @@ const windows = std.os.windows;
 const system = std.os.system;
 
 pub const DynLib = switch (builtin.os.tag) {
-    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .Static)
+    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .static)
         ElfDynLib
     else
         DlDynLib,
@@ -56,7 +56,7 @@ const RDebug = extern struct {
 /// TODO make it possible to reference this same external symbol 2x so we don't need this
 /// helper function.
 pub fn get_DYNAMIC() ?[*]elf.Dyn {
-    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .Weak });
+    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
 }
 
 pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {

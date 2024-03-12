@@ -1440,7 +1440,7 @@ const Writer = struct {
         if (small.has_backing_int) {
             const backing_int_body_len = self.code.extra[extra_index];
             extra_index += 1;
-            try stream.writeAll("Packed(");
+            try stream.writeAll("packed(");
             if (backing_int_body_len == 0) {
                 const backing_int_ref: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
                 extra_index += 1;

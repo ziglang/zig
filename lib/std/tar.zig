@@ -1,22 +1,24 @@
-/// Tar archive is single ordinary file which can contain many files (or
-/// directories, symlinks, ...). It's build by series of blocks each size of 512
-/// bytes. First block of each entry is header which defines type, name, size
-/// permissions and other attributes. Header is followed by series of blocks of
-/// file content, if any that entry has content. Content is padded to the block
-/// size, so next header always starts at block boundary.
-///
-/// This simple format is extended by GNU and POSIX pax extensions to support
-/// file names longer than 256 bytes and additional attributes.
-///
-/// This is not comprehensive tar parser. Here we are only file types needed to
-/// support Zig package manager; normal file, directory, symbolic link. And
-/// subset of attributes: name, size, permissions.
-///
-/// GNU tar reference: https://www.gnu.org/software/tar/manual/html_node/Standard.html
-/// pax reference: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13
-///
+//! Tar archive is single ordinary file which can contain many files (or
+//! directories, symlinks, ...). It's build by series of blocks each size of 512
+//! bytes. First block of each entry is header which defines type, name, size
+//! permissions and other attributes. Header is followed by series of blocks of
+//! file content, if any that entry has content. Content is padded to the block
+//! size, so next header always starts at block boundary.
+//!
+//! This simple format is extended by GNU and POSIX pax extensions to support
+//! file names longer than 256 bytes and additional attributes.
+//!
+//! This is not comprehensive tar parser. Here we are only file types needed to
+//! support Zig package manager; normal file, directory, symbolic link. And
+//! subset of attributes: name, size, permissions.
+//!
+//! GNU tar reference: https://www.gnu.org/software/tar/manual/html_node/Standard.html
+//! pax reference: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/pax.html#tag_20_92_13
+
 const std = @import("std.zig");
 const assert = std.debug.assert;
+
+pub const output = @import("tar/output.zig");
 
 pub const Options = struct {
     /// Number of directory levels to skip when extracting files.

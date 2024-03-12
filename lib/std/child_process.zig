@@ -1420,7 +1420,7 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
         const pipe_path = std.fmt.bufPrintZ(
             &tmp_buf,
             "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
-            .{ windows.kernel32.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .Monotonic) },
+            .{ windows.kernel32.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .monotonic) },
         ) catch unreachable;
         const len = std.unicode.wtf8ToWtf16Le(&tmp_bufw, pipe_path) catch unreachable;
         tmp_bufw[len] = 0;

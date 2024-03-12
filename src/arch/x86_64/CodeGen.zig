@@ -2111,10 +2111,10 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .call_never_tail   => try self.airCall(inst, .never_tail),
             .call_never_inline => try self.airCall(inst, .never_inline),
 
-            .atomic_store_unordered => try self.airAtomicStore(inst, .Unordered),
-            .atomic_store_monotonic => try self.airAtomicStore(inst, .Monotonic),
-            .atomic_store_release   => try self.airAtomicStore(inst, .Release),
-            .atomic_store_seq_cst   => try self.airAtomicStore(inst, .SeqCst),
+            .atomic_store_unordered => try self.airAtomicStore(inst, .unordered),
+            .atomic_store_monotonic => try self.airAtomicStore(inst, .monotonic),
+            .atomic_store_release   => try self.airAtomicStore(inst, .release),
+            .atomic_store_seq_cst   => try self.airAtomicStore(inst, .seq_cst),
 
             .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
             .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -7962,8 +7962,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const src_mcv = try self.resolveInst(operand);
         const field_off: u32 = switch (container_ty.containerLayout(mod)) {
-            .Auto, .Extern => @intCast(container_ty.structFieldOffset(index, mod) * 8),
-            .Packed => if (mod.typeToStruct(container_ty)) |struct_type|
+            .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, mod) * 8),
+            .@"packed" => if (mod.typeToStruct(container_ty)) |struct_type|
                 mod.structPackedFieldBitOffset(struct_type, index)
             else
                 0,
@@ -11977,9 +11977,9 @@ fn airFrameAddress(self: *Self, inst: Air.Inst.Index) !void {
 fn airFence(self: *Self, inst: Air.Inst.Index) !void {
     const order = self.air.instructions.items(.data)[@intFromEnum(inst)].fence;
     switch (order) {
-        .Unordered, .Monotonic => unreachable,
-        .Acquire, .Release, .AcqRel => {},
-        .SeqCst => try self.asmOpOnly(.{ ._, .mfence }),
+        .unordered, .monotonic => unreachable,
+        .acquire, .release, .acq_rel => {},
+        .seq_cst => try self.asmOpOnly(.{ ._, .mfence }),
     }
     self.finishAirBookkeeping();
 }
@@ -15747,9 +15747,9 @@ fn atomicOp(
                 .Xor => .xor,
                 else => unreachable,
             } else switch (order) {
-                .Unordered, .Monotonic, .Release, .AcqRel => .mov,
-                .Acquire => unreachable,
-                .SeqCst => .xchg,
+                .unordered, .monotonic, .release, .acq_rel => .mov,
+                .acquire => unreachable,
+                .seq_cst => .xchg,
             };
 
             const dst_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
@@ -17979,7 +17979,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
         switch (result_ty.zigTypeTag(mod)) {
             .Struct => {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, mod));
-                if (result_ty.containerLayout(mod) == .Packed) {
+                if (result_ty.containerLayout(mod) == .@"packed") {
                     const struct_type = mod.typeToStruct(result_ty).?;
                     try self.genInlineMemset(
                         .{ .lea_frame = .{ .index = frame_index } },

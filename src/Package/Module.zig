@@ -178,7 +178,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
                 return error.PieRequiresPic;
             break :b true;
         }
-        if (options.global.link_mode == .Dynamic) {
+        if (options.global.link_mode == .dynamic) {
             if (options.inherited.pic == false)
                 return error.DynamicLinkingRequiresPic;
             break :b true;

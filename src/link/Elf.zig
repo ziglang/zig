@@ -206,6 +206,9 @@ num_ifunc_dynrelocs: usize = 0,
 /// List of atoms that are owned directly by the linker.
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 
+/// List of range extension thunks.
+thunks: std.ArrayListUnmanaged(Thunk) = .{},
+
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
 
@@ -255,11 +258,11 @@ pub fn createEmpty(
     };
 
     const page_size: u32 = switch (target.cpu.arch) {
-        .powerpc64le => 0x10000,
+        .aarch64, .powerpc64le => 0x10000,
         .sparc64 => 0x2000,
         else => 0x1000,
     };
-    const is_dyn_lib = output_mode == .Lib and link_mode == .Dynamic;
+    const is_dyn_lib = output_mode == .Lib and link_mode == .dynamic;
     const default_sym_version: elf.Elf64_Versym = if (is_dyn_lib or comp.config.rdynamic)
         elf.VER_NDX_GLOBAL
     else
@@ -346,7 +349,7 @@ pub fn createEmpty(
     }
 
     const is_obj = output_mode == .Obj;
-    const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .Static);
+    const is_obj_or_ar = is_obj or (output_mode == .Lib and link_mode == .static);
 
     // What path should this ELF linker code output to?
     // If using LLD to link, this code should produce an object file so that it
@@ -488,6 +491,7 @@ pub fn deinit(self: *Elf) void {
     self.start_stop_indexes.deinit(gpa);
 
     self.atoms.deinit(gpa);
+    self.thunks.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
     }
@@ -1176,10 +1180,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
 
                 success: {
                     if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .Dynamic))
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lc.crt_dir.?, lib_name, .static))
                         break :success;
 
                     try self.reportMissingLibraryError(
@@ -1207,8 +1211,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
             });
         } else if (target.isMusl()) {
             const path = try comp.get_libc_crt_file(arena, switch (link_mode) {
-                .Static => "libc.a",
-                .Dynamic => "libc.so",
+                .static => "libc.a",
+                .dynamic => "libc.so",
             });
             try system_libs.append(.{ .path = path });
         } else {
@@ -1373,7 +1377,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) 
     try self.writePhdrTable();
     try self.writeShdrTable();
     try self.writeAtoms();
-    try self.writeSyntheticSections();
+    self.writeSyntheticSections() catch |err| switch (err) {
+        error.RelocFailure => return error.FlushFailure,
+        error.UnsupportedCpuArch => {
+            try self.reportUnsupportedCpuArch();
+            return error.FlushFailure;
+        },
+        else => |e| return e,
+    };
 
     if (self.entry_index == null and self.base.isExe()) {
         log.debug("flushing. no_entry_point_found = true", .{});
@@ -1617,7 +1628,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
         // libc dep
         if (comp.config.link_libc) {
             if (self.base.comp.libc_installation != null) {
-                const needs_grouping = link_mode == .Static;
+                const needs_grouping = link_mode == .static;
                 if (needs_grouping) try argv.append("--start-group");
                 try argv.appendSlice(target_util.libcFullLinkFlags(target));
                 if (needs_grouping) try argv.append("--end-group");
@@ -1631,8 +1642,8 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
                 try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
             } else if (target.isMusl()) {
                 try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
-                    .Static => "libc.a",
-                    .Dynamic => "libc.so",
+                    .static => "libc.a",
+                    .dynamic => "libc.so",
                 }));
             }
         }
@@ -1786,10 +1797,10 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 // Maybe we should hoist search-strategy all the way here?
                 for (self.lib_dirs) |lib_dir| {
                     if (!self.base.isStatic()) {
-                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .Dynamic))
+                        if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .dynamic))
                             break :success;
                     }
-                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .Static))
+                    if (try self.accessLibPath(arena, &test_path, &checked_paths, lib_dir, lib_name, .static))
                         break :success;
                 }
             } else {
@@ -1847,8 +1858,8 @@ fn accessLibPath(
     test_path.clearRetainingCapacity();
     const prefix = if (link_mode != null) "lib" else "";
     const suffix = if (link_mode) |mode| switch (mode) {
-        .Static => target.staticLibSuffix(),
-        .Dynamic => target.dynamicLibSuffix(),
+        .static => target.staticLibSuffix(),
+        .dynamic => target.dynamicLibSuffix(),
     } else "";
     try test_path.writer().print("{s}" ++ sep ++ "{s}{s}{s}", .{
         lib_dir_path,
@@ -2098,7 +2109,6 @@ fn scanRelocs(self: *Elf) !void {
         }
         if (sym.flags.needs_tlsdesc) {
             log.debug("'{s}' needs TLSDESC", .{sym.name(self)});
-            try self.dynsym.addSymbol(index, self);
             try self.got.addTlsDescSymbol(index, self);
         }
     }
@@ -2140,10 +2150,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
     const is_obj = output_mode == .Obj;
     const is_lib = output_mode == .Lib;
     const link_mode = comp.config.link_mode;
-    const is_dyn_lib = link_mode == .Dynamic and is_lib;
+    const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
     const have_dynamic_linker = comp.config.link_libc and
-        link_mode == .Dynamic and is_exe_or_dyn_lib;
+        link_mode == .dynamic and is_exe_or_dyn_lib;
     const target = comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
@@ -2453,7 +2463,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             try argv.append(arg);
         }
 
-        if (link_mode == .Static) {
+        if (link_mode == .static) {
             if (target.cpu.arch.isArmOrThumb()) {
                 try argv.append("-Bstatic");
             } else {
@@ -2637,7 +2647,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             comp.link_error_flags.missing_libc = false;
             if (comp.config.link_libc) {
                 if (comp.libc_installation != null) {
-                    const needs_grouping = link_mode == .Static;
+                    const needs_grouping = link_mode == .static;
                     if (needs_grouping) try argv.append("--start-group");
                     try argv.appendSlice(target_util.libcFullLinkFlags(target));
                     if (needs_grouping) try argv.append("--end-group");
@@ -2651,8 +2661,8 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
                     try argv.append(try comp.get_libc_crt_file(arena, "libc_nonshared.a"));
                 } else if (target.isMusl()) {
                     try argv.append(try comp.get_libc_crt_file(arena, switch (link_mode) {
-                        .Static => "libc.a",
-                        .Dynamic => "libc.so",
+                        .static => "libc.a",
+                        .dynamic => "libc.so",
                     }));
                 } else {
                     comp.link_error_flags.missing_libc = true;
@@ -2918,8 +2928,8 @@ pub fn writeElfHeader(self: *Elf) !void {
         .Exe => if (comp.config.pie) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (link_mode) {
-            .Static => @as(elf.ET, .REL),
-            .Dynamic => .DYN,
+            .static => @as(elf.ET, .REL),
+            .dynamic => .DYN,
         },
     };
     mem.writeInt(u16, hdr_buf[index..][0..2], @intFromEnum(elf_type), endian);
@@ -3164,11 +3174,20 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
     }
 
     // _GLOBAL_OFFSET_TABLE_
-    if (self.got_plt_section_index) |shndx| {
-        const shdr = &self.shdrs.items[shndx];
-        const symbol_ptr = self.symbol(self.got_index.?);
-        symbol_ptr.value = shdr.sh_addr;
-        symbol_ptr.output_section_index = shndx;
+    if (self.getTarget().cpu.arch == .x86_64) {
+        if (self.got_plt_section_index) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            const sym = self.symbol(self.got_index.?);
+            sym.value = shdr.sh_addr;
+            sym.output_section_index = shndx;
+        }
+    } else {
+        if (self.got_section_index) |shndx| {
+            const shdr = self.shdrs.items[shndx];
+            const sym = self.symbol(self.got_index.?);
+            sym.value = shdr.sh_addr;
+            sym.output_section_index = shndx;
+        }
     }
 
     // _PROCEDURE_LINKAGE_TABLE_
@@ -3197,7 +3216,7 @@ fn allocateLinkerDefinedSymbols(self: *Elf) void {
 
     // __rela_iplt_start, __rela_iplt_end
     if (self.rela_dyn_section_index) |shndx| blk: {
-        if (link_mode != .Static or comp.config.pie) break :blk;
+        if (link_mode != .static or comp.config.pie) break :blk;
         const shdr = &self.shdrs.items[shndx];
         const end_addr = shdr.sh_addr + shdr.sh_size;
         const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
@@ -3578,7 +3597,7 @@ fn sortInitFini(self: *Elf) !void {
         }
     };
 
-    for (self.shdrs.items, 0..) |*shdr, shndx| {
+    for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
 
         var is_init_fini = false;
@@ -4023,6 +4042,8 @@ fn updateSectionSizes(self: *Elf) !void {
     const target = self.base.comp.root_mod.resolved_target.result;
     for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
         const shdr = &self.shdrs.items[shndx];
+        if (atom_list.items.len == 0) continue;
+        if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         for (atom_list.items) |atom_index| {
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
@@ -4031,6 +4052,17 @@ fn updateSectionSizes(self: *Elf) !void {
             atom_ptr.value = offset;
             shdr.sh_size += padding + atom_ptr.size;
             shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits(1));
+        }
+    }
+
+    if (self.requiresThunks()) {
+        for (self.output_sections.keys(), self.output_sections.values()) |shndx, atom_list| {
+            const shdr = self.shdrs.items[shndx];
+            if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
+            if (atom_list.items.len == 0) continue;
+
+            // Create jump/branch range extenders if needed.
+            try thunks.createThunks(shndx, self);
         }
     }
 
@@ -4047,7 +4079,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.plt_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.plt.size();
+        self.shdrs.items[index].sh_size = self.plt.size(self);
     }
 
     if (self.got_plt_section_index) |index| {
@@ -4055,7 +4087,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.plt_got_section_index) |index| {
-        self.shdrs.items[index].sh_size = self.plt_got.size();
+        self.shdrs.items[index].sh_size = self.plt_got.size(self);
     }
 
     if (self.rela_dyn_section_index) |shndx| {
@@ -4490,7 +4522,7 @@ fn writeAtoms(self: *Elf) !void {
         const buffer = try gpa.alloc(u8, sh_size);
         defer gpa.free(buffer);
         const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
-            shdr.sh_flags & elf.SHF_EXECINSTR != 0)
+            shdr.sh_flags & elf.SHF_EXECINSTR != 0 and self.getTarget().cpu.arch == .x86_64)
             0xcc // int3
         else
             0;
@@ -4559,6 +4591,13 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
     if (self.eh_frame_section_index) |_| {
         nlocals += 1;
+    }
+
+    for (self.thunks.items) |*th| {
+        th.output_symtab_ctx.ilocal = nlocals + 1;
+        th.calcSymtabSize(self);
+        nlocals += th.output_symtab_ctx.nlocals;
+        strsize += th.output_symtab_ctx.strsize;
     }
 
     for (files.items) |index| {
@@ -4692,14 +4731,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
-        eh_frame.writeEhFrame(self, buffer.writer()) catch |err| switch (err) {
-            error.RelocFailure => return error.FlushFailure,
-            error.UnsupportedCpuArch => {
-                try self.reportUnsupportedCpuArch();
-                return error.FlushFailure;
-            },
-            else => |e| return e,
-        };
+        try eh_frame.writeEhFrame(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
 
@@ -4731,7 +4763,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.plt_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size());
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size(self));
         defer buffer.deinit();
         try self.plt.write(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
@@ -4747,7 +4779,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.plt_got_section_index) |shndx| {
         const shdr = self.shdrs.items[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size());
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size(self));
         defer buffer.deinit();
         try self.plt_got.write(self, buffer.writer());
         try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
@@ -4797,6 +4829,10 @@ pub fn writeSymtab(self: *Elf) !void {
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
     self.writeSectionSymbols();
+
+    for (self.thunks.items) |th| {
+        th.writeSymtab(self);
+    }
 
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self);
@@ -5025,12 +5061,12 @@ const CsuObjects = struct {
         } = switch (comp.config.output_mode) {
             .Obj => return CsuObjects{},
             .Lib => switch (comp.config.link_mode) {
-                .Dynamic => .dynamic_lib,
-                .Static => return CsuObjects{},
+                .dynamic => .dynamic_lib,
+                .static => return CsuObjects{},
             },
             .Exe => switch (comp.config.link_mode) {
-                .Dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
-                .Static => if (comp.config.pie) .static_pie else .static_exe,
+                .dynamic => if (comp.config.pie) .dynamic_pie else .dynamic_exe,
+                .static => if (comp.config.pie) .static_pie else .static_exe,
             },
         };
 
@@ -5393,6 +5429,18 @@ pub fn addAtom(self: *Elf) !Atom.Index {
     return index;
 }
 
+pub fn addThunk(self: *Elf) !Thunk.Index {
+    const index = @as(Thunk.Index, @intCast(self.thunks.items.len));
+    const th = try self.thunks.addOne(self.base.comp.gpa);
+    th.* = .{};
+    return index;
+}
+
+pub fn thunk(self: *Elf, index: Thunk.Index) *Thunk {
+    assert(index < self.thunks.items.len);
+    return &self.thunks.items[index];
+}
+
 pub fn file(self: *Elf, index: File.Index) ?File {
     const tag = self.files.items(.tags)[index];
     return switch (tag) {
@@ -5572,11 +5620,17 @@ pub fn gotAddress(self: *Elf) u64 {
 pub fn tpAddress(self: *Elf) u64 {
     const index = self.phdr_tls_index orelse return 0;
     const phdr = self.phdrs.items[index];
-    return mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align);
+    return switch (self.getTarget().cpu.arch) {
+        .x86_64 => mem.alignForward(u64, phdr.p_vaddr + phdr.p_memsz, phdr.p_align),
+        .aarch64 => mem.alignBackward(u64, phdr.p_vaddr - 16, phdr.p_align),
+        else => @panic("TODO implement getTpAddress for this arch"),
+    };
 }
 
 pub fn dtpAddress(self: *Elf) u64 {
-    return self.tlsAddress();
+    const index = self.phdr_tls_index orelse return 0;
+    const phdr = self.phdrs.items[index];
+    return phdr.p_vaddr;
 }
 
 pub fn tlsAddress(self: *Elf) u64 {
@@ -5943,6 +5997,10 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
+    try writer.writeAll("thunks\n");
+    for (self.thunks.items, 0..) |th, index| {
+        try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+    }
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
@@ -6008,6 +6066,14 @@ pub fn lsearch(comptime T: type, haystack: []align(1) const T, predicate: anytyp
 
 pub fn getTarget(self: Elf) std.Target {
     return self.base.comp.root_mod.resolved_target.result;
+}
+
+fn requiresThunks(self: Elf) bool {
+    return switch (self.getTarget().cpu.arch) {
+        .aarch64 => true,
+        .x86_64, .riscv64 => false,
+        else => @panic("TODO unimplemented architecture"),
+    };
 }
 
 /// The following three values are only observed at compile-time and used to emit a compile error
@@ -6140,6 +6206,7 @@ const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
+const thunks = @import("Elf/thunks.zig");
 const trace = @import("../tracy.zig").trace;
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
@@ -6172,6 +6239,7 @@ const PltGotSection = synthetic_sections.PltGotSection;
 const SharedObject = @import("Elf/SharedObject.zig");
 const Symbol = @import("Elf/Symbol.zig");
 const StringTable = @import("StringTable.zig");
+const Thunk = thunks.Thunk;
 const TypedValue = @import("../TypedValue.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigGotSection = synthetic_sections.ZigGotSection;

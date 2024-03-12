@@ -40,7 +40,7 @@ pub fn timedWait(ptr: *const atomic.Value(u32), expect: u32, timeout_ns: u64) er
 
     // Avoid calling into the OS for no-op timeouts.
     if (timeout_ns == 0) {
-        if (ptr.load(.SeqCst) != expect) return;
+        if (ptr.load(.seq_cst) != expect) return;
         return error.Timeout;
     }
 
@@ -783,16 +783,16 @@ const PosixImpl = struct {
         // - T1: bumps pending waiters (was reordered after the ptr == expect check)
         // - T1: goes to sleep and misses both the ptr change and T2's wake up
         //
-        // SeqCst as Acquire barrier to ensure the announcement happens before the ptr check below.
-        // SeqCst as shared modification order to form a happens-before edge with the fence(.SeqCst)+load() in wake().
-        var pending = bucket.pending.fetchAdd(1, .SeqCst);
+        // seq_cst as Acquire barrier to ensure the announcement happens before the ptr check below.
+        // seq_cst as shared modification order to form a happens-before edge with the fence(.seq_cst)+load() in wake().
+        var pending = bucket.pending.fetchAdd(1, .seq_cst);
         assert(pending < std.math.maxInt(usize));
 
         // If the wait gets cancelled, remove the pending count we previously added.
         // This is done outside the mutex lock to keep the critical section short in case of contention.
         var cancelled = false;
         defer if (cancelled) {
-            pending = bucket.pending.fetchSub(1, .Monotonic);
+            pending = bucket.pending.fetchSub(1, .monotonic);
             assert(pending > 0);
         };
 
@@ -850,11 +850,11 @@ const PosixImpl = struct {
         // but the RMW operation unconditionally marks the cache-line as modified for others causing unnecessary fetching/contention.
         //
         // Instead we opt to do a full-fence + load instead which avoids taking ownership of the cache-line.
-        // fence(SeqCst) effectively converts the ptr update to SeqCst and the pending load to SeqCst: creating a Store-Load barrier.
+        // fence(seq_cst) effectively converts the ptr update to seq_cst and the pending load to seq_cst: creating a Store-Load barrier.
         //
-        // The pending count increment in wait() must also now use SeqCst for the update + this pending load
-        // to be in the same modification order as our load isn't using Release/Acquire to guarantee it.
-        bucket.pending.fence(.SeqCst);
+        // The pending count increment in wait() must also now use seq_cst for the update + this pending load
+        // to be in the same modification order as our load isn't using release/acquire to guarantee it.
+        bucket.pending.fence(.seq_cst);
         if (bucket.pending.load(.Monotonic) == 0) {
             return;
         }
@@ -912,7 +912,7 @@ test "signaling" {
         current: u32 = 0,
 
         fn hit(self: *@This()) void {
-            _ = self.value.fetchAdd(1, .Release);
+            _ = self.value.fetchAdd(1, .release);
             Futex.wake(&self.value, 1);
         }
 
@@ -921,7 +921,7 @@ test "signaling" {
                 // Wait for the value to change from hit()
                 var new_value: u32 = undefined;
                 while (true) {
-                    new_value = self.value.load(.Acquire);
+                    new_value = self.value.load(.acquire);
                     if (new_value != self.current) break;
                     Futex.wait(&self.value, self.current);
                 }
@@ -968,7 +968,7 @@ test "broadcasting" {
         fn wait(self: *@This()) !void {
             // Decrement the counter.
             // Release ensures stuff before this barrier.wait() happens before the last one.
-            const count = self.count.fetchSub(1, .Release);
+            const count = self.count.fetchSub(1, .release);
             try testing.expect(count <= num_threads);
             try testing.expect(count > 0);
 
@@ -976,15 +976,15 @@ test "broadcasting" {
             // Acquire for the last counter ensures stuff before previous barrier.wait()s happened before it.
             // Release on futex update ensures stuff before all barrier.wait()'s happens before they all return.
             if (count - 1 == 0) {
-                _ = self.count.load(.Acquire); // TODO: could be fence(Acquire) if not for TSAN
-                self.futex.store(1, .Release);
+                _ = self.count.load(.acquire); // TODO: could be fence(acquire) if not for TSAN
+                self.futex.store(1, .release);
                 Futex.wake(&self.futex, num_threads - 1);
                 return;
             }
 
             // Other threads wait until last counter wakes them up.
             // Acquire on futex synchronizes with last barrier count to ensure stuff before all barrier.wait()'s happen before us.
-            while (self.futex.load(.Acquire) == 0) {
+            while (self.futex.load(.acquire) == 0) {
                 Futex.wait(&self.futex, 0);
             }
         }

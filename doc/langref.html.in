@@ -1453,7 +1453,7 @@ export fn foo_strict(x: f64) f64 {
 }
 
 export fn foo_optimized(x: f64) f64 {
-    @setFloatMode(.Optimized);
+    @setFloatMode(.optimized);
     return x + big - big;
 }
       {#code_end#}
@@ -8356,7 +8356,7 @@ test "main" {
       </p>
       {#code_begin|obj|export_builtin#}
 comptime {
-    @export(internalName, .{ .name = "foo", .linkage = .Strong });
+    @export(internalName, .{ .name = "foo", .linkage = .strong });
 }
 
 fn internalName() callconv(.C) void {}

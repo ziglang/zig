@@ -598,6 +598,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/src/link/Elf/relocatable.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/relocation.zig"
     "${CMAKE_SOURCE_DIR}/src/link/Elf/synthetic_sections.zig"
+    "${CMAKE_SOURCE_DIR}/src/link/Elf/thunks.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Archive.zig"
     "${CMAKE_SOURCE_DIR}/src/link/MachO/Atom.zig"
@@ -906,8 +907,6 @@ else()
 endif()
 
 # -Dno-langref is currently hardcoded because building the langref takes too damn long
-# -Dno-autodocs is currently hardcoded because the C backend generates a miscompilation
-#   that prevents it from working.
 # To obtain these two forms of documentation, run zig build against stage3 rather than stage2.
 set(ZIG_BUILD_ARGS
   --zig-lib-dir "${CMAKE_SOURCE_DIR}/lib"
@@ -917,7 +916,6 @@ set(ZIG_BUILD_ARGS
   ${ZIG_STATIC_ARG}
   ${ZIG_NO_LIB_ARG}
   "-Dno-langref"
-  "-Dno-autodocs"
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"

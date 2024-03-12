@@ -892,10 +892,10 @@ fn workerMakeOneStep(
     // then we return without doing the step, relying on another worker to
     // queue this step up again when dependencies are met.
     for (s.dependencies.items) |dep| {
-        switch (@atomicLoad(Step.State, &dep.state, .SeqCst)) {
+        switch (@atomicLoad(Step.State, &dep.state, .seq_cst)) {
             .success, .skipped => continue,
             .failure, .dependency_failure, .skipped_oom => {
-                @atomicStore(Step.State, &s.state, .dependency_failure, .SeqCst);
+                @atomicStore(Step.State, &s.state, .dependency_failure, .seq_cst);
                 return;
             },
             .precheck_done, .running => {
@@ -929,7 +929,7 @@ fn workerMakeOneStep(
         s.state = .running;
     } else {
         // Avoid running steps twice.
-        if (@cmpxchgStrong(Step.State, &s.state, .precheck_done, .running, .SeqCst, .SeqCst) != null) {
+        if (@cmpxchgStrong(Step.State, &s.state, .precheck_done, .running, .seq_cst, .seq_cst) != null) {
             // Another worker got the job.
             return;
         }
@@ -956,13 +956,13 @@ fn workerMakeOneStep(
 
     handle_result: {
         if (make_result) |_| {
-            @atomicStore(Step.State, &s.state, .success, .SeqCst);
+            @atomicStore(Step.State, &s.state, .success, .seq_cst);
         } else |err| switch (err) {
             error.MakeFailed => {
-                @atomicStore(Step.State, &s.state, .failure, .SeqCst);
+                @atomicStore(Step.State, &s.state, .failure, .seq_cst);
                 break :handle_result;
             },
-            error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .SeqCst),
+            error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .seq_cst),
         }
 
         // Successful completion of a step, so we queue up its dependants as well.

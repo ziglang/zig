@@ -202,7 +202,7 @@ var dummy_execute_header: mach_hdr = undefined;
 pub extern var _mh_execute_header: mach_hdr;
 comptime {
     if (builtin.target.isDarwin()) {
-        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .Weak });
+        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
     }
 }
 

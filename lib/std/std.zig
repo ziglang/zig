@@ -55,149 +55,56 @@ pub const Tz = tz.Tz;
 pub const Uri = @import("Uri.zig");
 
 pub const array_hash_map = @import("array_hash_map.zig");
-
-/// Memory ordering, atomic data structures, and operations.
 pub const atomic = @import("atomic.zig");
-
-/// Base64 encoding/decoding.
 pub const base64 = @import("base64.zig");
-
-/// Bit manipulation data structures.
 pub const bit_set = @import("bit_set.zig");
-
-/// Comptime-available information about the build environment, such as the target and optimize mode.
 pub const builtin = @import("builtin.zig");
-
 pub const c = @import("c.zig");
-
-/// COFF format.
 pub const coff = @import("coff.zig");
-
-/// Compression algorithms such as zlib, zstd, etc.
 pub const compress = @import("compress.zig");
-
 pub const comptime_string_map = @import("comptime_string_map.zig");
-
-/// Cryptography.
 pub const crypto = @import("crypto.zig");
-
-/// Debug printing, allocation and other debug helpers.
 pub const debug = @import("debug.zig");
-
-/// DWARF debugging data format.
 pub const dwarf = @import("dwarf.zig");
-
-/// ELF format.
 pub const elf = @import("elf.zig");
-
-/// Enum-related metaprogramming helpers.
 pub const enums = @import("enums.zig");
-
-/// First in, first out data structures.
 pub const fifo = @import("fifo.zig");
-
-/// String formatting and parsing (e.g. parsing numbers out of strings).
 pub const fmt = @import("fmt.zig");
-
-/// File system-related functionality.
 pub const fs = @import("fs.zig");
-
-/// GPU programming helpers.
 pub const gpu = @import("gpu.zig");
-
-/// Fast hashing functions (i.e. not cryptographically secure).
 pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
-
-/// Allocator implementations.
 pub const heap = @import("heap.zig");
-
-/// HTTP client and server.
 pub const http = @import("http.zig");
-
-/// I/O streams, reader/writer interfaces and common helpers.
 pub const io = @import("io.zig");
-
-/// JSON parsing and serialization.
 pub const json = @import("json.zig");
-
-/// LEB128 encoding.
 pub const leb = @import("leb128.zig");
-
-/// A standardized interface for logging.
 pub const log = @import("log.zig");
-
-/// Mach-O format.
 pub const macho = @import("macho.zig");
-
-/// Mathematical constants and operations.
 pub const math = @import("math.zig");
-
-/// Functions for comparing, searching, and manipulating memory.
 pub const mem = @import("mem.zig");
-
-/// Metaprogramming helpers.
 pub const meta = @import("meta.zig");
-
-/// Networking.
 pub const net = @import("net.zig");
-
-/// POSIX-like API layer.
 pub const posix = @import("os.zig");
-
 /// Non-portable Operating System-specific API.
 pub const os = @import("os.zig");
-
 pub const once = @import("once.zig").once;
-
-/// A set of array and slice types that bit-pack integer elements.
 pub const packed_int_array = @import("packed_int_array.zig");
-
-/// PDB file format.
 pub const pdb = @import("pdb.zig");
-
-/// Accessors for process-related info (e.g. command line arguments)
-/// and spawning of child processes.
 pub const process = @import("process.zig");
-
 /// Deprecated: use `Random` instead.
 pub const rand = Random;
-
-/// Sorting.
 pub const sort = @import("sort.zig");
-
-/// Single Instruction Multiple Data (SIMD) helpers.
 pub const simd = @import("simd.zig");
-
-/// ASCII text processing.
 pub const ascii = @import("ascii.zig");
-
-/// Tar archive format compression/decompression.
 pub const tar = @import("tar.zig");
-
-/// Testing allocator, testing assertions, and other helpers for testing code.
 pub const testing = @import("testing.zig");
-
-/// Sleep, obtaining the current time, conversion constants, and more.
 pub const time = @import("time.zig");
-
-/// Time zones.
 pub const tz = @import("tz.zig");
-
-/// UTF-8 and UTF-16LE encoding/decoding.
 pub const unicode = @import("unicode.zig");
-
-/// Helpers for integrating with Valgrind.
 pub const valgrind = @import("valgrind.zig");
-
-/// Constants and types representing the Wasm binary format.
 pub const wasm = @import("wasm.zig");
-
-/// Builds of the Zig compiler are distributed partly in source form. That
-/// source lives here. These APIs are provided as-is and have absolutely no API
-/// guarantees whatsoever.
 pub const zig = @import("zig.zig");
-
 pub const start = @import("start.zig");
 
 const root = @import("root");

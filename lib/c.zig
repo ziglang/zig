@@ -26,7 +26,7 @@ const is_freestanding = switch (native_os) {
 
 comptime {
     if (is_freestanding and is_wasm and builtin.link_libc) {
-        @export(wasm_start, .{ .name = "_start", .linkage = .Strong });
+        @export(wasm_start, .{ .name = "_start", .linkage = .strong });
     }
 
     if (native_os == .linux) {
@@ -34,16 +34,16 @@ comptime {
     }
 
     if (builtin.link_libc) {
-        @export(strcmp, .{ .name = "strcmp", .linkage = .Strong });
-        @export(strncmp, .{ .name = "strncmp", .linkage = .Strong });
-        @export(strerror, .{ .name = "strerror", .linkage = .Strong });
-        @export(strlen, .{ .name = "strlen", .linkage = .Strong });
-        @export(strcpy, .{ .name = "strcpy", .linkage = .Strong });
-        @export(strncpy, .{ .name = "strncpy", .linkage = .Strong });
-        @export(strcat, .{ .name = "strcat", .linkage = .Strong });
-        @export(strncat, .{ .name = "strncat", .linkage = .Strong });
+        @export(strcmp, .{ .name = "strcmp", .linkage = .strong });
+        @export(strncmp, .{ .name = "strncmp", .linkage = .strong });
+        @export(strerror, .{ .name = "strerror", .linkage = .strong });
+        @export(strlen, .{ .name = "strlen", .linkage = .strong });
+        @export(strcpy, .{ .name = "strcpy", .linkage = .strong });
+        @export(strncpy, .{ .name = "strncpy", .linkage = .strong });
+        @export(strcat, .{ .name = "strcat", .linkage = .strong });
+        @export(strncat, .{ .name = "strncat", .linkage = .strong });
     } else if (is_msvc) {
-        @export(_fltused, .{ .name = "_fltused", .linkage = .Strong });
+        @export(_fltused, .{ .name = "_fltused", .linkage = .strong });
     }
 }
 

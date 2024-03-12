@@ -317,7 +317,7 @@ pub const DeclState = struct {
                             try ty.print(dbg_info_buffer.writer(), mod);
                             try dbg_info_buffer.append(0);
 
-                            if (struct_type.layout == .Packed) {
+                            if (struct_type.layout == .@"packed") {
                                 log.debug("TODO implement .debug_info for packed structs", .{});
                                 break :blk;
                             }

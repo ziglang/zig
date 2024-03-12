@@ -133,7 +133,7 @@ pub fn deinit(self: *IoUring) void {
 /// alternative. In Zig, we have first-class error handling... so let's use it.
 /// Matches the implementation of io_uring_get_sqe() in liburing.
 pub fn get_sqe(self: *IoUring) !*linux.io_uring_sqe {
-    const head = @atomicLoad(u32, self.sq.head, .Acquire);
+    const head = @atomicLoad(u32, self.sq.head, .acquire);
     // Remember that these head and tail offsets wrap around every four billion operations.
     // We must therefore use wrapping addition and subtraction to avoid a runtime crash.
     const next = self.sq.sqe_tail +% 1;
@@ -222,7 +222,7 @@ pub fn flush_sq(self: *IoUring) u32 {
             self.sq.sqe_head +%= 1;
         }
         // Ensure that the kernel can actually see the SQE updates when it sees the tail update.
-        @atomicStore(u32, self.sq.tail, tail, .Release);
+        @atomicStore(u32, self.sq.tail, tail, .release);
     }
     return self.sq_ready();
 }
@@ -234,7 +234,7 @@ pub fn flush_sq(self: *IoUring) u32 {
 pub fn sq_ring_needs_enter(self: *IoUring, flags: *u32) bool {
     assert(flags.* == 0);
     if ((self.flags & linux.IORING_SETUP_SQPOLL) == 0) return true;
-    if ((@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_NEED_WAKEUP) != 0) {
+    if ((@atomicLoad(u32, self.sq.flags, .unordered) & linux.IORING_SQ_NEED_WAKEUP) != 0) {
         flags.* |= linux.IORING_ENTER_SQ_WAKEUP;
         return true;
     }
@@ -248,14 +248,14 @@ pub fn sq_ring_needs_enter(self: *IoUring, flags: *u32) bool {
 pub fn sq_ready(self: *IoUring) u32 {
     // Always use the shared ring state (i.e. head and not sqe_head) to avoid going out of sync,
     // see https://github.com/axboe/liburing/issues/92.
-    return self.sq.sqe_tail -% @atomicLoad(u32, self.sq.head, .Acquire);
+    return self.sq.sqe_tail -% @atomicLoad(u32, self.sq.head, .acquire);
 }
 
 /// Returns the number of CQEs in the completion queue, i.e. its length.
 /// These are CQEs that the application is yet to consume.
 /// Matches the implementation of io_uring_cq_ready in liburing.
 pub fn cq_ready(self: *IoUring) u32 {
-    return @atomicLoad(u32, self.cq.tail, .Acquire) -% self.cq.head.*;
+    return @atomicLoad(u32, self.cq.tail, .acquire) -% self.cq.head.*;
 }
 
 /// Copies as many CQEs as are ready, and that can fit into the destination `cqes` slice.
@@ -313,7 +313,7 @@ pub fn copy_cqe(ring: *IoUring) !linux.io_uring_cqe {
 
 /// Matches the implementation of cq_ring_needs_flush() in liburing.
 pub fn cq_ring_needs_flush(self: *IoUring) bool {
-    return (@atomicLoad(u32, self.sq.flags, .Unordered) & linux.IORING_SQ_CQ_OVERFLOW) != 0;
+    return (@atomicLoad(u32, self.sq.flags, .unordered) & linux.IORING_SQ_CQ_OVERFLOW) != 0;
 }
 
 /// For advanced use cases only that implement custom completion queue methods.
@@ -331,7 +331,7 @@ pub fn cqe_seen(self: *IoUring, cqe: *linux.io_uring_cqe) void {
 pub fn cq_advance(self: *IoUring, count: u32) void {
     if (count > 0) {
         // Ensure the kernel only sees the new head value after the CQEs have been read.
-        @atomicStore(u32, self.cq.head, self.cq.head.* +% count, .Release);
+        @atomicStore(u32, self.cq.head, self.cq.head.* +% count, .release);
     }
 }
 

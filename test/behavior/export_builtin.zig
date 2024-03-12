@@ -25,7 +25,7 @@ test "exporting with internal linkage" {
     const S = struct {
         fn foo() callconv(.C) void {}
         comptime {
-            @export(foo, .{ .name = "exporting_with_internal_linkage_foo", .linkage = .Internal });
+            @export(foo, .{ .name = "exporting_with_internal_linkage_foo", .linkage = .internal });
         }
     };
     S.foo();
@@ -41,7 +41,7 @@ test "exporting using field access" {
             const x: u32 = 5;
         };
         comptime {
-            @export(Inner.x, .{ .name = "foo", .linkage = .Internal });
+            @export(Inner.x, .{ .name = "foo", .linkage = .internal });
         }
     };
 

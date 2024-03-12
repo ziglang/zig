@@ -510,7 +510,7 @@ const WindowsThreadImpl = struct {
 
             fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.free(),
@@ -563,7 +563,7 @@ const WindowsThreadImpl = struct {
 
     fn detach(self: Impl) void {
         windows.CloseHandle(self.thread.thread_handle);
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (self.thread.completion.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.thread.free(),
             .detached => unreachable,
@@ -573,7 +573,7 @@ const WindowsThreadImpl = struct {
     fn join(self: Impl) void {
         windows.WaitForSingleObjectEx(self.thread.thread_handle, windows.INFINITE, false) catch unreachable;
         windows.CloseHandle(self.thread.thread_handle);
-        assert(self.thread.completion.load(.SeqCst) == .completed);
+        assert(self.thread.completion.load(.seq_cst) == .completed);
         self.thread.free();
     }
 };
@@ -780,11 +780,11 @@ const WasiThreadImpl = struct {
     }
 
     fn getHandle(self: Impl) ThreadHandle {
-        return self.thread.tid.load(.SeqCst);
+        return self.thread.tid.load(.seq_cst);
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.state.swap(.detached, .SeqCst)) {
+        switch (self.thread.state.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -801,7 +801,7 @@ const WasiThreadImpl = struct {
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.tid.load(.SeqCst);
+            const tid = self.thread.tid.load(.seq_cst);
             if (tid == 0) {
                 break;
             }
@@ -901,7 +901,7 @@ const WasiThreadImpl = struct {
         if (tid < 0) {
             return error.SystemResources;
         }
-        instance.thread.tid.store(tid, .SeqCst);
+        instance.thread.tid.store(tid, .seq_cst);
 
         return .{ .thread = &instance.thread };
     }
@@ -914,12 +914,12 @@ const WasiThreadImpl = struct {
         }
         __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
         __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
-        @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .SeqCst);
+        @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);
 
         // Finished bootstrapping, call user's procedure.
         arg.call_back(arg.raw_ptr);
 
-        switch (arg.thread.state.swap(.completed, .SeqCst)) {
+        switch (arg.thread.state.swap(.completed, .seq_cst)) {
             .running => {
                 // reset the Thread ID
                 asm volatile (
@@ -1191,7 +1191,7 @@ const LinuxThreadImpl = struct {
 
             fn entryFn(raw_arg: usize) callconv(.C) u8 {
                 const self = @as(*@This(), @ptrFromInt(raw_arg));
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.freeAndExit(),
@@ -1311,7 +1311,7 @@ const LinuxThreadImpl = struct {
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (self.thread.completion.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -1323,7 +1323,7 @@ const LinuxThreadImpl = struct {
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.child_tid.load(.SeqCst);
+            const tid = self.thread.child_tid.load(.seq_cst);
             if (tid == 0) {
                 break;
             }
