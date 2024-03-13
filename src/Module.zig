@@ -4358,7 +4358,10 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
             };
         },
         .@"usingnamespace" => info: {
-            if (iter.pass != .unnamed) return;
+            // TODO: this isn't right! These should be considered unnamed. Name conflicts can happen here.
+            // The problem is, we need to preserve the decl ordering for `@typeInfo`.
+            // I'm not bothering to fix this now, since some upcoming changes will change this code significantly anyway.
+            if (iter.pass != .named) return;
             const i = iter.usingnamespace_index;
             iter.usingnamespace_index += 1;
             break :info .{
