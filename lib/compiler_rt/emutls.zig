@@ -145,7 +145,7 @@ const ObjectArray = struct {
     }
 };
 
-// Global stucture for Thread Storage.
+// Global structure for Thread Storage.
 // It provides thread-safety for on-demand storage of Thread Objects.
 const current_thread_storage = struct {
     var key: std.c.pthread_key_t = undefined;
@@ -358,7 +358,7 @@ test "__emutls_get_address with default_value" {
     try expect(y.* == 9012); // the modified storage persists
 }
 
-test "test default_value with differents sizes" {
+test "test default_value with different sizes" {
     if (!builtin.link_libc or builtin.os.tag != .openbsd) return error.SkipZigTest;
 
     const testType = struct {
