@@ -59,24 +59,18 @@ pub fn Decoder(comptime ReaderType: type) type {
 
         pub fn read(self: *Self, output: []u8) Error!usize {
             while (true) {
-                const input = self.to_read.items[self.read_pos..];
-                if (input.len > 0) {
-                    const n = @min(input.len, output.len);
-                    @memcpy(output[0..n], input[0..n]);
+                const unread_len = self.to_read.items.len - self.read_pos;
+                if (unread_len > 0) {
+                    const n = @min(unread_len, output.len);
+                    @memcpy(output[0..n], self.to_read.items[self.read_pos..][0..n]);
                     self.read_pos += n;
-                    if (self.read_pos == self.to_read.items.len and self.err != null) {
-                        if (self.err.? == DecodeError.EndOfStreamWithNoError) {
-                            return n;
-                        }
-                        return self.err.?;
-                    }
                     return n;
                 }
-                if (self.err != null) {
-                    if (self.err.? == DecodeError.EndOfStreamWithNoError) {
+                if (self.err) |e| {
+                    if (e == DecodeError.EndOfStreamWithNoError) {
                         return 0;
                     }
-                    return self.err.?;
+                    return e;
                 }
                 if (self.read_pos > 0) {
                     self.to_read.shrinkRetainingCapacity(0);
