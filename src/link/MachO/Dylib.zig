@@ -54,7 +54,7 @@ pub fn parse(self: *Dylib, macho_file: *MachO, file: std.fs.File, fat_arch: ?fat
     const gpa = macho_file.base.comp.gpa;
     const offset = if (fat_arch) |ar| ar.offset else 0;
 
-    log.debug("parsing dylib from binary", .{});
+    log.debug("parsing dylib from binary: {s}", .{self.path});
 
     var header_buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
     {
@@ -266,7 +266,7 @@ pub fn parseTbd(
 
     const gpa = macho_file.base.comp.gpa;
 
-    log.debug("parsing dylib from stub", .{});
+    log.debug("parsing dylib from stub: {s}", .{self.path});
 
     const umbrella_lib = lib_stub.inner[0];
 
