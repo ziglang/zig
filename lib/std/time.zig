@@ -52,7 +52,7 @@ pub fn sleep(nanoseconds: u64) void {
     std.os.nanosleep(s, ns);
 }
 
-test "sleep" {
+test sleep {
     sleep(1);
 }
 
@@ -122,7 +122,7 @@ pub fn nanoTimestamp() i128 {
     }
 }
 
-test "timestamp" {
+test milliTimestamp {
     const margin = ns_per_ms * 50;
 
     const time_0 = milliTimestamp();
@@ -326,7 +326,7 @@ pub const Timer = struct {
     }
 };
 
-test "Timer + Instant" {
+test Timer {
     const margin = ns_per_ms * 150;
 
     var timer = try Timer.start();

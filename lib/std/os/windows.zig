@@ -1077,7 +1077,7 @@ pub fn QueryObjectName(
         else => |e| return unexpectedStatus(e),
     }
 }
-test "QueryObjectName" {
+test QueryObjectName {
     if (builtin.os.tag != .windows)
         return;
 
@@ -1245,7 +1245,7 @@ pub fn GetFinalPathNameByHandle(
     }
 }
 
-test "GetFinalPathNameByHandle" {
+test GetFinalPathNameByHandle {
     if (builtin.os.tag != .windows)
         return;
 
@@ -2467,7 +2467,7 @@ pub fn ntToWin32Namespace(path: []const u16) !PathSpace {
     }
 }
 
-test "ntToWin32Namespace" {
+test ntToWin32Namespace {
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
 
     try testNtToWin32Namespace(L("UNC"), L("\\??\\UNC"));
@@ -3386,7 +3386,7 @@ pub const GUID = extern struct {
     }
 };
 
-test "GUID" {
+test GUID {
     try std.testing.expectEqual(
         GUID{
             .Data1 = 0x01234567,

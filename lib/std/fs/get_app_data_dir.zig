@@ -60,7 +60,7 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
     }
 }
 
-test "getAppDataDir" {
+test getAppDataDir {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
     // We can't actually validate the result

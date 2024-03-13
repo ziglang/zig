@@ -1230,7 +1230,7 @@ fn windowsCreateProcessSupportsExtension(ext: []const u16) ?CreateProcessSupport
     return null;
 }
 
-test "windowsCreateProcessSupportsExtension" {
+test windowsCreateProcessSupportsExtension {
     try std.testing.expectEqual(CreateProcessSupportedExtension.exe, windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e' }).?);
     try std.testing.expect(windowsCreateProcessSupportsExtension(&[_]u16{ '.', 'e', 'X', 'e', 'c' }) == null);
 }
@@ -1321,7 +1321,7 @@ pub fn argvToCommandLineWindows(
     return try unicode.wtf8ToWtf16LeAllocZ(allocator, buf.items);
 }
 
-test "argvToCommandLineWindows" {
+test argvToCommandLineWindows {
     const t = testArgvToCommandLineWindows;
 
     try t(&.{
@@ -1555,7 +1555,7 @@ pub fn createNullDelimitedEnvMap(arena: mem.Allocator, env_map: *const EnvMap) !
     return envp_buf;
 }
 
-test "createNullDelimitedEnvMap" {
+test createNullDelimitedEnvMap {
     const testing = std.testing;
     const allocator = testing.allocator;
     var envmap = EnvMap.init(allocator);

@@ -148,7 +148,7 @@ pub fn parseEscapeSequence(slice: []const u8, offset: *usize) ParsedCharLiteral 
     }
 }
 
-test "parseCharLiteral" {
+test parseCharLiteral {
     try std.testing.expectEqual(
         ParsedCharLiteral{ .success = 'a' },
         parseCharLiteral("'a'"),
@@ -281,7 +281,7 @@ pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]
     }
 }
 
-test "parse" {
+test parseAlloc {
     const expect = std.testing.expect;
     const expectError = std.testing.expectError;
     const eql = std.mem.eql;

@@ -908,7 +908,7 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
     return null;
 }
 
-test "machoSearchSymbols" {
+test machoSearchSymbols {
     const symbols = [_]MachoSymbol{
         .{ .addr = 100, .strx = undefined, .size = undefined, .ofile = undefined },
         .{ .addr = 200, .strx = undefined, .size = undefined, .ofile = undefined },
@@ -1502,7 +1502,7 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     }
 }
 
-test "printLineFromFileAnyOs" {
+test printLineFromFileAnyOs {
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
     const output_stream = output.writer();
