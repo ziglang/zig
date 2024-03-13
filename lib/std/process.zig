@@ -215,7 +215,7 @@ pub const EnvMap = struct {
     }
 };
 
-test "EnvMap" {
+test EnvMap {
     var env = EnvMap.init(testing.allocator);
     defer env.deinit();
 
@@ -377,7 +377,7 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
     }
 }
 
-test "getEnvMap" {
+test getEnvMap {
     var env = try getEnvMap(testing.allocator);
     defer env.deinit();
 }
@@ -1181,7 +1181,7 @@ pub fn argsFree(allocator: Allocator, args_alloc: []const [:0]u8) void {
     return allocator.free(aligned_allocated_buf);
 }
 
-test "ArgIteratorWindows" {
+test ArgIteratorWindows {
     const t = testArgIteratorWindows;
 
     try t(

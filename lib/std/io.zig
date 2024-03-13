@@ -421,7 +421,7 @@ fn dummyWrite(context: void, data: []const u8) error{}!usize {
     return data.len;
 }
 
-test "null_writer" {
+test null_writer {
     null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
 }
 

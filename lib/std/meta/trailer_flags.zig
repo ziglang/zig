@@ -132,7 +132,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
     };
 }
 
-test "TrailerFlags" {
+test TrailerFlags {
     const Flags = TrailerFlags(struct {
         a: i32,
         b: bool,

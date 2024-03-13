@@ -180,7 +180,7 @@ fn testJoinMaybeZPosix(paths: []const []const u8, expected: []const u8, zero: bo
     try testing.expectEqualSlices(u8, expected, if (zero) actual[0 .. actual.len - 1 :0] else actual);
 }
 
-test "join" {
+test join {
     {
         const actual: []u8 = try join(testing.allocator, &[_][]const u8{});
         defer testing.allocator.free(actual);
@@ -303,7 +303,7 @@ pub fn isAbsolutePosixZ(path_c: [*:0]const u8) bool {
     return isAbsolutePosix(mem.sliceTo(path_c, 0));
 }
 
-test "isAbsoluteWindows" {
+test isAbsoluteWindows {
     try testIsAbsoluteWindows("", false);
     try testIsAbsoluteWindows("/", true);
     try testIsAbsoluteWindows("//", true);
@@ -326,7 +326,7 @@ test "isAbsoluteWindows" {
     try testIsAbsoluteWindows("/usr/local", true);
 }
 
-test "isAbsolutePosix" {
+test isAbsolutePosix {
     try testIsAbsolutePosix("", false);
     try testIsAbsolutePosix("/home/foo", true);
     try testIsAbsolutePosix("/home/foo/..", true);
@@ -400,7 +400,7 @@ pub fn windowsParsePath(path: []const u8) WindowsPath {
     return relative_path;
 }
 
-test "windowsParsePath" {
+test windowsParsePath {
     {
         const parsed = windowsParsePath("//a/b");
         try testing.expect(parsed.is_abs);
@@ -884,7 +884,7 @@ pub fn dirnamePosix(path: []const u8) ?[]const u8 {
     return path[0..end_index];
 }
 
-test "dirnamePosix" {
+test dirnamePosix {
     try testDirnamePosix("/a/b/c", "/a/b");
     try testDirnamePosix("/a/b/c///", "/a/b");
     try testDirnamePosix("/a", "/");
@@ -898,7 +898,7 @@ test "dirnamePosix" {
     try testDirnamePosix("a//", null);
 }
 
-test "dirnameWindows" {
+test dirnameWindows {
     try testDirnameWindows("c:\\", null);
     try testDirnameWindows("c:\\foo", "c:\\");
     try testDirnameWindows("c:\\foo\\", "c:\\");
@@ -1011,7 +1011,7 @@ pub fn basenameWindows(path: []const u8) []const u8 {
     return path[start_index + 1 .. end_index];
 }
 
-test "basename" {
+test basename {
     try testBasename("", "");
     try testBasename("/", "");
     try testBasename("/dir/basename.ext", "basename.ext");
@@ -1186,7 +1186,7 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
     return [_]u8{};
 }
 
-test "relative" {
+test relative {
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
@@ -1271,7 +1271,7 @@ fn testExtension(path: []const u8, expected: []const u8) !void {
     try testing.expectEqualStrings(expected, extension(path));
 }
 
-test "extension" {
+test extension {
     try testExtension("", "");
     try testExtension(".", "");
     try testExtension("a.", ".");
@@ -1328,7 +1328,7 @@ fn testStem(path: []const u8, expected: []const u8) !void {
     try testing.expectEqualStrings(expected, stem(path));
 }
 
-test "stem" {
+test stem {
     try testStem("hello/world/lib.tar.gz", "lib.tar");
     try testStem("hello/world/lib.tar", "lib");
     try testStem("hello/world/lib", "lib");
