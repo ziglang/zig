@@ -1363,23 +1363,13 @@ test "lossyCast" {
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
-/// *t* must be in range 0.0 to 1.0. Supports floats and vectors of floats.
+/// *t* ranges from 0.0 to 1.0, but may exceed these bounds.
+/// Supports floats and vectors of floats.
 ///
 /// This does not guarantee returning *b* if *t* is 1 due to floating-point errors.
 /// This is monotonic.
 pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
     const Type = @TypeOf(a, b, t);
-
-    switch (@typeInfo(Type)) {
-        .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
-        .Vector => {
-            const lower_bound = @reduce(.And, t >= @as(Type, @splat(0)));
-            const upper_bound = @reduce(.And, t <= @as(Type, @splat(1)));
-            assert(lower_bound and upper_bound);
-        },
-        else => comptime unreachable,
-    }
-
     return @mulAdd(Type, b - a, t, a);
 }
 
@@ -1391,6 +1381,9 @@ test "lerp" {
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
     try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));
+
+    try testing.expectEqual(@as(f64, 30), lerp(10, 20, 2.0));
+    try testing.expectEqual(@as(f64, 5), lerp(10, 20, -0.5));
 
     try testing.expectApproxEqRel(@as(f32, -7.16067345e+03), lerp(-10000.12345, -5000.12345, 0.56789), 1e-19);
     try testing.expectApproxEqRel(@as(f64, 7.010987590521e+62), lerp(0.123456789e-64, 0.123456789e64, 0.56789), 1e-33);
@@ -1405,8 +1398,8 @@ test "lerp" {
         const b: @Vector(3, f32) = @splat(50);
         const t: @Vector(3, f32) = @splat(0.5);
         try testing.expectEqual(
-            lerp(a, b, t),
             @Vector(3, f32){ 25, 25, 25 },
+            lerp(a, b, t),
         );
     }
     {
@@ -1414,8 +1407,17 @@ test "lerp" {
         const b: @Vector(3, f64) = @splat(100);
         const t: @Vector(3, f64) = @splat(0.5);
         try testing.expectEqual(
-            lerp(a, b, t),
             @Vector(3, f64){ 75, 75, 75 },
+            lerp(a, b, t),
+        );
+    }
+    {
+        const a: @Vector(2, f32) = @splat(40);
+        const b: @Vector(2, f32) = @splat(80);
+        const t: @Vector(2, f32) = @Vector(2, f32){ 0.25, 0.75 };
+        try testing.expectEqual(
+            @Vector(2, f32){ 50, 70 },
+            lerp(a, b, t),
         );
     }
 }
