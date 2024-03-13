@@ -34,6 +34,7 @@ pub fn Decoder(comptime ReaderType: type) type {
         check: xz.Check,
         err: ?Error,
         to_read: ArrayListUnmanaged(u8),
+        read_pos: usize,
         block_count: usize,
 
         fn init(allocator: Allocator, in_reader: ReaderType, check: xz.Check) !Self {
@@ -43,6 +44,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                 .check = check,
                 .err = null,
                 .to_read = .{},
+                .read_pos = 0,
                 .block_count = 0,
             };
         }
@@ -57,13 +59,12 @@ pub fn Decoder(comptime ReaderType: type) type {
 
         pub fn read(self: *Self, output: []u8) Error!usize {
             while (true) {
-                if (self.to_read.items.len > 0) {
-                    const input = self.to_read.items;
+                const input = self.to_read.items[self.read_pos..];
+                if (input.len > 0) {
                     const n = @min(input.len, output.len);
                     @memcpy(output[0..n], input[0..n]);
-                    std.mem.copyForwards(u8, input, input[n..]);
-                    self.to_read.shrinkRetainingCapacity(input.len - n);
-                    if (self.to_read.items.len == 0 and self.err != null) {
+                    self.read_pos += n;
+                    if (self.read_pos == self.to_read.items.len and self.err != null) {
                         if (self.err.? == DecodeError.EndOfStreamWithNoError) {
                             return n;
                         }
@@ -76,6 +77,10 @@ pub fn Decoder(comptime ReaderType: type) type {
                         return 0;
                     }
                     return self.err.?;
+                }
+                if (self.read_pos > 0) {
+                    self.to_read.shrinkRetainingCapacity(0);
+                    self.read_pos = 0;
                 }
                 self.readBlock() catch |e| {
                     self.err = e;
