@@ -9,17 +9,10 @@ const Certificate = std.crypto.Certificate;
 /// `StreamType` must conform to `tls.StreamInterface`.
 pub fn Client(comptime StreamType: type) type {
     return struct {
-        stream: tls.Stream(tls.Plaintext.max_length, StreamType),
+        stream: Stream,
         options: Options,
 
-        state: State = .start,
-
-        const State = enum {
-            start,
-            recv_encrypted_extensions,
-            recv_finished,
-            sent_finished,
-        };
+        const Stream = tls.Stream(tls.Plaintext.max_length, StreamType);
         const Self = @This();
 
         /// Initiates a TLS handshake and establishes a TLSv1.3 session
@@ -30,53 +23,76 @@ pub fn Client(comptime StreamType: type) type {
             };
             var res = Self{ .stream = stream_, .options = options };
 
-            while (res.state  != .sent_finished) try res.advance();
+            var state = Command{ .send_hello = KeyPairs.init() };
+            while (state != .sent_finished) state = try res.advance(state);
 
             return res;
         }
 
-        /// Advance to next handshake state.
-        pub fn advance(self: *Self) !void {
+        /// Execute command and return next one.
+        pub fn advance(self: *Self, command: Command) !Command {
             var stream = &self.stream;
-            switch (self.state) {
-                .start => {
-                    const key_pairs = KeyPairs.init();
+            switch (command) {
+                .send_hello => |key_pairs| {
                     try self.send_hello(key_pairs);
 
-                    try stream.expectFragment(.handshake, .server_hello);
+                    return .{ .recv_hello = key_pairs };
+                },
+                .recv_hello => |key_pairs| {
+                    try stream.expectInnerPlaintext(.handshake, .server_hello);
                     try self.recv_hello(key_pairs);
 
-                    try stream.expectFragment(.handshake, .encrypted_extensions);
-                    try self.recv_encrypted_extensions();
-
-                    self.state = .recv_encrypted_extensions;
+                    return .{ .recv_encrypted_extensions = {} };
                 },
                 .recv_encrypted_extensions => {
-                    var digest = stream.transcript_hash.owned();
-                    const header = try stream.expectHandshake();
-                    switch (header.type) {
-                        .certificate => {
-                           const parsed = try self.recv_certificate();
-                           defer self.options.allocator.free(parsed.certificate.buffer);
-                            try self.recv_certificate_verify(parsed);
+                    try stream.expectInnerPlaintext(.handshake, .encrypted_extensions);
+                    try self.recv_encrypted_extensions();
 
-                            digest = stream.transcript_hash.owned();
-                            try stream.expectFragment(.handshake, .finished);
-                            try self.recv_finished(digest);
-                            self.state = .recv_finished;
+                    return .{ .recv_certificate_or_finished = {} };
+                },
+                .recv_certificate_or_finished => {
+                    const digest = stream.transcript_hash.peek();
+                    const inner_plaintext = try stream.readInnerPlaintext();
+                    if (inner_plaintext.type != .handshake) return stream.writeError(.unexpected_message);
+                    switch (inner_plaintext.handshake_type) {
+                        .certificate => {
+                            const parsed = try self.recv_certificate();
+
+                            return .{ .recv_certificate_verify = parsed };
                         },
                         .finished => {
+                            if (self.options.ca_bundle != null)
+                                return self.stream.writeError(.certificate_required);
+
                             try self.recv_finished(digest);
-                            self.state = .recv_finished;
+
+                            return .{ .send_finished = {} };
                         },
                         else => return self.stream.writeError(.unexpected_message),
                     }
                 },
-                .recv_finished => {
-                    try self.send_finished();
-                    self.state = .sent_finished;
+                .recv_certificate_verify => |parsed| {
+                    defer self.options.allocator.free(parsed.certificate.buffer);
+
+                    const digest = stream.transcript_hash.peek();
+                    try stream.expectInnerPlaintext(.handshake, .certificate_verify);
+                    try self.recv_certificate_verify(digest, parsed);
+
+                    return .{ .recv_finished = {} };
                 },
-                .sent_finished => {},
+                .recv_finished => {
+                    const digest = stream.transcript_hash.peek();
+                    try stream.expectInnerPlaintext(.handshake, .finished);
+                    try self.recv_finished(digest);
+
+                    return .{ .send_finished = {} };
+                },
+                .send_finished => {
+                    try self.send_finished();
+
+                    return .{ .sent_finished = {} };
+                },
+                .sent_finished => return .{ .sent_finished = {} },
             }
         }
 
@@ -93,7 +109,7 @@ pub fn Client(comptime StreamType: type) type {
                     .{ .supported_versions = &[_]tls.Version{.tls_1_3} },
                     .{ .key_share = &[_]tls.KeyShare{
                         .{ .x25519_kyber768d00 = .{
-                            .x25119 = key_pairs.x25519.public_key,
+                            .x25519 = key_pairs.x25519.public_key,
                             .kyber768d00 = key_pairs.kyber768d00.public_key,
                         } },
                         .{ .secp256r1 = key_pairs.secp256r1.public_key },
@@ -102,7 +118,7 @@ pub fn Client(comptime StreamType: type) type {
                 },
             };
 
-            try self.stream.write(tls.Handshake, .{ .client_hello = hello });
+            _ = try self.stream.write(tls.Handshake, .{ .client_hello = hello });
             try self.stream.flush();
         }
 
@@ -117,7 +133,7 @@ pub fn Client(comptime StreamType: type) type {
             if (mem.eql(u8, &random, &tls.ServerHello.hello_retry_request)) {
                 // We already offered all our supported options and we aren't changing them.
                 return stream.writeError(.unexpected_message);
-           }
+            }
 
             var session_id_buf: [tls.ClientHello.session_id_max_len]u8 = undefined;
             const session_id_len = try stream.read(u8);
@@ -130,7 +146,7 @@ pub fn Client(comptime StreamType: type) type {
 
             const cipher_suite = try stream.read(tls.CipherSuite);
             const compression_method = try stream.read(u8);
-            if (compression_method != 0)  return stream.writeError(.illegal_parameter);
+            if (compression_method != 0) return stream.writeError(.illegal_parameter);
 
             var supported_version: ?tls.Version = null;
             var shared_key: ?[]const u8 = null;
@@ -179,7 +195,7 @@ pub fn Client(comptime StreamType: type) type {
                             },
                             inline .secp256r1, .secp384r1 => |t| {
                                 const T = tls.NamedGroupT(t);
-                                const expected_len = T.PublicKey.compressed_sec1_encoded_length;
+                                const expected_len = T.PublicKey.uncompressed_sec1_encoded_length;
                                 if (key_size != expected_len) return stream.writeError(.illegal_parameter);
 
                                 var server_ks: [expected_len]u8 = undefined;
@@ -213,58 +229,88 @@ pub fn Client(comptime StreamType: type) type {
             stream.handshake_cipher = tls.HandshakeCipher.init(cipher_suite, shared_key.?, hello_hash) catch return stream.writeError(.illegal_parameter);
         }
 
-        /// Currently skipped.
         pub fn recv_encrypted_extensions(self: *Self) !void {
             var stream = &self.stream;
             var reader = stream.reader();
 
             var iter = try stream.extensions();
-            while (try iter.next()) |ext|  {
-                try reader.skipBytes(ext.len, .{});
+            while (try iter.next()) |ext| {
+                switch (ext.type) {
+                    .server_name => {
+                        try reader.skipBytes(ext.len, .{});
+                    },
+                    else => |t| {
+                        std.debug.print("unsupported extension {}\n", .{t});
+                        return stream.writeError(.unsupported_extension);
+                    },
+                }
             }
         }
 
-        /// Allocates `server_cert`.
-        pub fn recv_certificate(self: *Self) !crypto.Certificate.Parsed {
+        /// Verifies trust chain if `options.ca_bundle` is specified.
+        ///
+        /// Caller owns allocated Certificate.Parsed.certificate.
+        pub fn recv_certificate(self: *Self) !Certificate.Parsed {
             var stream = &self.stream;
             var reader = stream.reader();
             const allocator = self.options.allocator;
+            const ca_bundle = self.options.ca_bundle;
+            const verify = ca_bundle != null;
 
             var context: [tls.Certificate.max_context_len]u8 = undefined;
             const context_len = try stream.read(u8);
             if (context_len > tls.Certificate.max_context_len) return stream.writeError(.decode_error);
             try reader.readNoEof(context[0..context_len]);
 
-            var res: ?crypto.Certificate.Parsed = null;
+            var first: ?crypto.Certificate.Parsed = null;
+            var prev: Certificate.Parsed = undefined;
+            var verified = false;
+            const now_sec = std.time.timestamp();
 
             var certs_iter = try stream.iterator(u24, u24);
             while (try certs_iter.next()) |cert_len| {
-                if (cert_len > tls.Certificate.Entry.max_data_len)
-                    return stream.writeError(.decode_error);
-                const buf = allocator.alloc(u8, cert_len) catch
-                    return stream.writeError(.internal_error);
-                errdefer allocator.free(buf);
-                try reader.readNoEof(buf);
+                const is_first = first == null;
 
-                const cert = crypto.Certificate{ .buffer =  buf, .index = 0 };
-                res = cert.parse() catch
-                    return stream.writeError(.bad_certificate);
+                if (!verified) {
+                    if (cert_len > tls.Certificate.Entry.max_data_len)
+                        return stream.writeError(.decode_error);
+                    const buf = allocator.alloc(u8, cert_len) catch
+                        return stream.writeError(.internal_error);
+                    defer if (!is_first) allocator.free(buf);
+                    errdefer allocator.free(buf);
+                    try reader.readNoEof(buf);
+
+                    const cert = crypto.Certificate{ .buffer = buf, .index = 0 };
+                    const cur = cert.parse() catch return stream.writeError(.bad_certificate);
+                    if (first == null) {
+                        if (verify) try cur.verifyHostName(self.options.host);
+                        first = cur;
+                    } else {
+                        if (verify) try prev.verify(cur, now_sec);
+                    }
+
+                    if (ca_bundle) |b| {
+                        if (b.verify(cur, now_sec)) |_| {
+                            verified = true;
+                        } else |err| switch (err) {
+                            error.CertificateIssuerNotFound => {},
+                            error.CertificateExpired => return stream.writeError(.certificate_expired),
+                            else => return stream.writeError(.bad_certificate),
+                        }
+                    }
+
+                    prev = cur;
+                }
 
                 var ext_iter = try stream.extensions();
-                while (try ext_iter.next()) |ext| {
-                    switch (ext.type) {
-                        else => {
-                            try reader.skipBytes(ext.len, .{});
-                        },
-                    }
-                }
+                while (try ext_iter.next()) |ext| try reader.skipBytes(ext.len, .{});
             }
+            if (verify and !verified) return stream.writeError(.bad_certificate);
 
-            return if (res) |r| r else stream.writeError(.bad_certificate);
+            return if (first) |r| r else stream.writeError(.bad_certificate);
         }
 
-        /// Deallocates `server_cert`
-        pub fn recv_certificate_verify(self: *Self, digest: []const u8, cert: crypto.Certificate.Parsed,) !void {
+        pub fn recv_certificate_verify(self: *Self, digest: []const u8, cert: Certificate.Parsed) !void {
             var stream = &self.stream;
             var reader = stream.reader();
             const allocator = self.options.allocator;
@@ -287,9 +333,11 @@ pub fn Client(comptime StreamType: type) type {
                     if (cert.pub_key_algo != .X9_62_id_ecPublicKey)
                         return stream.writeError(.bad_certificate);
                     const Ecdsa = SchemeEcdsa(comptime_scheme);
-                    const sig = try Ecdsa.Signature.fromDer(sig_bytes);
-                    const key = try Ecdsa.PublicKey.fromSec1(cert.pubKey());
-                    try sig.verify(sig_content, key);
+                    const sig = Ecdsa.Signature.fromDer(sig_bytes) catch
+                        return stream.writeError(.decode_error);
+                    const key = Ecdsa.PublicKey.fromSec1(cert.pubKey()) catch
+                        return stream.writeError(.decode_error);
+                    sig.verify(sig_content, key) catch return stream.writeError(.bad_certificate);
                 },
                 inline .rsa_pss_rsae_sha256,
                 .rsa_pss_rsae_sha384,
@@ -300,14 +348,17 @@ pub fn Client(comptime StreamType: type) type {
 
                     const Hash = SchemeHash(comptime_scheme);
                     const rsa = Certificate.rsa;
-                    const components = try rsa.PublicKey.parseDer(cert.pubKey());
+                    const components = rsa.PublicKey.parseDer(cert.pubKey()) catch
+                        return stream.writeError(.decode_error);
                     const exponent = components.exponent;
                     const modulus = components.modulus;
                     switch (modulus.len) {
                         inline 128, 256, 512 => |modulus_len| {
-                            const key = try rsa.PublicKey.fromBytes(exponent, modulus);
+                            const key = rsa.PublicKey.fromBytes(exponent, modulus) catch
+                                return stream.writeError(.bad_certificate);
                             const sig = rsa.PSSSignature.fromBytes(modulus_len, sig_bytes);
-                            try rsa.PSSSignature.verify(modulus_len, sig, sig_content, key, Hash);
+                            rsa.PSSSignature.verify(modulus_len, sig, sig_content, key, Hash) catch
+                                return stream.writeError(.decode_error);
                         },
                         else => {
                             return error.TlsBadRsaSignatureBitCount;
@@ -323,8 +374,9 @@ pub fn Client(comptime StreamType: type) type {
                     const sig = Eddsa.Signature.fromBytes(sig_bytes[0..Eddsa.Signature.encoded_length].*);
                     if (cert.pubKey().len != Eddsa.PublicKey.encoded_length)
                         return stream.writeError(.decode_error);
-                    const key = try Eddsa.PublicKey.fromBytes(cert.pubKey()[0..Eddsa.PublicKey.encoded_length].*);
-                    try sig.verify(sig_content, key);
+                    const key = Eddsa.PublicKey.fromBytes(cert.pubKey()[0..Eddsa.PublicKey.encoded_length].*) catch
+                        return stream.writeError(.bad_certificate);
+                    sig.verify(sig_content, key) catch return stream.writeError(.bad_certificate);
                 },
                 else => {
                     return error.TlsBadSignatureScheme;
@@ -337,20 +389,17 @@ pub fn Client(comptime StreamType: type) type {
             var reader = stream.reader();
             const cipher = stream.handshake_cipher.?;
 
-            const expected = switch (cipher) {
+            switch (cipher) {
                 .empty_renegotiation_info_scsv => return stream.writeError(.decode_error),
-                inline else => |p| brk: {
+                inline else => |p| {
                     const P = @TypeOf(p);
-                    break :brk &tls.hmac(P.Hmac, digest, p.server_finished_key);
-                }
-            };
+                    const expected = &tls.hmac(P.Hmac, digest, p.server_finished_key);
 
-            // This message's stated length is in the handshake header, which `expectFragment` skips
-            // over. Cheat and rip it out of the view.
-            const actual = stream.view;
-            try reader.skipBytes(stream.view.len, .{});
-
-            if (!mem.eql(u8, expected, actual)) return stream.writeError(.decode_error);
+                    var actual: [expected.len]u8 = undefined;
+                    try reader.readNoEof(&actual);
+                    if (!mem.eql(u8, expected, &actual)) return stream.writeError(.decode_error);
+                },
+            }
 
             stream.application_cipher = tls.ApplicationCipher.init(
                 stream.handshake_cipher.?,
@@ -367,19 +416,18 @@ pub fn Client(comptime StreamType: type) type {
             try stream.flush();
 
             const verify_data = switch (stream.handshake_cipher.?) {
-                inline
-                    .aes_128_gcm_sha256,
-                    .aes_256_gcm_sha384,
-                    .chacha20_poly1305_sha256,
-                    .aegis_256_sha512,
-                    .aegis_128l_sha256,
-                    => |v| brk: {
-                        const T = @TypeOf(v);
-                        const secret = v.client_finished_key;
-                        const transcript_hash = stream.transcript_hash.peek();
+                inline .aes_128_gcm_sha256,
+                .aes_256_gcm_sha384,
+                .chacha20_poly1305_sha256,
+                .aegis_256_sha512,
+                .aegis_128l_sha256,
+                => |v| brk: {
+                    const T = @TypeOf(v);
+                    const secret = v.client_finished_key;
+                    const transcript_hash = stream.transcript_hash.peek();
 
-                        break :brk &tls.hmac(T.Hmac, transcript_hash, secret);
-                    },
+                    break :brk &tls.hmac(T.Hmac, transcript_hash, secret);
+                },
                 else => return stream.writeError(.decrypt_error),
             };
             stream.content_type = .handshake;
@@ -397,7 +445,7 @@ pub const Options = struct {
     ca_bundle: ?Certificate.Bundle,
     /// Used to verify cerficate chain and for Server Name Indication.
     host: []const u8,
-    /// List of potential cipher suites in order of descending preference.
+    /// List of cipher suites to advertise in order of descending preference.
     cipher_suites: []const tls.CipherSuite = &tls.default_cipher_suites,
     /// By default, reaching the end-of-stream when reading from the server will
     /// cause `error.TlsConnectionTruncated` to be returned, unless a close_notify
@@ -434,11 +482,11 @@ pub const KeyPairs = struct {
     pub fn init() Self {
         var random_buffer: [
             hello_rand_length +
-            session_id_length +
-            Kyber768.seed_length +
-            Secp256r1.seed_length +
-            Secp384r1.seed_length +
-            X25519.seed_length
+                session_id_length +
+                Kyber768.seed_length +
+                Secp256r1.seed_length +
+                Secp384r1.seed_length +
+                X25519.seed_length
         ]u8 = undefined;
 
         while (true) {
@@ -448,7 +496,7 @@ pub const KeyPairs = struct {
             const split2 = split1 + session_id_length;
             const split3 = split2 + Kyber768.seed_length;
             const split4 = split3 + Secp256r1.seed_length;
-            const split5 = split3 + Secp384r1.seed_length;
+            const split5 = split4 + Secp384r1.seed_length;
 
             return initAdvanced(
                 random_buffer[0..split1].*,
@@ -509,3 +557,15 @@ fn SchemeEddsa(comptime scheme: tls.SignatureScheme) type {
         else => @compileError("bad scheme"),
     };
 }
+
+/// A single `send` or `recv`. Allows for testing `advance`.
+pub const Command = union(enum) {
+    send_hello: KeyPairs,
+    recv_hello: KeyPairs,
+    recv_encrypted_extensions: void,
+    recv_certificate_or_finished: void,
+    recv_certificate_verify: Certificate.Parsed,
+    recv_finished: void,
+    send_finished: void,
+    sent_finished: void,
+};

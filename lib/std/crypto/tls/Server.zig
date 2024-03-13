@@ -53,7 +53,7 @@ pub fn Server(comptime StreamType: type) type {
             var stream = &self.stream;
             var reader = stream.reader();
 
-            try stream.expectFragment(.handshake, .client_hello);
+            try stream.expectInnerPlaintext(.handshake, .client_hello);
 
             _ = try stream.read(tls.Version);
             var client_random: [32]u8 = undefined;
@@ -130,7 +130,7 @@ pub fn Server(comptime StreamType: type) type {
                 }
             }
 
-            if (tls_version == null)  return stream.writeError(.protocol_version);
+            if (tls_version == null) return stream.writeError(.protocol_version);
             if (key_share == null) return stream.writeError(.missing_extension);
             if (ec_point_format == null) return stream.writeError(.missing_extension);
 
@@ -186,7 +186,7 @@ pub fn Server(comptime StreamType: type) type {
                     const shared_point = tls.NamedGroupT(.x25519).scalarmult(
                         key_pair.pair.x25519.secret_key,
                         ks,
-                    ) catch  return stream.writeError(.decrypt_error);
+                    ) catch return stream.writeError(.decrypt_error);
                     break :brk &shared_point;
                 },
                 .secp256r1 => |ks| brk: {
@@ -196,7 +196,7 @@ pub fn Server(comptime StreamType: type) type {
                     ) catch return stream.writeError(.decrypt_error);
                     break :brk &mul.affineCoordinates().x.toBytes(.big);
                 },
-                else =>  return stream.writeError(.illegal_parameter),
+                else => return stream.writeError(.illegal_parameter),
             };
 
             const hello_hash = stream.transcript_hash.peek();
@@ -213,18 +213,17 @@ pub fn Server(comptime StreamType: type) type {
         pub fn send_finished(self: *Self) !void {
             var stream = &self.stream;
             const verify_data = switch (stream.handshake_cipher.?) {
-                inline
-                    .aes_256_gcm_sha384,
-                    => |v| brk: {
-                        const T = @TypeOf(v);
-                        const secret = v.server_finished_key;
-                        const transcript_hash = stream.transcript_hash.peek();
+                inline .aes_256_gcm_sha384,
+                => |v| brk: {
+                    const T = @TypeOf(v);
+                    const secret = v.server_finished_key;
+                    const transcript_hash = stream.transcript_hash.peek();
 
-                        break :brk tls.hmac(T.Hmac, transcript_hash, secret);
-                    },
-                else =>  return stream.writeError(.illegal_parameter),
+                    break :brk tls.hmac(T.Hmac, transcript_hash, secret);
+                },
+                else => return stream.writeError(.illegal_parameter),
             };
-            _ = try stream.write(tls.Handshake, .{ .finished =  &verify_data });
+            _ = try stream.write(tls.Handshake, .{ .finished = &verify_data });
             try stream.flush();
 
             stream.application_cipher = tls.ApplicationCipher.init(
@@ -244,10 +243,10 @@ pub fn Server(comptime StreamType: type) type {
                     const P = @TypeOf(p);
                     const digest = stream.transcript_hash.peek();
                     break :brk &tls.hmac(P.Hmac, digest, p.client_finished_key);
-                }
+                },
             };
 
-            try stream.expectFragment(.handshake, .finished);
+            try stream.expectInnerPlaintext(.handshake, .finished);
             const actual = stream.view;
             try reader.skipBytes(stream.view.len, .{});
 

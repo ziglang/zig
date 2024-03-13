@@ -3,12 +3,14 @@
 [x] 3. Client recv_hello secp256r1  key share
 [x] 4. remove @panic's
 [x] 5. better errors than spammy TlsDecodeError. map new errors to TLS alerts. send alert on error.
-6. verify certs and [x] sigs
-7. KeyShare kyber read
-8. StreamInterface `readv` instead of `readAll`
+[x] 6. client state machine union + test
+[x] 7. cert formats
+[x] 8. verify certs and [x] sigs
+9. KeyShare kyber read
+10. StreamInterface `readv` instead of `readAll`
 
 1. benchmark
 2. store multiple fragments in buffer for less syscalls
 3. streaming encode + decode
-4. store handshake info (transcript_hash, handshake_type, handshake_cipher) somewhere temporary
+4. store handshake_cipher somewhere temporary
 
