@@ -4565,6 +4565,22 @@ fn writeAtoms(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer, sh_offset);
     }
 
+    if (self.requiresThunks()) {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+
+        for (self.thunks.items) |th| {
+            const thunk_size = th.size(self);
+            try buffer.ensureUnusedCapacity(thunk_size);
+            const shdr = self.shdrs.items[th.output_section_index];
+            const offset = th.value + shdr.sh_offset;
+            try th.write(self, buffer.writer());
+            assert(buffer.items.len == thunk_size);
+            try self.base.file.?.pwriteAll(buffer.items, offset);
+            buffer.clearRetainingCapacity();
+        }
+    }
+
     try self.reportUndefinedSymbols(&undefs);
 
     if (has_reloc_errors) return error.FlushFailure;
@@ -4593,12 +4609,12 @@ pub fn updateSymtabSize(self: *Elf) !void {
         nlocals += 1;
     }
 
-    for (self.thunks.items) |*th| {
+    if (self.requiresThunks()) for (self.thunks.items) |*th| {
         th.output_symtab_ctx.ilocal = nlocals + 1;
         th.calcSymtabSize(self);
         nlocals += th.output_symtab_ctx.nlocals;
         strsize += th.output_symtab_ctx.strsize;
-    }
+    };
 
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
@@ -4830,9 +4846,9 @@ pub fn writeSymtab(self: *Elf) !void {
 
     self.writeSectionSymbols();
 
-    for (self.thunks.items) |th| {
+    if (self.requiresThunks()) for (self.thunks.items) |th| {
         th.writeSymtab(self);
-    }
+    };
 
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self);
@@ -5997,10 +6013,14 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
-    try writer.writeAll("thunks\n");
-    for (self.thunks.items, 0..) |th, index| {
-        try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+
+    if (self.requiresThunks()) {
+        try writer.writeAll("thunks\n");
+        for (self.thunks.items, 0..) |th, index| {
+            try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+        }
     }
+
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
