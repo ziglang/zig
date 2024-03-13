@@ -167,7 +167,7 @@ pub const FindNativeOptions = struct {
 pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
     var self: LibCInstallation = .{};
 
-    if (is_darwin) {
+    if (is_darwin and args.target.isDarwin()) {
         if (!std.zig.system.darwin.isSdkInstalled(args.allocator))
             return error.DarwinSdkNotFound;
         const sdk = std.zig.system.darwin.getSdk(args.allocator, args.target) orelse
@@ -196,7 +196,7 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         try self.findNativeCrtDirWindows(args, &sdk);
     } else if (is_haiku) {
         try self.findNativeIncludeDirPosix(args);
-        try self.findNativeCrtBeginDirHaiku(args);
+        try self.findNativeGccDirHaiku(args);
         self.crt_dir = try args.allocator.dupeZ(u8, "/system/develop/lib");
     } else if (builtin.target.os.tag.isSolarish()) {
         // There is only one libc, and its headers/libraries are always in the same spot.
@@ -443,13 +443,16 @@ fn findNativeCrtDirWindows(
 fn findNativeCrtDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
     self.crt_dir = try ccPrintFileName(.{
         .allocator = args.allocator,
-        .search_basename = "crt1.o",
+        .search_basename = switch (args.target.os.tag) {
+            .linux => if (args.target.isAndroid()) "crtbegin_dynamic.o" else "crt1.o",
+            else => "crt1.o",
+        },
         .want_dirname = .only_dir,
         .verbose = args.verbose,
     });
 }
 
-fn findNativeCrtBeginDirHaiku(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
+fn findNativeGccDirHaiku(self: *LibCInstallation, args: FindNativeOptions) FindError!void {
     self.gcc_dir = try ccPrintFileName(.{
         .allocator = args.allocator,
         .search_basename = "crtbeginS.o",
