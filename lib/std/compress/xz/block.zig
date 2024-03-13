@@ -83,8 +83,6 @@ pub fn Decoder(comptime ReaderType: type) type {
         }
 
         fn readBlock(self: *Self) Error!void {
-            const unpacked_pos = self.to_read.items.len;
-
             var block_counter = std.io.countingReader(self.inner_reader);
             const block_reader = block_counter.reader();
 
@@ -165,7 +163,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                     return error.CorruptInput;
             }
 
-            const unpacked_bytes = self.to_read.items[unpacked_pos..];
+            const unpacked_bytes = self.to_read.items;
             if (unpacked_size) |s| {
                 if (s != unpacked_bytes.len)
                     return error.CorruptInput;
