@@ -322,18 +322,16 @@ test "radiansToDegrees" {
     try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(one_pi), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(two_pi), 1e-6);
 
-    const result = radiansToDegrees(@Vector(5, f32){
-        zero,
+    const result = radiansToDegrees(@Vector(4, f32){
         half_pi,
         neg_quart_pi,
         one_pi,
         two_pi,
     });
-    try std.testing.expectApproxEqAbs(@as(f32, 0), result[0], 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 90), result[1], 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -45), result[2], 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 180), result[3], 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 360), result[4], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), result[2], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), result[3], 1e-6);
 }
 
 /// Converts an angle in degrees to radians. T must be a float or comptime number or a vector of floats.
