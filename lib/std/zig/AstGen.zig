@@ -13496,6 +13496,15 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
+
+    // We don't have shadowing for test names, so we just track those for duplicate reporting locally.
+    var named_tests: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{};
+    var decltests: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{};
+    defer {
+        named_tests.deinit(gpa);
+        decltests.deinit(gpa);
+    }
+
     var decl_count: u32 = 0;
     for (members) |member_node| {
         const name_token = switch (node_tags[member_node]) {
@@ -13525,8 +13534,47 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
                 break :blk ident;
             },
 
-            .@"comptime", .@"usingnamespace", .test_decl => {
+            .@"comptime", .@"usingnamespace" => {
                 decl_count += 1;
+                continue;
+            },
+
+            .test_decl => {
+                decl_count += 1;
+                // We don't want shadowing detection here, and test names work a bit differently, so
+                // we must do the redeclaration detection ourselves.
+                const test_name_token = main_tokens[member_node] + 1;
+                switch (token_tags[test_name_token]) {
+                    else => {}, // unnamed test
+                    .string_literal => {
+                        const name = try astgen.strLitAsString(test_name_token);
+                        const gop = try named_tests.getOrPut(gpa, name.index);
+                        if (gop.found_existing) {
+                            const name_slice = astgen.string_bytes.items[@intFromEnum(name.index)..][0..name.len];
+                            const name_duped = try gpa.dupe(u8, name_slice);
+                            defer gpa.free(name_duped);
+                            try astgen.appendErrorNodeNotes(member_node, "duplicate test name '{s}'", .{name_duped}, &.{
+                                try astgen.errNoteNode(gop.value_ptr.*, "other test here", .{}),
+                            });
+                        } else {
+                            gop.value_ptr.* = member_node;
+                        }
+                    },
+                    .identifier => {
+                        const name = try astgen.identAsString(test_name_token);
+                        const gop = try decltests.getOrPut(gpa, name);
+                        if (gop.found_existing) {
+                            const name_slice = mem.span(astgen.nullTerminatedString(name));
+                            const name_duped = try gpa.dupe(u8, name_slice);
+                            defer gpa.free(name_duped);
+                            try astgen.appendErrorNodeNotes(member_node, "duplicate decltest '{s}'", .{name_duped}, &.{
+                                try astgen.errNoteNode(gop.value_ptr.*, "other decltest here", .{}),
+                            });
+                        } else {
+                            gop.value_ptr.* = member_node;
+                        }
+                    },
+                }
                 continue;
             },
 

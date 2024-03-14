@@ -2705,6 +2705,37 @@ fn getCaptures(sema: *Sema, block: *Block, extra_index: usize, captures_len: u32
     return captures;
 }
 
+/// Given an `InternPool.WipNamespaceType` or `InternPool.WipEnumType`, apply
+/// `sema.builtin_type_target_index` to it if necessary.
+fn wrapWipTy(sema: *Sema, wip_ty: anytype) @TypeOf(wip_ty) {
+    if (sema.builtin_type_target_index == .none) return wip_ty;
+    var new = wip_ty;
+    new.index = sema.builtin_type_target_index;
+    sema.mod.intern_pool.resolveBuiltinType(new.index, wip_ty.index);
+    return new;
+}
+
+/// Given a type just looked up in the `InternPool`, check whether it is
+/// considered outdated on this update. If so, remove it from the pool
+/// and return `true`.
+fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
+    const zcu = sema.mod;
+
+    if (!zcu.comp.debug_incremental) return false;
+
+    const decl_index = Type.fromInterned(ty).getOwnerDecl(zcu);
+    const decl_as_depender = InternPool.Depender.wrap(.{ .decl = decl_index });
+    const was_outdated = zcu.outdated.swapRemove(decl_as_depender) or
+        zcu.potentially_outdated.swapRemove(decl_as_depender);
+    if (!was_outdated) return false;
+    _ = zcu.outdated_ready.swapRemove(decl_as_depender);
+    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
+    zcu.intern_pool.remove(ty);
+    zcu.declPtr(decl_index).analysis = .dependency_failure;
+    try zcu.markDependeeOutdated(.{ .decl_val = decl_index });
+    return true;
+}
+
 fn zirStructDecl(
     sema: *Sema,
     block: *Block,
@@ -2748,7 +2779,7 @@ fn zirStructDecl(
         }
     }
 
-    const wip_ty = switch (try ip.getStructType(gpa, .{
+    const struct_init: InternPool.StructTypeInit = .{
         .layout = small.layout,
         .fields_len = fields_len,
         .known_non_opv = small.known_non_opv,
@@ -2763,16 +2794,14 @@ fn zirStructDecl(
             .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
             .captures = captures,
         } },
-    })) {
-        .existing => |ty| return Air.internedToRef(ty),
-        .wip => |wip| wip: {
-            if (sema.builtin_type_target_index == .none) break :wip wip;
-            var new = wip;
-            new.index = sema.builtin_type_target_index;
-            ip.resolveBuiltinType(new.index, wip.index);
-            break :wip new;
-        },
     };
+    const wip_ty = sema.wrapWipTy(switch (try ip.getStructType(gpa, struct_init)) {
+        .existing => |ty| wip: {
+            if (!try sema.maybeRemoveOutdatedType(ty)) return Air.internedToRef(ty);
+            break :wip (try ip.getStructType(gpa, struct_init)).wip;
+        },
+        .wip => |wip| wip,
+    });
     errdefer wip_ty.cancel(ip);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
@@ -2969,7 +2998,7 @@ fn zirEnumDecl(
         if (bag != 0) break true;
     } else false;
 
-    const wip_ty = switch (try ip.getEnumType(gpa, .{
+    const enum_init: InternPool.EnumTypeInit = .{
         .has_namespace = true or decls_len > 0, // TODO: see below
         .has_values = any_values,
         .tag_mode = if (small.nonexhaustive)
@@ -2983,16 +3012,14 @@ fn zirEnumDecl(
             .zir_index = try mod.intern_pool.trackZir(sema.gpa, block.getFileScope(mod), inst),
             .captures = captures,
         } },
-    })) {
-        .wip => |wip| wip: {
-            if (sema.builtin_type_target_index == .none) break :wip wip;
-            var new = wip;
-            new.index = sema.builtin_type_target_index;
-            ip.resolveBuiltinType(new.index, wip.index);
-            break :wip new;
-        },
-        .existing => |ty| return Air.internedToRef(ty),
     };
+    const wip_ty = sema.wrapWipTy(switch (try ip.getEnumType(gpa, enum_init)) {
+        .existing => |ty| wip: {
+            if (!try sema.maybeRemoveOutdatedType(ty)) return Air.internedToRef(ty);
+            break :wip (try ip.getEnumType(gpa, enum_init)).wip;
+        },
+        .wip => |wip| wip,
+    });
 
     // Once this is `true`, we will not delete the decl or type even upon failure, since we
     // have finished constructing the type and are in the process of analyzing it.
@@ -3230,7 +3257,7 @@ fn zirUnionDecl(
     const captures = try sema.getCaptures(block, extra_index, captures_len);
     extra_index += captures_len;
 
-    const wip_ty = switch (try ip.getUnionType(gpa, .{
+    const union_init: InternPool.UnionTypeInit = .{
         .flags = .{
             .layout = small.layout,
             .status = .none,
@@ -3257,16 +3284,14 @@ fn zirUnionDecl(
             .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
             .captures = captures,
         } },
-    })) {
-        .wip => |wip| wip: {
-            if (sema.builtin_type_target_index == .none) break :wip wip;
-            var new = wip;
-            new.index = sema.builtin_type_target_index;
-            ip.resolveBuiltinType(new.index, wip.index);
-            break :wip new;
-        },
-        .existing => |ty| return Air.internedToRef(ty),
     };
+    const wip_ty = sema.wrapWipTy(switch (try ip.getUnionType(gpa, union_init)) {
+        .existing => |ty| wip: {
+            if (!try sema.maybeRemoveOutdatedType(ty)) return Air.internedToRef(ty);
+            break :wip (try ip.getUnionType(gpa, union_init)).wip;
+        },
+        .wip => |wip| wip,
+    });
     errdefer wip_ty.cancel(ip);
 
     const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
@@ -3336,15 +3361,20 @@ fn zirOpaqueDecl(
     const captures = try sema.getCaptures(block, extra_index, captures_len);
     extra_index += captures_len;
 
-    const wip_ty = switch (try ip.getOpaqueType(gpa, .{
+    const opaque_init: InternPool.OpaqueTypeInit = .{
         .has_namespace = decls_len != 0,
         .key = .{ .declared = .{
             .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
             .captures = captures,
         } },
-    })) {
+    };
+    // No `wrapWipTy` needed as no std.builtin types are opaque.
+    const wip_ty = switch (try ip.getOpaqueType(gpa, opaque_init)) {
+        .existing => |ty| wip: {
+            if (!try sema.maybeRemoveOutdatedType(ty)) return Air.internedToRef(ty);
+            break :wip (try ip.getOpaqueType(gpa, opaque_init)).wip;
+        },
         .wip => |wip| wip,
-        .existing => |ty| return Air.internedToRef(ty),
     };
     errdefer wip_ty.cancel(ip);
 
@@ -5883,7 +5913,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     mod.astGenFile(result.file) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
-    try mod.semaFile(result.file);
+    try mod.ensureFileAnalyzed(result.file);
     const file_root_decl_index = result.file.root_decl.unwrap().?;
     return sema.analyzeDeclVal(parent_block, src, file_root_decl_index);
 }
@@ -13705,7 +13735,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    try mod.semaFile(result.file);
+    try mod.ensureFileAnalyzed(result.file);
     const file_root_decl_index = result.file.root_decl.unwrap().?;
     return sema.analyzeDeclVal(block, operand_src, file_root_decl_index);
 }
@@ -36432,8 +36462,14 @@ fn resolveInferredErrorSet(
     const ip = &mod.intern_pool;
     const func_index = ip.iesFuncIndex(ies_index);
     const func = mod.funcInfo(func_index);
+
+    try sema.declareDependency(.{ .func_ies = func_index });
+
+    // TODO: during an incremental update this might not be `.none`, but the
+    // function might be out-of-date!
     const resolved_ty = func.resolvedErrorSet(ip).*;
     if (resolved_ty != .none) return resolved_ty;
+
     if (func.analysis(ip).state == .in_progress)
         return sema.fail(block, src, "unable to resolve inferred error set", .{});
 
@@ -39052,6 +39088,15 @@ fn ptrType(sema: *Sema, info: InternPool.Key.PtrType) CompileError!Type {
 
 pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
     if (!sema.mod.comp.debug_incremental) return;
+
+    // Avoid creating dependencies on ourselves. This situation can arise when we analyze the fields
+    // of a type and they use `@This()`. This dependency would be unnecessary, and in fact would
+    // just result in over-analysis since `Zcu.findOutdatedToAnalyze` would never be able to resolve
+    // the loop.
+    if (sema.owner_func_index == .none and dependee == .decl_val and dependee.decl_val == sema.owner_decl_index) {
+        return;
+    }
+
     const depender = InternPool.Depender.wrap(
         if (sema.owner_func_index != .none)
             .{ .func = sema.owner_func_index }
