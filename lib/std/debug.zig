@@ -106,14 +106,14 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
-pub fn dump_hex(bytes: []const u8) void {
+pub fn dumpHex(bytes: []const u8) void {
     stderr_mutex.lock();
     defer stderr_mutex.unlock();
-    dump_hex_fallible(bytes) catch {};
+    dumpHexFallible(bytes) catch {};
 }
 
 /// Prints a hexadecimal view of the bytes, unbuffered, returning any error that occurs.
-pub fn dump_hex_fallible(bytes: []const u8) !void {
+pub fn dumpHexFallible(bytes: []const u8) !void {
     const stderr = std.io.getStdErr();
     const ttyconf = std.io.tty.detectConfig(stderr);
     const writer = stderr.writer();
@@ -2872,5 +2872,5 @@ pub inline fn inValgrind() bool {
 }
 
 test {
-    _ = &dump_hex;
+    _ = &dumpHex;
 }
