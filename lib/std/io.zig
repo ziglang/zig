@@ -375,9 +375,6 @@ pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
 pub const bufferedReaderSize = @import("io/buffered_reader.zig").bufferedReaderSize;
 
-pub const PeekStream = @import("io/peek_stream.zig").PeekStream;
-pub const peekStream = @import("io/peek_stream.zig").peekStream;
-
 pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
 pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
 
@@ -707,7 +704,6 @@ test {
     _ = @import("io/counting_writer.zig");
     _ = @import("io/counting_reader.zig");
     _ = @import("io/fixed_buffer_stream.zig");
-    _ = @import("io/peek_stream.zig");
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
