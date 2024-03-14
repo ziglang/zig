@@ -39,6 +39,8 @@ pub const Inst = struct {
         sub,
 
         jal,
+        /// Jumps. Uses `inst` payload.
+        j,
 
         // TODO: Maybe create a special data for compares that includes the ops
         /// Compare equal, uses r_type
@@ -81,8 +83,9 @@ pub const Inst = struct {
         /// Psuedo-instruction that will generate a backpatched
         /// function prologue.
         psuedo_prologue,
-        /// Jumps. Uses `inst` payload.
-        psuedo_jump,
+        /// Psuedo-instruction that will generate a backpatched
+        /// function epilogue
+        psuedo_epilogue,
 
         // TODO: add description
         load_symbol,

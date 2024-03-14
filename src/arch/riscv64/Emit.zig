@@ -27,6 +27,8 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
+stack_size: u32,
+
 const log = std.log.scoped(.emit);
 
 const InnerError = error{
@@ -39,10 +41,8 @@ pub fn emitMir(
 ) InnerError!void {
     const mir_tags = emit.mir.instructions.items(.tag);
 
-    // TODO: compute branch offsets
-    // try emit.lowerMir();
+    try emit.lowerMir();
 
-    // Emit machine code
     for (mir_tags, 0..) |tag, index| {
         const inst = @as(u32, @intCast(index));
         log.debug("emitMir: {s}", .{@tagName(tag)});
@@ -70,7 +70,9 @@ pub fn emitMir(
             .dbg_epilogue_begin => try emit.mirDebugEpilogueBegin(),
 
             .psuedo_prologue => try emit.mirPsuedo(inst),
-            .psuedo_jump => try emit.mirPsuedo(inst),
+            .psuedo_epilogue => try emit.mirPsuedo(inst),
+
+            .j => try emit.mirPsuedo(inst),
 
             .mv => try emit.mirRR(inst),
 
@@ -80,13 +82,15 @@ pub fn emitMir(
             .lui => try emit.mirUType(inst),
 
             .ld => try emit.mirIType(inst),
-            .sd => try emit.mirIType(inst),
             .lw => try emit.mirIType(inst),
-            .sw => try emit.mirIType(inst),
             .lh => try emit.mirIType(inst),
-            .sh => try emit.mirIType(inst),
             .lb => try emit.mirIType(inst),
+
+            .sd => try emit.mirIType(inst),
+            .sw => try emit.mirIType(inst),
+            .sh => try emit.mirIType(inst),
             .sb => try emit.mirIType(inst),
+
             .ldr_ptr_stack => try emit.mirIType(inst),
 
             .load_symbol => try emit.mirLoadSymbol(inst),
@@ -170,8 +174,6 @@ fn mirBType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const b_type = emit.mir.instructions.items(.data)[inst].b_type;
 
-    // const inst = b_type.imm12;
-
     switch (tag) {
         .beq => try emit.writeInstruction(Instruction.beq(b_type.rs1, b_type.rs2, b_type.imm12)),
         else => unreachable,
@@ -187,12 +189,13 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .jalr => try emit.writeInstruction(Instruction.jalr(i_type.rd, i_type.imm12, i_type.rs1)),
 
         .ld => try emit.writeInstruction(Instruction.ld(i_type.rd, i_type.imm12, i_type.rs1)),
-        .sd => try emit.writeInstruction(Instruction.sd(i_type.rd, i_type.imm12, i_type.rs1)),
         .lw => try emit.writeInstruction(Instruction.lw(i_type.rd, i_type.imm12, i_type.rs1)),
-        .sw => try emit.writeInstruction(Instruction.sw(i_type.rd, i_type.imm12, i_type.rs1)),
         .lh => try emit.writeInstruction(Instruction.lh(i_type.rd, i_type.imm12, i_type.rs1)),
-        .sh => try emit.writeInstruction(Instruction.sh(i_type.rd, i_type.imm12, i_type.rs1)),
         .lb => try emit.writeInstruction(Instruction.lb(i_type.rd, i_type.imm12, i_type.rs1)),
+
+        .sd => try emit.writeInstruction(Instruction.sd(i_type.rd, i_type.imm12, i_type.rs1)),
+        .sw => try emit.writeInstruction(Instruction.sw(i_type.rd, i_type.imm12, i_type.rs1)),
+        .sh => try emit.writeInstruction(Instruction.sh(i_type.rd, i_type.imm12, i_type.rs1)),
         .sb => try emit.writeInstruction(Instruction.sb(i_type.rd, i_type.imm12, i_type.rs1)),
 
         .ldr_ptr_stack => try emit.writeInstruction(Instruction.add(i_type.rd, i_type.rs1, .sp)),
@@ -262,21 +265,44 @@ fn mirPsuedo(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .psuedo_prologue => {
-            const imm12 = data.imm12;
-            const stack_size: i12 = @max(32, imm12);
+            const stack_size: i12 = math.cast(i12, emit.stack_size) orelse {
+                return emit.fail("TODO: mirPsuedo support larger stack sizes", .{});
+            };
 
+            // Decrement sp by num s registers + local var space
             try emit.writeInstruction(Instruction.addi(.sp, .sp, -stack_size));
+
+            // Spill ra
             try emit.writeInstruction(Instruction.sd(.ra, stack_size - 8, .sp));
+
+            // Spill s0
             try emit.writeInstruction(Instruction.sd(.s0, stack_size - 16, .sp));
+
+            // Setup s0
             try emit.writeInstruction(Instruction.addi(.s0, .sp, stack_size));
         },
+        .psuedo_epilogue => {
+            const stack_size: i12 = math.cast(i12, emit.stack_size) orelse {
+                return emit.fail("TODO: mirPsuedo support larger stack sizes", .{});
+            };
 
-        .psuedo_jump => {
+            // Restore ra
+            try emit.writeInstruction(Instruction.ld(.ra, stack_size - 16, .sp));
+
+            // Restore s0
+            try emit.writeInstruction(Instruction.ld(.s0, stack_size - 16, .sp));
+
+            // Increment sp back to previous value
+            try emit.writeInstruction(Instruction.addi(.sp, .sp, stack_size));
+        },
+
+        .j => {
             const target = data.inst;
             const offset: i12 = @intCast(emit.code.items.len);
             _ = target;
 
             try emit.writeInstruction(Instruction.jal(.s0, offset));
+            unreachable; // TODO: mirPsuedo j
         },
 
         else => unreachable,
@@ -348,27 +374,43 @@ fn mirLoadSymbol(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 }
 
-fn isBranch(tag: Mir.Inst.Tag) bool {
-    switch (tag) {
-        .psuedo_jump => true,
+fn isStore(tag: Mir.Inst.Tag) bool {
+    return switch (tag) {
+        .sb => true,
+        .sh => true,
+        .sw => true,
+        .sd => true,
         else => false,
-    }
+    };
+}
+
+fn isLoad(tag: Mir.Inst.Tag) bool {
+    return switch (tag) {
+        .lb => true,
+        .lh => true,
+        .lw => true,
+        .ld => true,
+        else => false,
+    };
 }
 
 fn lowerMir(emit: *Emit) !void {
-    const comp = emit.bin_file.comp;
-    const gpa = comp.gpa;
     const mir_tags = emit.mir.instructions.items(.tag);
-
-    _ = gpa;
+    const mir_datas = emit.mir.instructions.items(.data);
 
     for (mir_tags, 0..) |tag, index| {
         const inst: u32 = @intCast(index);
 
-        if (isBranch(tag)) {
-            const target_inst = emit.mir.instructions.items(.data)[inst].inst;
-
-            _ = target_inst;
+        if (isStore(tag) or isLoad(tag)) {
+            const data = mir_datas[inst].i_type;
+            // TODO: probably create a psuedo instruction for s0 loads/stores instead of this.
+            if (data.rs1 == .s0) {
+                const casted_size = math.cast(i12, emit.stack_size) orelse {
+                    return emit.fail("TODO: support bigger stack sizes lowerMir", .{});
+                };
+                const offset = mir_datas[inst].i_type.imm12;
+                mir_datas[inst].i_type.imm12 = -(casted_size - 12 - offset);
+            }
         }
     }
 }
