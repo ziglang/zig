@@ -262,7 +262,8 @@ pub fn EnumSet(comptime E: type) type {
             inline for (std.meta.fields(E)) |field| {
                 const key = @field(E, field.name);
                 if (@field(init_values, field.name)) {
-                    result.bits.set(Indexer.indexOf(key));
+                    const i = comptime Indexer.indexOf(key);
+                    result.bits.set(i);
                 }
             }
             return result;
@@ -441,7 +442,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
             inline for (std.meta.fields(E)) |field| {
                 const key = @field(E, field.name);
                 if (@field(init_values, field.name)) |*v| {
-                    const i = Indexer.indexOf(key);
+                    const i = comptime Indexer.indexOf(key);
                     result.bits.set(i);
                     result.values[i] = v.*;
                 }
