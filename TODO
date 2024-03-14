@@ -9,8 +9,9 @@
 9. KeyShare kyber read
 10. StreamInterface `readv` instead of `readAll`
 
-1. benchmark
-2. store multiple fragments in buffer for less syscalls
-3. streaming encode + decode
-4. store handshake_cipher somewhere temporary
+1. test top 100 sites
+2. benchmark
+3. store multiple fragments in buffer for less syscalls
+4. streaming encode + decode
+5. store handshake_cipher somewhere temporary
 

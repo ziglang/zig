@@ -222,7 +222,7 @@ pub const Connection = struct {
     pub const Protocol = enum { plain, tls };
 
     pub fn readvDirectTls(conn: *Connection, buffers: []std.os.iovec) ReadError!usize {
-        return conn.tls_client.stream.readv(buffers) catch |err| {
+        return conn.tls_client.readv(buffers) catch |err| {
             // https://github.com/ziglang/zig/issues/2473
             if (mem.startsWith(u8, @errorName(err), "Tls")) return error.TlsFailure;
 
@@ -318,11 +318,7 @@ pub const Connection = struct {
     }
 
     pub fn writeAllDirectTls(conn: *Connection, buffer: []const u8) WriteError!void {
-        conn.tls_client.stream.writer().writeAll(buffer) catch |err| switch (err) {
-            error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedWriteFailure,
-        };
-        conn.tls_client.stream.flush() catch |err| switch (err) {
+        conn.tls_client.writer().writeAll(buffer) catch |err| switch (err) {
             error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
             else => return error.UnexpectedWriteFailure,
         };
@@ -390,7 +386,7 @@ pub const Connection = struct {
             if (disable_tls) unreachable;
 
             // try to cleanly close the TLS connection, for any server that cares.
-            conn.tls_client.stream.close();
+            conn.tls_client.close();
             allocator.destroy(conn.tls_client);
         }
 

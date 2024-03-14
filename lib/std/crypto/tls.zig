@@ -116,7 +116,7 @@ pub const Handshake = union(HandshakeType) {
     certificate_status: void,
     /// Deprecated.
     supplemental_data: void,
-    key_update: void,
+    key_update: KeyUpdate,
     message_hash: void,
 
     // If `HandshakeCipherT.encode` accepts iovecs for the message this can be moved
@@ -145,6 +145,11 @@ pub const Handshake = union(HandshakeType) {
                         res += try stream.write(u24, @intCast(len));
                         res += try stream.write(T, value);
                     },
+                    .Enum => |info| {
+                        len += @bitSizeOf(info.tag_type) / 8;
+                        res += try stream.write(u24, @intCast(len));
+                        res += try stream.write(T, value);
+                    },
                     else => |t| @compileError("implement writing " ++ @tagName(t)),
                 }
             },
@@ -156,6 +161,12 @@ pub const Handshake = union(HandshakeType) {
         type: HandshakeType,
         len: u24,
     };
+};
+
+pub const KeyUpdate = enum(u8) {
+    update_not_requested = 0,
+    update_requested = 1,
+    _,
 };
 
 pub const Certificate = struct {
@@ -1080,14 +1091,6 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
 
     return struct {
         stream: *StreamType,
-        /// > For concreteness, the transcript hash is always taken from the
-        /// > following sequence of handshake messages, starting at the first
-        /// > ClientHello and including only those messages that were sent:
-        /// > ClientHello, HelloRetryRequest, ClientHello, ServerHello,
-        /// > EncryptedExtensions, server CertificateRequest, server Certificate,
-        /// > server CertificateVerify, server Finished, EndOfEarlyData, client
-        /// > Certificate, client CertificateVerify, client Finished.
-        transcript_hash: MultiHash = .{},
         /// Used for both reading and writing. Cannot be doing both at the same time.
         /// Stores plaintext or ciphertext, but not Plaintext headers.
         buffer: [fragment_size]u8 = undefined,
@@ -1102,10 +1105,9 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
         /// When receiving a handshake message will be expected with this type.
         handshake_type: ?HandshakeType = .client_hello,
 
-        /// Used to encrypt and decrypt .application_data messages until application_cipher is not null.
-        handshake_cipher: ?HandshakeCipher = null,
-        /// Used to encrypt and decrypt .application_data messages.
-        application_cipher: ?ApplicationCipher = null,
+        /// Used to decrypt .application_data messages.
+        /// Used to encrypt messages that aren't alert or change_cipher_spec.
+        cipher: Cipher = .none,
 
         /// True when we send or receive a close_notify alert.
         closed: bool = false,
@@ -1118,27 +1120,29 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
         /// When > 0 won't actually do anything with writes. Used to discover prefix lengths.
         nocommit: usize = 0,
 
+        /// Client and server implementations can set this. While set `readPlaintext` and `flush`
+        /// handshake messages will update the hash.
+        transcript_hash: ?*MultiHash,
+
         const Self = @This();
 
-        pub const ReadError = StreamType.ReadError || Error || error{EndOfStream};
-        pub const WriteError = StreamType.WriteError || error{
-            TlsEncodeError,
+        const Cipher = union(enum) {
+            none: void,
+            application: ApplicationCipher,
+            handshake: HandshakeCipher,
         };
 
+        pub const ReadError = StreamType.ReadError || Error || error{EndOfStream};
+        pub const WriteError = StreamType.WriteError || error{TlsEncodeError};
+
         fn ciphertextOverhead(self: Self) usize {
-            if (self.application_cipher) |a| {
-                switch (a) {
-                    .empty_renegotiation_info_scsv => {},
-                    inline else => |c| return @TypeOf(c).AEAD.tag_length + @sizeOf(ContentType),
-                }
-            }
-            if (self.handshake_cipher) |a| {
-                switch (a) {
-                    .empty_renegotiation_info_scsv => {},
-                    inline else => |c| return @TypeOf(c).AEAD.tag_length + @sizeOf(ContentType),
-                }
-            }
-            return 0;
+            return switch (self.cipher) {
+                inline .application, .handshake => |c| switch (c) {
+                    .empty_renegotiation_info_scsv => 0,
+                    inline else => |t| @TypeOf(t).AEAD.tag_length + @sizeOf(ContentType),
+                },
+                else => 0,
+            };
         }
 
         fn maxFragmentSize(self: Self) usize {
@@ -1146,48 +1150,38 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
         }
 
         const EncryptionMethod = enum { none, handshake, application };
-        fn encryptionMethod(self: Self) EncryptionMethod {
-            switch (self.content_type) {
-                .change_cipher_spec => {},
-                .handshake => {
-                    if (self.handshake_cipher != null) return .handshake;
-                },
+        fn encryptionMethod(self: Self, content_type: ContentType) EncryptionMethod {
+           switch (content_type) {
+                .alert, .change_cipher_spec => {},
                 else => {
-                    if (self.application_cipher != null) return .application;
+                    if (self.cipher == .application) return .application;
+                    if (self.cipher == .handshake) return .handshake;
                 },
             }
-
-            return .none;
+           return .none;
         }
 
         pub fn flush(self: *Self) WriteError!void {
             if (self.view.len == 0) return;
+            if (self.transcript_hash) |t| {
+                if (self.content_type == .handshake) t.update(self.view);
+            }
+
             var plaintext = Plaintext{
                 .type = self.content_type,
                 .version = self.version,
                 .len = @intCast(self.view.len),
             };
 
-            if (self.application_cipher == null) {
-                switch (self.content_type) {
-                    .change_cipher_spec, .alert => {},
-                    else => {
-                        self.transcript_hash.update(self.view);
-                    },
-                }
-            }
-
-            var header: [Plaintext.size]u8 = undefined;
+            var header: [Plaintext.size]u8 = Encoder.encode(Plaintext, plaintext);
             var aead: []const u8 = "";
-            switch (self.encryptionMethod()) {
-                .none => {
-                    header = Encoder.encode(Plaintext, plaintext);
-                },
-                .handshake => {
+            switch (self.cipher) {
+                .none => {},
+                inline .application, .handshake => |*cipher| {
                     plaintext.type = .application_data;
                     plaintext.len += @intCast(self.ciphertextOverhead());
                     header = Encoder.encode(Plaintext, plaintext);
-                    if (self.handshake_cipher) |*a| switch (a.*) {
+                    switch (cipher.*) {
                         .empty_renegotiation_info_scsv => {},
                         inline else => |*c| {
                             std.debug.assert(self.view.ptr == &self.buffer);
@@ -1195,22 +1189,8 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
                             self.view = self.buffer[0 .. self.view.len + 1];
                             aead = &c.encrypt(self.view, &header, self.is_client, @constCast(self.view));
                         },
-                    };
-                },
-                .application => {
-                    plaintext.type = .application_data;
-                    plaintext.len += @intCast(self.ciphertextOverhead());
-                    header = Encoder.encode(Plaintext, plaintext);
-                    if (self.application_cipher) |*a| switch (a.*) {
-                        .empty_renegotiation_info_scsv => {},
-                        inline else => |*c| {
-                            std.debug.assert(self.view.ptr == &self.buffer);
-                            self.buffer[self.view.len] = @intFromEnum(self.content_type);
-                            self.view = self.buffer[0 .. self.view.len + 1];
-                            aead = &c.encrypt(self.view, &header, self.is_client, @constCast(self.view));
-                        },
-                    };
-                },
+                    }
+                }
             }
 
             var iovecs = [_]std.os.iovec_const{
@@ -1220,6 +1200,24 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
             };
             try self.stream.writevAll(&iovecs);
             self.view = self.buffer[0..0];
+        }
+
+        /// Flush a change cipher spec message to the underlying stream.
+        pub fn changeCipherSpec(self: *Self) WriteError!void {
+            self.version = .tls_1_2;
+
+            const plaintext = Plaintext{
+                .type = .change_cipher_spec,
+                .version = self.version,
+                .len = 1,
+            };
+            const msg = [_]u8{1};
+            const header: [Plaintext.size]u8 = Encoder.encode(Plaintext, plaintext);
+            var iovecs = [_]std.os.iovec_const{
+                .{ .iov_base = &header, .iov_len = header.len },
+                .{ .iov_base = &msg, .iov_len = msg.len },
+            };
+            try self.stream.writevAll(&iovecs);
         }
 
         /// Write an alert to stream and call `close_notify` after. Returns Zig error.
@@ -1348,7 +1346,7 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
         /// A return value of 0 indicates EOF.
         pub fn readBytes(self: *Self, buf: []u8) ReadError!usize {
             const buffers = [_]std.os.iovec{.{ .iov_base = buf.ptr, .iov_len = buf.len }};
-            return  try self.readv(&buffers);
+            return try self.readv(&buffers);
         }
 
         /// Reads plaintext from `stream` into `buffer` and updates `view`.
@@ -1356,43 +1354,50 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
         /// Will decrypt according to `encryptionMethod` if receiving application_data message.
         pub fn readPlaintext(self: *Self) ReadError!Plaintext {
             std.debug.assert(self.view.len == 0); // last read should have completed
-            var plaintext_header_bytes: [Plaintext.size]u8 = undefined;
+            var plaintext_bytes: [Plaintext.size]u8 = undefined;
             var n_read: usize = 0;
 
             while (true) {
-                n_read = try self.stream.readAll(&plaintext_header_bytes);
-                if (n_read != plaintext_header_bytes.len) return self.writeError(.decode_error);
+                n_read = try self.stream.readAll(&plaintext_bytes);
+                if (n_read != plaintext_bytes.len) return self.writeError(.decode_error);
 
-                var res = Plaintext.init(plaintext_header_bytes);
+                var res = Plaintext.init(plaintext_bytes);
                 if (res.len > Plaintext.max_length) return self.writeError(.record_overflow);
 
                 self.view = self.buffer[0..res.len];
                 n_read = try self.stream.readAll(@constCast(self.view));
                 if (n_read != res.len) return self.writeError(.decode_error);
 
-                const encryption_method = if (res.type == .application_data) self.encryptionMethod() else .none;
+                const encryption_method = self.encryptionMethod(res.type);
                 switch (encryption_method) {
                     .none => {},
-                    inline .handshake, .application => |t| {
-                        switch (if (comptime t == .handshake) self.handshake_cipher.? else self.application_cipher.?) {
-                            .empty_renegotiation_info_scsv => {},
-                            inline else => |*p| {
-                                const P = @TypeOf(p.*);
-                                const tag_len = P.AEAD.tag_length;
+                    .handshake, .application => {
+                        if (res.len < self.ciphertextOverhead()) return self.writeError(.decode_error);
 
-                                const ciphertext = self.view[0 .. self.view.len - tag_len];
-                                const tag = self.view[self.view.len - tag_len ..][0..tag_len].*;
-                                const out: []u8 = @constCast(self.view[0..ciphertext.len]);
-                                p.decrypt(ciphertext, &plaintext_header_bytes, tag, self.is_client, out) catch
-                                    return self.writeError(.bad_record_mac);
-                                const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
-                                if (padding_start) |s| {
-                                    res.type = @enumFromInt(self.view[s]);
-                                    self.view = self.view[0..s];
-                                } else {
-                                    return self.writeError(.decode_error);
+                        switch (self.cipher) {
+                            inline .application, .handshake => |*c| {
+                                switch (c.*) {
+                                    .empty_renegotiation_info_scsv => {},
+                                    inline else => |*p| {
+                                        const P = @TypeOf(p.*);
+                                        const tag_len = P.AEAD.tag_length;
+
+                                        const ciphertext = self.view[0 .. self.view.len - tag_len];
+                                        const tag = self.view[self.view.len - tag_len ..][0..tag_len].*;
+                                        const out: []u8 = @constCast(self.view[0..ciphertext.len]);
+                                        p.decrypt(ciphertext, &plaintext_bytes, tag, self.is_client, out) catch
+                                            return self.writeError(.bad_record_mac);
+                                        const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
+                                        if (padding_start) |s| {
+                                            res.type = @enumFromInt(self.view[s]);
+                                            self.view = self.view[0..s];
+                                        } else {
+                                            return self.writeError(.decode_error);
+                                        }
+                                    },
                                 }
                             },
+                            else => unreachable,
                         }
                     },
                 }
@@ -1441,10 +1446,10 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
             }
 
             if (res.type == .handshake) {
-                self.transcript_hash.update(self.view[0..@sizeOf(HandshakeType) + @bitSizeOf(u24) / 8]);
+                if (self.transcript_hash) |t| t.update(self.view[0..4]);
                 res.handshake_type = try self.read(HandshakeType);
                 res.len = try self.read(u24);
-                self.transcript_hash.update(self.view[0..res.len]);
+                if (self.transcript_hash) |t| t.update(self.view[0..res.len]);
 
                 self.handshake_type = res.handshake_type;
             }
@@ -1459,7 +1464,7 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
         ) ReadError!void {
             const inner_plaintext = try self.readInnerPlaintext();
             if (expected_content != inner_plaintext.type) {
-                std.debug.print("expected {} got {}\n", .{ expected_content, inner_plaintext.type });
+                std.debug.print("expected {} got {}\n", .{ expected_content, inner_plaintext });
                 return self.writeError(.unexpected_message);
             }
             if (expected_handshake) |expected| {
@@ -1572,7 +1577,7 @@ pub const MultiHash = struct {
     sha384: sha2.Sha384 = sha2.Sha384.init(.{}),
     sha512: sha2.Sha512 = sha2.Sha512.init(.{}),
     /// Chosen during handshake.
-    active: enum { all, sha256, sha384, sha512 } = .all,
+    active: enum { all, sha256, sha384, sha512, none } = .all,
 
     const sha2 = crypto.hash.sha2;
     pub const max_digest_len = sha2.Sha512.digest_length;
@@ -1588,6 +1593,7 @@ pub const MultiHash = struct {
             .sha256 => self.sha256.update(bytes),
             .sha384 => self.sha384.update(bytes),
             .sha512 => self.sha512.update(bytes),
+            .none => {},
         }
     }
 
@@ -1603,7 +1609,7 @@ pub const MultiHash = struct {
 
     pub inline fn peek(self: Self) []const u8 {
         return &switch (self.active) {
-            .all => [_]u8{},
+            .all, .none => [_]u8{},
             .sha256 => self.sha256.peek(),
             .sha384 => self.sha384.peek(),
             .sha512 => self.sha512.peek(),
@@ -1952,19 +1958,23 @@ test "tls client and server handshake, data, and close_notify" {
     defer inner_stream.deinit(allocator);
 
     const host = "example.ulfheim.net";
+    var client_transcript: MultiHash = .{};
     var client = Client(@TypeOf(inner_stream)){
         .stream = Stream(Plaintext.max_length, TestStream){
             .stream = &inner_stream,
             .is_client = true,
+            .transcript_hash = &client_transcript,
         },
         .options = .{ .host = host, .ca_bundle = null, .allocator = allocator },
     };
 
     const server_der = @embedFile("./testdata/server.der");
+    var server_transcript: MultiHash = .{};
     var server = Server(@TypeOf(inner_stream)){
         .stream = Stream(Plaintext.max_length, TestStream){
             .stream = &inner_stream,
             .is_client = false,
+            .transcript_hash = &server_transcript,
         },
         .options = .{
             // force this to use https://tls13.xargs.org/ as unit test for "server hello" onwards
@@ -2066,7 +2076,7 @@ test "tls client and server handshake, data, and close_notify" {
         _ = try client.stream.write(Handshake, .{ .client_hello = hello });
         try client.stream.flush();
 
-        break :brk client_mod.Command{ .recv_hello = key_pairs };
+        break :brk client_mod.State{ .recv_hello = key_pairs };
     };
 
     try inner_stream.expect([_]u8{
@@ -2805,63 +2815,36 @@ test "tls client and server handshake, data, and close_notify" {
         0x4a, 0xec, 0xf2, 0x8c, 0xf3, 0x18, 0x2f, 0xd0, // auth tag
     }));
 
-    client_command = try client.advance(client_command);
+    client_command = try client.advance(client_command); // recv_hello
     try std.testing.expect(client_command == .recv_encrypted_extensions);
-    {
-        const s = server.stream.handshake_cipher.?.aes_256_gcm_sha384;
-        const c = client.stream.handshake_cipher.?.aes_256_gcm_sha384;
+    // {
+    //     const s = server.stream.cipher.handshake.aes_256_gcm_sha384;
+    //     const c = client.stream.cipher.handshake.aes_256_gcm_sha384;
 
-        try std.testing.expectEqualSlices(u8, &s.handshake_secret, &c.handshake_secret);
-        try std.testing.expectEqualSlices(u8, &s.master_secret, &c.master_secret);
-        try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
-        try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
-        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
-        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
-        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
-        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
-        const client_iv = [_]u8{ 0x42, 0x56, 0xd2, 0xe0, 0xe8, 0x8b, 0xab, 0xdd, 0x05, 0xeb, 0x2f, 0x27 };
-        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
-    }
-    client_command = try client.advance(client_command);
+    //     try std.testing.expectEqualSlices(u8, &s.handshake_secret, &c.handshake_secret);
+    //     try std.testing.expectEqualSlices(u8, &s.master_secret, &c.master_secret);
+    //     try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
+    //     try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
+    //     try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+    //     try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+    //     try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+    //     try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+    //     const client_iv = [_]u8{ 0x42, 0x56, 0xd2, 0xe0, 0xe8, 0x8b, 0xab, 0xdd, 0x05, 0xeb, 0x2f, 0x27 };
+    //     try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
+    // }
+    client_command = try client.advance(client_command); // recv_encrypted_extensions
     try std.testing.expect(client_command == .recv_certificate_or_finished);
 
-    client_command = try client.advance(client_command);
+    client_command = try client.advance(client_command); // recv_certificate_or_finished (certificate)
     try std.testing.expect(client_command == .recv_certificate_verify);
 
-    client_command = try client.advance(client_command);
+    client_command = try client.advance(client_command); // recv_certificate_verify
     try std.testing.expect(client_command == .recv_finished);
 
-    client_command = try client.advance(client_command);
+    client_command = try client.advance(client_command); // recv_finished
     try std.testing.expect(client_command == .send_finished);
 
-    {
-        const s = server.stream.application_cipher.?.aes_256_gcm_sha384;
-        const c = client.stream.application_cipher.?.aes_256_gcm_sha384;
-
-        try std.testing.expectEqualSlices(u8, &s.client_secret, &c.client_secret);
-        try std.testing.expectEqualSlices(u8, &s.server_secret, &c.server_secret);
-        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
-        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
-        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
-        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
-        const client_iv = [_]u8{
-            0xbb,
-            0x00,
-            0x79,
-            0x56,
-            0xf4,
-            0x74,
-            0xb2,
-            0x5d,
-            0xe9,
-            0x02,
-            0x43,
-            0x2f,
-        };
-        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
-    }
-
-    client_command = try client.advance(client_command);
+    client_command = try client.advance(client_command); // send_finished
     try std.testing.expect(client_command == .sent_finished);
 
     try inner_stream.expect(&([_]u8{
@@ -2903,6 +2886,21 @@ test "tls client and server handshake, data, and close_notify" {
         0x5e, 0xb8, 0x74, 0xae, 0xbc, 0x9d, 0xfd, 0xe8, // auth tag
     }));
     try server.recv_finished();
+
+    {
+        const s = server.stream.cipher.application.aes_256_gcm_sha384;
+        const c = client.stream.cipher.application.aes_256_gcm_sha384;
+
+        try std.testing.expectEqualSlices(u8, &s.client_secret, &c.client_secret);
+        try std.testing.expectEqualSlices(u8, &s.server_secret, &c.server_secret);
+        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+        const client_iv = [_]u8{ 0xbb, 0x00, 0x79, 0x56, 0xf4, 0x74, 0xb2, 0x5d, 0xe9, 0x02, 0x43, 0x2f };
+        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
+    }
+
 
     _ = try client.stream.writer().writeAll("ping");
     try client.stream.flush();

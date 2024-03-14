@@ -21,9 +21,11 @@ pub fn Server(comptime StreamType: type) type {
 
         /// Initiates a TLS handshake and establishes a TLSv1.3 session
         pub fn init(stream: *StreamType, options: Options) !Self {
+            var transcript_hash: tls.MultiHash = .{};
             var stream_ = tls.Stream(tls.Plaintext.max_length, StreamType){
                 .stream = stream,
                 .is_client = false,
+                .transcript_hash = &transcript_hash,
             };
             var res = Self{ .stream = stream_, .options = options };
             const client_hello = try res.recv_hello(&stream_);
@@ -76,7 +78,7 @@ pub fn Server(comptime StreamType: type) type {
                 if (res == null) return stream.writeError(.illegal_parameter);
                 break :brk res.?;
             };
-            stream.transcript_hash.setActive(cipher_suite);
+            stream.transcript_hash.?.setActive(cipher_suite);
 
             {
                 var compression_methods: [2]u8 = undefined;
@@ -162,11 +164,7 @@ pub fn Server(comptime StreamType: type) type {
             try stream.flush();
 
             // > if the client sends a non-empty session ID, the server MUST send the change_cipher_spec
-            if (hello.session_id.len > 0) {
-                stream.content_type = .change_cipher_spec;
-                _ = try stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
-                try stream.flush();
-            }
+            if (hello.session_id.len > 0) try stream.changeCipherSpec();
 
             const shared_key = switch (client_hello.key_share) {
                 .x25519_kyber768d00 => |ks| brk: {
@@ -199,8 +197,10 @@ pub fn Server(comptime StreamType: type) type {
                 else => return stream.writeError(.illegal_parameter),
             };
 
-            const hello_hash = stream.transcript_hash.peek();
-            stream.handshake_cipher = tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, hello_hash) catch return stream.writeError(.illegal_parameter);
+            const hello_hash = stream.transcript_hash.?.peek();
+            const handshake_cipher = tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, hello_hash,) catch
+                return stream.writeError(.illegal_parameter);
+            stream.cipher = .{ .handshake = handshake_cipher };
 
             stream.content_type = .handshake;
             _ = try stream.write(tls.Handshake, .{ .encrypted_extensions = &.{} });
@@ -212,12 +212,12 @@ pub fn Server(comptime StreamType: type) type {
 
         pub fn send_finished(self: *Self) !void {
             var stream = &self.stream;
-            const verify_data = switch (stream.handshake_cipher.?) {
+            const verify_data = switch (stream.cipher.handshake) {
                 inline .aes_256_gcm_sha384,
                 => |v| brk: {
                     const T = @TypeOf(v);
                     const secret = v.server_finished_key;
-                    const transcript_hash = stream.transcript_hash.peek();
+                    const transcript_hash = stream.transcript_hash.?.peek();
 
                     break :brk tls.hmac(T.Hmac, transcript_hash, secret);
                 },
@@ -225,23 +225,24 @@ pub fn Server(comptime StreamType: type) type {
             };
             _ = try stream.write(tls.Handshake, .{ .finished = &verify_data });
             try stream.flush();
-
-            stream.application_cipher = tls.ApplicationCipher.init(
-                stream.handshake_cipher.?,
-                stream.transcript_hash.peek(),
-            );
         }
 
         pub fn recv_finished(self: *Self) !void {
             var stream = &self.stream;
             var reader = stream.reader();
-            const cipher = stream.handshake_cipher.?;
 
-            const expected = switch (cipher) {
+            const handshake_hash = stream.transcript_hash.?.peek();
+
+            const application_cipher = tls.ApplicationCipher.init(
+                stream.cipher.handshake,
+                handshake_hash,
+            );
+
+            const expected = switch (stream.cipher.handshake) {
                 .empty_renegotiation_info_scsv => return stream.writeError(.decode_error),
                 inline else => |p| brk: {
                     const P = @TypeOf(p);
-                    const digest = stream.transcript_hash.peek();
+                    const digest = stream.transcript_hash.?.peek();
                     break :brk &tls.hmac(P.Hmac, digest, p.client_finished_key);
                 },
             };
@@ -254,6 +255,8 @@ pub fn Server(comptime StreamType: type) type {
 
             stream.content_type = .application_data;
             stream.handshake_type = null;
+            stream.cipher = .{ .application = application_cipher };
+            stream.transcript_hash = null;
         }
     };
 }

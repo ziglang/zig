@@ -12,25 +12,27 @@ pub fn Client(comptime StreamType: type) type {
         stream: Stream,
         options: Options,
 
-        const Stream = tls.Stream(tls.Plaintext.max_length, StreamType);
+        pub const Stream = tls.Stream(tls.Plaintext.max_length, StreamType);
         const Self = @This();
 
         /// Initiates a TLS handshake and establishes a TLSv1.3 session
         pub fn init(stream: *StreamType, options: Options) !Self {
+            var transcript_hash: tls.MultiHash = .{};
             const stream_ = tls.Stream(tls.Plaintext.max_length, StreamType){
                 .stream = stream,
                 .is_client = true,
+                .transcript_hash = &transcript_hash,
             };
             var res = Self{ .stream = stream_, .options = options };
 
-            var state = Command{ .send_hello = KeyPairs.init() };
+            var state = State{ .send_hello = KeyPairs.init() };
             while (state != .sent_finished) state = try res.advance(state);
 
             return res;
         }
 
         /// Execute command and return next one.
-        pub fn advance(self: *Self, command: Command) !Command {
+        pub fn advance(self: *Self, command: State) !State {
             var stream = &self.stream;
             switch (command) {
                 .send_hello => |key_pairs| {
@@ -51,7 +53,7 @@ pub fn Client(comptime StreamType: type) type {
                     return .{ .recv_certificate_or_finished = {} };
                 },
                 .recv_certificate_or_finished => {
-                    const digest = stream.transcript_hash.peek();
+                    const digest = stream.transcript_hash.?.peek();
                     const inner_plaintext = try stream.readInnerPlaintext();
                     if (inner_plaintext.type != .handshake) return stream.writeError(.unexpected_message);
                     switch (inner_plaintext.handshake_type) {
@@ -74,14 +76,14 @@ pub fn Client(comptime StreamType: type) type {
                 .recv_certificate_verify => |parsed| {
                     defer self.options.allocator.free(parsed.certificate.buffer);
 
-                    const digest = stream.transcript_hash.peek();
+                    const digest = stream.transcript_hash.?.peek();
                     try stream.expectInnerPlaintext(.handshake, .certificate_verify);
                     try self.recv_certificate_verify(digest, parsed);
 
                     return .{ .recv_finished = {} };
                 },
                 .recv_finished => {
-                    const digest = stream.transcript_hash.peek();
+                    const digest = stream.transcript_hash.?.peek();
                     try stream.expectInnerPlaintext(.handshake, .finished);
                     try self.recv_finished(digest);
 
@@ -124,12 +126,12 @@ pub fn Client(comptime StreamType: type) type {
 
         pub fn recv_hello(self: *Self, key_pairs: KeyPairs) !void {
             var stream = &self.stream;
-            var reader = stream.reader();
+            var r = stream.reader();
 
             // > The value of TLSPlaintext.legacy_record_version MUST be ignored by all implementations.
             _ = try stream.read(tls.Version);
             var random: [32]u8 = undefined;
-            try reader.readNoEof(&random);
+            try r.readNoEof(&random);
             if (mem.eql(u8, &random, &tls.ServerHello.hello_retry_request)) {
                 // We already offered all our supported options and we aren't changing them.
                 return stream.writeError(.unexpected_message);
@@ -140,7 +142,7 @@ pub fn Client(comptime StreamType: type) type {
             if (session_id_len > tls.ClientHello.session_id_max_len)
                 return stream.writeError(.illegal_parameter);
             const session_id: []u8 = session_id_buf[0..session_id_len];
-            try reader.readNoEof(session_id);
+            try r.readNoEof(session_id);
             if (!mem.eql(u8, session_id, &key_pairs.session_id))
                 return stream.writeError(.illegal_parameter);
 
@@ -169,7 +171,7 @@ pub fn Client(comptime StreamType: type) type {
                                 const expected_len = x25519_len + T.Kyber768.ciphertext_length;
                                 if (key_size != expected_len) return stream.writeError(.illegal_parameter);
                                 var server_ks: [expected_len]u8 = undefined;
-                                try reader.readNoEof(&server_ks);
+                                try r.readNoEof(&server_ks);
 
                                 const mult = T.X25519.scalarmult(
                                     key_pairs.x25519.secret_key,
@@ -185,7 +187,7 @@ pub fn Client(comptime StreamType: type) type {
                                 const expected_len = T.public_length;
                                 if (key_size != expected_len) return stream.writeError(.illegal_parameter);
                                 var server_ks: [expected_len]u8 = undefined;
-                                try reader.readNoEof(&server_ks);
+                                try r.readNoEof(&server_ks);
 
                                 const mult = crypto.dh.X25519.scalarmult(
                                     key_pairs.x25519.secret_key,
@@ -199,7 +201,7 @@ pub fn Client(comptime StreamType: type) type {
                                 if (key_size != expected_len) return stream.writeError(.illegal_parameter);
 
                                 var server_ks: [expected_len]u8 = undefined;
-                                try reader.readNoEof(&server_ks);
+                                try r.readNoEof(&server_ks);
 
                                 const pk = T.PublicKey.fromSec1(&server_ks) catch
                                     return stream.writeError(.illegal_parameter);
@@ -211,12 +213,12 @@ pub fn Client(comptime StreamType: type) type {
                             // Server sent us back unknown key. That's weird because we only request known ones,
                             // but we can try for another.
                             else => {
-                                try reader.skipBytes(key_size, .{});
+                                try r.skipBytes(key_size, .{});
                             },
                         }
                     },
                     else => {
-                        try reader.skipBytes(ext.len, .{});
+                        try r.skipBytes(ext.len, .{});
                     },
                 }
             }
@@ -224,26 +226,20 @@ pub fn Client(comptime StreamType: type) type {
             if (supported_version != tls.Version.tls_1_3) return stream.writeError(.protocol_version);
             if (shared_key == null) return stream.writeError(.missing_extension);
 
-            stream.transcript_hash.setActive(cipher_suite);
-            const hello_hash = stream.transcript_hash.peek();
-            stream.handshake_cipher = tls.HandshakeCipher.init(cipher_suite, shared_key.?, hello_hash) catch return stream.writeError(.illegal_parameter);
+            stream.transcript_hash.?.setActive(cipher_suite);
+            const hello_hash = stream.transcript_hash.?.peek();
+
+            const handshake_cipher = tls.HandshakeCipher.init(cipher_suite, shared_key.?, hello_hash,) catch return stream.writeError(.illegal_parameter);
+            stream.cipher = .{ .handshake = handshake_cipher };
         }
 
         pub fn recv_encrypted_extensions(self: *Self) !void {
             var stream = &self.stream;
-            var reader = stream.reader();
+            var r = stream.reader();
 
             var iter = try stream.extensions();
             while (try iter.next()) |ext| {
-                switch (ext.type) {
-                    .server_name => {
-                        try reader.skipBytes(ext.len, .{});
-                    },
-                    else => |t| {
-                        std.debug.print("unsupported extension {}\n", .{t});
-                        return stream.writeError(.unsupported_extension);
-                    },
-                }
+                try r.skipBytes(ext.len, .{});
             }
         }
 
@@ -252,7 +248,7 @@ pub fn Client(comptime StreamType: type) type {
         /// Caller owns allocated Certificate.Parsed.certificate.
         pub fn recv_certificate(self: *Self) !Certificate.Parsed {
             var stream = &self.stream;
-            var reader = stream.reader();
+            var r = stream.reader();
             const allocator = self.options.allocator;
             const ca_bundle = self.options.ca_bundle;
             const verify = ca_bundle != null;
@@ -260,7 +256,7 @@ pub fn Client(comptime StreamType: type) type {
             var context: [tls.Certificate.max_context_len]u8 = undefined;
             const context_len = try stream.read(u8);
             if (context_len > tls.Certificate.max_context_len) return stream.writeError(.decode_error);
-            try reader.readNoEof(context[0..context_len]);
+            try r.readNoEof(context[0..context_len]);
 
             var first: ?crypto.Certificate.Parsed = null;
             var prev: Certificate.Parsed = undefined;
@@ -271,14 +267,16 @@ pub fn Client(comptime StreamType: type) type {
             while (try certs_iter.next()) |cert_len| {
                 const is_first = first == null;
 
-                if (!verified) {
+                if (verified) {
+                    try r.skipBytes(cert_len, .{});
+                } else {
                     if (cert_len > tls.Certificate.Entry.max_data_len)
                         return stream.writeError(.decode_error);
                     const buf = allocator.alloc(u8, cert_len) catch
                         return stream.writeError(.internal_error);
                     defer if (!is_first) allocator.free(buf);
                     errdefer allocator.free(buf);
-                    try reader.readNoEof(buf);
+                    try r.readNoEof(buf);
 
                     const cert = crypto.Certificate{ .buffer = buf, .index = 0 };
                     const cur = cert.parse() catch return stream.writeError(.bad_certificate);
@@ -303,16 +301,16 @@ pub fn Client(comptime StreamType: type) type {
                 }
 
                 var ext_iter = try stream.extensions();
-                while (try ext_iter.next()) |ext| try reader.skipBytes(ext.len, .{});
+                while (try ext_iter.next()) |ext| try r.skipBytes(ext.len, .{});
             }
             if (verify and !verified) return stream.writeError(.bad_certificate);
 
-            return if (first) |r| r else stream.writeError(.bad_certificate);
+            return if (first) |f| f else stream.writeError(.bad_certificate);
         }
 
         pub fn recv_certificate_verify(self: *Self, digest: []const u8, cert: Certificate.Parsed) !void {
             var stream = &self.stream;
-            var reader = stream.reader();
+            var r = stream.reader();
             const allocator = self.options.allocator;
 
             const sig_content = tls.sigContent(digest);
@@ -324,7 +322,7 @@ pub fn Client(comptime StreamType: type) type {
             const sig_bytes = allocator.alloc(u8, len) catch
                 return stream.writeError(.internal_error);
             defer allocator.free(sig_bytes);
-            try reader.readNoEof(sig_bytes);
+            try r.readNoEof(sig_bytes);
 
             switch (scheme) {
                 inline .ecdsa_secp256r1_sha256,
@@ -386,8 +384,8 @@ pub fn Client(comptime StreamType: type) type {
 
         pub fn recv_finished(self: *Self, digest: []const u8) !void {
             var stream = &self.stream;
-            var reader = stream.reader();
-            const cipher = stream.handshake_cipher.?;
+            var r = stream.reader();
+            const cipher = stream.cipher.handshake;
 
             switch (cipher) {
                 .empty_renegotiation_info_scsv => return stream.writeError(.decode_error),
@@ -396,26 +394,20 @@ pub fn Client(comptime StreamType: type) type {
                     const expected = &tls.hmac(P.Hmac, digest, p.server_finished_key);
 
                     var actual: [expected.len]u8 = undefined;
-                    try reader.readNoEof(&actual);
+                    try r.readNoEof(&actual);
                     if (!mem.eql(u8, expected, &actual)) return stream.writeError(.decode_error);
                 },
             }
-
-            stream.application_cipher = tls.ApplicationCipher.init(
-                stream.handshake_cipher.?,
-                stream.transcript_hash.peek(),
-            );
         }
 
         pub fn send_finished(self: *Self) !void {
             var stream = &self.stream;
 
-            stream.version = .tls_1_2;
-            stream.content_type = .change_cipher_spec;
-            _ = try stream.write(tls.ChangeCipherSpec, .change_cipher_spec);
-            try stream.flush();
+            const handshake_hash = stream.transcript_hash.?.peek();
 
-            const verify_data = switch (stream.handshake_cipher.?) {
+            try stream.changeCipherSpec();
+
+            const verify_data = switch (stream.cipher.handshake) {
                 inline .aes_128_gcm_sha256,
                 .aes_256_gcm_sha384,
                 .chacha20_poly1305_sha256,
@@ -424,7 +416,7 @@ pub fn Client(comptime StreamType: type) type {
                 => |v| brk: {
                     const T = @TypeOf(v);
                     const secret = v.client_finished_key;
-                    const transcript_hash = stream.transcript_hash.peek();
+                    const transcript_hash = stream.transcript_hash.?.peek();
 
                     break :brk &tls.hmac(T.Hmac, transcript_hash, secret);
                 },
@@ -434,7 +426,93 @@ pub fn Client(comptime StreamType: type) type {
             _ = try stream.write(tls.Handshake, .{ .finished = verify_data });
             try stream.flush();
 
+            const application_cipher = tls.ApplicationCipher.init(stream.cipher.handshake, handshake_hash);
+            stream.cipher = .{ .application =  application_cipher };
             stream.content_type = .application_data;
+            stream.transcript_hash = null;
+        }
+
+        pub const ReadError = Stream.ReadError;
+        pub const WriteError = Stream.WriteError;
+
+        /// Reads next application_data message.
+        pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
+            var stream = &self.stream;
+
+            if (stream.eof()) return 0;
+
+            while (stream.view.len == 0) {
+                const inner_plaintext = try stream.readInnerPlaintext();
+                switch (inner_plaintext.type) {
+                    .handshake => {
+                        switch (inner_plaintext.handshake_type) {
+                             // A multithreaded client could use these.
+                            .new_session_ticket => {
+                                try stream.reader().skipBytes(inner_plaintext.len, .{});
+                            },
+                            .key_update => {
+                                switch (stream.cipher.application) {
+                                    .empty_renegotiation_info_scsv => {},
+                                    inline else => |*p| {
+                                        const P = @TypeOf(p.*);
+                                        const server_secret = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "traffic upd", "", P.Hash.digest_length);
+                                        p.server_secret = server_secret;
+                                        p.server_key = tls.hkdfExpandLabel(P.Hkdf, server_secret, "key", "", P.AEAD.key_length);
+                                        p.server_iv = tls.hkdfExpandLabel(P.Hkdf, server_secret, "iv", "", P.AEAD.nonce_length);
+                                        p.read_seq = 0;
+                                    },
+                                }
+                                const update = try stream.read(tls.KeyUpdate);
+                                if (update == .update_requested) {
+                                    switch (stream.cipher.application) {
+                                        .empty_renegotiation_info_scsv => {},
+                                        inline else => |*p| {
+                                            const P = @TypeOf(p.*);
+                                            const client_secret = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "traffic upd", "", P.Hash.digest_length);
+                                            p.client_secret = client_secret;
+                                            p.client_key = tls.hkdfExpandLabel(P.Hkdf, client_secret, "key", "", P.AEAD.key_length);
+                                            p.client_iv = tls.hkdfExpandLabel(P.Hkdf, client_secret, "iv", "", P.AEAD.nonce_length);
+                                            p.write_seq = 0;
+                                        },
+                                    }
+                                }
+                            },
+                            else => return stream.writeError(.unexpected_message),
+                        }
+                    },
+                    .application_data => {},
+                    else => return stream.writeError(.unexpected_message),
+                }
+            }
+            return try self.stream.readv(buffers);
+        }
+
+        pub fn read(self: *Self, buf: []u8) ReadError!usize {
+            const buffers = [_]std.os.iovec{.{ .iov_base = buf.ptr, .iov_len = buf.len }};
+            return try self.readv(&buffers);
+        }
+
+        pub fn write(self: *Self, buf: []const u8) WriteError!usize {
+            if (self.stream.eof()) return 0;
+
+            const res = try self.stream.writeBytes(buf);
+            try self.stream.flush();
+            return res;
+        }
+
+        pub fn close(self: *Self) void {
+            self.stream.close();
+        }
+
+        pub const Reader = std.io.Reader(*Self, ReadError, read);
+        pub const Writer = std.io.Writer(*Self, WriteError, write);
+
+        pub fn reader(self: *Self) Reader {
+            return .{ .context = self };
+        }
+
+        pub fn writer(self: *Self) Writer {
+            return .{ .context = self };
         }
     };
 }
@@ -559,7 +637,7 @@ fn SchemeEddsa(comptime scheme: tls.SignatureScheme) type {
 }
 
 /// A single `send` or `recv`. Allows for testing `advance`.
-pub const Command = union(enum) {
+pub const State = union(enum) {
     send_hello: KeyPairs,
     recv_hello: KeyPairs,
     recv_encrypted_extensions: void,
