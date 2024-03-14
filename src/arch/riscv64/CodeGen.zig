@@ -1586,11 +1586,53 @@ fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, ty: 
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    _ = ty_pl;
+    const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
+    const operand = extra.struct_operand;
+    const index = extra.field_index;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mod = self.bin_file.comp.module.?;
+        const src_mcv = try self.resolveInst(operand);
+        const struct_ty = self.typeOf(operand);
+        const field_ty = struct_ty.structFieldType(index, mod);
+        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result .none;
 
-    return self.fail("TODO: airStructFieldVal", .{});
+        const field_off = @as(u32, @intCast(struct_ty.structFieldOffset(index, mod)));
 
-    // return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
+        switch (src_mcv) {
+            .dead, .unreach => unreachable,
+            .register => |src_reg| {
+                const src_reg_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+                defer self.register_manager.unlockReg(src_reg_lock);
+
+                const dst_reg = if (field_off == 0)
+                    (try self.copyToNewRegister(inst, src_mcv)).register
+                else
+                    try self.copyToTmpRegister(Type.usize, .{ .register = src_reg });
+
+                const dst_mcv: MCValue = .{ .register = dst_reg };
+                const dst_lock = self.register_manager.lockReg(dst_reg);
+                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+                if (field_off > 0) {
+                    _ = try self.addInst(.{
+                        .tag = .srli,
+                        .data = .{
+                            .i_type = .{
+                                .imm12 = @intCast(field_off),
+                                .rd = dst_reg,
+                                .rs1 = dst_reg,
+                            },
+                        },
+                    });
+                }
+
+                break :result if (field_off == 0) dst_mcv else try self.copyToNewRegister(inst, dst_mcv);
+            },
+            else => return self.fail("TODO: airStructField {s}", .{@tagName(src_mcv)}),
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -1626,8 +1668,6 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     self.arg_index = arg_index + 1;
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
-        const arg_ty = self.typeOfIndex(inst);
-        _ = arg_ty;
         const src_mcv = self.args[arg_index];
 
         const dst_mcv = switch (src_mcv) {
@@ -2471,12 +2511,14 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) Inner
             }
         },
         .stack_offset, .load_symbol => {
-            if (true)
-                return self.fail("TODO: genSetStack {s}", .{@tagName(src_val)});
+            switch (src_val) {
+                .stack_offset => |off| if (off == stack_offset) return,
+                else => {},
+            }
 
             if (abi_size <= 8) {
                 const reg = try self.copyToTmpRegister(ty, src_val);
-                return self.genSetStack(ty, stack_offset, MCValue{ .register = reg });
+                return self.genSetStack(ty, stack_offset, .{ .register = reg });
             }
 
             const ptr_ty = try mod.singleMutPtrType(ty);
@@ -2496,7 +2538,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) Inner
 
             switch (src_val) {
                 .stack_offset => |offset| {
-                    if (offset == stack_offset) return;
                     try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = offset });
                 },
                 .load_symbol => |sym_off| {
@@ -2553,11 +2594,34 @@ fn genInlineMemcpy(
 ) !void {
     _ = src;
     _ = dst;
-    _ = len;
-    _ = count;
-    _ = tmp;
 
-    return self.fail("TODO: genInlineMemcpy", .{});
+    // store 0 in the count
+    try self.genSetReg(Type.usize, count, .{ .immediate = 0 });
+
+    // compare count to length
+    const compare_inst = try self.addInst(.{
+        .tag = .cmp_gt,
+        .data = .{ .r_type = .{
+            .rd = tmp,
+            .rs1 = count,
+            .rs2 = len,
+        } },
+    });
+
+    // end if true
+    _ = try self.addInst(.{
+        .tag = .bne,
+        .data = .{
+            .b_type = .{
+                .inst = @intCast(self.mir_instructions.len + 0), // points after the last inst
+                .rs1 = .zero,
+                .rs2 = tmp,
+            },
+        },
+    });
+    _ = compare_inst;
+
+    return self.fail("TODO: finish genInlineMemcpy", .{});
 }
 
 /// Sets the value of `src_val` into `reg`. Assumes you have a lock on it.
@@ -2567,7 +2631,7 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_val: MCValue) InnerError!
 
     switch (src_val) {
         .dead => unreachable,
-        .ptr_stack_offset => return self.fail("TODO genSetReg ptr_stack_offset", .{}),
+        .ptr_stack_offset => |off| try self.genSetReg(ty, reg, .{ .stack_offset = off }),
         .unreach, .none => return, // Nothing to do.
         .undef => {
             if (!self.wantSafety())

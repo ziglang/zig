@@ -98,6 +98,8 @@ pub fn emitMir(
             .sh => try emit.mirIType(inst),
             .sb => try emit.mirIType(inst),
 
+            .srli => try emit.mirIType(inst),
+
             .ldr_ptr_stack => try emit.mirIType(inst),
 
             .load_symbol => try emit.mirLoadSymbol(inst),
@@ -223,6 +225,8 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
             try emit.writeInstruction(Instruction.xor(i_type.rs1, i_type.rs1, i_type.rd));
             try emit.writeInstruction(Instruction.subw(i_type.rs1, i_type.rs1, i_type.rd));
         },
+
+        .srli => try emit.writeInstruction(Instruction.srli(i_type.rd, i_type.rs1, @intCast(i_type.imm12))),
 
         else => unreachable,
     }
