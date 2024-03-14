@@ -42,6 +42,7 @@ pub const OpenError = error{
     WouldBlock,
     NetworkNotFound,
     AntivirusInterference,
+    BadPathName,
 };
 
 pub const OpenFileOptions = struct {
@@ -120,7 +121,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
         );
         switch (rc) {
             .SUCCESS => return result,
-            .OBJECT_NAME_INVALID => unreachable,
+            .OBJECT_NAME_INVALID => return error.BadPathName,
             .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
             .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
             .BAD_NETWORK_PATH => return error.NetworkNotFound, // \\server was not found
