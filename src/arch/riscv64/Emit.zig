@@ -287,7 +287,7 @@ fn mirPsuedo(emit: *Emit, inst: Mir.Inst.Index) !void {
             };
 
             // Restore ra
-            try emit.writeInstruction(Instruction.ld(.ra, stack_size - 16, .sp));
+            try emit.writeInstruction(Instruction.ld(.ra, stack_size - 8, .sp));
 
             // Restore s0
             try emit.writeInstruction(Instruction.ld(.s0, stack_size - 16, .sp));
