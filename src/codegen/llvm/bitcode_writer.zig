@@ -102,7 +102,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
             // If input is larger than one VBR block can store
             // then store vbr_bits - 1 bits and a continue bit
             while (in_buffer > mask) {
-                try self.writeBits(in_buffer & mask | continue_bit, vbr_bits);
+                try self.writeBits((in_buffer & mask) | continue_bit, vbr_bits);
                 in_buffer >>= @intCast(vbr_bits - 1);
             }
 

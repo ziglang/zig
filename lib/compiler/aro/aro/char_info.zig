@@ -492,7 +492,7 @@ pub fn isXidStart(c: u21) bool {
     assert(c > 0x7F);
     const idx = c / 8 / tables.chunk;
     const chunk: usize = if (idx < tables.trie_start.len) tables.trie_start[idx] else 0;
-    const offset = chunk * tables.chunk / 2 + c / 8 % tables.chunk;
+    const offset = chunk * tables.chunk / 2 + (c / 8) % tables.chunk;
     return (tables.leaf[offset] >> (@as(u3, @intCast(c % 8)))) & 1 != 0;
 }
 
@@ -500,7 +500,7 @@ pub fn isXidContinue(c: u21) bool {
     assert(c > 0x7F);
     const idx = c / 8 / tables.chunk;
     const chunk: usize = if (idx < tables.trie_continue.len) tables.trie_continue[idx] else 0;
-    const offset = chunk * tables.chunk / 2 + c / 8 % tables.chunk;
+    const offset = chunk * tables.chunk / 2 + (c / 8) % tables.chunk;
     return (tables.leaf[offset] >> (@as(u3, @intCast(c % 8)))) & 1 != 0;
 }
 

@@ -3741,7 +3741,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) void {
 
     // We only need the extra limb if the shift of the last element overflows.
     // This is useful for the implementation of `shiftLeftSat`.
-    if (a[a.len - 1] << interior_limb_shift >> interior_limb_shift != a[a.len - 1]) {
+    if ((a[a.len - 1] << interior_limb_shift) >> interior_limb_shift != a[a.len - 1]) {
         assert(r.len >= a.len + (shift / limb_bits) + 1);
     } else {
         assert(r.len >= a.len + (shift / limb_bits));

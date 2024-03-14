@@ -243,7 +243,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
 
     if (comp.langopts.gnuc_version > 0) {
         try w.print("#define __GNUC__ {d}\n", .{comp.langopts.gnuc_version / 10_000});
-        try w.print("#define __GNUC_MINOR__ {d}\n", .{comp.langopts.gnuc_version / 100 % 100});
+        try w.print("#define __GNUC_MINOR__ {d}\n", .{(comp.langopts.gnuc_version / 100) % 100});
         try w.print("#define __GNUC_PATCHLEVEL__ {d}\n", .{comp.langopts.gnuc_version % 100});
     }
 
@@ -534,7 +534,7 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
 
     if (system_defines_mode == .include_system_defines) {
         try buf.appendSlice(
-            \\#define __VERSION__ "Aro 
+            \\#define __VERSION__ "Aro
         ++ @import("../backend.zig").version_str ++ "\"\n" ++
             \\#define __Aro__
             \\
