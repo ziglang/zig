@@ -72,6 +72,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         macho_step.dependOn(testSearchStrategy(b, .{ .target = default_target }));
         macho_step.dependOn(testTbdv3(b, .{ .target = default_target }));
         macho_step.dependOn(testTls(b, .{ .target = default_target }));
+        macho_step.dependOn(testTlsPointers(b, .{ .target = default_target }));
         macho_step.dependOn(testTwoLevelNamespace(b, .{ .target = default_target }));
         macho_step.dependOn(testWeakLibrary(b, .{ .target = default_target }));
 
@@ -1649,6 +1650,71 @@ fn testTls(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("2 2 2");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+// https://github.com/ziglang/zig/issues/19221
+fn testTlsPointers(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-pointers", opts);
+
+    const foo_h = foo_h: {
+        const wf = WriteFile.create(b);
+        break :foo_h wf.add("foo.h",
+            \\template<typename just4fun>
+            \\struct Foo {
+            \\
+            \\public:
+            \\  static int getVar() {
+            \\  static int thread_local var = 0;
+            \\  ++var;
+            \\  return var;
+            \\}
+            \\};
+        );
+    };
+
+    const bar_o = addObject(b, opts, .{ .name = "bar", .cpp_source_bytes = 
+    \\#include "foo.h"
+    \\int bar() {
+    \\  int v1 = Foo<int>::getVar();
+    \\  return v1;
+    \\}
+    });
+    bar_o.root_module.addIncludePath(foo_h.dirname());
+    bar_o.linkLibCpp();
+
+    const baz_o = addObject(b, opts, .{ .name = "baz", .cpp_source_bytes = 
+    \\#include "foo.h"
+    \\int baz() {
+    \\  int v1 = Foo<unsigned>::getVar();
+    \\  return v1;
+    \\}
+    });
+    baz_o.root_module.addIncludePath(foo_h.dirname());
+    baz_o.linkLibCpp();
+
+    const main_o = addObject(b, opts, .{ .name = "main", .cpp_source_bytes = 
+    \\extern int bar();
+    \\extern int baz();
+    \\int main() {
+    \\  int v1 = bar();
+    \\  int v2 = baz();
+    \\  return v1 != v2;
+    \\}
+    });
+    main_o.root_module.addIncludePath(foo_h.dirname());
+    main_o.linkLibCpp();
+
+    const exe = addExecutable(b, opts, .{ .name = "main" });
+    exe.addObject(bar_o);
+    exe.addObject(baz_o);
+    exe.addObject(main_o);
+    exe.linkLibCpp();
+
+    const run = addRunArtifact(exe);
+    run.expectExitCode(0);
     test_step.dependOn(&run.step);
 
     return test_step;
