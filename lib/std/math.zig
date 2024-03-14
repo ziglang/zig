@@ -299,13 +299,44 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
     return @tan(value);
 }
 
-/// Converts an angle in radians to degrees. T must be a float type.
-pub fn radiansToDegrees(rad: anytype) if (@TypeOf(rad) == comptime_int) comptime_float else @TypeOf(rad) {
-    const T = @TypeOf(rad);
+/// output type of radiansToDegrees and degreesToRadians
+fn AngleType(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        .Float, .ComptimeFloat, .ComptimeInt => rad * deg_per_rad,
-        else => @compileError("rad must be float or a comptime type"),
+        .Float, .ComptimeFloat => T,
+        .ComptimeInt => comptime_float,
+        .Vector => |V| {
+            switch (V.child) {
+                .Float, .ComptimeFloat => T,
+                .ComptimeInt => do: {
+                    var U = V;
+                    U.child = comptime_float;
+                    break :do @Type(U);
+                },
+                else => @compileError("Input must be float or a comptime type, or a vector of such."),
+            }
+        },
+        else => @compileError("Input must be float or a comptime type, or a vector of such."),
     };
+}
+
+/// Converts an angle in radians to degrees. T must be a float type.
+pub fn radiansToDegrees(ang: anytype) AngleType(@TypeOf(ang)) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => {
+            return ang * deg_per_rad;
+        },
+        .Vector => |V| {
+            switch (V.child) {
+                .Float, .ComptimeFloat, .ComptimeInt => {
+                    return ang * @as(T, @splat(deg_per_rad));
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
+    @compileError("Input must be float or a comptime type, or a vector of such.");
 }
 
 test "radiansToDegrees" {
@@ -322,12 +353,23 @@ test "radiansToDegrees" {
 }
 
 /// Converts an angle in degrees to radians. T must be a float type.
-pub fn degreesToRadians(deg: anytype) if (@TypeOf(deg) == comptime_int) comptime_float else @TypeOf(deg) {
-    const T = @TypeOf(deg);
-    return switch (@typeInfo(T)) {
-        .Float, .ComptimeFloat, .ComptimeInt => deg * rad_per_deg,
-        else => @compileError("deg must be float or a comptime type"),
-    };
+pub fn degreesToRadians(ang: anytype) AngleType(@TypeOf(ang)) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => {
+            return ang * rad_per_deg;
+        },
+        .Vector => |V| {
+            switch (V.child) {
+                .Float, .ComptimeFloat, .ComptimeInt => {
+                    return ang * @as(T, @splat(rad_per_deg));
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
+    @compileError("Input must be float or a comptime type, or a vector of such.");
 }
 
 test "degreesToRadians" {
