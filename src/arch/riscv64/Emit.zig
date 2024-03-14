@@ -58,6 +58,7 @@ pub fn emitMir(
 
             .addi => try emit.mirIType(inst),
             .jalr => try emit.mirIType(inst),
+            .abs => try emit.mirIType(inst),
 
             .jal => try emit.mirJType(inst),
 
@@ -199,6 +200,12 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .sb => try emit.writeInstruction(Instruction.sb(i_type.rd, i_type.imm12, i_type.rs1)),
 
         .ldr_ptr_stack => try emit.writeInstruction(Instruction.add(i_type.rd, i_type.rs1, .sp)),
+
+        .abs => {
+            try emit.writeInstruction(Instruction.sraiw(i_type.rd, i_type.rs1, @intCast(i_type.imm12)));
+            try emit.writeInstruction(Instruction.xor(i_type.rs1, i_type.rs1, i_type.rd));
+            try emit.writeInstruction(Instruction.subw(i_type.rs1, i_type.rs1, i_type.rd));
+        },
 
         else => unreachable,
     }

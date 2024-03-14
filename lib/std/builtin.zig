@@ -760,9 +760,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
     @setCold(true);
 
     // stage2_riscv64 backend doesn't support loops yet.
-    if (builtin.zig_backend == .stage2_riscv64 or
-        builtin.cpu.arch == .riscv64)
-    {
+    if (builtin.zig_backend == .stage2_riscv64) {
         unreachable;
     }
 

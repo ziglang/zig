@@ -38,6 +38,9 @@ pub const Inst = struct {
         /// Subtraction
         sub,
 
+        /// Absolute Value, uses i_type payload.
+        abs,
+
         jal,
         /// Jumps. Uses `inst` payload.
         j,

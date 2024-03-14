@@ -1385,8 +1385,44 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airAbs for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ty = self.typeOf(ty_op.operand);
+        const scalar_ty = ty.scalarType(mod);
+        const operand = try self.resolveInst(ty_op.operand);
+
+        switch (scalar_ty.zigTypeTag(mod)) {
+            .Int => if (ty.zigTypeTag(mod) == .Vector) {
+                return self.fail("TODO implement airAbs for {}", .{ty.fmt(mod)});
+            } else {
+                const int_bits = ty.intInfo(mod).bits;
+
+                if (int_bits > 32) {
+                    return self.fail("TODO: airAbs for larger than 32 bits", .{});
+                }
+
+                // promote the src into a register
+                const src_mcv = try self.copyToNewRegister(inst, operand);
+                // temp register for shift
+                const temp_reg = try self.register_manager.allocReg(inst, gp);
+
+                _ = try self.addInst(.{
+                    .tag = .abs,
+                    .data = .{
+                        .i_type = .{
+                            .rs1 = src_mcv.register,
+                            .rd = temp_reg,
+                            .imm12 = @intCast(int_bits - 1),
+                        },
+                    },
+                });
+
+                break :result src_mcv;
+            },
+            else => return self.fail("TODO: implement airAbs {}", .{scalar_ty.fmt(mod)}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1603,8 +1639,6 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                 self.register_manager.getRegAssumeFree(src_reg, inst);
                 break :dst src_mcv;
             },
-            // don't need to allocate anything, can just be used immediately.
-            .stack_offset => src_mcv,
             else => return self.fail("TODO: airArg {s}", .{@tagName(src_mcv)}),
         };
 
