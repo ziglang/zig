@@ -308,8 +308,7 @@ pub fn radiansToDegrees(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime
         },
         .Vector => |V| {
             switch (V.child) {
-                .Float,
-                => {
+                .Float => {
                     return ang * @as(T, @splat(deg_per_rad));
                 },
                 else => {},
@@ -342,8 +341,7 @@ pub fn degreesToRadians(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime
         },
         .Vector => |V| {
             switch (V.child) {
-                .Float,
-                => {
+                .Float => {
                     return ang * @as(T, @splat(rad_per_deg));
                 },
                 else => {},
