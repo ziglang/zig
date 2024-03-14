@@ -299,7 +299,7 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
     return @tan(value);
 }
 
-/// Converts an angle in radians to degrees. T must be a float type.
+/// Converts an angle in radians to degrees. T must be a float or comptime number or a vector of floats.
 pub fn radiansToDegrees(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
     const T = @TypeOf(ang);
     switch (@typeInfo(T)) {
@@ -309,14 +309,14 @@ pub fn radiansToDegrees(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime
         .Vector => |V| {
             switch (V.child) {
                 .Float => {
-                    return ang * @as(T, @splat(deg_per_rad));
+                    return ang * @as(@TypeOf(ang), @splat(deg_per_rad));
                 },
                 else => {},
             }
         },
         else => {},
     }
-    @compileError("Input must be float or a comptime type, or a vector of floats.");
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
 test "radiansToDegrees" {
@@ -344,7 +344,7 @@ test "radiansToDegrees" {
     try std.testing.expectApproxEqAbs(@as(f32, 360), result[4], 1e-6);
 }
 
-/// Converts an angle in degrees to radians. T must be a float type.
+/// Converts an angle in degrees to radians. T must be a float or comptime number or a vector of floats.
 pub fn degreesToRadians(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
     const T = @TypeOf(ang);
     switch (@typeInfo(T)) {
@@ -354,14 +354,14 @@ pub fn degreesToRadians(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime
         .Vector => |V| {
             switch (V.child) {
                 .Float => {
-                    return ang * @as(T, @splat(rad_per_deg));
+                    return ang * @as(@TypeOf(ang), @splat(rad_per_deg));
                 },
                 else => {},
             }
         },
         else => {},
     }
-    @compileError("Input must be float or a comptime type, or a vector of floats.");
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
 test "degreesToRadians" {
