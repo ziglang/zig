@@ -11228,7 +11228,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
                 const size: u64 = struct_type.size(ip).*;
                 assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
                 if (size % 8 > 0) {
-                    types_buffer[types_index - 1] = try o.builder.intType(@intCast(size % 8 * 8));
+                    types_buffer[types_index - 1] = try o.builder.intType(@intCast((size % 8) * 8));
                 }
             },
             else => {},
@@ -11536,7 +11536,7 @@ const ParamTypeIterator = struct {
                     assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
                     if (size % 8 > 0) {
                         types_buffer[types_index - 1] =
-                            try it.object.builder.intType(@intCast(size % 8 * 8));
+                            try it.object.builder.intType(@intCast((size % 8) * 8));
                     }
                 },
                 else => {},

@@ -456,7 +456,6 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
         .for_input_not_captured => {
             return stream.writeAll("for input is not captured");
         },
-
         .expected_token => {
             const found_tag = token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
@@ -468,6 +467,9 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
                     expected_symbol, found_tag.symbol(),
                 }),
             }
+        },
+        .ambiguous_operator_precedence => {
+            return stream.writeAll("ambiguous operator precedence; use parentheses to disambiguate");
         },
     }
 }
@@ -2954,6 +2956,7 @@ pub const Error = struct {
         var_const_decl,
         extra_for_capture,
         for_input_not_captured,
+        ambiguous_operator_precedence,
 
         zig_style_container,
         previous_field,

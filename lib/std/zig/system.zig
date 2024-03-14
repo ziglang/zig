@@ -221,8 +221,8 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                         // Minor * 1(0),000 summed has been convention since FreeBSD 2.2 (1997)
                         // e.g. 492101 = 4.11-STABLE = 4.(9+2)
                         const major = value / 100_000;
-                        const minor1 = value % 100_000 / 10_000; // usually 0 since 5.1
-                        const minor2 = value % 10_000 / 1_000; // 0 before 5.1, minor version since
+                        const minor1 = (value % 100_000) / 10_000; // usually 0 since 5.1
+                        const minor2 = (value % 10_000) / 1_000; // 0 before 5.1, minor version since
                         const patch = value % 1_000;
                         os.version_range.semver.min = .{ .major = major, .minor = minor1 + minor2, .patch = patch };
                         os.version_range.semver.max = os.version_range.semver.min;
@@ -235,8 +235,8 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                         // r = 0 (*)
                         // p = patchlevel
                         const major = value / 100_000_000;
-                        const minor = value % 100_000_000 / 1_000_000;
-                        const patch = value % 10_000 / 100;
+                        const minor = (value % 100_000_000) / 1_000_000;
+                        const patch = (value % 10_000) / 100;
                         os.version_range.semver.min = .{ .major = major, .minor = minor, .patch = patch };
                         os.version_range.semver.max = os.version_range.semver.min;
                     },
@@ -247,7 +247,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                         //   m = minor; odd-numbers indicate current dev branch
                         //   p = patch
                         const major = value / 100_000;
-                        const minor = value % 100_000 / 100;
+                        const minor = (value % 100_000) / 100;
                         const patch = value % 100;
                         os.version_range.semver.min = .{ .major = major, .minor = minor, .patch = patch };
                         os.version_range.semver.max = os.version_range.semver.min;

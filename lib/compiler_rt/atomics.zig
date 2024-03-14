@@ -243,7 +243,7 @@ fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
     while (true) {
         const old = @as(T, @truncate((wide_old & mask) >> inner_shift));
         const new = update(val, old);
-        const wide_new = wide_old & ~mask | (@as(WideAtomic, new) << inner_shift);
+        const wide_new = (wide_old & ~mask) | (@as(WideAtomic, new) << inner_shift);
         if (@cmpxchgWeak(WideAtomic, wide_ptr, wide_old, wide_new, .seq_cst, .seq_cst)) |new_wide_old| {
             wide_old = new_wide_old;
         } else {

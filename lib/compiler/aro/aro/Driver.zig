@@ -109,9 +109,9 @@ pub const usage =
     \\  -fhosted                Compilation in a hosted environment
     \\  -fms-extensions         Enable support for Microsoft extensions
     \\  -fno-ms-extensions      Disable support for Microsoft extensions
-    \\  -fdollars-in-identifiers        
+    \\  -fdollars-in-identifiers
     \\                          Allow '$' in identifiers
-    \\  -fno-dollars-in-identifiers     
+    \\  -fno-dollars-in-identifiers
     \\                          Disallow '$' in identifiers
     \\  -fmacro-backtrace-limit=<limit>
     \\                          Set limit on how many macro expansion traces are shown in errors (default 6)

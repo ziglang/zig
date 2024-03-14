@@ -51,7 +51,7 @@ fn testThreeExprInARow(f: bool, t: bool) !void {
     try assertFalse(9 << 1 << 2 != 9 << 3);
     try assertFalse(90 >> 1 >> 2 != 90 >> 3);
     try assertFalse(100 - 1 + 1000 != 1099);
-    try assertFalse(5 * 4 / 2 % 3 != 1);
+    try assertFalse((5 * 4 / 2) % 3 != 1);
     try assertFalse(@as(i32, @as(i32, 5)) != 5);
     try assertFalse(!!false);
     try assertFalse(@as(i32, 7) != --(@as(i32, 7)));
