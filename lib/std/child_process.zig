@@ -178,7 +178,8 @@ pub const ChildProcess = struct {
         /// Inherit the stream from the parent process.
         Inherit,
 
-        /// Ignore the stream.
+        /// Pass a null stream to the child process.
+        /// This is /dev/null on POSIX and NUL on Windows.
         Ignore,
 
         /// Create a pipe for the stream.
