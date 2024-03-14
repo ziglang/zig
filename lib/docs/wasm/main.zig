@@ -528,7 +528,9 @@ export fn decl_source_html(decl_index: Decl.Index) String {
     const decl = decl_index.get();
 
     string_result.clearRetainingCapacity();
-    file_source_html(decl.file, &string_result, decl.ast_node, .{}) catch |err| {
+    file_source_html(decl.file, &string_result, decl.ast_node, .{
+        .include_entire_line = true,
+    }) catch |err| {
         fatal("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
@@ -540,7 +542,9 @@ export fn decl_doctest_html(decl_index: Decl.Index) String {
         return String.init("");
 
     string_result.clearRetainingCapacity();
-    file_source_html(decl.file, &string_result, doctest_ast_node, .{}) catch |err| {
+    file_source_html(decl.file, &string_result, doctest_ast_node, .{
+        .include_entire_line = true,
+    }) catch |err| {
         fatal("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
@@ -914,6 +918,7 @@ const RenderSourceOptions = struct {
     skip_comments: bool = false,
     collapse_whitespace: bool = false,
     fn_link: Decl.Index = .none,
+    include_entire_line: bool = false,
 };
 
 fn file_source_html(
@@ -935,6 +940,12 @@ fn file_source_html(
 
     const start_token = ast.firstToken(root_node);
     const end_token = ast.lastToken(root_node) + 1;
+
+    if (options.include_entire_line) {
+        if (std.mem.lastIndexOfAny(u8, ast.source[0..token_starts[start_token]], "\n\r")) |newline_idx| {
+            try out.appendSlice(gpa, ast.source[newline_idx + 1 .. token_starts[start_token]]);
+        }
+    }
 
     var cursor: usize = token_starts[start_token];
 
