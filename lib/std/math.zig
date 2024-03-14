@@ -325,11 +325,23 @@ test "radiansToDegrees" {
     const neg_quart_pi: f32 = -pi / 4.0;
     const one_pi: f32 = pi;
     const two_pi: f32 = 2.0 * pi;
+    const result = radiansToDegrees(@Vector(5, f32){
+        zero,
+        half_pi,
+        neg_quart_pi,
+        one_pi,
+        two_pi,
+    });
     try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(zero), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(half_pi), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(neg_quart_pi), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(one_pi), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(two_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), result[2], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), result[3], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), result[4], 1e-6);
 }
 
 /// Converts an angle in degrees to radians. T must be a float type.
@@ -356,9 +368,17 @@ test "degreesToRadians" {
     const ninety: f32 = 90;
     const neg_two_seventy: f32 = -270;
     const three_sixty: f32 = 360;
+    const result = @Vector(3, f32){
+        ninety,
+        neg_two_seventy,
+        three_sixty,
+    };
     try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(ninety), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(neg_two_seventy), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(three_sixty), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), result[2], 1e-6);
 }
 
 /// Base-e exponential function on a floating point number.
