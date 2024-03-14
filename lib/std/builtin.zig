@@ -759,11 +759,6 @@ else
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
     @setCold(true);
 
-    // stage2_riscv64 backend doesn't support loops yet.
-    if (builtin.zig_backend == .stage2_riscv64) {
-        unreachable;
-    }
-
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
     if (builtin.zig_backend == .stage2_wasm or
@@ -772,7 +767,8 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_x86 or
         (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
         builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64)
+        builtin.zig_backend == .stage2_spirv64 or
+        builtin.zig_backend == .stage2_riscv64)
     {
         while (true) {
             @breakpoint();

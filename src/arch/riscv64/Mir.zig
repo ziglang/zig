@@ -158,14 +158,14 @@ pub const Inst = struct {
         b_type: struct {
             rs1: Register,
             rs2: Register,
-            imm12: i13,
+            inst: Inst.Index,
         },
         /// J-Type
         ///
         /// Used by e.g. jal
         j_type: struct {
             rd: Register,
-            imm21: i21,
+            inst: Inst.Index,
         },
         /// U-Type
         ///

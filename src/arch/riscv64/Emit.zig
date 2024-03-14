@@ -26,8 +26,14 @@ prev_di_line: u32,
 prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
-
+/// Function's stack size. Used for backpatching.
 stack_size: u32,
+/// For backward branches: stores the code offset of the target
+/// instruction
+///
+/// For forward branches: stores the code offset of the branch
+/// instruction
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
 
 const log = std.log.scoped(.emit);
 
@@ -100,6 +106,10 @@ pub fn emitMir(
 }
 
 pub fn deinit(emit: *Emit) void {
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
+
+    emit.code_offset_mapping.deinit(gpa);
     emit.* = undefined;
 }
 
@@ -118,10 +128,8 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
 }
 
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
-    log.debug("Line: {} {}\n", .{ line, emit.prev_di_line });
     const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(emit.prev_di_line));
     const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
-    log.debug("(advance pc={d} and line={d})", .{ delta_pc, delta_line });
     switch (emit.debug_output) {
         .dwarf => |dw| {
             if (column != emit.prev_di_column) try dw.setColumn(column);
@@ -166,7 +174,7 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .add => try emit.writeInstruction(Instruction.add(r_type.rd, r_type.rs1, r_type.rs2)),
         .sub => try emit.writeInstruction(Instruction.sub(r_type.rd, r_type.rs1, r_type.rs2)),
-        .cmp_eq => try emit.writeInstruction(Instruction.slt(r_type.rd, r_type.rs1, r_type.rs2)),
+        .cmp_gt => try emit.writeInstruction(Instruction.slt(r_type.rd, r_type.rs1, r_type.rs2)),
         else => unreachable,
     }
 }
@@ -175,8 +183,17 @@ fn mirBType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const b_type = emit.mir.instructions.items(.data)[inst].b_type;
 
+    const offset = @as(i64, @intCast(emit.code_offset_mapping.get(b_type.inst).?)) - @as(i64, @intCast(emit.code.items.len));
+
     switch (tag) {
-        .beq => try emit.writeInstruction(Instruction.beq(b_type.rs1, b_type.rs2, b_type.imm12)),
+        .beq => {
+            log.debug("beq: {} offset={}", .{ inst, offset });
+            try emit.writeInstruction(Instruction.beq(b_type.rs1, b_type.rs2, @intCast(offset)));
+        },
+        .bne => {
+            log.debug("bne: {} offset={}", .{ inst, offset });
+            try emit.writeInstruction(Instruction.bne(b_type.rs1, b_type.rs2, @intCast(offset)));
+        },
         else => unreachable,
     }
 }
@@ -215,9 +232,12 @@ fn mirJType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const j_type = emit.mir.instructions.items(.data)[inst].j_type;
 
+    const offset = @as(i64, @intCast(emit.code_offset_mapping.get(j_type.inst).?)) - @as(i64, @intCast(emit.code.items.len));
+
     switch (tag) {
         .jal => {
-            try emit.writeInstruction(Instruction.jal(j_type.rd, j_type.imm21));
+            log.debug("jal: {} offset={}", .{ inst, offset });
+            try emit.writeInstruction(Instruction.jal(j_type.rd, @intCast(offset)));
         },
         else => unreachable,
     }
@@ -304,12 +324,8 @@ fn mirPsuedo(emit: *Emit, inst: Mir.Inst.Index) !void {
         },
 
         .j => {
-            const target = data.inst;
-            const offset: i12 = @intCast(emit.code.items.len);
-            _ = target;
-
-            try emit.writeInstruction(Instruction.jal(.s0, offset));
-            unreachable; // TODO: mirPsuedo j
+            const offset = @as(i64, @intCast(emit.code_offset_mapping.get(data.inst).?)) - @as(i64, @intCast(emit.code.items.len));
+            try emit.writeInstruction(Instruction.jal(.s0, @intCast(offset)));
         },
 
         else => unreachable,
@@ -401,7 +417,51 @@ fn isLoad(tag: Mir.Inst.Tag) bool {
     };
 }
 
+pub fn isBranch(tag: Mir.Inst.Tag) bool {
+    return switch (tag) {
+        .beq => true,
+        .bne => true,
+        .jal => true,
+        .j => true,
+        else => false,
+    };
+}
+
+pub fn branchTarget(emit: *Emit, inst: Mir.Inst.Index) Mir.Inst.Index {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+    const data = emit.mir.instructions.items(.data)[inst];
+
+    switch (tag) {
+        .bne,
+        .beq,
+        => return data.b_type.inst,
+        .jal => return data.j_type.inst,
+        .j => return data.inst,
+        else => std.debug.panic("branchTarget {s}", .{@tagName(tag)}),
+    }
+}
+
+fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
+    const tag = emit.mir.instructions.items(.tag)[inst];
+
+    return switch (tag) {
+        .dbg_line,
+        .dbg_epilogue_begin,
+        .dbg_prologue_end,
+        => 0,
+
+        .psuedo_epilogue => 12, // 3 * 4
+        .psuedo_prologue => 16, // 4 * 4
+
+        .abs => 12, // 3 * 4
+
+        else => 4,
+    };
+}
+
 fn lowerMir(emit: *Emit) !void {
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
     const mir_tags = emit.mir.instructions.items(.tag);
     const mir_datas = emit.mir.instructions.items(.data);
 
@@ -419,5 +479,19 @@ fn lowerMir(emit: *Emit) !void {
                 mir_datas[inst].i_type.imm12 = -(casted_size - 12 - offset);
             }
         }
+
+        if (isBranch(tag)) {
+            const target_inst = emit.branchTarget(inst);
+            try emit.code_offset_mapping.put(gpa, target_inst, 0);
+        }
+    }
+    var current_code_offset: usize = 0;
+
+    for (0..mir_tags.len) |index| {
+        const inst = @as(u32, @intCast(index));
+        if (emit.code_offset_mapping.getPtr(inst)) |offset| {
+            offset.* = current_code_offset;
+        }
+        current_code_offset += emit.instructionSize(inst);
     }
 }
