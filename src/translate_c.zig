@@ -490,7 +490,18 @@ fn visitFnDecl(c: *Context, fn_decl: *const clang.FunctionDecl) Error!void {
         param_id += 1;
     }
 
-    c.goto = try createGotoContext(c, body_stmt, &block_scope);
+    c.goto = createGotoContext(c, body_stmt, &block_scope) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        error.UnsupportedTranslation,
+        error.UnsupportedType,
+        => {
+            proto_node.data.is_extern = true;
+            proto_node.data.is_export = false;
+            proto_node.data.is_inline = false;
+            try warn(c, &c.global_scope.base, fn_decl_loc, "unable to translate function, demoted to extern", .{});
+            return addTopLevelDecl(c, fn_name, Node.initPayload(&proto_node.base));
+        },
+    };
     defer c.goto = null;
 
     for (c.goto.?.label_variable_names.values()) |variable| {
@@ -7057,7 +7068,7 @@ fn createGotoContext(
     c: *Context,
     stmt: *const clang.Stmt,
     block: *Scope.Block,
-) Error!GotoContext {
+) TransError!GotoContext {
     var label_branches: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged(*const clang.Stmt)) = .{};
     defer {
         for (label_branches.values()) |*label_branch| {
@@ -7080,6 +7091,18 @@ fn createGotoContext(
     var goto: GotoContext = .{};
 
     try createGotoContextStmt(c, block, stmt, &transformations, &goto.label_variable_names, &goto.goto_targets, &label_branches, &goto_branches);
+
+    if (goto_branches.items.len != 0) {
+        // This should not be possible to happen.
+        // https://github.com/llvm/llvm-project/issues/63682
+        return fail(
+            c,
+            error.UnsupportedTranslation,
+            goto_branches.items[0].items[0].getBeginLoc(),
+            "TODO complex goto with label '{s}'",
+            .{try c.str(@as(*const clang.GotoStmt, @ptrCast(goto_branches.items[0].items[0])).getLabel().getName_bytes_begin())},
+        );
+    }
 
     var iter = transformations.iterator();
 
@@ -7327,14 +7350,6 @@ fn createGotoContextCombineStmts(
                 }
 
                 try goto_targets.put(c.arena, goto_stmt, goto_target.value_ptr.*);
-
-                // if (from_stmt_to_goto_target.get(goto_branch.getLast())) |goto_target| {
-                //     try goto_targets.put(c.arena, goto_stmt, goto_target);
-                // } else {
-                //     const goto_target = try c.arena.create(?[]const u8);
-                //     goto_target.* = null;
-
-                //     try from_stmt_to_goto_target.put(c.gpa, goto_branch.getLast(), goto_target);
 
                 const variable = try label_variable_names.getOrPut(c.arena, label_str);
                 if (!variable.found_existing) {
