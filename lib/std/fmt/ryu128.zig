@@ -211,7 +211,7 @@ pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuEr
         index += 1;
     }
 
-    // 1.12345
+    // 2345
     writeDecimal(buf[index + 2 ..], &output, olength - 1);
     buf[index] = '0' + @as(u8, @intCast(output % 10));
     buf[index + 1] = '.';
@@ -1128,4 +1128,17 @@ test "format f128" {
     try check(f128, 4.708356024711512e18, "4.708356024711512e18");
     try check(f128, 9.409340012568248e18, "9.409340012568248e18");
     try check(f128, 1.2345678, "1.2345678e0");
+}
+
+fn checkFormatDecimalWithZeroPrecision(comptime T: type, value: T, comptime expected: []const u8) !void {
+    var buf: [6000]u8 = undefined;
+    const s = try format(&buf, value, .{ .mode = .decimal, .precision = 0 });
+    try std.testing.expectEqualStrings(expected, s);
+}
+
+test "format f128 decimal zero precision" {
+    try checkFormatDecimalWithZeroPrecision(f32, 5, "5");
+    try checkFormatDecimalWithZeroPrecision(f64, 6, "6");
+    try checkFormatDecimalWithZeroPrecision(f80, 7, "7");
+    try checkFormatDecimalWithZeroPrecision(f128, 8, "8");
 }
