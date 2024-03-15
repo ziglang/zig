@@ -1143,57 +1143,23 @@ fn unpackResource(
     }
 }
 
+const Unpack = @import("Unpack.zig");
+
 fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
     const eb = &f.error_bundle;
     const gpa = f.arena.child_allocator;
 
-    var diagnostics: std.tar.Diagnostics = .{ .allocator = gpa };
-    defer diagnostics.deinit();
-
-    std.tar.pipeToFileSystem(out_dir, reader, .{
-        .diagnostics = &diagnostics,
-        .strip_components = 1,
-        // https://github.com/ziglang/zig/issues/17463
-        .mode_mode = .ignore,
-        .exclude_empty_directories = true,
-    }) catch |err| return f.fail(f.location_tok, try eb.printString(
-        "unable to unpack tarball to temporary directory: {s}",
-        .{@errorName(err)},
-    ));
-
-    if (diagnostics.errors.items.len > 0) {
-        const notes_len: u32 = @intCast(diagnostics.errors.items.len);
-        try eb.addRootErrorMessage(.{
-            .msg = try eb.addString("unable to unpack tarball"),
-            .src_loc = try f.srcLoc(f.location_tok),
-            .notes_len = notes_len,
-        });
-        const notes_start = try eb.reserveNotes(notes_len);
-        for (diagnostics.errors.items, notes_start..) |item, note_i| {
-            switch (item) {
-                .unable_to_create_sym_link => |info| {
-                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                        .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                            info.file_name, info.link_name, @errorName(info.code),
-                        }),
-                    }));
-                },
-                .unable_to_create_file => |info| {
-                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                        .msg = try eb.printString("unable to create file '{s}': {s}", .{
-                            info.file_name, @errorName(info.code),
-                        }),
-                    }));
-                },
-                .unsupported_file_type => |info| {
-                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                        .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
-                            info.file_name, @intFromEnum(info.file_type),
-                        }),
-                    }));
-                },
-            }
-        }
+    var unpack = Unpack{ .allocator = gpa, .root = out_dir };
+    defer unpack.deinit();
+    unpack.tarball(reader) catch |err| return f.fail(
+        f.location_tok,
+        try eb.printString(
+            "unable to unpack tarball to temporary directory: {s}",
+            .{@errorName(err)},
+        ),
+    );
+    if (unpack.hasErrors()) {
+        try unpack.bundleErrors(eb, try f.srcLoc(f.location_tok));
         return error.FetchFailed;
     }
 }
@@ -1203,104 +1169,26 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void 
     const gpa = f.arena.child_allocator;
     const want_oid = resource.git.want_oid;
     const reader = resource.git.fetch_stream.reader();
-    // The .git directory is used to store the packfile and associated index, but
-    // we do not attempt to replicate the exact structure of a real .git
-    // directory, since that isn't relevant for fetching a package.
-    {
-        var pack_dir = try out_dir.makeOpenPath(".git", .{});
-        defer pack_dir.close();
-        var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
-        defer pack_file.close();
-        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-        try fifo.pump(reader, pack_file.writer());
-        try pack_file.sync();
 
-        var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
-        defer index_file.close();
-        {
-            var index_prog_node = f.prog_node.start("Index pack", 0);
-            defer index_prog_node.end();
-            index_prog_node.activate();
-            var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
-            try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
-            try index_buffered_writer.flush();
-            try index_file.sync();
-        }
-
-        {
-            var checkout_prog_node = f.prog_node.start("Checkout", 0);
-            defer checkout_prog_node.end();
-            checkout_prog_node.activate();
-            var repository = try git.Repository.init(gpa, pack_file, index_file);
-            defer repository.deinit();
-            var diagnostics: git.Diagnostics = .{ .allocator = gpa };
-            defer diagnostics.deinit();
-            try repository.checkout(out_dir, want_oid, &diagnostics);
-
-            if (diagnostics.errors.items.len > 0) {
-                const notes_len: u32 = @intCast(diagnostics.errors.items.len);
-                try eb.addRootErrorMessage(.{
-                    .msg = try eb.addString("unable to unpack packfile"),
-                    .src_loc = try f.srcLoc(f.location_tok),
-                    .notes_len = notes_len,
-                });
-                const notes_start = try eb.reserveNotes(notes_len);
-                for (diagnostics.errors.items, notes_start..) |item, note_i| {
-                    switch (item) {
-                        .unable_to_create_sym_link => |info| {
-                            eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                                .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                                    info.file_name, info.link_name, @errorName(info.code),
-                                }),
-                            }));
-                        },
-                    }
-                }
-                return error.InvalidGitPack;
-            }
-        }
+    var unpack = Unpack{ .allocator = gpa, .root = out_dir };
+    defer unpack.deinit();
+    try unpack.gitPack(want_oid, reader);
+    if (unpack.hasErrors()) {
+        try unpack.bundleErrors(eb, try f.srcLoc(f.location_tok));
+        return error.FetchFailed;
     }
-
-    try out_dir.deleteTree(".git");
 }
 
 fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
+    const eb = &f.error_bundle;
     const gpa = f.arena.child_allocator;
-    // Recursive directory copy.
-    var it = try dir.walk(gpa);
-    defer it.deinit();
-    while (try it.next()) |entry| {
-        switch (entry.kind) {
-            .directory => {}, // omit empty directories
-            .file => {
-                dir.copyFile(
-                    entry.path,
-                    tmp_dir,
-                    entry.path,
-                    .{},
-                ) catch |err| switch (err) {
-                    error.FileNotFound => {
-                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
-                        try dir.copyFile(entry.path, tmp_dir, entry.path, .{});
-                    },
-                    else => |e| return e,
-                };
-            },
-            .sym_link => {
-                var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
-                const link_name = try dir.readLink(entry.path, &buf);
-                // TODO: if this would create a symlink to outside
-                // the destination directory, fail with an error instead.
-                tmp_dir.symLink(link_name, entry.path, .{}) catch |err| switch (err) {
-                    error.FileNotFound => {
-                        if (fs.path.dirname(entry.path)) |dirname| try tmp_dir.makePath(dirname);
-                        try tmp_dir.symLink(link_name, entry.path, .{});
-                    },
-                    else => |e| return e,
-                };
-            },
-            else => return error.IllegalFileTypeInPackage,
-        }
+
+    var unpack = Unpack{ .allocator = gpa, .root = tmp_dir };
+    defer unpack.deinit();
+    try unpack.directory(dir);
+    if (unpack.hasErrors()) {
+        try unpack.bundleErrors(eb, try f.srcLoc(f.location_tok));
+        return error.FetchFailed;
     }
 }
 

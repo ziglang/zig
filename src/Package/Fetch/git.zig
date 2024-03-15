@@ -153,6 +153,69 @@ pub const Repository = struct {
         }
     }
 
+    /// Checks out the repository at `commit_oid` to `worktree`.
+    pub fn checkout2(
+        repository: *Repository,
+        worktree: anytype,
+        commit_oid: Oid,
+    ) !void {
+        try repository.odb.seekOid(commit_oid);
+        const tree_oid = tree_oid: {
+            const commit_object = try repository.odb.readObject();
+            if (commit_object.type != .commit) return error.NotACommit;
+            break :tree_oid try getCommitTree(commit_object.data);
+        };
+        try repository.checkoutTree2(worktree, tree_oid, "");
+    }
+
+    /// Checks out the tree  at `tree_oid` to `worktree`.
+    fn checkoutTree2(
+        repository: *Repository,
+        dir: anytype,
+        tree_oid: Oid,
+        current_path: []const u8,
+    ) !void {
+        try repository.odb.seekOid(tree_oid);
+        const tree_object = try repository.odb.readObject();
+        if (tree_object.type != .tree) return error.NotATree;
+        // The tree object may be evicted from the object cache while we're
+        // iterating over it, so we can make a defensive copy here to make sure
+        // it remains valid until we're done with it
+        const allocator = repository.odb.allocator;
+        const tree_data = try allocator.dupe(u8, tree_object.data);
+        defer repository.odb.allocator.free(tree_data);
+
+        var tree_iter: TreeIterator = .{ .data = tree_data };
+        while (try tree_iter.next()) |entry| {
+            const sub_path = try std.fs.path.join(allocator, &.{ current_path, entry.name });
+            defer allocator.free(sub_path);
+            switch (entry.type) {
+                .directory => {
+                    try repository.checkoutTree2(dir, entry.oid, sub_path);
+                },
+                .file => {
+                    try repository.odb.seekOid(entry.oid);
+                    const file_object = try repository.odb.readObject();
+                    if (file_object.type != .blob) return error.InvalidFile;
+
+                    if (try dir.createFile(sub_path)) |file| {
+                        defer file.close();
+                        try file.writeAll(file_object.data);
+                        try file.sync();
+                    }
+                },
+                .symlink => {
+                    try repository.odb.seekOid(entry.oid);
+                    const symlink_object = try repository.odb.readObject();
+                    if (symlink_object.type != .blob) return error.InvalidFile;
+
+                    try dir.symLink(symlink_object.data, sub_path);
+                },
+                .gitlink => {},
+            }
+        }
+    }
+
     /// Returns the ID of the tree associated with the given commit (provided as
     /// raw object data).
     fn getCommitTree(commit_data: []const u8) !Oid {
