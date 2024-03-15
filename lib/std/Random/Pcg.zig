@@ -49,24 +49,19 @@ fn seedTwo(self: *Pcg, init_s: u64, init_i: u64) void {
 }
 
 pub fn fill(self: *Pcg, buf: []u8) void {
-    var i: usize = 0;
     const aligned_len = buf.len - (buf.len & 3);
 
     // Complete 4 byte segments.
-    while (i < aligned_len) : (i += 4) {
-        var n = self.next();
-        comptime var j: usize = 0;
-        inline while (j < 4) : (j += 1) {
-            buf[i + j] = @as(u8, @truncate(n));
-            n >>= 8;
-        }
+    const buf32 = std.mem.bytesAsSlice(u32, buf[0..aligned_len]);
+    for (buf32) |*b| {
+        b.* = self.next();
     }
 
     // Remaining. (cuts the stream)
-    if (i != buf.len) {
+    if (aligned_len != buf.len) {
         var n = self.next();
-        while (i < buf.len) : (i += 1) {
-            buf[i] = @as(u8, @truncate(n));
+        for (buf[aligned_len..]) |*b| {
+            b.* = @as(u8, @truncate(n));
             n >>= 8;
         }
     }

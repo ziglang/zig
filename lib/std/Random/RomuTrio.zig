@@ -49,24 +49,19 @@ pub fn seed(self: *RomuTrio, init_s: u64) void {
 }
 
 pub fn fill(self: *RomuTrio, buf: []u8) void {
-    var i: usize = 0;
     const aligned_len = buf.len - (buf.len & 7);
 
     // Complete 8 byte segments.
-    while (i < aligned_len) : (i += 8) {
-        var n = self.next();
-        comptime var j: usize = 0;
-        inline while (j < 8) : (j += 1) {
-            buf[i + j] = @as(u8, @truncate(n));
-            n >>= 8;
-        }
+    const buf64 = std.mem.bytesAsSlice(u64, buf[0..aligned_len]);
+    for (buf64) |*b| {
+        b.* = self.next();
     }
 
     // Remaining. (cuts the stream)
-    if (i != buf.len) {
+    if (aligned_len != buf.len) {
         var n = self.next();
-        while (i < buf.len) : (i += 1) {
-            buf[i] = @as(u8, @truncate(n));
+        for (buf[aligned_len..]) |*b| {
+            b.* = @as(u8, @truncate(n));
             n >>= 8;
         }
     }
