@@ -3167,24 +3167,81 @@ test "linked list" {
 
       {#header_open|Default Field Values#}
       <p>
-      Each struct field may have an expression indicating the default field value. Such expressions
-      are executed at {#link|comptime#}, and allow the field to be omitted in a struct literal expression:
+      Each struct field may have an expression indicating the default field
+      value. Such expressions are executed at {#link|comptime#}, and allow the
+      field to be omitted in a struct literal expression:
       </p>
-      {#code_begin|test|test_struct_default_field_values#}
+      {#code_begin|test|struct_default_field_values#}
 const Foo = struct {
     a: i32 = 1234,
     b: i32,
 };
 
 test "default struct initialization fields" {
-    const x = Foo{
+    const x: Foo = .{
         .b = 5,
     };
     if (x.a + x.b != 1239) {
-        @compileError("it's even comptime-known!");
+        comptime unreachable;
     }
 }
       {#code_end#}
+      <p>
+      Default field values are only appropriate when the data invariants of a struct
+      cannot be violated by omitting that field from an initialization.
+      </p>
+      <p>
+      For example, here is an inappropriate use of default struct field initialization:
+      </p>
+      {#code_begin|exe_err|bad_default_value#}
+const Threshold = struct {
+    minimum: f32 = 0.25,
+    maximum: f32 = 0.75,
+
+    const Category = enum { low, medium, high };
+
+    fn categorize(t: Threshold, value: f32) Category {
+        assert(t.maximum >= t.minimum);
+        if (value < t.minimum) return .low;
+        if (value > t.maximum) return .high;
+        return .medium;
+    }
+};
+
+pub fn main() !void {
+    var threshold: Threshold = .{
+        .maximum = 0.20,
+    };
+    const category = threshold.categorize(0.90);
+    try std.io.getStdOut().writeAll(@tagName(category));
+}
+
+const std = @import("std");
+const assert = std.debug.assert;
+      {#code_end#}
+      <p>
+      Above you can see the danger of ignoring this principle. The default
+      field values caused the data invariant to be violated, causing illegal
+      behavior.
+      </p>
+      <p>
+      To fix this, remove the default values from all the struct fields, and provide
+      a named default value:
+      </p>
+      {#code_begin|syntax|struct_default_value#}
+const Threshold = struct {
+    minimum: f32,
+    maximum: f32,
+
+    const default: Threshold = .{
+        .minimum = 0.25,
+        .maximum = 0.75,
+    };
+};
+      {#code_end#}
+      <p>If a struct value requires a runtime-known value in order to be initialized
+      without violating data invariants, then use an initialization method that accepts
+      those runtime values, and populates the remaining fields.</p>
       {#header_close#}
 
       {#header_open|extern struct#}
