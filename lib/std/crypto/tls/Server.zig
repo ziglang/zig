@@ -30,26 +30,62 @@ pub fn Server(comptime StreamType: type) type {
             var res = Self{ .stream = stream_, .options = options };
             const client_hello = try res.recv_hello(&stream_);
             _ = client_hello;
-            // {
-            // var random_buffer: [32]u8 = undefined;
-            // crypto.random.bytes(&random_buffer);
-            // const key_pair = crypto.dh.X25519.KeyPair.create(random_buffer) catch |err| switch (err) {
-            //     error.IdentityElement => return error.InsufficientEntropy, // Private key is all zeroes.
-            // };
-            //     try res.send_hello(key_pair);
-            // }
+
+            var command = Command{ .recv_hello = {} };
+            while (command != .none) command = try res.next(command);
 
             return res;
         }
 
-        const ClientHello = struct {
-            random: [32]u8,
-            session_id_len: u8,
-            session_id: [32]u8,
-            cipher_suite: tls.CipherSuite,
-            key_share: tls.KeyShare,
-            sig_scheme: ?tls.SignatureScheme,
-        };
+        /// Executes handshake command and returns next one.
+        pub fn next(self: *Self, command: Command) !Command {
+            var stream = &self.stream;
+
+            switch (command) {
+                .recv_hello => {
+                    const client_hello = try self.recv_hello();
+
+                    return .{ .send_hello = client_hello };
+                },
+                .send_hello => |client_hello| {
+                    try self.send_hello(client_hello);
+
+                    // > if the client sends a non-empty session ID,
+                    // > the server MUST send the change_cipher_spec
+                    if (client_hello.session_id_len > 0) return .{ .send_change_cipher_spec = {} };
+
+                    return .{ .send_encrypted_extensions = {} };
+                },
+                .send_change_cipher_spec => {
+                    try stream.changeCipherSpec();
+
+                    return .{ .send_encrypted_extensions = {} };
+                },
+                .send_encrypted_extensions => {
+                    try self.send_encrypted_extensions();
+
+                    return .{ .send_certificate = {} };
+                },
+                .send_certificate => {
+                    try self.send_certificate();
+
+                    return .{ .send_certificate_verify = {} };
+                },
+                .send_certificate_verify => {
+                    try self.send_certificate_verify();
+                    return .{ .send_finished = {} };
+                },
+                .send_finished => {
+                    try self.send_finished();
+                    return .{ .recv_finished = {} };
+                },
+                .recv_finished => {
+                    try self.recv_finished();
+                    return .{ .none = {} };
+                },
+                .none => return .{ .none = {} },
+            }
+        }
 
         pub fn recv_hello(self: *Self) !ClientHello {
             var stream = &self.stream;
@@ -132,9 +168,16 @@ pub fn Server(comptime StreamType: type) type {
                 }
             }
 
-            if (tls_version == null) return stream.writeError(.protocol_version);
+            if (tls_version != .tls_1_3) return stream.writeError(.protocol_version);
             if (key_share == null) return stream.writeError(.missing_extension);
             if (ec_point_format == null) return stream.writeError(.missing_extension);
+
+            var server_random: [32]u8 = undefined;
+            crypto.random.bytes(&server_random);
+
+            const key_pair = .{
+                .x25519 = crypto.dh.X25519.KeyPair.create(server_random) catch unreachable,
+            };
 
             return .{
                 .random = client_random,
@@ -143,33 +186,32 @@ pub fn Server(comptime StreamType: type) type {
                 .cipher_suite = cipher_suite,
                 .key_share = key_share.?,
                 .sig_scheme = sig_scheme,
+                .server_random = server_random,
+                .server_pair = key_pair,
             };
         }
 
-        /// `key_pair`'s active member MUST match `client_hello.key_share`
-        pub fn send_hello(self: *Self, client_hello: ClientHello, key_pair: KeyPair) !void {
+        pub fn send_hello(self: *Self, client_hello: ClientHello) !void {
             var stream = &self.stream;
+            const key_pair = client_hello.server_pair;
 
             const hello = tls.ServerHello{
-                .random = key_pair.random,
+                .random = client_hello.server_random,
                 .session_id = &client_hello.session_id,
                 .cipher_suite = client_hello.cipher_suite,
                 .extensions = &.{
                     .{ .supported_versions = &[_]tls.Version{.tls_1_3} },
-                    .{ .key_share = &[_]tls.KeyShare{key_pair.pair.toKeyShare()} },
+                    .{ .key_share = &[_]tls.KeyShare{key_pair.toKeyShare()} },
                 },
             };
             stream.version = .tls_1_2;
             _ = try stream.write(tls.Handshake, .{ .server_hello = hello });
             try stream.flush();
 
-            // > if the client sends a non-empty session ID, the server MUST send the change_cipher_spec
-            if (hello.session_id.len > 0) try stream.changeCipherSpec();
-
             const shared_key = switch (client_hello.key_share) {
                 .x25519_kyber768d00 => |ks| brk: {
                     const T = tls.NamedGroupT(.x25519_kyber768d00);
-                    const pair: tls.X25519Kyber768Draft.KeyPair = key_pair.pair.x25519_kyber768d00;
+                    const pair: tls.X25519Kyber768Draft.KeyPair = key_pair.x25519_kyber768d00;
                     const shared_point = T.X25519.scalarmult(
                         ks.x25519,
                         pair.x25519.secret_key,
@@ -182,14 +224,14 @@ pub fn Server(comptime StreamType: type) type {
                 },
                 .x25519 => |ks| brk: {
                     const shared_point = tls.NamedGroupT(.x25519).scalarmult(
-                        key_pair.pair.x25519.secret_key,
+                        key_pair.x25519.secret_key,
                         ks,
                     ) catch return stream.writeError(.decrypt_error);
                     break :brk &shared_point;
                 },
                 .secp256r1 => |ks| brk: {
                     const mul = ks.p.mulPublic(
-                        key_pair.pair.secp256r1.secret_key.bytes,
+                        key_pair.secp256r1.secret_key.bytes,
                         .big,
                     ) catch return stream.writeError(.decrypt_error);
                     break :brk &mul.affineCoordinates().x.toBytes(.big);
@@ -201,12 +243,33 @@ pub fn Server(comptime StreamType: type) type {
             const handshake_cipher = tls.HandshakeCipher.init(client_hello.cipher_suite, shared_key, hello_hash,) catch
                 return stream.writeError(.illegal_parameter);
             stream.cipher = .{ .handshake = handshake_cipher };
+        }
 
-            stream.content_type = .handshake;
+        pub fn send_encrypted_extensions(self: *Self) !void {
+            var stream = &self.stream;
             _ = try stream.write(tls.Handshake, .{ .encrypted_extensions = &.{} });
             try stream.flush();
+        }
 
-            _ = try stream.write(tls.Handshake, .{ .certificate = self.options.certificate });
+        pub fn send_certificate(self: *Self) !void {
+            var stream = &self.stream;
+            _ = try self.stream.write(tls.Handshake, .{ .certificate = self.options.certificate });
+            try stream.flush();
+        }
+
+        pub fn send_certificate_verify(self: *Self) !void {
+            var stream = &self.stream;
+
+            const digest = stream.transcript_hash.?.peek();
+            const sig_content = tls.sigContent(digest);
+
+            const signature = sig_content;
+            // const signature = rsa.encrypt(256, sig_content, parsed.pubKey()) catch return stream.writeError(.internal_error);
+
+            _ = try self.stream.write(tls.Handshake, .{ .certificate_verify = tls.CertificateVerify{
+                .algorithm = .rsa_pss_rsae_sha256,
+                .signature = signature,
+            }});
             try stream.flush();
         }
 
@@ -239,7 +302,6 @@ pub fn Server(comptime StreamType: type) type {
             );
 
             const expected = switch (stream.cipher.handshake) {
-                .empty_renegotiation_info_scsv => return stream.writeError(.decode_error),
                 inline else => |p| brk: {
                     const P = @TypeOf(p);
                     const digest = stream.transcript_hash.?.peek();
@@ -265,9 +327,30 @@ pub const Options = struct {
     /// List of potential cipher suites in descending order of preference.
     cipher_suites: []const tls.CipherSuite = &tls.default_cipher_suites,
     certificate: tls.Certificate,
+    certificate_key: []const u8,
 };
 
-pub const KeyPair = struct {
+/// A command to send or receive a single message. Allows testing `advance` on a single thread.
+pub const Command = union(enum) {
+    recv_hello: void,
+    send_hello: ClientHello,
+    send_change_cipher_spec: void,
+    send_encrypted_extensions: void,
+    send_certificate: void,
+    send_certificate_verify: void,
+    send_finished: void,
+    recv_finished: void,
+    none: void,
+};
+
+pub const ClientHello = struct {
     random: [32]u8,
-    pair: tls.KeyPair,
+    session_id_len: u8,
+    session_id: [32]u8,
+    cipher_suite: tls.CipherSuite,
+    key_share: tls.KeyShare,
+    sig_scheme: ?tls.SignatureScheme,
+    server_random: [32]u8,
+    /// active member MUST match `key_share`
+    server_pair: tls.KeyPair,
 };

@@ -735,11 +735,10 @@ fn verifyRsa(
     pub_key: []const u8,
 ) !void {
     if (pub_key_algo != .rsaEncryption) return error.CertificateSignatureAlgorithmMismatch;
-    const pk_components = try rsa.PublicKey.parseDer(pub_key);
-    const exponent = pk_components.exponent;
-    const modulus = pk_components.modulus;
-    if (exponent.len > modulus.len) return error.CertificatePublicKeyInvalid;
-    if (sig.len != modulus.len) return error.CertificateSignatureInvalidLength;
+
+    const public_key = rsa.PublicKey.fromDer(pub_key) catch return error.CertificateSignatureInvalid;
+    const modulus_len = public_key.n.bits() / 8;
+    if (sig.len != modulus_len) return error.CertificateSignatureInvalidLength;
 
     const hash_der = switch (Hash) {
         crypto.hash.Sha1 => [_]u8{
@@ -772,18 +771,17 @@ fn verifyRsa(
     var msg_hashed: [Hash.digest_length]u8 = undefined;
     Hash.hash(message, &msg_hashed, .{});
 
-    switch (modulus.len) {
-        inline 128, 256, 512 => |modulus_len| {
-            const ps_len = modulus_len - (hash_der.len + msg_hashed.len) - 3;
-            const em: [modulus_len]u8 =
+    switch (modulus_len) {
+        inline 128, 256, 512 => |mod_len| {
+            const ps_len = mod_len - (hash_der.len + msg_hashed.len) - 3;
+            const em: [mod_len]u8 =
                 [2]u8{ 0, 1 } ++
                 ([1]u8{0xff} ** ps_len) ++
                 [1]u8{0} ++
                 hash_der ++
                 msg_hashed;
 
-            const public_key = rsa.PublicKey.fromBytes(exponent, modulus) catch return error.CertificateSignatureInvalid;
-            const em_dec = rsa.encrypt(modulus_len, sig[0..modulus_len].*, public_key) catch |err| switch (err) {
+            const em_dec = public_key.encrypt(mod_len, sig[0..mod_len].*) catch |err| switch (err) {
                 error.MessageTooLong => unreachable,
             };
 
@@ -950,6 +948,7 @@ test {
     _ = Bundle;
 }
 
+/// RFC8017
 pub const rsa = struct {
     const max_modulus_bits = 4096;
     const Uint = std.crypto.ff.Uint(max_modulus_bits);
@@ -965,7 +964,7 @@ pub const rsa = struct {
 
         pub fn verify(comptime modulus_len: usize, sig: [modulus_len]u8, msg: []const u8, public_key: PublicKey, comptime Hash: type) !void {
             const mod_bits = public_key.n.bits();
-            const em_dec = try encrypt(modulus_len, sig, public_key);
+            const em_dec = try public_key.encrypt(modulus_len, sig);
 
             try EMSA_PSS_VERIFY(msg, &em_dec, mod_bits - 1, Hash.digest_length, Hash);
         }
@@ -1107,7 +1106,9 @@ pub const rsa = struct {
     };
 
     pub const PublicKey = struct {
+        /// the RSA modulus, a positive integer
         n: Modulus,
+        /// public exponent
         e: Fe,
 
         pub fn fromBytes(pub_bytes: []const u8, modulus_bytes: []const u8) !PublicKey {
@@ -1135,7 +1136,8 @@ pub const rsa = struct {
             };
         }
 
-        pub fn parseDer(pub_key: []const u8) !struct { modulus: []const u8, exponent: []const u8 } {
+        // RFC8017 Appendix A.1.1
+        pub fn fromDer(pub_key: []const u8) !PublicKey {
             const pub_key_seq = try der.Element.parse(pub_key, 0);
             if (pub_key_seq.identifier.tag != .sequence) return error.CertificateFieldHasWrongDataType;
             const modulus_elem = try der.Element.parse(pub_key, pub_key_seq.slice.start);
@@ -1147,20 +1149,20 @@ pub const rsa = struct {
             const modulus_offset = for (modulus_raw, 0..) |byte, i| {
                 if (byte != 0) break i;
             } else modulus_raw.len;
-            return .{
-                .modulus = modulus_raw[modulus_offset..],
-                .exponent = pub_key[exponent_elem.slice.start..exponent_elem.slice.end],
-            };
+            const exponent = pub_key[exponent_elem.slice.start..exponent_elem.slice.end];
+            const modulus = modulus_raw[modulus_offset..];
+
+            return try fromBytes(exponent, modulus);
+        }
+
+        fn encrypt(public_key: PublicKey, comptime modulus_len: usize, msg: [modulus_len]u8) ![modulus_len]u8 {
+            const m = Fe.fromBytes(public_key.n, &msg, .big) catch return error.MessageTooLong;
+            const e = public_key.n.powPublic(m, public_key.e) catch unreachable;
+            var res: [modulus_len]u8 = undefined;
+            e.toBytes(&res, .big) catch unreachable;
+            return res;
         }
     };
-
-    fn encrypt(comptime modulus_len: usize, msg: [modulus_len]u8, public_key: PublicKey) ![modulus_len]u8 {
-        const m = Fe.fromBytes(public_key.n, &msg, .big) catch return error.MessageTooLong;
-        const e = public_key.n.powPublic(m, public_key.e) catch unreachable;
-        var res: [modulus_len]u8 = undefined;
-        e.toBytes(&res, .big) catch unreachable;
-        return res;
-    }
 };
 
 const use_vectors = @import("builtin").zig_backend != .stage2_x86_64;

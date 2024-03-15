@@ -25,14 +25,14 @@ pub fn Client(comptime StreamType: type) type {
             };
             var res = Self{ .stream = stream_, .options = options };
 
-            var state = State{ .send_hello = KeyPairs.init() };
-            while (state != .sent_finished) state = try res.advance(state);
+            var command = Command{ .send_hello = KeyPairs.init() };
+            while (command != .none) command = try res.next(command);
 
             return res;
         }
 
-        /// Execute command and return next one.
-        pub fn advance(self: *Self, command: State) !State {
+        /// Executes handshake command and returns next one.
+        pub fn next(self: *Self, command: Command) !Command {
             var stream = &self.stream;
             switch (command) {
                 .send_hello => |key_pairs| {
@@ -87,14 +87,19 @@ pub fn Client(comptime StreamType: type) type {
                     try stream.expectInnerPlaintext(.handshake, .finished);
                     try self.recv_finished(digest);
 
+                    return .{ .send_change_cipher_spec = {} };
+                },
+                .send_change_cipher_spec => {
+                    try stream.changeCipherSpec();
+
                     return .{ .send_finished = {} };
                 },
                 .send_finished => {
                     try self.send_finished();
 
-                    return .{ .sent_finished = {} };
+                    return .{ .none = {} };
                 },
-                .sent_finished => return .{ .sent_finished = {} },
+                .none => return .{ .none = {} },
             }
         }
 
@@ -211,7 +216,7 @@ pub fn Client(comptime StreamType: type) type {
                                 shared_key = &mult.affineCoordinates().x.toBytes(.big);
                             },
                             // Server sent us back unknown key. That's weird because we only request known ones,
-                            // but we can try for another.
+                            // but we can keep iterating for another.
                             else => {
                                 try r.skipBytes(key_size, .{});
                             },
@@ -259,6 +264,7 @@ pub fn Client(comptime StreamType: type) type {
             try r.readNoEof(context[0..context_len]);
 
             var first: ?crypto.Certificate.Parsed = null;
+            errdefer if (first) |f| allocator.free(f.certificate.buffer);
             var prev: Certificate.Parsed = undefined;
             var verified = false;
             const now_sec = std.time.timestamp();
@@ -346,20 +352,16 @@ pub fn Client(comptime StreamType: type) type {
 
                     const Hash = SchemeHash(comptime_scheme);
                     const rsa = Certificate.rsa;
-                    const components = rsa.PublicKey.parseDer(cert.pubKey()) catch
-                        return stream.writeError(.decode_error);
-                    const exponent = components.exponent;
-                    const modulus = components.modulus;
-                    switch (modulus.len) {
+                    const key = rsa.PublicKey.fromDer(cert.pubKey()) catch
+                        return stream.writeError(.bad_certificate);
+                    switch (key.n.bits() / 8) {
                         inline 128, 256, 512 => |modulus_len| {
-                            const key = rsa.PublicKey.fromBytes(exponent, modulus) catch
-                                return stream.writeError(.bad_certificate);
                             const sig = rsa.PSSSignature.fromBytes(modulus_len, sig_bytes);
                             rsa.PSSSignature.verify(modulus_len, sig, sig_content, key, Hash) catch
                                 return stream.writeError(.decode_error);
                         },
                         else => {
-                            return error.TlsBadRsaSignatureBitCount;
+                            return stream.writeError(.bad_certificate);
                         },
                     }
                 },
@@ -377,7 +379,7 @@ pub fn Client(comptime StreamType: type) type {
                     sig.verify(sig_content, key) catch return stream.writeError(.bad_certificate);
                 },
                 else => {
-                    return error.TlsBadSignatureScheme;
+                    return stream.writeError(.bad_certificate);
                 },
             }
         }
@@ -388,7 +390,6 @@ pub fn Client(comptime StreamType: type) type {
             const cipher = stream.cipher.handshake;
 
             switch (cipher) {
-                .empty_renegotiation_info_scsv => return stream.writeError(.decode_error),
                 inline else => |p| {
                     const P = @TypeOf(p);
                     const expected = &tls.hmac(P.Hmac, digest, p.server_finished_key);
@@ -404,8 +405,6 @@ pub fn Client(comptime StreamType: type) type {
             var stream = &self.stream;
 
             const handshake_hash = stream.transcript_hash.?.peek();
-
-            try stream.changeCipherSpec();
 
             const verify_data = switch (stream.cipher.handshake) {
                 inline .aes_128_gcm_sha256,
@@ -452,7 +451,6 @@ pub fn Client(comptime StreamType: type) type {
                             },
                             .key_update => {
                                 switch (stream.cipher.application) {
-                                    .empty_renegotiation_info_scsv => {},
                                     inline else => |*p| {
                                         const P = @TypeOf(p.*);
                                         const server_secret = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "traffic upd", "", P.Hash.digest_length);
@@ -465,7 +463,6 @@ pub fn Client(comptime StreamType: type) type {
                                 const update = try stream.read(tls.KeyUpdate);
                                 if (update == .update_requested) {
                                     switch (stream.cipher.application) {
-                                        .empty_renegotiation_info_scsv => {},
                                         inline else => |*p| {
                                             const P = @TypeOf(p.*);
                                             const client_secret = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "traffic upd", "", P.Hash.digest_length);
@@ -636,14 +633,15 @@ fn SchemeEddsa(comptime scheme: tls.SignatureScheme) type {
     };
 }
 
-/// A single `send` or `recv`. Allows for testing `advance`.
-pub const State = union(enum) {
+/// A command to send or receive a single message. Allows testing `advance` on a single thread.
+pub const Command = union(enum) {
     send_hello: KeyPairs,
     recv_hello: KeyPairs,
     recv_encrypted_extensions: void,
     recv_certificate_or_finished: void,
     recv_certificate_verify: Certificate.Parsed,
     recv_finished: void,
+    send_change_cipher_spec: void,
     send_finished: void,
-    sent_finished: void,
+    none: void,
 };

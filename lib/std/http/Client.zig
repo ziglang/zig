@@ -216,7 +216,7 @@ pub const Connection = struct {
     read_buf: [buffer_size]u8 = undefined,
     write_buf: [buffer_size]u8 = undefined,
 
-    pub const buffer_size = @sizeOf(std.crypto.tls.Plaintext) + std.crypto.tls.Plaintext.max_length;
+    pub const buffer_size = std.crypto.tls.Plaintext.size + std.crypto.tls.Plaintext.max_length;
     const BufferSize = std.math.IntFittingRange(0, buffer_size);
 
     pub const Protocol = enum { plain, tls };

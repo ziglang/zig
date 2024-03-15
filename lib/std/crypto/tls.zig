@@ -587,12 +587,13 @@ pub const X25519Kyber768Draft = struct {
         kyber768d00: Kyber768.PublicKey,
 
         pub const bytes_length = X25519.public_length + Kyber768.PublicKey.bytes_length;
+        pub const ciphertext_length = X25519.public_length + Kyber768.ciphertext_length;
 
         pub fn toBytes(self: @This()) [bytes_length]u8 {
             return self.x25519 ++ self.kyber768d00.toBytes();
         }
 
-        pub fn ciphertext(self: @This()) [X25519.public_length + Kyber768.ciphertext_length]u8 {
+        pub fn ciphertext(self: @This()) [ciphertext_length]u8 {
             return self.x25519 ++ self.kyber768d00.encaps(null).ciphertext;
         }
     };
@@ -646,27 +647,39 @@ pub const KeyShare = union(NamedGroup) {
     const Self = @This();
 
     pub fn read(stream: anytype) !Self {
+        std.debug.assert(!stream.is_client);
+
         var reader = stream.reader();
         const group = try stream.read(NamedGroup);
         const len = try stream.read(u16);
         switch (group) {
-            // .x25519_kyber768d00 => {
-            //     const expected_len = if (stream.is_client) @TypeOf(k).bytes_length else X25519Kyber768Draft.Kyber768.ciphertext_length;
-            // },
+            .x25519_kyber768d00 =>  {
+                const T = X25519Kyber768Draft.Kyber768.PublicKey;
+                var res = Self{ .x25519_kyber768d00 = undefined };
+
+                try reader.readNoEof(&res.x25519_kyber768d00.x25519);
+
+                var buf: [T.bytes_length]u8 = undefined;
+                try reader.readNoEof(&buf);
+                res.x25519_kyber768d00.kyber768d00 = T.fromBytes(&buf) catch return Error.TlsDecryptError;
+
+                return res;
+            },
             inline .secp256r1, .secp384r1 => |k| {
                 const T = NamedGroupT(k).PublicKey;
-                var buf: [T.compressed_sec1_encoded_length]u8 = undefined;
+                var buf: [T.uncompressed_sec1_encoded_length]u8 = undefined;
                 try reader.readNoEof(&buf);
                 const val = T.fromSec1(&buf) catch return Error.TlsDecryptError;
                 return @unionInit(Self, @tagName(k), val);
             },
             .x25519 => {
                 var res = Self{ .x25519 = undefined };
-                if (res.x25519.len != len) return Error.TlsDecodeError;
                 try reader.readNoEof(&res.x25519);
                 return res;
             },
-            else => {},
+            else => {
+                try reader.skipBytes(len, .{});
+            },
         }
         return .{ .invalid = {} };
     }
@@ -699,7 +712,6 @@ pub const CipherSuite = enum(u16) {
     chacha20_poly1305_sha256 = 0x1303,
     aegis_256_sha512 = 0x1306,
     aegis_128l_sha256 = 0x1307,
-    empty_renegotiation_info_scsv = 0x00ff,
     _,
 
     pub fn Hash(comptime self: @This()) type {
@@ -731,7 +743,6 @@ pub const HandshakeCipher = union(CipherSuite) {
     chacha20_poly1305_sha256: HandshakeCipherT(.chacha20_poly1305_sha256),
     aegis_256_sha512: HandshakeCipherT(.aegis_256_sha512),
     aegis_128l_sha256: HandshakeCipherT(.aegis_128l_sha256),
-    empty_renegotiation_info_scsv: void,
 
     const Self = @This();
 
@@ -775,14 +786,12 @@ pub const HandshakeCipher = union(CipherSuite) {
 
                 return res;
             },
-            .empty_renegotiation_info_scsv => return .{ .empty_renegotiation_info_scsv = {} },
             _ => return Error.TlsIllegalParameter,
         }
     }
 
     pub fn print(self: Self) void {
         switch (self) {
-            .empty_renegotiation_info_scsv => {},
             inline else => |v| v.print(),
         }
     }
@@ -794,7 +803,6 @@ pub const ApplicationCipher = union(CipherSuite) {
     chacha20_poly1305_sha256: ApplicationCipherT(.chacha20_poly1305_sha256),
     aegis_256_sha512: ApplicationCipherT(.aegis_256_sha512),
     aegis_128l_sha256: ApplicationCipherT(.aegis_128l_sha256),
-    empty_renegotiation_info_scsv: void,
 
     const Self = @This();
 
@@ -831,13 +839,11 @@ pub const ApplicationCipher = union(CipherSuite) {
 
                 return res;
             },
-            .empty_renegotiation_info_scsv => unreachable,
         }
     }
 
     pub fn print(self: Self) void {
         switch (self) {
-            .empty_renegotiation_info_scsv => {},
             inline else => |v| v.print(),
         }
     }
@@ -1138,7 +1144,6 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
         fn ciphertextOverhead(self: Self) usize {
             return switch (self.cipher) {
                 inline .application, .handshake => |c| switch (c) {
-                    .empty_renegotiation_info_scsv => 0,
                     inline else => |t| @TypeOf(t).AEAD.tag_length + @sizeOf(ContentType),
                 },
                 else => 0,
@@ -1182,7 +1187,6 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
                     plaintext.len += @intCast(self.ciphertextOverhead());
                     header = Encoder.encode(Plaintext, plaintext);
                     switch (cipher.*) {
-                        .empty_renegotiation_info_scsv => {},
                         inline else => |*c| {
                             std.debug.assert(self.view.ptr == &self.buffer);
                             self.buffer[self.view.len] = @intFromEnum(self.content_type);
@@ -1369,37 +1373,33 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
                 if (n_read != res.len) return self.writeError(.decode_error);
 
                 const encryption_method = self.encryptionMethod(res.type);
-                switch (encryption_method) {
-                    .none => {},
-                    .handshake, .application => {
-                        if (res.len < self.ciphertextOverhead()) return self.writeError(.decode_error);
+                if (encryption_method != .none) {
+                    if (res.len < self.ciphertextOverhead()) return self.writeError(.decode_error);
 
-                        switch (self.cipher) {
-                            inline .application, .handshake => |*c| {
-                                switch (c.*) {
-                                    .empty_renegotiation_info_scsv => {},
-                                    inline else => |*p| {
-                                        const P = @TypeOf(p.*);
-                                        const tag_len = P.AEAD.tag_length;
+                    switch (self.cipher) {
+                        inline .handshake, .application => |*cipher| {
+                            switch (cipher.*) {
+                                inline else => |*c| {
+                                    const C = @TypeOf(c.*);
+                                    const tag_len = C.AEAD.tag_length;
 
-                                        const ciphertext = self.view[0 .. self.view.len - tag_len];
-                                        const tag = self.view[self.view.len - tag_len ..][0..tag_len].*;
-                                        const out: []u8 = @constCast(self.view[0..ciphertext.len]);
-                                        p.decrypt(ciphertext, &plaintext_bytes, tag, self.is_client, out) catch
-                                            return self.writeError(.bad_record_mac);
-                                        const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
-                                        if (padding_start) |s| {
-                                            res.type = @enumFromInt(self.view[s]);
-                                            self.view = self.view[0..s];
-                                        } else {
-                                            return self.writeError(.decode_error);
-                                        }
-                                    },
-                                }
-                            },
-                            else => unreachable,
-                        }
-                    },
+                                    const ciphertext = self.view[0 .. self.view.len - tag_len];
+                                    const tag = self.view[self.view.len - tag_len ..][0..tag_len].*;
+                                    const out: []u8 = @constCast(self.view[0..ciphertext.len]);
+                                    c.decrypt(ciphertext, &plaintext_bytes, tag, self.is_client, out) catch
+                                        return self.writeError(.bad_record_mac);
+                                    const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
+                                    if (padding_start) |s| {
+                                        res.type = @enumFromInt(self.view[s]);
+                                        self.view = self.view[0..s];
+                                    } else {
+                                        return self.writeError(.decode_error);
+                                    }
+                                },
+                            }
+                        },
+                        else => unreachable,
+                    }
                 }
 
                 switch (res.type) {
@@ -1571,7 +1571,7 @@ pub fn Stream(comptime fragment_size: usize, comptime StreamType: type) type {
 /// `@sizeOf(MultiHash)` = 560
 ///
 /// A nice benefit is decreased latency on hosts where one round trip takes longer than calling
-/// `update` on each hashes.
+/// `update` with `active == .all`.
 pub const MultiHash = struct {
     sha256: sha2.Sha256 = sha2.Sha256.init(.{}),
     sha384: sha2.Sha384 = sha2.Sha384.init(.{}),
@@ -1602,7 +1602,6 @@ pub const MultiHash = struct {
             .aes_128_gcm_sha256, .chacha20_poly1305_sha256, .aegis_128l_sha256 => .sha256,
             .aes_256_gcm_sha384 => .sha384,
             .aegis_256_sha512 => .sha512,
-            .empty_renegotiation_info_scsv => .all,
             _ => .all,
         };
     }
@@ -1969,6 +1968,7 @@ test "tls client and server handshake, data, and close_notify" {
     };
 
     const server_der = @embedFile("./testdata/server.der");
+    const server_key = @embedFile("./testdata/server.key");
     var server_transcript: MultiHash = .{};
     var server = Server(@TypeOf(inner_stream)){
         .stream = Stream(Plaintext.max_length, TestStream){
@@ -1982,6 +1982,7 @@ test "tls client and server handshake, data, and close_notify" {
             .certificate = .{ .entries = &[_]Certificate.Entry{
                 .{ .data = server_der },
             } },
+            .certificate_key = server_key,
         },
     };
 
@@ -2014,879 +2015,60 @@ test "tls client and server handshake, data, and close_notify" {
         client_x25519_seed ++ [_]u8{0} ** (48 - 32),
         client_x25519_seed,
     );
-    var client_command = brk: {
-        // To get the same `hello_hash` as https://tls13.xargs.org/ just for
-        // this test we send a mostly falsified client hello.
-        // It doesn't matter because the server will be TLS 1.3 and only support .x25519
-        const hello = ClientHello{
-            .random = key_pairs.hello_rand,
-            .session_id = &key_pairs.session_id,
-            .cipher_suites = &[_]CipherSuite{
-                .aes_256_gcm_sha384,
-                .chacha20_poly1305_sha256,
-                .aes_128_gcm_sha256,
-                .empty_renegotiation_info_scsv,
-            },
-            .extensions = &.{
-                .{ .server_name = &[_]ServerName{.{ .host_name = client.options.host }} },
-                .{ .ec_point_formats = &[_]EcPointFormat{
-                    .uncompressed,
-                    .ansiX962_compressed_prime,
-                    .ansiX962_compressed_char2,
-                } },
-                .{ .supported_groups = &[_]NamedGroup{
-                    .x25519,
-                    .secp256r1,
-                    .x448,
-                    .secp521r1,
-                    .secp384r1,
-                    .ffdhe2048,
-                    .ffdhe3072,
-                    .ffdhe4096,
-                    .ffdhe6144,
-                    .ffdhe8192,
-                } },
-                .{ .session_ticket = {} },
-                .{ .encrypt_then_mac = {} },
-                .{ .extended_master_secret = {} },
-                .{ .signature_algorithms = &[_]SignatureScheme{
-                    .ecdsa_secp256r1_sha256,
-                    .ecdsa_secp384r1_sha384,
-                    .ecdsa_secp521r1_sha512,
-                    .ed25519,
-                    .ed448,
-                    .rsa_pss_pss_sha256,
-                    .rsa_pss_pss_sha384,
-                    .rsa_pss_pss_sha512,
-                    .rsa_pss_rsae_sha256,
-                    .rsa_pss_rsae_sha384,
-                    .rsa_pss_rsae_sha512,
-                    .rsa_pkcs1_sha256,
-                    .rsa_pkcs1_sha384,
-                    .rsa_pkcs1_sha512,
-                } },
-                .{ .supported_versions = &[_]Version{.tls_1_3} },
-                .{ .psk_key_exchange_modes = &[_]PskKeyExchangeMode{.ke} },
-                .{ .key_share = &[_]KeyShare{
-                    .{ .x25519 = key_pairs.x25519.public_key },
-                } },
-            },
-        };
+    var client_command = client_mod.Command{ .send_hello = key_pairs };
+    client_command = try client.next(client_command);
+    try std.testing.expect(client_command == .recv_hello);
 
-        _ = try client.stream.write(Handshake, .{ .client_hello = hello });
-        try client.stream.flush();
-
-        break :brk client_mod.State{ .recv_hello = key_pairs };
+    var server_command = server_mod.Command{ .recv_hello = {} };
+    server_command = try server.next(server_command); // recv_hello
+    try std.testing.expect(server_command == .send_hello);
+    server_command.send_hello.server_random = server_random;
+    server_command.send_hello.server_pair = .{
+        .x25519 = crypto.dh.X25519.KeyPair.create(server_x25519_seed) catch unreachable,
     };
 
-    try inner_stream.expect([_]u8{
-        0x16, // handshake
-        0x03, 0x01, // tls 1.0 (lie for compat)
-        0x00, 0xf8, // handshake len
-        0x01, // client hello
-        0x00, 0x00, 0xf4, // client hello len
-        0x03, 0x03, // tls 1.2 (lie for compat)
-    } ++ client_random ++
-        [_]u8{session_id.len} ++ session_id ++
-        [_]u8{
-        0x00, 0x08, // cipher suite len
-        0x13, 0x02, // aes_256_gcm_sha384
-        0x13, 0x03, // chacha20_poly1305_sha256
-        0x13, 0x01, // aes_128_gcm_sha256
-        0x00, 0xff, // empty_renegotiation_info_scsv
-        0x01, // compression methods len
-        0x00, // none
-        0x00, 0xa3, // extensions len
-        0x00, 0x00, // server name ext
-        0x00, 0x18, // server name len
-        0x00, 0x16, // list entry len
-        0x00, // dns hostname
-    } ++
-        Encoder.encode(u16, @intCast(host.len)) ++ host ++
-        [_]u8{
-        0x00, 0x0b, // ec point formats
-        0x00, 0x04, // ext len
-        0x03, // format type len
-        0x00, // uncompresed
-        0x01, // ansiX962_compressed_prime
-        0x02, // ansiX962_compressed_char2
-        0x00, 0x0a, // supported groups
-        0x00, 0x16, // ext len
-        0x00, 0x14, // supported groups len
-        0x00, 0x1d, // x25519
-        0x00, 0x17, // secp256r1
-        0x00, 0x1e, // x448
-        0x00, 0x19, // secp521r1
-        0x00, 0x18, // secp384r1
-        0x01, 0x00, // ffdhe2048
-        0x01, 0x01, // ffdhe3072
-        0x01, 0x02, // ffdhe4096
-        0x01, 0x03, // ffdhe6144
-        0x01, 0x04, // ffdhe8192
-        0x00, 0x23, // session ticket
-        0x00, 0x00, // ext len
-        0x00, 0x16, // encrypt then mac
-        0x00, 0x00, // ext len
-        0x00, 0x17, // extended master secrets
-        0x00, 0x00, // ext len
-        0x00, 0x0d, // signature algos
-        0x00, 0x1e, // ext len
-        0x00, 0x1c, // algos len
-        0x04, 0x03, // ecdsa_secp256r1_sha256
-        0x05, 0x03, // ecdsa_secp384r1_sha384
-        0x06, 0x03, // ecdsa_secp521r1_sha512
-        0x08, 0x07, // ed25519
-        0x08, 0x08, // ed448
-        0x08, 0x09, // rsa_pss_pss_sha256
-        0x08, 0x0a, // rsa_pss_pss_sha384
-        0x08, 0x0b, // rsa_pss_pss_sha512
-        0x08, 0x04, // rsa_pss_rsae_sha256
-        0x08, 0x05, // rsa_pss_rsae_sha384
-        0x08, 0x06, // rsa_pss_rsae_sha512
-        0x04, 0x01, // rsa_pkcs1_sha256
-        0x05, 0x01, // rsa_pkcs1_sha384
-        0x06, 0x01, // rsa_pkcs1_sha512
-        0x00, 0x2b, // supported versions
-        0x00, 0x03, // ext len
-        0x02, // supported versions len
-        0x03, 0x04, // tls 1.3 (not lying anymore!)
-        0x00, 0x2d, // psk key exchange modes
-        0x00, 0x02, // ext len
-        0x01, // psk key exchange modes len
-        0x01, // PSK with (EC)DHE key establishment
-        0x00, 0x33, // key share
-        0x00, 0x26, // ext len
-        0x00, 0x24, // key shares len
-        0x00, 0x1d, // curve 25519
-        0x00, 0x20, // key len
-    } ++ key_pairs.x25519.public_key);
+    server_command = try server.next(server_command); // send_hello
+    try std.testing.expect(server_command == .send_change_cipher_spec);
 
-    const client_hello = try server.recv_hello();
-    try std.testing.expectEqualSlices(u8, &client_random, &client_hello.random);
-    try std.testing.expectEqualSlices(u8, &session_id, &client_hello.session_id);
-    const server_key_pair = server_mod.KeyPair{
-        .random = server_random,
-        .pair = .{ .x25519 = crypto.dh.X25519.KeyPair.create(server_x25519_seed) catch unreachable },
-    };
-
-    try server.send_hello(client_hello, server_key_pair);
-    // hack to match xargs, need to fix server
-    const signature_verify = [_]u8{ 0x5c, 0xbb, 0x24, 0xc0, 0x40, 0x93, 0x32, 0xda, 0xa9, 0x20, 0xbb, 0xab, 0xbd, 0xb9, 0xbd, 0x50, 0x17, 0x0b, 0xe4, 0x9c, 0xfb, 0xe0, 0xa4, 0x10, 0x7f, 0xca, 0x6f, 0xfb, 0x10, 0x68, 0xe6, 0x5f, 0x96, 0x9e, 0x6d, 0xe7, 0xd4, 0xf9, 0xe5, 0x60, 0x38, 0xd6, 0x7c, 0x69, 0xc0, 0x31, 0x40, 0x3a, 0x7a, 0x7c, 0x0b, 0xcc, 0x86, 0x83, 0xe6, 0x57, 0x21, 0xa0, 0xc7, 0x2c, 0xc6, 0x63, 0x40, 0x19, 0xad, 0x1d, 0x3a, 0xd2, 0x65, 0xa8, 0x12, 0x61, 0x5b, 0xa3, 0x63, 0x80, 0x37, 0x20, 0x84, 0xf5, 0xda, 0xec, 0x7e, 0x63, 0xd3, 0xf4, 0x93, 0x3f, 0x27, 0x22, 0x74, 0x19, 0xa6, 0x11, 0x03, 0x46, 0x44, 0xdc, 0xdb, 0xc7, 0xbe, 0x3e, 0x74, 0xff, 0xac, 0x47, 0x3f, 0xaa, 0xad, 0xde, 0x8c, 0x2f, 0xc6, 0x5f, 0x32, 0x65, 0x77, 0x3e, 0x7e, 0x62, 0xde, 0x33, 0x86, 0x1f, 0xa7, 0x05, 0xd1, 0x9c, 0x50, 0x6e, 0x89, 0x6c, 0x8d, 0x82, 0xf5, 0xbc, 0xf3, 0x5f, 0xec, 0xe2, 0x59, 0xb7, 0x15, 0x38, 0x11, 0x5e, 0x9c, 0x8c, 0xfb, 0xa6, 0x2e, 0x49, 0xbb, 0x84, 0x74, 0xf5, 0x85, 0x87, 0xb1, 0x1b, 0x8a, 0xe3, 0x17, 0xc6, 0x33, 0xe9, 0xc7, 0x6c, 0x79, 0x1d, 0x46, 0x62, 0x84, 0xad, 0x9c, 0x4f, 0xf7, 0x35, 0xa6, 0xd2, 0xe9, 0x63, 0xb5, 0x9b, 0xbc, 0xa4, 0x40, 0xa3, 0x07, 0x09, 0x1a, 0x1b, 0x4e, 0x46, 0xbc, 0xc7, 0xa2, 0xf9, 0xfb, 0x2f, 0x1c, 0x89, 0x8e, 0xcb, 0x19, 0x91, 0x8b, 0xe4, 0x12, 0x1d, 0x7e, 0x8e, 0xd0, 0x4c, 0xd5, 0x0c, 0x9a, 0x59, 0xe9, 0x87, 0x98, 0x01, 0x07, 0xbb, 0xbf, 0x29, 0x9c, 0x23, 0x2e, 0x7f, 0xdb, 0xe1, 0x0a, 0x4c, 0xfd, 0xae, 0x5c, 0x89, 0x1c, 0x96, 0xaf, 0xdf, 0xf9, 0x4b, 0x54, 0xcc, 0xd2, 0xbc, 0x19, 0xd3, 0xcd, 0xaa, 0x66, 0x44, 0x85, 0x9c };
-    _ = try server.stream.write(Handshake, Handshake{ .certificate_verify = CertificateVerify{
-        .algorithm = .rsa_pss_rsae_sha256,
-        .signature = &signature_verify,
-    } });
-    try server.stream.flush();
-
-    try server.send_finished();
-    try inner_stream.expect(&([_]u8{
-        0x16, // handshake
-        0x03, 0x03, // tls 1.2
-        0x00, 0x7a, // Handshake len
-        0x02, // server hello
-        0x00, 0x00, 0x76, // server hello len
-        0x03, 0x03, // tls 1.2
-    } ++ server_key_pair.random ++ [_]u8{session_id.len} ++ session_id ++
-        [_]u8{
-        0x13, 0x02, // aes_256_gcm_sha384
-        0x00, // compression method
-        0x00, 0x2e, // extensions len
-        0x00, 0x2b, // supported versions
-        0x00, 0x02, // ext len
-        0x03, 0x04, // tls 1.3
-        0x00, 0x33, // key share
-        0x00, 0x24, // ext len
-        0x00, 0x1d, // x25519
-        0x00, 0x20, // key len
-        0x9f, 0xd7,
-        0xad, 0x6d,
-        0xcf, 0xf4,
-        0x29, 0x8d,
-        0xd3, 0xf9,
-        0x6d, 0x5b,
-        0x1b, 0x2a,
-        0xf9, 0x10,
-        0xa0, 0x53,
-        0x5b, 0x14,
-        0x88, 0xd7,
-        0xf8, 0xfa,
-        0xbb, 0x34,
-        0x9a, 0x98,
-        0x28, 0x80,
-        0xb6, 0x15, // key
-    } ++
-        [_]u8{
-        0x14, // ChangeCipherSpec
-        0x03, 0x03, // tls 1.2
-        0x00, 0x01, // len
-        0x01, // .change_cipher_spec
-    } ++ [_]u8{
-        0x17, // application data (lie for tls 1.2 compat)
-        0x03, 0x03, // tls 1.2
-        0x00, 0x17, // application data len
-        0x6b, 0xe0, 0x2f, 0x9d, 0xa7, 0xc2, // encrypted data (empty EncryptedExtensions message)
-        0xdc, // encrypted data type (handshake)
-        0x9d, 0xde, 0xf5, 0x6f, 0x24, 0x68, 0xb9, 0x0a, // auth tag
-        0xdf, 0xa2, 0x51, 0x01, 0xab, 0x03, 0x44, 0xae, // auth tag
-    } ++ [_]u8{
-        0x17, // application data (lie for tls 1.2 compat)
-        0x03, 0x03, // tls 1.2
-        0x03, 0x43, // application data len
-        0xba, 0xf0,
-        0x0a, 0x9b,
-        0xe5, 0x0f,
-        0x3f, 0x23,
-        0x07, 0xe7,
-        0x26, 0xed,
-        0xcb, 0xda,
-        0xcb, 0xe4,
-        0xb1, 0x86,
-        0x16, 0x44,
-        0x9d, 0x46,
-        0xc6, 0x20,
-        0x7a, 0xf6,
-        0xe9, 0x95,
-        0x3e, 0xe5,
-        0xd2, 0x41,
-        0x1b, 0xa6,
-        0x5d, 0x31,
-        0xfe, 0xaf,
-        0x4f, 0x78,
-        0x76, 0x4f,
-        0x2d, 0x69,
-        0x39, 0x87,
-        0x18, 0x6c,
-        0xc0, 0x13,
-        0x29, 0xc1,
-        0x87, 0xa5,
-        0xe4, 0x60,
-        0x8e, 0x8d,
-        0x27, 0xb3,
-        0x18, 0xe9,
-        0x8d, 0xd9,
-        0x47, 0x69,
-        0xf7, 0x73,
-        0x9c, 0xe6,
-        0x76, 0x83,
-        0x92, 0xca,
-        0xca, 0x8d,
-        0xcc, 0x59,
-        0x7d, 0x77,
-        0xec, 0x0d,
-        0x12, 0x72,
-        0x23, 0x37,
-        0x85, 0xf6,
-        0xe6, 0x9d,
-        0x6f, 0x43,
-        0xef, 0xfa,
-        0x8e, 0x79,
-        0x05, 0xed,
-        0xfd, 0xc4,
-        0x03, 0x7e,
-        0xee, 0x59,
-        0x33, 0xe9,
-        0x90, 0xa7,
-        0x97, 0x2f,
-        0x20, 0x69,
-        0x13, 0xa3,
-        0x1e, 0x8d,
-        0x04, 0x93,
-        0x13, 0x66,
-        0xd3, 0xd8,
-        0xbc, 0xd6,
-        0xa4, 0xa4,
-        0xd6, 0x47,
-        0xdd, 0x4b,
-        0xd8, 0x0b,
-        0x0f, 0xf8,
-        0x63, 0xce,
-        0x35, 0x54,
-        0x83, 0x3d,
-        0x74, 0x4c,
-        0xf0, 0xe0,
-        0xb9, 0xc0,
-        0x7c, 0xae,
-        0x72, 0x6d,
-        0xd2, 0x3f,
-        0x99, 0x53,
-        0xdf, 0x1f,
-        0x1c, 0xe3,
-        0xac, 0xeb,
-        0x3b, 0x72,
-        0x30, 0x87,
-        0x1e, 0x92,
-        0x31, 0x0c,
-        0xfb, 0x2b,
-        0x09, 0x84,
-        0x86, 0xf4,
-        0x35, 0x38,
-        0xf8, 0xe8,
-        0x2d, 0x84,
-        0x04, 0xe5,
-        0xc6, 0xc2,
-        0x5f, 0x66,
-        0xa6, 0x2e,
-        0xbe, 0x3c,
-        0x5f, 0x26,
-        0x23, 0x26,
-        0x40, 0xe2,
-        0x0a, 0x76,
-        0x91, 0x75,
-        0xef, 0x83,
-        0x48, 0x3c,
-        0xd8, 0x1e,
-        0x6c, 0xb1,
-        0x6e, 0x78,
-        0xdf, 0xad,
-        0x4c, 0x1b,
-        0x71, 0x4b,
-        0x04, 0xb4,
-        0x5f, 0x6a,
-        0xc8, 0xd1,
-        0x06, 0x5a,
-        0xd1, 0x8c,
-        0x13, 0x45,
-        0x1c, 0x90,
-        0x55, 0xc4,
-        0x7d, 0xa3,
-        0x00, 0xf9,
-        0x35, 0x36,
-        0xea, 0x56,
-        0xf5, 0x31,
-        0x98, 0x6d,
-        0x64, 0x92,
-        0x77, 0x53,
-        0x93, 0xc4,
-        0xcc, 0xb0,
-        0x95, 0x46,
-        0x70, 0x92,
-        0xa0, 0xec,
-        0x0b, 0x43,
-        0xed, 0x7a,
-        0x06, 0x87,
-        0xcb, 0x47,
-        0x0c, 0xe3,
-        0x50, 0x91,
-        0x7b, 0x0a,
-        0xc3, 0x0c,
-        0x6e, 0x5c,
-        0x24, 0x72,
-        0x5a, 0x78,
-        0xc4, 0x5f,
-        0x9f, 0x5f,
-        0x29, 0xb6,
-        0x62, 0x68,
-        0x67, 0xf6,
-        0xf7, 0x9c,
-        0xe0, 0x54,
-        0x27, 0x35,
-        0x47, 0xb3,
-        0x6d, 0xf0,
-        0x30, 0xbd,
-        0x24, 0xaf,
-        0x10, 0xd6,
-        0x32, 0xdb,
-        0xa5, 0x4f,
-        0xc4, 0xe8,
-        0x90, 0xbd,
-        0x05, 0x86,
-        0x92, 0x8c,
-        0x02, 0x06,
-        0xca, 0x2e,
-        0x28, 0xe4,
-        0x4e, 0x22,
-        0x7a, 0x2d,
-        0x50, 0x63,
-        0x19, 0x59,
-        0x35, 0xdf,
-        0x38, 0xda,
-        0x89, 0x36,
-        0x09, 0x2e,
-        0xef, 0x01,
-        0xe8, 0x4c,
-        0xad, 0x2e,
-        0x49, 0xd6,
-        0x2e, 0x47,
-        0x0a, 0x6c,
-        0x77, 0x45,
-        0xf6, 0x25,
-        0xec, 0x39,
-        0xe4, 0xfc,
-        0x23, 0x32,
-        0x9c, 0x79,
-        0xd1, 0x17,
-        0x28, 0x76,
-        0x80, 0x7c,
-        0x36, 0xd7,
-        0x36, 0xba,
-        0x42, 0xbb,
-        0x69, 0xb0,
-        0x04, 0xff,
-        0x55, 0xf9,
-        0x38, 0x50,
-        0xdc, 0x33,
-        0xc1, 0xf9,
-        0x8a, 0xbb,
-        0x92, 0x85,
-        0x83, 0x24,
-        0xc7, 0x6f,
-        0xf1, 0xeb,
-        0x08, 0x5d,
-        0xb3, 0xc1,
-        0xfc, 0x50,
-        0xf7, 0x4e,
-        0xc0, 0x44,
-        0x42, 0xe6,
-        0x22, 0x97,
-        0x3e, 0xa7,
-        0x07, 0x43,
-        0x41, 0x87,
-        0x94, 0xc3,
-        0x88, 0x14,
-        0x0b, 0xb4,
-        0x92, 0xd6,
-        0x29, 0x4a,
-        0x05, 0x40,
-        0xe5, 0xa5,
-        0x9c, 0xfa,
-        0xe6, 0x0b,
-        0xa0, 0xf1,
-        0x48, 0x99,
-        0xfc, 0xa7,
-        0x13, 0x33,
-        0x31, 0x5e,
-        0xa0, 0x83,
-        0xa6, 0x8e,
-        0x1d, 0x7c,
-        0x1e, 0x4c,
-        0xdc, 0x2f,
-        0x56, 0xbc,
-        0xd6, 0x11,
-        0x96, 0x81,
-        0xa4, 0xad,
-        0xbc, 0x1b,
-        0xbf, 0x42,
-        0xaf, 0xd8,
-        0x06, 0xc3,
-        0xcb, 0xd4,
-        0x2a, 0x07,
-        0x6f, 0x54,
-        0x5d, 0xee,
-        0x4e, 0x11,
-        0x8d, 0x0b,
-        0x39, 0x67,
-        0x54, 0xbe,
-        0x2b, 0x04,
-        0x2a, 0x68,
-        0x5d, 0xd4,
-        0x72, 0x7e,
-        0x89, 0xc0,
-        0x38, 0x6a,
-        0x94, 0xd3,
-        0xcd, 0x6e,
-        0xcb, 0x98,
-        0x20, 0xe9,
-        0xd4, 0x9a,
-        0xfe, 0xed,
-        0x66, 0xc4,
-        0x7e, 0x6f,
-        0xc2, 0x43,
-        0xea, 0xbe,
-        0xbb, 0xcb,
-        0x0b, 0x02,
-        0x45, 0x38,
-        0x77, 0xf5,
-        0xac, 0x5d,
-        0xbf, 0xbd,
-        0xf8, 0xdb,
-        0x10, 0x52,
-        0xa3, 0xc9,
-        0x94, 0xb2,
-        0x24, 0xcd,
-        0x9a, 0xaa,
-        0xf5, 0x6b,
-        0x02, 0x6b,
-        0xb9, 0xef,
-        0xa2, 0xe0,
-        0x13, 0x02,
-        0xb3, 0x64,
-        0x01, 0xab,
-        0x64, 0x94,
-        0xe7, 0x01,
-        0x8d, 0x6e,
-        0x5b, 0x57,
-        0x3b, 0xd3,
-        0x8b, 0xce,
-        0xf0, 0x23,
-        0xb1, 0xfc,
-        0x92, 0x94,
-        0x6b, 0xbc,
-        0xa0, 0x20,
-        0x9c, 0xa5,
-        0xfa, 0x92,
-        0x6b, 0x49,
-        0x70, 0xb1,
-        0x00, 0x91,
-        0x03, 0x64,
-        0x5c, 0xb1,
-        0xfc, 0xfe,
-        0x55, 0x23,
-        0x11, 0xff,
-        0x73, 0x05,
-        0x58, 0x98,
-        0x43, 0x70,
-        0x03, 0x8f,
-        0xd2, 0xcc,
-        0xe2, 0xa9,
-        0x1f, 0xc7,
-        0x4d, 0x6f,
-        0x3e, 0x3e,
-        0xa9, 0xf8,
-        0x43, 0xee,
-        0xd3, 0x56,
-        0xf6, 0xf8,
-        0x2d, 0x35,
-        0xd0, 0x3b,
-        0xc2, 0x4b,
-        0x81, 0xb5,
-        0x8c, 0xeb,
-        0x1a, 0x43,
-        0xec, 0x94,
-        0x37, 0xe6,
-        0xf1, 0xe5,
-        0x0e, 0xb6,
-        0xf5, 0x55,
-        0xe3, 0x21,
-        0xfd, 0x67,
-        0xc8, 0x33,
-        0x2e, 0xb1,
-        0xb8, 0x32,
-        0xaa, 0x8d,
-        0x79, 0x5a,
-        0x27, 0xd4,
-        0x79, 0xc6,
-        0xe2, 0x7d,
-        0x5a, 0x61,
-        0x03, 0x46,
-        0x83, 0x89,
-        0x19, 0x03,
-        0xf6, 0x64,
-        0x21, 0xd0,
-        0x94, 0xe1,
-        0xb0, 0x0a,
-        0x9a, 0x13,
-        0x8d, 0x86,
-        0x1e, 0x6f,
-        0x78, 0xa2,
-        0x0a, 0xd3,
-        0xe1, 0x58,
-        0x00, 0x54,
-        0xd2, 0xe3,
-        0x05, 0x25,
-        0x3c, 0x71,
-        0x3a, 0x02,
-        0xfe, 0x1e,
-        0x28, 0xde,
-        0xee, 0x73,
-        0x36, 0x24,
-        0x6f, 0x6a,
-        0xe3, 0x43,
-        0x31, 0x80,
-        0x6b, 0x46,
-        0xb4, 0x7b,
-        0x83, 0x3c,
-        0x39, 0xb9,
-        0xd3, 0x1c,
-        0xd3, 0x00,
-        0xc2, 0xa6,
-        0xed, 0x83,
-        0x13, 0x99,
-        0x77, 0x6d,
-        0x07, 0xf5,
-        0x70, 0xea,
-        0xf0, 0x05,
-        0x9a, 0x2c,
-        0x68, 0xa5,
-        0xf3, 0xae,
-        0x16, 0xb6,
-        0x17, 0x40,
-        0x4a, 0xf7,
-        0xb7, 0x23,
-        0x1a, 0x4d,
-        0x94, 0x27,
-        0x58, 0xfc,
-        0x02, 0x0b,
-        0x3f, 0x23,
-        0xee, 0x8c,
-        0x15, 0xe3,
-        0x60, 0x44,
-        0xcf, 0xd6,
-        0x7c, 0xd6,
-        0x40, 0x99,
-        0x3b, 0x16,
-        0x20, 0x75,
-        0x97, 0xfb,
-        0xf3, 0x85,
-        0xea, 0x7a,
-        0x4d, 0x99,
-        0xe8, 0xd4,
-        0x56, 0xff,
-        0x83, 0xd4,
-        0x1f, 0x7b,
-        0x8b, 0x4f,
-        0x06, 0x9b,
-        0x02, 0x8a,
-        0x2a, 0x63,
-        0xa9, 0x19,
-        0xa7, 0x0e,
-        0x3a, 0x10,
-        0xe3, 0x08, // encrypted cert
-        0x41, // encrypted data type (Certificate)
-        0x58, 0xfa, 0xa5, 0xba, 0xfa, 0x30, 0x18, 0x6c, // auth tag
-        0x6b, 0x2f, 0x23, 0x8e, 0xb5, 0x30, 0xc7, 0x3e, // auth tag
-    } ++ [_]u8{
-        0x17, // application data (lie for tls 1.2 compat)
-        0x03, 0x03, // tls 1.2
-        0x01, 0x19, // application data len
-        0x73, 0x71,
-        0x9f, 0xce,
-        0x07, 0xec,
-        0x2f, 0x6d,
-        0x3b, 0xba,
-        0x02, 0x92,
-        0xa0, 0xd4,
-        0x0b, 0x27,
-        0x70, 0xc0,
-        0x6a, 0x27,
-        0x17, 0x99,
-        0xa5, 0x33,
-        0x14, 0xf6,
-        0xf7, 0x7f,
-        0xc9, 0x5c,
-        0x5f, 0xe7,
-        0xb9, 0xa4,
-        0x32, 0x9f,
-        0xd9, 0x54,
-        0x8c, 0x67,
-        0x0e, 0xbe,
-        0xea, 0x2f,
-        0x2d, 0x5c,
-        0x35, 0x1d,
-        0xd9, 0x35,
-        0x6e, 0xf2,
-        0xdc, 0xd5,
-        0x2e, 0xb1,
-        0x37, 0xbd,
-        0x3a, 0x67,
-        0x65, 0x22,
-        0xf8, 0xcd,
-        0x0f, 0xb7,
-        0x56, 0x07,
-        0x89, 0xad,
-        0x7b, 0x0e,
-        0x3c, 0xab,
-        0xa2, 0xe3,
-        0x7e, 0x6b,
-        0x41, 0x99,
-        0xc6, 0x79,
-        0x3b, 0x33,
-        0x46, 0xed,
-        0x46, 0xcf,
-        0x74, 0x0a,
-        0x9f, 0xa1,
-        0xfe, 0xc4,
-        0x14, 0xdc,
-        0x71, 0x5c,
-        0x41, 0x5c,
-        0x60, 0xe5,
-        0x75, 0x70,
-        0x3c, 0xe6,
-        0xa3, 0x4b,
-        0x70, 0xb5,
-        0x19, 0x1a,
-        0xa6, 0xa6,
-        0x1a, 0x18,
-        0xfa, 0xff,
-        0x21, 0x6c,
-        0x68, 0x7a,
-        0xd8, 0xd1,
-        0x7e, 0x12,
-        0xa7, 0xe9,
-        0x99, 0x15,
-        0xa6, 0x11,
-        0xbf, 0xc1,
-        0xa2, 0xbe,
-        0xfc, 0x15,
-        0xe6, 0xe9,
-        0x4d, 0x78,
-        0x46, 0x42,
-        0xe6, 0x82,
-        0xfd, 0x17,
-        0x38, 0x2a,
-        0x34, 0x8c,
-        0x30, 0x10,
-        0x56, 0xb9,
-        0x40, 0xc9,
-        0x84, 0x72,
-        0x00, 0x40,
-        0x8b, 0xec,
-        0x56, 0xc8,
-        0x1e, 0xa3,
-        0xd7, 0x21,
-        0x7a, 0xb8,
-        0xe8, 0x5a,
-        0x88, 0x71,
-        0x53, 0x95,
-        0x89, 0x9c,
-        0x90, 0x58,
-        0x7f, 0x72,
-        0xe8, 0xdd,
-        0xd7, 0x4b,
-        0x26, 0xd8,
-        0xed, 0xc1,
-        0xc7, 0xc8,
-        0x37, 0xd9,
-        0xf2, 0xeb,
-        0xbc, 0x26,
-        0x09, 0x62,
-        0x21, 0x90,
-        0x38, 0xb0,
-        0x56, 0x54,
-        0xa6, 0x3a,
-        0x0b, 0x12,
-        0x99, 0x9b,
-        0x4a, 0x83,
-        0x06, 0xa3,
-        0xdd, 0xcc,
-        0x0e, 0x17,
-        0xc5, 0x3b,
-        0xa8, 0xf9,
-        0xc8, 0x03,
-        0x63, 0xf7,
-        0x84, 0x13,
-        0x54, 0xd2,
-        0x91, 0xb4,
-        0xac, 0xe0,
-        0xc0, 0xf3,
-        0x30, 0xc0,
-        0xfc, 0xd5,
-        0xaa, 0x9d,
-        0xee, 0xf9,
-        0x69, 0xae,
-        0x8a, 0xb2,
-        0xd9, 0x8d,
-        0xa8, 0x8e,
-        0xbb, 0x6e, 0xa8, 0x0a, 0x3a, 0x11, 0xf0, 0x0e, // encrypted signature_verify
-        0xa2, // encrypted data type (SignatureVerify)
-        0x96, 0xa3, 0x23, 0x23, 0x67, 0xff, 0x07, 0x5e, // auth tag
-        0x1c, 0x66, 0xdd, 0x9c, 0xbe, 0xdc, 0x47, 0x13, // auth tag
-    } ++ [_]u8{
-        0x17, // application data (lie for tls 1.2 compat)
-        0x03, 0x03, // tls 1.2
-        0x00, 0x45, // application data len
-        0x10, 0x61,
-        0xde, 0x27,
-        0xe5, 0x1c,
-        0x2c, 0x9f,
-        0x34, 0x29,
-        0x11, 0x80,
-        0x6f, 0x28,
-        0x2b, 0x71,
-        0x0c, 0x10,
-        0x63, 0x2c,
-        0xa5, 0x00,
-        0x67, 0x55,
-        0x88, 0x0d,
-        0xbf, 0x70,
-        0x06, 0x00,
-        0x2d, 0x0e,
-        0x84, 0xfe,
-        0xd9, 0xad,
-        0xf2, 0x7a,
-        0x43, 0xb5,
-        0x19, 0x23,
-        0x03, 0xe4,
-        0xdf, 0x5c,
-        0x28, 0x5d,
-        0x58, 0xe3,
-        0xc7, 0x62,
-        0x24, // encrypted data type (finished)
-        0x07, 0x84, 0x40, 0xc0, 0x74, 0x23, 0x74, 0x74, // auth tag
-        0x4a, 0xec, 0xf2, 0x8c, 0xf3, 0x18, 0x2f, 0xd0, // auth tag
-    }));
-
-    client_command = try client.advance(client_command); // recv_hello
+    client_command = try client.next(client_command); // recv_hello
     try std.testing.expect(client_command == .recv_encrypted_extensions);
-    // {
-    //     const s = server.stream.cipher.handshake.aes_256_gcm_sha384;
-    //     const c = client.stream.cipher.handshake.aes_256_gcm_sha384;
+    {
+        const s = server.stream.cipher.handshake.aes_256_gcm_sha384;
+        const c = client.stream.cipher.handshake.aes_256_gcm_sha384;
 
-    //     try std.testing.expectEqualSlices(u8, &s.handshake_secret, &c.handshake_secret);
-    //     try std.testing.expectEqualSlices(u8, &s.master_secret, &c.master_secret);
-    //     try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
-    //     try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
-    //     try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
-    //     try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
-    //     try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
-    //     try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
-    //     const client_iv = [_]u8{ 0x42, 0x56, 0xd2, 0xe0, 0xe8, 0x8b, 0xab, 0xdd, 0x05, 0xeb, 0x2f, 0x27 };
-    //     try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
-    // }
-    client_command = try client.advance(client_command); // recv_encrypted_extensions
+        try std.testing.expectEqualSlices(u8, &s.handshake_secret, &c.handshake_secret);
+        try std.testing.expectEqualSlices(u8, &s.master_secret, &c.master_secret);
+        try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
+        try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
+        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+        const client_iv = [_]u8{ 0xE1, 0x38, 0xB9, 0xBF, 0xD6, 0xB4, 0x2D, 0x91, 0x6D, 0x81, 0xA0, 0x2D };
+        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
+    }
+
+    server_command = try server.next(server_command); // send_change_cipher_spec
+    try std.testing.expect(server_command == .send_encrypted_extensions);
+    server_command = try server.next(server_command); // send_encrypted_extensions
+    try std.testing.expect(server_command == .send_certificate);
+    server_command = try server.next(server_command); // send_certificate
+    try std.testing.expect(server_command == .send_certificate_verify);
+    server_command = try server.next(server_command); // send_certificate_verify
+    try std.testing.expect(server_command == .send_finished);
+    server_command = try server.next(server_command); // send_finished
+    try std.testing.expect(server_command == .recv_finished);
+
+    client_command = try client.next(client_command); // recv_encrypted_extensions
     try std.testing.expect(client_command == .recv_certificate_or_finished);
-
-    client_command = try client.advance(client_command); // recv_certificate_or_finished (certificate)
+    client_command = try client.next(client_command); // recv_certificate_or_finished (certificate)
     try std.testing.expect(client_command == .recv_certificate_verify);
-
-    client_command = try client.advance(client_command); // recv_certificate_verify
+    client_command = try client.next(client_command); // recv_certificate_verify
     try std.testing.expect(client_command == .recv_finished);
-
-    client_command = try client.advance(client_command); // recv_finished
+    client_command = try client.next(client_command); // recv_finished
     try std.testing.expect(client_command == .send_finished);
-
-    client_command = try client.advance(client_command); // send_finished
-    try std.testing.expect(client_command == .sent_finished);
-
-    try inner_stream.expect(&([_]u8{
-        0x14, // ChangeCipherSpec
-        0x03, 0x03, // tls 1.2
-        0x00, 0x01, // len
-        0x01, // .change_cipher_spec
-    } ++ [_]u8{
-        0x17, // app data (lie for TLS 1.2)
-        0x03, 0x03, // tls 1.2
-        0x00, 0x45, // len
-        0x9f, 0xf9,
-        0xb0, 0x63,
-        0x17, 0x51,
-        0x77, 0x32,
-        0x2a, 0x46,
-        0xdd, 0x98,
-        0x96, 0xf3,
-        0xc3, 0xbb,
-        0x82, 0x0a,
-        0xb5, 0x17,
-        0x43, 0xeb,
-        0xc2, 0x5f,
-        0xda, 0xdd,
-        0x53, 0x45,
-        0x4b, 0x73,
-        0xde, 0xb5,
-        0x4c, 0xc7,
-        0x24, 0x8d,
-        0x41, 0x1a,
-        0x18, 0xbc,
-        0xcf, 0x65,
-        0x7a, 0x96,
-        0x08, 0x24,
-        0xe9, 0xa1,
-        0x93, 0x64, 0x83, 0x7c, // encrypted data
-        0x35, // handshake
-        0x0a, 0x69, 0xa8, 0x8d, 0x4b, 0xf6, 0x35, 0xc8, // auth tag
-        0x5e, 0xb8, 0x74, 0xae, 0xbc, 0x9d, 0xfd, 0xe8, // auth tag
-    }));
-    try server.recv_finished();
-
+    client_command = try client.next(client_command); // send_finished
+    try std.testing.expect(client_command == .none);
     {
         const s = server.stream.cipher.application.aes_256_gcm_sha384;
         const c = client.stream.cipher.application.aes_256_gcm_sha384;
@@ -2900,19 +2082,10 @@ test "tls client and server handshake, data, and close_notify" {
         const client_iv = [_]u8{ 0xbb, 0x00, 0x79, 0x56, 0xf4, 0x74, 0xb2, 0x5d, 0xe9, 0x02, 0x43, 0x2f };
         try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
+    server_command = try server.next(server_command); // recv_finished
+    try std.testing.expect(server_command == .none);
 
-
-    _ = try client.stream.writer().writeAll("ping");
-    try client.stream.flush();
-    try inner_stream.expect(&([_]u8{
-        0x17, // app data (FOR REAL THIS TIME)
-        0x03, 0x03, // tls 1.2
-        0x00, 0x15, // len
-        0x82, 0x81, 0x39, 0xcb, // ping
-        0x7b, // app data (exciting!)
-        0x73, 0xaa, 0xab, 0xf5, 0xb8, 0x2f, 0xbf, 0x9a, // auth tag
-        0x29, 0x61, 0xbc, 0xde, 0x10, 0x03, 0x8a, 0x32, // auth tag
-    }));
+    try client.writer().writeAll("ping");
 
     var recv_ping: [4]u8 = undefined;
     _ = try server.stream.reader().readAll(&recv_ping);
@@ -2920,15 +2093,6 @@ test "tls client and server handshake, data, and close_notify" {
 
     server.stream.close();
     try std.testing.expect(server.stream.closed);
-    try inner_stream.expect(&([_]u8{
-        0x17, // app data (lie to encrypt)
-        0x03, 0x03, // tls 1.2
-        0x00, 0x13, // len
-        0x3e, 0x2d, // alert
-        0x99, // encrypted message type
-        0x26, 0xbb, 0xfe, 0x1f, 0x46, 0xfb, 0x4e, 0xe2, // auth tag
-        0x75, 0x1e, 0x53, 0xbf, 0xfc, 0x7e, 0x65, 0x16, // auth tag
-    }));
 
     _ = try client.stream.readPlaintext();
     try std.testing.expect(client.stream.closed);
