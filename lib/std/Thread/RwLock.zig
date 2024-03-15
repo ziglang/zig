@@ -375,5 +375,5 @@ test "concurrent access" {
 
     try testing.expectEqual(num_writes, runner.writes);
 
-    //std.debug.print("reads={}\n", .{ runner.reads.load(.Unordered)});
+    //std.debug.print("reads={}\n", .{ runner.reads.load(.unordered)});
 }

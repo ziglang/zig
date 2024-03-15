@@ -1502,25 +1502,19 @@ pub extern "c" fn closedir(dp: *DIR) c_int;
 pub extern "c" fn telldir(dp: *DIR) c_long;
 pub extern "c" fn seekdir(dp: *DIR, loc: c_long) void;
 
-pub extern "c" fn clock_gettime(clk_id: c_int, tp: *c.timespec) c_int;
-pub extern "c" fn clock_getres(clk_id: c_int, tp: *c.timespec) c_int;
-pub extern "c" fn gettimeofday(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
-pub extern "c" fn nanosleep(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
-
-pub extern "c" fn getrusage(who: c_int, usage: *c.rusage) c_int;
-
-pub extern "c" fn sched_yield() c_int;
-
-pub extern "c" fn sigaction(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;
-pub extern "c" fn sigprocmask(how: c_int, noalias set: ?*const c.sigset_t, noalias oset: ?*c.sigset_t) c_int;
-pub extern "c" fn sigfillset(set: ?*c.sigset_t) void;
 pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
-
-pub extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
 
 pub extern "c" fn alarm(seconds: c_uint) c_uint;
 
-pub extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
+pub const clock_getres = switch (native_os) {
+    .netbsd => private.__clock_getres50,
+    else => private.clock_getres,
+};
+
+pub const clock_gettime = switch (native_os) {
+    .netbsd => private.__clock_gettime50,
+    else => private.clock_gettime,
+};
 
 pub const fstat = switch (native_os) {
     .macos => switch (native_arch) {
@@ -1539,6 +1533,31 @@ pub const fstatat = switch (native_os) {
     else => private.fstatat,
 };
 
+pub const getdirentries = switch (native_os) {
+    .macos, .ios, .tvos, .watchos => private.__getdirentries64,
+    else => private.getdirentries,
+};
+
+pub const getrusage = switch (native_os) {
+    .netbsd => private.__getrusage50,
+    else => private.getrusage,
+};
+
+pub const gettimeofday = switch (native_os) {
+    .netbsd => private.__gettimeofday50,
+    else => private.gettimeofday,
+};
+
+pub const msync = switch (native_os) {
+    .netbsd => private.__msync13,
+    else => private.msync,
+};
+
+pub const nanosleep = switch (native_os) {
+    .netbsd => private.__nanosleep50,
+    else => private.nanosleep,
+};
+
 pub const readdir = switch (native_os) {
     .macos => switch (native_arch) {
         .x86_64 => private.@"readdir$INODE64",
@@ -1549,8 +1568,33 @@ pub const readdir = switch (native_os) {
 };
 
 pub const realpath = switch (native_os) {
-    .macos, .ios, .watchos, .tvos => private.@"realpath$DARWIN_EXTSN",
+    .macos, .ios, .tvos, .watchos => private.@"realpath$DARWIN_EXTSN",
     else => private.realpath,
+};
+
+pub const sched_yield = switch (native_os) {
+    .netbsd => private.__libc_thr_yield,
+    else => private.sched_yield,
+};
+
+pub const sigaction = switch (native_os) {
+    .netbsd => private.__sigaction14,
+    else => private.sigaction,
+};
+
+pub const sigfillset = switch (native_os) {
+    .netbsd => private.__sigfillset14,
+    else => private.sigfillset,
+};
+
+pub const sigprocmask = switch (native_os) {
+    .netbsd => private.__sigprocmask14,
+    else => private.sigprocmask,
+};
+
+pub const socket = switch (native_os) {
+    .netbsd => private.__socket30,
+    else => private.socket,
 };
 
 pub const stat = switch (native_os) {
@@ -1680,7 +1724,6 @@ pub extern "c" fn recvfrom(
 pub extern "c" fn recvmsg(sockfd: c.fd_t, msg: *c.msghdr, flags: u32) isize;
 
 pub extern "c" fn kill(pid: c.pid_t, sig: c_int) c_int;
-pub extern "c" fn getdirentries(fd: c.fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
 
 pub extern "c" fn setuid(uid: c.uid_t) c_int;
 pub extern "c" fn setgid(gid: c.gid_t) c_int;
@@ -1878,10 +1921,22 @@ else
     };
 
 const private = struct {
+    extern "c" fn clock_getres(clk_id: c_int, tp: *c.timespec) c_int;
+    extern "c" fn clock_gettime(clk_id: c_int, tp: *c.timespec) c_int;
     extern "c" fn fstat(fd: c.fd_t, buf: *c.Stat) c_int;
     extern "c" fn fstatat(dirfd: c.fd_t, path: [*:0]const u8, buf: *c.Stat, flag: u32) c_int;
+    extern "c" fn getdirentries(fd: c.fd_t, buf_ptr: [*]u8, nbytes: usize, basep: *i64) isize;
+    extern "c" fn getrusage(who: c_int, usage: *c.rusage) c_int;
+    extern "c" fn gettimeofday(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
+    extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn nanosleep(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
     extern "c" fn readdir(dir: *c.DIR) ?*c.dirent;
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn sched_yield() c_int;
+    extern "c" fn sigaction(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;
+    extern "c" fn sigfillset(set: ?*c.sigset_t) void;
+    extern "c" fn sigprocmask(how: c_int, noalias set: ?*const c.sigset_t, noalias oset: ?*c.sigset_t) c_int;
+    extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *c.Stat) c_int;
 
     /// macos modernized symbols.
@@ -1894,7 +1949,20 @@ const private = struct {
 
     /// macos modernized symbols.
     extern "c" fn @"realpath$DARWIN_EXTSN"(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
+    extern "c" fn __getdirentries64(fd: c.fd_t, buf_ptr: [*]u8, buf_len: usize, basep: *i64) isize;
 
     /// netbsd modernized symbols.
+    extern "c" fn __clock_getres50(clk_id: c_int, tp: *c.timespec) c_int;
+    extern "c" fn __clock_gettime50(clk_id: c_int, tp: *c.timespec) c_int;
     extern "c" fn __fstat50(fd: c.fd_t, buf: *c.Stat) c_int;
+    extern "c" fn __getrusage50(who: c_int, usage: *c.rusage) c_int;
+    extern "c" fn __gettimeofday50(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
+    extern "c" fn __libc_thr_yield() c_int;
+    extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn __nanosleep50(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
+    extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;
+    extern "c" fn __sigfillset14(set: ?*c.sigset_t) void;
+    extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const c.sigset_t, noalias oset: ?*c.sigset_t) c_int;
+    extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+    extern "c" fn __stat50(path: [*:0]const u8, buf: *c.Stat) c_int;
 };
