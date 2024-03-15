@@ -9,7 +9,7 @@ const X = struct {
 };
 
 export fn entry() void {
-    var x = X.init();
+    const x = X.init();
     x.a();
 }
 

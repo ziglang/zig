@@ -5,7 +5,7 @@ fn foo() !void {
     return error.OutOfMemory;
 }
 export fn entry2() void {
-    var x: error{a} = undefined;
+    const x: error{a} = undefined;
     _ = x;
 }
 
