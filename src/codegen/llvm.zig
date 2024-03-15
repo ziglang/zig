@@ -10369,7 +10369,7 @@ pub const FuncGen = struct {
         }
 
         const result = try self.wip.callIntrinsic(
-            .fast,
+            .normal,
             .none,
             intrinsic,
             &.{},
@@ -10433,19 +10433,19 @@ pub const FuncGen = struct {
         const while_cond = try self.wip.icmp(.ne, new_mask, zero, "");
         _ = try self.wip.brCond(while_cond, loop_block, after_block);
 
-        try mask_phi.finish(
+        mask_phi.finish(
             &.{ start_mask, new_mask },
             &.{ prev_block, loop_block },
             &self.wip,
         );
 
-        try result_phi.finish(
+        result_phi.finish(
             &.{ zero, new_result },
             &.{ prev_block, loop_block },
             &self.wip,
         );
 
-        try bb_phi.finish(
+        bb_phi.finish(
             &.{ one, new_bb },
             &.{ prev_block, loop_block },
             &self.wip,
@@ -10453,7 +10453,7 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = after_block };
         const final_result = try self.wip.phi(ty, "");
-        try final_result.finish(
+        final_result.finish(
             &.{new_result},
             &.{loop_block},
             &self.wip,
@@ -10524,7 +10524,7 @@ pub const FuncGen = struct {
         }
 
         const result = try self.wip.callIntrinsic(
-            .fast,
+            .normal,
             .none,
             intrinsic,
             &.{},
@@ -10590,19 +10590,19 @@ pub const FuncGen = struct {
         const while_cond = try self.wip.icmp(.ne, new_mask, zero, "");
         _ = try self.wip.brCond(while_cond, loop_block, after_block);
 
-        try mask_phi.finish(
+        mask_phi.finish(
             &.{ start_mask, new_mask },
             &.{ prev_block, loop_block },
             &self.wip,
         );
 
-        try result_phi.finish(
+        result_phi.finish(
             &.{ start_result, new_result },
             &.{ prev_block, loop_block },
             &self.wip,
         );
 
-        try bb_phi.finish(
+        bb_phi.finish(
             &.{ start_bb, new_bb },
             &.{ prev_block, loop_block },
             &self.wip,
@@ -10610,7 +10610,7 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = after_block };
         const final_result = try self.wip.phi(ty, "");
-        try final_result.finish(
+        final_result.finish(
             &.{new_result},
             &.{loop_block},
             &self.wip,
