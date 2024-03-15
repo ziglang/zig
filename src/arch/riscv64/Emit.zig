@@ -177,6 +177,10 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .add => try emit.writeInstruction(Instruction.add(r_type.rd, r_type.rs1, r_type.rs2)),
         .sub => try emit.writeInstruction(Instruction.sub(r_type.rd, r_type.rs1, r_type.rs2)),
         .cmp_gt => try emit.writeInstruction(Instruction.slt(r_type.rd, r_type.rs1, r_type.rs2)),
+        .cmp_eq => {
+            try emit.writeInstruction(Instruction.xor(r_type.rd, r_type.rs1, r_type.rs2));
+            try emit.writeInstruction(Instruction.sltiu(r_type.rd, r_type.rd, 1));
+        },
         else => unreachable,
     }
 }
@@ -458,6 +462,8 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .psuedo_prologue => 16, // 4 * 4
 
         .abs => 12, // 3 * 4
+
+        .cmp_eq => 8,
 
         else => 4,
     };
