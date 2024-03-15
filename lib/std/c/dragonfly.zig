@@ -494,6 +494,12 @@ pub const sockaddr = extern struct {
         addr: [16]u8,
         scope_id: u32,
     };
+
+    pub const un = extern struct {
+        len: u8 = @sizeOf(un),
+        family: sa_family_t = AF.UNIX,
+        path: [104]u8,
+    };
 };
 
 pub const Kevent = extern struct {
