@@ -51,7 +51,7 @@ pub fn isPrimitive(name: []const u8) bool {
     return true;
 }
 
-test "isPrimitive" {
+test isPrimitive {
     const expect = std.testing.expect;
     try expect(!isPrimitive(""));
     try expect(!isPrimitive("_"));

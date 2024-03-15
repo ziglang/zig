@@ -676,7 +676,7 @@ fn stripComponents(path: []const u8, count: u32) []const u8 {
     return path[i..];
 }
 
-test "stripComponents" {
+test stripComponents {
     const expectEqualStrings = testing.expectEqualStrings;
     try expectEqualStrings("a/b/c", stripComponents("a/b/c", 0));
     try expectEqualStrings("b/c", stripComponents("a/b/c", 1));
@@ -685,7 +685,7 @@ test "stripComponents" {
     try expectEqualStrings("", stripComponents("a/b/c", 4));
 }
 
-test "PaxIterator" {
+test PaxIterator {
     const Attr = struct {
         kind: PaxAttributeKind,
         value: []const u8 = undefined,
