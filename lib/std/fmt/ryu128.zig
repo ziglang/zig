@@ -211,7 +211,7 @@ pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuEr
         index += 1;
     }
 
-    // 2345
+    // 1.12345
     writeDecimal(buf[index + 2 ..], &output, olength - 1);
     buf[index] = '0' + @as(u8, @intCast(output % 10));
     buf[index + 1] = '.';
