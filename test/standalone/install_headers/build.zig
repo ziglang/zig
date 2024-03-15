@@ -70,7 +70,7 @@ pub fn build(b: *std.Build) void {
     run_exe.expectStdOutEqual("ABD12X");
     test_step.dependOn(&run_exe.step);
 
-    const install_exe = b.addInstallArtifact(libfoo, .{
+    const install_libfoo = b.addInstallArtifact(libfoo, .{
         .dest_dir = .{ .override = .{ .custom = "custom" } },
         .h_dir = .{ .override = .{ .custom = "custom/include" } },
         .implib_dir = .disabled,
@@ -94,6 +94,6 @@ pub fn build(b: *std.Build) void {
     });
     run_check_exists.setCwd(.{ .cwd_relative = b.getInstallPath(.prefix, "") });
     run_check_exists.expectExitCode(0);
-    run_check_exists.step.dependOn(&install_exe.step);
+    run_check_exists.step.dependOn(&install_libfoo.step);
     test_step.dependOn(&run_check_exists.step);
 }
