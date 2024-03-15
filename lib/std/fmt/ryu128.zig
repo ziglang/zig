@@ -131,7 +131,7 @@ fn round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDecimal128 
 
     switch (mode) {
         .decimal => {
-            if (f.exponent >= 0) {
+            if (f.exponent > 0) {
                 round_digit = (olength - 1) + precision + @as(usize, @intCast(f.exponent));
             } else {
                 const min_exp_required = @as(usize, @intCast(-f.exponent));
