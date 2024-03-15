@@ -246,7 +246,7 @@ const emutls_control = extern struct {
         // Two threads could race against the same emutls_control.
 
         // Use atomic for reading coherent value lockless.
-        const index_lockless = @atomicLoad(usize, &self.object.index, .Acquire);
+        const index_lockless = @atomicLoad(usize, &self.object.index, .acquire);
 
         if (index_lockless != 0) {
             // index is already initialized, return it.
@@ -264,7 +264,7 @@ const emutls_control = extern struct {
         }
 
         // Store a new index atomically (for having coherent index_lockless reading).
-        @atomicStore(usize, &self.object.index, emutls_control.next_index, .Release);
+        @atomicStore(usize, &self.object.index, emutls_control.next_index, .release);
 
         // Increment the next available index
         emutls_control.next_index += 1;
