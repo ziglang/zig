@@ -37,6 +37,12 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
+/// pi/180.0
+pub const rad_per_deg = 0.0174532925199432957692369076848861271344287188854172545609719144;
+
+/// 180.0/pi
+pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
+
 pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
 pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
 pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;
@@ -293,32 +299,68 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
     return @tan(value);
 }
 
-/// Converts an angle in radians to degrees. T must be a float type.
-pub fn radiansToDegrees(comptime T: type, angle_in_radians: T) T {
-    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
-        @compileError("T must be a float type");
-    return angle_in_radians * 180.0 / pi;
+/// Converts an angle in radians to degrees. T must be a float or comptime number or a vector of floats.
+pub fn radiansToDegrees(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => return ang * deg_per_rad,
+        .Vector => |V| if (@typeInfo(V.child) == .Float) return ang * @as(T, @splat(deg_per_rad)),
+        else => {},
+    }
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
 test "radiansToDegrees" {
-    try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(f32, 0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(f32, pi / 2.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(f32, -pi / 4.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(f32, pi), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(f32, 2.0 * pi), 1e-6);
+    const zero: f32 = 0;
+    const half_pi: f32 = pi / 2.0;
+    const neg_quart_pi: f32 = -pi / 4.0;
+    const one_pi: f32 = pi;
+    const two_pi: f32 = 2.0 * pi;
+    try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(zero), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(half_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(neg_quart_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(one_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(two_pi), 1e-6);
+
+    const result = radiansToDegrees(@Vector(4, f32){
+        half_pi,
+        neg_quart_pi,
+        one_pi,
+        two_pi,
+    });
+    try std.testing.expectApproxEqAbs(@as(f32, 90), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), result[2], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), result[3], 1e-6);
 }
 
-/// Converts an angle in degrees to radians. T must be a float type.
-pub fn degreesToRadians(comptime T: type, angle_in_degrees: T) T {
-    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
-        @compileError("T must be a float type");
-    return angle_in_degrees * pi / 180.0;
+/// Converts an angle in degrees to radians. T must be a float or comptime number or a vector of floats.
+pub fn degreesToRadians(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => return ang * rad_per_deg,
+        .Vector => |V| if (@typeInfo(V.child) == .Float) return ang * @as(T, @splat(rad_per_deg)),
+        else => {},
+    }
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
 test "degreesToRadians" {
-    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(f32, 90), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(f32, -270), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(f32, 360), 1e-6);
+    const ninety: f32 = 90;
+    const neg_two_seventy: f32 = -270;
+    const three_sixty: f32 = 360;
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(ninety), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(neg_two_seventy), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(three_sixty), 1e-6);
+
+    const result = degreesToRadians(@Vector(3, f32){
+        ninety,
+        neg_two_seventy,
+        three_sixty,
+    });
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), result[2], 1e-6);
 }
 
 /// Base-e exponential function on a floating point number.
