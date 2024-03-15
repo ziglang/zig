@@ -45,3 +45,71 @@ pub fn ctr(comptime BlockCipher: anytype, block_cipher: BlockCipher, dst: []u8, 
         @memcpy(dst[i..][0..pad_slice.len], pad_slice);
     }
 }
+
+/// Cipher block chaining mode (decryption).
+///
+/// First decrypts with cipher, then XORs with previous block (or initialization vector).
+pub fn cbcDecrypt(BlockCipher: anytype, block_cipher: BlockCipher, dst: []u8, src: []const u8, iv: [BlockCipher.block_length]u8) void {
+    // TODO: Add support for parallel decryption
+    std.debug.assert(dst.len >= src.len);
+    const block_length = BlockCipher.block_length;
+    var i: usize = 0;
+    var previous_block: [block_length]u8 = iv;
+    while (i + block_length < src.len) : (i += block_length) {
+        var block: [block_length]u8 = undefined;
+        // xor block with last block or initialization vector
+        block_cipher.decrypt(&block, src[i..][0..block_length]);
+        for (block[0..], previous_block[0..]) |*byte, prev| {
+            byte.* ^= prev;
+        }
+        // update last block value
+        @memcpy(dst[i..][0..block_length], &block);
+        @memcpy(&previous_block, src[i..][0..block_length]);
+    }
+    // account for unaligned final block
+    if (i < src.len) {
+        var pad = [_]u8{0} ** block_length;
+        const src_slice = src[i..];
+        @memcpy(pad[0..src_slice.len], src_slice);
+        block_cipher.decrypt(&pad, &pad);
+        for (pad[0..], previous_block[0..]) |*byte, prev| {
+            byte.* ^= prev;
+        }
+        const pad_slice = pad[0 .. src.len - i];
+        @memcpy(dst[i..][0..pad_slice.len], pad_slice);
+    }
+}
+
+/// Cipher block chaining mode (encryption).
+///
+/// First XORs each block with the previous block (or initialization vector) and then
+/// encrypts the block with cipher.
+pub fn cbcEncrypt(BlockCipher: anytype, block_cipher: BlockCipher, dst: []u8, src: []const u8, iv: [BlockCipher.block_length]u8) void {
+    std.debug.assert(dst.len >= src.len);
+    const block_length = BlockCipher.block_length;
+    var i: usize = 0;
+    var previous_block: [block_length]u8 = iv;
+    while (i + block_length < src.len) : (i += block_length) {
+        var block: [block_length]u8 = undefined;
+        // xor block with last block or initialization vector
+        for (block[0..], src[i..][0..block_length], previous_block[0..]) |*byte, cur, prev| {
+            byte.* = cur ^ prev;
+        }
+        block_cipher.encrypt(&block, &block);
+        // update last block value
+        @memcpy(dst[i..][0..block_length], block[0..block_length]);
+        @memcpy(&previous_block, &block);
+    }
+    // account for unaligned final block
+    if (i < src.len) {
+        var pad = [_]u8{0} ** block_length;
+        const src_slice = src[i..];
+        @memcpy(pad[0..src_slice.len], src_slice);
+        for (pad[0..], previous_block[0..]) |*byte, prev| {
+            byte.* ^= prev;
+        }
+        block_cipher.encrypt(&pad, &pad);
+        const pad_slice = pad[0 .. src.len - i];
+        @memcpy(dst[i..][0..pad_slice.len], pad_slice);
+    }
+}
