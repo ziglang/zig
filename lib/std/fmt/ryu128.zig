@@ -2,6 +2,7 @@
 //! https://dl.acm.org/doi/pdf/10.1145/3360595
 
 const std = @import("std");
+const expectFmt = std.testing.expectFmt;
 
 const special_exponent = 0x7fffffff;
 
@@ -131,7 +132,7 @@ fn round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDecimal128 
 
     switch (mode) {
         .decimal => {
-            if (f.exponent >= 0) {
+            if (f.exponent > 0) {
                 round_digit = (olength - 1) + precision + @as(usize, @intCast(f.exponent));
             } else {
                 const min_exp_required = @as(usize, @intCast(-f.exponent));
@@ -1128,4 +1129,11 @@ test "format f128" {
     try check(f128, 4.708356024711512e18, "4.708356024711512e18");
     try check(f128, 9.409340012568248e18, "9.409340012568248e18");
     try check(f128, 1.2345678, "1.2345678e0");
+}
+
+test "format float to decimal with zero precision" {
+    try expectFmt("5", "{d:.0}", .{5});
+    try expectFmt("6", "{d:.0}", .{6});
+    try expectFmt("7", "{d:.0}", .{7});
+    try expectFmt("8", "{d:.0}", .{8});
 }
