@@ -1204,13 +1204,6 @@ fn checkUnpackErrors(f: *Fetch, unpack: *Unpack) RunError!void {
                     }),
                 }));
             },
-            .unsupported_file_type => |info| {
-                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                    .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
-                        info.file_name, info.file_type,
-                    }),
-                }));
-            },
         }
     }
 

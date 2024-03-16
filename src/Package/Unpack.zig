@@ -18,10 +18,6 @@ pub const Error = union(enum) {
         code: anyerror,
         file_name: []const u8,
     },
-    unsupported_file_type: struct {
-        file_name: []const u8,
-        file_type: u8,
-    },
 };
 
 pub fn init(allocator: std.mem.Allocator, root: fs.Dir) Self {
@@ -39,9 +35,6 @@ pub fn deinit(self: *Self) void {
                 self.allocator.free(info.sym_link_path);
             },
             .unable_to_create_file => |info| {
-                self.allocator.free(info.file_name);
-            },
-            .unsupported_file_type => |info| {
                 self.allocator.free(info.file_name);
             },
         }
