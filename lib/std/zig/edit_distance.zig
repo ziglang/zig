@@ -18,7 +18,7 @@ pub fn levenshtein(cache: []usize, a: []const u8, b: []const u8) usize {
     }
 
     for (cache, 1..) |*cache_value, i| {
-        cache_value.* = @intCast(i);
+        cache_value.* = i;
     }
 
     var result: usize = 0;
