@@ -798,10 +798,10 @@ pub const winsize = extern struct {
 const NSIG = 75;
 
 pub const SIG = struct {
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
-    pub const HOLD = @as(?Sigaction.handler_fn, @ptrFromInt(2));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+    pub const HOLD: ?Sigaction.handler_fn = @ptrFromInt(2);
 
     pub const WORDS = 4;
     pub const MAXSIG = 75;
@@ -874,7 +874,7 @@ pub const SIG = struct {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (c_int) callconv(.C) void;
     pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     /// signal options

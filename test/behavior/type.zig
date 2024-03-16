@@ -527,7 +527,6 @@ test "Type.Fn" {
     {
         const fn_info = std.builtin.Type{ .Fn = .{
             .calling_convention = .C,
-            .alignment = 0,
             .is_generic = false,
             .is_var_args = false,
             .return_type = void,
@@ -643,7 +642,6 @@ test "reified function type params initialized with field pointer" {
         const Bar = @Type(.{
             .Fn = .{
                 .calling_convention = .Unspecified,
-                .alignment = 0,
                 .is_generic = false,
                 .is_var_args = false,
                 .return_type = void,

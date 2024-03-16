@@ -441,9 +441,9 @@ pub const SA = struct {
 };
 
 pub const SIG = struct {
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 
     pub const HUP = 1;
     pub const INT = 2;
@@ -690,7 +690,7 @@ const NSIG = 32;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (i32) align(1) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
 
     /// signal handler
     __sigaction_u: extern union {

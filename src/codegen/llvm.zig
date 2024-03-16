@@ -2949,8 +2949,8 @@ pub const Object = struct {
             else => function_index.setCallConv(toLlvmCallConv(fn_info.cc, target), &o.builder),
         }
 
-        if (fn_info.alignment != .none)
-            function_index.setAlignment(fn_info.alignment.toLlvm(), &o.builder);
+        if (decl.alignment != .none)
+            function_index.setAlignment(decl.alignment.toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
         try o.addCommonFnAttributes(&attributes, owner_mod);
