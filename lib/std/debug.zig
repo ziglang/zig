@@ -2838,6 +2838,29 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
     };
 }
 
+pub const SafetyLock = struct {
+    state: State = .unlocked,
+
+    pub const State = if (runtime_safety) enum { unlocked, locked } else enum { unlocked };
+
+    pub fn lock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+        l.state = .locked;
+    }
+
+    pub fn unlock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .locked);
+        l.state = .unlocked;
+    }
+
+    pub fn assertUnlocked(l: SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+    }
+};
+
 test {
     _ = &dump_hex;
 }
