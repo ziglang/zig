@@ -9195,7 +9195,7 @@ fn zirFunc(
             const ret_ty_body = sema.code.bodySlice(extra_index, extra.data.ret_body_len);
             extra_index += ret_ty_body.len;
 
-            const ret_ty_val = try sema.resolveGenericBody(block, ret_ty_src, ret_ty_body, inst, Type.type, .{
+            const ret_ty_val = try sema.resolveGenericBody(block, ret_ty_src, ret_ty_body, inst, Type.type, false, .{
                 .needed_comptime_reason = "return type must be comptime-known",
             });
             break :blk ret_ty_val.toType();
@@ -9244,6 +9244,7 @@ fn resolveGenericBody(
     body: []const Zir.Inst.Index,
     func_inst: Zir.Inst.Index,
     dest_ty: Type,
+    no_partial_func_ty: bool,
     reason: NeededComptimeReason,
 ) !Value {
     assert(body.len != 0);
@@ -9256,7 +9257,7 @@ fn resolveGenericBody(
         const prev_generic_call_src = sema.generic_call_src;
         const prev_generic_call_decl = sema.generic_call_decl;
         block.params = .{};
-        sema.no_partial_func_ty = true;
+        sema.no_partial_func_ty = no_partial_func_ty;
         sema.generic_owner = .none;
         sema.generic_call_src = .unneeded;
         sema.generic_call_decl = .none;
@@ -9523,73 +9524,80 @@ fn funcCommon(
 
     const param_types = block.params.items(.ty);
 
-    if (!is_source_decl) {
-        assert(has_body);
-        assert(!is_generic);
-        assert(comptime_bits == 0);
-        assert(cc != null);
-        assert(section != .generic);
-        assert(address_space != null);
-        assert(!var_args);
-        if (inferred_error_set) {
-            try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
+    const func_index, const func_ty = func: {
+        if (!is_source_decl) {
+            assert(has_body);
+            assert(!is_generic);
+            assert(comptime_bits == 0);
+            assert(cc != null);
+            assert(section != .generic);
+            assert(address_space != null);
+            assert(!var_args);
+            if (inferred_error_set) {
+                try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
+            }
+            const func_index = try ip.getFuncInstance(gpa, .{
+                .param_types = param_types,
+                .noalias_bits = noalias_bits,
+                .bare_return_type = bare_return_type.toIntern(),
+                .cc = cc_resolved,
+                .alignment = alignment.?,
+                .section = switch (section) {
+                    .generic => unreachable,
+                    .default => .none,
+                    .explicit => |x| x.toOptional(),
+                },
+                .is_noinline = is_noinline,
+                .inferred_error_set = inferred_error_set,
+                .generic_owner = sema.generic_owner,
+                .comptime_args = sema.comptime_args,
+            });
+            break :func .{ func_index, .none };
         }
-        const func_index = try ip.getFuncInstance(gpa, .{
-            .param_types = param_types,
-            .noalias_bits = noalias_bits,
-            .bare_return_type = bare_return_type.toIntern(),
-            .cc = cc_resolved,
-            .alignment = alignment.?,
-            .section = switch (section) {
-                .generic => unreachable,
-                .default => .none,
-                .explicit => |x| x.toOptional(),
-            },
-            .is_noinline = is_noinline,
-            .inferred_error_set = inferred_error_set,
-            .generic_owner = sema.generic_owner,
-            .comptime_args = sema.comptime_args,
-        });
-        return finishFunc(
-            sema,
-            block,
-            func_index,
-            .none,
-            ret_poison,
-            bare_return_type,
-            ret_ty_src,
-            cc_resolved,
-            is_source_decl,
-            ret_ty_requires_comptime,
-            func_inst,
-            cc_src,
-            is_noinline,
-            is_generic,
-            final_is_generic,
-        );
-    }
 
-    // extern_func and func_decl functions take ownership of `sema.owner_decl`.
-    sema.owner_decl.@"linksection" = switch (section) {
-        .generic => .none,
-        .default => .none,
-        .explicit => |section_name| section_name.toOptional(),
-    };
-    sema.owner_decl.alignment = alignment orelse .none;
-    sema.owner_decl.@"addrspace" = address_space orelse .generic;
+        // extern_func and func_decl functions take ownership of `sema.owner_decl`.
+        sema.owner_decl.@"linksection" = switch (section) {
+            .generic => .none,
+            .default => .none,
+            .explicit => |section_name| section_name.toOptional(),
+        };
+        sema.owner_decl.alignment = alignment orelse .none;
+        sema.owner_decl.@"addrspace" = address_space orelse .generic;
 
-    if (inferred_error_set) {
-        assert(!is_extern);
-        assert(has_body);
-        if (!ret_poison)
-            try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
-        const func_index = try ip.getFuncDeclIes(gpa, .{
-            .owner_decl = sema.owner_decl_index,
+        if (inferred_error_set) {
+            assert(!is_extern);
+            assert(has_body);
+            if (!ret_poison)
+                try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
+            const func_index = try ip.getFuncDeclIes(gpa, .{
+                .owner_decl = sema.owner_decl_index,
 
+                .param_types = param_types,
+                .noalias_bits = noalias_bits,
+                .comptime_bits = comptime_bits,
+                .bare_return_type = bare_return_type.toIntern(),
+                .cc = cc,
+                .alignment = alignment,
+                .section_is_generic = section == .generic,
+                .addrspace_is_generic = address_space == null,
+                .is_var_args = var_args,
+                .is_generic = final_is_generic,
+                .is_noinline = is_noinline,
+
+                .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
+                .lbrace_line = src_locs.lbrace_line,
+                .rbrace_line = src_locs.rbrace_line,
+                .lbrace_column = @as(u16, @truncate(src_locs.columns)),
+                .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
+            });
+            break :func .{ func_index, .none };
+        }
+
+        const func_ty = try ip.getFuncType(gpa, .{
             .param_types = param_types,
             .noalias_bits = noalias_bits,
             .comptime_bits = comptime_bits,
-            .bare_return_type = bare_return_type.toIntern(),
+            .return_type = bare_return_type.toIntern(),
             .cc = cc,
             .alignment = alignment,
             .section_is_generic = section == .generic,
@@ -9597,114 +9605,47 @@ fn funcCommon(
             .is_var_args = var_args,
             .is_generic = final_is_generic,
             .is_noinline = is_noinline,
-
-            .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
-            .lbrace_line = src_locs.lbrace_line,
-            .rbrace_line = src_locs.rbrace_line,
-            .lbrace_column = @as(u16, @truncate(src_locs.columns)),
-            .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
         });
-        return finishFunc(
-            sema,
-            block,
-            func_index,
-            .none,
-            ret_poison,
-            bare_return_type,
-            ret_ty_src,
-            cc_resolved,
-            is_source_decl,
-            ret_ty_requires_comptime,
-            func_inst,
-            cc_src,
-            is_noinline,
-            is_generic,
-            final_is_generic,
-        );
-    }
 
-    const func_ty = try ip.getFuncType(gpa, .{
-        .param_types = param_types,
-        .noalias_bits = noalias_bits,
-        .comptime_bits = comptime_bits,
-        .return_type = bare_return_type.toIntern(),
-        .cc = cc,
-        .alignment = alignment,
-        .section_is_generic = section == .generic,
-        .addrspace_is_generic = address_space == null,
-        .is_var_args = var_args,
-        .is_generic = final_is_generic,
-        .is_noinline = is_noinline,
-    });
+        if (is_extern) {
+            assert(comptime_bits == 0);
+            assert(cc != null);
+            assert(section != .generic);
+            assert(address_space != null);
+            assert(!is_generic);
+            if (opt_lib_name) |lib_name| try sema.handleExternLibName(block, .{
+                .node_offset_lib_name = src_node_offset,
+            }, lib_name);
+            const func_index = try ip.getExternFunc(gpa, .{
+                .ty = func_ty,
+                .decl = sema.owner_decl_index,
+                .lib_name = try mod.intern_pool.getOrPutStringOpt(gpa, opt_lib_name),
+            });
+            break :func .{ func_index, func_ty };
+        }
 
-    if (is_extern) {
-        assert(comptime_bits == 0);
-        assert(cc != null);
-        assert(section != .generic);
-        assert(address_space != null);
-        assert(!is_generic);
-        if (opt_lib_name) |lib_name| try sema.handleExternLibName(block, .{
-            .node_offset_lib_name = src_node_offset,
-        }, lib_name);
-        const func_index = try ip.getExternFunc(gpa, .{
-            .ty = func_ty,
-            .decl = sema.owner_decl_index,
-            .lib_name = try mod.intern_pool.getOrPutStringOpt(gpa, opt_lib_name),
-        });
-        return finishFunc(
-            sema,
-            block,
-            func_index,
-            func_ty,
-            ret_poison,
-            bare_return_type,
-            ret_ty_src,
-            cc_resolved,
-            is_source_decl,
-            ret_ty_requires_comptime,
-            func_inst,
-            cc_src,
-            is_noinline,
-            is_generic,
-            final_is_generic,
-        );
-    }
+        if (has_body) {
+            const func_index = try ip.getFuncDecl(gpa, .{
+                .owner_decl = sema.owner_decl_index,
+                .ty = func_ty,
+                .cc = cc,
+                .is_noinline = is_noinline,
+                .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
+                .lbrace_line = src_locs.lbrace_line,
+                .rbrace_line = src_locs.rbrace_line,
+                .lbrace_column = @as(u16, @truncate(src_locs.columns)),
+                .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
+            });
+            break :func .{ func_index, func_ty };
+        }
 
-    if (has_body) {
-        const func_index = try ip.getFuncDecl(gpa, .{
-            .owner_decl = sema.owner_decl_index,
-            .ty = func_ty,
-            .cc = cc,
-            .is_noinline = is_noinline,
-            .zir_body_inst = try ip.trackZir(gpa, block.getFileScope(mod), func_inst),
-            .lbrace_line = src_locs.lbrace_line,
-            .rbrace_line = src_locs.rbrace_line,
-            .lbrace_column = @as(u16, @truncate(src_locs.columns)),
-            .rbrace_column = @as(u16, @truncate(src_locs.columns >> 16)),
-        });
-        return finishFunc(
-            sema,
-            block,
-            func_index,
-            func_ty,
-            ret_poison,
-            bare_return_type,
-            ret_ty_src,
-            cc_resolved,
-            is_source_decl,
-            ret_ty_requires_comptime,
-            func_inst,
-            cc_src,
-            is_noinline,
-            is_generic,
-            final_is_generic,
-        );
-    }
+        break :func .{ .none, func_ty };
+    };
 
     return finishFunc(
         sema,
         block,
-        .none,
+        func_index,
         func_ty,
         ret_poison,
         bare_return_type,
@@ -25533,7 +25474,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
-        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u29, .{
+        const val = try sema.resolveGenericBody(block, align_src, body, inst, Type.u29, true, .{
             .needed_comptime_reason = "alignment must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25571,7 +25512,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += body.len;
 
         const addrspace_ty = Type.fromInterned(.address_space_type);
-        const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, .{
+        const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, true, .{
             .needed_comptime_reason = "addrspace must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25606,7 +25547,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += body.len;
 
         const ty = Type.slice_const_u8;
-        const val = try sema.resolveGenericBody(block, section_src, body, inst, ty, .{
+        const val = try sema.resolveGenericBody(block, section_src, body, inst, ty, true, .{
             .needed_comptime_reason = "linksection must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25634,7 +25575,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         extra_index += body.len;
 
         const cc_ty = try sema.getBuiltinType("CallingConvention");
-        const val = try sema.resolveGenericBody(block, cc_src, body, inst, cc_ty, .{
+        const val = try sema.resolveGenericBody(block, cc_src, body, inst, cc_ty, true, .{
             .needed_comptime_reason = "calling convention must be comptime-known",
         });
         if (val.isGenericPoison()) {
@@ -25671,7 +25612,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
-        const val = try sema.resolveGenericBody(block, ret_src, body, inst, Type.type, .{
+        const val = try sema.resolveGenericBody(block, ret_src, body, inst, Type.type, false, .{
             .needed_comptime_reason = "return type must be comptime-known",
         });
         const ty = val.toType();
