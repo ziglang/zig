@@ -2,6 +2,7 @@
 //! https://dl.acm.org/doi/pdf/10.1145/3360595
 
 const std = @import("std");
+const expectFmt = std.testing.expectFmt;
 
 const special_exponent = 0x7fffffff;
 
@@ -1130,15 +1131,9 @@ test "format f128" {
     try check(f128, 1.2345678, "1.2345678e0");
 }
 
-fn checkFormatDecimalWithZeroPrecision(comptime T: type, value: T, comptime expected: []const u8) !void {
-    var buf: [6000]u8 = undefined;
-    const s = try format(&buf, value, .{ .mode = .decimal, .precision = 0 });
-    try std.testing.expectEqualStrings(expected, s);
-}
-
-test "format f128 decimal zero precision" {
-    try checkFormatDecimalWithZeroPrecision(f32, 5, "5");
-    try checkFormatDecimalWithZeroPrecision(f64, 6, "6");
-    try checkFormatDecimalWithZeroPrecision(f80, 7, "7");
-    try checkFormatDecimalWithZeroPrecision(f128, 8, "8");
+test "format float to decimal with zero precision" {
+    try expectFmt("5", "{d:.0}", .{5});
+    try expectFmt("6", "{d:.0}", .{6});
+    try expectFmt("7", "{d:.0}", .{7});
+    try expectFmt("8", "{d:.0}", .{8});
 }
