@@ -416,6 +416,23 @@ pub fn HashMap(
             };
         }
 
+        /// Puts the hash map into a state where any method call that would
+        /// cause an existing key or value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// An additional call to `lockMutation` in such state also triggers an
+        /// assertion.
+        ///
+        /// `unlockMutation` returns the hash map to the previous state.
+        pub fn lockMutation(self: *Self) void {
+            self.unmanaged.lockMutation();
+        }
+
+        /// Undoes a call to `lockMutation`.
+        pub fn unlockMutation(self: *Self) void {
+            self.unmanaged.unlockMutation();
+        }
+
         /// Release the backing array and invalidate this map.
         /// This does *not* deinit keys, values, or the context!
         /// If your keys or values need to be released, ensure
@@ -672,6 +689,7 @@ pub fn HashMap(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
+            self.unmanaged.mutation_lock.assertUnlocked();
             const result = self.*;
             self.unmanaged = .{};
             return result;
@@ -887,10 +905,19 @@ pub fn HashMapUnmanaged(
             };
         }
 
+        /// Puts the hash map into a state where any method call that would
+        /// cause an existing key or value pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// An additional call to `lockMutation` in such state also triggers an
+        /// assertion.
+        ///
+        /// `unlockMutation` returns the hash map to the previous state.
         pub fn lockMutation(self: *Self) void {
             self.mutation_lock.lock();
         }
 
+        /// Undoes a call to `lockMutation`.
         pub fn unlockMutation(self: *Self) void {
             self.mutation_lock.unlock();
         }
