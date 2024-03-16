@@ -1093,12 +1093,7 @@ fn unpackResource(
 
         .git => .git_pack,
 
-        .dir => |dir| return f.recursiveDirectoryCopy(dir, tmp_directory.handle) catch |err| {
-            return f.fail(f.location_tok, try eb.printString(
-                "unable to copy directory '{s}': {s}",
-                .{ uri_path, @errorName(err) },
-            ));
-        },
+        .dir => |dir| return try f.recursiveDirectoryCopy(dir, tmp_directory.handle, uri_path),
     };
 
     switch (file_type) {
@@ -1132,64 +1127,94 @@ fn unpackResource(
             });
             return unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
-            error.FetchFailed => return error.FetchFailed,
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| return f.fail(f.location_tok, try eb.printString(
-                "unable to unpack git files: {s}",
-                .{@errorName(e)},
-            )),
-        },
+        .git_pack => try unpackGitPack(f, tmp_directory.handle, resource),
     }
 }
 
 const Unpack = @import("Unpack.zig");
 
 fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
-    const eb = &f.error_bundle;
-    const gpa = f.arena.child_allocator;
-
-    var unpack = Unpack{ .allocator = gpa, .root = out_dir };
+    var unpack = Unpack.init(f.arena.child_allocator, out_dir);
     defer unpack.deinit();
-    unpack.tarball(reader) catch |err| return f.fail(
-        f.location_tok,
-        try eb.printString(
-            "unable to unpack tarball to temporary directory: {s}",
-            .{@errorName(err)},
-        ),
+    unpack.tarball(reader) catch |err| return f.failMsg(
+        err,
+        "unable to unpack tarball to temporary directory: {s}",
+        .{@errorName(err)},
     );
-    if (unpack.hasErrors()) {
-        try unpack.bundleErrors(eb, try f.srcLoc(f.location_tok));
-        return error.FetchFailed;
-    }
+    try f.checkUnpackErrors(&unpack);
 }
 
-fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void {
-    const eb = &f.error_bundle;
-    const gpa = f.arena.child_allocator;
+fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) RunError!void {
+    var unpack = Unpack.init(f.arena.child_allocator, out_dir);
+    defer unpack.deinit();
+
     const want_oid = resource.git.want_oid;
     const reader = resource.git.fetch_stream.reader();
+    unpack.gitPack(want_oid, reader) catch |err| return f.failMsg(
+        err,
+        "unable to unpack git files: {s}",
+        .{@errorName(err)},
+    );
+    try f.checkUnpackErrors(&unpack);
+}
 
-    var unpack = Unpack{ .allocator = gpa, .root = out_dir };
+fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, out_dir: fs.Dir, uri_path: []const u8) RunError!void {
+    var unpack = Unpack.init(f.arena.child_allocator, out_dir);
     defer unpack.deinit();
-    try unpack.gitPack(want_oid, reader);
-    if (unpack.hasErrors()) {
-        try unpack.bundleErrors(eb, try f.srcLoc(f.location_tok));
-        return error.FetchFailed;
+    unpack.directory(dir) catch |err| return f.failMsg(
+        err,
+        "unable to copy directory '{s}': {s}",
+        .{ uri_path, @errorName(err) },
+    );
+    try f.checkUnpackErrors(&unpack);
+}
+
+fn failMsg(f: *Fetch, err: anyerror, comptime fmt: []const u8, args: anytype) RunError {
+    const eb = &f.error_bundle;
+    switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return f.fail(f.location_tok, try eb.printString(fmt, args)),
     }
 }
 
-fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
-    const eb = &f.error_bundle;
-    const gpa = f.arena.child_allocator;
+fn checkUnpackErrors(f: *Fetch, unpack: *Unpack) RunError!void {
+    if (!unpack.hasErrors()) return;
 
-    var unpack = Unpack{ .allocator = gpa, .root = tmp_dir };
-    defer unpack.deinit();
-    try unpack.directory(dir);
-    if (unpack.hasErrors()) {
-        try unpack.bundleErrors(eb, try f.srcLoc(f.location_tok));
-        return error.FetchFailed;
+    const eb = &f.error_bundle;
+    const notes_len: u32 = @intCast(unpack.errors.items.len);
+    try eb.addRootErrorMessage(.{
+        .msg = try eb.addString("unable to unpack"),
+        .src_loc = try f.srcLoc(f.location_tok),
+        .notes_len = notes_len,
+    });
+    const notes_start = try eb.reserveNotes(notes_len);
+    for (unpack.errors.items, notes_start..) |item, note_i| {
+        switch (item) {
+            .unable_to_create_sym_link => |info| {
+                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                    .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
+                        info.sym_link_path, info.target_path, @errorName(info.code),
+                    }),
+                }));
+            },
+            .unable_to_create_file => |info| {
+                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                    .msg = try eb.printString("unable to create file '{s}': {s}", .{
+                        info.file_name, @errorName(info.code),
+                    }),
+                }));
+            },
+            .unsupported_file_type => |info| {
+                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                    .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
+                        info.file_name, info.file_type,
+                    }),
+                }));
+            },
+        }
     }
+
+    return error.FetchFailed;
 }
 
 pub fn renameTmpIntoCache(

@@ -24,6 +24,13 @@ pub const Error = union(enum) {
     },
 };
 
+pub fn init(allocator: std.mem.Allocator, root: fs.Dir) Self {
+    return .{
+        .allocator = allocator,
+        .root = root,
+    };
+}
+
 pub fn deinit(self: *Self) void {
     for (self.errors.items) |item| {
         switch (item) {
@@ -81,6 +88,21 @@ pub fn tarball(self: *Self, reader: anytype) !void {
 }
 
 pub fn gitPack(self: *Self, commit_oid: git.Oid, reader: anytype) !void {
+    // Same interface as std.fs.Dir.createFile, symLink
+    const inf = struct {
+        parent: *Self,
+
+        pub fn makePath(_: @This(), _: []const u8) !void {}
+
+        pub fn createFile(t: @This(), sub_path: []const u8, _: fs.File.CreateFlags) !fs.File {
+            return (try t.parent.createFile(sub_path)) orelse error.Skip;
+        }
+
+        pub fn symLink(t: @This(), target_path: []const u8, sym_link_path: []const u8, _: fs.Dir.SymLinkFlags) !void {
+            try t.parent.symLink(target_path, sym_link_path);
+        }
+    }{ .parent = self };
+
     var pack_dir = try self.root.makeOpenPath(".git", .{});
     defer pack_dir.close();
     var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
@@ -101,7 +123,7 @@ pub fn gitPack(self: *Self, commit_oid: git.Oid, reader: anytype) !void {
     {
         var repository = try git.Repository.init(self.allocator, pack_file, index_file);
         defer repository.deinit();
-        try repository.checkout2(self, commit_oid);
+        try repository.checkout2(inf, commit_oid);
     }
 
     try self.root.deleteTree(".git");
@@ -130,41 +152,6 @@ pub fn hasErrors(self: *Self) bool {
     return self.errors.items.len > 0;
 }
 
-pub fn bundleErrors(self: *Self, eb: *ErrorBundle.Wip, src_loc: ErrorBundle.SourceLocationIndex) !void {
-    const notes_len: u32 = @intCast(self.errors.items.len);
-    try eb.addRootErrorMessage(.{
-        .msg = try eb.addString("unable to unpack"),
-        .src_loc = src_loc,
-        .notes_len = notes_len,
-    });
-    const notes_start = try eb.reserveNotes(notes_len);
-    for (self.errors.items, notes_start..) |item, note_i| {
-        switch (item) {
-            .unable_to_create_sym_link => |info| {
-                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                    .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                        info.sym_link_path, info.target_path, @errorName(info.code),
-                    }),
-                }));
-            },
-            .unable_to_create_file => |info| {
-                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                    .msg = try eb.printString("unable to create file '{s}': {s}", .{
-                        info.file_name, @errorName(info.code),
-                    }),
-                }));
-            },
-            .unsupported_file_type => |info| {
-                eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                    .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
-                        info.file_name, info.file_type,
-                    }),
-                }));
-            },
-        }
-    }
-}
-
 fn copyFile(source_dir: fs.Dir, source_path: []const u8, dest_dir: fs.Dir, dest_path: []const u8) !void {
     source_dir.copyFile(source_path, dest_dir, dest_path, .{}) catch |err| switch (err) {
         error.FileNotFound => {
@@ -177,7 +164,7 @@ fn copyFile(source_dir: fs.Dir, source_path: []const u8, dest_dir: fs.Dir, dest_
 
 /// Returns fs.File on success, null on failure.
 /// Errors are collected in errors list.
-pub fn createFile(self: *Self, sub_path: []const u8) !?fs.File {
+fn createFile(self: *Self, sub_path: []const u8) !?fs.File {
     return createFilePath(self.root, sub_path) catch |err| {
         try self.errors.append(self.allocator, .{ .unable_to_create_file = .{
             .code = err,
@@ -187,7 +174,7 @@ pub fn createFile(self: *Self, sub_path: []const u8) !?fs.File {
     };
 }
 
-pub fn symLink(self: *Self, target_path: []const u8, sym_link_path: []const u8) !void {
+fn symLink(self: *Self, target_path: []const u8, sym_link_path: []const u8) !void {
     symLinkPath(self.root, target_path, sym_link_path) catch |err| {
         try self.errors.append(self.allocator, .{ .unable_to_create_sym_link = .{
             .code = err,
