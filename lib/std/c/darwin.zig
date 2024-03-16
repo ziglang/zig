@@ -924,9 +924,6 @@ pub extern "c" fn os_unfair_lock_trylock(o: os_unfair_lock_t) bool;
 pub extern "c" fn os_unfair_lock_assert_owner(o: os_unfair_lock_t) void;
 pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
-// XXX: close -> close$NOCANCEL
-// XXX: getdirentries -> _getdirentries64
-
 // See: https://opensource.apple.com/source/xnu/xnu-6153.141.1/bsd/sys/_types.h.auto.html
 // TODO: audit mode_t/pid_t, should likely be u16/i32
 pub const blkcnt_t = i64;

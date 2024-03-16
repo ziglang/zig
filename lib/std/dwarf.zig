@@ -2437,7 +2437,7 @@ pub const EntryHeader = struct {
 
     /// The length of the entry including the ID field, but not the length field itself
     pub fn entryLength(self: EntryHeader) usize {
-        return self.entry_bytes.len + @as(u8, if (self.is_64) 8 else 4);
+        return self.entry_bytes.len + @as(u8, if (self.format == .@"64") 8 else 4);
     }
 
     /// Reads a header for either an FDE or a CIE, then advances the fbr to the position after the trailing structure.
@@ -2735,7 +2735,7 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
 
 // Reading debug info needs to be fast, even when compiled in debug mode,
 // so avoid using a `std.io.FixedBufferStream` which is too slow.
-const FixedBufferReader = struct {
+pub const FixedBufferReader = struct {
     buf: []const u8,
     pos: usize = 0,
     endian: std.builtin.Endian,

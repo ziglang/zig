@@ -3129,19 +3129,36 @@ fn buildOutputType(
 
         // "-" is stdin. Dump it to a real file.
         const sep = fs.path.sep_str;
-        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+        const dump_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-dump-stdin{s}", .{
             std.crypto.random.int(u64), ext.canonicalName(target),
         });
         try local_cache_directory.handle.makePath("tmp");
-        // Note that in one of the happy paths, execve() is used to switch
-        // to clang in which case any cleanup logic that exists for this
-        // temporary file will not run and this temp file will be leaked.
-        // Oh well. It's a minor punishment for using `-x c` which nobody
-        // should be doing. Therefore, we make no effort to clean up. Using
-        // `-` for stdin as a source file always leaks a temp file.
-        var f = try local_cache_directory.handle.createFile(sub_path, .{});
+
+        // Note that in one of the happy paths, execve() is used to switch to
+        // clang in which case any cleanup logic that exists for this temporary
+        // file will not run and this temp file will be leaked. The filename
+        // will be a hash of its contents — so multiple invocations of
+        // `zig cc -` will result in the same temp file name.
+        var f = try local_cache_directory.handle.createFile(dump_path, .{});
         defer f.close();
-        try f.writeFileAll(io.getStdIn(), .{});
+
+        // Re-using the hasher from Cache, since the functional requirements
+        // for the hashing algorithm here and in the cache are the same.
+        // We are providing our own cache key, because this file has nothing
+        // to do with the cache manifest.
+        var hasher = Cache.Hasher.init("0123456789abcdef");
+        var w = io.multiWriter(.{ f.writer(), hasher.writer() });
+        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+        try fifo.pump(io.getStdIn().reader(), w.writer());
+
+        var bin_digest: Cache.BinDigest = undefined;
+        hasher.final(&bin_digest);
+
+        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{s}-stdin{s}", .{
+            std.fmt.fmtSliceHexLower(&bin_digest),
+            ext.canonicalName(target),
+        });
+        try local_cache_directory.handle.rename(dump_path, sub_path);
 
         // Convert `sub_path` to be relative to current working directory.
         src.src_path = try local_cache_directory.join(arena, &.{sub_path});

@@ -49,7 +49,7 @@ pub const Iterator = switch (builtin.os.tag) {
                         posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
                         self.first_iter = false;
                     }
-                    const rc = posix.system.__getdirentries64(
+                    const rc = posix.system.getdirentries(
                         self.dir.fd,
                         &self.buf,
                         self.buf.len,
@@ -161,10 +161,7 @@ pub const Iterator = switch (builtin.os.tag) {
                         posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
                         self.first_iter = false;
                     }
-                    const rc = if (builtin.os.tag == .netbsd)
-                        posix.system.__getdents30(self.dir.fd, &self.buf, self.buf.len)
-                    else
-                        posix.system.getdents(self.dir.fd, &self.buf, self.buf.len);
+                    const rc = posix.system.getdents(self.dir.fd, &self.buf, self.buf.len);
                     switch (posix.errno(rc)) {
                         .SUCCESS => {},
                         .BADF => unreachable, // Dir is invalid or was opened without iteration ability

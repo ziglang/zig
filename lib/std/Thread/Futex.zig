@@ -801,7 +801,7 @@ const PosixImpl = struct {
             assert(std.c.pthread_mutex_lock(&bucket.mutex) == .SUCCESS);
             defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
-            cancelled = ptr.load(.Monotonic) != expect;
+            cancelled = ptr.load(.monotonic) != expect;
             if (cancelled) {
                 return;
             }
@@ -855,14 +855,14 @@ const PosixImpl = struct {
         // The pending count increment in wait() must also now use seq_cst for the update + this pending load
         // to be in the same modification order as our load isn't using release/acquire to guarantee it.
         bucket.pending.fence(.seq_cst);
-        if (bucket.pending.load(.Monotonic) == 0) {
+        if (bucket.pending.load(.monotonic) == 0) {
             return;
         }
 
         // Keep a list of all the waiters notified and wake then up outside the mutex critical section.
         var notified = WaitList{};
         defer if (notified.len > 0) {
-            const pending = bucket.pending.fetchSub(notified.len, .Monotonic);
+            const pending = bucket.pending.fetchSub(notified.len, .monotonic);
             assert(pending >= notified.len);
 
             while (notified.pop()) |waiter| {
@@ -875,7 +875,7 @@ const PosixImpl = struct {
         defer assert(std.c.pthread_mutex_unlock(&bucket.mutex) == .SUCCESS);
 
         // Another pending check again to avoid the WaitQueue lookup if not necessary.
-        if (bucket.pending.load(.Monotonic) > 0) {
+        if (bucket.pending.load(.monotonic) > 0) {
             notified = WaitQueue.remove(&bucket.treap, address, max_waiters);
         }
     }
