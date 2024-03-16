@@ -4387,6 +4387,16 @@ pub const io_uring_cqe = extern struct {
         }
         return .SUCCESS;
     }
+
+    // On successful completion of the provided buffers IO request, the CQE flags field
+    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
+    // the upper 16-bits of the flags field.
+    pub fn buffer_id(self: io_uring_cqe) !u16 {
+        if (self.flags & IORING_CQE_F_BUFFER != IORING_CQE_F_BUFFER) {
+            return error.NoBufferSelected;
+        }
+        return @as(u16, @intCast(self.flags >> IORING_CQE_BUFFER_SHIFT));
+    }
 };
 
 // io_uring_cqe.flags
@@ -4667,8 +4677,12 @@ pub const io_uring_buf = extern struct {
     resv: u16,
 };
 
-// io_uring_buf_ring struct omitted
-// it's a io_uring_buf array with the resv of the first item used as a "tail" field.
+pub const io_uring_buf_ring = extern struct {
+    resv1: u64,
+    resv2: u32,
+    resv3: u16,
+    tail: u16,
+};
 
 /// argument for IORING_(UN)REGISTER_PBUF_RING
 pub const io_uring_buf_reg = extern struct {
