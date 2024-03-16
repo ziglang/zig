@@ -420,7 +420,7 @@ fn runStepNames(
                 } = null;
 
                 for (b.top_level_steps.keys(), 0..) |name, index| {
-                    const dist = std.edit_distance.levenshtein(cache, step_name, name);
+                    const dist = std.zig.edit_distance.levenshtein(cache, step_name, name);
 
                     if (closest == null or dist < closest.?.distance) {
                         closest = .{ .index = index, .distance = dist };
