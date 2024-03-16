@@ -3147,29 +3147,29 @@ pub const OVERLAPPED_ENTRY = extern struct {
 
 pub const MAX_PATH = 260;
 
-// TODO issue #305
-pub const FILE_INFO_BY_HANDLE_CLASS = u32;
-pub const FileBasicInfo = 0;
-pub const FileStandardInfo = 1;
-pub const FileNameInfo = 2;
-pub const FileRenameInfo = 3;
-pub const FileDispositionInfo = 4;
-pub const FileAllocationInfo = 5;
-pub const FileEndOfFileInfo = 6;
-pub const FileStreamInfo = 7;
-pub const FileCompressionInfo = 8;
-pub const FileAttributeTagInfo = 9;
-pub const FileIdBothDirectoryInfo = 10;
-pub const FileIdBothDirectoryRestartInfo = 11;
-pub const FileIoPriorityHintInfo = 12;
-pub const FileRemoteProtocolInfo = 13;
-pub const FileFullDirectoryInfo = 14;
-pub const FileFullDirectoryRestartInfo = 15;
-pub const FileStorageInfo = 16;
-pub const FileAlignmentInfo = 17;
-pub const FileIdInfo = 18;
-pub const FileIdExtdDirectoryInfo = 19;
-pub const FileIdExtdDirectoryRestartInfo = 20;
+pub const FILE_INFO_BY_HANDLE_CLASS = enum(u32) {
+    FileBasicInfo = 0,
+    FileStandardInfo = 1,
+    FileNameInfo = 2,
+    FileRenameInfo = 3,
+    FileDispositionInfo = 4,
+    FileAllocationInfo = 5,
+    FileEndOfFileInfo = 6,
+    FileStreamInfo = 7,
+    FileCompressionInfo = 8,
+    FileAttributeTagInfo = 9,
+    FileIdBothDirectoryInfo = 10,
+    FileIdBothDirectoryRestartInfo = 11,
+    FileIoPriorityHintInfo = 12,
+    FileRemoteProtocolInfo = 13,
+    FileFullDirectoryInfo = 14,
+    FileFullDirectoryRestartInfo = 15,
+    FileStorageInfo = 16,
+    FileAlignmentInfo = 17,
+    FileIdInfo = 18,
+    FileIdExtdDirectoryInfo = 19,
+    FileIdExtdDirectoryRestartInfo = 20,
+};
 
 pub const BY_HANDLE_FILE_INFORMATION = extern struct {
     dwFileAttributes: DWORD,
