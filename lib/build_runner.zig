@@ -411,7 +411,31 @@ fn runStepNames(
         for (0..step_names.len) |i| {
             const step_name = step_names[step_names.len - i - 1];
             const s = b.top_level_steps.get(step_name) orelse {
-                std.debug.print("no step named '{s}'\n  access the help menu with 'zig build -h'\n", .{step_name});
+                const cache = try gpa.alloc(usize, step_name.len);
+                defer gpa.free(cache);
+
+                var closest: ?struct {
+                    index: usize,
+                    distance: usize,
+                } = null;
+
+                for (b.top_level_steps.keys(), 0..) |name, index| {
+                    const dist = std.edit_distance.levenshtein(cache, step_name, name);
+
+                    if (closest == null or dist < closest.?.distance) {
+                        closest = .{ .index = index, .distance = dist };
+                    }
+                }
+
+                if (closest != null and closest.?.distance < 3) {
+                    std.debug.print("no step named '{s}', did you mean '{s}'?\n", .{
+                        step_name, b.top_level_steps.keys()[closest.?.index],
+                    });
+                } else {
+                    std.debug.print("no step named '{s}'\n", .{step_name});
+                }
+
+                std.debug.print("  access the help menu with 'zig build -h'\n", .{});
                 process.exit(1);
             };
             step_stack.putAssumeCapacity(&s.step, {});
