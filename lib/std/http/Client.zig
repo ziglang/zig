@@ -1,4 +1,4 @@
-//! HTTP(S) Client implementation.
+//! Blocking HTTP(S) client
 //!
 //! Connections are opened in a thread-safe manner, but individual Requests are not.
 //!
@@ -17,19 +17,14 @@ const use_vectors = builtin.zig_backend != .stage2_x86_64;
 
 const Client = @This();
 const proto = @import("protocol.zig");
-
-pub const disable_tls = std.options.http_disable_tls;
-const TlsClient = if (disable_tls) void else std.crypto.tls.Client(net.Stream);
+const disable_tls = std.options.http_disable_tls;
+const tls = std.crypto.tls;
+const TlsClient = if (disable_tls) void else std.crypto.tls.Client;
 
 /// Used for all client allocations. Must be thread-safe.
 allocator: Allocator,
 
-ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
-ca_bundle_mutex: std.Thread.Mutex = .{},
-
-/// When this is `true`, the next time this client performs an HTTPS request,
-/// it will first rescan the system for root certificates.
-next_https_rescan_certs: bool = true,
+tls_options: (if (disable_tls) void else TlsOptions) = if (disable_tls) {} else .{},
 
 /// The pool of connections that can be reused (and currently in use).
 connection_pool: ConnectionPool = .{},
@@ -42,6 +37,17 @@ http_proxy: ?*Proxy = null,
 /// This field cannot be modified while the client has active connections.
 /// Pointer to externally-owned memory.
 https_proxy: ?*Proxy = null,
+
+/// tls.ClientOptions minus ones that we set
+pub const TlsOptions = struct {
+    /// Client takes ownership of this field. If empty, will rescan on init.
+    ///
+    /// Trusted certificate authority bundle used to authenticate server certificates.
+    /// When null, server certificate and certificate_verify messages will be skipped (INSECURE).
+    ca_bundle: ?std.crypto.Certificate.Bundle = .{},
+    /// List of cipher suites to advertise in order of descending preference.
+    cipher_suites: []const tls.CipherSuite = &tls.default_cipher_suites,
+};
 
 /// A set of linked lists of connections that can be reused.
 pub const ConnectionPool = struct {
@@ -150,8 +156,6 @@ pub const ConnectionPool = struct {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
-        const next = pool.free.first;
-        _ = next;
         while (pool.free_len > new_size) {
             const popped = pool.free.popFirst() orelse unreachable;
             pool.free_len -= 1;
@@ -191,7 +195,7 @@ pub const ConnectionPool = struct {
 
 /// An interface to either a plain or TLS connection.
 pub const Connection = struct {
-    stream: net.Stream,
+    stream: std.io.AnyStream,
     /// undefined unless protocol is tls.
     tls_client: *TlsClient,
 
@@ -331,7 +335,7 @@ pub const Connection = struct {
             return conn.writeAllDirectTls(buffer);
         }
 
-        return conn.stream.writeAll(buffer) catch |err| switch (err) {
+        return conn.stream.writer().writeAll(buffer) catch |err| switch (err) {
             error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
             else => return error.UnexpectedWriteFailure,
         };
@@ -1216,6 +1220,19 @@ pub const Proxy = struct {
     supports_connect: bool,
 };
 
+/// Initializes ca_bundle if it's not null and empty.
+pub fn init(client: Client) !Client {
+    var copy = client;
+
+    if (!disable_tls) {
+        if (copy.tls_options.ca_bundle) |*bundle| {
+            if (bundle.bytes.items.len == 0) try bundle.rescan(copy.allocator);
+        }
+    }
+
+    return copy;
+}
+
 /// Release all associated resources with the client.
 ///
 /// All pending requests must be de-initialized and all active connections released
@@ -1225,8 +1242,9 @@ pub fn deinit(client: *Client) void {
 
     client.connection_pool.deinit(client.allocator);
 
-    if (!disable_tls)
-        client.ca_bundle.deinit(client.allocator);
+    if (!disable_tls) {
+        if (client.tls_options.ca_bundle) |*bundle| bundle.deinit(client.allocator);
+    }
 
     client.* = undefined;
 }
@@ -1346,7 +1364,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     errdefer client.allocator.destroy(conn);
     conn.* = .{ .data = undefined };
 
-    const stream = net.tcpConnectToHost(client.allocator, host, port) catch |err| switch (err) {
+    const tcp_stream = net.tcpConnectToHost(client.allocator, host, port) catch |err| switch (err) {
         error.ConnectionRefused => return error.ConnectionRefused,
         error.NetworkUnreachable => return error.NetworkUnreachable,
         error.ConnectionTimedOut => return error.ConnectionTimedOut,
@@ -1357,10 +1375,10 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         error.HostLacksNetworkAddresses => return error.HostLacksNetworkAddresses,
         else => return error.UnexpectedConnectFailure,
     };
-    errdefer stream.close();
+    errdefer tcp_stream.close();
 
     conn.data = .{
-        .stream = stream,
+        .stream = tcp_stream,
         .tls_client = undefined,
 
         .protocol = protocol,
@@ -1376,7 +1394,8 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         errdefer client.allocator.destroy(conn.data.tls_client);
 
         conn.data.tls_client.* = TlsClient.init(&conn.data.stream, .{
-            .ca_bundle = client.ca_bundle,
+            .ca_bundle = client.tls_options.ca_bundle,
+            .cipher_suites = client.tls_options.cipher_suites,
             .host = host,
             // This is appropriate for HTTPS because the HTTP headers contain
             // the content length which is used to detect truncation attacks.
@@ -1554,7 +1573,6 @@ pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendE
     UnsupportedUrlScheme,
     UriMissingHost,
 
-    CertificateBundleLoadFailure,
     UnsupportedTransferEncoding,
 };
 
@@ -1644,18 +1662,6 @@ pub fn open(
     };
 
     const host = uri.host orelse return error.UriMissingHost;
-
-    if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
-        if (disable_tls) unreachable;
-
-        client.ca_bundle_mutex.lock();
-        defer client.ca_bundle_mutex.unlock();
-
-        if (client.next_https_rescan_certs) {
-            client.ca_bundle.rescan(client.allocator) catch return error.CertificateBundleLoadFailure;
-            @atomicStore(bool, &client.next_https_rescan_certs, false, .release);
-        }
-    }
 
     const conn = options.connection orelse try client.connect(host, port, protocol);
 

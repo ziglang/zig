@@ -264,6 +264,10 @@ pub const Address = extern union {
         try posix.getsockname(sockfd, &s.listen_address.any, &socklen);
         return s;
     }
+
+    // The returned `Server` has an open `stream`.
+    // pub fn listenTls(address: Address, options: ListenOptions) ListenError!Server {
+    // }
 };
 
 pub const Ip4Address = extern struct {
@@ -1801,14 +1805,19 @@ pub const Stream = struct {
     pub const ReadError = os.ReadError;
     pub const WriteError = os.WriteError;
 
-    pub const Reader = io.Reader(Stream, ReadError, read);
-    pub const Writer = io.Writer(Stream, WriteError, write);
+    pub const Reader = io.GenericReader(Stream, ReadError, read);
+    pub const Writer = io.GenericWriter(Stream, WriteError, write);
+    pub const GenericStream = io.GenericStream(Stream, ReadError, read, WriteError, write, close);
 
     pub fn reader(self: Stream) Reader {
         return .{ .context = self };
     }
 
     pub fn writer(self: Stream) Writer {
+        return .{ .context = self };
+    }
+
+    pub fn stream(self: Stream) GenericStream {
         return .{ .context = self };
     }
 
@@ -1831,29 +1840,6 @@ pub const Stream = struct {
         return os.readv(s.handle, iovecs);
     }
 
-    /// Returns the number of bytes read. If the number read is smaller than
-    /// `buffer.len`, it means the stream reached the end. Reaching the end of
-    /// a stream is not an error condition.
-    pub fn readAll(s: Stream, buffer: []u8) ReadError!usize {
-        return readAtLeast(s, buffer, buffer.len);
-    }
-
-    /// Returns the number of bytes read, calling the underlying read function
-    /// the minimal number of times until the buffer has at least `len` bytes
-    /// filled. If the number read is less than `len` it means the stream
-    /// reached the end. Reaching the end of the stream is not an error
-    /// condition.
-    pub fn readAtLeast(s: Stream, buffer: []u8, len: usize) ReadError!usize {
-        assert(len <= buffer.len);
-        var index: usize = 0;
-        while (index < len) {
-            const amt = try s.read(buffer[index..]);
-            if (amt == 0) break;
-            index += amt;
-        }
-        return index;
-    }
-
     /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
     /// file system thread instead of non-blocking. It needs to be reworked to properly
     /// use non-blocking I/O.
@@ -1863,13 +1849,6 @@ pub const Stream = struct {
         }
 
         return os.write(self.handle, buffer);
-    }
-
-    pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try self.write(bytes[index..]);
-        }
     }
 
     /// See https://github.com/ziglang/zig/issues/7699
@@ -1901,10 +1880,10 @@ pub const Stream = struct {
 
 pub const Server = struct {
     listen_address: Address,
-    stream: std.net.Stream,
+    stream: net.Stream,
 
     pub const Connection = struct {
-        stream: std.net.Stream,
+        stream: net.Stream,
         address: Address,
     };
 

@@ -356,6 +356,53 @@ pub fn GenericWriter(
     };
 }
 
+pub fn GenericStream(
+    comptime Context: type,
+    comptime ReadError: type,
+    /// Returns the number of bytes read. It may be less than buffer.len.
+    /// If the number of bytes read is 0, it means end of stream.
+    /// End of stream is not an error condition.
+    comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
+    comptime WriteError: type,
+    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
+    comptime closeFn: fn (context: Context) void,
+) type {
+    return struct {
+        context: Context,
+
+        const ReaderType = GenericReader(Context, ReadError, readFn);
+        const WriterType = GenericWriter(Context, WriteError, writeFn);
+
+        const Self = @This();
+
+        pub inline fn reader(self: *const Self) ReaderType {
+            return .{ .context = self.context };
+        }
+
+        pub inline fn writer(self: *const Self) WriterType {
+            return .{ .context = self.context };
+        }
+
+        pub inline fn close(self: *const Self) void {
+            closeFn(self.context);
+        }
+
+        pub inline fn any(self: *const Self) AnyStream {
+            return .{
+                .context = @ptrCast(&self.context),
+                .readFn = self.reader().any().readFn,
+                .writeFn = self.writer().any().writeFn,
+                .closeFn = typeErasedCloseFn,
+            };
+        }
+
+        fn typeErasedCloseFn(context: *const anyopaque) void {
+            const ptr: *const Context = @alignCast(@ptrCast(context));
+            return closeFn(ptr.*);
+        }
+    };
+}
+
 /// Deprecated; consider switching to `AnyReader` or use `GenericReader`
 /// to use previous API.
 pub const Reader = GenericReader;
@@ -365,6 +412,7 @@ pub const Writer = GenericWriter;
 
 pub const AnyReader = @import("io/Reader.zig");
 pub const AnyWriter = @import("io/Writer.zig");
+pub const AnyStream = @import("io/Stream.zig");
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 

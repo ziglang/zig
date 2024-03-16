@@ -1,5 +1,21 @@
-//! Blocking HTTP server implementation.
+//! Blocking HTTP(s) server
+//!
 //! Handles a single connection's lifecycle.
+//!
+//! TLS support may be disabled via `std.options.http_disable_tls`.
+
+const std = @import("../std.zig");
+const http = std.http;
+const mem = std.mem;
+const net = std.net;
+const Uri = std.Uri;
+const assert = std.debug.assert;
+const testing = std.testing;
+
+const Server = @This();
+
+pub const disable_tls = std.options.http_disable_tls;
+const TlsServer = if (disable_tls) void else std.crypto.tls.Server(net.Stream);
 
 connection: net.Server.Connection,
 /// Keeps track of whether the Server is ready to accept a new request on the
@@ -1137,12 +1153,3 @@ fn rebase(s: *Server, index: usize) void {
     s.read_buffer_len = index + leftover.len;
 }
 
-const std = @import("../std.zig");
-const http = std.http;
-const mem = std.mem;
-const net = std.net;
-const Uri = std.Uri;
-const assert = std.debug.assert;
-const testing = std.testing;
-
-const Server = @This();
