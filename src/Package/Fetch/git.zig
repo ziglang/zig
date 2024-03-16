@@ -36,32 +36,6 @@ test parseOid {
     try testing.expectError(error.InvalidOid, parseOid("HEAD"));
 }
 
-pub const Diagnostics = struct {
-    allocator: Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
-
-    pub const Error = union(enum) {
-        unable_to_create_sym_link: struct {
-            code: anyerror,
-            file_name: []const u8,
-            link_name: []const u8,
-        },
-    };
-
-    pub fn deinit(d: *Diagnostics) void {
-        for (d.errors.items) |item| {
-            switch (item) {
-                .unable_to_create_sym_link => |info| {
-                    d.allocator.free(info.file_name);
-                    d.allocator.free(info.link_name);
-                },
-            }
-        }
-        d.errors.deinit(d.allocator);
-        d.* = undefined;
-    }
-};
-
 pub const Repository = struct {
     odb: Odb,
 
@@ -77,85 +51,6 @@ pub const Repository = struct {
     /// Checks out the repository at `commit_oid` to `worktree`.
     pub fn checkout(
         repository: *Repository,
-        worktree: std.fs.Dir,
-        commit_oid: Oid,
-        diagnostics: *Diagnostics,
-    ) !void {
-        try repository.odb.seekOid(commit_oid);
-        const tree_oid = tree_oid: {
-            const commit_object = try repository.odb.readObject();
-            if (commit_object.type != .commit) return error.NotACommit;
-            break :tree_oid try getCommitTree(commit_object.data);
-        };
-        try repository.checkoutTree(worktree, tree_oid, "", diagnostics);
-    }
-
-    /// Checks out the tree at `tree_oid` to `worktree`.
-    fn checkoutTree(
-        repository: *Repository,
-        dir: std.fs.Dir,
-        tree_oid: Oid,
-        current_path: []const u8,
-        diagnostics: *Diagnostics,
-    ) !void {
-        try repository.odb.seekOid(tree_oid);
-        const tree_object = try repository.odb.readObject();
-        if (tree_object.type != .tree) return error.NotATree;
-        // The tree object may be evicted from the object cache while we're
-        // iterating over it, so we can make a defensive copy here to make sure
-        // it remains valid until we're done with it
-        const tree_data = try repository.odb.allocator.dupe(u8, tree_object.data);
-        defer repository.odb.allocator.free(tree_data);
-
-        var tree_iter: TreeIterator = .{ .data = tree_data };
-        while (try tree_iter.next()) |entry| {
-            switch (entry.type) {
-                .directory => {
-                    try dir.makeDir(entry.name);
-                    var subdir = try dir.openDir(entry.name, .{});
-                    defer subdir.close();
-                    const sub_path = try std.fs.path.join(repository.odb.allocator, &.{ current_path, entry.name });
-                    defer repository.odb.allocator.free(sub_path);
-                    try repository.checkoutTree(subdir, entry.oid, sub_path, diagnostics);
-                },
-                .file => {
-                    var file = try dir.createFile(entry.name, .{});
-                    defer file.close();
-                    try repository.odb.seekOid(entry.oid);
-                    const file_object = try repository.odb.readObject();
-                    if (file_object.type != .blob) return error.InvalidFile;
-                    try file.writeAll(file_object.data);
-                    try file.sync();
-                },
-                .symlink => {
-                    try repository.odb.seekOid(entry.oid);
-                    const symlink_object = try repository.odb.readObject();
-                    if (symlink_object.type != .blob) return error.InvalidFile;
-                    const link_name = symlink_object.data;
-                    dir.symLink(link_name, entry.name, .{}) catch |e| {
-                        const file_name = try std.fs.path.join(diagnostics.allocator, &.{ current_path, entry.name });
-                        errdefer diagnostics.allocator.free(file_name);
-                        const link_name_dup = try diagnostics.allocator.dupe(u8, link_name);
-                        errdefer diagnostics.allocator.free(link_name_dup);
-                        try diagnostics.errors.append(diagnostics.allocator, .{ .unable_to_create_sym_link = .{
-                            .code = e,
-                            .file_name = file_name,
-                            .link_name = link_name_dup,
-                        } });
-                    };
-                },
-                .gitlink => {
-                    // Consistent with git archive behavior, create the directory but
-                    // do nothing else
-                    try dir.makeDir(entry.name);
-                },
-            }
-        }
-    }
-
-    /// Checks out the repository at `commit_oid` to `worktree`.
-    pub fn checkout2(
-        repository: *Repository,
         worktree: anytype,
         commit_oid: Oid,
     ) !void {
@@ -165,11 +60,11 @@ pub const Repository = struct {
             if (commit_object.type != .commit) return error.NotACommit;
             break :tree_oid try getCommitTree(commit_object.data);
         };
-        try repository.checkoutTree2(worktree, tree_oid, "");
+        try repository.checkoutTree(worktree, tree_oid, "");
     }
 
     /// Checks out the tree  at `tree_oid` to `worktree`.
-    fn checkoutTree2(
+    fn checkoutTree(
         repository: *Repository,
         dir: anytype,
         tree_oid: Oid,
@@ -191,27 +86,32 @@ pub const Repository = struct {
             defer allocator.free(sub_path);
             switch (entry.type) {
                 .directory => {
-                    try repository.checkoutTree2(dir, entry.oid, sub_path);
+                    try dir.makePath(sub_path);
+                    try repository.checkoutTree(dir, entry.oid, sub_path);
                 },
                 .file => {
                     try repository.odb.seekOid(entry.oid);
                     const file_object = try repository.odb.readObject();
                     if (file_object.type != .blob) return error.InvalidFile;
 
-                    if (try dir.createFile(sub_path)) |file| {
-                        defer file.close();
-                        try file.writeAll(file_object.data);
-                        try file.sync();
-                    }
+                    var file = dir.createFile(sub_path, .{}) catch |err| {
+                        if (err == error.Skip) continue;
+                        return err;
+                    };
+                    defer file.close();
+                    try file.writeAll(file_object.data);
+                    try file.sync();
                 },
                 .symlink => {
                     try repository.odb.seekOid(entry.oid);
                     const symlink_object = try repository.odb.readObject();
                     if (symlink_object.type != .blob) return error.InvalidFile;
 
-                    try dir.symLink(symlink_object.data, sub_path);
+                    try dir.symLink(symlink_object.data, sub_path, .{});
                 },
-                .gitlink => {},
+                .gitlink => {
+                    try dir.makePath(sub_path);
+                },
             }
         }
     }
@@ -1458,11 +1358,7 @@ test "packfile indexing and checkout" {
     defer worktree.cleanup();
 
     const commit_id = try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");
-
-    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
-    defer diagnostics.deinit();
-    try repository.checkout(worktree.dir, commit_id, &diagnostics);
-    try testing.expect(diagnostics.errors.items.len == 0);
+    try repository.checkout(worktree.dir, commit_id);
 
     const expected_files: []const []const u8 = &.{
         "dir/file",
@@ -1552,11 +1448,5 @@ pub fn main() !void {
     std.debug.print("Starting checkout...\n", .{});
     var repository = try Repository.init(allocator, pack_file, index_file);
     defer repository.deinit();
-    var diagnostics: Diagnostics = .{ .allocator = allocator };
-    defer diagnostics.deinit();
-    try repository.checkout(worktree, commit, &diagnostics);
-
-    for (diagnostics.errors.items) |err| {
-        std.debug.print("Diagnostic: {}\n", .{err});
-    }
+    try repository.checkout(worktree, commit);
 }

@@ -123,7 +123,7 @@ pub fn gitPack(self: *Self, commit_oid: git.Oid, reader: anytype) !void {
     {
         var repository = try git.Repository.init(self.allocator, pack_file, index_file);
         defer repository.deinit();
-        try repository.checkout2(inf, commit_oid);
+        try repository.checkout(inf, commit_oid);
     }
 
     try self.root.deleteTree(".git");
