@@ -66,7 +66,6 @@ pub const comptime_string_map = @import("comptime_string_map.zig");
 pub const crypto = @import("crypto.zig");
 pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
-pub const edit_distance = @import("edit_distance.zig");
 pub const elf = @import("elf.zig");
 pub const enums = @import("enums.zig");
 pub const fifo = @import("fifo.zig");

@@ -81,3 +81,7 @@ test levenshtein {
         try testing.expectEqual(expected, levenshtein(matrix, s1, s2));
     }
 }
+
+test {
+    _ = testing.refAllDecls(@This());
+}
