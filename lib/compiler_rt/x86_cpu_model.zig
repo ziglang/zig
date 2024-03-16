@@ -124,6 +124,10 @@ comptime {
     var missing = false;
     for (@typeInfo(Feature).Enum.fields) |field| {
         if (ignored.has(field.name)) {
+            if (@hasField(Target.x86.Feature, field.name)) @compileError(std.fmt.comptimePrint(
+                "feature `{s}' is present in std.Target.x86.Feature but is marked for ignore in compiler-rt",
+                .{field.name},
+            ));
             continue;
         } else if (!@hasField(Target.x86.Feature, field.name)) {
             missing = true;
