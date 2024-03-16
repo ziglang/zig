@@ -77,7 +77,7 @@ test levenshtein {
 
     for (test_cases) |data| {
         const s1, const s2, const expected = data;
-        const matrix = buffer[0..s1.len];
-        try testing.expectEqual(expected, levenshtein(matrix, s1, s2));
+        const cache = buffer[0..s1.len];
+        try testing.expectEqual(expected, levenshtein(cache, s1, s2));
     }
 }
