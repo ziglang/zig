@@ -54,36 +54,37 @@ const Self = @This();
 
 pub fn tarball(self: *Self, reader: anytype) !void {
     const strip_components = 1;
-    // TODO: replace with switch ignore unsupported tar file types in iterator
-    var diagnostics: std.tar.Diagnostics = .{ .allocator = self.allocator };
-    defer diagnostics.deinit();
 
     var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var iter = std.tar.iterator(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
-        .diagnostics = &diagnostics,
     });
-    while (try iter.next()) |entry| {
-        switch (entry.kind) {
-            .directory => {}, // skip empty
-            .file => {
-                if (entry.size == 0 and entry.name.len == 0) continue;
-                const file_name = stripComponents(entry.name, strip_components);
-                if (file_name.len == 0) return error.BadFileName;
-                if (try self.createFile(file_name)) |file| {
-                    defer file.close();
-                    try entry.writeAll(file);
-                }
-            },
-            .sym_link => {
-                const file_name = stripComponents(entry.name, strip_components);
-                if (file_name.len == 0) return error.BadFileName;
-                const link_name = entry.link_name;
-                try self.symLink(link_name, file_name);
-            },
-        }
+    while (true) {
+        if (iter.next() catch |err| switch (err) {
+            error.TarUnsupportedHeader => continue,
+            else => return err,
+        }) |entry| {
+            switch (entry.kind) {
+                .directory => {}, // skip empty
+                .file => {
+                    if (entry.size == 0 and entry.name.len == 0) continue;
+                    const file_name = stripComponents(entry.name, strip_components);
+                    if (file_name.len == 0) return error.BadFileName;
+                    if (try self.createFile(file_name)) |file| {
+                        defer file.close();
+                        try entry.writeAll(file);
+                    }
+                },
+                .sym_link => {
+                    const file_name = stripComponents(entry.name, strip_components);
+                    if (file_name.len == 0) return error.BadFileName;
+                    const link_name = entry.link_name;
+                    try self.symLink(link_name, file_name);
+                },
+            }
+        } else break;
     }
 }
 

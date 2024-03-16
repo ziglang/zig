@@ -21,70 +21,12 @@ const testing = std.testing;
 
 pub const output = @import("tar/output.zig");
 
-/// Provide this to receive detailed error messages.
-/// When this is provided, some errors which would otherwise be returned
-/// immediately will instead be added to this structure. The API user must check
-/// the errors in diagnostics to know whether the operation succeeded or failed.
-pub const Diagnostics = struct {
-    allocator: std.mem.Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
-
-    pub const Error = union(enum) {
-        unable_to_create_sym_link: struct {
-            code: anyerror,
-            file_name: []const u8,
-            link_name: []const u8,
-        },
-        unable_to_create_file: struct {
-            code: anyerror,
-            file_name: []const u8,
-        },
-        unsupported_file_type: struct {
-            file_name: []const u8,
-            file_type: Header.Kind,
-        },
-    };
-
-    pub fn deinit(d: *Diagnostics) void {
-        for (d.errors.items) |item| {
-            switch (item) {
-                .unable_to_create_sym_link => |info| {
-                    d.allocator.free(info.file_name);
-                    d.allocator.free(info.link_name);
-                },
-                .unable_to_create_file => |info| {
-                    d.allocator.free(info.file_name);
-                },
-                .unsupported_file_type => |info| {
-                    d.allocator.free(info.file_name);
-                },
-            }
-        }
-        d.errors.deinit(d.allocator);
-        d.* = undefined;
-    }
-};
-
 /// pipeToFileSystem options
 pub const PipeOptions = struct {
     /// Number of directory levels to skip when extracting files.
     strip_components: u32 = 0,
-    /// How to handle the "mode" property of files from within the tar file.
-    mode_mode: ModeMode = .executable_bit_only,
     /// Prevents creation of empty directories.
     exclude_empty_directories: bool = false,
-    /// Collects error messages during unpacking
-    diagnostics: ?*Diagnostics = null,
-
-    pub const ModeMode = enum {
-        /// The mode from the tar file is completely ignored. Files are created
-        /// with the default mode when creating files.
-        ignore,
-        /// The mode from the tar file is inspected for the owner executable bit
-        /// only. This bit is copied to the group and other executable bits.
-        /// Other bits of the mode are left as the default when creating files.
-        executable_bit_only,
-    };
 };
 
 const Header = struct {
@@ -247,8 +189,6 @@ pub const IteratorOptions = struct {
     file_name_buffer: []u8,
     /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
     link_name_buffer: []u8,
-    /// Collects error messages during unpacking
-    diagnostics: ?*Diagnostics = null,
 };
 
 /// Iterates over files in tar archive.
@@ -256,7 +196,6 @@ pub const IteratorOptions = struct {
 pub fn iterator(reader: anytype, options: IteratorOptions) Iterator(@TypeOf(reader)) {
     return .{
         .reader = reader,
-        .diagnostics = options.diagnostics,
         .file_name_buffer = options.file_name_buffer,
         .link_name_buffer = options.link_name_buffer,
     };
@@ -273,7 +212,6 @@ pub const FileKind = enum {
 pub fn Iterator(comptime ReaderType: type) type {
     return struct {
         reader: ReaderType,
-        diagnostics: ?*Diagnostics = null,
 
         // buffers for heeader and file attributes
         header_buffer: [Header.SIZE]u8 = undefined,
@@ -435,15 +373,11 @@ pub fn Iterator(comptime ReaderType: type) type {
                     },
                     // All other are unsupported header types
                     else => {
-                        const d = self.diagnostics orelse return error.TarUnsupportedHeader;
-                        try d.errors.append(d.allocator, .{ .unsupported_file_type = .{
-                            .file_name = try d.allocator.dupe(u8, header.name()),
-                            .file_type = kind,
-                        } });
                         if (kind == .gnu_sparse) {
                             try self.skipGnuSparseExtendedHeaders(header);
                         }
                         self.reader.skipBytes(size, .{}) catch return error.TarHeadersTooBig;
+                        return error.TarUnsupportedHeader;
                     },
                 }
             }
@@ -573,24 +507,11 @@ fn PaxIterator(comptime ReaderType: type) type {
 
 /// Saves tar file content to the file systems.
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) !void {
-    switch (options.mode_mode) {
-        .ignore => {},
-        .executable_bit_only => {
-            // This code does not look at the mode bits yet. To implement this feature,
-            // the implementation must be adjusted to look at the mode, and check the
-            // user executable bit, then call fchmod on newly created files when
-            // the executable bit is supposed to be set.
-            // It also needs to properly deal with ACLs on Windows.
-            @panic("TODO: unimplemented: tar ModeMode.executable_bit_only");
-        },
-    }
-
     var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var iter = iterator(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
-        .diagnostics = options.diagnostics,
     });
     while (try iter.next()) |file| {
         switch (file.kind) {
@@ -605,16 +526,9 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                 const file_name = stripComponents(file.name, options.strip_components);
                 if (file_name.len == 0) return error.BadFileName;
 
-                if (createDirAndFile(dir, file_name)) |fs_file| {
-                    defer fs_file.close();
-                    try file.writeAll(fs_file);
-                } else |err| {
-                    const d = options.diagnostics orelse return err;
-                    try d.errors.append(d.allocator, .{ .unable_to_create_file = .{
-                        .code = err,
-                        .file_name = try d.allocator.dupe(u8, file_name),
-                    } });
-                }
+                var fs_file = try createDirAndFile(dir, file_name);
+                defer fs_file.close();
+                try file.writeAll(fs_file);
             },
             .sym_link => {
                 // The file system path of the symbolic link.
@@ -623,14 +537,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                 // The data inside the symbolic link.
                 const link_name = file.link_name;
 
-                createDirAndSymlink(dir, link_name, file_name) catch |err| {
-                    const d = options.diagnostics orelse return error.UnableToCreateSymLink;
-                    try d.errors.append(d.allocator, .{ .unable_to_create_sym_link = .{
-                        .code = err,
-                        .file_name = try d.allocator.dupe(u8, file_name),
-                        .link_name = try d.allocator.dupe(u8, link_name),
-                    } });
-                };
+                try createDirAndSymlink(dir, link_name, file_name);
             },
         }
     }
@@ -984,7 +891,6 @@ test pipeToFileSystem {
 
     // Save tar from `reader` to the file system `dir`
     pipeToFileSystem(dir, reader, .{
-        .mode_mode = .ignore,
         .strip_components = 1,
         .exclude_empty_directories = true,
     }) catch |err| {
