@@ -81,4 +81,3 @@ test levenshtein {
         try testing.expectEqual(expected, levenshtein(matrix, s1, s2));
     }
 }
-
