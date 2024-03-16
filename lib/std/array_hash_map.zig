@@ -141,17 +141,17 @@ pub fn ArrayHashMap(
         /// cause an existing key or value pointer to become invalidated will
         /// instead trigger an assertion.
         ///
-        /// An additional call to `lockMutation` in such state also triggers an
+        /// An additional call to `lockPointers` in such state also triggers an
         /// assertion.
         ///
-        /// `unlockMutation` returns the hash map to the previous state.
-        pub fn lockMutation(self: *Self) void {
-            self.unmanaged.lockMutation();
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.unmanaged.lockPointers();
         }
 
-        /// Undoes a call to `lockMutation`.
-        pub fn unlockMutation(self: *Self) void {
-            self.unmanaged.unlockMutation();
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.unmanaged.unlockPointers();
         }
 
         /// Clears the map but retains the backing allocation for future use.
@@ -420,7 +420,7 @@ pub fn ArrayHashMap(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
-            self.mutation_lock.assertUnlocked();
+            self.pointer_stability.assertUnlocked();
             const result = self.*;
             self.unmanaged = .{};
             return result;
@@ -514,7 +514,7 @@ pub fn ArrayHashMapUnmanaged(
         index_header: ?*IndexHeader = null,
 
         /// Used to detect memory safety violations.
-        mutation_lock: std.debug.SafetyLock = .{},
+        pointer_stability: std.debug.SafetyLock = .{},
 
         comptime {
             std.hash_map.verifyContext(Context, K, K, u32, true);
@@ -610,7 +610,7 @@ pub fn ArrayHashMapUnmanaged(
         /// Note that this does not free keys or values.  You must take care of that
         /// before calling this function, if it is needed.
         pub fn deinit(self: *Self, allocator: Allocator) void {
-            self.mutation_lock.assertUnlocked();
+            self.pointer_stability.assertUnlocked();
             self.entries.deinit(allocator);
             if (self.index_header) |header| {
                 header.free(allocator);
@@ -622,23 +622,23 @@ pub fn ArrayHashMapUnmanaged(
         /// cause an existing key or value pointer to become invalidated will
         /// instead trigger an assertion.
         ///
-        /// An additional call to `lockMutation` in such state also triggers an
+        /// An additional call to `lockPointers` in such state also triggers an
         /// assertion.
         ///
-        /// `unlockMutation` returns the hash map to the previous state.
-        pub fn lockMutation(self: *Self) void {
-            self.mutation_lock.lock();
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.pointer_stability.lock();
         }
 
-        /// Undoes a call to `lockMutation`.
-        pub fn unlockMutation(self: *Self) void {
-            self.mutation_lock.unlock();
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.pointer_stability.unlock();
         }
 
         /// Clears the map but retains the backing allocation for future use.
         pub fn clearRetainingCapacity(self: *Self) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             self.entries.len = 0;
             if (self.index_header) |header| {
@@ -652,8 +652,8 @@ pub fn ArrayHashMapUnmanaged(
 
         /// Clears the map and releases the backing allocation
         pub fn clearAndFree(self: *Self, allocator: Allocator) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             self.entries.shrinkAndFree(allocator, 0);
             if (self.index_header) |header| {
@@ -840,8 +840,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.ensureTotalCapacityContext(allocator, new_capacity, undefined);
         }
         pub fn ensureTotalCapacityContext(self: *Self, allocator: Allocator, new_capacity: usize, ctx: Context) !void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             if (new_capacity <= linear_scan_max) {
                 try self.entries.ensureTotalCapacity(allocator, new_capacity);
@@ -1127,8 +1127,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.fetchSwapRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn fetchSwapRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) ?KV {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             return self.fetchRemoveByKey(key, key_ctx, if (store_hash) {} else ctx, .swap);
         }
@@ -1151,8 +1151,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.fetchOrderedRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn fetchOrderedRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) ?KV {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             return self.fetchRemoveByKey(key, key_ctx, if (store_hash) {} else ctx, .ordered);
         }
@@ -1175,8 +1175,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.swapRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn swapRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) bool {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             return self.removeByKey(key, key_ctx, if (store_hash) {} else ctx, .swap);
         }
@@ -1199,8 +1199,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.orderedRemoveContextAdapted(key, ctx, undefined);
         }
         pub fn orderedRemoveContextAdapted(self: *Self, key: anytype, key_ctx: anytype, ctx: Context) bool {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             return self.removeByKey(key, key_ctx, if (store_hash) {} else ctx, .ordered);
         }
@@ -1214,8 +1214,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.swapRemoveAtContext(index, undefined);
         }
         pub fn swapRemoveAtContext(self: *Self, index: usize, ctx: Context) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             self.removeByIndex(index, if (store_hash) {} else ctx, .swap);
         }
@@ -1230,8 +1230,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.orderedRemoveAtContext(index, undefined);
         }
         pub fn orderedRemoveAtContext(self: *Self, index: usize, ctx: Context) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             self.removeByIndex(index, if (store_hash) {} else ctx, .ordered);
         }
@@ -1262,7 +1262,7 @@ pub fn ArrayHashMapUnmanaged(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
-            self.mutation_lock.assertUnlocked();
+            self.pointer_stability.assertUnlocked();
             const result = self.*;
             self.* = .{};
             return result;
@@ -1338,8 +1338,8 @@ pub fn ArrayHashMapUnmanaged(
             sort_ctx: anytype,
             ctx: Context,
         ) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             switch (mode) {
                 .stable => self.entries.sort(sort_ctx),
@@ -1358,8 +1358,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.shrinkRetainingCapacityContext(new_len, undefined);
         }
         pub fn shrinkRetainingCapacityContext(self: *Self, new_len: usize, ctx: Context) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             // Remove index entries from the new length onwards.
             // Explicitly choose to ONLY remove index entries and not the underlying array list
@@ -1380,8 +1380,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.shrinkAndFreeContext(allocator, new_len, undefined);
         }
         pub fn shrinkAndFreeContext(self: *Self, allocator: Allocator, new_len: usize, ctx: Context) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             // Remove index entries from the new length onwards.
             // Explicitly choose to ONLY remove index entries and not the underlying array list
@@ -1401,8 +1401,8 @@ pub fn ArrayHashMapUnmanaged(
             return self.popContext(undefined);
         }
         pub fn popContext(self: *Self, ctx: Context) KV {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
 
             const item = self.entries.get(self.entries.len - 1);
             if (self.index_header) |header|

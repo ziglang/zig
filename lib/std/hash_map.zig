@@ -420,17 +420,17 @@ pub fn HashMap(
         /// cause an existing key or value pointer to become invalidated will
         /// instead trigger an assertion.
         ///
-        /// An additional call to `lockMutation` in such state also triggers an
+        /// An additional call to `lockPointers` in such state also triggers an
         /// assertion.
         ///
-        /// `unlockMutation` returns the hash map to the previous state.
-        pub fn lockMutation(self: *Self) void {
-            self.unmanaged.lockMutation();
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.unmanaged.lockPointers();
         }
 
-        /// Undoes a call to `lockMutation`.
-        pub fn unlockMutation(self: *Self) void {
-            self.unmanaged.unlockMutation();
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.unmanaged.unlockPointers();
         }
 
         /// Release the backing array and invalidate this map.
@@ -689,7 +689,7 @@ pub fn HashMap(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
-            self.unmanaged.mutation_lock.assertUnlocked();
+            self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
             self.unmanaged = .{};
             return result;
@@ -741,7 +741,7 @@ pub fn HashMapUnmanaged(
         available: Size = 0,
 
         /// Used to detect memory safety violations.
-        mutation_lock: std.debug.SafetyLock = .{},
+        pointer_stability: std.debug.SafetyLock = .{},
 
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
@@ -909,17 +909,17 @@ pub fn HashMapUnmanaged(
         /// cause an existing key or value pointer to become invalidated will
         /// instead trigger an assertion.
         ///
-        /// An additional call to `lockMutation` in such state also triggers an
+        /// An additional call to `lockPointers` in such state also triggers an
         /// assertion.
         ///
-        /// `unlockMutation` returns the hash map to the previous state.
-        pub fn lockMutation(self: *Self) void {
-            self.mutation_lock.lock();
+        /// `unlockPointers` returns the hash map to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.pointer_stability.lock();
         }
 
-        /// Undoes a call to `lockMutation`.
-        pub fn unlockMutation(self: *Self) void {
-            self.mutation_lock.unlock();
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.pointer_stability.unlock();
         }
 
         fn isUnderMaxLoadPercentage(size: Size, cap: Size) bool {
@@ -927,7 +927,7 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn deinit(self: *Self, allocator: Allocator) void {
-            self.mutation_lock.assertUnlocked();
+            self.pointer_stability.assertUnlocked();
             self.deallocate(allocator);
             self.* = undefined;
         }
@@ -944,8 +944,8 @@ pub fn HashMapUnmanaged(
             return ensureTotalCapacityContext(self, allocator, new_size, undefined);
         }
         pub fn ensureTotalCapacityContext(self: *Self, allocator: Allocator, new_size: Size, ctx: Context) Allocator.Error!void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
             if (new_size > self.size)
                 try self.growIfNeeded(allocator, new_size - self.size, ctx);
         }
@@ -960,8 +960,8 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn clearRetainingCapacity(self: *Self) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
             if (self.metadata) |_| {
                 self.initMetadatas();
                 self.size = 0;
@@ -970,8 +970,8 @@ pub fn HashMapUnmanaged(
         }
 
         pub fn clearAndFree(self: *Self, allocator: Allocator) void {
-            self.mutation_lock.lock();
-            defer self.mutation_lock.unlock();
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
             self.deallocate(allocator);
             self.size = 0;
             self.available = 0;
@@ -1043,8 +1043,8 @@ pub fn HashMapUnmanaged(
         }
         pub fn putNoClobberContext(self: *Self, allocator: Allocator, key: K, value: V, ctx: Context) Allocator.Error!void {
             {
-                self.mutation_lock.lock();
-                defer self.mutation_lock.unlock();
+                self.pointer_stability.lock();
+                defer self.pointer_stability.unlock();
                 try self.growIfNeeded(allocator, 1, ctx);
             }
             self.putAssumeCapacityNoClobberContext(key, value, ctx);
@@ -1328,8 +1328,8 @@ pub fn HashMapUnmanaged(
         }
         pub fn getOrPutContextAdapted(self: *Self, allocator: Allocator, key: anytype, key_ctx: anytype, ctx: Context) Allocator.Error!GetOrPutResult {
             {
-                self.mutation_lock.lock();
-                defer self.mutation_lock.unlock();
+                self.pointer_stability.lock();
+                defer self.pointer_stability.unlock();
                 self.growIfNeeded(allocator, 1, ctx) catch |err| {
                     // If allocation fails, try to do the lookup anyway.
                     // If we find an existing item, we can return it.
@@ -1546,7 +1546,7 @@ pub fn HashMapUnmanaged(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
-            self.mutation_lock.assertUnlocked();
+            self.pointer_stability.assertUnlocked();
             const result = self.*;
             self.* = .{};
             return result;
@@ -1560,7 +1560,7 @@ pub fn HashMapUnmanaged(
 
             var map: Self = .{};
             defer map.deinit(allocator);
-            map.mutation_lock.lock();
+            map.pointer_stability.lock();
             try map.allocate(allocator, new_cap);
             map.initMetadatas();
             map.available = @truncate((new_cap * max_load_percentage) / 100);
@@ -1579,7 +1579,7 @@ pub fn HashMapUnmanaged(
             }
 
             self.size = 0;
-            self.mutation_lock = .{ .state = .unlocked };
+            self.pointer_stability = .{ .state = .unlocked };
             std.mem.swap(Self, self, &map);
         }
 
