@@ -34,6 +34,7 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <stddef.h>
+#include <elf-initfini.h>
 
 
 /* These magic symbols are provided by the linker.  */

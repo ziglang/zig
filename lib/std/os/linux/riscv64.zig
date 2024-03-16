@@ -9,6 +9,8 @@ const pid_t = std.os.linux.pid_t;
 const sockaddr = linux.sockaddr;
 const socklen_t = linux.socklen_t;
 const timespec = std.os.linux.timespec;
+const stack_t = linux.stack_t;
+const sigset_t = linux.sigset_t;
 
 pub fn syscall0(number: SYS) usize {
     return asm volatile ("ecall"
@@ -223,3 +225,56 @@ pub const Stat = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const VDSO = struct {};
+
+pub const userregs_t = extern struct {
+    pc: u64,
+    ra: u64,
+    sp: u64,
+    gp: u64,
+    tp: u64,
+    t0: u64,
+    t1: u64,
+    t2: u64,
+    s0: u64,
+    s1: u64,
+    a0: u64,
+    a1: u64,
+    a2: u64,
+    a3: u64,
+    a4: u64,
+    a5: u64,
+    a6: u64,
+    a7: u64,
+    s2: u64,
+    s3: u64,
+    s4: u64,
+    s5: u64,
+    s6: u64,
+    s7: u64,
+    s8: u64,
+    s9: u64,
+    s10: u64,
+    s11: u64,
+    t3: u64,
+    t4: u64,
+    t5: u64,
+    t6: u64,
+};
+
+pub const fpregs_t = extern struct {
+    f: [528]u8,
+};
+
+pub const mcontext_t = extern struct {
+    userregs: userregs_t,
+    fpregs: fpregs_t,
+};
+
+pub const ucontext_t = extern struct {
+    flags: u64,
+    link: ?*ucontext_t,
+    stack: stack_t,
+    sigmask: sigset_t,
+    reserved: [8]u8 = undefined,
+    mcontext: mcontext_t,
+};

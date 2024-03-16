@@ -194,7 +194,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
 
 pub const have_ucontext = @hasDecl(os.system, "ucontext_t") and
     (builtin.os.tag != .linux or switch (builtin.cpu.arch) {
-    .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
+    .mips, .mipsel, .mips64, .mips64el => false,
     else => true,
 });
 
