@@ -53,61 +53,95 @@ pub fn main() !void {
     );
 
     const vendor_enum = blk: {
-        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, "X86_VENDOR(id, _1)=id");
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{"X86_VENDOR(id, _1)=id"});
 
-        const enum_names = try arena.alloc([]const u8, raw_enum_names.len + 2);
+        const enum_fields = try arena.alloc(EnumField, raw_enum_names.len + 2);
 
-        enum_names[0] = "unknown";
-        for (enum_names[1..][0..raw_enum_names.len], raw_enum_names) |*name, raw| {
+        enum_fields[0] = .{ .name = "unknown" };
+        for (enum_fields[1..][0..raw_enum_names.len], raw_enum_names) |*f, raw| {
             assert(mem.startsWith(u8, raw, "VENDOR_"));
-            name.* = try llvmNameToZigName(arena, raw[7..]);
+            f.* = .{ .name = try llvmNameToZigName(arena, raw[7..]) };
         }
-        enum_names[1 + raw_enum_names.len] = "other";
+        enum_fields[1 + raw_enum_names.len] = .{ .name = "other" };
 
-        break :blk enum_names;
+        break :blk enum_fields;
     };
     try writeEnum(out_file, "Vendor", vendor_enum);
 
     const type_enum = blk: {
-        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, "X86_CPU_TYPE(id, _1)=id");
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{"X86_CPU_TYPE(id, _1)=id"});
 
-        const enum_names = try arena.alloc([]const u8, raw_enum_names.len + 1);
+        const enum_fields = try arena.alloc(EnumField, raw_enum_names.len + 1);
 
-        enum_names[0] = "unknown";
-        for (enum_names[1..][0..raw_enum_names.len], raw_enum_names) |*name, raw| {
-            name.* = try llvmNameToZigName(arena, raw);
+        enum_fields[0] = .{ .name = "unknown" };
+        for (enum_fields[1..][0..raw_enum_names.len], raw_enum_names) |*f, raw| {
+            f.* = .{ .name = try llvmNameToZigName(arena, raw) };
         }
 
-        break :blk enum_names;
+        break :blk enum_fields;
     };
     try writeEnum(out_file, "Type", type_enum);
 
     const subtype_enum = blk: {
-        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, "X86_CPU_SUBTYPE(id, _1)=id");
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{"X86_CPU_SUBTYPE(id, _1)=id"});
 
-        const enum_names = try arena.alloc([]const u8, raw_enum_names.len + 1);
+        const enum_fields = try arena.alloc(EnumField, raw_enum_names.len + 1);
 
-        enum_names[0] = "unknown";
-        for (enum_names[1..][0..raw_enum_names.len], raw_enum_names) |*name, raw| {
-            name.* = try llvmNameToZigName(arena, raw);
+        enum_fields[0] = .{ .name = "unknown" };
+        for (enum_fields[1..][0..raw_enum_names.len], raw_enum_names) |*f, raw| {
+            f.* = .{ .name = try llvmNameToZigName(arena, raw) };
         }
 
-        break :blk enum_names;
+        break :blk enum_fields;
     };
     try writeEnum(out_file, "Subtype", subtype_enum);
 
+    // The enum values are specified by their position in the big list of X86_FEATURE(...) macros.
+    // However, only the X86_FEATURE_COMPAT(...) values are used in compiler-rt for cpu detection.
+    // The order is important because it is supposed to match the gcc version of the list
+    // (https://github.com/gcc-mirror/gcc/blob/9693459e030977d6e906ea7eb587ed09ee4fddbd/gcc/common/config/i386/i386-cpuinfo.h#L154).
+    //
+    // Starting from LLVM 18, there are X86_MICROARCH_LEVEL(...) macros which also correspond to
+    // FEATURE_* values in the big enum but their value is given by the priority (last parameter in the macro).
     const features_enum = blk: {
-        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, "X86_FEATURE_COMPAT(_0,name,_2)=name");
+        const raw_enum_names = try preprocessCPUEnum(arena, zig_exe, def_file_path, &.{
+            "X86_FEATURE(_0,_1)=^", // Marker to indicate we should ignore this line.
+            "X86_FEATURE_COMPAT(_0,name,_2)=name",
+            "X86_MICROARCH_LEVEL(_0,name,prio)=name=prio",
+        });
 
-        const enum_names = try arena.alloc([]const u8, raw_enum_names.len);
+        var enum_fields = std.ArrayList(EnumField).init(arena);
 
-        for (enum_names, raw_enum_names) |*name, raw| {
-            assert(mem.startsWith(u8, raw, "\""));
-            assert(mem.endsWith(u8, raw, "\""));
-            name.* = try llvmNameToZigName(arena, raw[1 .. raw.len - 1]);
+        for (raw_enum_names, 0..) |raw, i| {
+            assert(raw.len > 0);
+            switch (raw[0]) {
+                '^' => {
+                    // X86_FEATURE(...): does not contribute to compiler-rt feature enum
+                },
+                '"' => if (mem.indexOfScalar(u8, raw, '=')) |eq_pos| {
+                    // X86_MICROARCH_LEVEL(...): line is of the form `"name"=prio'
+                    assert(raw[eq_pos - 1] == '"');
+                    const raw_name = raw[2 .. eq_pos - 1];
+                    const raw_prio = raw[eq_pos + 1 ..];
+
+                    try enum_fields.append(.{
+                        .name = try llvmNameToZigName(arena, raw_name),
+                        .value = std.fmt.parseUnsigned(u32, raw_prio, 10) catch unreachable,
+                    });
+                } else {
+                    // X86_FEATURE_COMPAT(...): line is of the form `"name"'
+
+                    assert(raw[raw.len - 1] == '"');
+                    try enum_fields.append(.{
+                        .name = try llvmNameToZigName(arena, raw[1 .. raw.len - 1]),
+                        .value = @intCast(i),
+                    });
+                },
+                else => unreachable,
+            }
         }
 
-        break :blk enum_names;
+        break :blk enum_fields.toOwnedSlice() catch unreachable;
     };
     try writeEnum(out_file, "Feature", features_enum);
 }
@@ -122,17 +156,24 @@ fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
     process.exit(code);
 }
 
-// `define` parameter is passed to the preprocessor as a `-D` and extract the enum names line by line
-fn preprocessCPUEnum(arena: mem.Allocator, zig_exe: []const u8, def_path: []const u8, define: []const u8) ![]const []const u8 {
+// The `defines` parameter are passed to the preprocessor as a `-D`.
+// The output of the prepreocessor is split into lines and returned as an array of strings.
+fn preprocessCPUEnum(arena: mem.Allocator, zig_exe: []const u8, def_path: []const u8, defines: []const []const u8) ![]const []const u8 {
     const preprocessed = blk: {
-        const argv = try arena.alloc([]const u8, 7);
-        argv[0] = zig_exe;
-        argv[1] = "cc";
-        argv[2] = "-P";
-        argv[3] = "-E";
-        argv[4] = "-xc";
-        argv[5] = try mem.concat(arena, u8, &.{ "-D", define });
-        argv[6] = def_path;
+        const argv = argv_blk: {
+            var argv = try std.ArrayListUnmanaged([]const u8).initCapacity(arena, 6 + defines.len);
+
+            argv.appendAssumeCapacity(zig_exe);
+            argv.appendAssumeCapacity("cc");
+            argv.appendAssumeCapacity("-P");
+            argv.appendAssumeCapacity("-E");
+            argv.appendAssumeCapacity("-xc");
+            for (defines) |def| argv.appendAssumeCapacity(try mem.concat(arena, u8, &.{ "-D", def }));
+            argv.appendAssumeCapacity(def_path);
+
+            assert(argv.items.len == argv.capacity);
+            break :argv_blk argv.toOwnedSlice(arena) catch unreachable;
+        };
 
         const result = try process.Child.run(.{
             .allocator = arena,
@@ -158,7 +199,12 @@ fn preprocessCPUEnum(arena: mem.Allocator, zig_exe: []const u8, def_path: []cons
     return try enum_fields.toOwnedSlice();
 }
 
-fn writeEnum(file: fs.File, enum_name: []const u8, enum_field: []const []const u8) !void {
+const EnumField = struct {
+    name: []const u8,
+    value: ?u32 = null,
+};
+
+fn writeEnum(file: fs.File, enum_name: []const u8, enum_field: []const EnumField) !void {
     var writer = file.writer();
 
     try writer.print(
@@ -166,19 +212,18 @@ fn writeEnum(file: fs.File, enum_name: []const u8, enum_field: []const []const u
         \\
     , .{enum_name});
     for (enum_field) |f| {
-        if (f.len == 0) continue;
+        if (f.name.len == 0) continue;
 
-        if (ascii.isAlphabetic(f[0]) or f[0] == '_') {
-            try writer.print(
-                \\    {s},
-                \\
-            , .{f});
+        if (ascii.isAlphabetic(f.name[0]) or f.name[0] == '_') {
+            try writer.print("    {s}", .{f.name});
         } else {
-            try writer.print(
-                \\    @"{s}",
-                \\
-            , .{f});
+            try writer.print("    @\"{s}\"", .{f.name});
         }
+
+        if (f.value) |v| {
+            try writer.print(" = {}", .{v});
+        }
+        try writer.writeAll(",\n");
     }
     try writer.writeAll(
         \\};
