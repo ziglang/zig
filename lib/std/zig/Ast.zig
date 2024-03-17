@@ -1406,6 +1406,16 @@ pub fn alignedVarDecl(tree: Ast, node: Node.Index) full.VarDecl {
     });
 }
 
+pub fn assignDestructure(tree: Ast, node: Node.Index) full.AssignDestructure {
+    const data = tree.nodes.items(.data)[node];
+    const variable_count = tree.extra_data[data.lhs];
+    return tree.fullAssignDestructureComponents(.{
+        .variables = tree.extra_data[data.lhs + 1 ..][0..variable_count],
+        .equal_token = tree.nodes.items(.main_token)[node],
+        .value_expr = data.rhs,
+    });
+}
+
 pub fn ifSimple(tree: Ast, node: Node.Index) full.If {
     assert(tree.nodes.items(.tag)[node] == .if_simple);
     const data = tree.nodes.items(.data)[node];
@@ -2045,6 +2055,28 @@ fn fullVarDeclComponents(tree: Ast, info: full.VarDecl.Components) full.VarDecl 
     return result;
 }
 
+fn fullAssignDestructureComponents(tree: Ast, info: full.AssignDestructure.Components) full.AssignDestructure {
+    const token_tags = tree.tokens.items(.tag);
+    const node_tags = tree.nodes.items(.tag);
+    var result: full.AssignDestructure = .{
+        .comptime_token = null,
+        .ast = info,
+    };
+    const first_variable_token = tree.firstToken(info.variables[0]);
+    const maybe_comptime_token = switch (node_tags[info.variables[0]]) {
+        .global_var_decl,
+        .local_var_decl,
+        .aligned_var_decl,
+        .simple_var_decl,
+        => first_variable_token,
+        else => first_variable_token - 1,
+    };
+    if (token_tags[maybe_comptime_token] == .keyword_comptime) {
+        result.comptime_token = maybe_comptime_token;
+    }
+    return result;
+}
+
 fn fullIfComponents(tree: Ast, info: full.If.Components) full.If {
     const token_tags = tree.tokens.items(.tag);
     var result: full.If = .{
@@ -2506,6 +2538,17 @@ pub const full = struct {
                 var_decl.comptime_token orelse
                 var_decl.ast.mut_token;
         }
+    };
+
+    pub const AssignDestructure = struct {
+        comptime_token: ?TokenIndex,
+        ast: Components,
+
+        pub const Components = struct {
+            variables: []const Node.Index,
+            equal_token: TokenIndex,
+            value_expr: Node.Index,
+        };
     };
 
     pub const If = struct {

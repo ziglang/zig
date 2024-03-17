@@ -699,12 +699,9 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
         },
 
         .assign_destructure => {
-            const extra_index = node_datas[node].lhs;
-            const lhs_count = ast.extra_data[extra_index];
-            const lhs_nodes: []const Ast.Node.Index = @ptrCast(ast.extra_data[extra_index + 1 ..][0..lhs_count]);
-            const rhs = node_datas[node].rhs;
-            for (lhs_nodes) |lhs_node| try expr(w, scope, parent_decl, lhs_node);
-            _ = try expr(w, scope, parent_decl, rhs);
+            const full = ast.assignDestructure(node);
+            for (full.ast.variables) |variable_node| try expr(w, scope, parent_decl, variable_node);
+            _ = try expr(w, scope, parent_decl, full.ast.value_expr);
         },
 
         .bool_not,
