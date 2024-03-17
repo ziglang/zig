@@ -14721,10 +14721,10 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try function_block.writeAbbrevAdapted(FunctionBlock.CallFast{
                                 .attributes = extra.data.attributes,
                                 .call_type = switch (kind) {
-                                    .call => .{ .call_conv = call_conv },
-                                    .@"tail call" => .{ .tail = true, .call_conv = call_conv },
-                                    .@"musttail call" => .{ .must_tail = true, .call_conv = call_conv },
-                                    .@"notail call" => .{ .no_tail = true, .call_conv = call_conv },
+                                    .@"call fast" => .{ .call_conv = call_conv },
+                                    .@"tail call fast" => .{ .tail = true, .call_conv = call_conv },
+                                    .@"musttail call fast" => .{ .must_tail = true, .call_conv = call_conv },
+                                    .@"notail call fast" => .{ .no_tail = true, .call_conv = call_conv },
                                     else => unreachable,
                                 },
                                 .fast_math = .{},
