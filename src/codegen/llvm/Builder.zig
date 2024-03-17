@@ -6839,7 +6839,7 @@ pub const FastMath = packed struct(u8) {
         .arcp = true,
         .contract = true,
         .afn = true,
-        .realloc = true,
+        .reassoc = true,
     };
 };
 
