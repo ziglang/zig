@@ -254,7 +254,11 @@ pub const Type = struct {
             .error_union_type => |error_union_type| {
                 try print(Type.fromInterned(error_union_type.error_set_type), writer, mod);
                 try writer.writeByte('!');
-                try print(Type.fromInterned(error_union_type.payload_type), writer, mod);
+                if (error_union_type.payload_type == .generic_poison_type) {
+                    try writer.writeAll("anytype");
+                } else {
+                    try print(Type.fromInterned(error_union_type.payload_type), writer, mod);
+                }
                 return;
             },
             .inferred_error_set_type => |func_index| {
@@ -2833,22 +2837,40 @@ pub const Type = struct {
         };
     }
 
+    /// Asserts that the type can have a namespace.
+    pub fn getNamespaceIndex(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
+        return ty.getNamespace(zcu).?;
+    }
+
     /// Returns null if the type has no namespace.
-    pub fn getNamespaceIndex(ty: Type, mod: *Module) InternPool.OptionalNamespaceIndex {
-        const ip = &mod.intern_pool;
+    pub fn getNamespace(ty: Type, zcu: *Zcu) ?InternPool.OptionalNamespaceIndex {
+        const ip = &zcu.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
             .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace,
             .struct_type => ip.loadStructType(ty.toIntern()).namespace,
             .union_type => ip.loadUnionType(ty.toIntern()).namespace,
             .enum_type => ip.loadEnumType(ty.toIntern()).namespace,
 
-            else => .none,
-        };
-    }
+            .anon_struct_type => .none,
+            .simple_type => |s| switch (s) {
+                .anyopaque,
+                .atomic_order,
+                .atomic_rmw_op,
+                .calling_convention,
+                .address_space,
+                .float_mode,
+                .reduce_op,
+                .call_modifier,
+                .prefetch_options,
+                .export_options,
+                .extern_options,
+                .type_info,
+                => .none,
+                else => null,
+            },
 
-    /// Returns null if the type has no namespace.
-    pub fn getNamespace(ty: Type, mod: *Module) ?*Module.Namespace {
-        return if (getNamespaceIndex(ty, mod).unwrap()) |i| mod.namespacePtr(i) else null;
+            else => null,
+        };
     }
 
     // Works for vectors and vectors of integers.

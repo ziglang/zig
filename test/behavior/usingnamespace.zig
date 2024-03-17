@@ -97,3 +97,12 @@ test "container member access usingnamespace decls" {
     var foo = Bar{};
     foo.two();
 }
+
+usingnamespace opaque {};
+
+usingnamespace @Type(.{ .Struct = .{
+    .layout = .auto,
+    .fields = &.{},
+    .decls = &.{},
+    .is_tuple = false,
+} });
