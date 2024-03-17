@@ -3406,45 +3406,36 @@ fn assignDestructure(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerErro
     try emitDbgNode(gz, node);
     const astgen = gz.astgen;
     const tree = astgen.tree;
-    const token_tags = tree.tokens.items(.tag);
-    const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
 
-    const extra_index = node_datas[node].lhs;
-    const lhs_count = tree.extra_data[extra_index];
-    const lhs_nodes: []const Ast.Node.Index = @ptrCast(tree.extra_data[extra_index + 1 ..][0..lhs_count]);
-    const rhs = node_datas[node].rhs;
-
-    const maybe_comptime_token = tree.firstToken(node) - 1;
-    const declared_comptime = token_tags[maybe_comptime_token] == .keyword_comptime;
-
-    if (declared_comptime and gz.is_comptime) {
+    const full = tree.assignDestructure(node);
+    if (full.comptime_token != null and gz.is_comptime) {
         return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
 
     // If this expression is marked comptime, we must wrap the whole thing in a comptime block.
     var gz_buf: GenZir = undefined;
-    const inner_gz = if (declared_comptime) bs: {
+    const inner_gz = if (full.comptime_token) |_| bs: {
         gz_buf = gz.makeSubBlock(scope);
         gz_buf.is_comptime = true;
         break :bs &gz_buf;
     } else gz;
-    defer if (declared_comptime) inner_gz.unstack();
+    defer if (full.comptime_token) |_| inner_gz.unstack();
 
-    const rl_components = try astgen.arena.alloc(ResultInfo.Loc.DestructureComponent, lhs_nodes.len);
-    for (rl_components, lhs_nodes) |*lhs_rl, lhs_node| {
-        if (node_tags[lhs_node] == .identifier) {
+    const rl_components = try astgen.arena.alloc(ResultInfo.Loc.DestructureComponent, full.ast.variables.len);
+    for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
+        if (node_tags[variable_node] == .identifier) {
             // This intentionally does not support `@"_"` syntax.
-            const ident_name = tree.tokenSlice(main_tokens[lhs_node]);
+            const ident_name = tree.tokenSlice(main_tokens[variable_node]);
             if (mem.eql(u8, ident_name, "_")) {
-                lhs_rl.* = .discard;
+                variable_rl.* = .discard;
                 continue;
             }
         }
-        lhs_rl.* = .{ .typed_ptr = .{
-            .inst = try lvalExpr(inner_gz, scope, lhs_node),
-            .src_node = lhs_node,
+        variable_rl.* = .{ .typed_ptr = .{
+            .inst = try lvalExpr(inner_gz, scope, variable_node),
+            .src_node = variable_node,
         } };
     }
 
@@ -3453,9 +3444,9 @@ fn assignDestructure(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerErro
         .components = rl_components,
     } } };
 
-    _ = try expr(inner_gz, scope, ri, rhs);
+    _ = try expr(inner_gz, scope, ri, full.ast.value_expr);
 
-    if (declared_comptime) {
+    if (full.comptime_token) |_| {
         const comptime_block_inst = try gz.makeBlockInst(.block_comptime, node);
         _ = try inner_gz.addBreak(.@"break", comptime_block_inst, .void_value);
         try inner_gz.setBlockBody(comptime_block_inst);
@@ -3474,23 +3465,16 @@ fn assignDestructureMaybeDecls(
     const astgen = gz.astgen;
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
-    const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
 
-    const extra_index = node_datas[node].lhs;
-    const lhs_count = tree.extra_data[extra_index];
-    const lhs_nodes: []const Ast.Node.Index = @ptrCast(tree.extra_data[extra_index + 1 ..][0..lhs_count]);
-    const rhs = node_datas[node].rhs;
-
-    const maybe_comptime_token = tree.firstToken(node) - 1;
-    const declared_comptime = token_tags[maybe_comptime_token] == .keyword_comptime;
-    if (declared_comptime and gz.is_comptime) {
+    const full = tree.assignDestructure(node);
+    if (full.comptime_token != null and gz.is_comptime) {
         return astgen.failNode(node, "redundant comptime keyword in already comptime scope", .{});
     }
 
-    const is_comptime = declared_comptime or gz.is_comptime;
-    const rhs_is_comptime = tree.nodes.items(.tag)[rhs] == .@"comptime";
+    const is_comptime = full.comptime_token != null or gz.is_comptime;
+    const value_is_comptime = node_tags[full.ast.value_expr] == .@"comptime";
 
     // When declaring consts via a destructure, we always use a result pointer.
     // This avoids the need to create tuple types, and is also likely easier to
@@ -3499,24 +3483,24 @@ fn assignDestructureMaybeDecls(
 
     // We know this rl information won't live past the evaluation of this
     // expression, so it may as well go in the block arena.
-    const rl_components = try block_arena.alloc(ResultInfo.Loc.DestructureComponent, lhs_nodes.len);
-    var any_non_const_lhs = false;
+    const rl_components = try block_arena.alloc(ResultInfo.Loc.DestructureComponent, full.ast.variables.len);
+    var any_non_const_variables = false;
     var any_lvalue_expr = false;
-    for (rl_components, lhs_nodes) |*lhs_rl, lhs_node| {
-        switch (node_tags[lhs_node]) {
+    for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
+        switch (node_tags[variable_node]) {
             .identifier => {
                 // This intentionally does not support `@"_"` syntax.
-                const ident_name = tree.tokenSlice(main_tokens[lhs_node]);
+                const ident_name = tree.tokenSlice(main_tokens[variable_node]);
                 if (mem.eql(u8, ident_name, "_")) {
-                    any_non_const_lhs = true;
-                    lhs_rl.* = .discard;
+                    any_non_const_variables = true;
+                    variable_rl.* = .discard;
                     continue;
                 }
             },
             .global_var_decl, .local_var_decl, .simple_var_decl, .aligned_var_decl => {
-                const full = tree.fullVarDecl(lhs_node).?;
+                const full_var_decl = tree.fullVarDecl(variable_node).?;
 
-                const name_token = full.ast.mut_token + 1;
+                const name_token = full_var_decl.ast.mut_token + 1;
                 const ident_name_raw = tree.tokenSlice(name_token);
                 if (mem.eql(u8, ident_name_raw, "_")) {
                     return astgen.failTok(name_token, "'_' used as an identifier without @\"_\" syntax", .{});
@@ -3524,35 +3508,35 @@ fn assignDestructureMaybeDecls(
 
                 // We detect shadowing in the second pass over these, while we're creating scopes.
 
-                if (full.ast.addrspace_node != 0) {
-                    return astgen.failTok(main_tokens[full.ast.addrspace_node], "cannot set address space of local variable '{s}'", .{ident_name_raw});
+                if (full_var_decl.ast.addrspace_node != 0) {
+                    return astgen.failTok(main_tokens[full_var_decl.ast.addrspace_node], "cannot set address space of local variable '{s}'", .{ident_name_raw});
                 }
-                if (full.ast.section_node != 0) {
-                    return astgen.failTok(main_tokens[full.ast.section_node], "cannot set section of local variable '{s}'", .{ident_name_raw});
+                if (full_var_decl.ast.section_node != 0) {
+                    return astgen.failTok(main_tokens[full_var_decl.ast.section_node], "cannot set section of local variable '{s}'", .{ident_name_raw});
                 }
 
-                const is_const = switch (token_tags[full.ast.mut_token]) {
+                const is_const = switch (token_tags[full_var_decl.ast.mut_token]) {
                     .keyword_var => false,
                     .keyword_const => true,
                     else => unreachable,
                 };
-                if (!is_const) any_non_const_lhs = true;
+                if (!is_const) any_non_const_variables = true;
 
                 // We also mark `const`s as comptime if the RHS is definitely comptime-known.
-                const this_lhs_comptime = is_comptime or (is_const and rhs_is_comptime);
+                const this_variable_comptime = is_comptime or (is_const and value_is_comptime);
 
-                const align_inst: Zir.Inst.Ref = if (full.ast.align_node != 0)
-                    try expr(gz, scope, coerced_align_ri, full.ast.align_node)
+                const align_inst: Zir.Inst.Ref = if (full_var_decl.ast.align_node != 0)
+                    try expr(gz, scope, coerced_align_ri, full_var_decl.ast.align_node)
                 else
                     .none;
 
-                if (full.ast.type_node != 0) {
+                if (full_var_decl.ast.type_node != 0) {
                     // Typed alloc
-                    const type_inst = try typeExpr(gz, scope, full.ast.type_node);
+                    const type_inst = try typeExpr(gz, scope, full_var_decl.ast.type_node);
                     const ptr = if (align_inst == .none) ptr: {
                         const tag: Zir.Inst.Tag = if (is_const)
                             .alloc
-                        else if (this_lhs_comptime)
+                        else if (this_variable_comptime)
                             .alloc_comptime_mut
                         else
                             .alloc_mut;
@@ -3562,16 +3546,16 @@ fn assignDestructureMaybeDecls(
                         .type_inst = type_inst,
                         .align_inst = align_inst,
                         .is_const = is_const,
-                        .is_comptime = this_lhs_comptime,
+                        .is_comptime = this_variable_comptime,
                     });
-                    lhs_rl.* = .{ .typed_ptr = .{ .inst = ptr } };
+                    variable_rl.* = .{ .typed_ptr = .{ .inst = ptr } };
                 } else {
                     // Inferred alloc
                     const ptr = if (align_inst == .none) ptr: {
                         const tag: Zir.Inst.Tag = if (is_const) tag: {
-                            break :tag if (this_lhs_comptime) .alloc_inferred_comptime else .alloc_inferred;
+                            break :tag if (this_variable_comptime) .alloc_inferred_comptime else .alloc_inferred;
                         } else tag: {
-                            break :tag if (this_lhs_comptime) .alloc_inferred_comptime_mut else .alloc_inferred_mut;
+                            break :tag if (this_variable_comptime) .alloc_inferred_comptime_mut else .alloc_inferred_mut;
                         };
                         break :ptr try gz.addNode(tag, node);
                     } else try gz.addAllocExtended(.{
@@ -3579,48 +3563,48 @@ fn assignDestructureMaybeDecls(
                         .type_inst = .none,
                         .align_inst = align_inst,
                         .is_const = is_const,
-                        .is_comptime = this_lhs_comptime,
+                        .is_comptime = this_variable_comptime,
                     });
-                    lhs_rl.* = .{ .inferred_ptr = ptr };
+                    variable_rl.* = .{ .inferred_ptr = ptr };
                 }
 
                 continue;
             },
             else => {},
         }
-        // This LHS is just an lvalue expression.
+        // This variable is just an lvalue expression.
         // We will fill in its result pointer later, inside a comptime block.
-        any_non_const_lhs = true;
+        any_non_const_variables = true;
         any_lvalue_expr = true;
-        lhs_rl.* = .{ .typed_ptr = .{
+        variable_rl.* = .{ .typed_ptr = .{
             .inst = undefined,
-            .src_node = lhs_node,
+            .src_node = variable_node,
         } };
     }
 
-    if (declared_comptime and !any_non_const_lhs) {
-        try astgen.appendErrorTok(maybe_comptime_token, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
+    if (full.comptime_token != null and !any_non_const_variables) {
+        try astgen.appendErrorTok(full.comptime_token.?, "'comptime const' is redundant; instead wrap the initialization expression with 'comptime'", .{});
     }
 
     // If this expression is marked comptime, we must wrap it in a comptime block.
     var gz_buf: GenZir = undefined;
-    const inner_gz = if (declared_comptime) bs: {
+    const inner_gz = if (full.comptime_token) |_| bs: {
         gz_buf = gz.makeSubBlock(scope);
         gz_buf.is_comptime = true;
         break :bs &gz_buf;
     } else gz;
-    defer if (declared_comptime) inner_gz.unstack();
+    defer if (full.comptime_token) |_| inner_gz.unstack();
 
     if (any_lvalue_expr) {
-        // At least one LHS was an lvalue expr. Iterate again in order to
+        // At least one variable was an lvalue expr. Iterate again in order to
         // evaluate the lvalues from within the possible block_comptime.
-        for (rl_components, lhs_nodes) |*lhs_rl, lhs_node| {
-            if (lhs_rl.* != .typed_ptr) continue;
-            switch (node_tags[lhs_node]) {
+        for (rl_components, full.ast.variables) |*variable_rl, variable_node| {
+            if (variable_rl.* != .typed_ptr) continue;
+            switch (node_tags[variable_node]) {
                 .global_var_decl, .local_var_decl, .simple_var_decl, .aligned_var_decl => continue,
                 else => {},
             }
-            lhs_rl.typed_ptr.inst = try lvalExpr(inner_gz, scope, lhs_node);
+            variable_rl.typed_ptr.inst = try lvalExpr(inner_gz, scope, variable_node);
         }
     }
 
@@ -3629,9 +3613,9 @@ fn assignDestructureMaybeDecls(
     _ = try reachableExpr(inner_gz, scope, .{ .rl = .{ .destructure = .{
         .src_node = node,
         .components = rl_components,
-    } } }, rhs, node);
+    } } }, full.ast.value_expr, node);
 
-    if (declared_comptime) {
+    if (full.comptime_token) |_| {
         // Finish the block_comptime. Inferred alloc resolution etc will occur
         // in the parent block.
         const comptime_block_inst = try gz.makeBlockInst(.block_comptime, node);
@@ -3640,37 +3624,37 @@ fn assignDestructureMaybeDecls(
         try gz.instructions.append(gz.astgen.gpa, comptime_block_inst);
     }
 
-    // Now, iterate over the LHS exprs to construct any new scopes.
+    // Now, iterate over the variable exprs to construct any new scopes.
     // If there were any inferred allocations, resolve them.
     // If there were any `const` decls, make the pointer constant.
     var cur_scope = scope;
-    for (rl_components, lhs_nodes) |lhs_rl, lhs_node| {
-        switch (node_tags[lhs_node]) {
+    for (rl_components, full.ast.variables) |variable_rl, variable_node| {
+        switch (node_tags[variable_node]) {
             .local_var_decl, .simple_var_decl, .aligned_var_decl => {},
             else => continue, // We were mutating an existing lvalue - nothing to do
         }
-        const full = tree.fullVarDecl(lhs_node).?;
-        const raw_ptr = switch (lhs_rl) {
+        const full_var_decl = tree.fullVarDecl(variable_node).?;
+        const raw_ptr = switch (variable_rl) {
             .discard => unreachable,
             .typed_ptr => |typed_ptr| typed_ptr.inst,
             .inferred_ptr => |ptr_inst| ptr_inst,
         };
         // If the alloc was inferred, resolve it.
-        if (full.ast.type_node == 0) {
-            _ = try gz.addUnNode(.resolve_inferred_alloc, raw_ptr, lhs_node);
+        if (full_var_decl.ast.type_node == 0) {
+            _ = try gz.addUnNode(.resolve_inferred_alloc, raw_ptr, variable_node);
         }
-        const is_const = switch (token_tags[full.ast.mut_token]) {
+        const is_const = switch (token_tags[full_var_decl.ast.mut_token]) {
             .keyword_var => false,
             .keyword_const => true,
             else => unreachable,
         };
         // If the alloc was const, make it const.
-        const var_ptr = if (is_const and full.ast.type_node != 0) make_const: {
+        const var_ptr = if (is_const and full_var_decl.ast.type_node != 0) make_const: {
             // Note that we don't do this if type_node == 0 since `resolve_inferred_alloc`
             // handles it for us.
             break :make_const try gz.addUnNode(.make_ptr_const, raw_ptr, node);
         } else raw_ptr;
-        const name_token = full.ast.mut_token + 1;
+        const name_token = full_var_decl.ast.mut_token + 1;
         const ident_name_raw = tree.tokenSlice(name_token);
         const ident_name = try astgen.identAsString(name_token);
         try astgen.detectLocalShadowing(
