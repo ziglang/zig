@@ -9919,7 +9919,7 @@ fn zirParam(
                     .is_comptime = comptime_syntax,
                     .name = param_name,
                 });
-                sema.inst_map.putAssumeCapacityNoClobber(inst, .generic_poison);
+                sema.inst_map.putAssumeCapacity(inst, .generic_poison);
                 return;
             },
             else => |e| return e,
@@ -9936,7 +9936,7 @@ fn zirParam(
                 .is_comptime = comptime_syntax,
                 .name = param_name,
             });
-            sema.inst_map.putAssumeCapacityNoClobber(inst, .generic_poison);
+            sema.inst_map.putAssumeCapacity(inst, .generic_poison);
             return;
         },
         else => |e| return e,
@@ -9951,7 +9951,7 @@ fn zirParam(
     if (is_comptime) {
         // If this is a comptime parameter we can add a constant generic_poison
         // since this is also a generic parameter.
-        sema.inst_map.putAssumeCapacityNoClobber(inst, .generic_poison);
+        sema.inst_map.putAssumeCapacity(inst, .generic_poison);
     } else {
         // Otherwise we need a dummy runtime instruction.
         const result_index: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
@@ -9959,7 +9959,7 @@ fn zirParam(
             .tag = .alloc,
             .data = .{ .ty = param_ty },
         });
-        sema.inst_map.putAssumeCapacityNoClobber(inst, result_index.toRef());
+        sema.inst_map.putAssumeCapacity(inst, result_index.toRef());
     }
 }
 
