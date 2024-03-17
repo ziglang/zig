@@ -28,7 +28,6 @@ pub const EmptyStruct = struct {};
 
 test "optional pointer to size zero struct" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var e = EmptyStruct{};
     const o: ?*EmptyStruct = &e;
@@ -36,8 +35,6 @@ test "optional pointer to size zero struct" {
 }
 
 test "equality compare optional pointers" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try testNullPtrsEql();
     try comptime testNullPtrsEql();
 }
