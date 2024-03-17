@@ -55,6 +55,7 @@ pub fn emitMir(
         switch (tag) {
             .add => try emit.mirRType(inst),
             .sub => try emit.mirRType(inst),
+            .@"or" => try emit.mirRType(inst),
 
             .cmp_eq => try emit.mirRType(inst),
             .cmp_gt => try emit.mirRType(inst),
@@ -191,6 +192,7 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
         },
         .sllw => try emit.writeInstruction(Instruction.sllw(rd, rs1, rs2)),
         .srlw => try emit.writeInstruction(Instruction.srlw(rd, rs1, rs2)),
+        .@"or" => try emit.writeInstruction(Instruction.@"or"(rd, rs1, rs2)),
         else => unreachable,
     }
 }

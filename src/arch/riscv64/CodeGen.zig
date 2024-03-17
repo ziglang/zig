@@ -1537,9 +1537,47 @@ fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
 fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        if (true)
-            return self.fail("TODO: airByteSwap", .{});
-        break :result undefined;
+        const mod = self.bin_file.comp.module.?;
+        const ty = self.typeOf(ty_op.operand);
+        const operand = try self.resolveInst(ty_op.operand);
+
+        const int_bits = ty.intInfo(mod).bits;
+
+        // bytes are no-op
+        if (int_bits == 8 and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+            return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+        }
+
+        const dest_reg = try self.register_manager.allocReg(null, gp);
+        try self.genSetReg(ty, dest_reg, operand);
+
+        const dest_mcv: MCValue = .{ .register = dest_reg };
+
+        switch (int_bits) {
+            16 => {
+                const temp = try self.binOp(.shr, null, dest_mcv, .{ .immediate = 8 }, ty, Type.u8);
+                assert(temp == .register);
+                _ = try self.addInst(.{
+                    .tag = .slli,
+                    .data = .{ .i_type = .{
+                        .imm12 = 8,
+                        .rd = dest_reg,
+                        .rs1 = dest_reg,
+                    } },
+                });
+                _ = try self.addInst(.{
+                    .tag = .@"or",
+                    .data = .{ .r_type = .{
+                        .rd = dest_reg,
+                        .rs1 = dest_reg,
+                        .rs2 = temp.register,
+                    } },
+                });
+            },
+            else => return self.fail("TODO: {d} bits for airByteSwap", .{int_bits}),
+        }
+
+        break :result dest_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }

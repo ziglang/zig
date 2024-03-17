@@ -33,6 +33,9 @@ pub const Inst = struct {
         ebreak,
         ecall,
 
+        /// OR instruction. Uses r_type payload.
+        @"or",
+
         /// Addition
         add,
         /// Subtraction
