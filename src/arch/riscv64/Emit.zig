@@ -98,7 +98,11 @@ pub fn emitMir(
             .sh => try emit.mirIType(inst),
             .sb => try emit.mirIType(inst),
 
+            .srlw => try emit.mirRType(inst),
+            .sllw => try emit.mirRType(inst),
+
             .srli => try emit.mirIType(inst),
+            .slli => try emit.mirIType(inst),
 
             .ldr_ptr_stack => try emit.mirIType(inst),
 
@@ -173,14 +177,20 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const r_type = emit.mir.instructions.items(.data)[inst].r_type;
 
+    const rd = r_type.rd;
+    const rs1 = r_type.rs1;
+    const rs2 = r_type.rs2;
+
     switch (tag) {
-        .add => try emit.writeInstruction(Instruction.add(r_type.rd, r_type.rs1, r_type.rs2)),
-        .sub => try emit.writeInstruction(Instruction.sub(r_type.rd, r_type.rs1, r_type.rs2)),
-        .cmp_gt => try emit.writeInstruction(Instruction.slt(r_type.rd, r_type.rs1, r_type.rs2)),
+        .add => try emit.writeInstruction(Instruction.add(rd, rs1, rs2)),
+        .sub => try emit.writeInstruction(Instruction.sub(rd, rs1, rs2)),
+        .cmp_gt => try emit.writeInstruction(Instruction.slt(rd, rs1, rs2)),
         .cmp_eq => {
-            try emit.writeInstruction(Instruction.xor(r_type.rd, r_type.rs1, r_type.rs2));
-            try emit.writeInstruction(Instruction.sltiu(r_type.rd, r_type.rd, 1));
+            try emit.writeInstruction(Instruction.xor(rd, rs1, rs2));
+            try emit.writeInstruction(Instruction.sltiu(rd, rd, 1));
         },
+        .sllw => try emit.writeInstruction(Instruction.sllw(rd, rs1, rs2)),
+        .srlw => try emit.writeInstruction(Instruction.srlw(rd, rs1, rs2)),
         else => unreachable,
     }
 }
@@ -231,6 +241,7 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
         },
 
         .srli => try emit.writeInstruction(Instruction.srli(i_type.rd, i_type.rs1, @intCast(i_type.imm12))),
+        .slli => try emit.writeInstruction(Instruction.slli(i_type.rd, i_type.rs1, @intCast(i_type.imm12))),
 
         else => unreachable,
     }

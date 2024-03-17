@@ -41,8 +41,14 @@ pub const Inst = struct {
         /// Absolute Value, uses i_type payload.
         abs,
 
-        /// Logical Right Shift, uses i_type payload
+        /// Immediate Logical Right Shift, uses i_type payload
         srli,
+        /// Immediate Logical Left Shift, uses i_type payload
+        slli,
+        /// Register Logical Left Shift, uses r_type payload
+        sllw,
+        /// Register Logical Right Shit, uses r_type payload
+        srlw,
 
         jal,
         /// Jumps. Uses `inst` payload.

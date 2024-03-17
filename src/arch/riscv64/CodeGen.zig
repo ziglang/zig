@@ -928,6 +928,8 @@ fn binOpRegister(
         .sub => .sub,
         .cmp_eq => .cmp_eq,
         .cmp_gt => .cmp_gt,
+        .shl => .sllw,
+        .shr => .srlw,
         else => return self.fail("TODO: binOpRegister {s}", .{@tagName(tag)}),
     };
 
@@ -938,6 +940,84 @@ fn binOpRegister(
                 .rd = dest_reg,
                 .rs1 = lhs_reg,
                 .rs2 = rhs_reg,
+            },
+        },
+    });
+
+    // generate the struct for OF checks
+
+    return MCValue{ .register = dest_reg };
+}
+
+/// Don't call this function directly. Use binOp instead.
+///
+/// Call this function if rhs is an immediate. Generates I version of binops.
+///
+/// Asserts that rhs is an immediate MCValue
+fn binOpImm(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    _ = rhs_ty;
+    assert(rhs == .immediate);
+
+    const lhs_is_register = lhs == .register;
+
+    const lhs_lock: ?RegisterLock = if (lhs_is_register)
+        self.register_manager.lockReg(lhs.register)
+    else
+        null;
+    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
+
+    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
+        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
+            const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+            break :inst bin_op.lhs.toIndex().?;
+        } else null;
+
+        const reg = try self.register_manager.allocReg(track_inst, gp);
+
+        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
+
+        break :blk reg;
+    };
+    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
+    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
+
+    const dest_reg = if (maybe_inst) |inst| blk: {
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+        if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
+            break :blk lhs_reg;
+        } else {
+            break :blk try self.register_manager.allocReg(inst, gp);
+        }
+    } else try self.register_manager.allocReg(null, gp);
+
+    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
+
+    const mir_tag: Mir.Inst.Tag = switch (tag) {
+        .shl => .slli,
+        .shr => .srli,
+        else => return self.fail("TODO: binOpImm {s}", .{@tagName(tag)}),
+    };
+
+    _ = try self.addInst(.{
+        .tag = mir_tag,
+        .data = .{
+            .i_type = .{
+                .rd = dest_reg,
+                .rs1 = lhs_reg,
+                .imm12 = math.cast(i12, rhs.immediate) orelse {
+                    return self.fail("TODO: binOpImm larger than i12 i_type payload", .{});
+                },
             },
         },
     });
@@ -989,8 +1069,10 @@ fn binOp(
                     assert(lhs_ty.eql(rhs_ty, mod));
                     const int_info = lhs_ty.intInfo(mod);
                     if (int_info.bits <= 64) {
-                        // TODO immediate operands
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        if (rhs == .immediate) {
+                            return self.binOpImm(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
+                        return self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
@@ -1020,6 +1102,28 @@ fn binOp(
                         return try self.binOpRegister(base_tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO ptr_add with elem_size > 1", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
+
+        // These instructions have unsymteric bit sizes.
+        .shr,
+        .shl,
+        => {
+            switch (lhs_ty.zigTypeTag(mod)) {
+                .Float => return self.fail("TODO binary operations on floats", .{}),
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => {
+                    const int_info = lhs_ty.intInfo(mod);
+                    if (int_info.bits <= 64) {
+                        if (rhs == .immediate) {
+                            return self.binOpImm(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
+                        return self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                    } else {
+                        return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
                 },
                 else => unreachable,
@@ -1163,7 +1267,13 @@ fn airXor(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airShl(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        const rhs_ty = self.typeOf(bin_op.rhs);
+        break :result try self.binOp(.shl, inst, lhs, rhs, lhs_ty, rhs_ty);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1426,7 +1536,11 @@ fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airByteSwap for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        if (true)
+            return self.fail("TODO: airByteSwap", .{});
+        break :result undefined;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
