@@ -47,8 +47,8 @@ fn addOptionFallible(self: *Options, comptime T: type, name: []const u8, value: 
 fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u8, name: ?[]const u8) !void {
     switch (T) {
         []const []const u8 => {
-            if (name != null) {
-                try out.print("pub const {}: []const []const u8 = ", .{std.zig.fmtId(name.?)});
+            if (name) |payload| {
+                try out.print("pub const {}: []const []const u8 = ", .{std.zig.fmtId(payload)});
             }
 
             try out.writeAll("&[_][]const u8{\n");
@@ -272,72 +272,72 @@ fn printUserDefinedType(self: *Options, out: anytype, comptime T: type, indent: 
 
 fn printEnum(self: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Enum, indent: u8) !void {
     const gop = try self.encountered_types.getOrPut(@typeName(T));
-    if (!gop.found_existing) {
+    if (gop.found_existing) return;
+
+    try out.writeByteNTimes(' ', indent);
+    try out.print("pub const {} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
+
+    inline for (val.fields) |field| {
         try out.writeByteNTimes(' ', indent);
-        try out.print("pub const {} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
-
-        inline for (val.fields) |field| {
-            try out.writeByteNTimes(' ', indent);
-            try out.print("    {} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
-        }
-
-        if (!val.is_exhaustive) {
-            try out.writeByteNTimes(' ', indent);
-            try out.writeAll("    _,\n");
-        }
-
-        try out.writeByteNTimes(' ', indent);
-        try out.writeAll("};\n");
+        try out.print("    {} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
     }
+
+    if (!val.is_exhaustive) {
+        try out.writeByteNTimes(' ', indent);
+        try out.writeAll("    _,\n");
+    }
+
+    try out.writeByteNTimes(' ', indent);
+    try out.writeAll("};\n");
 }
 
 fn printStruct(self: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
     const gop = try self.encountered_types.getOrPut(@typeName(T));
-    if (!gop.found_existing) {
-        try out.writeByteNTimes(' ', indent);
-        try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
+    if (gop.found_existing) return;
 
-        switch (val.layout) {
-            .@"extern" => try out.writeAll("extern struct"),
-            .@"packed" => try out.writeAll("packed struct"),
-            else => try out.writeAll("struct"),
-        }
+    try out.writeByteNTimes(' ', indent);
+    try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
 
-        try out.writeAll(" {\n");
-
-        inline for (val.fields) |field| {
-            try out.writeByteNTimes(' ', indent);
-
-            const type_name = @typeName(field.type);
-
-            // If the type name doesn't contains a '.' the type is from zig builtins.
-            if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
-                try out.print("    {}: {}", .{ std.zig.fmtId(field.name), std.zig.fmtId(type_name) });
-            } else {
-                try out.print("    {}: {s}", .{ std.zig.fmtId(field.name), type_name });
-            }
-
-            if (field.default_value != null) {
-                const default_value = @as(*field.type, @ptrCast(@alignCast(@constCast(field.default_value.?)))).*;
-
-                try out.writeAll(" = ");
-                switch (@typeInfo(@TypeOf(default_value))) {
-                    .Enum => try out.print(".{s},\n", .{@tagName(default_value)}),
-                    .Struct => |info| {
-                        try printStructValue(self, out, info, default_value, indent + 4);
-                    },
-                    else => try printType(self, out, @TypeOf(default_value), default_value, indent, null),
-                }
-            } else {
-                try out.writeAll(",\n");
-            }
-        }
-
-        // TODO: write declarations
-
-        try out.writeByteNTimes(' ', indent);
-        try out.writeAll("};\n");
+    switch (val.layout) {
+        .@"extern" => try out.writeAll("extern struct"),
+        .@"packed" => try out.writeAll("packed struct"),
+        else => try out.writeAll("struct"),
     }
+
+    try out.writeAll(" {\n");
+
+    inline for (val.fields) |field| {
+        try out.writeByteNTimes(' ', indent);
+
+        const type_name = @typeName(field.type);
+
+        // If the type name doesn't contains a '.' the type is from zig builtins.
+        if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
+            try out.print("    {}: {}", .{ std.zig.fmtId(field.name), std.zig.fmtId(type_name) });
+        } else {
+            try out.print("    {}: {s}", .{ std.zig.fmtId(field.name), type_name });
+        }
+
+        if (field.default_value != null) {
+            const default_value = @as(*field.type, @ptrCast(@alignCast(@constCast(field.default_value.?)))).*;
+
+            try out.writeAll(" = ");
+            switch (@typeInfo(@TypeOf(default_value))) {
+                .Enum => try out.print(".{s},\n", .{@tagName(default_value)}),
+                .Struct => |info| {
+                    try printStructValue(self, out, info, default_value, indent + 4);
+                },
+                else => try printType(self, out, @TypeOf(default_value), default_value, indent, null),
+            }
+        } else {
+            try out.writeAll(",\n");
+        }
+    }
+
+    // TODO: write declarations
+
+    try out.writeByteNTimes(' ', indent);
+    try out.writeAll("};\n");
 
     inline for (val.fields) |field| {
         try printUserDefinedType(self, out, field.type, 0);
