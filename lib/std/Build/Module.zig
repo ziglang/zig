@@ -539,6 +539,14 @@ pub fn addIncludePath(m: *Module, lazy_path: LazyPath) void {
     addLazyPathDependenciesOnly(m, lazy_path);
 }
 
+pub fn addOtherIncludePath(m: *Module, other: *Step.Compile) void {
+    const b = m.owner;
+    m.include_dirs.append(b.allocator, .{ .other_step = other }) catch @panic("OOM");
+    for (other.installed_headers.items) |install_step| {
+        addStepDependenciesOnly(m, install_step);
+    }
+}
+
 pub fn addConfigHeader(m: *Module, config_header: *Step.ConfigHeader) void {
     const allocator = m.owner.allocator;
     m.include_dirs.append(allocator, .{ .config_header_step = config_header }) catch @panic("OOM");
