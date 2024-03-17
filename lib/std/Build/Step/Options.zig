@@ -67,24 +67,24 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             return;
         },
         []const u8 => {
-            if (name != null) {
-                try out.print("pub const {}: []const u8 = \"{}\";", .{ std.zig.fmtId(name.?), std.zig.fmtEscapes(value) });
+            if (name) |some| {
+                try out.print("pub const {}: []const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
             } else {
                 try out.print("\"{}\",", .{std.zig.fmtEscapes(value)});
             }
             return out.writeAll("\n");
         },
         [:0]const u8 => {
-            if (name != null) {
-                try out.print("pub const {}: [:0]const u8 = \"{}\";", .{ std.zig.fmtId(name.?), std.zig.fmtEscapes(value) });
+            if (name) |some| {
+                try out.print("pub const {}: [:0]const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
             } else {
                 try out.print("\"{}\",", .{std.zig.fmtEscapes(value)});
             }
             return out.writeAll("\n");
         },
         ?[]const u8 => {
-            if (name != null) {
-                try out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(name.?)});
+            if (name) |some| {
+                try out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(some)});
             }
 
             if (value) |payload| {
@@ -101,8 +101,8 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             return;
         },
         ?[:0]const u8 => {
-            if (name != null) {
-                try out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(name.?)});
+            if (name) |some| {
+                try out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(some)});
             }
 
             if (value) |payload| {
@@ -119,8 +119,8 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             return;
         },
         std.SemanticVersion => {
-            if (name != null) {
-                try out.print("pub const {}: @import(\"std\").SemanticVersion = ", .{std.zig.fmtId(name.?)});
+            if (name) |some| {
+                try out.print("pub const {}: @import(\"std\").SemanticVersion = ", .{std.zig.fmtId(some)});
             }
 
             try out.writeAll(".{\n");
@@ -152,8 +152,8 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
 
     switch (@typeInfo(T)) {
         .Array => {
-            if (name != null) {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name.?), @typeName(T) });
+            if (name) |some| {
+                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
 
             try out.print("{s} {{\n", .{@typeName(T)});
@@ -176,8 +176,8 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
                 @compileError("Non-slice pointers are not yet supported in build options");
             }
 
-            if (name != null) {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name.?), @typeName(T) });
+            if (name) |some| {
+                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
 
             try out.print("&[_]{s} {{\n", .{@typeName(p.child)});
@@ -196,8 +196,8 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             return;
         },
         .Optional => {
-            if (name != null) {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(name.?), @typeName(T) });
+            if (name) |some| {
+                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
 
             if (value) |inner| {
@@ -223,8 +223,8 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
         .Float,
         .Null,
         => {
-            if (name != null) {
-                try out.print("pub const {}: {s} = {any};\n", .{ std.zig.fmtId(name.?), @typeName(T), value });
+            if (name) |some| {
+                try out.print("pub const {}: {s} = {any};\n", .{ std.zig.fmtId(some), @typeName(T), value });
             } else {
                 try out.print("{any},\n", .{value});
             }
@@ -233,9 +233,9 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
         .Enum => |info| {
             try printEnum(self, out, T, info, indent);
 
-            if (name != null) {
+            if (name) |some| {
                 try out.print("pub const {}: {s} = .{s};\n", .{
-                    std.zig.fmtId(name.?),
+                    std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                     std.zig.fmtId(@tagName(value)),
                 });
@@ -245,9 +245,9 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
         .Struct => |info| {
             try printStruct(self, out, T, info, indent);
 
-            if (name != null) {
+            if (name) |some| {
                 try out.print("pub const {}: {s} = ", .{
-                    std.zig.fmtId(name.?),
+                    std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                 });
                 try printStructValue(self, out, info, value, indent);
