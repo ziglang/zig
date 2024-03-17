@@ -414,7 +414,7 @@ pub const WindowsDynLib = struct {
 };
 
 pub const DlDynLib = struct {
-    pub const Error = error{FileNotFound};
+    pub const Error = error{ FileNotFound, NameTooLong };
 
     handle: *anyopaque,
 
