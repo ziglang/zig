@@ -6675,7 +6675,7 @@ fn accessLibPath(
         return true;
     }
 
-    if (target.os.tag == .openbsd and link_mode == .Dynamic) find_maj_min_sh_lib: {
+    if (target.os.tag == .openbsd and link_mode == .dynamic) find_maj_min_sh_lib: {
         test_path.clearRetainingCapacity();
 
         var dir = fs.cwd().openDir(lib_dir_path, .{}) catch |err| switch (err) {
