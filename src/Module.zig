@@ -1897,8 +1897,11 @@ pub const SrcLoc = struct {
                 const parent_node = src_loc.declRelativeToNodeIndex(node_off);
 
                 var buf: [2]Ast.Node.Index = undefined;
-                const full = tree.fullArrayInit(&buf, parent_node).?;
-                return tree.nodeToSpan(full.ast.type_expr);
+                const type_expr = if (tree.fullArrayInit(&buf, parent_node)) |array_init|
+                    array_init.ast.type_expr
+                else
+                    tree.fullStructInit(&buf, parent_node).?.ast.type_expr;
+                return tree.nodeToSpan(type_expr);
             },
             .node_offset_store_ptr => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);

@@ -19753,7 +19753,8 @@ fn zirStructInitEmpty(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = inst_data.src();
-    const obj_ty = try sema.resolveType(block, src, inst_data.operand);
+    const ty_src: LazySrcLoc = .{ .node_offset_init_ty = inst_data.src_node };
+    const obj_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     const mod = sema.mod;
 
     switch (obj_ty.zigTypeTag(mod)) {

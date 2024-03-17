@@ -254,7 +254,11 @@ pub const Type = struct {
             .error_union_type => |error_union_type| {
                 try print(Type.fromInterned(error_union_type.error_set_type), writer, mod);
                 try writer.writeByte('!');
-                try print(Type.fromInterned(error_union_type.payload_type), writer, mod);
+                if (error_union_type.payload_type == .generic_poison_type) {
+                    try writer.writeAll("anytype");
+                } else {
+                    try print(Type.fromInterned(error_union_type.payload_type), writer, mod);
+                }
                 return;
             },
             .inferred_error_set_type => |func_index| {
