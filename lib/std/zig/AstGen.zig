@@ -1369,16 +1369,16 @@ fn fnProtoExpr(
         break :is_var_args false;
     };
 
-    const align_ref: Zir.Inst.Ref = if (fn_proto.ast.align_expr == 0) .none else inst: {
-        break :inst try expr(&block_scope, scope, coerced_align_ri, fn_proto.ast.align_expr);
-    };
+    if (fn_proto.ast.align_expr != 0) {
+        return astgen.failNode(fn_proto.ast.align_expr, "function type cannot have an alignment", .{});
+    }
 
     if (fn_proto.ast.addrspace_expr != 0) {
-        return astgen.failNode(fn_proto.ast.addrspace_expr, "addrspace not allowed on function prototypes", .{});
+        return astgen.failNode(fn_proto.ast.addrspace_expr, "function type cannot have an addrspace", .{});
     }
 
     if (fn_proto.ast.section_expr != 0) {
-        return astgen.failNode(fn_proto.ast.section_expr, "linksection not allowed on function prototypes", .{});
+        return astgen.failNode(fn_proto.ast.section_expr, "function type cannot have a linksection", .{});
     }
 
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
@@ -1394,7 +1394,7 @@ fn fnProtoExpr(
     const maybe_bang = tree.firstToken(fn_proto.ast.return_type) - 1;
     const is_inferred_error = token_tags[maybe_bang] == .bang;
     if (is_inferred_error) {
-        return astgen.failTok(maybe_bang, "function prototype may not have inferred error set", .{});
+        return astgen.failTok(maybe_bang, "function type cannot have an inferred error set", .{});
     }
     const ret_ty = try expr(&block_scope, scope, coerced_type_ri, fn_proto.ast.return_type);
 
@@ -1403,7 +1403,7 @@ fn fnProtoExpr(
 
         .cc_ref = cc,
         .cc_gz = null,
-        .align_ref = align_ref,
+        .align_ref = .none,
         .align_gz = null,
         .ret_ref = ret_ty,
         .ret_gz = null,

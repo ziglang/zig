@@ -3596,6 +3596,18 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
 
+    const old_has_tv = decl.has_tv;
+    // The following values are ignored if `!old_has_tv`
+    const old_ty = decl.ty;
+    const old_val = decl.val;
+    const old_align = decl.alignment;
+    const old_linksection = decl.@"linksection";
+    const old_addrspace = decl.@"addrspace";
+    const old_is_inline = if (decl.getOwnedFunction(mod)) |prev_func|
+        prev_func.analysis(ip).state == .inline_only
+    else
+        false;
+
     const decl_inst = decl.zir_decl_index.unwrap().?.resolve(ip);
 
     const gpa = mod.gpa;
@@ -3733,141 +3745,96 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         };
     }
 
-    switch (ip.indexToKey(decl_tv.val.toIntern())) {
-        .func => |func| {
-            const owns_tv = func.owner_decl == decl_index;
-            if (owns_tv) {
-                var prev_type_has_bits = false;
-                var prev_is_inline = false;
-                var type_changed = true;
-
-                if (decl.has_tv) {
-                    prev_type_has_bits = decl.ty.isFnOrHasRuntimeBits(mod);
-                    type_changed = !decl.ty.eql(decl_tv.ty, mod);
-                    if (decl.getOwnedFunction(mod)) |prev_func| {
-                        prev_is_inline = prev_func.analysis(ip).state == .inline_only;
-                    }
-                }
-
-                decl.ty = decl_tv.ty;
-                decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
-                // linksection, align, and addrspace were already set by Sema
-                decl.has_tv = true;
-                decl.owns_tv = owns_tv;
-                decl.analysis = .complete;
-
-                const is_inline = decl.ty.fnCallingConvention(mod) == .Inline;
-                if (decl.is_exported) {
-                    const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
-                    if (is_inline) {
-                        return sema.fail(&block_scope, export_src, "export of inline function", .{});
-                    }
-                    // The scope needs to have the decl in it.
-                    try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
-                }
-                // TODO: align, linksection, addrspace?
-                const changed = type_changed or is_inline != prev_is_inline;
-                return .{
-                    .invalidate_decl_val = changed,
-                    .invalidate_decl_ref = changed,
-                };
-            }
-        },
-        else => {},
-    }
-
-    decl.owns_tv = false;
-    var queue_linker_work = false;
-    var is_extern = false;
+    var queue_linker_work = true;
+    var is_func = false;
+    var is_inline = false;
     switch (decl_tv.val.toIntern()) {
         .generic_poison => unreachable,
         .unreachable_value => unreachable,
         else => switch (ip.indexToKey(decl_tv.val.toIntern())) {
-            .variable => |variable| if (variable.decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
+            .variable => |variable| {
+                decl.owns_tv = variable.decl == decl_index;
+                queue_linker_work = decl.owns_tv;
             },
 
-            .extern_func => |extern_fn| if (extern_fn.decl == decl_index) {
-                decl.owns_tv = true;
-                queue_linker_work = true;
-                is_extern = true;
+            .extern_func => |extern_func| {
+                decl.owns_tv = extern_func.decl == decl_index;
+                queue_linker_work = decl.owns_tv;
+                is_func = decl.owns_tv;
             },
 
-            .func => {},
-
-            else => {
-                queue_linker_work = true;
+            .func => |func| {
+                decl.owns_tv = func.owner_decl == decl_index;
+                queue_linker_work = false;
+                is_inline = decl.owns_tv and decl_tv.ty.fnCallingConvention(mod) == .Inline;
+                is_func = decl.owns_tv;
             },
+
+            else => {},
         },
     }
 
-    const old_has_tv = decl.has_tv;
-    // The following values are ignored if `!old_has_tv`
-    const old_ty = decl.ty;
-    const old_val = decl.val;
-    const old_align = decl.alignment;
-    const old_linksection = decl.@"linksection";
-    const old_addrspace = decl.@"addrspace";
-
     decl.ty = decl_tv.ty;
     decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
-    decl.alignment = blk: {
-        const align_body = decl_bodies.align_body orelse break :blk .none;
-        const align_ref = try sema.resolveInlineBody(&block_scope, align_body, decl_inst);
-        break :blk try sema.analyzeAsAlign(&block_scope, align_src, align_ref);
-    };
-    decl.@"linksection" = blk: {
-        const linksection_body = decl_bodies.linksection_body orelse break :blk .none;
-        const linksection_ref = try sema.resolveInlineBody(&block_scope, linksection_body, decl_inst);
-        const bytes = try sema.toConstString(&block_scope, section_src, linksection_ref, .{
-            .needed_comptime_reason = "linksection must be comptime-known",
-        });
-        if (mem.indexOfScalar(u8, bytes, 0) != null) {
-            return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
-        } else if (bytes.len == 0) {
-            return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
-        }
-        const section = try ip.getOrPutString(gpa, bytes);
-        break :blk section.toOptional();
-    };
-    decl.@"addrspace" = blk: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_tv.val.toIntern())) {
-            .variable => .variable,
-            .extern_func, .func => .function,
-            else => .constant,
+    // Function linksection, align, and addrspace were already set by Sema
+    if (!is_func) {
+        decl.alignment = blk: {
+            const align_body = decl_bodies.align_body orelse break :blk .none;
+            const align_ref = try sema.resolveInlineBody(&block_scope, align_body, decl_inst);
+            break :blk try sema.analyzeAsAlign(&block_scope, align_src, align_ref);
         };
-
-        const target = sema.mod.getTarget();
-
-        const addrspace_body = decl_bodies.addrspace_body orelse break :blk switch (addrspace_ctx) {
-            .function => target_util.defaultAddressSpace(target, .function),
-            .variable => target_util.defaultAddressSpace(target, .global_mutable),
-            .constant => target_util.defaultAddressSpace(target, .global_constant),
-            else => unreachable,
+        decl.@"linksection" = blk: {
+            const linksection_body = decl_bodies.linksection_body orelse break :blk .none;
+            const linksection_ref = try sema.resolveInlineBody(&block_scope, linksection_body, decl_inst);
+            const bytes = try sema.toConstString(&block_scope, section_src, linksection_ref, .{
+                .needed_comptime_reason = "linksection must be comptime-known",
+            });
+            if (mem.indexOfScalar(u8, bytes, 0) != null) {
+                return sema.fail(&block_scope, section_src, "linksection cannot contain null bytes", .{});
+            } else if (bytes.len == 0) {
+                return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
+            }
+            const section = try ip.getOrPutString(gpa, bytes);
+            break :blk section.toOptional();
         };
-        const addrspace_ref = try sema.resolveInlineBody(&block_scope, addrspace_body, decl_inst);
-        break :blk try sema.analyzeAsAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx);
-    };
+        decl.@"addrspace" = blk: {
+            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_tv.val.toIntern())) {
+                .variable => .variable,
+                .extern_func, .func => .function,
+                else => .constant,
+            };
+
+            const target = sema.mod.getTarget();
+
+            const addrspace_body = decl_bodies.addrspace_body orelse break :blk switch (addrspace_ctx) {
+                .function => target_util.defaultAddressSpace(target, .function),
+                .variable => target_util.defaultAddressSpace(target, .global_mutable),
+                .constant => target_util.defaultAddressSpace(target, .global_constant),
+                else => unreachable,
+            };
+            const addrspace_ref = try sema.resolveInlineBody(&block_scope, addrspace_body, decl_inst);
+            break :blk try sema.analyzeAsAddressSpace(&block_scope, address_space_src, addrspace_ref, addrspace_ctx);
+        };
+    }
     decl.has_tv = true;
     decl.analysis = .complete;
 
     const result: SemaDeclResult = if (old_has_tv) .{
-        .invalidate_decl_val = !decl.ty.eql(old_ty, mod) or !decl.val.eql(old_val, decl.ty, mod),
+        .invalidate_decl_val = !decl.ty.eql(old_ty, mod) or
+            !decl.val.eql(old_val, decl.ty, mod) or
+            is_inline != old_is_inline,
         .invalidate_decl_ref = !decl.ty.eql(old_ty, mod) or
             decl.alignment != old_align or
             decl.@"linksection" != old_linksection or
-            decl.@"addrspace" != old_addrspace,
+            decl.@"addrspace" != old_addrspace or
+            is_inline != old_is_inline,
     } else .{
         .invalidate_decl_val = true,
         .invalidate_decl_ref = true,
     };
 
-    const has_runtime_bits = is_extern or
-        (queue_linker_work and try sema.typeHasRuntimeBits(decl.ty));
-
+    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl.ty));
     if (has_runtime_bits) {
-
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
         try sema.resolveTypeFully(decl.ty);
@@ -3881,6 +3848,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     if (decl.is_exported) {
         const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
+        if (is_inline) return sema.fail(&block_scope, export_src, "export of inline function", .{});
         // The scope needs to have the decl in it.
         try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
     }

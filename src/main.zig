@@ -4995,6 +4995,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             } else .{
                 .root = .{
                     .root_dir = zig_lib_directory,
+                    .sub_path = "compiler",
                 },
                 .root_src_path = "build_runner.zig",
             };

@@ -1635,7 +1635,7 @@ pub const DeclGen = struct {
 
         switch (kind) {
             .forward => {},
-            .complete => if (fn_info.alignment.toByteUnitsOptional()) |a| {
+            .complete => if (fn_decl.alignment.toByteUnitsOptional()) |a| {
                 try w.print("{}zig_align_fn({})", .{ trailing, a });
                 trailing = .maybe_space;
             },
@@ -1666,7 +1666,7 @@ pub const DeclGen = struct {
 
         switch (kind) {
             .forward => {
-                if (fn_info.alignment.toByteUnitsOptional()) |a| {
+                if (fn_decl.alignment.toByteUnitsOptional()) |a| {
                     try w.print(" zig_align_fn({})", .{a});
                 }
                 switch (name) {

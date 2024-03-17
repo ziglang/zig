@@ -7605,7 +7605,6 @@ fn analyzeCall(
             .param_types = new_param_types,
             .return_type = owner_info.return_type,
             .noalias_bits = owner_info.noalias_bits,
-            .alignment = if (owner_info.align_is_generic) null else owner_info.alignment,
             .cc = if (owner_info.cc_is_generic) null else owner_info.cc,
             .is_var_args = owner_info.is_var_args,
             .is_noinline = owner_info.is_noinline,
@@ -9629,7 +9628,6 @@ fn funcCommon(
         .comptime_bits = comptime_bits,
         .return_type = bare_return_type.toIntern(),
         .cc = cc,
-        .alignment = alignment,
         .section_is_generic = section == .generic,
         .addrspace_is_generic = address_space == null,
         .is_var_args = var_args,
@@ -9640,6 +9638,7 @@ fn funcCommon(
     if (is_extern) {
         assert(comptime_bits == 0);
         assert(cc != null);
+        assert(alignment != null);
         assert(section != .generic);
         assert(address_space != null);
         assert(!is_generic);
@@ -17623,8 +17622,6 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const field_values = .{
                 // calling_convention: CallingConvention,
                 (try mod.enumValueFieldIndex(callconv_ty, @intFromEnum(func_ty_info.cc))).toIntern(),
-                // alignment: comptime_int,
-                (try mod.intValue(Type.comptime_int, ty.abiAlignment(mod).toByteUnits(0))).toIntern(),
                 // is_generic: bool,
                 Value.makeBool(func_ty_info.is_generic).toIntern(),
                 // is_var_args: bool,
@@ -19701,12 +19698,6 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         if (inst_data.size != .One) {
             return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
         }
-        const fn_align = mod.typeToFunc(elem_ty).?.alignment;
-        if (inst_data.flags.has_align and abi_align != .none and fn_align != .none and
-            abi_align != fn_align)
-        {
-            return sema.fail(block, align_src, "function pointer alignment disagrees with function alignment", .{});
-        }
     } else if (inst_data.size == .Many and elem_ty.zigTypeTag(mod) == .Opaque) {
         return sema.fail(block, elem_ty_src, "unknown-length pointer to opaque not allowed", .{});
     } else if (inst_data.size == .C) {
@@ -21030,7 +21021,6 @@ fn zirReify(
         .needed_comptime_reason = "operand to @Type must be comptime-known",
     });
     const union_val = ip.indexToKey(val.toIntern()).un;
-    const target = mod.getTarget();
     if (try Value.fromInterned(union_val.val).anyUndef(mod)) return sema.failWithUseOfUndef(block, src);
     const tag_index = type_info_ty.unionTagFieldIndex(Value.fromInterned(union_val.tag), mod).?;
     switch (@as(std.builtin.TypeId, @enumFromInt(tag_index))) {
@@ -21170,12 +21160,6 @@ fn zirReify(
             } else if (elem_ty.zigTypeTag(mod) == .Fn) {
                 if (ptr_size != .One) {
                     return sema.fail(block, src, "function pointers must be single pointers", .{});
-                }
-                const fn_align = mod.typeToFunc(elem_ty).?.alignment;
-                if (abi_align != .none and fn_align != .none and
-                    abi_align != fn_align)
-                {
-                    return sema.fail(block, src, "function pointer alignment disagrees with function alignment", .{});
                 }
             } else if (ptr_size == .Many and elem_ty.zigTypeTag(mod) == .Opaque) {
                 return sema.fail(block, src, "unknown-length pointer to opaque not allowed", .{});
@@ -21429,10 +21413,6 @@ fn zirReify(
                 ip,
                 try ip.getOrPutString(gpa, "calling_convention"),
             ).?);
-            const alignment_val = try Value.fromInterned(union_val.val).fieldValue(mod, struct_type.nameIndex(
-                ip,
-                try ip.getOrPutString(gpa, "alignment"),
-            ).?);
             const is_generic_val = try Value.fromInterned(union_val.val).fieldValue(mod, struct_type.nameIndex(
                 ip,
                 try ip.getOrPutString(gpa, "is_generic"),
@@ -21461,11 +21441,6 @@ fn zirReify(
                 try sema.checkCallConvSupportsVarArgs(block, src, cc);
             }
 
-            const alignment = alignment: {
-                const alignment = try sema.validateAlignAllowZero(block, src, try alignment_val.toUnsignedIntAdvanced(sema));
-                const default = target_util.defaultFunctionAlignment(target);
-                break :alignment if (alignment == default) .none else alignment;
-            };
             const return_type = return_type_val.optionalValue(mod) orelse
                 return sema.fail(block, src, "Type.Fn.return_type must be non-null for @Type", .{});
 
@@ -21510,7 +21485,6 @@ fn zirReify(
                 .param_types = param_types,
                 .noalias_bits = noalias_bits,
                 .return_type = return_type.toIntern(),
-                .alignment = alignment,
                 .cc = cc,
                 .is_var_args = is_var_args,
             });
@@ -32536,16 +32510,21 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
     const mod = sema.mod;
     try sema.ensureDeclAnalyzed(decl_index);
 
-    const decl = mod.declPtr(decl_index);
-    const decl_tv = try decl.typedValue();
+    const decl_tv = try mod.declPtr(decl_index).typedValue();
+    const owner_decl = mod.declPtr(switch (mod.intern_pool.indexToKey(decl_tv.val.toIntern())) {
+        .variable => |variable| variable.decl,
+        .extern_func => |extern_func| extern_func.decl,
+        .func => |func| func.owner_decl,
+        else => decl_index,
+    });
     // TODO: if this is a `decl_ref` of a non-variable decl, only depend on decl type
     try sema.declareDependency(.{ .decl_val = decl_index });
     const ptr_ty = try sema.ptrType(.{
         .child = decl_tv.ty.toIntern(),
         .flags = .{
-            .alignment = decl.alignment,
-            .is_const = if (decl.val.getVariable(mod)) |variable| variable.is_const else true,
-            .address_space = decl.@"addrspace",
+            .alignment = owner_decl.alignment,
+            .is_const = if (decl_tv.val.getVariable(mod)) |variable| variable.is_const else true,
+            .address_space = owner_decl.@"addrspace",
         },
     });
     if (analyze_fn_body) {

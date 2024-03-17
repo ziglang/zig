@@ -396,9 +396,6 @@ pub const Type = struct {
                     try writer.writeAll("...");
                 }
                 try writer.writeAll(") ");
-                if (fn_info.alignment.toByteUnitsOptional()) |a| {
-                    try writer.print("align({d}) ", .{a});
-                }
                 if (fn_info.cc != .Unspecified) {
                     try writer.writeAll("callconv(.");
                     try writer.writeAll(@tagName(fn_info.cc));
@@ -949,12 +946,7 @@ pub const Type = struct {
                 },
 
                 // represents machine code; not a pointer
-                .func_type => |func_type| return .{
-                    .scalar = if (func_type.alignment != .none)
-                        func_type.alignment
-                    else
-                        target_util.defaultFunctionAlignment(target),
-                },
+                .func_type => return .{ .scalar = target_util.defaultFunctionAlignment(target) },
 
                 .simple_type => |t| switch (t) {
                     .bool,

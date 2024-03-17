@@ -689,13 +689,13 @@ pub const SIG = struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(std.math.maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(std.math.maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 };
 
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (c_int) callconv(.C) void;
     pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     handler: extern union {
