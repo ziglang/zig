@@ -41,7 +41,7 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
             }
         }
     } else |err| switch (err) {
-        error.InvalidUtf8 => {},
+        error.InvalidWtf8 => unreachable,
         error.EnvironmentVariableNotFound => {},
         error.OutOfMemory => |e| return e,
     }
@@ -73,7 +73,7 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
             }
         }
     } else |err| switch (err) {
-        error.InvalidUtf8 => {},
+        error.InvalidWtf8 => unreachable,
         error.EnvironmentVariableNotFound => {},
         error.OutOfMemory => |e| return e,
     }

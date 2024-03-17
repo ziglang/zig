@@ -3,7 +3,6 @@ zig_backend: std.builtin.CompilerBackend,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,
 is_test: bool,
-test_evented_io: bool,
 single_threaded: bool,
 link_libc: bool,
 link_libcpp: bool,
@@ -222,17 +221,6 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
             \\pub var test_functions: []const std.builtin.TestFn = undefined; // overwritten later
             \\
         );
-        if (opts.test_evented_io) {
-            try buffer.appendSlice(
-                \\pub const test_io_mode = .evented;
-                \\
-            );
-        } else {
-            try buffer.appendSlice(
-                \\pub const test_io_mode = .blocking;
-                \\
-            );
-        }
     }
 }
 
@@ -276,6 +264,8 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
     assert(!file.zir.hasCompileErrors()); // builtin.zig must not have astgen errors
     file.zir_loaded = true;
     file.status = .success_zir;
+    // Note that whilst we set `zir_loaded` here, we populated `path_digest`
+    // all the way back in `Package.Module.create`.
 }
 
 fn writeFile(file: *File, mod: *Module) !void {
@@ -308,7 +298,7 @@ const Allocator = std.mem.Allocator;
 const build_options = @import("build_options");
 const Module = @import("Package/Module.zig");
 const assert = std.debug.assert;
-const AstGen = @import("AstGen.zig");
+const AstGen = std.zig.AstGen;
 const File = @import("Module.zig").File;
 const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.builtin);

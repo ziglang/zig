@@ -44,6 +44,8 @@ export fn entry8() void {
 // :14:9: note: to modify this variable at runtime, it must be given an explicit fixed-size number type
 // :18:9: error: variable of type '@TypeOf(null)' must be const or comptime
 // :22:20: error: cannot load opaque type 'tmp.Opaque'
+// :29:16: note: opaque declared here
 // :26:9: error: variable of type 'type' must be const or comptime
 // :26:9: note: types are not available at runtime
 // :31:12: error: non-extern variable with opaque type 'tmp.Opaque'
+// :29:16: note: opaque declared here

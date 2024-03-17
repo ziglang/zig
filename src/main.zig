@@ -8,6 +8,7 @@ const process = std.process;
 const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
+const Color = std.zig.Color;
 const warn = std.log.warn;
 const ThreadPool = std.Thread.Pool;
 const cleanExit = std.process.cleanExit;
@@ -18,41 +19,41 @@ const link = @import("link.zig");
 const Package = @import("Package.zig");
 const build_options = @import("build_options");
 const introspect = @import("introspect.zig");
-const EnvVar = introspect.EnvVar;
-const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const EnvVar = std.zig.EnvVar;
+const LibCInstallation = std.zig.LibCInstallation;
 const wasi_libc = @import("wasi_libc.zig");
 const Cache = std.Build.Cache;
 const target_util = @import("target.zig");
 const crash_report = @import("crash_report.zig");
 const Module = @import("Module.zig");
-const AstGen = @import("AstGen.zig");
+const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
 
-pub const std_options = struct {
-    pub const wasiCwd = wasi_cwd;
-    pub const logFn = log;
-    pub const enable_segfault_handler = false;
+pub const std_options = .{
+    .wasiCwd = wasi_cwd,
+    .logFn = log,
+    .enable_segfault_handler = false,
 
-    pub const log_level: std.log.Level = switch (builtin.mode) {
+    .log_level = switch (builtin.mode) {
         .Debug => .debug,
         .ReleaseSafe, .ReleaseFast => .info,
         .ReleaseSmall => .err,
-    };
+    },
 };
 
 // Crash report needs to override the panic handler
 pub const panic = crash_report.panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
-pub fn wasi_cwd() fs.Dir {
+pub fn wasi_cwd() std.os.wasi.fd_t {
     // Expect the first preopen to be current working directory.
     const cwd_fd: std.os.fd_t = 3;
     assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
-    return .{ .fd = cwd_fd };
+    return cwd_fd;
 }
 
-pub fn getWasiPreopen(name: []const u8) Compilation.Directory {
+fn getWasiPreopen(name: []const u8) Compilation.Directory {
     return .{
         .path = name,
         .handle = .{
@@ -65,18 +66,6 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.err(format, args);
     process.exit(1);
 }
-
-/// There are many assumptions in the entire codebase that Zig source files can
-/// be byte-indexed with a u32 integer.
-pub const max_src_size = std.math.maxInt(u32);
-
-pub const debug_extensions_enabled = builtin.mode == .Debug;
-
-pub const Color = enum {
-    auto,
-    off,
-    on,
-};
 
 const normal_usage =
     \\Usage: zig [command] [options]
@@ -109,6 +98,7 @@ const normal_usage =
     \\
     \\  env              Print lib path, std path, cache directory, and version
     \\  help             Print this help and exit
+    \\  std              View standard library documentation in a browser
     \\  libc             Display native libc paths file or validate one
     \\  targets          List available compilation targets
     \\  version          Print version number and exit
@@ -129,7 +119,7 @@ const debug_usage = normal_usage ++
     \\
 ;
 
-const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
+const usage = if (build_options.enable_debug_extensions) debug_usage else normal_usage;
 
 var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
@@ -212,14 +202,6 @@ pub fn main() anyerror!void {
         }
     }
 
-    if (build_options.only_reduce) {
-        if (mem.eql(u8, args[1], "reduce")) {
-            return @import("reduce.zig").main(gpa, arena, args);
-        } else {
-            @panic("only reduce is supported in a -Donly-reduce build");
-        }
-    }
-
     return mainArgs(gpa, arena, args);
 }
 
@@ -234,7 +216,7 @@ fn verifyLibcxxCorrectlyLinked() void {
     }
 }
 
-pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     if (args.len <= 1) {
         std.log.info("{s}", .{usage});
         fatal("expected command argument", .{});
@@ -309,19 +291,44 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
     } else if (mem.eql(u8, cmd, "translate-c")) {
         return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "rc")) {
-        return cmdRc(gpa, arena, args[1..]);
+        const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "resinator",
+            .root_src_path = "resinator/main.zig",
+            .depend_on_aro = true,
+            .prepend_zig_lib_dir_path = true,
+            .server = use_server,
+        });
     } else if (mem.eql(u8, cmd, "fmt")) {
-        return cmdFmt(gpa, arena, cmd_args);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "fmt",
+            .root_src_path = "fmt.zig",
+        });
     } else if (mem.eql(u8, cmd, "objcopy")) {
-        return @import("objcopy.zig").cmdObjCopy(gpa, arena, cmd_args);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "objcopy",
+            .root_src_path = "objcopy.zig",
+        });
     } else if (mem.eql(u8, cmd, "fetch")) {
         return cmdFetch(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "libc")) {
-        return cmdLibC(gpa, cmd_args);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "libc",
+            .root_src_path = "libc.zig",
+            .prepend_zig_lib_dir_path = true,
+        });
+    } else if (mem.eql(u8, cmd, "std")) {
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "std",
+            .root_src_path = "std-docs.zig",
+            .prepend_zig_lib_dir_path = true,
+            .prepend_zig_exe_path = true,
+            .prepend_global_cache_path = true,
+        });
     } else if (mem.eql(u8, cmd, "init")) {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
-        const host = resolveTargetQueryOrFatal(.{});
+        const host = std.zig.resolveTargetQueryOrFatal(.{});
         const stdout = io.getStdOut().writer();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, host);
     } else if (mem.eql(u8, cmd, "version")) {
@@ -334,16 +341,19 @@ pub fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
         verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "reduce")) {
-        return @import("reduce.zig").main(gpa, arena, args);
+        return jitCmd(gpa, arena, cmd_args, .{
+            .cmd_name = "reduce",
+            .root_src_path = "reduce.zig",
+        });
     } else if (mem.eql(u8, cmd, "zen")) {
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
         return io.getStdOut().writeAll(usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(gpa, arena, cmd_args);
-    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "changelist")) {
+    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(gpa, arena, cmd_args);
-    } else if (debug_extensions_enabled and mem.eql(u8, cmd, "dump-zir")) {
+    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
         return cmdDumpZir(gpa, arena, cmd_args);
     } else {
         std.log.info("{s}", .{usage});
@@ -502,6 +512,8 @@ const usage_build_generic =
     \\  --version-script [path]        Provide a version .map file
     \\  --undefined-version            Allow version scripts to refer to undefined symbols
     \\  --no-undefined-version         (default) Disallow version scripts from referring to undefined symbols
+    \\  --enable-new-dtags             Use the new behavior for dynamic tags (RUNPATH)
+    \\  --disable-new-dtags            Use the old behavior for dynamic tags (RPATH)
     \\  --dynamic-linker [path]        Set the dynamic interpreter path (usually ld.so)
     \\  --sysroot [path]               Set the system root directory (usually /)
     \\  --version [ver]                Dynamic library semver
@@ -559,6 +571,7 @@ const usage_build_generic =
     \\  -headerpad_max_install_names   (Darwin) set enough space as if all paths were MAXPATHLEN
     \\  -dead_strip                    (Darwin) remove functions and data that are unreachable by the entry point or exported symbols
     \\  -dead_strip_dylibs             (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+    \\  -ObjC                          (Darwin) force load all members of static archives that implement an Objective-C class or category
     \\  --import-memory                (WebAssembly) import memory from the environment
     \\  --export-memory                (WebAssembly) export memory to the host (Default unless --import-memory used)
     \\  --import-symbols               (WebAssembly) import missing symbols from the host environment
@@ -589,13 +602,13 @@ const usage_build_generic =
     \\  -rpath [path]                  Add directory to the runtime library search path
     \\  -framework [name]              (Darwin) link against framework
     \\  -needed_framework [name]       (Darwin) link against framework (even if unused)
-    \\  -needed_library [lib]          link against system library (even if unused)
+    \\  -needed_library [lib]          (Darwin) link against system library (even if unused)
     \\  -weak_framework [name]         (Darwin) link against framework and mark it and all referenced symbols as weak
     \\  -F[dir]                        (Darwin) add search path for frameworks
     \\  --export=[value]               (WebAssembly) Force a symbol to be exported
     \\
     \\Test Options:
-    \\  --test-filter [text]           Skip tests that do not match filter
+    \\  --test-filter [text]           Skip tests that do not match any filter
     \\  --test-name-prefix [text]      Add prefix to all tests
     \\  --test-cmd [arg]               Specify test execution command one arg at a time
     \\  --test-cmd-bin                 Appends test binary path to test cmd args
@@ -749,8 +762,8 @@ const SystemLib = struct {
     fn fallbackMode(this: SystemLib) std.builtin.LinkMode {
         assert(this.search_strategy != .no_fallback);
         return switch (this.preferred_mode) {
-            .Dynamic => .Static,
-            .Static => .Dynamic,
+            .dynamic => .static,
+            .static => .dynamic,
         };
     }
 };
@@ -777,7 +790,7 @@ const CliModule = struct {
     rc_source_files_start: usize,
     rc_source_files_end: usize,
 
-    pub const Dep = struct {
+    const Dep = struct {
         key: []const u8,
         value: []const u8,
     };
@@ -829,6 +842,7 @@ fn buildOutputType(
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
     var linker_allow_undefined_version: bool = false;
+    var linker_enable_new_dtags: ?bool = null;
     var disable_c_depfile = false;
     var linker_sort_section: ?link.File.Elf.SortSection = null;
     var linker_gc_sections: ?bool = null;
@@ -868,7 +882,7 @@ fn buildOutputType(
     var link_emit_relocs = false;
     var build_id: ?std.zig.BuildId = null;
     var runtime_args_start: ?usize = null;
-    var test_filter: ?[]const u8 = null;
+    var test_filters: std.ArrayListUnmanaged([]const u8) = .{};
     var test_name_prefix: ?[]const u8 = null;
     var test_runner_path: ?[]const u8 = null;
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
@@ -885,10 +899,11 @@ fn buildOutputType(
     var entitlements: ?[]const u8 = null;
     var pagezero_size: ?u64 = null;
     var lib_search_strategy: SystemLib.SearchStrategy = .paths_first;
-    var lib_preferred_mode: std.builtin.LinkMode = .Dynamic;
+    var lib_preferred_mode: std.builtin.LinkMode = .dynamic;
     var headerpad_size: ?u32 = null;
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
+    var force_load_objc: bool = false;
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
@@ -907,7 +922,7 @@ fn buildOutputType(
     var rc_source_files_owner_index: usize = 0;
 
     // null means replace with the test executable binary
-    var test_exec_args = std.ArrayList(?[]const u8).init(arena);
+    var test_exec_args: std.ArrayListUnmanaged(?[]const u8) = .{};
 
     // These get set by CLI flags and then snapshotted when a `--mod` flag is
     // encountered.
@@ -967,6 +982,9 @@ fn buildOutputType(
         .libc_paths_file = try EnvVar.ZIG_LIBC.get(arena),
         .link_objects = .{},
         .native_system_include_paths = &.{},
+        .host_triple = null,
+        .host_cpu = null,
+        .host_dynamic_linker = null,
     };
 
     // before arg parsing, check for the NO_COLOR environment variable
@@ -1155,22 +1173,22 @@ fn buildOutputType(
                         };
                     } else if (mem.eql(u8, arg, "-search_paths_first")) {
                         lib_search_strategy = .paths_first;
-                        lib_preferred_mode = .Dynamic;
+                        lib_preferred_mode = .dynamic;
                     } else if (mem.eql(u8, arg, "-search_paths_first_static")) {
                         lib_search_strategy = .paths_first;
-                        lib_preferred_mode = .Static;
+                        lib_preferred_mode = .static;
                     } else if (mem.eql(u8, arg, "-search_dylibs_first")) {
                         lib_search_strategy = .mode_first;
-                        lib_preferred_mode = .Dynamic;
+                        lib_preferred_mode = .dynamic;
                     } else if (mem.eql(u8, arg, "-search_static_first")) {
                         lib_search_strategy = .mode_first;
-                        lib_preferred_mode = .Static;
+                        lib_preferred_mode = .static;
                     } else if (mem.eql(u8, arg, "-search_dylibs_only")) {
                         lib_search_strategy = .no_fallback;
-                        lib_preferred_mode = .Dynamic;
+                        lib_preferred_mode = .dynamic;
                     } else if (mem.eql(u8, arg, "-search_static_only")) {
                         lib_search_strategy = .no_fallback;
-                        lib_preferred_mode = .Static;
+                        lib_preferred_mode = .static;
                     } else if (mem.eql(u8, arg, "-headerpad")) {
                         const next_arg = args_iter.nextOrFatal();
                         headerpad_size = std.fmt.parseUnsigned(u32, eatIntPrefix(next_arg, 16), 16) catch |err| {
@@ -1182,6 +1200,8 @@ fn buildOutputType(
                         linker_gc_sections = true;
                     } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                         dead_strip_dylibs = true;
+                    } else if (mem.eql(u8, arg, "-ObjC")) {
+                        force_load_objc = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
@@ -1190,6 +1210,10 @@ fn buildOutputType(
                         linker_allow_undefined_version = true;
                     } else if (mem.eql(u8, arg, "--no-undefined-version")) {
                         linker_allow_undefined_version = false;
+                    } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                        linker_enable_new_dtags = true;
+                    } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                        linker_enable_new_dtags = false;
                     } else if (mem.eql(u8, arg, "--library") or mem.eql(u8, arg, "-l")) {
                         // We don't know whether this library is part of libc
                         // or libc++ until we resolve the target, so we append
@@ -1258,6 +1282,12 @@ fn buildOutputType(
                         mod_opts.optimize_mode = parseOptimizeMode(arg["-O".len..]);
                     } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                         create_module.dynamic_linker = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--host-target")) {
+                        create_module.host_triple = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--host-cpu")) {
+                        create_module.host_cpu = args_iter.nextOrFatal();
+                    } else if (mem.eql(u8, arg, "--host-dynamic-linker")) {
+                        create_module.host_dynamic_linker = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--sysroot")) {
                         const next_arg = args_iter.nextOrFatal();
                         create_module.sysroot = next_arg;
@@ -1265,13 +1295,13 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--libc")) {
                         create_module.libc_paths_file = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-filter")) {
-                        test_filter = args_iter.nextOrFatal();
+                        try test_filters.append(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--test-name-prefix")) {
                         test_name_prefix = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-runner")) {
                         test_runner_path = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--test-cmd")) {
-                        try test_exec_args.append(args_iter.nextOrFatal());
+                        try test_exec_args.append(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--cache-dir")) {
                         override_local_cache_dir = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--global-cache-dir")) {
@@ -1321,9 +1351,7 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-each-lib-rpath")) {
                         create_module.each_lib_rpath = false;
                     } else if (mem.eql(u8, arg, "--test-cmd-bin")) {
-                        try test_exec_args.append(null);
-                    } else if (mem.eql(u8, arg, "--test-evented-io")) {
-                        create_module.opts.test_evented_io = true;
+                        try test_exec_args.append(arena, null);
                     } else if (mem.eql(u8, arg, "--test-no-exec")) {
                         test_no_exec = true;
                     } else if (mem.eql(u8, arg, "-ftime-report")) {
@@ -1457,12 +1485,12 @@ fn buildOutputType(
                         emit_implib = .no;
                         emit_implib_arg_provided = true;
                     } else if (mem.eql(u8, arg, "-dynamic")) {
-                        create_module.opts.link_mode = .Dynamic;
-                        lib_preferred_mode = .Dynamic;
+                        create_module.opts.link_mode = .dynamic;
+                        lib_preferred_mode = .dynamic;
                         lib_search_strategy = .mode_first;
                     } else if (mem.eql(u8, arg, "-static")) {
-                        create_module.opts.link_mode = .Static;
-                        lib_preferred_mode = .Static;
+                        create_module.opts.link_mode = .static;
+                        lib_preferred_mode = .static;
                         lib_search_strategy = .no_fallback;
                     } else if (mem.eql(u8, arg, "-fdll-export-fns")) {
                         create_module.opts.dll_export_fns = true;
@@ -1587,10 +1615,10 @@ fn buildOutputType(
                             });
                         };
                     } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                        if (!crash_report.is_enabled) {
-                            warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
-                        } else {
+                        if (build_options.enable_debug_extensions) {
                             debug_compile_errors = true;
+                        } else {
+                            warn("Zig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
                         }
                     } else if (mem.eql(u8, arg, "--verbose-link")) {
                         verbose_link = true;
@@ -1883,7 +1911,7 @@ fn buildOutputType(
                     },
                     .nostdlib_cpp => create_module.opts.ensure_libcpp_on_non_freestanding = false,
                     .shared => {
-                        create_module.opts.link_mode = .Dynamic;
+                        create_module.opts.link_mode = .dynamic;
                         is_shared_lib = true;
                     },
                     .rdynamic => create_module.opts.rdynamic = true,
@@ -1940,20 +1968,20 @@ fn buildOutputType(
                                 mem.eql(u8, linker_arg, "-call_shared"))
                             {
                                 lib_search_strategy = .no_fallback;
-                                lib_preferred_mode = .Dynamic;
+                                lib_preferred_mode = .dynamic;
                             } else if (mem.eql(u8, linker_arg, "-Bstatic") or
                                 mem.eql(u8, linker_arg, "-dn") or
                                 mem.eql(u8, linker_arg, "-non_shared") or
                                 mem.eql(u8, linker_arg, "-static"))
                             {
                                 lib_search_strategy = .no_fallback;
-                                lib_preferred_mode = .Static;
+                                lib_preferred_mode = .static;
                             } else if (mem.eql(u8, linker_arg, "-search_paths_first")) {
                                 lib_search_strategy = .paths_first;
-                                lib_preferred_mode = .Dynamic;
+                                lib_preferred_mode = .dynamic;
                             } else if (mem.eql(u8, linker_arg, "-search_dylibs_first")) {
                                 lib_search_strategy = .mode_first;
-                                lib_preferred_mode = .Dynamic;
+                                lib_preferred_mode = .dynamic;
                             } else {
                                 try linker_args.append(linker_arg);
                             }
@@ -2061,6 +2089,7 @@ fn buildOutputType(
                     .force_undefined_symbol => {
                         try force_undefined_symbols.put(arena, it.only_arg, {});
                     },
+                    .force_load_objc => force_load_objc = true,
                     .weak_library => try create_module.system_libs.put(arena, it.only_arg, .{
                         .needed = false,
                         .weak = true,
@@ -2127,7 +2156,7 @@ fn buildOutputType(
                         }
                     }
                     provided_name = name[prefix..end];
-                } else if (mem.eql(u8, arg, "-rpath")) {
+                } else if (mem.eql(u8, arg, "-rpath") or mem.eql(u8, arg, "--rpath") or mem.eql(u8, arg, "-R")) {
                     try create_module.rpath_list.append(arena, linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--subsystem")) {
                     subsystem = try parseSubSystem(linker_args_it.nextOrFatal());
@@ -2147,6 +2176,10 @@ fn buildOutputType(
                     linker_allow_undefined_version = true;
                 } else if (mem.eql(u8, arg, "--no-undefined-version")) {
                     linker_allow_undefined_version = false;
+                } else if (mem.eql(u8, arg, "--enable-new-dtags")) {
+                    linker_enable_new_dtags = true;
+                } else if (mem.eql(u8, arg, "--disable-new-dtags")) {
+                    linker_enable_new_dtags = false;
                 } else if (mem.eql(u8, arg, "-O")) {
                     linker_optimization = linker_args_it.nextOrFatal();
                 } else if (mem.startsWith(u8, arg, "-O")) {
@@ -2167,6 +2200,8 @@ fn buildOutputType(
                     linker_gc_sections = true;
                 } else if (mem.eql(u8, arg, "-dead_strip_dylibs")) {
                     dead_strip_dylibs = true;
+                } else if (mem.eql(u8, arg, "-ObjC")) {
+                    force_load_objc = true;
                 } else if (mem.eql(u8, arg, "--no-undefined")) {
                     linker_z_defs = true;
                 } else if (mem.eql(u8, arg, "--gc-sections")) {
@@ -2689,7 +2724,9 @@ fn buildOutputType(
     create_module.opts.emit_bin = emit_bin != .no;
     create_module.opts.any_c_source_files = create_module.c_source_files.items.len != 0;
 
-    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory);
+    var builtin_modules: std.StringHashMapUnmanaged(*Package.Module) = .{};
+    // `builtin_modules` allocated into `arena`, so no deinit
+    const main_mod = try createModule(gpa, arena, &create_module, 0, null, zig_lib_directory, &builtin_modules);
     for (create_module.modules.keys(), create_module.modules.values()) |key, cli_mod| {
         if (cli_mod.resolved == null)
             fatal("module '{s}' declared but not used", .{key});
@@ -2734,6 +2771,7 @@ fn buildOutputType(
                 .global = create_module.resolved_options,
                 .parent = main_mod,
                 .builtin_mod = main_mod.getBuiltinDependency(),
+                .builtin_modules = null, // `builtin_mod` is specified
             });
             test_mod.deps = try main_mod.deps.clone(arena);
             break :test_mod test_mod;
@@ -2742,6 +2780,7 @@ fn buildOutputType(
             .paths = .{
                 .root = .{
                     .root_dir = zig_lib_directory,
+                    .sub_path = "compiler",
                 },
                 .root_src_path = "test_runner.zig",
             },
@@ -2751,6 +2790,7 @@ fn buildOutputType(
             .global = create_module.resolved_options,
             .parent = main_mod,
             .builtin_mod = main_mod.getBuiltinDependency(),
+            .builtin_modules = null, // `builtin_mod` is specified
         });
 
         break :root_mod test_mod;
@@ -3000,7 +3040,7 @@ fn buildOutputType(
 
     const is_exe_or_dyn_lib = switch (create_module.resolved_options.output_mode) {
         .Obj => false,
-        .Lib => create_module.resolved_options.link_mode == .Dynamic,
+        .Lib => create_module.resolved_options.link_mode == .dynamic,
         .Exe => true,
     };
     // Note that cmake when targeting Windows will try to execute
@@ -3089,19 +3129,36 @@ fn buildOutputType(
 
         // "-" is stdin. Dump it to a real file.
         const sep = fs.path.sep_str;
-        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+        const dump_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-dump-stdin{s}", .{
             std.crypto.random.int(u64), ext.canonicalName(target),
         });
         try local_cache_directory.handle.makePath("tmp");
-        // Note that in one of the happy paths, execve() is used to switch
-        // to clang in which case any cleanup logic that exists for this
-        // temporary file will not run and this temp file will be leaked.
-        // Oh well. It's a minor punishment for using `-x c` which nobody
-        // should be doing. Therefore, we make no effort to clean up. Using
-        // `-` for stdin as a source file always leaks a temp file.
-        var f = try local_cache_directory.handle.createFile(sub_path, .{});
+
+        // Note that in one of the happy paths, execve() is used to switch to
+        // clang in which case any cleanup logic that exists for this temporary
+        // file will not run and this temp file will be leaked. The filename
+        // will be a hash of its contents — so multiple invocations of
+        // `zig cc -` will result in the same temp file name.
+        var f = try local_cache_directory.handle.createFile(dump_path, .{});
         defer f.close();
-        try f.writeFileAll(io.getStdIn(), .{});
+
+        // Re-using the hasher from Cache, since the functional requirements
+        // for the hashing algorithm here and in the cache are the same.
+        // We are providing our own cache key, because this file has nothing
+        // to do with the cache manifest.
+        var hasher = Cache.Hasher.init("0123456789abcdef");
+        var w = io.multiWriter(.{ f.writer(), hasher.writer() });
+        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+        try fifo.pump(io.getStdIn().reader(), w.writer());
+
+        var bin_digest: Cache.BinDigest = undefined;
+        hasher.final(&bin_digest);
+
+        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{s}-stdin{s}", .{
+            std.fmt.fmtSliceHexLower(&bin_digest),
+            ext.canonicalName(target),
+        });
+        try local_cache_directory.handle.rename(dump_path, sub_path);
 
         // Convert `sub_path` to be relative to current working directory.
         src.src_path = try local_cache_directory.join(arena, &.{sub_path});
@@ -3172,6 +3229,7 @@ fn buildOutputType(
         .linker_script = linker_script,
         .version_script = version_script,
         .linker_allow_undefined_version = linker_allow_undefined_version,
+        .linker_enable_new_dtags = linker_enable_new_dtags,
         .disable_c_depfile = disable_c_depfile,
         .soname = resolved_soname,
         .linker_sort_section = linker_sort_section,
@@ -3232,13 +3290,14 @@ fn buildOutputType(
         .time_report = time_report,
         .stack_report = stack_report,
         .build_id = build_id,
-        .test_filter = test_filter,
+        .test_filters = test_filters.items,
         .test_name_prefix = test_name_prefix,
         .test_runner_path = test_runner_path,
         .disable_lld_caching = disable_lld_caching,
         .cache_mode = cache_mode,
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
+        .debug_incremental = debug_incremental,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
         .entitlements = entitlements,
@@ -3246,6 +3305,7 @@ fn buildOutputType(
         .headerpad_size = headerpad_size,
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
+        .force_load_objc = force_load_objc,
         .reference_trace = reference_trace,
         .pdb_out_path = pdb_out_path,
         .error_limit = error_limit,
@@ -3259,7 +3319,7 @@ fn buildOutputType(
             const triple_name = try target.zigTriple(arena);
             std.log.err("unable to find or provide libc for target '{s}'", .{triple_name});
 
-            for (target_util.available_libcs) |t| {
+            for (std.zig.target.available_libcs) |t| {
                 if (t.arch == target.cpu.arch and t.os == target.os.tag) {
                     if (t.os_ver) |os_ver| {
                         std.log.info("zig can provide libc for related target {s}-{s}.{d}-{s}", .{
@@ -3306,12 +3366,12 @@ fn buildOutputType(
         .ip4 => |ip4_addr| {
             if (build_options.only_core_functionality) unreachable;
 
-            var server = std.net.StreamServer.init(.{
+            const addr: std.net.Address = .{ .in = ip4_addr };
+
+            var server = try addr.listen(.{
                 .reuse_address = true,
             });
             defer server.deinit();
-
-            try server.listen(.{ .in = ip4_addr });
 
             const conn = try server.accept();
             defer conn.stream.close();
@@ -3353,16 +3413,15 @@ fn buildOutputType(
         const c_code_path = try fs.path.join(arena, &[_][]const u8{
             c_code_directory.path orelse ".", c_code_loc.basename,
         });
-        try test_exec_args.append(self_exe_path);
-        try test_exec_args.append("run");
+        try test_exec_args.appendSlice(arena, &.{ self_exe_path, "run" });
         if (zig_lib_directory.path) |p| {
-            try test_exec_args.appendSlice(&.{ "-I", p });
+            try test_exec_args.appendSlice(arena, &.{ "-I", p });
         }
 
         if (create_module.resolved_options.link_libc) {
-            try test_exec_args.append("-lc");
+            try test_exec_args.append(arena, "-lc");
         } else if (target.os.tag == .windows) {
-            try test_exec_args.appendSlice(&.{
+            try test_exec_args.appendSlice(arena, &.{
                 "--subsystem", "console",
                 "-lkernel32",  "-lntdll",
             });
@@ -3370,17 +3429,15 @@ fn buildOutputType(
 
         const first_cli_mod = create_module.modules.values()[0];
         if (first_cli_mod.target_arch_os_abi) |triple| {
-            try test_exec_args.append("-target");
-            try test_exec_args.append(triple);
+            try test_exec_args.appendSlice(arena, &.{ "-target", triple });
         }
         if (first_cli_mod.target_mcpu) |mcpu| {
-            try test_exec_args.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{mcpu}));
+            try test_exec_args.append(arena, try std.fmt.allocPrint(arena, "-mcpu={s}", .{mcpu}));
         }
         if (create_module.dynamic_linker) |dl| {
-            try test_exec_args.append("--dynamic-linker");
-            try test_exec_args.append(dl);
+            try test_exec_args.appendSlice(arena, &.{ "--dynamic-linker", dl });
         }
-        try test_exec_args.append(c_code_path);
+        try test_exec_args.append(arena, c_code_path);
     }
 
     const run_or_test = switch (arg_mode) {
@@ -3447,6 +3504,9 @@ const CreateModule = struct {
     each_lib_rpath: ?bool,
     libc_paths_file: ?[]const u8,
     link_objects: std.ArrayListUnmanaged(Compilation.LinkObject),
+    host_triple: ?[]const u8,
+    host_cpu: ?[]const u8,
+    host_dynamic_linker: ?[]const u8,
 };
 
 fn createModule(
@@ -3456,6 +3516,7 @@ fn createModule(
     index: usize,
     parent: ?*Package.Module,
     zig_lib_directory: Cache.Directory,
+    builtin_modules: *std.StringHashMapUnmanaged(*Package.Module),
 ) Allocator.Error!*Package.Module {
     const cli_mod = &create_module.modules.values()[index];
     if (cli_mod.resolved) |m| return m;
@@ -3530,8 +3591,16 @@ fn createModule(
             }
         }
 
-        const target_query = parseTargetQueryOrReportFatalError(arena, target_parse_options);
-        const target = resolveTargetQueryOrFatal(target_query);
+        const target_query = std.zig.parseTargetQueryOrReportFatalError(arena, target_parse_options);
+        const adjusted_target_query = a: {
+            if (!target_query.isNative()) break :a target_query;
+            if (create_module.host_triple) |triple| target_parse_options.arch_os_abi = triple;
+            if (create_module.host_cpu) |cpu| target_parse_options.cpu_features = cpu;
+            if (create_module.host_dynamic_linker) |dl| target_parse_options.dynamic_linker = dl;
+            break :a std.zig.parseTargetQueryOrReportFatalError(arena, target_parse_options);
+        };
+
+        const target = std.zig.resolveTargetQueryOrFatal(adjusted_target_query);
         break :t .{
             .result = target,
             .is_native_os = target_query.isNativeOs(),
@@ -3725,8 +3794,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -3759,8 +3828,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -3793,8 +3862,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -3817,8 +3886,8 @@ fn createModule(
                             )) {
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
-                                    .Static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .Dynamic => try create_module.resolved_system_libs.append(arena, .{
+                                    .static => try create_module.link_objects.append(arena, .{ .path = path }),
+                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
                                         .name = lib_name,
                                         .lib = .{
                                             .needed = info.needed,
@@ -3900,6 +3969,7 @@ fn createModule(
         .global = create_module.resolved_options,
         .parent = parent,
         .builtin_mod = null,
+        .builtin_modules = builtin_modules,
     }) catch |err| switch (err) {
         error.ValgrindUnsupportedOnTarget => fatal("unable to create module '{s}': valgrind does not support the selected target CPU architecture", .{name}),
         error.TargetRequiresSingleThreaded => fatal("unable to create module '{s}': the selected target does not support multithreading", .{name}),
@@ -3922,7 +3992,7 @@ fn createModule(
     for (cli_mod.deps) |dep| {
         const dep_index = create_module.modules.getIndex(dep.value) orelse
             fatal("module '{s}' depends on non-existent module '{s}'", .{ name, dep.key });
-        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory);
+        const dep_mod = try createModule(gpa, arena, create_module, dep_index, mod, zig_lib_directory, builtin_modules);
         try mod.deps.put(arena, dep.key, dep_mod);
     }
 
@@ -4099,8 +4169,8 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
                     buf.appendSlice("... ") catch {};
                 }
                 need_ellipse = false;
-                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .Monotonic);
-                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .Monotonic);
+                const eti = @atomicLoad(usize, &node.unprotected_estimated_total_items, .monotonic);
+                const completed_items = @atomicLoad(usize, &node.unprotected_completed_items, .monotonic);
                 const current_item = completed_items + 1;
                 if (node.name.len != 0 or eti > 0) {
                     if (node.name.len != 0) {
@@ -4117,7 +4187,7 @@ fn progressThread(progress: *std.Progress, server: *const Server, reset: *std.Th
                         need_ellipse = false;
                     }
                 }
-                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .Acquire);
+                maybe_node = @atomicLoad(?*std.Progress.Node, &node.recently_updated_child, .acquire);
             }
         }
 
@@ -4200,59 +4270,6 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
         });
         return;
     }
-}
-
-fn parseTargetQueryOrReportFatalError(
-    allocator: Allocator,
-    opts: std.Target.Query.ParseOptions,
-) std.Target.Query {
-    var opts_with_diags = opts;
-    var diags: std.Target.Query.ParseOptions.Diagnostics = .{};
-    if (opts_with_diags.diagnostics == null) {
-        opts_with_diags.diagnostics = &diags;
-    }
-    return std.Target.Query.parse(opts_with_diags) catch |err| switch (err) {
-        error.UnknownCpuModel => {
-            help: {
-                var help_text = std.ArrayList(u8).init(allocator);
-                defer help_text.deinit();
-                for (diags.arch.?.allCpuModels()) |cpu| {
-                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
-                }
-                std.log.info("available CPUs for architecture '{s}':\n{s}", .{
-                    @tagName(diags.arch.?), help_text.items,
-                });
-            }
-            fatal("unknown CPU: '{s}'", .{diags.cpu_name.?});
-        },
-        error.UnknownCpuFeature => {
-            help: {
-                var help_text = std.ArrayList(u8).init(allocator);
-                defer help_text.deinit();
-                for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
-                }
-                std.log.info("available CPU features for architecture '{s}':\n{s}", .{
-                    @tagName(diags.arch.?), help_text.items,
-                });
-            }
-            fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
-        },
-        error.UnknownObjectFormat => {
-            help: {
-                var help_text = std.ArrayList(u8).init(allocator);
-                defer help_text.deinit();
-                inline for (@typeInfo(std.Target.ObjectFormat).Enum.fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
-                }
-                std.log.info("available object formats:\n{s}", .{help_text.items});
-            }
-            fatal("unknown object format: '{s}'", .{opts.object_format.?});
-        },
-        else => |e| fatal("unable to parse target query '{s}': {s}", .{
-            opts.arch_os_abi, @errorName(e),
-        }),
-    };
 }
 
 fn runOrTest(
@@ -4477,7 +4494,7 @@ fn updateModule(comp: *Compilation, color: Color) !void {
     defer errors.deinit(comp.gpa);
 
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(renderOptions(color));
+        errors.renderToStdErr(color.renderOptions());
         return error.SemanticAnalyzeFail;
     }
 }
@@ -4504,7 +4521,13 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     const digest = if (try man.hit()) man.final() else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
-        try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
+        switch (comp.config.c_frontend) {
+            .aro => {},
+            .clang => {
+                // argv[0] is program name, actual args start at [1]
+                try argv.append(@tagName(comp.config.c_frontend));
+            },
+        }
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
@@ -4529,24 +4552,18 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
             Compilation.dump_argv(argv.items);
         }
 
-        var tree = switch (comp.config.c_frontend) {
-            .aro => tree: {
-                const aro = @import("aro");
-                const translate_c = @import("aro_translate_c.zig");
-                var aro_comp = aro.Compilation.init(comp.gpa);
-                defer aro_comp.deinit();
-
-                break :tree translate_c.translate(comp.gpa, &aro_comp, argv.items) catch |err| switch (err) {
-                    error.SemanticAnalyzeFail, error.FatalError => {
-                        // TODO convert these to zig errors
-                        aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
-                        process.exit(1);
-                    },
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.StreamTooLong => fatal("StreamTooLong?", .{}),
-                };
+        const formatted = switch (comp.config.c_frontend) {
+            .aro => f: {
+                var stdout: []u8 = undefined;
+                try jitCmd(comp.gpa, arena, argv.items, .{
+                    .cmd_name = "aro_translate_c",
+                    .root_src_path = "aro_translate_c.zig",
+                    .depend_on_aro = true,
+                    .capture = &stdout,
+                });
+                break :f stdout;
             },
-            .clang => tree: {
+            .clang => f: {
                 if (!build_options.have_llvm) unreachable;
                 const translate_c = @import("translate_c.zig");
 
@@ -4564,7 +4581,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
                 const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
                 var errors = std.zig.ErrorBundle.empty;
-                break :tree translate_c.translate(
+                var tree = translate_c.translate(
                     comp.gpa,
                     new_argv.ptr,
                     new_argv.ptr + new_argv.len,
@@ -4577,14 +4594,15 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
                             p.errors = errors;
                             return;
                         } else {
-                            errors.renderToStdErr(renderOptions(color));
+                            errors.renderToStdErr(color.renderOptions());
                             process.exit(1);
                         }
                     },
                 };
+                defer tree.deinit(comp.gpa);
+                break :f try tree.render(arena);
             },
         };
-        defer tree.deinit(comp.gpa);
 
         if (out_dep_path) |dep_file_path| {
             const dep_basename = fs.path.basename(dep_file_path);
@@ -4604,9 +4622,6 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
 
         var zig_file = try o_dir.createFile(translated_zig_basename, .{});
         defer zig_file.close();
-
-        const formatted = try tree.render(comp.gpa);
-        defer comp.gpa.free(formatted);
 
         try zig_file.writeAll(formatted);
 
@@ -4634,407 +4649,7 @@ fn cmdTranslateC(comp: *Compilation, arena: Allocator, fancy_output: ?*Compilati
     }
 }
 
-fn cmdRc(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    const resinator = @import("resinator.zig");
-
-    const stderr = std.io.getStdErr();
-    const stderr_config = std.io.tty.detectConfig(stderr);
-
-    var options = options: {
-        var cli_diagnostics = resinator.cli.Diagnostics.init(gpa);
-        defer cli_diagnostics.deinit();
-        var options = resinator.cli.parse(gpa, args, &cli_diagnostics) catch |err| switch (err) {
-            error.ParseError => {
-                cli_diagnostics.renderToStdErr(args, stderr_config);
-                process.exit(1);
-            },
-            else => |e| return e,
-        };
-        try options.maybeAppendRC(std.fs.cwd());
-
-        // print any warnings/notes
-        cli_diagnostics.renderToStdErr(args, stderr_config);
-        // If there was something printed, then add an extra newline separator
-        // so that there is a clear separation between the cli diagnostics and whatever
-        // gets printed after
-        if (cli_diagnostics.errors.items.len > 0) {
-            std.debug.print("\n", .{});
-        }
-        break :options options;
-    };
-    defer options.deinit();
-
-    if (options.print_help_and_exit) {
-        try resinator.cli.writeUsage(stderr.writer(), "zig rc");
-        return;
-    }
-
-    const stdout_writer = std.io.getStdOut().writer();
-    if (options.verbose) {
-        try options.dumpVerbose(stdout_writer);
-        try stdout_writer.writeByte('\n');
-    }
-
-    const full_input = full_input: {
-        if (options.preprocess != .no) {
-            if (!build_options.have_llvm) {
-                fatal("clang not available: compiler built without LLVM extensions", .{});
-            }
-
-            var argv = std.ArrayList([]const u8).init(gpa);
-            defer argv.deinit();
-
-            const self_exe_path = try introspect.findZigExePath(arena);
-            var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-                try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to find zig installation directory: {s}", .{@errorName(err)});
-                process.exit(1);
-            };
-            defer zig_lib_directory.handle.close();
-
-            const include_args = detectRcIncludeDirs(arena, zig_lib_directory.path.?, options.auto_includes) catch |err| {
-                try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to detect system include directories: {s}", .{@errorName(err)});
-                process.exit(1);
-            };
-
-            try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
-
-            const clang_target = clang_target: {
-                if (include_args.target_abi) |abi| {
-                    break :clang_target try std.fmt.allocPrint(arena, "x86_64-unknown-windows-{s}", .{abi});
-                }
-                break :clang_target "x86_64-unknown-windows";
-            };
-            try resinator.preprocess.appendClangArgs(arena, &argv, options, .{
-                .clang_target = clang_target,
-                .system_include_paths = include_args.include_paths,
-                .needs_gnu_workaround = if (include_args.target_abi) |abi| std.mem.eql(u8, abi, "gnu") else false,
-                .nostdinc = true,
-            });
-
-            try argv.append(options.input_filename);
-
-            if (options.verbose) {
-                try stdout_writer.writeAll("Preprocessor: zig clang\n");
-                for (argv.items[0 .. argv.items.len - 1]) |arg| {
-                    try stdout_writer.print("{s} ", .{arg});
-                }
-                try stdout_writer.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
-            }
-
-            if (process.can_spawn) {
-                const result = std.ChildProcess.run(.{
-                    .allocator = gpa,
-                    .argv = argv.items,
-                    .max_output_bytes = std.math.maxInt(u32),
-                }) catch |err| {
-                    try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to spawn preprocessor child process: {s}", .{@errorName(err)});
-                    process.exit(1);
-                };
-                errdefer gpa.free(result.stdout);
-                defer gpa.free(result.stderr);
-
-                switch (result.term) {
-                    .Exited => |code| {
-                        if (code != 0) {
-                            try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "the preprocessor failed with exit code {}:", .{code});
-                            try stderr.writeAll(result.stderr);
-                            try stderr.writeAll("\n");
-                            process.exit(1);
-                        }
-                    },
-                    .Signal, .Stopped, .Unknown => {
-                        try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "the preprocessor terminated unexpectedly ({s}):", .{@tagName(result.term)});
-                        try stderr.writeAll(result.stderr);
-                        try stderr.writeAll("\n");
-                        process.exit(1);
-                    },
-                }
-
-                break :full_input result.stdout;
-            } else {
-                // need to use an intermediate file
-                const rand_int = std.crypto.random.int(u64);
-                const preprocessed_path = try std.fmt.allocPrint(gpa, "resinator{x}.rcpp", .{rand_int});
-                defer gpa.free(preprocessed_path);
-                defer std.fs.cwd().deleteFile(preprocessed_path) catch {};
-
-                try argv.appendSlice(&.{ "-o", preprocessed_path });
-                const exit_code = try clangMain(arena, argv.items);
-                if (exit_code != 0) {
-                    try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "the preprocessor failed with exit code {}:", .{exit_code});
-                    process.exit(1);
-                }
-                break :full_input std.fs.cwd().readFileAlloc(gpa, preprocessed_path, std.math.maxInt(usize)) catch |err| {
-                    try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to read preprocessed file path '{s}': {s}", .{ preprocessed_path, @errorName(err) });
-                    process.exit(1);
-                };
-            }
-        } else {
-            break :full_input std.fs.cwd().readFileAlloc(gpa, options.input_filename, std.math.maxInt(usize)) catch |err| {
-                try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to read input file path '{s}': {s}", .{ options.input_filename, @errorName(err) });
-                process.exit(1);
-            };
-        }
-    };
-    defer gpa.free(full_input);
-
-    if (options.preprocess == .only) {
-        std.fs.cwd().writeFile(options.output_filename, full_input) catch |err| {
-            try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to write output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
-            process.exit(1);
-        };
-        return cleanExit();
-    }
-
-    var mapping_results = try resinator.source_mapping.parseAndRemoveLineCommands(gpa, full_input, full_input, .{ .initial_filename = options.input_filename });
-    defer mapping_results.mappings.deinit(gpa);
-
-    const final_input = resinator.comments.removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
-
-    var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
-        try resinator.utils.renderErrorMessage(stderr.writer(), stderr_config, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
-        process.exit(1);
-    };
-    var output_file_closed = false;
-    defer if (!output_file_closed) output_file.close();
-
-    var diagnostics = resinator.errors.Diagnostics.init(gpa);
-    defer diagnostics.deinit();
-
-    var output_buffered_stream = std.io.bufferedWriter(output_file.writer());
-
-    resinator.compile.compile(gpa, final_input, output_buffered_stream.writer(), .{
-        .cwd = std.fs.cwd(),
-        .diagnostics = &diagnostics,
-        .source_mappings = &mapping_results.mappings,
-        .dependencies_list = null,
-        .ignore_include_env_var = options.ignore_include_env_var,
-        .extra_include_paths = options.extra_include_paths.items,
-        .default_language_id = options.default_language_id,
-        .default_code_page = options.default_code_page orelse .windows1252,
-        .verbose = options.verbose,
-        .null_terminate_string_table_strings = options.null_terminate_string_table_strings,
-        .max_string_literal_codepoints = options.max_string_literal_codepoints,
-        .silent_duplicate_control_ids = options.silent_duplicate_control_ids,
-        .warn_instead_of_error_on_invalid_code_page = options.warn_instead_of_error_on_invalid_code_page,
-    }) catch |err| switch (err) {
-        error.ParseError, error.CompileError => {
-            diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
-            // Delete the output file on error
-            output_file.close();
-            output_file_closed = true;
-            // Failing to delete is not really a big deal, so swallow any errors
-            std.fs.cwd().deleteFile(options.output_filename) catch {};
-            process.exit(1);
-        },
-        else => |e| return e,
-    };
-
-    try output_buffered_stream.flush();
-
-    // print any warnings/notes
-    diagnostics.renderToStdErr(std.fs.cwd(), final_input, stderr_config, mapping_results.mappings);
-
-    return cleanExit();
-}
-
-const RcIncludeArgs = struct {
-    include_paths: []const []const u8 = &.{},
-    target_abi: ?[]const u8 = null,
-};
-
-fn detectRcIncludeDirs(arena: Allocator, zig_lib_dir: []const u8, auto_includes: @import("resinator.zig").cli.Options.AutoIncludes) !RcIncludeArgs {
-    if (auto_includes == .none) return .{};
-    var cur_includes = auto_includes;
-    if (builtin.target.os.tag != .windows) {
-        switch (cur_includes) {
-            // MSVC can't be found when the host isn't Windows, so short-circuit.
-            .msvc => return error.WindowsSdkNotFound,
-            // Skip straight to gnu since we won't be able to detect MSVC on non-Windows hosts.
-            .any => cur_includes = .gnu,
-            .gnu => {},
-            .none => unreachable,
-        }
-    }
-    while (true) {
-        switch (cur_includes) {
-            .any, .msvc => {
-                const target_query: std.Target.Query = .{
-                    .os_tag = .windows,
-                    .abi = .msvc,
-                };
-                const target = resolveTargetQueryOrFatal(target_query);
-                const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = Compilation.detectLibCIncludeDirs(arena, zig_lib_dir, target, is_native_abi, true, null) catch |err| {
-                    if (cur_includes == .any) {
-                        // fall back to mingw
-                        cur_includes = .gnu;
-                        continue;
-                    }
-                    return err;
-                };
-                if (detected_libc.libc_include_dir_list.len == 0) {
-                    if (cur_includes == .any) {
-                        // fall back to mingw
-                        cur_includes = .gnu;
-                        continue;
-                    }
-                    return error.WindowsSdkNotFound;
-                }
-                return .{
-                    .include_paths = detected_libc.libc_include_dir_list,
-                    .target_abi = "msvc",
-                };
-            },
-            .gnu => {
-                const target_query: std.Target.Query = .{
-                    .os_tag = .windows,
-                    .abi = .gnu,
-                };
-                const target = resolveTargetQueryOrFatal(target_query);
-                const is_native_abi = target_query.isNativeAbi();
-                const detected_libc = try Compilation.detectLibCIncludeDirs(arena, zig_lib_dir, target, is_native_abi, true, null);
-                return .{
-                    .include_paths = detected_libc.libc_include_dir_list,
-                    .target_abi = "gnu",
-                };
-            },
-            .none => unreachable,
-        }
-    }
-}
-
-pub const usage_libc =
-    \\Usage: zig libc
-    \\
-    \\    Detect the native libc installation and print the resulting
-    \\    paths to stdout. You can save this into a file and then edit
-    \\    the paths to create a cross compilation libc kit. Then you
-    \\    can pass `--libc [file]` for Zig to use it.
-    \\
-    \\Usage: zig libc [paths_file]
-    \\
-    \\    Parse a libc installation text file and validate it.
-    \\
-    \\Options:
-    \\  -h, --help             Print this help and exit
-    \\  -target [name]         <arch><sub>-<os>-<abi> see the targets command
-    \\  -includes              Print the libc include directories for the target
-    \\
-;
-
-pub fn cmdLibC(gpa: Allocator, args: []const []const u8) !void {
-    var input_file: ?[]const u8 = null;
-    var target_arch_os_abi: []const u8 = "native";
-    var print_includes: bool = false;
-    {
-        var i: usize = 0;
-        while (i < args.len) : (i += 1) {
-            const arg = args[i];
-            if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = io.getStdOut().writer();
-                    try stdout.writeAll(usage_libc);
-                    return cleanExit();
-                } else if (mem.eql(u8, arg, "-target")) {
-                    if (i + 1 >= args.len) fatal("expected parameter after {s}", .{arg});
-                    i += 1;
-                    target_arch_os_abi = args[i];
-                } else if (mem.eql(u8, arg, "-includes")) {
-                    print_includes = true;
-                } else {
-                    fatal("unrecognized parameter: '{s}'", .{arg});
-                }
-            } else if (input_file != null) {
-                fatal("unexpected extra parameter: '{s}'", .{arg});
-            } else {
-                input_file = arg;
-            }
-        }
-    }
-
-    const target_query = parseTargetQueryOrReportFatalError(gpa, .{
-        .arch_os_abi = target_arch_os_abi,
-    });
-    const target = resolveTargetQueryOrFatal(target_query);
-
-    if (print_includes) {
-        var arena_state = std.heap.ArenaAllocator.init(gpa);
-        defer arena_state.deinit();
-        const arena = arena_state.allocator();
-
-        const libc_installation: ?*LibCInstallation = libc: {
-            if (input_file) |libc_file| {
-                const libc = try arena.create(LibCInstallation);
-                libc.* = LibCInstallation.parse(arena, libc_file, target) catch |err| {
-                    fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
-                };
-                break :libc libc;
-            } else {
-                break :libc null;
-            }
-        };
-
-        const self_exe_path = try introspect.findZigExePath(arena);
-        var zig_lib_directory = introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-            fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
-        };
-        defer zig_lib_directory.handle.close();
-
-        const is_native_abi = target_query.isNativeAbi();
-
-        const libc_dirs = Compilation.detectLibCIncludeDirs(
-            arena,
-            zig_lib_directory.path.?,
-            target,
-            is_native_abi,
-            true,
-            libc_installation,
-        ) catch |err| {
-            const zig_target = try target.zigTriple(arena);
-            fatal("unable to detect libc for target {s}: {s}", .{ zig_target, @errorName(err) });
-        };
-
-        if (libc_dirs.libc_include_dir_list.len == 0) {
-            const zig_target = try target.zigTriple(arena);
-            fatal("no include dirs detected for target {s}", .{zig_target});
-        }
-
-        var bw = io.bufferedWriter(io.getStdOut().writer());
-        var writer = bw.writer();
-        for (libc_dirs.libc_include_dir_list) |include_dir| {
-            try writer.writeAll(include_dir);
-            try writer.writeByte('\n');
-        }
-        try bw.flush();
-        return cleanExit();
-    }
-
-    if (input_file) |libc_file| {
-        var libc = LibCInstallation.parse(gpa, libc_file, target) catch |err| {
-            fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
-        };
-        defer libc.deinit(gpa);
-    } else {
-        if (!target_query.isNative()) {
-            fatal("unable to detect libc for non-native target", .{});
-        }
-        var libc = LibCInstallation.findNative(.{
-            .allocator = gpa,
-            .verbose = true,
-            .target = target,
-        }) catch |err| {
-            fatal("unable to detect native libc: {s}", .{@errorName(err)});
-        };
-        defer libc.deinit(gpa);
-
-        var bw = io.bufferedWriter(io.getStdOut().writer());
-        try libc.render(bw.writer());
-        try bw.flush();
-    }
-}
-
-pub const usage_init =
+const usage_init =
     \\Usage: zig init
     \\
     \\   Initializes a `zig build` project in the current working
@@ -5046,7 +4661,7 @@ pub const usage_init =
     \\
 ;
 
-pub fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -5097,7 +4712,7 @@ pub fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void
     return cleanExit();
 }
 
-pub const usage_build =
+const usage_build =
     \\Usage: zig build [steps] [options]
     \\
     \\   Build a project from build.zig.
@@ -5121,229 +4736,675 @@ pub const usage_build =
     \\
 ;
 
-pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
+
+    var build_file: ?[]const u8 = null;
+    var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
+    var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+    var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
+    var override_build_runner: ?[]const u8 = try EnvVar.ZIG_BUILD_RUNNER.get(arena);
+    var child_argv = std.ArrayList([]const u8).init(arena);
+    var reference_trace: ?u32 = null;
+    var debug_compile_errors = false;
+    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
+        EnvVar.ZIG_VERBOSE_LINK.isSet();
+    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
+        EnvVar.ZIG_VERBOSE_CC.isSet();
+    var verbose_air = false;
+    var verbose_intern_pool = false;
+    var verbose_generic_instances = false;
+    var verbose_llvm_ir: ?[]const u8 = null;
+    var verbose_llvm_bc: ?[]const u8 = null;
+    var verbose_cimport = false;
+    var verbose_llvm_cpu_features = false;
+    var fetch_only = false;
+    var system_pkg_dir_path: ?[]const u8 = null;
+
+    const argv_index_exe = child_argv.items.len;
+    _ = try child_argv.addOne();
+
+    const self_exe_path = try introspect.findZigExePath(arena);
+    try child_argv.append(self_exe_path);
+
+    const argv_index_build_file = child_argv.items.len;
+    _ = try child_argv.addOne();
+
+    const argv_index_cache_dir = child_argv.items.len;
+    _ = try child_argv.addOne();
+
+    const argv_index_global_cache_dir = child_argv.items.len;
+    _ = try child_argv.addOne();
+
+    try child_argv.appendSlice(&.{
+        "--seed",
+        try std.fmt.allocPrint(arena, "0x{x}", .{std.crypto.random.int(u32)}),
+    });
+    const argv_index_seed = child_argv.items.len - 1;
+
+    // This parent process needs a way to obtain results from the configuration
+    // phase of the child process. In the future, the make phase will be
+    // executed in a separate process than the configure phase, and we can then
+    // use stdout from the configuration phase for this purpose.
+    //
+    // However, currently, both phases are in the same process, and Run Step
+    // provides API for making the runned subprocesses inherit stdout and stderr
+    // which means these streams are not available for passing metadata back
+    // to the parent.
+    //
+    // Until make and configure phases are separated into different processes,
+    // the strategy is to choose a temporary file name ahead of time, and then
+    // read this file in the parent to obtain the results, in the case the child
+    // exits with code 3.
+    const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
+    try child_argv.append("-Z" ++ results_tmp_file_nonce);
+
+    {
+        var i: usize = 0;
+        while (i < args.len) : (i += 1) {
+            const arg = args[i];
+            if (mem.startsWith(u8, arg, "-")) {
+                if (mem.eql(u8, arg, "--build-file")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    build_file = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_lib_dir = args[i];
+                    try child_argv.appendSlice(&.{ arg, args[i] });
+                    continue;
+                } else if (mem.eql(u8, arg, "--build-runner")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_build_runner = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--cache-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_local_cache_dir = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "--global-cache-dir")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    override_global_cache_dir = args[i];
+                    continue;
+                } else if (mem.eql(u8, arg, "-freference-trace")) {
+                    reference_trace = 256;
+                } else if (mem.eql(u8, arg, "--fetch")) {
+                    fetch_only = true;
+                } else if (mem.eql(u8, arg, "--system")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    system_pkg_dir_path = args[i];
+                    try child_argv.append("--system");
+                    continue;
+                } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
+                    const num = arg["-freference-trace=".len..];
+                    reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
+                        fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
+                    };
+                } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
+                    reference_trace = null;
+                } else if (mem.eql(u8, arg, "--debug-log")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    try child_argv.appendSlice(args[i .. i + 2]);
+                    i += 1;
+                    if (!build_options.enable_logging) {
+                        warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
+                    } else {
+                        try log_scopes.append(arena, args[i]);
+                    }
+                    continue;
+                } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
+                    if (build_options.enable_debug_extensions) {
+                        debug_compile_errors = true;
+                    } else {
+                        warn("Zig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
+                    }
+                } else if (mem.eql(u8, arg, "--verbose-link")) {
+                    verbose_link = true;
+                } else if (mem.eql(u8, arg, "--verbose-cc")) {
+                    verbose_cc = true;
+                } else if (mem.eql(u8, arg, "--verbose-air")) {
+                    verbose_air = true;
+                } else if (mem.eql(u8, arg, "--verbose-intern-pool")) {
+                    verbose_intern_pool = true;
+                } else if (mem.eql(u8, arg, "--verbose-generic-instances")) {
+                    verbose_generic_instances = true;
+                } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
+                    verbose_llvm_ir = "-";
+                } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
+                    verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
+                } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
+                    verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
+                } else if (mem.eql(u8, arg, "--verbose-cimport")) {
+                    verbose_cimport = true;
+                } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
+                    verbose_llvm_cpu_features = true;
+                } else if (mem.eql(u8, arg, "--seed")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    child_argv.items[argv_index_seed] = args[i];
+                    continue;
+                }
+            }
+            try child_argv.append(arg);
+        }
+    }
+
     const work_around_btrfs_bug = builtin.os.tag == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     const color: Color = .auto;
 
-    // We want to release all the locks before executing the child process, so we make a nice
-    // big block here to ensure the cleanup gets run when we extract out our argv.
-    const child_argv = argv: {
-        const self_exe_path = try introspect.findZigExePath(arena);
+    const target_query: std.Target.Query = .{};
+    const resolved_target: Package.Module.ResolvedTarget = .{
+        .result = std.zig.resolveTargetQueryOrFatal(target_query),
+        .is_native_os = true,
+        .is_native_abi = true,
+    };
 
-        var build_file: ?[]const u8 = null;
-        var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
-        var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
-        var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
-        var override_build_runner: ?[]const u8 = try EnvVar.ZIG_BUILD_RUNNER.get(arena);
-        var child_argv = std.ArrayList([]const u8).init(arena);
-        var reference_trace: ?u32 = null;
-        var debug_compile_errors = false;
-        var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
-            EnvVar.ZIG_VERBOSE_LINK.isSet();
-        var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
-            EnvVar.ZIG_VERBOSE_CC.isSet();
-        var verbose_air = false;
-        var verbose_intern_pool = false;
-        var verbose_generic_instances = false;
-        var verbose_llvm_ir: ?[]const u8 = null;
-        var verbose_llvm_bc: ?[]const u8 = null;
-        var verbose_cimport = false;
-        var verbose_llvm_cpu_features = false;
-        var fetch_only = false;
+    const exe_basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = "build",
+        .target = resolved_target.result,
+        .output_mode = .Exe,
+    });
+    const emit_bin: Compilation.EmitLoc = .{
+        .directory = null, // Use the local zig-cache.
+        .basename = exe_basename,
+    };
 
-        const argv_index_exe = child_argv.items.len;
-        _ = try child_argv.addOne();
+    gimmeMoreOfThoseSweetSweetFileDescriptors();
 
-        try child_argv.append(self_exe_path);
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+        .path = lib_dir,
+        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
+        },
+    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
+    };
+    defer zig_lib_directory.handle.close();
 
-        const argv_index_build_file = child_argv.items.len;
-        _ = try child_argv.addOne();
+    const cwd_path = try process.getCwdAlloc(arena);
+    const build_root = try findBuildRoot(arena, .{
+        .cwd_path = cwd_path,
+        .build_file = build_file,
+    });
+    child_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
 
-        const argv_index_cache_dir = child_argv.items.len;
-        _ = try child_argv.addOne();
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
+        };
+    };
+    defer global_cache_directory.handle.close();
 
-        const argv_index_global_cache_dir = child_argv.items.len;
-        _ = try child_argv.addOne();
+    child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
 
-        try child_argv.appendSlice(&.{
-            "--seed",
-            try std.fmt.allocPrint(arena, "0x{x}", .{std.crypto.random.int(u32)}),
-        });
-        const argv_index_seed = child_argv.items.len - 1;
+    var local_cache_directory: Compilation.Directory = l: {
+        if (override_local_cache_dir) |local_cache_dir_path| {
+            break :l .{
+                .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
+                .path = local_cache_dir_path,
+            };
+        }
+        const cache_dir_path = try build_root.directory.join(arena, &[_][]const u8{"zig-cache"});
+        break :l .{
+            .handle = try build_root.directory.handle.makeOpenPath("zig-cache", .{}),
+            .path = cache_dir_path,
+        };
+    };
+    defer local_cache_directory.handle.close();
 
+    child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
+
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
+
+    // Dummy http client that is not actually used when only_core_functionality is enabled.
+    // Prevents bootstrap from depending on a bunch of unnecessary stuff.
+    const HttpClient = if (build_options.only_core_functionality) struct {
+        allocator: Allocator,
+        fn deinit(self: *@This()) void {
+            _ = self;
+        }
+    } else std.http.Client;
+
+    var http_client: HttpClient = .{ .allocator = gpa };
+    defer http_client.deinit();
+
+    var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
+
+    // This loop is re-evaluated when the build script exits with an indication that it
+    // could not continue due to missing lazy dependencies.
+    while (true) {
+        // We want to release all the locks before executing the child process, so we make a nice
+        // big block here to ensure the cleanup gets run when we extract out our argv.
         {
-            var i: usize = 0;
-            while (i < args.len) : (i += 1) {
-                const arg = args[i];
-                if (mem.startsWith(u8, arg, "-")) {
-                    if (mem.eql(u8, arg, "--build-file")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                        i += 1;
-                        build_file = args[i];
-                        continue;
-                    } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                        i += 1;
-                        override_lib_dir = args[i];
-                        try child_argv.appendSlice(&.{ arg, args[i] });
-                        continue;
-                    } else if (mem.eql(u8, arg, "--build-runner")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                        i += 1;
-                        override_build_runner = args[i];
-                        continue;
-                    } else if (mem.eql(u8, arg, "--cache-dir")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                        i += 1;
-                        override_local_cache_dir = args[i];
-                        continue;
-                    } else if (mem.eql(u8, arg, "--global-cache-dir")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                        i += 1;
-                        override_global_cache_dir = args[i];
-                        continue;
-                    } else if (mem.eql(u8, arg, "-freference-trace")) {
-                        reference_trace = 256;
-                    } else if (mem.eql(u8, arg, "--fetch")) {
-                        fetch_only = true;
-                    } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
-                        const num = arg["-freference-trace=".len..];
-                        reference_trace = std.fmt.parseUnsigned(u32, num, 10) catch |err| {
-                            fatal("unable to parse reference_trace count '{s}': {s}", .{ num, @errorName(err) });
-                        };
-                    } else if (mem.eql(u8, arg, "-fno-reference-trace")) {
-                        reference_trace = null;
-                    } else if (mem.eql(u8, arg, "--debug-log")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                        try child_argv.appendSlice(args[i .. i + 2]);
-                        i += 1;
-                        if (!build_options.enable_logging) {
-                            warn("Zig was compiled without logging enabled (-Dlog). --debug-log has no effect.", .{});
-                        } else {
-                            try log_scopes.append(arena, args[i]);
+            const main_mod_paths: Package.Module.CreateOptions.Paths = if (override_build_runner) |runner| .{
+                .root = .{
+                    .root_dir = Cache.Directory.cwd(),
+                    .sub_path = fs.path.dirname(runner) orelse "",
+                },
+                .root_src_path = fs.path.basename(runner),
+            } else .{
+                .root = .{
+                    .root_dir = zig_lib_directory,
+                },
+                .root_src_path = "build_runner.zig",
+            };
+
+            const config = try Compilation.Config.resolve(.{
+                .output_mode = .Exe,
+                .resolved_target = resolved_target,
+                .have_zcu = true,
+                .emit_bin = true,
+                .is_test = false,
+            });
+
+            const root_mod = try Package.Module.create(arena, .{
+                .global_cache_directory = global_cache_directory,
+                .paths = main_mod_paths,
+                .fully_qualified_name = "root",
+                .cc_argv = &.{},
+                .inherited = .{
+                    .resolved_target = resolved_target,
+                },
+                .global = config,
+                .parent = null,
+                .builtin_mod = null,
+                .builtin_modules = null, // all modules will inherit this one's builtin
+            });
+
+            const builtin_mod = root_mod.getBuiltinDependency();
+
+            const build_mod = try Package.Module.create(arena, .{
+                .global_cache_directory = global_cache_directory,
+                .paths = .{
+                    .root = .{ .root_dir = build_root.directory },
+                    .root_src_path = build_root.build_zig_basename,
+                },
+                .fully_qualified_name = "root.@build",
+                .cc_argv = &.{},
+                .inherited = .{},
+                .global = config,
+                .parent = root_mod,
+                .builtin_mod = builtin_mod,
+                .builtin_modules = null, // `builtin_mod` is specified
+            });
+
+            var cleanup_build_dir: ?fs.Dir = null;
+            defer if (cleanup_build_dir) |*dir| dir.close();
+
+            if (build_options.only_core_functionality) {
+                try createEmptyDependenciesModule(
+                    arena,
+                    root_mod,
+                    global_cache_directory,
+                    local_cache_directory,
+                    builtin_mod,
+                    config,
+                );
+            } else {
+                const root_prog_node = progress.start("Fetch Packages", 0);
+                defer root_prog_node.end();
+
+                var job_queue: Package.Fetch.JobQueue = .{
+                    .http_client = &http_client,
+                    .thread_pool = &thread_pool,
+                    .global_cache = global_cache_directory,
+                    .read_only = false,
+                    .recursive = true,
+                    .debug_hash = false,
+                    .work_around_btrfs_bug = work_around_btrfs_bug,
+                    .unlazy_set = unlazy_set,
+                };
+                defer job_queue.deinit();
+
+                if (system_pkg_dir_path) |p| {
+                    job_queue.global_cache = .{
+                        .path = p,
+                        .handle = fs.cwd().openDir(p, .{}) catch |err| {
+                            fatal("unable to open system package directory '{s}': {s}", .{
+                                p, @errorName(err),
+                            });
+                        },
+                    };
+                    job_queue.read_only = true;
+                    cleanup_build_dir = job_queue.global_cache.handle;
+                } else {
+                    try http_client.initDefaultProxies(arena);
+                }
+
+                try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
+                try job_queue.table.ensureUnusedCapacity(gpa, 1);
+
+                var fetch: Package.Fetch = .{
+                    .arena = std.heap.ArenaAllocator.init(gpa),
+                    .location = .{ .relative_path = build_mod.root },
+                    .location_tok = 0,
+                    .hash_tok = 0,
+                    .name_tok = 0,
+                    .lazy_status = .eager,
+                    .parent_package_root = build_mod.root,
+                    .parent_manifest_ast = null,
+                    .prog_node = root_prog_node,
+                    .job_queue = &job_queue,
+                    .omit_missing_hash_error = true,
+                    .allow_missing_paths_field = false,
+
+                    .package_root = undefined,
+                    .error_bundle = undefined,
+                    .manifest = null,
+                    .manifest_ast = undefined,
+                    .actual_hash = undefined,
+                    .has_build_zig = true,
+                    .oom_flag = false,
+
+                    .module = build_mod,
+                };
+                job_queue.all_fetches.appendAssumeCapacity(&fetch);
+
+                job_queue.table.putAssumeCapacityNoClobber(
+                    Package.Fetch.relativePathDigest(build_mod.root, global_cache_directory),
+                    &fetch,
+                );
+
+                job_queue.wait_group.start();
+                try job_queue.thread_pool.spawn(Package.Fetch.workerRun, .{ &fetch, "root" });
+                job_queue.wait_group.wait();
+
+                try job_queue.consolidateErrors();
+
+                if (fetch.error_bundle.root_list.items.len > 0) {
+                    var errors = try fetch.error_bundle.toOwnedBundle("");
+                    errors.renderToStdErr(color.renderOptions());
+                    process.exit(1);
+                }
+
+                if (fetch_only) return cleanExit();
+
+                var source_buf = std.ArrayList(u8).init(gpa);
+                defer source_buf.deinit();
+                try job_queue.createDependenciesSource(&source_buf);
+                const deps_mod = try createDependenciesModule(
+                    arena,
+                    source_buf.items,
+                    root_mod,
+                    global_cache_directory,
+                    local_cache_directory,
+                    builtin_mod,
+                    config,
+                );
+
+                {
+                    // We need a Module for each package's build.zig.
+                    const hashes = job_queue.table.keys();
+                    const fetches = job_queue.table.values();
+                    try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
+                    for (hashes, fetches) |hash, f| {
+                        if (f == &fetch) {
+                            // The first one is a dummy package for the current project.
+                            continue;
                         }
-                        continue;
-                    } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
-                        if (!crash_report.is_enabled) {
-                            warn("Zig was compiled in a release mode. --debug-compile-errors has no effect.", .{});
-                        } else {
-                            debug_compile_errors = true;
+                        if (!f.has_build_zig)
+                            continue;
+                        const m = try Package.Module.create(arena, .{
+                            .global_cache_directory = global_cache_directory,
+                            .paths = .{
+                                .root = try f.package_root.clone(arena),
+                                .root_src_path = Package.build_zig_basename,
+                            },
+                            .fully_qualified_name = try std.fmt.allocPrint(
+                                arena,
+                                "root.@dependencies.{s}",
+                                .{&hash},
+                            ),
+                            .cc_argv = &.{},
+                            .inherited = .{},
+                            .global = config,
+                            .parent = root_mod,
+                            .builtin_mod = builtin_mod,
+                            .builtin_modules = null, // `builtin_mod` is specified
+                        });
+                        const hash_cloned = try arena.dupe(u8, &hash);
+                        deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
+                        f.module = m;
+                    }
+
+                    // Each build.zig module needs access to each of its
+                    // dependencies' build.zig modules by name.
+                    for (fetches) |f| {
+                        const mod = f.module orelse continue;
+                        const man = f.manifest orelse continue;
+                        const dep_names = man.dependencies.keys();
+                        try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
+                        for (dep_names, man.dependencies.values()) |name, dep| {
+                            const dep_digest = Package.Fetch.depDigest(
+                                f.package_root,
+                                global_cache_directory,
+                                dep,
+                            ) orelse continue;
+                            const dep_mod = job_queue.table.get(dep_digest).?.module orelse continue;
+                            const name_cloned = try arena.dupe(u8, name);
+                            mod.deps.putAssumeCapacityNoClobber(name_cloned, dep_mod);
                         }
-                    } else if (mem.eql(u8, arg, "--verbose-link")) {
-                        verbose_link = true;
-                    } else if (mem.eql(u8, arg, "--verbose-cc")) {
-                        verbose_cc = true;
-                    } else if (mem.eql(u8, arg, "--verbose-air")) {
-                        verbose_air = true;
-                    } else if (mem.eql(u8, arg, "--verbose-intern-pool")) {
-                        verbose_intern_pool = true;
-                    } else if (mem.eql(u8, arg, "--verbose-generic-instances")) {
-                        verbose_generic_instances = true;
-                    } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
-                        verbose_llvm_ir = "-";
-                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
-                        verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-                    } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
-                        verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
-                    } else if (mem.eql(u8, arg, "--verbose-cimport")) {
-                        verbose_cimport = true;
-                    } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
-                        verbose_llvm_cpu_features = true;
-                    } else if (mem.eql(u8, arg, "--seed")) {
-                        if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
-                        i += 1;
-                        child_argv.items[argv_index_seed] = args[i];
-                        continue;
                     }
                 }
-                try child_argv.append(arg);
             }
+
+            try root_mod.deps.put(arena, "@build", build_mod);
+
+            const comp = Compilation.create(gpa, arena, .{
+                .zig_lib_directory = zig_lib_directory,
+                .local_cache_directory = local_cache_directory,
+                .global_cache_directory = global_cache_directory,
+                .root_name = "build",
+                .config = config,
+                .root_mod = root_mod,
+                .main_mod = build_mod,
+                .emit_bin = emit_bin,
+                .emit_h = null,
+                .self_exe_path = self_exe_path,
+                .thread_pool = &thread_pool,
+                .verbose_cc = verbose_cc,
+                .verbose_link = verbose_link,
+                .verbose_air = verbose_air,
+                .verbose_intern_pool = verbose_intern_pool,
+                .verbose_generic_instances = verbose_generic_instances,
+                .verbose_llvm_ir = verbose_llvm_ir,
+                .verbose_llvm_bc = verbose_llvm_bc,
+                .verbose_cimport = verbose_cimport,
+                .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
+                .cache_mode = .whole,
+                .reference_trace = reference_trace,
+                .debug_compile_errors = debug_compile_errors,
+            }) catch |err| {
+                fatal("unable to create compilation: {s}", .{@errorName(err)});
+            };
+            defer comp.destroy();
+
+            updateModule(comp, color) catch |err| switch (err) {
+                error.SemanticAnalyzeFail => process.exit(2),
+                else => |e| return e,
+            };
+
+            // Since incremental compilation isn't done yet, we use cache_mode = whole
+            // above, and thus the output file is already closed.
+            //try comp.makeBinFileExecutable();
+            child_argv.items[argv_index_exe] =
+                try local_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
         }
 
-        var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
-            .path = lib_dir,
-            .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
-                fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
-            },
-        } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
-            fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
-        };
-        defer zig_lib_directory.handle.close();
+        if (process.can_spawn) {
+            var child = std.ChildProcess.init(child_argv.items, gpa);
+            child.stdin_behavior = .Inherit;
+            child.stdout_behavior = .Inherit;
+            child.stderr_behavior = .Inherit;
 
-        var cleanup_build_dir: ?fs.Dir = null;
-        defer if (cleanup_build_dir) |*dir| dir.close();
+            const term = try child.spawnAndWait();
+            switch (term) {
+                .Exited => |code| {
+                    if (code == 0) return cleanExit();
+                    // Indicates that the build runner has reported compile errors
+                    // and this parent process does not need to report any further
+                    // diagnostics.
+                    if (code == 2) process.exit(2);
 
-        const cwd_path = try process.getCwdAlloc(arena);
-        const build_root = try findBuildRoot(arena, .{
-            .cwd_path = cwd_path,
-            .build_file = build_file,
-        });
-        child_argv.items[argv_index_build_file] = build_root.directory.path orelse cwd_path;
+                    if (code == 3) {
+                        if (build_options.only_core_functionality) process.exit(3);
+                        // Indicates the configure phase failed due to missing lazy
+                        // dependencies and stdout contains the hashes of the ones
+                        // that are missing.
+                        const s = fs.path.sep_str;
+                        const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
+                        const stdout = local_cache_directory.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
+                            fatal("unable to read results of configure phase from '{}{s}': {s}", .{
+                                local_cache_directory, tmp_sub_path, @errorName(err),
+                            });
+                        };
+                        local_cache_directory.handle.deleteFile(tmp_sub_path) catch {};
 
-        var global_cache_directory: Compilation.Directory = l: {
-            const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
-            break :l .{
-                .handle = try fs.cwd().makeOpenPath(p, .{}),
-                .path = p,
-            };
-        };
-        defer global_cache_directory.handle.close();
+                        var it = mem.splitScalar(u8, stdout, '\n');
+                        var any_errors = false;
+                        while (it.next()) |hash| {
+                            if (hash.len == 0) continue;
+                            const digest_len = @typeInfo(Package.Manifest.MultiHashHexDigest).Array.len;
+                            if (hash.len != digest_len) {
+                                std.log.err("invalid digest (length {d} instead of {d}): '{s}'", .{
+                                    hash.len, digest_len, hash,
+                                });
+                                any_errors = true;
+                                continue;
+                            }
+                            try unlazy_set.put(arena, hash[0..digest_len].*, {});
+                        }
+                        if (any_errors) process.exit(3);
+                        if (system_pkg_dir_path) |p| {
+                            // In this mode, the system needs to provide these packages; they
+                            // cannot be fetched by Zig.
+                            for (unlazy_set.keys()) |hash| {
+                                std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{
+                                    p, hash,
+                                });
+                            }
+                            std.log.info("remote package fetching disabled due to --system mode", .{});
+                            std.log.info("dependencies might be avoidable depending on build configuration", .{});
+                            process.exit(3);
+                        }
+                        continue;
+                    }
 
-        child_argv.items[argv_index_global_cache_dir] = global_cache_directory.path orelse cwd_path;
-
-        var local_cache_directory: Compilation.Directory = l: {
-            if (override_local_cache_dir) |local_cache_dir_path| {
-                break :l .{
-                    .handle = try fs.cwd().makeOpenPath(local_cache_dir_path, .{}),
-                    .path = local_cache_dir_path,
-                };
+                    const cmd = try std.mem.join(arena, " ", child_argv.items);
+                    fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
+                },
+                else => {
+                    const cmd = try std.mem.join(arena, " ", child_argv.items);
+                    fatal("the following build command crashed:\n{s}", .{cmd});
+                },
             }
-            const cache_dir_path = try build_root.directory.join(arena, &[_][]const u8{"zig-cache"});
-            break :l .{
-                .handle = try build_root.directory.handle.makeOpenPath("zig-cache", .{}),
-                .path = cache_dir_path,
-            };
+        } else {
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
+        }
+    }
+}
+
+const JitCmdOptions = struct {
+    cmd_name: []const u8,
+    root_src_path: []const u8,
+    prepend_zig_lib_dir_path: bool = false,
+    prepend_global_cache_path: bool = false,
+    prepend_zig_exe_path: bool = false,
+    depend_on_aro: bool = false,
+    capture: ?*[]u8 = null,
+    /// Send progress and error bundles via std.zig.Server over stdout
+    server: bool = false,
+};
+
+fn jitCmd(
+    gpa: Allocator,
+    arena: Allocator,
+    args: []const []const u8,
+    options: JitCmdOptions,
+) !void {
+    const color: Color = .auto;
+
+    const target_query: std.Target.Query = .{};
+    const resolved_target: Package.Module.ResolvedTarget = .{
+        .result = std.zig.resolveTargetQueryOrFatal(target_query),
+        .is_native_os = true,
+        .is_native_abi = true,
+    };
+
+    const exe_basename = try std.zig.binNameAlloc(arena, .{
+        .root_name = options.cmd_name,
+        .target = resolved_target.result,
+        .output_mode = .Exe,
+    });
+    const emit_bin: Compilation.EmitLoc = .{
+        .directory = null, // Use the global zig-cache.
+        .basename = exe_basename,
+    };
+
+    const self_exe_path = introspect.findZigExePath(arena) catch |err| {
+        fatal("unable to find self exe path: {s}", .{@errorName(err)});
+    };
+
+    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
+        .Debug
+    else
+        .ReleaseFast;
+    const strip = optimize_mode != .Debug;
+    const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
+    const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
+
+    var zig_lib_directory: Compilation.Directory = if (override_lib_dir) |lib_dir| .{
+        .path = lib_dir,
+        .handle = fs.cwd().openDir(lib_dir, .{}) catch |err| {
+            fatal("unable to open zig lib directory from 'zig-lib-dir' argument: '{s}': {s}", .{ lib_dir, @errorName(err) });
+        },
+    } else introspect.findZigLibDirFromSelfExe(arena, self_exe_path) catch |err| {
+        fatal("unable to find zig installation directory '{s}': {s}", .{ self_exe_path, @errorName(err) });
+    };
+    defer zig_lib_directory.handle.close();
+
+    var global_cache_directory: Compilation.Directory = l: {
+        const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        break :l .{
+            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .path = p,
         };
-        defer local_cache_directory.handle.close();
+    };
+    defer global_cache_directory.handle.close();
 
-        child_argv.items[argv_index_cache_dir] = local_cache_directory.path orelse cwd_path;
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
 
-        gimmeMoreOfThoseSweetSweetFileDescriptors();
+    var child_argv: std.ArrayListUnmanaged([]const u8) = .{};
+    try child_argv.ensureUnusedCapacity(arena, args.len + 2);
 
-        const target_query: std.Target.Query = .{};
-        const resolved_target: Package.Module.ResolvedTarget = .{
-            .result = resolveTargetQueryOrFatal(target_query),
-            .is_native_os = true,
-            .is_native_abi = true,
-        };
-
-        const exe_basename = try std.zig.binNameAlloc(arena, .{
-            .root_name = "build",
-            .target = resolved_target.result,
-            .output_mode = .Exe,
-        });
-        const emit_bin: Compilation.EmitLoc = .{
-            .directory = null, // Use the local zig-cache.
-            .basename = exe_basename,
-        };
-        var thread_pool: ThreadPool = undefined;
-        try thread_pool.init(.{ .allocator = gpa });
-        defer thread_pool.deinit();
-
-        const main_mod_paths: Package.Module.CreateOptions.Paths = if (override_build_runner) |runner| .{
+    // We want to release all the locks before executing the child process, so we make a nice
+    // big block here to ensure the cleanup gets run when we extract out our argv.
+    {
+        const main_mod_paths: Package.Module.CreateOptions.Paths = .{
             .root = .{
-                .root_dir = Cache.Directory.cwd(),
-                .sub_path = fs.path.dirname(runner) orelse "",
+                .root_dir = zig_lib_directory,
+                .sub_path = "compiler",
             },
-            .root_src_path = fs.path.basename(runner),
-        } else .{
-            .root = .{ .root_dir = zig_lib_directory },
-            .root_src_path = "build_runner.zig",
+            .root_src_path = options.root_src_path,
         };
 
         const config = try Compilation.Config.resolve(.{
             .output_mode = .Exe,
+            .root_strip = strip,
+            .root_optimize_mode = optimize_mode,
             .resolved_target = resolved_target,
             .have_zcu = true,
             .emit_bin = true,
@@ -5357,711 +5418,163 @@ pub fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !voi
             .cc_argv = &.{},
             .inherited = .{
                 .resolved_target = resolved_target,
+                .optimize_mode = optimize_mode,
+                .strip = strip,
             },
             .global = config,
             .parent = null,
             .builtin_mod = null,
+            .builtin_modules = null, // all modules will inherit this one's builtin
         });
 
-        const builtin_mod = root_mod.getBuiltinDependency();
-
-        const build_mod = try Package.Module.create(arena, .{
-            .global_cache_directory = global_cache_directory,
-            .paths = .{
-                .root = .{ .root_dir = build_root.directory },
-                .root_src_path = build_root.build_zig_basename,
-            },
-            .fully_qualified_name = "root.@build",
-            .cc_argv = &.{},
-            .inherited = .{},
-            .global = config,
-            .parent = root_mod,
-            .builtin_mod = builtin_mod,
-        });
-        if (build_options.only_core_functionality) {
-            try createEmptyDependenciesModule(
-                arena,
-                root_mod,
-                global_cache_directory,
-                local_cache_directory,
-                builtin_mod,
-                config,
-            );
-        } else {
-            var http_client: std.http.Client = .{ .allocator = gpa };
-            defer http_client.deinit();
-
-            try http_client.loadDefaultProxies();
-
-            var progress: std.Progress = .{ .dont_print_on_dumb = true };
-            const root_prog_node = progress.start("Fetch Packages", 0);
-            defer root_prog_node.end();
-
-            var job_queue: Package.Fetch.JobQueue = .{
-                .http_client = &http_client,
-                .thread_pool = &thread_pool,
-                .global_cache = global_cache_directory,
-                .recursive = true,
-                .debug_hash = false,
-                .work_around_btrfs_bug = work_around_btrfs_bug,
-            };
-            defer job_queue.deinit();
-
-            try job_queue.all_fetches.ensureUnusedCapacity(gpa, 1);
-            try job_queue.table.ensureUnusedCapacity(gpa, 1);
-
-            var fetch: Package.Fetch = .{
-                .arena = std.heap.ArenaAllocator.init(gpa),
-                .location = .{ .relative_path = build_mod.root },
-                .location_tok = 0,
-                .hash_tok = 0,
-                .parent_package_root = build_mod.root,
-                .parent_manifest_ast = null,
-                .prog_node = root_prog_node,
-                .job_queue = &job_queue,
-                .omit_missing_hash_error = true,
-                .allow_missing_paths_field = false,
-
-                .package_root = undefined,
-                .error_bundle = undefined,
-                .manifest = null,
-                .manifest_ast = undefined,
-                .actual_hash = undefined,
-                .has_build_zig = true,
-                .oom_flag = false,
-
-                .module = build_mod,
-            };
-            job_queue.all_fetches.appendAssumeCapacity(&fetch);
-
-            job_queue.table.putAssumeCapacityNoClobber(
-                Package.Fetch.relativePathDigest(build_mod.root, global_cache_directory),
-                &fetch,
-            );
-
-            job_queue.wait_group.start();
-            try job_queue.thread_pool.spawn(Package.Fetch.workerRun, .{ &fetch, "root" });
-            job_queue.wait_group.wait();
-
-            try job_queue.consolidateErrors();
-
-            if (fetch.error_bundle.root_list.items.len > 0) {
-                var errors = try fetch.error_bundle.toOwnedBundle("");
-                errors.renderToStdErr(renderOptions(color));
-                process.exit(1);
-            }
-
-            if (fetch_only) return cleanExit();
-
-            var source_buf = std.ArrayList(u8).init(gpa);
-            defer source_buf.deinit();
-            try job_queue.createDependenciesSource(&source_buf);
-            const deps_mod = try createDependenciesModule(
-                arena,
-                source_buf.items,
-                root_mod,
-                global_cache_directory,
-                local_cache_directory,
-                builtin_mod,
-                config,
-            );
-
-            {
-                // We need a Module for each package's build.zig.
-                const hashes = job_queue.table.keys();
-                const fetches = job_queue.table.values();
-                try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
-                for (hashes, fetches) |hash, f| {
-                    if (f == &fetch) {
-                        // The first one is a dummy package for the current project.
-                        continue;
-                    }
-                    if (!f.has_build_zig)
-                        continue;
-                    const m = try Package.Module.create(arena, .{
-                        .global_cache_directory = global_cache_directory,
-                        .paths = .{
-                            .root = try f.package_root.clone(arena),
-                            .root_src_path = Package.build_zig_basename,
-                        },
-                        .fully_qualified_name = try std.fmt.allocPrint(
-                            arena,
-                            "root.@dependencies.{s}",
-                            .{&hash},
-                        ),
-                        .cc_argv = &.{},
-                        .inherited = .{},
-                        .global = config,
-                        .parent = root_mod,
-                        .builtin_mod = builtin_mod,
-                    });
-                    const hash_cloned = try arena.dupe(u8, &hash);
-                    deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
-                    f.module = m;
-                }
-
-                // Each build.zig module needs access to each of its
-                // dependencies' build.zig modules by name.
-                for (fetches) |f| {
-                    const mod = f.module orelse continue;
-                    const man = f.manifest orelse continue;
-                    const dep_names = man.dependencies.keys();
-                    try mod.deps.ensureUnusedCapacity(arena, @intCast(dep_names.len));
-                    for (dep_names, man.dependencies.values()) |name, dep| {
-                        const dep_digest = Package.Fetch.depDigest(
-                            f.package_root,
-                            global_cache_directory,
-                            dep,
-                        ) orelse continue;
-                        const dep_mod = job_queue.table.get(dep_digest).?.module orelse continue;
-                        const name_cloned = try arena.dupe(u8, name);
-                        mod.deps.putAssumeCapacityNoClobber(name_cloned, dep_mod);
-                    }
-                }
-            }
+        if (options.depend_on_aro) {
+            const aro_mod = try Package.Module.create(arena, .{
+                .global_cache_directory = global_cache_directory,
+                .paths = .{
+                    .root = .{
+                        .root_dir = zig_lib_directory,
+                        .sub_path = "compiler/aro",
+                    },
+                    .root_src_path = "aro.zig",
+                },
+                .fully_qualified_name = "aro",
+                .cc_argv = &.{},
+                .inherited = .{
+                    .resolved_target = resolved_target,
+                    .optimize_mode = optimize_mode,
+                    .strip = strip,
+                },
+                .global = config,
+                .parent = null,
+                .builtin_mod = root_mod.getBuiltinDependency(),
+                .builtin_modules = null, // `builtin_mod` is specified
+            });
+            try root_mod.deps.put(arena, "aro", aro_mod);
         }
-
-        try root_mod.deps.put(arena, "@build", build_mod);
 
         const comp = Compilation.create(gpa, arena, .{
             .zig_lib_directory = zig_lib_directory,
-            .local_cache_directory = local_cache_directory,
+            .local_cache_directory = global_cache_directory,
             .global_cache_directory = global_cache_directory,
-            .root_name = "build",
+            .root_name = options.cmd_name,
             .config = config,
             .root_mod = root_mod,
-            .main_mod = build_mod,
+            .main_mod = root_mod,
             .emit_bin = emit_bin,
             .emit_h = null,
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
-            .verbose_cc = verbose_cc,
-            .verbose_link = verbose_link,
-            .verbose_air = verbose_air,
-            .verbose_intern_pool = verbose_intern_pool,
-            .verbose_generic_instances = verbose_generic_instances,
-            .verbose_llvm_ir = verbose_llvm_ir,
-            .verbose_llvm_bc = verbose_llvm_bc,
-            .verbose_cimport = verbose_cimport,
-            .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
             .cache_mode = .whole,
-            .reference_trace = reference_trace,
-            .debug_compile_errors = debug_compile_errors,
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };
         defer comp.destroy();
 
-        updateModule(comp, color) catch |err| switch (err) {
-            error.SemanticAnalyzeFail => process.exit(2),
-            else => |e| return e,
-        };
-
-        // Since incremental compilation isn't done yet, we use cache_mode = whole
-        // above, and thus the output file is already closed.
-        //try comp.makeBinFileExecutable();
-        child_argv.items[argv_index_exe] =
-            try local_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
-
-        break :argv child_argv.items;
-    };
-
-    if (process.can_spawn) {
-        var child = std.ChildProcess.init(child_argv, gpa);
-        child.stdin_behavior = .Inherit;
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-
-        const term = try child.spawnAndWait();
-        switch (term) {
-            .Exited => |code| {
-                if (code == 0) return cleanExit();
-                // Indicates that the build runner has reported compile errors
-                // and this parent process does not need to report any further
-                // diagnostics.
-                if (code == 2) process.exit(2);
-
-                const cmd = try std.mem.join(arena, " ", child_argv);
-                fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
-            },
-            else => {
-                const cmd = try std.mem.join(arena, " ", child_argv);
-                fatal("the following build command crashed:\n{s}", .{cmd});
-            },
-        }
-    } else {
-        const cmd = try std.mem.join(arena, " ", child_argv);
-        fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
-    }
-}
-
-fn readSourceFileToEndAlloc(
-    allocator: Allocator,
-    input: *const fs.File,
-    size_hint: ?usize,
-) ![:0]u8 {
-    const source_code = input.readToEndAllocOptions(
-        allocator,
-        max_src_size,
-        size_hint,
-        @alignOf(u16),
-        0,
-    ) catch |err| switch (err) {
-        error.ConnectionResetByPeer => unreachable,
-        error.ConnectionTimedOut => unreachable,
-        error.NotOpenForReading => unreachable,
-        else => |e| return e,
-    };
-    errdefer allocator.free(source_code);
-
-    // Detect unsupported file types with their Byte Order Mark
-    const unsupported_boms = [_][]const u8{
-        "\xff\xfe\x00\x00", // UTF-32 little endian
-        "\xfe\xff\x00\x00", // UTF-32 big endian
-        "\xfe\xff", // UTF-16 big endian
-    };
-    for (unsupported_boms) |bom| {
-        if (mem.startsWith(u8, source_code, bom)) {
-            return error.UnsupportedEncoding;
-        }
-    }
-
-    // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
-    if (mem.startsWith(u8, source_code, "\xff\xfe")) {
-        const source_code_utf16_le = mem.bytesAsSlice(u16, source_code);
-        const source_code_utf8 = std.unicode.utf16leToUtf8AllocZ(allocator, source_code_utf16_le) catch |err| switch (err) {
-            error.DanglingSurrogateHalf => error.UnsupportedEncoding,
-            error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
-            error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
-            else => |e| return e,
-        };
-
-        allocator.free(source_code);
-        return source_code_utf8;
-    }
-
-    return source_code;
-}
-
-pub const usage_fmt =
-    \\Usage: zig fmt [file]...
-    \\
-    \\   Formats the input files and modifies them in-place.
-    \\   Arguments can be files or directories, which are searched
-    \\   recursively.
-    \\
-    \\Options:
-    \\  -h, --help             Print this help and exit
-    \\  --color [auto|off|on]  Enable or disable colored error messages
-    \\  --stdin                Format code from stdin; output to stdout
-    \\  --check                List non-conforming files and exit with an error
-    \\                         if the list is non-empty
-    \\  --ast-check            Run zig ast-check on every file
-    \\  --exclude [file]       Exclude file or directory from formatting
-    \\
-    \\
-;
-
-const Fmt = struct {
-    seen: SeenMap,
-    any_error: bool,
-    check_ast: bool,
-    color: Color,
-    gpa: Allocator,
-    arena: Allocator,
-    out_buffer: std.ArrayList(u8),
-
-    const SeenMap = std.AutoHashMap(fs.File.INode, void);
-};
-
-pub fn cmdFmt(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
-    var color: Color = .auto;
-    var stdin_flag: bool = false;
-    var check_flag: bool = false;
-    var check_ast_flag: bool = false;
-    var input_files = ArrayList([]const u8).init(gpa);
-    defer input_files.deinit();
-    var excluded_files = ArrayList([]const u8).init(gpa);
-    defer excluded_files.deinit();
-
-    {
-        var i: usize = 0;
-        while (i < args.len) : (i += 1) {
-            const arg = args[i];
-            if (mem.startsWith(u8, arg, "-")) {
-                if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = io.getStdOut().writer();
-                    try stdout.writeAll(usage_fmt);
-                    return cleanExit();
-                } else if (mem.eql(u8, arg, "--color")) {
-                    if (i + 1 >= args.len) {
-                        fatal("expected [auto|on|off] after --color", .{});
-                    }
-                    i += 1;
-                    const next_arg = args[i];
-                    color = std.meta.stringToEnum(Color, next_arg) orelse {
-                        fatal("expected [auto|on|off] after --color, found '{s}'", .{next_arg});
-                    };
-                } else if (mem.eql(u8, arg, "--stdin")) {
-                    stdin_flag = true;
-                } else if (mem.eql(u8, arg, "--check")) {
-                    check_flag = true;
-                } else if (mem.eql(u8, arg, "--ast-check")) {
-                    check_ast_flag = true;
-                } else if (mem.eql(u8, arg, "--exclude")) {
-                    if (i + 1 >= args.len) {
-                        fatal("expected parameter after --exclude", .{});
-                    }
-                    i += 1;
-                    const next_arg = args[i];
-                    try excluded_files.append(next_arg);
-                } else {
-                    fatal("unrecognized parameter: '{s}'", .{arg});
-                }
-            } else {
-                try input_files.append(arg);
-            }
-        }
-    }
-
-    if (stdin_flag) {
-        if (input_files.items.len != 0) {
-            fatal("cannot use --stdin with positional arguments", .{});
-        }
-
-        const stdin = io.getStdIn();
-        const source_code = readSourceFileToEndAlloc(gpa, &stdin, null) catch |err| {
-            fatal("unable to read stdin: {}", .{err});
-        };
-        defer gpa.free(source_code);
-
-        var tree = Ast.parse(gpa, source_code, .zig) catch |err| {
-            fatal("error parsing stdin: {}", .{err});
-        };
-        defer tree.deinit(gpa);
-
-        if (check_ast_flag) {
-            var file: Module.File = .{
-                .status = .never_loaded,
-                .source_loaded = true,
-                .zir_loaded = false,
-                .sub_file_path = "<stdin>",
-                .source = source_code,
-                .stat = undefined,
-                .tree = tree,
-                .tree_loaded = true,
-                .zir = undefined,
-                .mod = undefined,
-                .root_decl = .none,
+        if (options.server and !builtin.single_threaded) {
+            var reset: std.Thread.ResetEvent = .{};
+            var progress: std.Progress = .{
+                .terminal = null,
+                .root = .{
+                    .context = undefined,
+                    .parent = null,
+                    .name = "",
+                    .unprotected_estimated_total_items = 0,
+                    .unprotected_completed_items = 0,
+                },
+                .columns_written = 0,
+                .prev_refresh_timestamp = 0,
+                .timer = null,
+                .done = false,
+            };
+            const main_progress_node = &progress.root;
+            main_progress_node.context = &progress;
+            var server = std.zig.Server{
+                .out = std.io.getStdOut(),
+                .in = undefined, // won't be receiving messages
+                .receive_fifo = undefined, // won't be receiving messages
             };
 
-            file.mod = try Package.Module.createLimited(arena, .{
-                .root = Package.Path.cwd(),
-                .root_src_path = file.sub_file_path,
-                .fully_qualified_name = "root",
+            var progress_thread = try std.Thread.spawn(.{}, progressThread, .{
+                &progress, &server, &reset,
             });
+            defer {
+                reset.set();
+                progress_thread.join();
+            }
 
-            file.zir = try AstGen.generate(gpa, file.tree);
-            file.zir_loaded = true;
-            defer file.zir.deinit(gpa);
+            try comp.update(main_progress_node);
 
-            if (file.zir.hasCompileErrors()) {
-                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-                try Compilation.addZirErrorMessages(&wip_errors, &file);
-                var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
-                error_bundle.renderToStdErr(renderOptions(color));
+            var error_bundle = try comp.getAllErrorsAlloc();
+            defer error_bundle.deinit(comp.gpa);
+            if (error_bundle.errorMessageCount() > 0) {
+                try server.serveErrorBundle(error_bundle);
                 process.exit(2);
             }
-        } else if (tree.errors.len != 0) {
-            try printAstErrorsToStderr(gpa, tree, "<stdin>", color);
-            process.exit(2);
-        }
-        const formatted = try tree.render(gpa);
-        defer gpa.free(formatted);
-
-        if (check_flag) {
-            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
-            process.exit(code);
+        } else {
+            updateModule(comp, color) catch |err| switch (err) {
+                error.SemanticAnalyzeFail => process.exit(2),
+                else => |e| return e,
+            };
         }
 
-        return io.getStdOut().writeAll(formatted);
+        const exe_path = try global_cache_directory.join(arena, &.{comp.cache_use.whole.bin_sub_path.?});
+        child_argv.appendAssumeCapacity(exe_path);
     }
 
-    if (input_files.items.len == 0) {
-        fatal("expected at least one source file argument", .{});
-    }
+    if (options.prepend_zig_lib_dir_path)
+        child_argv.appendAssumeCapacity(zig_lib_directory.path.?);
+    if (options.prepend_zig_exe_path)
+        child_argv.appendAssumeCapacity(self_exe_path);
+    if (options.prepend_global_cache_path)
+        child_argv.appendAssumeCapacity(global_cache_directory.path.?);
 
-    var fmt = Fmt{
-        .gpa = gpa,
-        .arena = arena,
-        .seen = Fmt.SeenMap.init(gpa),
-        .any_error = false,
-        .check_ast = check_ast_flag,
-        .color = color,
-        .out_buffer = std.ArrayList(u8).init(gpa),
-    };
-    defer fmt.seen.deinit();
-    defer fmt.out_buffer.deinit();
+    child_argv.appendSliceAssumeCapacity(args);
 
-    // Mark any excluded files/directories as already seen,
-    // so that they are skipped later during actual processing
-    for (excluded_files.items) |file_path| {
-        const stat = fs.cwd().statFile(file_path) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            // On Windows, statFile does not work for directories
-            error.IsDir => dir: {
-                var dir = try fs.cwd().openDir(file_path, .{});
-                defer dir.close();
-                break :dir try dir.stat();
-            },
-            else => |e| return e,
-        };
-        try fmt.seen.put(stat.inode, {});
-    }
-
-    for (input_files.items) |file_path| {
-        try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
-    }
-    if (fmt.any_error) {
-        process.exit(1);
-    }
-}
-
-const FmtError = error{
-    SystemResources,
-    OperationAborted,
-    IoPending,
-    BrokenPipe,
-    Unexpected,
-    WouldBlock,
-    FileClosed,
-    DestinationAddressRequired,
-    DiskQuota,
-    FileTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    AccessDenied,
-    OutOfMemory,
-    RenameAcrossMountPoints,
-    ReadOnlyFileSystem,
-    LinkQuotaExceeded,
-    FileBusy,
-    EndOfStream,
-    Unseekable,
-    NotOpenForWriting,
-    UnsupportedEncoding,
-    ConnectionResetByPeer,
-    SocketNotConnected,
-    LockViolation,
-    NetNameDeleted,
-    InvalidArgument,
-} || fs.File.OpenError;
-
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
-    fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
-        error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
-        else => {
-            warn("unable to format '{s}': {s}", .{ file_path, @errorName(err) });
-            fmt.any_error = true;
-            return;
-        },
-    };
-}
-
-fn fmtPathDir(
-    fmt: *Fmt,
-    file_path: []const u8,
-    check_mode: bool,
-    parent_dir: fs.Dir,
-    parent_sub_path: []const u8,
-) FmtError!void {
-    var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
-    defer dir.close();
-
-    const stat = try dir.stat();
-    if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
-
-    var dir_it = dir.iterate();
-    while (try dir_it.next()) |entry| {
-        const is_dir = entry.kind == .directory;
-
-        if (is_dir and (mem.eql(u8, entry.name, "zig-cache") or mem.eql(u8, entry.name, "zig-out"))) continue;
-
-        if (is_dir or entry.kind == .file and (mem.endsWith(u8, entry.name, ".zig") or mem.endsWith(u8, entry.name, ".zon"))) {
-            const full_path = try fs.path.join(fmt.gpa, &[_][]const u8{ file_path, entry.name });
-            defer fmt.gpa.free(full_path);
-
-            if (is_dir) {
-                try fmtPathDir(fmt, full_path, check_mode, dir, entry.name);
-            } else {
-                fmtPathFile(fmt, full_path, check_mode, dir, entry.name) catch |err| {
-                    warn("unable to format '{s}': {s}", .{ full_path, @errorName(err) });
-                    fmt.any_error = true;
-                    return;
-                };
-            }
-        }
-    }
-}
-
-fn fmtPathFile(
-    fmt: *Fmt,
-    file_path: []const u8,
-    check_mode: bool,
-    dir: fs.Dir,
-    sub_path: []const u8,
-) FmtError!void {
-    const source_file = try dir.openFile(sub_path, .{});
-    var file_closed = false;
-    errdefer if (!file_closed) source_file.close();
-
-    const stat = try source_file.stat();
-
-    if (stat.kind == .directory)
-        return error.IsDir;
-
-    const gpa = fmt.gpa;
-    const source_code = try readSourceFileToEndAlloc(
-        gpa,
-        &source_file,
-        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
-    );
-    defer gpa.free(source_code);
-
-    source_file.close();
-    file_closed = true;
-
-    // Add to set after no longer possible to get error.IsDir.
-    if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
-
-    var tree = try Ast.parse(gpa, source_code, .zig);
-    defer tree.deinit(gpa);
-
-    if (tree.errors.len != 0) {
-        try printAstErrorsToStderr(gpa, tree, file_path, fmt.color);
-        fmt.any_error = true;
-        return;
-    }
-
-    if (fmt.check_ast) {
-        var file: Module.File = .{
-            .status = .never_loaded,
-            .source_loaded = true,
-            .zir_loaded = false,
-            .sub_file_path = file_path,
-            .source = source_code,
-            .stat = .{
-                .size = stat.size,
-                .inode = stat.inode,
-                .mtime = stat.mtime,
-            },
-            .tree = tree,
-            .tree_loaded = true,
-            .zir = undefined,
-            .mod = undefined,
-            .root_decl = .none,
-        };
-
-        file.mod = try Package.Module.createLimited(fmt.arena, .{
-            .root = Package.Path.cwd(),
-            .root_src_path = file.sub_file_path,
-            .fully_qualified_name = "root",
+    if (process.can_execv and options.capture == null) {
+        const err = process.execv(gpa, child_argv.items);
+        const cmd = try std.mem.join(arena, " ", child_argv.items);
+        fatal("the following command failed to execve with '{s}':\n{s}", .{
+            @errorName(err),
+            cmd,
         });
-
-        if (stat.size > max_src_size)
-            return error.FileTooBig;
-
-        file.zir = try AstGen.generate(gpa, file.tree);
-        file.zir_loaded = true;
-        defer file.zir.deinit(gpa);
-
-        if (file.zir.hasCompileErrors()) {
-            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-            try wip_errors.init(gpa);
-            defer wip_errors.deinit();
-            try Compilation.addZirErrorMessages(&wip_errors, &file);
-            var error_bundle = try wip_errors.toOwnedBundle("");
-            defer error_bundle.deinit(gpa);
-            error_bundle.renderToStdErr(renderOptions(fmt.color));
-            fmt.any_error = true;
-        }
     }
 
-    // As a heuristic, we make enough capacity for the same as the input source.
-    fmt.out_buffer.shrinkRetainingCapacity(0);
-    try fmt.out_buffer.ensureTotalCapacity(source_code.len);
-
-    try tree.renderToArrayList(&fmt.out_buffer, .{});
-    if (mem.eql(u8, fmt.out_buffer.items, source_code))
-        return;
-
-    if (check_mode) {
-        const stdout = io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
-        fmt.any_error = true;
-    } else {
-        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
-        defer af.deinit();
-
-        try af.file.writeAll(fmt.out_buffer.items);
-        try af.finish();
-        const stdout = io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+    if (!process.can_spawn) {
+        const cmd = try std.mem.join(arena, " ", child_argv.items);
+        fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{
+            @tagName(builtin.os.tag), cmd,
+        });
     }
-}
 
-fn printAstErrorsToStderr(gpa: Allocator, tree: Ast, path: []const u8, color: Color) !void {
-    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-    try wip_errors.init(gpa);
-    defer wip_errors.deinit();
+    var child = std.ChildProcess.init(child_argv.items, gpa);
+    child.stdin_behavior = .Inherit;
+    child.stdout_behavior = if (options.capture == null) .Inherit else .Pipe;
+    child.stderr_behavior = .Inherit;
 
-    try putAstErrorsIntoBundle(gpa, tree, path, &wip_errors);
+    try child.spawn();
 
-    var error_bundle = try wip_errors.toOwnedBundle("");
-    defer error_bundle.deinit(gpa);
-    error_bundle.renderToStdErr(renderOptions(color));
-}
+    if (options.capture) |ptr| {
+        ptr.* = try child.stdout.?.readToEndAlloc(arena, std.math.maxInt(u32));
+    }
 
-pub fn putAstErrorsIntoBundle(
-    gpa: Allocator,
-    tree: Ast,
-    path: []const u8,
-    wip_errors: *std.zig.ErrorBundle.Wip,
-) Allocator.Error!void {
-    var file: Module.File = .{
-        .status = .never_loaded,
-        .source_loaded = true,
-        .zir_loaded = false,
-        .sub_file_path = path,
-        .source = tree.source,
-        .stat = .{
-            .size = 0,
-            .inode = 0,
-            .mtime = 0,
+    const term = try child.wait();
+    switch (term) {
+        .Exited => |code| {
+            if (code == 0) {
+                if (options.capture != null) return;
+                return cleanExit();
+            }
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });
         },
-        .tree = tree,
-        .tree_loaded = true,
-        .zir = undefined,
-        .mod = try Package.Module.createLimited(gpa, .{
-            .root = Package.Path.cwd(),
-            .root_src_path = path,
-            .fully_qualified_name = "root",
-        }),
-        .root_decl = .none,
-    };
-    defer gpa.destroy(file.mod);
-
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    defer file.zir.deinit(gpa);
-
-    try Compilation.addZirErrorMessages(wip_errors, &file);
+        else => {
+            const cmd = try std.mem.join(arena, " ", child_argv.items);
+            fatal("the following build command crashed:\n{s}", .{cmd});
+        },
+    }
 }
 
-pub const info_zen =
+const info_zen =
     \\
     \\ * Communicate intent precisely.
     \\ * Edge cases matter.
@@ -6266,6 +5779,7 @@ pub const ClangArgIterator = struct {
         compress_debug_sections,
         install_name,
         undefined,
+        force_load_objc,
     };
 
     const Args = struct {
@@ -6525,12 +6039,12 @@ const usage_ast_check =
     \\
 ;
 
-pub fn cmdAstCheck(
+fn cmdAstCheck(
     gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
 ) !void {
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     var color: Color = .auto;
     var want_output_text = false;
@@ -6585,7 +6099,7 @@ pub fn cmdAstCheck(
 
         const stat = try f.stat();
 
-        if (stat.size > max_src_size)
+        if (stat.size > std.zig.max_src_size)
             return error.FileTooBig;
 
         const source = try arena.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
@@ -6603,7 +6117,7 @@ pub fn cmdAstCheck(
         };
     } else {
         const stdin = io.getStdIn();
-        const source = readSourceFileToEndAlloc(arena, &stdin, null) catch |err| {
+        const source = std.zig.readSourceFileToEndAlloc(arena, stdin, null) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         file.sub_file_path = "<stdin>";
@@ -6633,15 +6147,15 @@ pub fn cmdAstCheck(
         try Compilation.addZirErrorMessages(&wip_errors, &file);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(color));
+        error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
     if (!want_output_text) {
         return cleanExit();
     }
-    if (!debug_extensions_enabled) {
-        fatal("-t option only available in debug builds of zig", .{});
+    if (!build_options.enable_debug_extensions) {
+        fatal("-t option only available in builds of zig with debug extensions", .{});
     }
 
     {
@@ -6686,13 +6200,13 @@ pub fn cmdAstCheck(
 }
 
 /// This is only enabled for debug builds.
-pub fn cmdDumpZir(
+fn cmdDumpZir(
     gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
 ) !void {
     _ = arena;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const cache_file = args[0];
 
@@ -6746,13 +6260,13 @@ pub fn cmdDumpZir(
 }
 
 /// This is only enabled for debug builds.
-pub fn cmdChangelist(
+fn cmdChangelist(
     gpa: Allocator,
     arena: Allocator,
     args: []const []const u8,
 ) !void {
     const color: Color = .auto;
-    const Zir = @import("Zir.zig");
+    const Zir = std.zig.Zir;
 
     const old_source_file = args[0];
     const new_source_file = args[1];
@@ -6764,7 +6278,7 @@ pub fn cmdChangelist(
 
     const stat = try f.stat();
 
-    if (stat.size > max_src_size)
+    if (stat.size > std.zig.max_src_size)
         return error.FileTooBig;
 
     var file: Module.File = .{
@@ -6813,7 +6327,7 @@ pub fn cmdChangelist(
         try Compilation.addZirErrorMessages(&wip_errors, &file);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(color));
+        error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
@@ -6824,7 +6338,7 @@ pub fn cmdChangelist(
 
     const new_stat = try new_f.stat();
 
-    if (new_stat.size > max_src_size)
+    if (new_stat.size > std.zig.max_src_size)
         return error.FileTooBig;
 
     const new_source = try arena.allocSentinel(u8, @as(usize, @intCast(new_stat.size)), 0);
@@ -6848,17 +6362,14 @@ pub fn cmdChangelist(
         try Compilation.addZirErrorMessages(&wip_errors, &file);
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(color));
+        error_bundle.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
     defer inst_map.deinit(gpa);
 
-    var extra_map: std.AutoHashMapUnmanaged(Zir.ExtraIndex, Zir.ExtraIndex) = .{};
-    defer extra_map.deinit(gpa);
-
-    try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map, &extra_map);
+    try Module.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
 
     var bw = io.bufferedWriter(io.getStdOut().writer());
     const stdout = bw.writer();
@@ -6867,16 +6378,8 @@ pub fn cmdChangelist(
         var it = inst_map.iterator();
         while (it.next()) |entry| {
             try stdout.print(" %{d} => %{d}\n", .{
-                entry.key_ptr.*, entry.value_ptr.*,
-            });
-        }
-    }
-    {
-        try stdout.print("Extra mappings:\n", .{});
-        var it = extra_map.iterator();
-        while (it.next()) |entry| {
-            try stdout.print(" {d} => {d}\n", .{
-                entry.key_ptr.*, entry.value_ptr.*,
+                @intFromEnum(entry.key_ptr.*),
+                @intFromEnum(entry.value_ptr.*),
             });
         }
     }
@@ -6908,7 +6411,7 @@ fn warnAboutForeignBinaries(
     link_libc: bool,
 ) !void {
     const host_query: std.Target.Query = .{};
-    const host_target = resolveTargetQueryOrFatal(host_query);
+    const host_target = std.zig.resolveTargetQueryOrFatal(host_query);
 
     switch (std.zig.system.getExternalExecutor(host_target, target, .{ .link_libc = link_libc })) {
         .native => return,
@@ -7127,23 +6630,6 @@ const ClangSearchSanitizer = struct {
     };
 };
 
-fn get_tty_conf(color: Color) std.io.tty.Config {
-    return switch (color) {
-        .auto => std.io.tty.detectConfig(std.io.getStdErr()),
-        .on => .escape_codes,
-        .off => .no_color,
-    };
-}
-
-fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-    const ttyconf = get_tty_conf(color);
-    return .{
-        .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
-    };
-}
-
 fn accessLibPath(
     test_path: *std.ArrayList(u8),
     checked_paths: *std.ArrayList(u8),
@@ -7154,7 +6640,7 @@ fn accessLibPath(
 ) !bool {
     const sep = fs.path.sep_str;
 
-    if (target.isDarwin() and link_mode == .Dynamic) tbd: {
+    if (target.isDarwin() and link_mode == .dynamic) tbd: {
         // Prefer .tbd over .dylib.
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "lib{s}.tbd", .{ lib_dir_path, lib_name });
@@ -7175,8 +6661,8 @@ fn accessLibPath(
             target.libPrefix(),
             lib_name,
             switch (link_mode) {
-                .Static => target.staticLibSuffix(),
-                .Dynamic => target.dynamicLibSuffix(),
+                .static => target.staticLibSuffix(),
+                .dynamic => target.dynamicLibSuffix(),
             },
         });
         try checked_paths.writer().print("\n  {s}", .{test_path.items});
@@ -7258,7 +6744,7 @@ fn accessLibPath(
 
     // In the case of Darwin, the main check will be .dylib, so here we
     // additionally check for .so files.
-    if (target.isDarwin() and link_mode == .Dynamic) so: {
+    if (target.isDarwin() and link_mode == .dynamic) so: {
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "lib{s}.so", .{ lib_dir_path, lib_name });
         try checked_paths.writer().print("\n  {s}", .{test_path.items});
@@ -7273,7 +6759,7 @@ fn accessLibPath(
 
     // In the case of MinGW, the main check will be .lib but we also need to
     // look for `libfoo.a`.
-    if (target.isMinGW() and link_mode == .Static) mingw: {
+    if (target.isMinGW() and link_mode == .static) mingw: {
         test_path.clearRetainingCapacity();
         try test_path.writer().print("{s}" ++ sep ++ "lib{s}.a", .{
             lib_dir_path, lib_name,
@@ -7325,7 +6811,7 @@ fn parseRcIncludes(arg: []const u8) Compilation.RcIncludes {
         fatal("unsupported rc includes type: '{s}'", .{arg});
 }
 
-pub const usage_fetch =
+const usage_fetch =
     \\Usage: zig fetch [options] <url>
     \\Usage: zig fetch [options] <path>
     \\
@@ -7392,7 +6878,7 @@ fn cmdFetch(
     var http_client: std.http.Client = .{ .allocator = gpa };
     defer http_client.deinit();
 
-    try http_client.loadDefaultProxies();
+    try http_client.initDefaultProxies(arena);
 
     var progress: std.Progress = .{ .dont_print_on_dumb = true };
     const root_prog_node = progress.start("Fetch", 0);
@@ -7412,6 +6898,7 @@ fn cmdFetch(
         .thread_pool = &thread_pool,
         .global_cache = global_cache_directory,
         .recursive = false,
+        .read_only = false,
         .debug_hash = debug_hash,
         .work_around_btrfs_bug = work_around_btrfs_bug,
     };
@@ -7422,6 +6909,8 @@ fn cmdFetch(
         .location = .{ .path_or_url = path_or_url },
         .location_tok = 0,
         .hash_tok = 0,
+        .name_tok = 0,
+        .lazy_status = .eager,
         .parent_package_root = undefined,
         .parent_manifest_ast = null,
         .prog_node = root_prog_node,
@@ -7448,7 +6937,7 @@ fn cmdFetch(
 
     if (fetch.error_bundle.root_list.items.len > 0) {
         var errors = try fetch.error_bundle.toOwnedBundle("");
-        errors.renderToStdErr(renderOptions(color));
+        errors.renderToStdErr(color.renderOptions());
         process.exit(1);
     }
 
@@ -7618,10 +7107,11 @@ fn createDependenciesModule(
         },
         .fully_qualified_name = "root.@dependencies",
         .parent = main_mod,
-        .builtin_mod = builtin_mod,
         .cc_argv = &.{},
         .inherited = .{},
         .global = global_options,
+        .builtin_mod = builtin_mod,
+        .builtin_modules = null, // `builtin_mod` is specified
     });
     try main_mod.deps.put(arena, "@dependencies", deps_mod);
     return deps_mod;
@@ -7740,7 +7230,7 @@ fn loadManifest(
     errdefer ast.deinit(gpa);
 
     if (ast.errors.len > 0) {
-        try printAstErrorsToStderr(gpa, ast, Package.Manifest.basename, options.color);
+        try std.zig.printAstErrorsToStderr(gpa, ast, Package.Manifest.basename, options.color);
         process.exit(2);
     }
 
@@ -7757,7 +7247,7 @@ fn loadManifest(
 
         var error_bundle = try wip_errors.toOwnedBundle("");
         defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(renderOptions(options.color));
+        error_bundle.renderToStdErr(options.color.renderOptions());
 
         process.exit(2);
     }
@@ -7843,11 +7333,6 @@ fn parseOptimizeMode(s: []const u8) std.builtin.OptimizeMode {
 fn parseWasiExecModel(s: []const u8) std.builtin.WasiExecModel {
     return std.meta.stringToEnum(std.builtin.WasiExecModel, s) orelse
         fatal("expected [command|reactor] for -mexec-mode=[value], found '{s}'", .{s});
-}
-
-fn resolveTargetQueryOrFatal(target_query: std.Target.Query) std.Target {
-    return std.zig.system.resolveTargetQuery(target_query) catch |err|
-        fatal("unable to resolve target: {s}", .{@errorName(err)});
 }
 
 fn parseStackSize(s: []const u8) u64 {

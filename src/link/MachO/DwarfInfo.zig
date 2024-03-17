@@ -1,15 +1,17 @@
-debug_info: []const u8,
-debug_abbrev: []const u8,
-debug_str: []const u8,
-
 /// Abbreviation table indexed by offset in the .debug_abbrev bytestream
 abbrev_tables: std.AutoArrayHashMapUnmanaged(u64, AbbrevTable) = .{},
 /// List of compile units as they appear in the .debug_info bytestream
 compile_units: std.ArrayListUnmanaged(CompileUnit) = .{},
+/// Debug info string table
+strtab: std.ArrayListUnmanaged(u8) = .{},
+/// Debug info data
+di_data: std.ArrayListUnmanaged(u8) = .{},
 
-pub fn init(dw: *DwarfInfo, allocator: Allocator) !void {
-    try dw.parseAbbrevTables(allocator);
-    try dw.parseCompileUnits(allocator);
+pub fn init(dw: *DwarfInfo, allocator: Allocator, di: DebugInfo) !void {
+    try dw.strtab.ensureTotalCapacityPrecise(allocator, di.debug_str.len);
+    dw.strtab.appendSliceAssumeCapacity(di.debug_str);
+    try dw.parseAbbrevTables(allocator, di);
+    try dw.parseCompileUnits(allocator, di);
 }
 
 pub fn deinit(dw: *DwarfInfo, allocator: Allocator) void {
@@ -18,18 +20,27 @@ pub fn deinit(dw: *DwarfInfo, allocator: Allocator) void {
         cu.deinit(allocator);
     }
     dw.compile_units.deinit(allocator);
+    dw.strtab.deinit(allocator);
+    dw.di_data.deinit(allocator);
+}
+
+fn appendDiData(dw: *DwarfInfo, allocator: Allocator, values: []const u8) error{OutOfMemory}!u32 {
+    const index: u32 = @intCast(dw.di_data.items.len);
+    try dw.di_data.ensureUnusedCapacity(allocator, values.len);
+    dw.di_data.appendSliceAssumeCapacity(values);
+    return index;
 }
 
 fn getString(dw: DwarfInfo, off: usize) [:0]const u8 {
-    assert(off < dw.debug_str.len);
-    return mem.sliceTo(@as([*:0]const u8, @ptrCast(dw.debug_str.ptr + off)), 0);
+    assert(off < dw.strtab.items.len);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(dw.strtab.items.ptr + off)), 0);
 }
 
-fn parseAbbrevTables(dw: *DwarfInfo, allocator: Allocator) !void {
+fn parseAbbrevTables(dw: *DwarfInfo, allocator: Allocator, di: DebugInfo) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const debug_abbrev = dw.debug_abbrev;
+    const debug_abbrev = di.debug_abbrev;
     var stream = std.io.fixedBufferStream(debug_abbrev);
     var creader = std.io.countingReader(stream.reader());
     const reader = creader.reader();
@@ -77,11 +88,11 @@ fn parseAbbrevTables(dw: *DwarfInfo, allocator: Allocator) !void {
     }
 }
 
-fn parseCompileUnits(dw: *DwarfInfo, allocator: Allocator) !void {
+fn parseCompileUnits(dw: *DwarfInfo, allocator: Allocator, di: DebugInfo) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const debug_info = dw.debug_info;
+    const debug_info = di.debug_info;
     var stream = std.io.fixedBufferStream(debug_info);
     var creader = std.io.countingReader(stream.reader());
     const reader = creader.reader();
@@ -107,7 +118,7 @@ fn parseCompileUnits(dw: *DwarfInfo, allocator: Allocator) !void {
         cu.header.address_size = try reader.readInt(u8, .little);
 
         const table = dw.abbrev_tables.get(cu.header.debug_abbrev_offset).?;
-        try dw.parseDie(allocator, cu, table, null, &creader);
+        try dw.parseDie(allocator, cu, table, di, null, &creader);
     }
 }
 
@@ -116,6 +127,7 @@ fn parseDie(
     allocator: Allocator,
     cu: *CompileUnit,
     table: AbbrevTable,
+    di: DebugInfo,
     parent: ?u32,
     creader: anytype,
 ) anyerror!void {
@@ -140,19 +152,20 @@ fn parseDie(
         }
 
         const decl = table.decls.get(code) orelse return error.MalformedDwarf; // TODO better errors
-        const data = dw.debug_info;
+        const data = di.debug_info;
         try cu.diePtr(die).values.ensureTotalCapacityPrecise(allocator, decl.attrs.values().len);
 
         for (decl.attrs.values()) |attr| {
             const start = std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
             try advanceByFormSize(cu, attr.form, creader);
             const end = std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
-            cu.diePtr(die).values.appendAssumeCapacity(data[start..end]);
+            const index = try dw.appendDiData(allocator, data[start..end]);
+            cu.diePtr(die).values.appendAssumeCapacity(.{ .index = index, .len = @intCast(end - start) });
         }
 
         if (decl.children) {
             // Open scope
-            try dw.parseDie(allocator, cu, table, die, creader);
+            try dw.parseDie(allocator, cu, table, di, die, creader);
         }
     }
 }
@@ -340,7 +353,7 @@ pub const CompileUnit = struct {
 
 pub const Die = struct {
     code: Code,
-    values: std.ArrayListUnmanaged([]const u8) = .{},
+    values: std.ArrayListUnmanaged(struct { index: u32, len: u32 }) = .{},
     children: std.ArrayListUnmanaged(Die.Index) = .{},
 
     pub fn deinit(die: *Die, gpa: Allocator) void {
@@ -354,7 +367,7 @@ pub const Die = struct {
         const index = decl.attrs.getIndex(at) orelse return null;
         const attr = decl.attrs.values()[index];
         const value = die.values.items[index];
-        return .{ .attr = attr, .bytes = value };
+        return .{ .attr = attr, .bytes = ctx.di_data.items[value.index..][0..value.len] };
     }
 
     pub const Index = u32;
@@ -456,6 +469,12 @@ pub const DieValue = struct {
 pub const Format = enum {
     dwarf32,
     dwarf64,
+};
+
+const DebugInfo = struct {
+    debug_info: []const u8,
+    debug_abbrev: []const u8,
+    debug_str: []const u8,
 };
 
 const assert = std.debug.assert;

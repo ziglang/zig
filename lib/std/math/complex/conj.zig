@@ -10,7 +10,7 @@ pub fn conj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return Complex(T).init(z.re, -z.im);
 }
 
-test "complex.conj" {
+test conj {
     const a = Complex(f32).init(5, 3);
     const c = a.conjugate();
 

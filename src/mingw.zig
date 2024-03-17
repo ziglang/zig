@@ -178,13 +178,15 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     const target = comp.getTarget();
 
+    // Use the global cache directory.
     var cache: Cache = .{
         .gpa = comp.gpa,
-        .manifest_dir = comp.cache_parent.manifest_dir,
+        .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
     };
-    for (comp.cache_parent.prefixes()) |prefix| {
-        cache.addPrefix(prefix);
-    }
+    cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
+    cache.addPrefix(comp.zig_lib_directory);
+    cache.addPrefix(comp.global_cache_directory);
+    defer cache.manifest_dir.close();
 
     cache.hash.addBytes(build_options.version);
     cache.hash.addOptionalBytes(comp.zig_lib_directory.path);
@@ -266,7 +268,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
-        const def_final_file = try comp.global_cache_directory.handle.createFile(def_final_path, .{ .truncate = true });
+        const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
         try pp.prettyPrintTokens(def_final_file.writer());
     }

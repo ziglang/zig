@@ -1,4 +1,4 @@
-/// Address allocated for this Atom.
+/// Address offset allocated for this Atom wrt to its section start address.
 value: u64 = 0,
 
 /// Name of this Atom.
@@ -43,31 +43,50 @@ prev_index: Index = 0,
 next_index: Index = 0,
 
 pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
-    return macho_file.strings.getAssumeExists(self.name);
+    return switch (self.getFile(macho_file)) {
+        .dylib => unreachable,
+        .zig_object => |x| x.strtab.getAssumeExists(self.name),
+        inline else => |x| x.getString(self.name),
+    };
 }
 
 pub fn getFile(self: Atom, macho_file: *MachO) File {
     return macho_file.getFile(self.file).?;
 }
 
+pub fn getData(self: Atom, macho_file: *MachO, buffer: []u8) !void {
+    assert(buffer.len == self.size);
+    switch (self.getFile(macho_file)) {
+        .internal => |x| try x.getAtomData(self, buffer),
+        .object => |x| try x.getAtomData(macho_file, self, buffer),
+        .zig_object => |x| try x.getAtomData(macho_file, self, buffer),
+        else => unreachable,
+    }
+}
+
 pub fn getRelocs(self: Atom, macho_file: *MachO) []const Relocation {
     return switch (self.getFile(macho_file)) {
-        .zig_object => |x| x.getAtomRelocs(self),
-        .object => |x| x.getAtomRelocs(self),
-        else => unreachable,
+        .dylib => unreachable,
+        inline else => |x| x.getAtomRelocs(self),
     };
 }
 
 pub fn getInputSection(self: Atom, macho_file: *MachO) macho.section_64 {
     return switch (self.getFile(macho_file)) {
+        .dylib => unreachable,
         .zig_object => |x| x.getInputSection(self, macho_file),
         .object => |x| x.sections.items(.header)[self.n_sect],
-        else => unreachable,
+        .internal => |x| x.sections.items(.header)[self.n_sect],
     };
 }
 
 pub fn getInputAddress(self: Atom, macho_file: *MachO) u64 {
     return self.getInputSection(macho_file).addr + self.off;
+}
+
+pub fn getAddress(self: Atom, macho_file: *MachO) u64 {
+    const header = macho_file.sections.items(.header)[self.out_n_sect];
+    return header.addr + self.value;
 }
 
 pub fn getPriority(self: Atom, macho_file: *MachO) u64 {
@@ -102,7 +121,7 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     const segname, const sectname, const flags = blk: {
         if (sect.isCode()) break :blk .{
             "__TEXT",
-            sect.sectName(),
+            "__text",
             macho.S_REGULAR | macho.S_ATTR_PURE_INSTRUCTIONS | macho.S_ATTR_SOME_INSTRUCTIONS,
         };
 
@@ -142,8 +161,7 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
                 const segname = sect.segName();
                 const sectname = sect.sectName();
                 if (mem.eql(u8, segname, "__DATA")) {
-                    if (mem.eql(u8, sectname, "__const") or
-                        mem.eql(u8, sectname, "__cfstring") or
+                    if (mem.eql(u8, sectname, "__cfstring") or
                         mem.eql(u8, sectname, "__objc_classlist") or
                         mem.eql(u8, sectname, "__objc_imageinfo")) break :blk .{
                         "__DATA_CONST",
@@ -175,14 +193,17 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, macho_file: *MachO) u64 {
-    const next_value = if (macho_file.getAtom(self.next_index)) |next| next.value else std.math.maxInt(u32);
-    return next_value - self.value;
+    const next_addr = if (macho_file.getAtom(self.next_index)) |next|
+        next.getAddress(macho_file)
+    else
+        std.math.maxInt(u32);
+    return next_addr - self.getAddress(macho_file);
 }
 
 pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     // No need to keep a free list node for the last block.
     const next = macho_file.getAtom(self.next_index) orelse return false;
-    const cap = next.value - self.value;
+    const cap = next.getAddress(macho_file) - self.getAddress(macho_file);
     const ideal_cap = MachO.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
     const surplus = cap - ideal_cap;
@@ -249,15 +270,15 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
             atom_placement = last.atom_index;
             break :blk new_start_vaddr;
         } else {
-            break :blk sect.addr;
+            break :blk 0;
         }
     };
 
     log.debug("allocated atom({d}) : '{s}' at 0x{x} to 0x{x}", .{
         self.atom_index,
         self.getName(macho_file),
-        self.value,
-        self.value + self.size,
+        self.getAddress(macho_file),
+        self.getAddress(macho_file) + self.size,
     });
 
     const expand_section = if (atom_placement) |placement_index|
@@ -265,7 +286,7 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
     else
         true;
     if (expand_section) {
-        const needed_size = (self.value + self.size) - sect.addr;
+        const needed_size = self.value + self.size;
         try macho_file.growSection(self.out_n_sect, needed_size);
         last_atom_index.* = self.atom_index;
 
@@ -530,10 +551,10 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     const name = self.getName(macho_file);
     const relocs = self.getRelocs(macho_file);
 
-    relocs_log.debug("{x}: {s}", .{ self.value, name });
+    relocs_log.debug("{x}: {s}", .{ self.getAddress(macho_file), name });
 
+    var has_error = false;
     var stream = std.io.fixedBufferStream(buffer);
-
     var i: usize = 0;
     while (i < relocs.len) : (i += 1) {
         const rel = relocs[i];
@@ -548,25 +569,34 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
         self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
             switch (err) {
                 error.RelaxFail => {
+                    const target = switch (rel.tag) {
+                        .@"extern" => rel.getTargetSymbol(macho_file).getName(macho_file),
+                        .local => rel.getTargetAtom(macho_file).getName(macho_file),
+                    };
                     try macho_file.reportParseError2(
                         file.getIndex(),
-                        "{s}: 0x{x}: failed to relax relocation: in {s}",
-                        .{ name, rel.offset, @tagName(rel.type) },
+                        "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {s}, target {s}",
+                        .{ name, self.getAddress(macho_file), rel.offset, @tagName(rel.type), target },
                     );
-                    return error.ResolveFailed;
+                    has_error = true;
                 },
+                error.RelaxFailUnexpectedInstruction => has_error = true,
                 else => |e| return e,
             }
         };
     }
+
+    if (has_error) return error.ResolveFailed;
 }
 
 const ResolveError = error{
     RelaxFail,
+    RelaxFailUnexpectedInstruction,
     NoSpaceLeft,
     DivisionByZero,
     UnexpectedRemainder,
     Overflow,
+    OutOfMemory,
 };
 
 fn resolveRelocInner(
@@ -581,7 +611,7 @@ fn resolveRelocInner(
     const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
     const seg_id = macho_file.sections.items(.segment_id)[self.out_n_sect];
     const seg = macho_file.segments.items[seg_id];
-    const P = @as(i64, @intCast(self.value)) + @as(i64, @intCast(rel_offset));
+    const P = @as(i64, @intCast(self.getAddress(macho_file))) + @as(i64, @intCast(rel_offset));
     const A = rel.addend + rel.getRelocAddend(cpu_arch);
     const S: i64 = @intCast(rel.getTargetAddress(macho_file));
     const G: i64 = @intCast(rel.getGotTargetAddress(macho_file));
@@ -667,17 +697,10 @@ fn resolveRelocInner(
                 .aarch64 => {
                     const disp: i28 = math.cast(i28, S + A - P) orelse blk: {
                         const thunk = self.getThunk(macho_file);
-                        const S_: i64 = @intCast(thunk.getAddress(rel.target));
+                        const S_: i64 = @intCast(thunk.getTargetAddress(rel.target, macho_file));
                         break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                     };
-                    var inst = aarch64.Instruction{
-                        .unconditional_branch_immediate = mem.bytesToValue(std.meta.TagPayload(
-                            aarch64.Instruction,
-                            aarch64.Instruction.unconditional_branch_immediate,
-                        ), code[rel_offset..][0..4]),
-                    };
-                    inst.unconditional_branch_immediate.imm26 = @as(u26, @truncate(@as(u28, @bitCast(disp >> 2))));
-                    try writer.writeInt(u32, inst.toU32(), .little);
+                    aarch64.writeBranchImm(disp, code[rel_offset..][0..4]);
                 },
                 else => unreachable,
             }
@@ -690,7 +713,7 @@ fn resolveRelocInner(
             if (rel.getTargetSymbol(macho_file).flags.has_got) {
                 try writer.writeInt(i32, @intCast(G + A - P), .little);
             } else {
-                try x86_64.relaxGotLoad(code[rel_offset - 3 ..]);
+                try x86_64.relaxGotLoad(self, code[rel_offset - 3 ..], rel, macho_file);
                 try writer.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
@@ -747,16 +770,8 @@ fn resolveRelocInner(
                 };
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
-            const pages = @as(u21, @bitCast(try Relocation.calcNumberOfPages(source, target)));
-            var inst = aarch64.Instruction{
-                .pc_relative_address = mem.bytesToValue(std.meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.pc_relative_address,
-                ), code[rel_offset..][0..4]),
-            };
-            inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
-            inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
-            try writer.writeInt(u32, inst.toU32(), .little);
+            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(source, target)));
+            aarch64.writeAdrpInst(pages, code[rel_offset..][0..4]);
         },
 
         .pageoff => {
@@ -765,16 +780,8 @@ fn resolveRelocInner(
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, S + A) orelse return error.Overflow;
             const inst_code = code[rel_offset..][0..4];
-            if (Relocation.isArithmeticOp(inst_code)) {
-                const off = try Relocation.calcPageOffset(target, .arithmetic);
-                var inst = aarch64.Instruction{
-                    .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
-                        aarch64.Instruction,
-                        aarch64.Instruction.add_subtract_immediate,
-                    ), inst_code),
-                };
-                inst.add_subtract_immediate.imm12 = off;
-                try writer.writeInt(u32, inst.toU32(), .little);
+            if (aarch64.isArithmeticOp(inst_code)) {
+                aarch64.writeAddImmInst(@truncate(target), inst_code);
             } else {
                 var inst = aarch64.Instruction{
                     .load_store_register = mem.bytesToValue(std.meta.TagPayload(
@@ -782,16 +789,15 @@ fn resolveRelocInner(
                         aarch64.Instruction.load_store_register,
                     ), inst_code),
                 };
-                const off = try Relocation.calcPageOffset(target, switch (inst.load_store_register.size) {
+                inst.load_store_register.offset = switch (inst.load_store_register.size) {
                     0 => if (inst.load_store_register.v == 1)
-                        Relocation.PageOffsetInstKind.load_store_128
+                        try math.divExact(u12, @truncate(target), 16)
                     else
-                        Relocation.PageOffsetInstKind.load_store_8,
-                    1 => .load_store_16,
-                    2 => .load_store_32,
-                    3 => .load_store_64,
-                });
-                inst.load_store_register.offset = off;
+                        @truncate(target),
+                    1 => try math.divExact(u12, @truncate(target), 2),
+                    2 => try math.divExact(u12, @truncate(target), 4),
+                    3 => try math.divExact(u12, @truncate(target), 8),
+                };
                 try writer.writeInt(u32, inst.toU32(), .little);
             }
         },
@@ -801,15 +807,7 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, G + A) orelse return error.Overflow;
-            const off = try Relocation.calcPageOffset(target, .load_store_64);
-            var inst: aarch64.Instruction = .{
-                .load_store_register = mem.bytesToValue(std.meta.TagPayload(
-                    aarch64.Instruction,
-                    aarch64.Instruction.load_store_register,
-                ), code[rel_offset..][0..4]),
-            };
-            inst.load_store_register.offset = off;
-            try writer.writeInt(u32, inst.toU32(), .little);
+            aarch64.writeLoadStoreRegInst(try math.divExact(u12, @truncate(target), 8), code[rel_offset..][0..4]);
         },
 
         .tlvp_pageoff => {
@@ -834,7 +832,7 @@ fn resolveRelocInner(
 
             const inst_code = code[rel_offset..][0..4];
             const reg_info: RegInfo = blk: {
-                if (Relocation.isArithmeticOp(inst_code)) {
+                if (aarch64.isArithmeticOp(inst_code)) {
                     const inst = mem.bytesToValue(std.meta.TagPayload(
                         aarch64.Instruction,
                         aarch64.Instruction.add_subtract_immediate,
@@ -861,7 +859,7 @@ fn resolveRelocInner(
                 .load_store_register = .{
                     .rt = reg_info.rd,
                     .rn = reg_info.rn,
-                    .offset = try Relocation.calcPageOffset(target, .load_store_64),
+                    .offset = try math.divExact(u12, @truncate(target), 8),
                     .opc = 0b01,
                     .op1 = 0b01,
                     .v = 0,
@@ -871,7 +869,7 @@ fn resolveRelocInner(
                 .add_subtract_immediate = .{
                     .rd = reg_info.rd,
                     .rn = reg_info.rn,
-                    .imm12 = try Relocation.calcPageOffset(target, .arithmetic),
+                    .imm12 = @truncate(target),
                     .sh = 0,
                     .s = 0,
                     .op = 0,
@@ -884,7 +882,7 @@ fn resolveRelocInner(
 }
 
 const x86_64 = struct {
-    fn relaxGotLoad(code: []u8) error{RelaxFail}!void {
+    fn relaxGotLoad(self: Atom, code: []u8, rel: Relocation, macho_file: *MachO) ResolveError!void {
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -892,7 +890,18 @@ const x86_64 = struct {
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
-            else => return error.RelaxFail,
+            else => |x| {
+                var err = try macho_file.addErrorWithNotes(2);
+                try err.addMsg(macho_file, "{s}: 0x{x}: 0x{x}: failed to relax relocation of type {s}", .{
+                    self.getName(macho_file),
+                    self.getAddress(macho_file),
+                    rel.offset,
+                    @tagName(rel.type),
+                });
+                try err.addNote(macho_file, "expected .mov instruction but found .{s}", .{@tagName(x)});
+                try err.addNote(macho_file, "while parsing {}", .{self.getFile(macho_file).fmtPath()});
+                return error.RelaxFailUnexpectedInstruction;
+            },
         }
     }
 
@@ -956,12 +965,11 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: *std.Arra
 
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const relocs = self.getRelocs(macho_file);
-    const sect = macho_file.sections.items(.header)[self.out_n_sect];
     var stream = std.io.fixedBufferStream(code);
 
     for (relocs) |rel| {
         const rel_offset = rel.offset - self.off;
-        const r_address: i32 = math.cast(i32, self.value + rel_offset - sect.addr) orelse return error.Overflow;
+        const r_address: i32 = math.cast(i32, self.value + rel_offset) orelse return error.Overflow;
         const r_symbolnum = r_symbolnum: {
             const r_symbolnum: u32 = switch (rel.tag) {
                 .local => rel.getTargetAtom(macho_file).out_n_sect + 1,
@@ -1028,7 +1036,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: *std.Arra
             .x86_64 => {
                 if (rel.meta.pcrel) {
                     if (rel.tag == .local) {
-                        addend -= @as(i64, @intCast(self.value + rel_offset));
+                        addend -= @as(i64, @intCast(self.getAddress(macho_file) + rel_offset));
                     } else {
                         addend += 4;
                     }
@@ -1109,10 +1117,10 @@ fn format2(
     _ = unused_fmt_string;
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
-    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : thunk({d})", .{
-        atom.atom_index,  atom.getName(macho_file), atom.value,
-        atom.out_n_sect,  atom.alignment,           atom.size,
-        atom.thunk_index,
+    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : nreloc({d}) : thunk({d})", .{
+        atom.atom_index,                atom.getName(macho_file), atom.getAddress(macho_file),
+        atom.out_n_sect,                atom.alignment,           atom.size,
+        atom.getRelocs(macho_file).len, atom.thunk_index,
     });
     if (!atom.flags.alive) try writer.writeAll(" : [*]");
     if (atom.unwind_records.len > 0) {
@@ -1144,7 +1152,7 @@ pub const Loc = struct {
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
-const aarch64 = @import("../../arch/aarch64/bits.zig");
+const aarch64 = @import("../aarch64.zig");
 const assert = std.debug.assert;
 const bind = @import("dyld_info/bind.zig");
 const macho = std.macho;

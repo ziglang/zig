@@ -27,7 +27,7 @@ pub fn countingReader(reader: anytype) CountingReader(@TypeOf(reader)) {
     return .{ .child_reader = reader };
 }
 
-test "io.CountingReader" {
+test CountingReader {
     const bytes = "yay" ** 100;
     var fbs = io.fixedBufferStream(bytes);
 

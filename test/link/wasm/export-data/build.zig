@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
         .name = "lib",
         .root_source_file = .{ .path = "lib.zig" },
         .optimize = .ReleaseSafe, // to make the output deterministic in address positions
-        .target = .{ .cpu_arch = .wasm32, .os_tag = .freestanding },
+        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
     });
     lib.entry = .disabled;
     lib.use_lld = false;

@@ -132,7 +132,7 @@ test "float bits" {
     }
 }
 
-test "math.inf" {
+test inf {
     const inf_u16: u16 = 0x7C00;
     const inf_u32: u32 = 0x7F800000;
     const inf_u64: u64 = 0x7FF0000000000000;
@@ -145,7 +145,7 @@ test "math.inf" {
     try expectEqual(inf_u128, @as(u128, @bitCast(inf(f128))));
 }
 
-test "math.nan" {
+test nan {
     const qnan_u16: u16 = 0x7E00;
     const qnan_u32: u32 = 0x7FC00000;
     const qnan_u64: u64 = 0x7FF8000000000000;
@@ -158,7 +158,7 @@ test "math.nan" {
     try expectEqual(qnan_u128, @as(u128, @bitCast(nan(f128))));
 }
 
-test "math.snan" {
+test snan {
     // TODO: https://github.com/ziglang/zig/issues/14366
     if (builtin.zig_backend == .stage2_llvm and comptime builtin.cpu.arch.isArmOrThumb()) return error.SkipZigTest;
 

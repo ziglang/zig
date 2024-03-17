@@ -126,7 +126,7 @@ pub const Path = struct {
     ) !void {
         if (fmt_string.len == 1) {
             // Quote-escape the string.
-            const stringEscape = std.zig.fmt.stringEscape;
+            const stringEscape = std.zig.stringEscape;
             const f = switch (fmt_string[0]) {
                 'q' => "",
                 '\'' => '\'',

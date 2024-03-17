@@ -12,7 +12,7 @@ pub fn copysign(magnitude: anytype, sign: @TypeOf(magnitude)) @TypeOf(magnitude)
     return @as(T, @bitCast(mag | sgn));
 }
 
-test "math.copysign" {
+test copysign {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
         try expect(copysign(@as(T, 1.0), @as(T, 1.0)) == 1.0);
         try expect(copysign(@as(T, 2.0), @as(T, -2.0)) == -2.0);

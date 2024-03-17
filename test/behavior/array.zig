@@ -768,8 +768,6 @@ test "array init with no result pointer sets field result types" {
 }
 
 test "runtime side-effects in comptime-known array init" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     var side_effects: u4 = 0;
     const init = [4]u4{
         blk: {

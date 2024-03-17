@@ -463,7 +463,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv_list = ArrayList([]const u8).init(arena);
     var output_placeholders = ArrayList(IndexedOutput).init(arena);
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     for (self.argv.items) |arg| {
@@ -1036,7 +1036,7 @@ fn spawnChildAndCollect(
         child.cwd = b.build_root.path;
         child.cwd_dir = b.build_root.handle;
     }
-    child.env_map = self.env_map orelse b.env_map;
+    child.env_map = self.env_map orelse &b.graph.env_map;
     child.request_resource_usage_statistics = true;
 
     child.stdin_behavior = switch (self.stdio) {
@@ -1147,18 +1147,13 @@ fn evalZigTest(
                 test_count = tm_hdr.tests_len;
 
                 const names_bytes = body[@sizeOf(TmHdr)..][0 .. test_count * @sizeOf(u32)];
-                const async_frame_lens_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
-                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len ..][0 .. test_count * @sizeOf(u32)];
-                const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + async_frame_lens_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
+                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
+                const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
 
                 const names = std.mem.bytesAsSlice(u32, names_bytes);
-                const async_frame_lens = std.mem.bytesAsSlice(u32, async_frame_lens_bytes);
                 const expected_panic_msgs = std.mem.bytesAsSlice(u32, expected_panic_msgs_bytes);
                 const names_aligned = try arena.alloc(u32, names.len);
                 for (names_aligned, names) |*dest, src| dest.* = src;
-
-                const async_frame_lens_aligned = try arena.alloc(u32, async_frame_lens.len);
-                for (async_frame_lens_aligned, async_frame_lens) |*dest, src| dest.* = src;
 
                 const expected_panic_msgs_aligned = try arena.alloc(u32, expected_panic_msgs.len);
                 for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
@@ -1167,7 +1162,6 @@ fn evalZigTest(
                 metadata = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .names = names_aligned,
-                    .async_frame_lens = async_frame_lens_aligned,
                     .expected_panic_msgs = expected_panic_msgs_aligned,
                     .next_index = 0,
                     .prog_node = prog_node,
@@ -1187,7 +1181,9 @@ fn evalZigTest(
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
-                    const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
+                    const orig_msg = stderr.readableSlice(0);
+                    defer stderr.discard(orig_msg.len);
+                    const msg = std.mem.trim(u8, orig_msg, "\n");
                     const label = if (tr_hdr.flags.fail)
                         "failed"
                     else if (tr_hdr.flags.leak)
@@ -1201,7 +1197,6 @@ fn evalZigTest(
                     } else {
                         try self.step.addError("'{s}' {s}", .{ name, label });
                     }
-                    stderr.discard(msg.len);
                 }
 
                 try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);
@@ -1237,7 +1232,6 @@ fn evalZigTest(
 
 const TestMetadata = struct {
     names: []const u32,
-    async_frame_lens: []const u32,
     expected_panic_msgs: []const u32,
     string_bytes: []const u8,
     next_index: u32,
@@ -1253,7 +1247,6 @@ fn requestNextTest(in: fs.File, metadata: *TestMetadata, sub_prog_node: *?std.Pr
         const i = metadata.next_index;
         metadata.next_index += 1;
 
-        if (metadata.async_frame_lens[i] != 0) continue;
         if (metadata.expected_panic_msgs[i] != 0) continue;
 
         const name = metadata.testName(i);

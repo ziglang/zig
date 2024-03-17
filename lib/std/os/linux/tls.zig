@@ -324,7 +324,7 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
             null,
             tls_image.alloc_size + tls_image.alloc_align - 1,
             os.PROT.READ | os.PROT.WRITE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         ) catch os.abort();

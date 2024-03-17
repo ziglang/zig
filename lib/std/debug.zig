@@ -461,7 +461,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
         0 => {
             panic_stage = 1;
 
-            _ = panicking.fetchAdd(1, .SeqCst);
+            _ = panicking.fetchAdd(1, .seq_cst);
 
             // Make sure to release the mutex when done
             {
@@ -503,7 +503,7 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
 /// Must be called only after adding 1 to `panicking`. There are three callsites.
 fn waitForOtherThreadToFinishPanicking() void {
-    if (panicking.fetchSub(1, .SeqCst) != 1) {
+    if (panicking.fetchSub(1, .seq_cst) != 1) {
         // Another thread is panicking, wait for the last one to finish
         // and call abort()
         if (builtin.single_threaded) unreachable;
@@ -688,7 +688,7 @@ pub const StackIterator = struct {
             }
 
             return true;
-        } else if (@hasDecl(os.system, "msync") and native_os != .wasi) {
+        } else if (@hasDecl(os.system, "msync") and native_os != .wasi and native_os != .emscripten) {
             os.msync(aligned_memory, os.MSF.ASYNC) catch |err| {
                 switch (err) {
                     os.MSyncError.UnmappedMemory => {
@@ -814,7 +814,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
     }
 
-    const tib = @as(*const windows.NT_TIB, @ptrCast(&windows.teb().Reserved1));
+    const tib = &windows.teb().NtTib;
 
     var context: windows.CONTEXT = undefined;
     if (existing_context) |context_ptr| {
@@ -1093,12 +1093,17 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             di.dwarf = dwarf;
         }
 
-        var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try coff_obj.getPdbPath(path_buf[0..]) orelse return di;
-        const raw_path = path_buf[0..len];
-
-        const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
-        defer allocator.free(path);
+        const raw_path = try coff_obj.getPdbPath() orelse return di;
+        const path = blk: {
+            if (fs.path.isAbsolute(raw_path)) {
+                break :blk raw_path;
+            } else {
+                const self_dir = try fs.selfExeDirPathAlloc(allocator);
+                defer allocator.free(self_dir);
+                break :blk try fs.path.join(allocator, &.{ self_dir, raw_path });
+            }
+        };
+        defer if (path.ptr != raw_path.ptr) allocator.free(path);
 
         di.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => {
@@ -1141,8 +1146,8 @@ pub fn readElfDebugInfo(
 ) !ModuleDebugInfo {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
-            break :blk fs.cwd().openFile(filename, .{ .intended_io_mode = .blocking });
-        } else fs.openSelfExe(.{ .intended_io_mode = .blocking })) catch |err| switch (err) {
+            break :blk fs.cwd().openFile(filename, .{});
+        } else fs.openSelfExe(.{})) catch |err| switch (err) {
             error.FileNotFound => return error.MissingDebugInfo,
             else => return err,
         };
@@ -1212,8 +1217,7 @@ pub fn readElfDebugInfo(
                 const chdr = section_reader.readStruct(elf.Chdr) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressStream(allocator, section_stream.reader()) catch continue;
-                defer zlib_stream.deinit();
+                var zlib_stream = std.compress.zlib.decompressor(section_stream.reader());
 
                 const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
                 errdefer allocator.free(decompressed_section);
@@ -1452,7 +1456,7 @@ fn readMachODebugInfo(allocator: mem.Allocator, macho_file: File) !ModuleDebugIn
 fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{ .intended_io_mode = .blocking });
+    var f = try fs.cwd().openFile(line_info.file_name, .{});
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -1640,7 +1644,6 @@ const MachoSymbol = struct {
     }
 };
 
-/// `file` is expected to have been opened with .intended_io_mode == .blocking.
 /// Takes ownership of file, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
 fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
@@ -1652,7 +1655,7 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
             null,
             file_len,
             os.PROT.READ,
-            os.MAP.SHARED,
+            .{ .TYPE = .SHARED },
             file.handle,
             0,
         );
@@ -1824,9 +1827,7 @@ pub const DebugInfo = struct {
                         errdefer self.allocator.destroy(obj_di);
 
                         const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
-                        const macho_file = fs.cwd().openFile(macho_path, .{
-                            .intended_io_mode = .blocking,
-                        }) catch |err| switch (err) {
+                        const macho_file = fs.cwd().openFile(macho_path, .{}) catch |err| switch (err) {
                             error.FileNotFound => return error.MissingDebugInfo,
                             else => return err,
                         };
@@ -2162,7 +2163,7 @@ pub const ModuleDebugInfo = switch (native_os) {
         }
 
         fn loadOFile(self: *@This(), allocator: mem.Allocator, o_file_path: []const u8) !*OFileInfo {
-            const o_file = try fs.cwd().openFile(o_file_path, .{ .intended_io_mode = .blocking });
+            const o_file = try fs.cwd().openFile(o_file_path, .{});
             const mapped_mem = try mapWholeFile(o_file);
 
             const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
@@ -2448,7 +2449,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return &self.dwarf;
         }
     },
-    .wasi => struct {
+    .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: mem.Allocator) void {
             _ = self;
             _ = allocator;
@@ -2591,7 +2592,7 @@ fn handleSegfaultPosix(sig: i32, info: *const os.siginfo_t, ctx_ptr: ?*const any
     nosuspend switch (panic_stage) {
         0 => {
             panic_stage = 1;
-            _ = panicking.fetchAdd(1, .SeqCst);
+            _ = panicking.fetchAdd(1, .seq_cst);
 
             {
                 panic_mutex.lock();
@@ -2667,7 +2668,7 @@ fn handleSegfaultWindowsExtra(
         nosuspend switch (panic_stage) {
             0 => {
                 panic_stage = 1;
-                _ = panicking.fetchAdd(1, .SeqCst);
+                _ = panicking.fetchAdd(1, .seq_cst);
 
                 {
                     panic_mutex.lock();
@@ -2836,6 +2837,29 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         }
     };
 }
+
+pub const SafetyLock = struct {
+    state: State = .unlocked,
+
+    pub const State = if (runtime_safety) enum { unlocked, locked } else enum { unlocked };
+
+    pub fn lock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+        l.state = .locked;
+    }
+
+    pub fn unlock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .locked);
+        l.state = .unlocked;
+    }
+
+    pub fn assertUnlocked(l: SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+    }
+};
 
 test {
     _ = &dump_hex;

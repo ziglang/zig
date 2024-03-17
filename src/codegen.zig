@@ -20,8 +20,8 @@ const Module = @import("Module.zig");
 const Target = std.Target;
 const Type = @import("type.zig").Type;
 const TypedValue = @import("TypedValue.zig");
-const Value = @import("value.zig").Value;
-const Zir = @import("Zir.zig");
+const Value = @import("Value.zig");
+const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
 
 pub const Result = union(enum) {
@@ -119,6 +119,7 @@ pub fn generateLazySymbol(
 
     const comp = bin_file.comp;
     const zcu = comp.module.?;
+    const ip = &zcu.intern_pool;
     const target = comp.root_mod.resolved_target.result;
     const endian = target.cpu.arch.endian();
     const gpa = comp.gpa;
@@ -151,8 +152,9 @@ pub fn generateLazySymbol(
         return Result.ok;
     } else if (lazy_sym.ty.zigTypeTag(zcu) == .Enum) {
         alignment.* = .@"1";
-        for (lazy_sym.ty.enumFields(zcu)) |tag_name_ip| {
-            const tag_name = zcu.intern_pool.stringToSlice(tag_name_ip);
+        const tag_names = lazy_sym.ty.enumFields(zcu);
+        for (0..tag_names.len) |tag_index| {
+            const tag_name = zcu.intern_pool.stringToSlice(tag_names.get(ip)[tag_index]);
             try code.ensureUnusedCapacity(tag_name.len + 1);
             code.appendSliceAssumeCapacity(tag_name);
             code.appendAssumeCapacity(0);
@@ -322,24 +324,24 @@ pub fn generateSymbol(
             },
             .f128 => |f128_val| writeFloat(f128, f128_val, target, endian, try code.addManyAsArray(16)),
         },
-        .ptr => |ptr| {
-            // generate ptr
-            switch (try lowerParentPtr(bin_file, src_loc, switch (ptr.len) {
-                .none => typed_value.val,
-                else => typed_value.val.slicePtr(mod),
-            }.toIntern(), code, debug_output, reloc_info)) {
+        .ptr => switch (try lowerParentPtr(bin_file, src_loc, typed_value.val.toIntern(), code, debug_output, reloc_info)) {
+            .ok => {},
+            .fail => |em| return .{ .fail = em },
+        },
+        .slice => |slice| {
+            switch (try generateSymbol(bin_file, src_loc, .{
+                .ty = typed_value.ty.slicePtrFieldType(mod),
+                .val = Value.fromInterned(slice.ptr),
+            }, code, debug_output, reloc_info)) {
                 .ok => {},
                 .fail => |em| return .{ .fail = em },
             }
-            if (ptr.len != .none) {
-                // generate len
-                switch (try generateSymbol(bin_file, src_loc, .{
-                    .ty = Type.usize,
-                    .val = Value.fromInterned(ptr.len),
-                }, code, debug_output, reloc_info)) {
-                    .ok => {},
-                    .fail => |em| return Result{ .fail = em },
-                }
+            switch (try generateSymbol(bin_file, src_loc, .{
+                .ty = Type.usize,
+                .val = Value.fromInterned(slice.len),
+            }, code, debug_output, reloc_info)) {
+                .ok => {},
+                .fail => |em| return .{ .fail = em },
             }
         },
         .opt => {
@@ -403,7 +405,7 @@ pub fn generateSymbol(
             .vector_type => |vector_type| {
                 const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
                     return error.Overflow;
-                if (Type.fromInterned(vector_type.child).bitSize(mod) == 1) {
+                if (vector_type.child == .bool_type) {
                     const bytes = try code.addManyAsSlice(abi_size);
                     @memset(bytes, 0xaa);
                     var index: usize = 0;
@@ -441,37 +443,34 @@ pub fn generateSymbol(
                             },
                         }) byte.* |= mask else byte.* &= ~mask;
                     }
-                } else switch (aggregate.storage) {
-                    .bytes => |bytes| try code.appendSlice(bytes),
-                    .elems, .repeated_elem => {
-                        var index: u64 = 0;
-                        while (index < vector_type.len) : (index += 1) {
-                            switch (try generateSymbol(bin_file, src_loc, .{
-                                .ty = Type.fromInterned(vector_type.child),
-                                .val = Value.fromInterned(switch (aggregate.storage) {
-                                    .bytes => unreachable,
-                                    .elems => |elems| elems[
-                                        math.cast(usize, index) orelse return error.Overflow
-                                    ],
-                                    .repeated_elem => |elem| elem,
-                                }),
-                            }, code, debug_output, reloc_info)) {
-                                .ok => {},
-                                .fail => |em| return .{ .fail = em },
+                } else {
+                    switch (aggregate.storage) {
+                        .bytes => |bytes| try code.appendSlice(bytes),
+                        .elems, .repeated_elem => {
+                            var index: u64 = 0;
+                            while (index < vector_type.len) : (index += 1) {
+                                switch (try generateSymbol(bin_file, src_loc, .{
+                                    .ty = Type.fromInterned(vector_type.child),
+                                    .val = Value.fromInterned(switch (aggregate.storage) {
+                                        .bytes => unreachable,
+                                        .elems => |elems| elems[
+                                            math.cast(usize, index) orelse return error.Overflow
+                                        ],
+                                        .repeated_elem => |elem| elem,
+                                    }),
+                                }, code, debug_output, reloc_info)) {
+                                    .ok => {},
+                                    .fail => |em| return .{ .fail = em },
+                                }
                             }
-                        }
-                    },
-                }
+                        },
+                    }
 
-                const padding = abi_size - (math.cast(usize, math.divCeil(
-                    u64,
-                    Type.fromInterned(vector_type.child).bitSize(mod) * vector_type.len,
-                    8,
-                ) catch |err| switch (err) {
-                    error.DivisionByZero => unreachable,
-                    else => |e| return e,
-                }) orelse return error.Overflow);
-                if (padding > 0) try code.appendNTimes(0, padding);
+                    const padding = abi_size -
+                        (math.cast(usize, Type.fromInterned(vector_type.child).abiSize(mod) * vector_type.len) orelse
+                        return error.Overflow);
+                    if (padding > 0) try code.appendNTimes(0, padding);
+                }
             },
             .anon_struct_type => |tuple| {
                 const struct_begin = code.items.len;
@@ -511,88 +510,91 @@ pub fn generateSymbol(
                     }
                 }
             },
-            .struct_type => |struct_type| switch (struct_type.layout) {
-                .Packed => {
-                    const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
-                        return error.Overflow;
-                    const current_pos = code.items.len;
-                    try code.resize(current_pos + abi_size);
-                    var bits: u16 = 0;
+            .struct_type => {
+                const struct_type = ip.loadStructType(typed_value.ty.toIntern());
+                switch (struct_type.layout) {
+                    .@"packed" => {
+                        const abi_size = math.cast(usize, typed_value.ty.abiSize(mod)) orelse
+                            return error.Overflow;
+                        const current_pos = code.items.len;
+                        try code.resize(current_pos + abi_size);
+                        var bits: u16 = 0;
 
-                    for (struct_type.field_types.get(ip), 0..) |field_ty, index| {
-                        const field_val = switch (aggregate.storage) {
-                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                .ty = field_ty,
-                                .storage = .{ .u64 = bytes[index] },
-                            } }),
-                            .elems => |elems| elems[index],
-                            .repeated_elem => |elem| elem,
-                        };
+                        for (struct_type.field_types.get(ip), 0..) |field_ty, index| {
+                            const field_val = switch (aggregate.storage) {
+                                .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
+                                    .ty = field_ty,
+                                    .storage = .{ .u64 = bytes[index] },
+                                } }),
+                                .elems => |elems| elems[index],
+                                .repeated_elem => |elem| elem,
+                            };
 
-                        // pointer may point to a decl which must be marked used
-                        // but can also result in a relocation. Therefore we handle those separately.
-                        if (Type.fromInterned(field_ty).zigTypeTag(mod) == .Pointer) {
-                            const field_size = math.cast(usize, Type.fromInterned(field_ty).abiSize(mod)) orelse
-                                return error.Overflow;
-                            var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
-                            defer tmp_list.deinit();
+                            // pointer may point to a decl which must be marked used
+                            // but can also result in a relocation. Therefore we handle those separately.
+                            if (Type.fromInterned(field_ty).zigTypeTag(mod) == .Pointer) {
+                                const field_size = math.cast(usize, Type.fromInterned(field_ty).abiSize(mod)) orelse
+                                    return error.Overflow;
+                                var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
+                                defer tmp_list.deinit();
+                                switch (try generateSymbol(bin_file, src_loc, .{
+                                    .ty = Type.fromInterned(field_ty),
+                                    .val = Value.fromInterned(field_val),
+                                }, &tmp_list, debug_output, reloc_info)) {
+                                    .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
+                                    .fail => |em| return Result{ .fail = em },
+                                }
+                            } else {
+                                Value.fromInterned(field_val).writeToPackedMemory(Type.fromInterned(field_ty), mod, code.items[current_pos..], bits) catch unreachable;
+                            }
+                            bits += @as(u16, @intCast(Type.fromInterned(field_ty).bitSize(mod)));
+                        }
+                    },
+                    .auto, .@"extern" => {
+                        const struct_begin = code.items.len;
+                        const field_types = struct_type.field_types.get(ip);
+                        const offsets = struct_type.offsets.get(ip);
+
+                        var it = struct_type.iterateRuntimeOrder(ip);
+                        while (it.next()) |field_index| {
+                            const field_ty = field_types[field_index];
+                            if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
+
+                            const field_val = switch (ip.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
+                                .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
+                                    .ty = field_ty,
+                                    .storage = .{ .u64 = bytes[field_index] },
+                                } }),
+                                .elems => |elems| elems[field_index],
+                                .repeated_elem => |elem| elem,
+                            };
+
+                            const padding = math.cast(
+                                usize,
+                                offsets[field_index] - (code.items.len - struct_begin),
+                            ) orelse return error.Overflow;
+                            if (padding > 0) try code.appendNTimes(0, padding);
+
                             switch (try generateSymbol(bin_file, src_loc, .{
                                 .ty = Type.fromInterned(field_ty),
                                 .val = Value.fromInterned(field_val),
-                            }, &tmp_list, debug_output, reloc_info)) {
-                                .ok => @memcpy(code.items[current_pos..][0..tmp_list.items.len], tmp_list.items),
+                            }, code, debug_output, reloc_info)) {
+                                .ok => {},
                                 .fail => |em| return Result{ .fail = em },
                             }
-                        } else {
-                            Value.fromInterned(field_val).writeToPackedMemory(Type.fromInterned(field_ty), mod, code.items[current_pos..], bits) catch unreachable;
                         }
-                        bits += @as(u16, @intCast(Type.fromInterned(field_ty).bitSize(mod)));
-                    }
-                },
-                .Auto, .Extern => {
-                    const struct_begin = code.items.len;
-                    const field_types = struct_type.field_types.get(ip);
-                    const offsets = struct_type.offsets.get(ip);
 
-                    var it = struct_type.iterateRuntimeOrder(ip);
-                    while (it.next()) |field_index| {
-                        const field_ty = field_types[field_index];
-                        if (!Type.fromInterned(field_ty).hasRuntimeBits(mod)) continue;
-
-                        const field_val = switch (ip.indexToKey(typed_value.val.toIntern()).aggregate.storage) {
-                            .bytes => |bytes| try ip.get(mod.gpa, .{ .int = .{
-                                .ty = field_ty,
-                                .storage = .{ .u64 = bytes[field_index] },
-                            } }),
-                            .elems => |elems| elems[field_index],
-                            .repeated_elem => |elem| elem,
-                        };
+                        const size = struct_type.size(ip).*;
+                        const alignment = struct_type.flagsPtr(ip).alignment.toByteUnitsOptional().?;
 
                         const padding = math.cast(
                             usize,
-                            offsets[field_index] - (code.items.len - struct_begin),
+                            std.mem.alignForward(u64, size, @max(alignment, 1)) -
+                                (code.items.len - struct_begin),
                         ) orelse return error.Overflow;
                         if (padding > 0) try code.appendNTimes(0, padding);
-
-                        switch (try generateSymbol(bin_file, src_loc, .{
-                            .ty = Type.fromInterned(field_ty),
-                            .val = Value.fromInterned(field_val),
-                        }, code, debug_output, reloc_info)) {
-                            .ok => {},
-                            .fail => |em| return Result{ .fail = em },
-                        }
-                    }
-
-                    const size = struct_type.size(ip).*;
-                    const alignment = struct_type.flagsPtr(ip).alignment.toByteUnitsOptional().?;
-
-                    const padding = math.cast(
-                        usize,
-                        std.mem.alignForward(u64, size, @max(alignment, 1)) -
-                            (code.items.len - struct_begin),
-                    ) orelse return error.Overflow;
-                    if (padding > 0) try code.appendNTimes(0, padding);
-                },
+                    },
+                }
             },
             else => unreachable,
         },
@@ -676,7 +678,6 @@ fn lowerParentPtr(
 ) CodeGenError!Result {
     const mod = bin_file.comp.module.?;
     const ptr = mod.intern_pool.indexToKey(parent_ptr).ptr;
-    assert(ptr.len == .none);
     return switch (ptr.addr) {
         .decl => |decl| try lowerDeclRef(bin_file, src_loc, decl, code, debug_output, reloc_info),
         .mut_decl => |md| try lowerDeclRef(bin_file, src_loc, md.decl, code, debug_output, reloc_info),
@@ -735,11 +736,11 @@ fn lowerParentPtr(
                     .anon_struct_type,
                     .union_type,
                     => switch (Type.fromInterned(base_ty).containerLayout(mod)) {
-                        .Auto, .Extern => @intCast(Type.fromInterned(base_ty).structFieldOffset(
+                        .auto, .@"extern" => @intCast(Type.fromInterned(base_ty).structFieldOffset(
                             @intCast(field.index),
                             mod,
                         )),
-                        .Packed => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
+                        .@"packed" => if (mod.typeToStruct(Type.fromInterned(base_ty))) |struct_obj|
                             if (Type.fromInterned(ptr.ty).ptrInfo(mod).packed_offset.host_size == 0)
                                 @divExact(Type.fromInterned(base_ptr_ty).ptrInfo(mod)
                                     .packed_offset.bit_offset + mod.structPackedFieldBitOffset(

@@ -351,6 +351,9 @@ def InstRef_SummaryProvider(value, _=None):
     return value if any(value.unsigned == member.unsigned for member in value.type.enum_members) else (
         'InternPool.Index(%d)' % value.unsigned if value.unsigned < 0x80000000 else 'instructions[%d]' % (value.unsigned - 0x80000000))
 
+def InstIndex_SummaryProvider(value, _=None):
+    return 'instructions[%d]' % value.unsigned
+
 class Module_Decl__Module_Decl_Index_SynthProvider:
     def __init__(self, value, _=None): self.value = value
     def update(self):
@@ -705,8 +708,10 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Zir\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Zir\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='zig.stage2', type='Zir.Inst::Zir.Inst.Index', identifier='InstIndex', summary=True)
     add(debugger, category='zig.stage2', type='Air.Inst', identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Ref', identifier='InstRef', summary=True)
+    add(debugger, category='zig.stage2', type='Air.Inst::Air.Inst.Index', identifier='InstIndex', summary=True)
     add(debugger, category='zig.stage2', regex=True, type=MultiArrayList_Entry('Air\\.Inst'), identifier='TagAndPayload', synth=True, inline_children=True, summary=True)
     add(debugger, category='zig.stage2', regex=True, type='^Air\\.Inst\\.Data\\.Data__struct_[1-9][0-9]*$', inline_children=True, summary=True)
     add(debugger, category='zig.stage2', type='Module.Decl::Module.Decl.Index', synth=True)

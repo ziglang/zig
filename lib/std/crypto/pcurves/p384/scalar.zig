@@ -34,7 +34,7 @@ pub fn rejectNonCanonical(s: CompressedScalar, endian: std.builtin.Endian) NonCa
 
 /// Reduce a 64-bytes scalar to the field size.
 pub fn reduce64(s: [64]u8, endian: std.builtin.Endian) CompressedScalar {
-    return ScalarDouble.fromBytes64(s, endian).toBytes(endian);
+    return Scalar.fromBytes64(s, endian).toBytes(endian);
 }
 
 /// Return a*b (mod L)
@@ -149,7 +149,7 @@ pub const Scalar = struct {
     }
 
     /// Return true if n is a quadratic residue mod L.
-    pub fn isSquare(n: Scalar) Scalar {
+    pub fn isSquare(n: Scalar) bool {
         return n.fe.isSquare();
     }
 

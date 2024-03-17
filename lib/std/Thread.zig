@@ -91,7 +91,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         },
         .windows => {
             var buf: [max_name_len]u16 = undefined;
-            const len = try std.unicode.utf8ToUtf16Le(&buf, name);
+            const len = try std.unicode.wtf8ToWtf16Le(&buf, name);
             const byte_len = math.cast(c_ushort, len * 2) orelse return error.NameTooLong;
 
             // Note: NT allocates its own copy, no use-after-free here.
@@ -157,17 +157,12 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
 }
 
 pub const GetNameError = error{
-    // For Windows, the name is converted from UTF16 to UTF8
-    CodepointTooLarge,
-    Utf8CannotEncodeSurrogateHalf,
-    DanglingSurrogateHalf,
-    ExpectedSecondSurrogateHalf,
-    UnexpectedSecondSurrogateHalf,
-
     Unsupported,
     Unexpected,
 } || os.PrctlError || os.ReadError || std.fs.File.OpenError || std.fmt.BufPrintError;
 
+/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]const u8 {
     buffer_ptr[max_name_len] = 0;
     var buffer: [:0]u8 = buffer_ptr;
@@ -213,7 +208,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             )) {
                 .SUCCESS => {
                     const string = @as(*const os.windows.UNICODE_STRING, @ptrCast(&buf));
-                    const len = try std.unicode.utf16leToUtf8(buffer, string.Buffer[0 .. string.Length / 2]);
+                    const len = std.unicode.wtf16LeToWtf8(buffer, string.Buffer.?[0 .. string.Length / 2]);
                     return if (len > 0) buffer[0..len] else null;
                 },
                 .NOT_IMPLEMENTED => return error.Unsupported,
@@ -515,7 +510,7 @@ const WindowsThreadImpl = struct {
 
             fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.free(),
@@ -568,7 +563,7 @@ const WindowsThreadImpl = struct {
 
     fn detach(self: Impl) void {
         windows.CloseHandle(self.thread.thread_handle);
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (self.thread.completion.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.thread.free(),
             .detached => unreachable,
@@ -578,7 +573,7 @@ const WindowsThreadImpl = struct {
     fn join(self: Impl) void {
         windows.WaitForSingleObjectEx(self.thread.thread_handle, windows.INFINITE, false) catch unreachable;
         windows.CloseHandle(self.thread.thread_handle);
-        assert(self.thread.completion.load(.SeqCst) == .completed);
+        assert(self.thread.completion.load(.seq_cst) == .completed);
         self.thread.free();
     }
 };
@@ -674,11 +669,6 @@ const PosixThreadImpl = struct {
 
         const Instance = struct {
             fn entryFn(raw_arg: ?*anyopaque) callconv(.C) ?*anyopaque {
-                // @alignCast() below doesn't support zero-sized-types (ZST)
-                if (@sizeOf(Args) < 1) {
-                    return callFn(f, @as(Args, undefined));
-                }
-
                 const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
@@ -703,7 +693,7 @@ const PosixThreadImpl = struct {
             &handle,
             &attr,
             Instance.entryFn,
-            if (@sizeOf(Args) > 1) @as(*anyopaque, @ptrCast(args_ptr)) else undefined,
+            @ptrCast(args_ptr),
         )) {
             .SUCCESS => return Impl{ .handle = handle },
             .AGAIN => return error.SystemResources,
@@ -790,11 +780,11 @@ const WasiThreadImpl = struct {
     }
 
     fn getHandle(self: Impl) ThreadHandle {
-        return self.thread.tid.load(.SeqCst);
+        return self.thread.tid.load(.seq_cst);
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.state.swap(.detached, .SeqCst)) {
+        switch (self.thread.state.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -811,7 +801,7 @@ const WasiThreadImpl = struct {
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.tid.load(.SeqCst);
+            const tid = self.thread.tid.load(.seq_cst);
             if (tid == 0) {
                 break;
             }
@@ -911,7 +901,7 @@ const WasiThreadImpl = struct {
         if (tid < 0) {
             return error.SystemResources;
         }
-        instance.thread.tid.store(tid, .SeqCst);
+        instance.thread.tid.store(tid, .seq_cst);
 
         return .{ .thread = &instance.thread };
     }
@@ -924,12 +914,12 @@ const WasiThreadImpl = struct {
         }
         __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
         __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
-        @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .SeqCst);
+        @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);
 
         // Finished bootstrapping, call user's procedure.
         arg.call_back(arg.raw_ptr);
 
-        switch (arg.thread.state.swap(.completed, .SeqCst)) {
+        switch (arg.thread.state.swap(.completed, .seq_cst)) {
             .running => {
                 // reset the Thread ID
                 asm volatile (
@@ -1201,7 +1191,7 @@ const LinuxThreadImpl = struct {
 
             fn entryFn(raw_arg: usize) callconv(.C) u8 {
                 const self = @as(*@This(), @ptrFromInt(raw_arg));
-                defer switch (self.thread.completion.swap(.completed, .SeqCst)) {
+                defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
                     .completed => unreachable,
                     .detached => self.thread.freeAndExit(),
@@ -1242,7 +1232,7 @@ const LinuxThreadImpl = struct {
             null,
             map_bytes,
             os.PROT.NONE,
-            os.MAP.PRIVATE | os.MAP.ANONYMOUS,
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         ) catch |err| switch (err) {
@@ -1321,7 +1311,7 @@ const LinuxThreadImpl = struct {
     }
 
     fn detach(self: Impl) void {
-        switch (self.thread.completion.swap(.detached, .SeqCst)) {
+        switch (self.thread.completion.swap(.detached, .seq_cst)) {
             .running => {},
             .completed => self.join(),
             .detached => unreachable,
@@ -1333,7 +1323,7 @@ const LinuxThreadImpl = struct {
 
         var spin: u8 = 10;
         while (true) {
-            const tid = self.thread.child_tid.load(.SeqCst);
+            const tid = self.thread.child_tid.load(.seq_cst);
             if (tid == 0) {
                 break;
             }
@@ -1447,7 +1437,7 @@ fn testIncrementNotify(value: *usize, event: *ResetEvent) void {
     event.set();
 }
 
-test "Thread.join" {
+test join {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;
@@ -1459,7 +1449,7 @@ test "Thread.join" {
     try std.testing.expectEqual(value, 1);
 }
 
-test "Thread.detach" {
+test detach {
     if (builtin.single_threaded) return error.SkipZigTest;
 
     var value: usize = 0;

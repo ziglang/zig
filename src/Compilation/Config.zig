@@ -54,7 +54,6 @@ import_memory: bool,
 export_memory: bool,
 shared_memory: bool,
 is_test: bool,
-test_evented_io: bool,
 debug_format: DebugFormat,
 root_strip: bool,
 root_error_tracing: bool,
@@ -104,7 +103,6 @@ pub const Options = struct {
     import_memory: ?bool = null,
     export_memory: ?bool = null,
     shared_memory: ?bool = null,
-    test_evented_io: bool = false,
     debug_format: ?DebugFormat = null,
     dll_export_fns: ?bool = null,
     rdynamic: ?bool = null,
@@ -350,26 +348,26 @@ pub fn resolve(options: Options) ResolveError!Config {
     const link_mode = b: {
         const explicitly_exe_or_dyn_lib = switch (options.output_mode) {
             .Obj => false,
-            .Lib => (options.link_mode orelse .Static) == .Dynamic,
+            .Lib => (options.link_mode orelse .static) == .dynamic,
             .Exe => true,
         };
 
         if (target_util.cannotDynamicLink(target)) {
-            if (options.link_mode == .Dynamic) return error.TargetCannotDynamicLink;
-            break :b .Static;
+            if (options.link_mode == .dynamic) return error.TargetCannotDynamicLink;
+            break :b .static;
         }
         if (explicitly_exe_or_dyn_lib and link_libc and
             (target.isGnuLibC() or target_util.osRequiresLibC(target)))
         {
-            if (options.link_mode == .Static) return error.LibCRequiresDynamicLinking;
-            break :b .Dynamic;
+            if (options.link_mode == .static) return error.LibCRequiresDynamicLinking;
+            break :b .dynamic;
         }
         // When creating a executable that links to system libraries, we
         // require dynamic linking, but we must not link static libraries
         // or object files dynamically!
         if (options.any_dyn_libs and options.output_mode == .Exe) {
-            if (options.link_mode == .Static) return error.SharedLibrariesRequireDynamicLinking;
-            break :b .Dynamic;
+            if (options.link_mode == .static) return error.SharedLibrariesRequireDynamicLinking;
+            break :b .dynamic;
         }
 
         if (options.link_mode) |link_mode| break :b link_mode;
@@ -379,16 +377,16 @@ pub fn resolve(options: Options) ResolveError!Config {
         {
             // If targeting the system's native ABI and the system's libc is
             // musl, link dynamically by default.
-            break :b .Dynamic;
+            break :b .dynamic;
         }
 
         // Static is generally a better default. Fight me.
-        break :b .Static;
+        break :b .static;
     };
 
     const import_memory = options.import_memory orelse (options.output_mode == .Obj);
     const export_memory = b: {
-        if (link_mode == .Dynamic) {
+        if (link_mode == .dynamic) {
             if (options.export_memory == true) return error.ExportMemoryAndDynamicIncompatible;
             break :b false;
         }
@@ -399,7 +397,7 @@ pub fn resolve(options: Options) ResolveError!Config {
     const pie: bool = b: {
         switch (options.output_mode) {
             .Obj, .Exe => {},
-            .Lib => if (link_mode == .Dynamic) {
+            .Lib => if (link_mode == .dynamic) {
                 if (options.pie == true) return error.DynamicLibraryPrecludesPie;
                 break :b false;
             },
@@ -469,7 +467,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (rdynamic) break :b true;
         break :b switch (options.output_mode) {
             .Obj, .Exe => false,
-            .Lib => link_mode == .Dynamic,
+            .Lib => link_mode == .dynamic,
         };
     };
 
@@ -477,7 +475,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         .output_mode = options.output_mode,
         .have_zcu = options.have_zcu,
         .is_test = options.is_test,
-        .test_evented_io = options.test_evented_io,
         .link_mode = link_mode,
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,

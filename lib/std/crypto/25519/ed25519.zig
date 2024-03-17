@@ -199,8 +199,8 @@ pub const Ed25519 = struct {
         /// Return the raw signature (r, s) in little-endian format.
         pub fn toBytes(self: Signature) [encoded_length]u8 {
             var bytes: [encoded_length]u8 = undefined;
-            bytes[0 .. encoded_length / 2].* = self.r;
-            bytes[encoded_length / 2 ..].* = self.s;
+            bytes[0..Curve.encoded_length].* = self.r;
+            bytes[Curve.encoded_length..].* = self.s;
             return bytes;
         }
 
@@ -208,8 +208,8 @@ pub const Ed25519 = struct {
         /// EdDSA always assumes little-endian.
         pub fn fromBytes(bytes: [encoded_length]u8) Signature {
             return Signature{
-                .r = bytes[0 .. encoded_length / 2].*,
-                .s = bytes[encoded_length / 2 ..].*,
+                .r = bytes[0..Curve.encoded_length].*,
+                .s = bytes[Curve.encoded_length..].*,
             };
         }
 
@@ -482,7 +482,7 @@ pub const Ed25519 = struct {
     };
 };
 
-test "ed25519 key pair creation" {
+test "key pair creation" {
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
@@ -491,7 +491,7 @@ test "ed25519 key pair creation" {
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&key_pair.public_key.toBytes())}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
 }
 
-test "ed25519 signature" {
+test "signature" {
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.create(seed);
@@ -503,7 +503,7 @@ test "ed25519 signature" {
     try std.testing.expectError(error.SignatureVerificationFailed, sig.verify("TEST", key_pair.public_key));
 }
 
-test "ed25519 batch verification" {
+test "batch verification" {
     var i: usize = 0;
     while (i < 100) : (i += 1) {
         const key_pair = try Ed25519.KeyPair.create(null);
@@ -532,7 +532,7 @@ test "ed25519 batch verification" {
     }
 }
 
-test "ed25519 test vectors" {
+test "test vectors" {
     const Vec = struct {
         msg_hex: *const [64:0]u8,
         public_key_hex: *const [64:0]u8,
@@ -634,7 +634,7 @@ test "ed25519 test vectors" {
     }
 }
 
-test "ed25519 with blind keys" {
+test "with blind keys" {
     const BlindKeyPair = Ed25519.key_blinding.BlindKeyPair;
 
     // Create a standard Ed25519 key pair
@@ -657,7 +657,7 @@ test "ed25519 with blind keys" {
     try std.testing.expectEqualSlices(u8, &pk.toBytes(), &kp.public_key.toBytes());
 }
 
-test "ed25519 signatures with streaming" {
+test "signatures with streaming" {
     const kp = try Ed25519.KeyPair.create(null);
 
     var signer = try kp.signer(null);
@@ -673,7 +673,7 @@ test "ed25519 signatures with streaming" {
     try verifier.verify();
 }
 
-test "ed25519 key pair from secret key" {
+test "key pair from secret key" {
     const kp = try Ed25519.KeyPair.create(null);
     const kp2 = try Ed25519.KeyPair.fromSecretKey(kp.secret_key);
     try std.testing.expectEqualSlices(u8, &kp.secret_key.toBytes(), &kp2.secret_key.toBytes());

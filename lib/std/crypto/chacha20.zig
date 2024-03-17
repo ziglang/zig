@@ -758,7 +758,7 @@ fn XChaChaPoly1305(comptime rounds_nb: usize) type {
     };
 }
 
-test "chacha20 AEAD API" {
+test "AEAD API" {
     const aeads = [_]type{ ChaCha20Poly1305, XChaCha20Poly1305 };
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
     const ad = "Additional data";
@@ -779,7 +779,7 @@ test "chacha20 AEAD API" {
 }
 
 // https://tools.ietf.org/html/rfc7539#section-2.4.2
-test "crypto.chacha20 test vector sunscreen" {
+test "test vector sunscreen" {
     const expected_result = [_]u8{
         0x6e, 0x2e, 0x35, 0x9a, 0x25, 0x68, 0xf9, 0x80,
         0x41, 0xba, 0x07, 0x28, 0xdd, 0x0d, 0x69, 0x81,
@@ -820,7 +820,7 @@ test "crypto.chacha20 test vector sunscreen" {
 }
 
 // https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#section-7
-test "crypto.chacha20 test vector 1" {
+test "test vector 1" {
     const expected_result = [_]u8{
         0x76, 0xb8, 0xe0, 0xad, 0xa0, 0xf1, 0x3d, 0x90,
         0x40, 0x5d, 0x6a, 0xe5, 0x53, 0x86, 0xbd, 0x28,
@@ -854,7 +854,7 @@ test "crypto.chacha20 test vector 1" {
     try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
-test "crypto.chacha20 test vector 2" {
+test "test vector 2" {
     const expected_result = [_]u8{
         0x45, 0x40, 0xf0, 0x5a, 0x9f, 0x1f, 0xb2, 0x96,
         0xd7, 0x73, 0x6e, 0x7b, 0x20, 0x8e, 0x3c, 0x96,
@@ -888,7 +888,7 @@ test "crypto.chacha20 test vector 2" {
     try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
-test "crypto.chacha20 test vector 3" {
+test "test vector 3" {
     const expected_result = [_]u8{
         0xde, 0x9c, 0xba, 0x7b, 0xf3, 0xd6, 0x9e, 0xf5,
         0xe7, 0x86, 0xdc, 0x63, 0x97, 0x3f, 0x65, 0x3a,
@@ -922,7 +922,7 @@ test "crypto.chacha20 test vector 3" {
     try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
-test "crypto.chacha20 test vector 4" {
+test "test vector 4" {
     const expected_result = [_]u8{
         0xef, 0x3f, 0xdf, 0xd6, 0xc6, 0x15, 0x78, 0xfb,
         0xf5, 0xcf, 0x35, 0xbd, 0x3d, 0xd3, 0x3b, 0x80,
@@ -956,7 +956,7 @@ test "crypto.chacha20 test vector 4" {
     try testing.expectEqualSlices(u8, &expected_result, &result);
 }
 
-test "crypto.chacha20 test vector 5" {
+test "test vector 5" {
     const expected_result = [_]u8{
         0xf7, 0x98, 0xa1, 0x89, 0xf1, 0x95, 0xe6, 0x69,
         0x82, 0x10, 0x5f, 0xfb, 0x64, 0x0b, 0xb7, 0x75,
@@ -1142,7 +1142,7 @@ test "open" {
     }
 }
 
-test "crypto.xchacha20" {
+test "xchacha20" {
     const key = [_]u8{69} ** 32;
     const nonce = [_]u8{42} ** 24;
     const m = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";

@@ -222,7 +222,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const basename = "options.zig";
 
     // Hash contents to file name.
-    var hash = b.cache.hash;
+    var hash = b.graph.cache.hash;
     // Random bytes to make unique. Refresh this with new random bytes when
     // implementation is modified in a non-backwards-compatible way.
     hash.add(@as(u32, 0xad95e922));
@@ -301,27 +301,28 @@ test Options {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const host: std.Build.ResolvedTarget = .{
-        .query = .{},
-        .result = try std.zig.system.resolveTargetQuery(.{}),
-    };
-
-    var cache: std.Build.Cache = .{
-        .gpa = arena.allocator(),
-        .manifest_dir = std.fs.cwd(),
+    var graph: std.Build.Graph = .{
+        .arena = arena.allocator(),
+        .cache = .{
+            .gpa = arena.allocator(),
+            .manifest_dir = std.fs.cwd(),
+        },
+        .zig_exe = "test",
+        .env_map = std.process.EnvMap.init(arena.allocator()),
+        .global_cache_root = .{ .path = "test", .handle = std.fs.cwd() },
     };
 
     var builder = try std.Build.create(
-        arena.allocator(),
-        "test",
+        &graph,
         .{ .path = "test", .handle = std.fs.cwd() },
         .{ .path = "test", .handle = std.fs.cwd() },
-        .{ .path = "test", .handle = std.fs.cwd() },
-        host,
-        &cache,
         &.{},
     );
-    defer builder.destroy();
+
+    builder.host = .{
+        .query = .{},
+        .result = try std.zig.system.resolveTargetQuery(.{}),
+    };
 
     const options = builder.addOptions();
 

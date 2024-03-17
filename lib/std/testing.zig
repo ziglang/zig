@@ -210,18 +210,12 @@ test "expectEqual.union(enum)" {
 
 /// This function is intended to be used only in tests. When the formatted result of the template
 /// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
-/// they are not equal, then returns an error.
+/// they are not equal, then returns an error. It depends on `expectEqualStrings()` for printing
+/// diagnostics.
 pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
-    const result = try std.fmt.allocPrint(allocator, template, args);
-    defer allocator.free(result);
-    if (std.mem.eql(u8, result, expected)) return;
-
-    print("\n====== expected this output: =========\n", .{});
-    print("{s}", .{expected});
-    print("\n======== instead found this: =========\n", .{});
-    print("{s}", .{result});
-    print("\n======================================\n", .{});
-    return error.TestExpectedFmt;
+    const actual = try std.fmt.allocPrint(allocator, template, args);
+    defer allocator.free(actual);
+    return expectEqualStrings(expected, actual);
 }
 
 /// This function is intended to be used only in tests. When the actual value is

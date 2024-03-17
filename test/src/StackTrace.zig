@@ -1,7 +1,7 @@
 b: *std.Build,
 step: *Step,
 test_index: usize,
-test_filter: ?[]const u8,
+test_filters: []const []const u8,
 optimize_modes: []const OptimizeMode,
 check_exe: *std.Build.Step.Compile,
 
@@ -47,9 +47,9 @@ fn addExpect(
     const annotated_case_name = fmt.allocPrint(b.allocator, "check {s} ({s})", .{
         name, @tagName(optimize_mode),
     }) catch @panic("OOM");
-    if (self.test_filter) |filter| {
-        if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
-    }
+    for (self.test_filters) |test_filter| {
+        if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
+    } else if (self.test_filters.len > 0) return;
 
     const write_src = b.addWriteFile("source.zig", source);
     const exe = b.addExecutable(.{

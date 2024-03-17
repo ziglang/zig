@@ -32,7 +32,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
             }
             break :blk @Type(.{
                 .Struct = .{
-                    .layout = .Auto,
+                    .layout = .auto,
                     .fields = &fields,
                     .decls = &.{},
                     .is_tuple = false,

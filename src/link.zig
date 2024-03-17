@@ -12,7 +12,7 @@ const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 const Compilation = @import("Compilation.zig");
-const LibCInstallation = @import("libc_installation.zig").LibCInstallation;
+const LibCInstallation = std.zig.LibCInstallation;
 const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
 const InternPool = @import("InternPool.zig");
@@ -113,6 +113,7 @@ pub const File = struct {
         gc_sections: ?bool,
         allow_shlib_undefined: ?bool,
         allow_undefined_version: bool,
+        enable_new_dtags: ?bool,
         subsystem: ?std.Target.SubSystem,
         linker_script: ?[]const u8,
         version_script: ?[]const u8,
@@ -136,30 +137,36 @@ pub const File = struct {
         framework_dirs: []const []const u8,
         rpath_list: []const []const u8,
 
-        /// (Zig compiler development) Enable dumping of linker's state as JSON.
+        /// Zig compiler development linker flags.
+        /// Enable dumping of linker's state as JSON.
         enable_link_snapshots: bool,
 
-        /// (Darwin) Install name for the dylib
+        /// Darwin-specific linker flags:
+        /// Install name for the dylib
         install_name: ?[]const u8,
-        /// (Darwin) Path to entitlements file
+        /// Path to entitlements file
         entitlements: ?[]const u8,
-        /// (Darwin) size of the __PAGEZERO segment
+        /// size of the __PAGEZERO segment
         pagezero_size: ?u64,
-        /// (Darwin) set minimum space for future expansion of the load commands
+        /// Set minimum space for future expansion of the load commands
         headerpad_size: ?u32,
-        /// (Darwin) set enough space as if all paths were MATPATHLEN
+        /// Set enough space as if all paths were MATPATHLEN
         headerpad_max_install_names: bool,
-        /// (Darwin) remove dylibs that are unreachable by the entry point or exported symbols
+        /// Remove dylibs that are unreachable by the entry point or exported symbols
         dead_strip_dylibs: bool,
         frameworks: []const MachO.Framework,
         darwin_sdk_layout: ?MachO.SdkLayout,
+        /// Force load all members of static archives that implement an
+        /// Objective-C class or category
+        force_load_objc: bool,
 
-        /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
+        /// Windows-specific linker flags:
+        /// PDB source path prefix to instruct the linker how to resolve relative
         /// paths when consolidating CodeView streams into a single PDB file.
         pdb_source_path: ?[]const u8,
-        /// (Windows) PDB output path
+        /// PDB output path
         pdb_out_path: ?[]const u8,
-        /// (Windows) .def file to specify when linking
+        /// .def file to specify when linking
         module_definition_file: ?[]const u8,
 
         pub const Entry = union(enum) {
@@ -280,8 +287,8 @@ pub const File = struct {
         switch (output_mode) {
             .Obj => return,
             .Lib => switch (link_mode) {
-                .Static => return,
-                .Dynamic => {},
+                .static => return,
+                .dynamic => {},
             },
             .Exe => {},
         }
@@ -537,6 +544,7 @@ pub const File = struct {
         UnexpectedTable,
         UnexpectedValue,
         UnknownFeature,
+        UnrecognizedVolume,
         Unseekable,
         UnsupportedCpuArchitecture,
         UnsupportedVersion,
@@ -574,7 +582,7 @@ pub const File = struct {
         const use_lld = build_options.have_llvm and comp.config.use_lld;
         const output_mode = comp.config.output_mode;
         const link_mode = comp.config.link_mode;
-        if (use_lld and output_mode == .Lib and link_mode == .Static) {
+        if (use_lld and output_mode == .Lib and link_mode == .static) {
             return base.linkAsArchive(arena, prog_node);
         }
         switch (base.tag) {
@@ -832,10 +840,9 @@ pub const File = struct {
         }
 
         const llvm_bindings = @import("codegen/llvm/bindings.zig");
-        const Builder = @import("codegen/llvm/Builder.zig");
         const llvm = @import("codegen/llvm.zig");
         const target = comp.root_mod.resolved_target.result;
-        Builder.initializeLLVMTarget(target.cpu.arch);
+        llvm.initializeLLVMTarget(target.cpu.arch);
         const os_tag = llvm.targetOs(target.os.tag);
         const bad = llvm_bindings.WriteArchive(full_out_path_z, object_files.items.ptr, object_files.items.len, os_tag);
         if (bad) return error.UnableToWriteArchive;
@@ -950,8 +957,8 @@ pub const File = struct {
         const executable_mode = if (builtin.target.os.tag == .windows) 0 else 0o777;
         switch (effectiveOutputMode(use_lld, output_mode)) {
             .Lib => return switch (link_mode) {
-                .Dynamic => executable_mode,
-                .Static => fs.File.default_mode,
+                .dynamic => executable_mode,
+                .static => fs.File.default_mode,
             },
             .Exe => return executable_mode,
             .Obj => return fs.File.default_mode,
@@ -959,7 +966,7 @@ pub const File = struct {
     }
 
     pub fn isStatic(self: File) bool {
-        return self.comp.config.link_mode == .Static;
+        return self.comp.config.link_mode == .static;
     }
 
     pub fn isObject(self: File) bool {

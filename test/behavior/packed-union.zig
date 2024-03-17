@@ -8,6 +8,11 @@ test "flags in packed union" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    try testFlagsInPackedUnion();
+    try comptime testFlagsInPackedUnion();
+}
+
+fn testFlagsInPackedUnion() !void {
     const FlagBits = packed struct(u8) {
         enable_1: bool = false,
         enable_2: bool = false,
@@ -45,6 +50,11 @@ test "flags in packed union at offset" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    try testFlagsInPackedUnionAtOffset();
+    try comptime testFlagsInPackedUnionAtOffset();
+}
+
+fn testFlagsInPackedUnionAtOffset() !void {
     const FlagBits = packed union {
         base_flags: packed union {
             flags: packed struct(u4) {
@@ -90,6 +100,11 @@ test "packed union in packed struct" {
     // Originally reported at https://github.com/ziglang/zig/issues/16581
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
+    try testPackedUnionInPackedStruct();
+    try comptime testPackedUnionInPackedStruct();
+}
+
+fn testPackedUnionInPackedStruct() !void {
     const ReadRequest = packed struct { key: i32 };
     const RequestType = enum {
         read,
@@ -141,4 +156,16 @@ test "packed union initialized with a runtime value" {
         .random_bits = 420,
     } };
     try std.testing.expect((ID{ .value = id.value }).fields.timestamp == timestamp);
+}
+
+test "assigning to non-active field at comptime" {
+    comptime {
+        const FlagBits = packed union {
+            flags: packed struct {},
+            bits: packed struct {},
+        };
+
+        var test_bits: FlagBits = .{ .flags = .{} };
+        test_bits.bits = .{};
+    }
 }

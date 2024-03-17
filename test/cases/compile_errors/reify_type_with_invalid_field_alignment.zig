@@ -1,7 +1,7 @@
 comptime {
     _ = @Type(.{
         .Union = .{
-            .layout = .Auto,
+            .layout = .auto,
             .tag_type = null,
             .fields = &.{
                 .{ .name = "foo", .type = usize, .alignment = 3 },
@@ -13,7 +13,7 @@ comptime {
 comptime {
     _ = @Type(.{
         .Struct = .{
-            .layout = .Auto,
+            .layout = .auto,
             .fields = &.{.{
                 .name = "0",
                 .type = u32,

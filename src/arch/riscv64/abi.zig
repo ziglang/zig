@@ -15,7 +15,7 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
+            if (ty.containerLayout(mod) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
                 return .byval;
             }
@@ -44,7 +44,7 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
         },
         .Union => {
             const bit_size = ty.bitSize(mod);
-            if (ty.containerLayout(mod) == .Packed) {
+            if (ty.containerLayout(mod) == .@"packed") {
                 if (bit_size > max_byval_size) return .memory;
                 return .byval;
             }

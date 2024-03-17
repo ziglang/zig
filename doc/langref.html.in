@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
     <title>Documentation - The Zig Programming Language</title>
     <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
@@ -370,7 +371,7 @@ pub fn main() !void {
 }
       {#code_end#}
       <p>
-      Most of the time, it more appropriate to write to stderr rather than stdout, and
+      Most of the time, it is more appropriate to write to stderr rather than stdout, and
       whether or not the message is successfully written to the stream is irrelevant.
       For this common case, there is a simpler API:
       </p>
@@ -988,13 +989,13 @@ fn addOne(number: i32) i32 {
         printed to standard error by the default test runner:
       </p>
       <dl>
-        <dt><samp>Test [1/2] test.expect addOne adds one to 41...</samp></dt>
+        <dt><samp>1/2 testing_introduction.test.expect addOne adds one to 41...</samp></dt>
         <dd>Lines like this indicate which test, out of the total number of tests, is being run.
-          In this case, <samp>[1/2]</samp> indicates that the first test, out of a total of
-          two test, is being run. Note that, when the test runner program's standard error is output
+          In this case, <samp>1/2</samp> indicates that the first test, out of a total of two tests,
+          is being run. Note that, when the test runner program's standard error is output
           to the terminal, these lines are cleared when a test succeeds.
         </dd>
-        <dt><samp>Test [2/2] decltest.addOne...</samp></dt>
+        <dt><samp>2/2 testing_introduction.decltest.addOne...</samp></dt>
         <dd>When the test name is an identifier, the default test runner uses the text
           decltest instead of test.
         </dd>
@@ -1452,7 +1453,7 @@ export fn foo_strict(x: f64) f64 {
 }
 
 export fn foo_optimized(x: f64) f64 {
-    @setFloatMode(.Optimized);
+    @setFloatMode(.optimized);
     return x + big - big;
 }
       {#code_end#}
@@ -1643,7 +1644,7 @@ a -|= b{#endsyntax#}</pre></td>
             </ul>
           </td>
           <td>
-            <pre>{#syntax#}-%@as(i8, -127) == -127{#endsyntax#}</pre>
+            <pre>{#syntax#}-%@as(i8, -128) == -128{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -2111,7 +2112,7 @@ unwrapped == 1234{#endsyntax#}</pre>
             Invokes {#link|Peer Type Resolution#} for the operands.
           </td>
           <td>
-            <pre>{#syntax#}(1 < 2) == true{#endsyntax#}></pre>
+            <pre>{#syntax#}(1 < 2) == true{#endsyntax#}</pre>
           </td>
         </tr>
         <tr>
@@ -3166,24 +3167,81 @@ test "linked list" {
 
       {#header_open|Default Field Values#}
       <p>
-      Each struct field may have an expression indicating the default field value. Such expressions
-      are executed at {#link|comptime#}, and allow the field to be omitted in a struct literal expression:
+      Each struct field may have an expression indicating the default field
+      value. Such expressions are executed at {#link|comptime#}, and allow the
+      field to be omitted in a struct literal expression:
       </p>
-      {#code_begin|test|test_struct_default_field_values#}
+      {#code_begin|test|struct_default_field_values#}
 const Foo = struct {
     a: i32 = 1234,
     b: i32,
 };
 
 test "default struct initialization fields" {
-    const x = Foo{
+    const x: Foo = .{
         .b = 5,
     };
     if (x.a + x.b != 1239) {
-        @compileError("it's even comptime-known!");
+        comptime unreachable;
     }
 }
       {#code_end#}
+      <p>
+      Default field values are only appropriate when the data invariants of a struct
+      cannot be violated by omitting that field from an initialization.
+      </p>
+      <p>
+      For example, here is an inappropriate use of default struct field initialization:
+      </p>
+      {#code_begin|exe_err|bad_default_value#}
+const Threshold = struct {
+    minimum: f32 = 0.25,
+    maximum: f32 = 0.75,
+
+    const Category = enum { low, medium, high };
+
+    fn categorize(t: Threshold, value: f32) Category {
+        assert(t.maximum >= t.minimum);
+        if (value < t.minimum) return .low;
+        if (value > t.maximum) return .high;
+        return .medium;
+    }
+};
+
+pub fn main() !void {
+    var threshold: Threshold = .{
+        .maximum = 0.20,
+    };
+    const category = threshold.categorize(0.90);
+    try std.io.getStdOut().writeAll(@tagName(category));
+}
+
+const std = @import("std");
+const assert = std.debug.assert;
+      {#code_end#}
+      <p>
+      Above you can see the danger of ignoring this principle. The default
+      field values caused the data invariant to be violated, causing illegal
+      behavior.
+      </p>
+      <p>
+      To fix this, remove the default values from all the struct fields, and provide
+      a named default value:
+      </p>
+      {#code_begin|syntax|struct_default_value#}
+const Threshold = struct {
+    minimum: f32,
+    maximum: f32,
+
+    const default: Threshold = .{
+        .minimum = 0.25,
+        .maximum = 0.75,
+    };
+};
+      {#code_end#}
+      <p>If a struct value requires a runtime-known value in order to be initialized
+      without violating data invariants, then use an initialization method that accepts
+      those runtime values, and populates the remaining fields.</p>
       {#header_close#}
 
       {#header_open|extern struct#}
@@ -3302,7 +3360,7 @@ var bit_field = BitField{
     .c = 3,
 };
 
-test "pointer to non-bit-aligned field" {
+test "pointer to non-byte-aligned field" {
     try expect(bar(&bit_field.b) == 2);
 }
 
@@ -3351,7 +3409,7 @@ const BitField = packed struct {
     c: u2,
 };
 
-test "pointer to non-bit-aligned field" {
+test "offsets of non-byte-aligned fields" {
     comptime {
         try expect(@bitOffsetOf(BitField, "a") == 0);
         try expect(@bitOffsetOf(BitField, "b") == 3);
@@ -6805,8 +6863,269 @@ fn foo() i32 {
 
       {#header_open|Result Location Semantics#}
       <p>
-      <a href="https://github.com/ziglang/zig/issues/2809">TODO add documentation for this</a>
+      During compilation, every Zig expression and sub-expression is assigned optional result location
+      information. This information dictates what type the expression should have (its result type), and
+      where the resulting value should be placed in memory (its result location). The information is
+      optional in the sense that not every expression has this information: assignment to
+      {#syntax#}_{#endsyntax#}, for instance, does not provide any information about the type of an
+      expression, nor does it provide a concrete memory location to place it in.
       </p>
+      <p>
+      As a motivating example, consider the statement {#syntax#}const x: u32 = 42;{#endsyntax#}. The type
+      annotation here provides a result type of {#syntax#}u32{#endsyntax#} to the initialization expression
+      {#syntax#}42{#endsyntax#}, instructing the compiler to coerce this integer (initally of type
+      {#syntax#}comptime_int{#endsyntax#}) to this type. We will see more examples shortly.
+      </p>
+      <p>
+      This is not an implementation detail: the logic outlined above is codified into the Zig language
+      specification, and is the primary mechanism of type inference in the language. This system is
+      collectively referred to as "Result Location Semantics".
+      </p>
+      {#header_open|Result Types#}
+      <p>
+      Result types are propagated recursively through expressions where possible. For instance, if the
+      expression {#syntax#}&e{#endsyntax#} has result type {#syntax#}*u32{#endsyntax#}, then
+      {#syntax#}e{#endsyntax#} is given a result type of {#syntax#}u32{#endsyntax#}, allowing the
+      language to perform this coercion before taking a reference.
+      </p>
+      <p>
+      The result type mechanism is utilized by casting builtins such as {#syntax#}@intCast{#endsyntax#}.
+      Rather than taking as an argument the type to cast to, these builtins use their result type to
+      determine this information. The result type is often known from context; where it is not, the
+      {#syntax#}@as{#endsyntax#} builtin can be used to explicitly provide a result type.
+      </p>
+      <p>
+      We can break down the result types for each component of a simple expression as follows:
+      </p>
+      {#code_begin|test|result_type_propagation#}
+const expectEqual = @import("std").testing.expectEqual;
+test "result type propagates through struct initializer" {
+    const S = struct { x: u32 };
+    const val: u64 = 123;
+    const s: S = .{ .x = @intCast(val) };
+    // .{ .x = @intCast(val) }   has result type `S` due to the type annotation
+    //         @intCast(val)     has result type `u32` due to the type of the field `S.x`
+    //                  val      has no result type, as it is permitted to be any integer type
+    try expectEqual(@as(u32, 123), s.x);
+}
+      {#code_end#}
+      <p>
+      This result type information is useful for the aforementioned cast builtins, as well as to avoid
+      the construction of pre-coercion values, and to avoid the need for explicit type coercions in some
+      cases. The following table details how some common expressions propagate result types, where
+      {#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} are arbitrary sub-expressions.
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Expression</th>
+            <th scope="col">Parent Result Type</th>
+            <th scope="col">Sub-expression Result Type</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">{#syntax#}const val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}var val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}val = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}@TypeOf(val){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@as(T, x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}*T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}[]T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is some array of {#syntax#}T{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}f(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has the type of the first parameter of {#syntax#}f{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
+            <td>{#syntax#}T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}T{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .@"0"){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.meta.FieldType(T, .a){#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}std.builtin.Type{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} is a {#syntax#}type{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}x << y{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}y{#endsyntax#} is a {#syntax#}std.math.Log2IntCeil(@TypeOf(x)){#endsyntax#}</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      {#header_close#}
+      {#header_open|Result Locations#}
+      <p>
+      In addition to result type information, every expression may be optionally assigned a result
+      location: a pointer to which the value must be directly written. This system can be used to prevent
+      intermediate copies when initializing data structures, which can be important for types which must
+      have a fixed memory address ("pinned" types).
+      </p>
+      <p>
+      When compiling the simple assignment expression {#syntax#}x = e{#endsyntax#}, many languages would
+      create the temporary value {#syntax#}e{#endsyntax#} on the stack, and then assign it to
+      {#syntax#}x{#endsyntax#}, potentially performing a type coercion in the process. Zig approaches this
+      differently. The expression {#syntax#}e{#endsyntax#} is given a result type matching the type of
+      {#syntax#}x{#endsyntax#}, and a result location of {#syntax#}&x{#endsyntax#}. For many syntactic
+      forms of {#syntax#}e{#endsyntax#}, this has no practical impact. However, it can have important
+      semantic effects when working with more complex syntax forms.
+      </p>
+      <p>
+      For instance, if the expression {#syntax#}.{ .a = x, .b = y }{#endsyntax#} has a result location of
+      {#syntax#}ptr{#endsyntax#}, then {#syntax#}x{#endsyntax#} is given a result location of
+      {#syntax#}&ptr.a{#endsyntax#}, and {#syntax#}y{#endsyntax#} a result location of {#syntax#}&ptr.b{#endsyntax#}.
+      Without this system, this expression would construct a temporary struct value entirely on the stack, and
+      only then copy it to the destination address. In essence, Zig desugars the assignment
+      {#syntax#}foo = .{ .a = x, .b = y }{#endsyntax#} to the two statements {#syntax#}foo.a = x; foo.b = y;{#endsyntax#}.
+      </p>
+      <p>
+      This can sometimes be important when assigning an aggregate value where the initialization
+      expression depends on the previous value of the aggregate. The easiest way to demonstrate this is by
+      attempting to swap fields of a struct or array - the following logic looks sound, but in fact is not:
+      </p>
+      {#code_begin|test_err|result_location_interfering_with_swap#}
+const expect = @import("std").testing.expect;
+test "attempt to swap array elements with array initializer" {
+    var arr: [2]u32 = .{ 1, 2 };
+    arr = .{ arr[1], arr[0] };
+    // The previous line is equivalent to the following two lines:
+    //   arr[0] = arr[1];
+    //   arr[1] = arr[0];
+    // So this fails!
+    try expect(arr[0] == 2); // succeeds
+    try expect(arr[1] == 1); // fails
+}
+      {#code_end#}
+      <p>
+      The following table details how some common expressions propagate result locations, where
+      {#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} are arbitrary sub-expressions. Note that
+      some expressions cannot provide meaningful result locations to sub-expressions, even if they
+      themselves have a result location.
+      </p>
+      <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Expression</th>
+            <th scope="col">Result Location</th>
+            <th scope="col">Sub-expression Result Locations</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">{#syntax#}const val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}var val: T = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}val = x{#endsyntax#}</th>
+            <td>-</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&val{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@as(T, x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}&x{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}f(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{x}{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&ptr[0]{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}.{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has result location {#syntax#}&ptr.a{#endsyntax#}</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{x}{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}T{ .a = x }{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location (typed initializers do not propagate result locations)</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@Type(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}@typeInfo(x){#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} has no result location</td>
+          </tr>
+          <tr>
+            <th scope="row">{#syntax#}x << y{#endsyntax#}</th>
+            <td>{#syntax#}ptr{#endsyntax#}</td>
+            <td>{#syntax#}x{#endsyntax#} and {#syntax#}y{#endsyntax#} do not have result locations</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      {#header_close#}
       {#header_close#}
 
       {#header_open|usingnamespace#}
@@ -8355,7 +8674,7 @@ test "main" {
       </p>
       {#code_begin|obj|export_builtin#}
 comptime {
-    @export(internalName, .{ .name = "foo", .linkage = .Strong });
+    @export(internalName, .{ .name = "foo", .linkage = .strong });
 }
 
 fn internalName() callconv(.C) void {}
@@ -10139,7 +10458,7 @@ pub fn main() void {
 
       {#header_open|Invalid Error Set Cast#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|test_comptime_invalid_error_set_cast|'error.B' not a member of error set 'error{C,A}'#}
+      {#code_begin|test_err|test_comptime_invalid_error_set_cast|'error.B' not a member of error set 'error{A,C}'#}
 const Set1 = error{
     A,
     B,
@@ -11989,9 +12308,7 @@ VarDeclProto <- (KEYWORD_const / KEYWORD_var) IDENTIFIER (COLON TypeExpr)? ByteA
 
 GlobalVarDecl <- VarDeclProto (EQUAL Expr)? SEMICOLON
 
-ContainerField
-    <- doc_comment? KEYWORD_comptime? IDENTIFIER (COLON TypeExpr)? ByteAlign? (EQUAL Expr)?
-     / doc_comment? KEYWORD_comptime? (IDENTIFIER COLON)? !KEYWORD_fn TypeExpr ByteAlign? (EQUAL Expr)?
+ContainerField <- doc_comment? KEYWORD_comptime? !KEYWORD_fn (IDENTIFIER COLON)? TypeExpr ByteAlign? (EQUAL Expr)?
 
 # *** Block Level ***
 Statement
