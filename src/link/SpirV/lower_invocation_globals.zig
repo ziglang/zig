@@ -345,23 +345,16 @@ const ModuleBuilder = struct {
     function_types: std.ArrayHashMapUnmanaged(FunctionType, ResultId, FunctionType.Context, true) = .{},
     /// Maps functions to new information required for creating the module
     function_new_info: std.AutoArrayHashMapUnmanaged(ResultId, FunctionNewInfo) = .{},
+    /// Offset of the functions section in the new binary.
+    new_functions_section: ?usize,
 
     fn init(arena: Allocator, binary: BinaryModule, info: ModuleInfo) !ModuleBuilder {
-        var section = Section{};
-
-        try section.instructions.appendSlice(arena, &.{
-            spec.magic_number,
-            @bitCast(binary.version),
-            spec.zig_generator_id,
-            0, // Filled in in finalize()
-            0, // Schema (reserved)
-        });
-
         var self = ModuleBuilder{
             .arena = arena,
-            .section = section,
+            .section = .{},
             .id_bound = binary.id_bound,
             .entry_point_new_id_base = undefined,
+            .new_functions_section = null,
         };
         self.entry_point_new_id_base = @intFromEnum(self.allocIds(@intCast(info.entry_points.count())));
         return self;
@@ -376,9 +369,12 @@ const ModuleBuilder = struct {
         return @enumFromInt(self.id_bound);
     }
 
-    fn finalize(self: *ModuleBuilder, a: Allocator) ![]Word {
-        self.section.instructions.items[3] = self.id_bound;
-        return try a.dupe(Word, self.section.instructions.items);
+    fn finalize(self: *ModuleBuilder, a: Allocator, binary: *BinaryModule) !void {
+        binary.id_bound = self.id_bound;
+        binary.instructions = try a.dupe(Word, self.section.instructions.items);
+        // Nothing is removed in this pass so we don't need to change any of the maps,
+        // just make sure the section is updated.
+        binary.sections.functions = self.new_functions_section orelse binary.instructions.len;
     }
 
     /// Process everything from `binary` up to the first function and emit it into the builder.
@@ -386,16 +382,6 @@ const ModuleBuilder = struct {
         var it = binary.iterateInstructions();
         while (it.next()) |inst| {
             switch (inst.opcode) {
-                // TODO: We should remove this instruction using something that eliminates unreferenced instructions.
-                // For now, this is the only place where the .zig instruction set is being referenced, so its safe
-                // to remove it here.
-                .OpExtInstImport => {
-                    const set_id: ResultId = @enumFromInt(inst.operands[0]);
-                    const set = binary.ext_inst_map.get(set_id).?;
-                    if (set == .zig) {
-                        continue;
-                    }
-                },
                 .OpExtInst => {
                     const set_id: ResultId = @enumFromInt(inst.operands[2]);
                     const set_inst = inst.operands[3];
@@ -499,6 +485,7 @@ const ModuleBuilder = struct {
 
         var maybe_current_function: ?ResultId = null;
         var it = binary.iterateInstructionsFrom(binary.sections.functions);
+        self.new_functions_section = self.section.instructions.items.len;
         while (it.next()) |inst| {
             result_id_offsets.items.len = 0;
             try parser.parseInstructionResultIds(binary, inst, &result_id_offsets);
@@ -695,20 +682,19 @@ const ModuleBuilder = struct {
     }
 };
 
-pub fn run(parser: *BinaryModule.Parser, binary: BinaryModule) ![]Word {
+pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
     var arena = std.heap.ArenaAllocator.init(parser.a);
     defer arena.deinit();
     const a = arena.allocator();
 
-    var info = try ModuleInfo.parse(a, parser, binary);
+    var info = try ModuleInfo.parse(a, parser, binary.*);
     try info.resolve(a);
 
-    var builder = try ModuleBuilder.init(a, binary, info);
+    var builder = try ModuleBuilder.init(a, binary.*, info);
     try builder.deriveNewFnInfo(info);
-    try builder.processPreamble(binary, info);
+    try builder.processPreamble(binary.*, info);
     try builder.emitFunctionTypes(info);
-    try builder.rewriteFunctions(parser, binary, info);
+    try builder.rewriteFunctions(parser, binary.*, info);
     try builder.emitNewEntryPoints(info);
-
-    return builder.finalize(parser.a);
+    try builder.finalize(parser.a, binary);
 }

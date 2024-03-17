@@ -45,11 +45,30 @@ pub fn deinit(self: *BinaryModule, a: Allocator) void {
 }
 
 pub fn iterateInstructions(self: BinaryModule) Instruction.Iterator {
-    return Instruction.Iterator.init(self.instructions);
+    return Instruction.Iterator.init(self.instructions, 0);
 }
 
 pub fn iterateInstructionsFrom(self: BinaryModule, offset: usize) Instruction.Iterator {
-    return Instruction.Iterator.init(self.instructions[offset..]);
+    return Instruction.Iterator.init(self.instructions, offset);
+}
+
+pub fn instructionAt(self: BinaryModule, offset: usize) Instruction {
+    var it = self.iterateInstructionsFrom(offset);
+    return it.next().?;
+}
+
+pub fn finalize(self: BinaryModule, a: Allocator) ![]Word {
+    const result = try a.alloc(Word, 5 + self.instructions.len);
+    errdefer a.free(result);
+
+    result[0] = spec.magic_number;
+    result[1] = @bitCast(self.version);
+    result[2] = spec.zig_generator_id;
+    result[3] = self.id_bound;
+    result[4] = 0; // Schema
+
+    @memcpy(result[5..], self.instructions);
+    return result;
 }
 
 /// Errors that can be raised when the module is not correct.
@@ -85,8 +104,8 @@ pub const Instruction = struct {
         index: usize = 0,
         offset: usize = 0,
 
-        pub fn init(words: []const Word) Iterator {
-            return .{ .words = words };
+        pub fn init(words: []const Word, start_offset: usize) Iterator {
+            return .{ .words = words, .offset = start_offset };
         }
 
         pub fn next(self: *Iterator) ?Instruction {
@@ -159,6 +178,11 @@ pub const Parser = struct {
         return (@as(u32, @intFromEnum(set)) << 16) | opcode;
     }
 
+    pub fn getInstSpec(self: Parser, opcode: Opcode) ?spec.Instruction {
+        const index = self.opcode_table.get(mapSetAndOpcode(.core, @intFromEnum(opcode))) orelse return null;
+        return InstructionSet.core.instructions()[index];
+    }
+
     pub fn parse(self: *Parser, module: []const u32) ParseError!BinaryModule {
         if (module[0] != spec.magic_number) {
             return error.InvalidMagic;
@@ -195,13 +219,12 @@ pub const Parser = struct {
             // We can't really efficiently use non-exhaustive enums here, because we would
             // need to manually write out all valid cases. Since we have this map anyway, just
             // use that.
-            const opcode_num: u16 = @truncate(binary.instructions[offset]);
-            const index = self.opcode_table.get(mapSetAndOpcode(.core, opcode_num)) orelse {
-                log.err("invalid opcode for core set: {}", .{opcode_num});
+            const opcode: Opcode = @enumFromInt(@as(u16, @truncate(binary.instructions[offset])));
+            const inst_spec = self.getInstSpec(opcode) orelse {
+                log.err("invalid opcode for core set: {}", .{@intFromEnum(opcode)});
                 return error.InvalidOpcode;
             };
 
-            const opcode: Opcode = @enumFromInt(opcode_num);
             const operands = binary.instructions[offset..][1..len];
             switch (opcode) {
                 .OpExtInstImport => {
@@ -226,11 +249,10 @@ pub const Parser = struct {
 
             // OpSwitch takes a value as argument, not an OpType... hence we need to populate arith_type_width
             // with ALL operations that return an int or float.
-            const proper_operands = InstructionSet.core.instructions()[index].operands;
-
-            if (proper_operands.len >= 2 and
-                proper_operands[0].kind == .IdResultType and
-                proper_operands[1].kind == .IdResult)
+            const spec_operands = inst_spec.operands;
+            if (spec_operands.len >= 2 and
+                spec_operands[0].kind == .IdResultType and
+                spec_operands[1].kind == .IdResult)
             {
                 if (operands.len < 2) return error.InvalidOperands;
                 if (binary.arith_type_width.get(@enumFromInt(operands[0]))) |width| {
@@ -283,6 +305,7 @@ pub const Parser = struct {
 
                 if (offset + 1 >= inst.operands.len) return error.InvalidPhysicalFormat;
                 const set_id: ResultId = @enumFromInt(inst.operands[offset]);
+                try offsets.append(@intCast(offset));
                 const set = binary.ext_inst_map.get(set_id) orelse {
                     log.err("invalid instruction set {}", .{@intFromEnum(set_id)});
                     return error.InvalidId;
@@ -375,8 +398,7 @@ pub const Parser = struct {
                 }
             },
             .id => {
-                const this_offset = std.math.cast(u16, offset) orelse return error.InvalidPhysicalFormat;
-                try offsets.append(this_offset);
+                try offsets.append(@intCast(offset));
                 offset += 1;
             },
             else => switch (kind) {
@@ -419,20 +441,16 @@ pub const Parser = struct {
                         33...64 => 2,
                         else => unreachable,
                     };
-                    const this_offset = std.math.cast(u16, offset) orelse return error.InvalidPhysicalFormat;
-                    try offsets.append(this_offset);
+                    try offsets.append(@intCast(offset));
                     offset += 1;
                 },
                 .PairIdRefLiteralInteger => {
-                    const this_offset = std.math.cast(u16, offset) orelse return error.InvalidPhysicalFormat;
-                    try offsets.append(this_offset);
+                    try offsets.append(@intCast(offset));
                     offset += 2;
                 },
                 .PairIdRefIdRef => {
-                    const a = std.math.cast(u16, offset) orelse return error.InvalidPhysicalFormat;
-                    const b = std.math.cast(u16, offset + 1) orelse return error.InvalidPhysicalFormat;
-                    try offsets.append(a);
-                    try offsets.append(b);
+                    try offsets.append(@intCast(offset));
+                    try offsets.append(@intCast(offset + 1));
                     offset += 2;
                 },
                 else => unreachable,

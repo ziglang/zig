@@ -245,26 +245,31 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     const module = try spv.finalize(arena, target);
     errdefer arena.free(module);
 
-    const new_module = self.lowerInstanceGlobals(arena, module) catch |err| switch (err) {
+    const linked_module = self.linkModule(arena, module) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| {
-            std.debug.print("error while lowering instance globals: {s}\n", .{@errorName(other)});
+            log.err("error while linking: {s}\n", .{@errorName(other)});
             return error.FlushFailure;
         },
     };
-    defer arena.free(new_module);
 
-    try self.base.file.?.writeAll(std.mem.sliceAsBytes(new_module));
+    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
 }
 
-fn lowerInstanceGlobals(self: *SpirV, a: Allocator, module: []Word) ![]Word {
+fn linkModule(self: *SpirV, a: Allocator, module: []Word) ![]Word {
     _ = self;
+
+    const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
+    const prune_unused = @import("SpirV/prune_unused.zig");
 
     var parser = try BinaryModule.Parser.init(a);
     defer parser.deinit();
-    const binary = try parser.parse(module);
-    const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
-    return try lower_invocation_globals.run(&parser, binary);
+    var binary = try parser.parse(module);
+
+    try lower_invocation_globals.run(&parser, &binary);
+    try prune_unused.run(&parser, &binary);
+
+    return binary.finalize(a);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
