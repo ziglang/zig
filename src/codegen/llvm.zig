@@ -3816,7 +3816,10 @@ pub const Object = struct {
                 .elem,
                 .field,
                 => try o.lowerParentPtr(val),
-                .comptime_field => unreachable,
+                .comptime_field => |field_val| {
+                    const ptr_ty = Type.fromInterned(ptr.ty);
+                    return o.lowerComptimeField(ptr_ty, field_val);
+                },
             },
             .slice => |slice| return o.builder.structConst(try o.lowerType(ty), &.{
                 try o.lowerValue(slice.ptr),
@@ -4311,7 +4314,10 @@ pub const Object = struct {
 
                 return o.builder.gepConst(.inbounds, try o.lowerType(opt_ty), parent_ptr, null, &.{ .@"0", .@"0" });
             },
-            .comptime_field => unreachable,
+            .comptime_field => |field_val| {
+                const ptr_ty = Type.fromInterned(ptr.ty);
+                return o.lowerComptimeField(ptr_ty, field_val);
+            },
             .elem => |elem_ptr| {
                 const parent_ptr = try o.lowerParentPtr(Value.fromInterned(elem_ptr.base));
                 const elem_ty = Type.fromInterned(ip.typeOf(elem_ptr.base)).elemType2(mod);
@@ -4386,6 +4392,25 @@ pub const Object = struct {
                 }
             },
         };
+    }
+
+    fn lowerComptimeField(o: *Object, ptr_ty: Type, field_val: InternPool.Index) Error!Builder.Constant {
+        const mod = o.module;
+        const target = mod.getTarget();
+        const llvm_addr_space = toLlvmAddressSpace(ptr_ty.ptrAddressSpace(mod), target);
+        const alignment = ptr_ty.ptrAlignment(mod);
+        const llvm_global = (try o.resolveGlobalAnonDecl(field_val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
+
+        const llvm_val = try o.builder.convConst(
+            .unneeded,
+            llvm_global.toConst(),
+            try o.builder.ptrType(llvm_addr_space),
+        );
+
+        return o.builder.convConst(if (ptr_ty.isAbiInt(mod)) switch (ptr_ty.intInfo(mod).signedness) {
+            .signed => .signed,
+            .unsigned => .unsigned,
+        } else .unneeded, llvm_val, try o.lowerType(ptr_ty));
     }
 
     /// This logic is very similar to `lowerDeclRefValue` but for anonymous declarations.
