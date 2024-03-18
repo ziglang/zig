@@ -402,7 +402,7 @@ pub const Request = struct {
         request: *Request,
         content: []const u8,
         options: RespondOptions,
-    ) Response.WriteError!void {
+    ) !void {
         const max_extra_headers = 25;
         assert(options.status != .@"continue");
         assert(options.extra_headers.len <= max_extra_headers);
@@ -767,7 +767,7 @@ pub const Request = struct {
     /// request's expect field to `null`.
     ///
     /// Asserts that this function is only called once.
-    pub fn reader(request: *Request) ReaderError!std.io.AnyReader {
+    pub fn reader(request: *Request) !std.io.AnyReader {
         const s = request.server;
         assert(s.state == .received_head);
         s.state = .receiving_body;
