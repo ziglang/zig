@@ -17699,19 +17699,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .ty = new_decl_ty.toIntern(),
                     .storage = .{ .elems = param_vals },
                 } });
-                const ptr_ty = (try sema.ptrType(.{
+                const slice_ty = (try sema.ptrType(.{
                     .child = param_info_ty.toIntern(),
                     .flags = .{
                         .size = .Slice,
                         .is_const = true,
                     },
                 })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(mod).toIntern();
                 break :v try mod.intern(.{ .slice = .{
-                    .ty = ptr_ty,
+                    .ty = slice_ty,
                     .ptr = try mod.intern(.{ .ptr = .{
-                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .ty = manyptr_ty,
                         .addr = .{ .anon_decl = .{
-                            .orig_ty = ptr_ty,
+                            .orig_ty = manyptr_ty,
                             .val = new_decl_val,
                         } },
                     } }),
@@ -18031,12 +18032,13 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .ty = array_errors_ty.toIntern(),
                     .storage = .{ .elems = vals },
                 } });
+                const manyptr_errors_ty = slice_errors_ty.slicePtrFieldType(mod).toIntern();
                 break :v try mod.intern(.{ .slice = .{
                     .ty = slice_errors_ty.toIntern(),
                     .ptr = try mod.intern(.{ .ptr = .{
-                        .ty = slice_errors_ty.slicePtrFieldType(mod).toIntern(),
+                        .ty = manyptr_errors_ty,
                         .addr = .{ .anon_decl = .{
-                            .orig_ty = slice_errors_ty.toIntern(),
+                            .orig_ty = manyptr_errors_ty,
                             .val = new_decl_val,
                         } },
                     } }),
@@ -18155,20 +18157,21 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .ty = fields_array_ty.toIntern(),
                     .storage = .{ .elems = enum_field_vals },
                 } });
-                const ptr_ty = (try sema.ptrType(.{
+                const slice_ty = (try sema.ptrType(.{
                     .child = enum_field_ty.toIntern(),
                     .flags = .{
                         .size = .Slice,
                         .is_const = true,
                     },
                 })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(mod).toIntern();
                 break :v try mod.intern(.{ .slice = .{
-                    .ty = ptr_ty,
+                    .ty = slice_ty,
                     .ptr = try mod.intern(.{ .ptr = .{
-                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .ty = manyptr_ty,
                         .addr = .{ .anon_decl = .{
                             .val = new_decl_val,
-                            .orig_ty = ptr_ty,
+                            .orig_ty = manyptr_ty,
                         } },
                     } }),
                     .len = (try mod.intValue(Type.usize, enum_field_vals.len)).toIntern(),
@@ -18296,19 +18299,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .ty = array_fields_ty.toIntern(),
                     .storage = .{ .elems = union_field_vals },
                 } });
-                const ptr_ty = (try sema.ptrType(.{
+                const slice_ty = (try sema.ptrType(.{
                     .child = union_field_ty.toIntern(),
                     .flags = .{
                         .size = .Slice,
                         .is_const = true,
                     },
                 })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(mod).toIntern();
                 break :v try mod.intern(.{ .slice = .{
-                    .ty = ptr_ty,
+                    .ty = slice_ty,
                     .ptr = try mod.intern(.{ .ptr = .{
-                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .ty = manyptr_ty,
                         .addr = .{ .anon_decl = .{
-                            .orig_ty = ptr_ty,
+                            .orig_ty = manyptr_ty,
                             .val = new_decl_val,
                         } },
                     } }),
@@ -18523,19 +18527,20 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .ty = array_fields_ty.toIntern(),
                     .storage = .{ .elems = struct_field_vals },
                 } });
-                const ptr_ty = (try sema.ptrType(.{
+                const slice_ty = (try sema.ptrType(.{
                     .child = struct_field_ty.toIntern(),
                     .flags = .{
                         .size = .Slice,
                         .is_const = true,
                     },
                 })).toIntern();
+                const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(mod).toIntern();
                 break :v try mod.intern(.{ .slice = .{
-                    .ty = ptr_ty,
+                    .ty = slice_ty,
                     .ptr = try mod.intern(.{ .ptr = .{
-                        .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+                        .ty = manyptr_ty,
                         .addr = .{ .anon_decl = .{
-                            .orig_ty = ptr_ty,
+                            .orig_ty = manyptr_ty,
                             .val = new_decl_val,
                         } },
                     } }),
@@ -18661,19 +18666,20 @@ fn typeInfoDecls(
         .ty = array_decl_ty.toIntern(),
         .storage = .{ .elems = decl_vals.items },
     } });
-    const ptr_ty = (try sema.ptrType(.{
+    const slice_ty = (try sema.ptrType(.{
         .child = declaration_ty.toIntern(),
         .flags = .{
             .size = .Slice,
             .is_const = true,
         },
     })).toIntern();
+    const manyptr_ty = Type.fromInterned(slice_ty).slicePtrFieldType(mod).toIntern();
     return try mod.intern(.{ .slice = .{
-        .ty = ptr_ty,
+        .ty = slice_ty,
         .ptr = try mod.intern(.{ .ptr = .{
-            .ty = Type.fromInterned(ptr_ty).slicePtrFieldType(mod).toIntern(),
+            .ty = manyptr_ty,
             .addr = .{ .anon_decl = .{
-                .orig_ty = ptr_ty,
+                .orig_ty = manyptr_ty,
                 .val = new_decl_val,
             } },
         } }),
@@ -19803,8 +19809,18 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         break :blk @intCast(host_size);
     } else 0;
 
-    if (host_size != 0 and bit_offset >= host_size * 8) {
-        return sema.fail(block, bitoffset_src, "bit offset starts after end of host integer", .{});
+    if (host_size != 0) {
+        if (bit_offset >= host_size * 8) {
+            return sema.fail(block, bitoffset_src, "packed type '{}' at bit offset {} starts {} bits after the end of a {} byte host integer", .{
+                elem_ty.fmt(mod), bit_offset, bit_offset - host_size * 8, host_size,
+            });
+        }
+        const elem_bit_size = try elem_ty.bitSizeAdvanced(mod, sema);
+        if (elem_bit_size > host_size * 8 - bit_offset) {
+            return sema.fail(block, bitoffset_src, "packed type '{}' at bit offset {} ends {} bits after the end of a {} byte host integer", .{
+                elem_ty.fmt(mod), bit_offset, elem_bit_size - (host_size * 8 - bit_offset), host_size,
+            });
+        }
     }
 
     if (elem_ty.zigTypeTag(mod) == .Fn) {
@@ -24844,106 +24860,147 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 }
 
 fn zirFieldParentPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.FieldParentPtr, inst_data.payload_index).data;
-    const src = inst_data.src();
-    const ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
-
-    const parent_ty = try sema.resolveType(block, ty_src, extra.parent_type);
-    const field_name = try sema.resolveConstStringIntern(block, name_src, extra.field_name, .{
-        .needed_comptime_reason = "field name must be comptime-known",
-    });
-    const field_ptr = try sema.resolveInst(extra.field_ptr);
-    const field_ptr_ty = sema.typeOf(field_ptr);
     const mod = sema.mod;
     const ip = &mod.intern_pool;
 
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.FieldParentPtr, inst_data.payload_index).data;
+    const inst_src = inst_data.src();
+    const parent_ptr_ty_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
+    const field_name_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
+    const field_ptr_src: LazySrcLoc = .{ .node_offset_builtin_call_arg2 = inst_data.src_node };
+
+    const parent_ptr_ty = try sema.resolveType(block, parent_ptr_ty_src, extra.parent_type);
+    try sema.checkPtrType(block, parent_ptr_ty_src, parent_ptr_ty, false);
+    if (!parent_ptr_ty.isSinglePointer(mod)) {
+        return sema.fail(block, parent_ptr_ty_src, "expected single pointer type, found '{}'", .{parent_ptr_ty.fmt(sema.mod)});
+    }
+    const parent_ty = parent_ptr_ty.childType(mod);
     if (parent_ty.zigTypeTag(mod) != .Struct and parent_ty.zigTypeTag(mod) != .Union) {
-        return sema.fail(block, ty_src, "expected struct or union type, found '{}'", .{parent_ty.fmt(sema.mod)});
+        return sema.fail(block, parent_ptr_ty_src, "expected pointer to struct or union type, found '{}'", .{parent_ptr_ty.fmt(sema.mod)});
     }
     try sema.resolveTypeLayout(parent_ty);
 
+    const field_name = try sema.resolveConstStringIntern(block, field_name_src, extra.field_name, .{
+        .needed_comptime_reason = "field name must be comptime-known",
+    });
     const field_index = switch (parent_ty.zigTypeTag(mod)) {
         .Struct => blk: {
             if (parent_ty.isTuple(mod)) {
                 if (ip.stringEqlSlice(field_name, "len")) {
-                    return sema.fail(block, src, "cannot get @fieldParentPtr of 'len' field of tuple", .{});
+                    return sema.fail(block, inst_src, "cannot get @fieldParentPtr of 'len' field of tuple", .{});
                 }
-                break :blk try sema.tupleFieldIndex(block, parent_ty, field_name, name_src);
+                break :blk try sema.tupleFieldIndex(block, parent_ty, field_name, field_name_src);
             } else {
-                break :blk try sema.structFieldIndex(block, parent_ty, field_name, name_src);
+                break :blk try sema.structFieldIndex(block, parent_ty, field_name, field_name_src);
             }
         },
-        .Union => try sema.unionFieldIndex(block, parent_ty, field_name, name_src),
+        .Union => try sema.unionFieldIndex(block, parent_ty, field_name, field_name_src),
         else => unreachable,
     };
-
     if (parent_ty.zigTypeTag(mod) == .Struct and parent_ty.structFieldIsComptime(field_index, mod)) {
-        return sema.fail(block, src, "cannot get @fieldParentPtr of a comptime field", .{});
+        return sema.fail(block, field_name_src, "cannot get @fieldParentPtr of a comptime field", .{});
     }
 
-    try sema.checkPtrOperand(block, ptr_src, field_ptr_ty);
-    const field_ptr_ty_info = field_ptr_ty.ptrInfo(mod);
+    const field_ptr = try sema.resolveInst(extra.field_ptr);
+    const field_ptr_ty = sema.typeOf(field_ptr);
+    try sema.checkPtrOperand(block, field_ptr_src, field_ptr_ty);
+    const field_ptr_info = field_ptr_ty.ptrInfo(mod);
 
-    var ptr_ty_data: InternPool.Key.PtrType = .{
-        .child = parent_ty.structFieldType(field_index, mod).toIntern(),
+    var actual_parent_ptr_info: InternPool.Key.PtrType = .{
+        .child = parent_ty.toIntern(),
         .flags = .{
-            .address_space = field_ptr_ty_info.flags.address_space,
-            .is_const = field_ptr_ty_info.flags.is_const,
+            .alignment = try parent_ptr_ty.ptrAlignmentAdvanced(mod, sema),
+            .is_const = field_ptr_info.flags.is_const,
+            .is_volatile = field_ptr_info.flags.is_volatile,
+            .is_allowzero = field_ptr_info.flags.is_allowzero,
+            .address_space = field_ptr_info.flags.address_space,
         },
+        .packed_offset = parent_ptr_ty.ptrInfo(mod).packed_offset,
     };
+    const field_ty = parent_ty.structFieldType(field_index, mod);
+    var actual_field_ptr_info: InternPool.Key.PtrType = .{
+        .child = field_ty.toIntern(),
+        .flags = .{
+            .alignment = try field_ptr_ty.ptrAlignmentAdvanced(mod, sema),
+            .is_const = field_ptr_info.flags.is_const,
+            .is_volatile = field_ptr_info.flags.is_volatile,
+            .is_allowzero = field_ptr_info.flags.is_allowzero,
+            .address_space = field_ptr_info.flags.address_space,
+        },
+        .packed_offset = field_ptr_info.packed_offset,
+    };
+    switch (parent_ty.containerLayout(mod)) {
+        .auto => {
+            actual_parent_ptr_info.flags.alignment = actual_field_ptr_info.flags.alignment.minStrict(
+                if (mod.typeToStruct(parent_ty)) |struct_obj| try sema.structFieldAlignment(
+                    struct_obj.fieldAlign(ip, field_index),
+                    field_ty,
+                    struct_obj.layout,
+                ) else if (mod.typeToUnion(parent_ty)) |union_obj|
+                    try sema.unionFieldAlignment(union_obj, field_index)
+                else
+                    actual_field_ptr_info.flags.alignment,
+            );
 
-    if (parent_ty.containerLayout(mod) == .@"packed") {
-        return sema.fail(block, src, "TODO handle packed structs/unions with @fieldParentPtr", .{});
-    } else {
-        ptr_ty_data.flags.alignment = blk: {
-            if (mod.typeToStruct(parent_ty)) |struct_type| {
-                break :blk struct_type.fieldAlign(ip, field_index);
-            } else if (mod.typeToUnion(parent_ty)) |union_obj| {
-                break :blk union_obj.fieldAlign(ip, field_index);
-            } else {
-                break :blk .none;
-            }
-        };
+            actual_parent_ptr_info.packed_offset = .{ .bit_offset = 0, .host_size = 0 };
+            actual_field_ptr_info.packed_offset = .{ .bit_offset = 0, .host_size = 0 };
+        },
+        .@"extern" => {
+            const field_offset = parent_ty.structFieldOffset(field_index, mod);
+            actual_parent_ptr_info.flags.alignment = actual_field_ptr_info.flags.alignment.minStrict(if (field_offset > 0)
+                Alignment.fromLog2Units(@ctz(field_offset))
+            else
+                actual_field_ptr_info.flags.alignment);
+
+            actual_parent_ptr_info.packed_offset = .{ .bit_offset = 0, .host_size = 0 };
+            actual_field_ptr_info.packed_offset = .{ .bit_offset = 0, .host_size = 0 };
+        },
+        .@"packed" => {
+            const byte_offset = std.math.divExact(u32, @abs(@as(i32, actual_parent_ptr_info.packed_offset.bit_offset) +
+                (if (mod.typeToStruct(parent_ty)) |struct_obj| mod.structPackedFieldBitOffset(struct_obj, field_index) else 0) -
+                actual_field_ptr_info.packed_offset.bit_offset), 8) catch
+                return sema.fail(block, inst_src, "pointer bit-offset mismatch", .{});
+            actual_parent_ptr_info.flags.alignment = actual_field_ptr_info.flags.alignment.minStrict(if (byte_offset > 0)
+                Alignment.fromLog2Units(@ctz(byte_offset))
+            else
+                actual_field_ptr_info.flags.alignment);
+        },
     }
 
-    const actual_field_ptr_ty = try sema.ptrType(ptr_ty_data);
-    const casted_field_ptr = try sema.coerce(block, actual_field_ptr_ty, field_ptr, ptr_src);
-
-    ptr_ty_data.child = parent_ty.toIntern();
-    const result_ptr = try sema.ptrType(ptr_ty_data);
-
-    if (try sema.resolveDefinedValue(block, src, casted_field_ptr)) |field_ptr_val| {
+    const actual_field_ptr_ty = try sema.ptrType(actual_field_ptr_info);
+    const casted_field_ptr = try sema.coerce(block, actual_field_ptr_ty, field_ptr, field_ptr_src);
+    const actual_parent_ptr_ty = try sema.ptrType(actual_parent_ptr_info);
+    const result = if (try sema.resolveDefinedValue(block, field_ptr_src, casted_field_ptr)) |field_ptr_val| result: {
         const field = switch (ip.indexToKey(field_ptr_val.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .field => |field| field,
                 else => null,
             },
             else => null,
-        } orelse return sema.fail(block, ptr_src, "pointer value not based on parent struct", .{});
+        } orelse return sema.fail(block, field_ptr_src, "pointer value not based on parent struct", .{});
 
         if (field.index != field_index) {
-            return sema.fail(block, src, "field '{}' has index '{d}' but pointer value is index '{d}' of struct '{}'", .{
+            return sema.fail(block, inst_src, "field '{}' has index '{d}' but pointer value is index '{d}' of struct '{}'", .{
                 field_name.fmt(ip), field_index, field.index, parent_ty.fmt(sema.mod),
             });
         }
-        return Air.internedToRef(field.base);
-    }
-
-    try sema.requireRuntimeBlock(block, src, ptr_src);
-    try sema.queueFullTypeResolution(result_ptr);
-    return block.addInst(.{
-        .tag = .field_parent_ptr,
-        .data = .{ .ty_pl = .{
-            .ty = Air.internedToRef(result_ptr.toIntern()),
-            .payload = try block.sema.addExtra(Air.FieldParentPtr{
-                .field_ptr = casted_field_ptr,
-                .field_index = @intCast(field_index),
-            }),
-        } },
-    });
+        break :result try sema.coerce(block, actual_parent_ptr_ty, Air.internedToRef(field.base), inst_src);
+    } else result: {
+        try sema.requireRuntimeBlock(block, inst_src, field_ptr_src);
+        try sema.queueFullTypeResolution(parent_ty);
+        break :result try block.addInst(.{
+            .tag = .field_parent_ptr,
+            .data = .{ .ty_pl = .{
+                .ty = Air.internedToRef(actual_parent_ptr_ty.toIntern()),
+                .payload = try block.sema.addExtra(Air.FieldParentPtr{
+                    .field_ptr = casted_field_ptr,
+                    .field_index = @intCast(field_index),
+                }),
+            } },
+        });
+    };
+    return sema.coerce(block, parent_ptr_ty, result, inst_src);
 }
 
 fn zirMinMax(
