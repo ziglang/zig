@@ -1133,7 +1133,7 @@ pub fn preadAll(self: File, buffer: []u8, offset: u64) PReadError!usize {
 }
 
 /// See https://github.com/ziglang/zig/issues/7699
-pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
+pub fn readv(self: File, iovecs: []posix.iovec) ReadError!usize {
     if (is_windows) {
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
@@ -1268,7 +1268,7 @@ pub fn pwriteAll(self: File, bytes: []const u8, offset: u64) PWriteError!void {
 
 /// See https://github.com/ziglang/zig/issues/7699
 /// See equivalent function: `std.net.Stream.writev`.
-pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
+pub fn writev(self: File, iovecs: []posix.iovec_const) WriteError!usize {
     if (is_windows) {
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
@@ -1493,13 +1493,13 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
     }
 }
 
-pub const Reader = io.Reader(File, ReadError, read);
+pub const Reader = io.Reader(File, ReadError, readv);
 
 pub fn reader(file: File) Reader {
     return .{ .context = file };
 }
 
-pub const Writer = io.Writer(File, WriteError, write);
+pub const Writer = io.Writer(File, WriteError, writev);
 
 pub fn writer(file: File) Writer {
     return .{ .context = file };

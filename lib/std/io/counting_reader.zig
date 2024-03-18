@@ -9,15 +9,17 @@ pub fn CountingReader(comptime ReaderType: anytype) type {
         bytes_read: u64 = 0,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*@This(), Error, read);
+        pub const Reader = io.Reader(*@This(), Error, readv);
 
-        pub fn read(self: *@This(), buf: []u8) Error!usize {
-            const amt = try self.child_reader.read(buf);
+        const Self = @This();
+
+        pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
+            const amt = try self.child_reader.readv(iov);
             self.bytes_read += amt;
             return amt;
         }
 
-        pub fn reader(self: *@This()) Reader {
+        pub fn reader(self: *Self) Reader {
             return .{ .context = self };
         }
     };

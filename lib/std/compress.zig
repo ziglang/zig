@@ -19,12 +19,18 @@ pub fn HashedReader(
         hasher: HasherType,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = std.io.Reader(*@This(), Error, read);
+        pub const Reader = std.io.Reader(*@This(), Error, readv);
 
-        pub fn read(self: *@This(), buf: []u8) Error!usize {
-            const amt = try self.child_reader.read(buf);
-            self.hasher.update(buf[0..amt]);
-            return amt;
+        pub fn readv(self: *@This(), iov: []std.posix.iovec) Error!usize {
+            const n_read = try self.child_reader.readv(iov);
+            var hashed_amt: usize = 0;
+            for (iov) |v| {
+                const to_hash = @min(n_read - hashed_amt, v.iov_len);
+                if (to_hash == 0) break;
+                self.hasher.update(v.iov_base[0..to_hash]);
+                hashed_amt += to_hash;
+            }
+            return n_read;
         }
 
         pub fn reader(self: *@This()) Reader {
@@ -51,10 +57,16 @@ pub fn HashedWriter(
         pub const Error = WriterType.Error;
         pub const Writer = std.io.Writer(*@This(), Error, write);
 
-        pub fn write(self: *@This(), buf: []const u8) Error!usize {
-            const amt = try self.child_writer.write(buf);
-            self.hasher.update(buf[0..amt]);
-            return amt;
+        pub fn write(self: *@This(), iov: []std.posix.iovec_const) Error!usize {
+            const n_written = try self.child_writer.writev(iov);
+            var hashed_amt: usize = 0;
+            for (iov) |v| {
+                const to_hash = @min(n_written - hashed_amt, v.iov_len);
+                if (to_hash == 0) break;
+                self.hasher.update(v.iov_base[0..to_hash]);
+                hashed_amt += to_hash;
+            }
+            return n_written;
         }
 
         pub fn writer(self: *@This()) Writer {

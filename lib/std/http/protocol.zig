@@ -281,7 +281,7 @@ const MockBufferedConnection = struct {
     pub fn fill(conn: *MockBufferedConnection) ReadError!void {
         if (conn.end != conn.start) return;
 
-        const nread = try conn.conn.read(conn.buf[0..]);
+        const nread = try conn.conn.reader().read(conn.buf[0..]);
         if (nread == 0) return error.EndOfStream;
         conn.start = 0;
         conn.end = @as(u16, @truncate(nread));
@@ -313,7 +313,7 @@ const MockBufferedConnection = struct {
 
             if (left > conn.buf.len) {
                 // skip the buffer if the output is large enough
-                return conn.conn.read(buffer[out_index..]);
+                return conn.conn.reader().read(buffer[out_index..]);
             }
 
             try conn.fill();

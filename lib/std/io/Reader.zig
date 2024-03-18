@@ -1,20 +1,38 @@
+const std = @import("../std.zig");
+const Self = @This();
+const math = std.math;
+const assert = std.debug.assert;
+const mem = std.mem;
+const testing = std.testing;
+const native_endian = @import("builtin").target.cpu.arch.endian();
+const iovec = std.posix.iovec;
+
 context: *const anyopaque,
-readFn: *const fn (context: *const anyopaque, buffer: []u8) anyerror!usize,
+readvFn: *const fn (context: *const anyopaque, iov: []iovec) anyerror!usize,
 
 pub const Error = anyerror;
+
+
+/// Returns the number of bytes read. It may be less than buffer.len.
+/// If the number of bytes read is 0, it means end of stream.
+/// End of stream is not an error condition.
+pub fn readv(self: Self, iov: []iovec) anyerror!usize {
+    return self.readvFn(self.context, iov);
+}
 
 /// Returns the number of bytes read. It may be less than buffer.len.
 /// If the number of bytes read is 0, it means end of stream.
 /// End of stream is not an error condition.
 pub fn read(self: Self, buffer: []u8) anyerror!usize {
-    return self.readFn(self.context, buffer);
+    var iov = [_]iovec{ .{ .iov_base = buffer.ptr, .iov_len =  buffer.len } };
+    return self.readv(&iov);
 }
 
 /// Returns the number of bytes read. If the number read is smaller than `buffer.len`, it
 /// means the stream reached the end. Reaching the end of a stream is not an error
 /// condition.
 pub fn readAll(self: Self, buffer: []u8) anyerror!usize {
-    return readAtLeast(self, buffer, buffer.len);
+    return self.readAtLeast(buffer, buffer.len);
 }
 
 /// Returns the number of bytes read, calling the underlying read
@@ -371,14 +389,6 @@ pub fn discard(self: Self) anyerror!u64 {
         index += n;
     }
 }
-
-const std = @import("../std.zig");
-const Self = @This();
-const math = std.math;
-const assert = std.debug.assert;
-const mem = std.mem;
-const testing = std.testing;
-const native_endian = @import("builtin").target.cpu.arch.endian();
 
 test {
     _ = @import("Reader/test.zig");

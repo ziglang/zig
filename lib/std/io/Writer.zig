@@ -1,15 +1,37 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
+const iovec_const = std.posix.iovec_const;
 
 context: *const anyopaque,
-writeFn: *const fn (context: *const anyopaque, bytes: []const u8) anyerror!usize,
+writevFn: *const fn (context: *const anyopaque, iov: []iovec_const) anyerror!usize,
 
 const Self = @This();
 pub const Error = anyerror;
 
+pub fn writev(self: Self, iov: []iovec_const) anyerror!usize {
+    return self.writevFn(self.context, iov);
+}
+
+pub fn writevAll(self: Self, iovecs: []iovec_const) anyerror!void {
+    if (iovecs.len == 0) return;
+
+    var i: usize = 0;
+    while (true) {
+        var amt = try self.writev(iovecs[i..]);
+        while (amt >= iovecs[i].iov_len) {
+            amt -= iovecs[i].iov_len;
+            i += 1;
+            if (i >= iovecs.len) return;
+        }
+        iovecs[i].iov_base += amt;
+        iovecs[i].iov_len -= amt;
+    }
+}
+
 pub fn write(self: Self, bytes: []const u8) anyerror!usize {
-    return self.writeFn(self.context, bytes);
+    var iov = [_]iovec_const{ .{ .iov_base = bytes.ptr, .iov_len = bytes.len } };
+    return self.writev(&iov);
 }
 
 pub fn writeAll(self: Self, bytes: []const u8) anyerror!void {

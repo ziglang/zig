@@ -354,16 +354,20 @@ fn Deflate(comptime container: Container, comptime WriterType: type, comptime Bl
         }
 
         // Writer interface
-
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.Writer(*Self, Error, writev);
         pub const Error = BlockWriterType.Error;
 
         /// Write `input` of uncompressed data.
         /// See compress.
-        pub fn write(self: *Self, input: []const u8) !usize {
-            var fbs = io.fixedBufferStream(input);
-            try self.compress(fbs.reader());
-            return input.len;
+        pub fn writev(self: *Self, iov: []std.posix.iovec_const) !usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                const input = v.iov_base[0..v.iov_len];
+                var fbs = io.fixedBufferStream(input);
+                try self.compress(fbs.reader());
+                written += input.len;
+            }
+            return written;
         }
 
         pub fn writer(self: *Self) Writer {
@@ -558,7 +562,7 @@ test "tokenization" {
             const cww = cw.writer();
             var df = try Deflate(container, @TypeOf(cww), TestTokenWriter).init(cww, .{});
 
-            _ = try df.write(c.data);
+            _ = try df.writer().write(c.data);
             try df.flush();
 
             // df.token_writer.show();
@@ -578,6 +582,8 @@ const TestTokenWriter = struct {
 
     pos: usize = 0,
     actual: [128]Token = undefined,
+
+    pub const Error = error{};
 
     pub fn init(_: anytype) Self {
         return .{};

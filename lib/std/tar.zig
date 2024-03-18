@@ -269,7 +269,7 @@ pub const FileKind = enum {
     file,
 };
 
-/// Iteartor over entries in the tar file represented by reader.
+/// Iterator over tar entries
 pub fn Iterator(comptime ReaderType: type) type {
     return struct {
         reader: ReaderType,
@@ -295,17 +295,22 @@ pub fn Iterator(comptime ReaderType: type) type {
             unread_bytes: *u64,
             parent_reader: ReaderType,
 
-            pub const Reader = std.io.Reader(File, ReaderType.Error, File.read);
+            pub const Reader = std.io.Reader(File, ReaderType.Error, File.readv);
 
             pub fn reader(self: File) Reader {
                 return .{ .context = self };
             }
 
-            pub fn read(self: File, dest: []u8) ReaderType.Error!usize {
-                const buf = dest[0..@min(dest.len, self.unread_bytes.*)];
-                const n = try self.parent_reader.read(buf);
-                self.unread_bytes.* -= n;
-                return n;
+            pub fn readv(self: File, iov: []std.posix.iovec) ReaderType.Error!usize {
+                var n_read: usize = 0;
+                for (iov) |v| {
+                    const dest = v.iov_base[0..v.iov_len];
+                    const buf = dest[0..@min(dest.len, self.unread_bytes.*)];
+                    const n = try self.parent_reader.read(buf);
+                    self.unread_bytes.* -= n;
+                    n_read += n;
+                }
+                return n_read;
             }
 
             // Writes file content to writer.

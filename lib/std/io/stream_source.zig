@@ -26,8 +26,8 @@ pub const StreamSource = union(enum) {
     pub const SeekError = io.FixedBufferStream([]u8).SeekError || (if (has_file) std.fs.File.SeekError else error{});
     pub const GetSeekPosError = io.FixedBufferStream([]u8).GetSeekPosError || (if (has_file) std.fs.File.GetSeekPosError else error{});
 
-    pub const Reader = io.Reader(*StreamSource, ReadError, read);
-    pub const Writer = io.Writer(*StreamSource, WriteError, write);
+    pub const Reader = io.Reader(*StreamSource, ReadError, readv);
+    pub const Writer = io.Writer(*StreamSource, WriteError, writev);
     pub const SeekableStream = io.SeekableStream(
         *StreamSource,
         SeekError,
@@ -38,19 +38,19 @@ pub const StreamSource = union(enum) {
         getEndPos,
     );
 
-    pub fn read(self: *StreamSource, dest: []u8) ReadError!usize {
+    pub fn readv(self: *StreamSource, iov: []std.posix.iovec) ReadError!usize {
         switch (self.*) {
-            .buffer => |*x| return x.read(dest),
-            .const_buffer => |*x| return x.read(dest),
-            .file => |x| if (!has_file) unreachable else return x.read(dest),
+            .buffer => |*x| return x.readv(iov),
+            .const_buffer => |*x| return x.readv(iov),
+            .file => |x| if (!has_file) unreachable else return x.readv(iov),
         }
     }
 
-    pub fn write(self: *StreamSource, bytes: []const u8) WriteError!usize {
+    pub fn writev(self: *StreamSource, iov: []std.posix.iovec_const) WriteError!usize {
         switch (self.*) {
-            .buffer => |*x| return x.write(bytes),
+            .buffer => |*x| return x.writev(iov),
             .const_buffer => return error.AccessDenied,
-            .file => |x| if (!has_file) unreachable else return x.write(bytes),
+            .file => |x| if (!has_file) unreachable else return x.writev(iov),
         }
     }
 

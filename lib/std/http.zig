@@ -37,7 +37,7 @@ pub const Method = enum(u64) {
         return x;
     }
 
-    pub fn write(self: Method, w: anytype) !void {
+    pub fn write(self: Method, w: std.io.AnyWriter) !void {
         const bytes = std.mem.asBytes(&@intFromEnum(self));
         const str = std.mem.sliceTo(bytes, 0);
         try w.writeAll(str);

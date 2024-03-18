@@ -113,7 +113,8 @@ pub const ConnectionPool = struct {
         pool.used.remove(node);
 
         if (node.data.closing or pool.free_size == 0) {
-            node.data.close(allocator);
+            node.data.close();
+            allocator.free(node.data.host);
             return allocator.destroy(node);
         }
 
@@ -121,7 +122,8 @@ pub const ConnectionPool = struct {
             const popped = pool.free.popFirst() orelse unreachable;
             pool.free_len -= 1;
 
-            popped.data.close(allocator);
+            popped.data.close();
+            allocator.free(popped.data.host);
             allocator.destroy(popped);
         }
 
@@ -173,7 +175,8 @@ pub const ConnectionPool = struct {
             defer allocator.destroy(node);
             next = node.next;
 
-            node.data.close(allocator);
+            node.data.close();
+            allocator.free(node.data.host);
         }
 
         next = pool.used.first;
@@ -181,7 +184,8 @@ pub const ConnectionPool = struct {
             defer allocator.destroy(node);
             next = node.next;
 
-            node.data.close(allocator);
+            node.data.close();
+            allocator.free(node.data.host);
         }
 
         pool.* = undefined;
@@ -190,9 +194,8 @@ pub const ConnectionPool = struct {
 
 /// An interface to either a plain or TLS connection.
 pub const Connection = struct {
-    stream: net.Stream,
-    /// undefined unless protocol is tls.
-    tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
+    socket: net.Socket,
+    tls_client: (if (disable_tls) void else *std.crypto.tls.Client) = if (disable_tls) {} else undefined,
 
     /// The protocol that this connection is using.
     protocol: Protocol,
@@ -220,8 +223,19 @@ pub const Connection = struct {
 
     pub const Protocol = enum { plain, tls };
 
-    pub fn readvDirectTls(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
-        return conn.tls_client.readv(conn.stream, buffers) catch |err| {
+    /// Used to get raw underlying stream
+    inline fn any(conn: *Connection) std.io.AnyStream {
+        switch (conn.protocol) {
+            .plain => return conn.socket.stream().any(),
+            .tls => {
+                if (disable_tls) unreachable;
+                return conn.tls_client.stream().any();
+            }
+        }
+    }
+
+    pub fn readvDirect(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
+        return conn.any().reader().readv(buffers) catch |err| {
             // https://github.com/ziglang/zig/issues/2473
             if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
 
@@ -231,20 +245,6 @@ pub const Connection = struct {
                 error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
                 else => return error.UnexpectedReadFailure,
             }
-        };
-    }
-
-    pub fn readvDirect(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
-        if (conn.protocol == .tls) {
-            if (disable_tls) unreachable;
-
-            return conn.readvDirectTls(buffers);
-        }
-
-        return conn.stream.readv(buffers) catch |err| switch (err) {
-            error.ConnectionTimedOut => return error.ConnectionTimedOut,
-            error.ConnectionResetByPeer, error.BrokenPipe => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedReadFailure,
         };
     }
 
@@ -292,7 +292,7 @@ pub const Connection = struct {
             .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
             .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
         };
-        const nread = try conn.readvDirect(&iovecs);
+        const nread =  try conn.readvDirect(&iovecs);
 
         if (nread > buffer.len) {
             conn.read_start = 0;
@@ -301,6 +301,13 @@ pub const Connection = struct {
         }
 
         return nread;
+    }
+
+    pub fn readv(conn: *Connection, iov: []std.posix.iovec) ReadError!usize {
+        if (iov.len == 0) return 0;
+        const first = iov[0];
+        const buffer = first.iov_base[0..first.iov_len];
+        return try conn.read(buffer);
     }
 
     pub const ReadError = error{
@@ -312,39 +319,16 @@ pub const Connection = struct {
         EndOfStream,
     };
 
-    pub const Reader = std.io.Reader(*Connection, ReadError, read);
-
-    pub fn reader(conn: *Connection) Reader {
-        return Reader{ .context = conn };
-    }
-
-    pub fn writeAllDirectTls(conn: *Connection, buffer: []const u8) WriteError!void {
-        return conn.tls_client.writeAll(conn.stream, buffer) catch |err| switch (err) {
-            error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedWriteFailure,
-        };
-    }
-
-    pub fn writeAllDirect(conn: *Connection, buffer: []const u8) WriteError!void {
-        if (conn.protocol == .tls) {
-            if (disable_tls) unreachable;
-
-            return conn.writeAllDirectTls(buffer);
-        }
-
-        return conn.stream.writeAll(buffer) catch |err| switch (err) {
-            error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedWriteFailure,
-        };
-    }
-
     /// Writes the given buffer to the connection.
     pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
         if (conn.write_buf.len - conn.write_end < buffer.len) {
             try conn.flush();
 
             if (buffer.len > conn.write_buf.len) {
-                try conn.writeAllDirect(buffer);
+                conn.any().writer().writeAll(buffer) catch |err| switch (err) {
+                    error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
+                    else => return error.UnexpectedWriteFailure,
+                };
                 return buffer.len;
             }
         }
@@ -353,6 +337,13 @@ pub const Connection = struct {
         conn.write_end += @intCast(buffer.len);
 
         return buffer.len;
+    }
+
+    pub fn writev(conn: *Connection, iov: []std.posix.iovec_const) WriteError!usize {
+        if (iov.len == 0) return 0;
+        const first = iov[0];
+        const buffer = first.iov_base[0..first.iov_len];
+        return try conn.write(buffer);
     }
 
     /// Returns a buffer to be filled with exactly len bytes to write to the connection.
@@ -366,33 +357,23 @@ pub const Connection = struct {
     pub fn flush(conn: *Connection) WriteError!void {
         if (conn.write_end == 0) return;
 
-        try conn.writeAllDirect(conn.write_buf[0..conn.write_end]);
+        try conn.any().writer().writeAll(conn.write_buf[0..conn.write_end]);
         conn.write_end = 0;
     }
 
-    pub const WriteError = error{
+    pub const WriteError = anyerror || error{
         ConnectionResetByPeer,
         UnexpectedWriteFailure,
     };
 
-    pub const Writer = std.io.Writer(*Connection, WriteError, write);
-
-    pub fn writer(conn: *Connection) Writer {
-        return Writer{ .context = conn };
+    pub fn close(conn: *Connection) void {
+        conn.any().close();
     }
 
-    /// Closes the connection.
-    pub fn close(conn: *Connection, allocator: Allocator) void {
-        if (conn.protocol == .tls) {
-            if (disable_tls) unreachable;
+    pub const GenericStream = std.io.GenericStream(*Connection, ReadError, readv, WriteError, writev, close);
 
-            // try to cleanly close the TLS connection, for any server that cares.
-            _ = conn.tls_client.writeEnd(conn.stream, "", true) catch {};
-            allocator.destroy(conn.tls_client);
-        }
-
-        conn.stream.close();
-        allocator.free(conn.host);
+    pub fn stream(conn: *Connection) GenericStream {
+        return .{ .context = conn };
     }
 };
 
@@ -807,9 +788,9 @@ pub const Request = struct {
             return error.UnsupportedTransferEncoding;
 
         const connection = req.connection.?;
-        const w = connection.writer();
+        const w = connection.stream().writer();
 
-        try req.method.write(w);
+        try req.method.write(w.any());
         try w.writeByte(' ');
 
         if (req.method == .CONNECT) {
@@ -919,14 +900,17 @@ pub const Request = struct {
 
     const TransferReadError = Connection.ReadError || proto.HeadersParser.ReadError;
 
-    const TransferReader = std.io.Reader(*Request, TransferReadError, transferRead);
+    const TransferReader = std.io.Reader(*Request, TransferReadError, transferReadv);
 
     fn transferReader(req: *Request) TransferReader {
         return .{ .context = req };
     }
 
-    fn transferRead(req: *Request, buf: []u8) TransferReadError!usize {
+    fn transferReadv(req: *Request, iov: []std.posix.iovec) TransferReadError!usize {
         if (req.response.parser.done) return 0;
+        if (iov.len == 0) return 0;
+        const first = iov[0];
+        const buf = first.iov_base[0..first.iov_len];
 
         var index: usize = 0;
         while (index == 0) {
@@ -1031,7 +1015,11 @@ pub const Request = struct {
                 // skip the body of the redirect response, this will at least
                 // leave the connection in a known good state.
                 req.response.skip = true;
-                assert(try req.transferRead(&.{}) == 0); // we're skipping, no buffer is necessary
+                // we're skipping, no buffer is necessary
+                var buf: [0]u8 = undefined;
+                var iovecs = [_]std.posix.iovec{.{ .iov_base = &buf, .iov_len = 0 }};
+                const n_read = try req.transferReadv(&iovecs);
+                assert(n_read == 0);
 
                 if (req.redirect_behavior == .not_allowed) return error.TooManyHttpRedirects;
 
@@ -1115,20 +1103,20 @@ pub const Request = struct {
     pub const ReadError = TransferReadError || proto.HeadersParser.CheckCompleteHeadError ||
         error{ DecompressionFailure, InvalidTrailers };
 
-    pub const Reader = std.io.Reader(*Request, ReadError, read);
+    pub const Reader = std.io.Reader(*Request, ReadError, readv);
 
     pub fn reader(req: *Request) Reader {
         return .{ .context = req };
     }
 
     /// Reads data from the response body. Must be called after `wait`.
-    pub fn read(req: *Request, buffer: []u8) ReadError!usize {
+    pub fn readv(req: *Request, iov: []std.posix.iovec) ReadError!usize {
         const out_index = switch (req.response.compression) {
-            .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
-            .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
+            .deflate => |*deflate| deflate.readv(iov) catch return error.DecompressionFailure,
+            .gzip => |*gzip| gzip.readv(iov) catch return error.DecompressionFailure,
             // https://github.com/ziglang/zig/issues/18937
             //.zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
-            else => try req.transferRead(buffer),
+            else => try req.transferReadv(iov),
         };
         if (out_index > 0) return out_index;
 
@@ -1142,20 +1130,9 @@ pub const Request = struct {
         return 0;
     }
 
-    /// Reads data from the response body. Must be called after `wait`.
-    pub fn readAll(req: *Request, buffer: []u8) !usize {
-        var index: usize = 0;
-        while (index < buffer.len) {
-            const amt = try read(req, buffer[index..]);
-            if (amt == 0) break;
-            index += amt;
-        }
-        return index;
-    }
-
     pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
 
-    pub const Writer = std.io.Writer(*Request, WriteError, write);
+    pub const Writer = std.io.Writer(*Request, WriteError, writev);
 
     pub fn writer(req: *Request) Writer {
         return .{ .context = req };
@@ -1163,34 +1140,32 @@ pub const Request = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
     /// Must be called after `send` and before `finish`.
-    pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
+    pub fn writev(req: *Request, iov: []std.posix.iovec_const) WriteError!usize {
+        var iov_len: usize = 0;
+        for (iov) |v| iov_len += v.iov_len;
+
         switch (req.transfer_encoding) {
             .chunked => {
-                if (bytes.len > 0) {
-                    try req.connection.?.writer().print("{x}\r\n", .{bytes.len});
-                    try req.connection.?.writer().writeAll(bytes);
-                    try req.connection.?.writer().writeAll("\r\n");
+                var w = req.connection.?.stream().writer();
+
+                if (iov_len > 0) {
+                    try w.print("{x}\r\n", .{iov_len});
+                    try w.writevAll(iov);
+                    try w.writeAll("\r\n");
                 }
 
-                return bytes.len;
+                return iov_len;
             },
             .content_length => |*len| {
-                if (len.* < bytes.len) return error.MessageTooLong;
+                const cwriter = req.connection.?.stream().writer();
 
-                const amt = try req.connection.?.write(bytes);
+                if (len.* < iov_len) return error.MessageTooLong;
+
+                const amt = try cwriter.writev(iov);
                 len.* -= amt;
                 return amt;
             },
             .none => return error.NotWriteable,
-        }
-    }
-
-    /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
-    /// Must be called after `send` and before `finish`.
-    pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try write(req, bytes[index..]);
         }
     }
 
@@ -1200,7 +1175,7 @@ pub const Request = struct {
     /// Must be called after `send`.
     pub fn finish(req: *Request) FinishError!void {
         switch (req.transfer_encoding) {
-            .chunked => try req.connection.?.writer().writeAll("0\r\n\r\n"),
+            .chunked => try req.connection.?.stream().writer().writeAll("0\r\n\r\n"),
             .content_length => |len| if (len != 0) return error.MessageNotCompleted,
             .none => {},
         }
@@ -1347,7 +1322,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     errdefer client.allocator.destroy(conn);
     conn.* = .{ .data = undefined };
 
-    const stream = net.tcpConnectToHost(client.allocator, host, port) catch |err| switch (err) {
+    const socket = net.tcpConnectToHost(client.allocator, host, port) catch |err| switch (err) {
         error.ConnectionRefused => return error.ConnectionRefused,
         error.NetworkUnreachable => return error.NetworkUnreachable,
         error.ConnectionTimedOut => return error.ConnectionTimedOut,
@@ -1358,12 +1333,10 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         error.HostLacksNetworkAddresses => return error.HostLacksNetworkAddresses,
         else => return error.UnexpectedConnectFailure,
     };
-    errdefer stream.close();
+    errdefer socket.close();
 
-    conn.data = .{
-        .stream = stream,
-        .tls_client = undefined,
-
+    conn.data = Connection{
+        .socket = socket,
         .protocol = protocol,
         .host = try client.allocator.dupe(u8, host),
         .port = port,
@@ -1376,7 +1349,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
         errdefer client.allocator.destroy(conn.data.tls_client);
 
-        conn.data.tls_client.* = std.crypto.tls.Client.init(stream, client.ca_bundle, host) catch return error.TlsInitializationFailed;
+        conn.data.tls_client.* = std.crypto.tls.Client.init(socket.stream().any(), client.ca_bundle, host,) catch return error.TlsInitializationFailed;
         // This is appropriate for HTTPS because the HTTP headers contain
         // the content length which is used to detect truncation attacks.
         conn.data.tls_client.allow_truncation_attacks = true;
@@ -1404,14 +1377,12 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     errdefer client.allocator.destroy(conn);
     conn.* = .{ .data = undefined };
 
-    const stream = try std.net.connectUnixSocket(path);
-    errdefer stream.close();
+    const socket = try std.net.connectUnixSocket(path);
+    errdefer socket.close();
 
-    conn.data = .{
-        .stream = stream,
-        .tls_client = undefined,
+    conn.data = Connection{
+        .socket = socket,
         .protocol = .plain,
-
         .host = try client.allocator.dupe(u8, path),
         .port = 0,
     };
@@ -1753,7 +1724,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
 
     try req.send(.{ .raw_uri = options.raw_uri });
 
-    if (options.payload) |payload| try req.writeAll(payload);
+    if (options.payload) |payload| try req.writer().writeAll(payload);
 
     try req.finish();
     try req.wait();
@@ -1763,7 +1734,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
             // Take advantage of request internals to discard the response body
             // and make the connection available for another request.
             req.response.skip = true;
-            assert(try req.transferRead(&.{}) == 0); // No buffer is necessary when skipping.
+            assert(try req.transferReadv(&.{}) == 0); // No buffer is necessary when skipping.
         },
         .dynamic => |list| {
             const max_append_size = options.max_append_size orelse 2 * 1024 * 1024;

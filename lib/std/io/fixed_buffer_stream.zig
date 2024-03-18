@@ -17,8 +17,8 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const SeekError = error{};
         pub const GetSeekPosError = error{};
 
-        pub const Reader = io.Reader(*Self, ReadError, read);
-        pub const Writer = io.Writer(*Self, WriteError, write);
+        pub const Reader = io.Reader(*Self, ReadError, readv);
+        pub const Writer = io.Writer(*Self, WriteError, writev);
 
         pub const SeekableStream = io.SeekableStream(
             *Self,
@@ -44,31 +44,39 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
-        pub fn read(self: *Self, dest: []u8) ReadError!usize {
-            const size = @min(dest.len, self.buffer.len - self.pos);
-            const end = self.pos + size;
+        pub fn readv(self: *Self, iov: []std.posix.iovec) ReadError!usize {
+            var read: usize = 0;
+            for (iov) |v| {
+                const size = @min(v.iov_len, self.buffer.len - self.pos);
+                const end = self.pos + size;
 
-            @memcpy(dest[0..size], self.buffer[self.pos..end]);
-            self.pos = end;
+                @memcpy(v.iov_base[0..size], self.buffer[self.pos..end]);
+                self.pos = end;
+                read += size;
+            }
 
-            return size;
+            return read;
         }
 
         /// If the returned number of bytes written is less than requested, the
         /// buffer is full. Returns `error.NoSpaceLeft` when no bytes would be written.
         /// Note: `error.NoSpaceLeft` matches the corresponding error from
         /// `std.fs.File.WriteError`.
-        pub fn write(self: *Self, bytes: []const u8) WriteError!usize {
-            if (bytes.len == 0) return 0;
-            if (self.pos >= self.buffer.len) return error.NoSpaceLeft;
+        pub fn writev(self: *Self, iov: []std.posix.iovec_const) WriteError!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                if (v.iov_len == 0) continue;
+                if (self.pos >= self.buffer.len) return error.NoSpaceLeft;
 
-            const n = @min(self.buffer.len - self.pos, bytes.len);
-            @memcpy(self.buffer[self.pos..][0..n], bytes[0..n]);
-            self.pos += n;
+                const n = @min(self.buffer.len - self.pos, v.iov_len);
+                @memcpy(self.buffer[self.pos..][0..n], v.iov_base[0..n]);
+                self.pos += n;
 
-            if (n == 0) return error.NoSpaceLeft;
+                if (n == 0) return error.NoSpaceLeft;
+                written += n;
+            }
 
-            return n;
+            return written;
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {

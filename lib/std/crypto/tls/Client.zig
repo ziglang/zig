@@ -13,7 +13,9 @@ const int2 = tls.int2;
 const int3 = tls.int3;
 const array = tls.array;
 const enum_array = tls.enum_array;
+const AnyStream = std.io.AnyStream;
 
+inner_stream: AnyStream,
 read_seq: u64,
 write_seq: u64,
 /// The starting index of cleartext bytes inside `partially_read_buffer`.
@@ -45,102 +47,10 @@ application_cipher: tls.ApplicationCipher,
 /// `partial_ciphertext_end` describe the span of the segments.
 partially_read_buffer: [tls.max_ciphertext_record_len]u8,
 
-/// This is an example of the type that is needed by the read and write
-/// functions. It can have any fields but it must at least have these
-/// functions.
-///
-/// Note that `std.net.Stream` conforms to this interface.
-///
-/// This declaration serves as documentation only.
-pub const StreamInterface = struct {
-    /// Can be any error set.
-    pub const ReadError = error{};
-
-    /// Returns the number of bytes read. The number read may be less than the
-    /// buffer space provided. End-of-stream is indicated by a return value of 0.
-    ///
-    /// The `iovecs` parameter is mutable because so that function may to
-    /// mutate the fields in order to handle partial reads from the underlying
-    /// stream layer.
-    pub fn readv(this: @This(), iovecs: []std.posix.iovec) ReadError!usize {
-        _ = .{ this, iovecs };
-        @panic("unimplemented");
-    }
-
-    /// Can be any error set.
-    pub const WriteError = error{};
-
-    /// Returns the number of bytes read, which may be less than the buffer
-    /// space provided. A short read does not indicate end-of-stream.
-    pub fn writev(this: @This(), iovecs: []const std.posix.iovec_const) WriteError!usize {
-        _ = .{ this, iovecs };
-        @panic("unimplemented");
-    }
-
-    /// Returns the number of bytes read, which may be less than the buffer
-    /// space provided, indicating end-of-stream.
-    /// The `iovecs` parameter is mutable in case this function needs to mutate
-    /// the fields in order to handle partial writes from the underlying layer.
-    pub fn writevAll(this: @This(), iovecs: []std.posix.iovec_const) WriteError!usize {
-        // This can be implemented in terms of writev, or specialized if desired.
-        _ = .{ this, iovecs };
-        @panic("unimplemented");
-    }
-};
-
-pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || error{
-        InsufficientEntropy,
-        DiskQuota,
-        LockViolation,
-        NotOpenForWriting,
-        TlsUnexpectedMessage,
-        TlsIllegalParameter,
-        TlsDecryptFailure,
-        TlsRecordOverflow,
-        TlsBadRecordMac,
-        CertificateFieldHasInvalidLength,
-        CertificateHostMismatch,
-        CertificatePublicKeyInvalid,
-        CertificateExpired,
-        CertificateFieldHasWrongDataType,
-        CertificateIssuerMismatch,
-        CertificateNotYetValid,
-        CertificateSignatureAlgorithmMismatch,
-        CertificateSignatureAlgorithmUnsupported,
-        CertificateSignatureInvalid,
-        CertificateSignatureInvalidLength,
-        CertificateSignatureNamedCurveUnsupported,
-        CertificateSignatureUnsupportedBitCount,
-        TlsCertificateNotVerified,
-        TlsBadSignatureScheme,
-        TlsBadRsaSignatureBitCount,
-        InvalidEncoding,
-        IdentityElement,
-        SignatureVerificationFailed,
-        TlsDecryptError,
-        TlsConnectionTruncated,
-        TlsDecodeError,
-        UnsupportedCertificateVersion,
-        CertificateTimeInvalid,
-        CertificateHasUnrecognizedObjectId,
-        CertificateHasInvalidBitString,
-        MessageTooLong,
-        NegativeIntoUnsigned,
-        TargetTooSmall,
-        BufferTooSmall,
-        InvalidSignature,
-        NotSquare,
-        NonCanonical,
-        WeakPublicKey,
-    };
-}
-
-/// Initiates a TLS handshake and establishes a TLSv1.3 session with `stream`, which
-/// must conform to `StreamInterface`.
+/// Initiates a TLS handshake and establishes a TLSv1.3 session with `inner_stream`.
 ///
 /// `host` is only borrowed during this function call.
-pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) InitError(@TypeOf(stream))!Client {
+pub fn init(inner_stream: AnyStream, ca_bundle: Certificate.Bundle, host: []const u8) !Client {
     const host_len: u16 = @intCast(host.len);
 
     var random_buffer: [128]u8 = undefined;
@@ -225,7 +135,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                 .iov_len = host.len,
             },
         };
-        try stream.writevAll(&iovecs);
+        try inner_stream.writer().writevAll(&iovecs);
     }
 
     const client_hello_bytes1 = plaintext_header[5..];
@@ -234,11 +144,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     var handshake_buffer: [8000]u8 = undefined;
     var d: tls.Decoder = .{ .buf = &handshake_buffer };
     {
-        try d.readAtLeastOurAmt(stream, tls.record_header_len);
+        try d.readAtLeastOurAmt(inner_stream.reader(), tls.record_header_len);
         const ct = d.decode(tls.ContentType);
         d.skip(2); // legacy_record_version
         const record_len = d.decode(u16);
-        try d.readAtLeast(stream, record_len);
+        try d.readAtLeast(inner_stream.reader(), record_len);
         const server_hello_fragment = d.buf[d.idx..][0..record_len];
         var ptd = try d.sub(record_len);
         switch (ct) {
@@ -428,12 +338,12 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     const now_sec = std.time.timestamp();
 
     while (true) {
-        try d.readAtLeastOurAmt(stream, tls.record_header_len);
+        try d.readAtLeastOurAmt(inner_stream.reader(), tls.record_header_len);
         const record_header = d.buf[d.idx..][0..5];
         const ct = d.decode(tls.ContentType);
         d.skip(2); // legacy_version
         const record_len = d.decode(u16);
-        try d.readAtLeast(stream, record_len);
+        try d.readAtLeast(inner_stream.reader(), record_len);
         var record_decoder = try d.sub(record_len);
         switch (ct) {
             .change_cipher_spec => {
@@ -681,7 +591,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                                         .iov_base = &both_msgs,
                                         .iov_len = both_msgs.len,
                                     }};
-                                    try stream.writevAll(&both_msgs_vec);
+                                    try inner_stream.writer().writevAll(&both_msgs_vec);
 
                                     const client_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                     const server_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
@@ -697,6 +607,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                             };
                             const leftover = d.rest();
                             var client: Client = .{
+                                .inner_stream = inner_stream,
                                 .read_seq = 0,
                                 .write_seq = 0,
                                 .partial_cleartext_idx = 0,
@@ -723,37 +634,11 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     }
 }
 
-/// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
-/// Returns the number of plaintext bytes sent, which may be fewer than `bytes.len`.
-pub fn write(c: *Client, stream: anytype, bytes: []const u8) !usize {
-    return writeEnd(c, stream, bytes, false);
-}
-
-/// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
-pub fn writeAll(c: *Client, stream: anytype, bytes: []const u8) !void {
-    var index: usize = 0;
-    while (index < bytes.len) {
-        index += try c.write(stream, bytes[index..]);
-    }
-}
-
-/// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
-/// If `end` is true, then this function additionally sends a `close_notify` alert,
-/// which is necessary for the server to distinguish between a properly finished
-/// TLS session, or a truncation attack.
-pub fn writeAllEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !void {
-    var index: usize = 0;
-    while (index < bytes.len) {
-        index += try c.writeEnd(stream, bytes[index..], end);
-    }
-}
-
-/// Sends TLS-encrypted data to `stream`, which must conform to `StreamInterface`.
 /// Returns the number of plaintext bytes sent, which may be fewer than `bytes.len`.
 /// If `end` is true, then this function additionally sends a `close_notify` alert,
 /// which is necessary for the server to distinguish between a properly finished
 /// TLS session, or a truncation attack.
-pub fn writeEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !usize {
+pub fn writeEnd(c: *Client, bytes: []const u8, end: bool) !usize {
     var ciphertext_buf: [tls.max_ciphertext_record_len * 4]u8 = undefined;
     var iovecs_buf: [6]std.posix.iovec_const = undefined;
     var prepared = prepareCiphertextRecord(c, &iovecs_buf, &ciphertext_buf, bytes, .application_data);
@@ -767,31 +652,21 @@ pub fn writeEnd(c: *Client, stream: anytype, bytes: []const u8, end: bool) !usiz
         ).iovec_end;
     }
 
-    const iovec_end = prepared.iovec_end;
-    const overhead_len = prepared.overhead_len;
+    const iovecs = iovecs_buf[0..prepared.iovec_end];
 
-    // Ideally we would call writev exactly once here, however, we must ensure
-    // that we don't return with a record partially written.
-    var i: usize = 0;
-    var total_amt: usize = 0;
-    while (true) {
-        var amt = try stream.writev(iovecs_buf[i..iovec_end]);
-        while (amt >= iovecs_buf[i].iov_len) {
-            const encrypted_amt = iovecs_buf[i].iov_len;
-            total_amt += encrypted_amt - overhead_len;
-            amt -= encrypted_amt;
-            i += 1;
-            // Rely on the property that iovecs delineate records, meaning that
-            // if amt equals zero here, we have fortunately found ourselves
-            // with a short read that aligns at the record boundary.
-            if (i >= iovec_end) return total_amt;
-            // We also cannot return on a vector boundary if the final close_notify is
-            // not sent; otherwise the caller would not know to retry the call.
-            if (amt == 0 and (!end or i < iovec_end - 1)) return total_amt;
-        }
-        iovecs_buf[i].iov_base += amt;
-        iovecs_buf[i].iov_len -= amt;
-    }
+    var n_written: usize = 0;
+    for (iovecs) |iov| n_written += iov.iov_len;
+
+    try c.inner_stream.writer().writevAll(iovecs);
+
+    return n_written;
+}
+
+pub fn writev(c: *Client, iovecs: []std.posix.iovec_const) !usize {
+    if (iovecs.len == 0) return 0;
+    const first = iovecs[0];
+    const bytes = first.iov_base[0..first.iov_len];
+    return try c.writeEnd(bytes, false);
 }
 
 fn prepareCiphertextRecord(
@@ -880,36 +755,13 @@ pub fn eof(c: Client) bool {
 }
 
 /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-/// Returns the number of bytes read, calling the underlying read function the
-/// minimal number of times until the buffer has at least `len` bytes filled.
-/// If the number read is less than `len` it means the stream reached the end.
-/// Reaching the end of the stream is not an error condition.
-pub fn readAtLeast(c: *Client, stream: anytype, buffer: []u8, len: usize) !usize {
-    var iovecs = [1]std.posix.iovec{.{ .iov_base = buffer.ptr, .iov_len = buffer.len }};
-    return readvAtLeast(c, stream, &iovecs, len);
-}
-
-/// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-pub fn read(c: *Client, stream: anytype, buffer: []u8) !usize {
-    return readAtLeast(c, stream, buffer, 1);
-}
-
-/// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
-/// Returns the number of bytes read. If the number read is smaller than
-/// `buffer.len`, it means the stream reached the end. Reaching the end of the
-/// stream is not an error condition.
-pub fn readAll(c: *Client, stream: anytype, buffer: []u8) !usize {
-    return readAtLeast(c, stream, buffer, buffer.len);
-}
-
-/// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
 /// Returns the number of bytes read. If the number read is less than the space
 /// provided it means the stream reached the end. Reaching the end of the
 /// stream is not an error condition.
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial reads from the underlying stream layer.
-pub fn readv(c: *Client, stream: anytype, iovecs: []std.posix.iovec) !usize {
-    return readvAtLeast(c, stream, iovecs, 1);
+pub fn readv(c: *Client, iovecs: []std.posix.iovec) !usize {
+    return c.readvAtLeast(iovecs, 1);
 }
 
 /// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
@@ -919,13 +771,13 @@ pub fn readv(c: *Client, stream: anytype, iovecs: []std.posix.iovec) !usize {
 /// Reaching the end of the stream is not an error condition.
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial reads from the underlying stream layer.
-pub fn readvAtLeast(c: *Client, stream: anytype, iovecs: []std.posix.iovec, len: usize) !usize {
+pub fn readvAtLeast(c: *Client, iovecs: []std.posix.iovec, len: usize) !usize {
     if (c.eof()) return 0;
 
     var off_i: usize = 0;
     var vec_i: usize = 0;
     while (true) {
-        var amt = try c.readvAdvanced(stream, iovecs[vec_i..]);
+        var amt = try c.readvAdvanced(iovecs[vec_i..]);
         off_i += amt;
         if (c.eof() or off_i >= len) return off_i;
         while (amt >= iovecs[vec_i].iov_len) {
@@ -945,7 +797,7 @@ pub fn readvAtLeast(c: *Client, stream: anytype, iovecs: []std.posix.iovec, len:
 /// function asserts that `eof()` is `false`.
 /// See `readv` for a higher level function that has the same, familiar API as
 /// other read functions, such as `std.fs.File.read`.
-pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iovec) !usize {
+pub fn readvAdvanced(c: *Client, iovecs: []const std.posix.iovec) !usize {
     var vp: VecPut = .{ .iovecs = iovecs };
 
     // Give away the buffered cleartext we have, if any.
@@ -1014,7 +866,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
     const wanted_read_len = buf_cap * (max_ciphertext_len + tls.record_header_len);
     const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len);
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
-    const actual_read_len = try stream.readv(ask_iovecs);
+    const actual_read_len = try c.inner_stream.readv(ask_iovecs);
     if (actual_read_len == 0) {
         // This is either a truncation attack, a bug in the server, or an
         // intentional omission of the close_notify message due to truncation
@@ -1316,6 +1168,16 @@ fn straddleByte(s1: []const u8, s2: []const u8, index: usize) u8 {
     }
 }
 
+pub fn close(c: *Client) void {
+    _ = c.writeEnd("", true) catch {};
+}
+
+pub const GenericStream = std.io.GenericStream(*Client, anyerror, readv, anyerror, writev, close);
+
+pub fn stream(c: *Client) GenericStream {
+    return .{ .context = c };
+}
+
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
@@ -1462,7 +1324,3 @@ else
         .AES_128_GCM_SHA256,
         .AES_256_GCM_SHA384,
     });
-
-test {
-    _ = StreamInterface;
-}

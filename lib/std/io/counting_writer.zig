@@ -9,12 +9,12 @@ pub fn CountingWriter(comptime WriterType: type) type {
         child_stream: WriterType,
 
         pub const Error = WriterType.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.Writer(*Self, Error, writev);
 
         const Self = @This();
 
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            const amt = try self.child_stream.write(bytes);
+        pub fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
+            const amt = try self.child_stream.writev(iov);
             self.bytes_written += amt;
             return amt;
         }

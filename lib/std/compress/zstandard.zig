@@ -50,7 +50,7 @@ pub fn Decompressor(comptime ReaderType: type) type {
             OutOfMemory,
         };
 
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.Reader(*Self, Error, readv);
 
         pub fn init(source: ReaderType, options: DecompressorOptions) Self {
             return .{
@@ -105,7 +105,10 @@ pub fn Decompressor(comptime ReaderType: type) type {
             return .{ .context = self };
         }
 
-        pub fn read(self: *Self, buffer: []u8) Error!usize {
+        pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
+            if (iov.len == 0) return 0;
+            const first = iov[0];
+            const buffer = first.iov_base[0..first.iov_len];
             if (buffer.len == 0) return 0;
 
             var size: usize = 0;

@@ -189,7 +189,7 @@ test "listen on a port, send bytes, receive bytes" {
             const socket = try net.tcpConnectToAddress(server_address);
             defer socket.close();
 
-            _ = try socket.writer().writeAll("Hello world!");
+            _ = try socket.stream().writer().writeAll("Hello world!");
         }
     };
 
@@ -197,9 +197,9 @@ test "listen on a port, send bytes, receive bytes" {
     defer t.join();
 
     var client = try server.accept();
-    defer client.stream.close();
+    defer client.stream().close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    const n = try client.stream().reader().read(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -280,7 +280,7 @@ test "listen on a unix socket, send bytes, receive bytes" {
             const socket = try net.connectUnixSocket(path);
             defer socket.close();
 
-            _ = try socket.writer().writeAll("Hello world!");
+            _ = try socket.stream().writer().writeAll("Hello world!");
         }
     };
 
@@ -288,9 +288,9 @@ test "listen on a unix socket, send bytes, receive bytes" {
     defer t.join();
 
     var client = try server.accept();
-    defer client.stream.close();
+    defer client.stream().close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    const n = try client.stream().reader().read(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);

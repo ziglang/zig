@@ -30,7 +30,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             Allocator.Error ||
             error{ CorruptInput, EndOfStream, Overflow };
 
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.Reader(*Self, Error, readv);
 
         allocator: Allocator,
         in_reader: ReaderType,
@@ -63,23 +63,28 @@ pub fn Decompress(comptime ReaderType: type) type {
             self.* = undefined;
         }
 
-        pub fn read(self: *Self, output: []u8) Error!usize {
+        pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
             const writer = self.to_read.writer(self.allocator);
-            while (self.to_read.items.len < output.len) {
-                switch (try self.state.process(self.allocator, self.in_reader, writer, &self.buffer, &self.decoder)) {
-                    .continue_ => {},
-                    .finished => {
-                        try self.buffer.finish(writer);
-                        break;
-                    },
+            var n_read: usize = 0;
+            for (iov) |v| {
+                const output = v.iov_base[0..v.iov_len];
+                while (self.to_read.items.len < output.len) {
+                    switch (try self.state.process(self.allocator, self.in_reader, writer, &self.buffer, &self.decoder)) {
+                        .continue_ => {},
+                        .finished => {
+                            try self.buffer.finish(writer);
+                            break;
+                        },
+                    }
                 }
+                const input = self.to_read.items;
+                const n = @min(input.len, output.len);
+                @memcpy(output[0..n], input[0..n]);
+                @memcpy(input[0 .. input.len - n], input[n..]);
+                self.to_read.shrinkRetainingCapacity(input.len - n);
+                n_read += n;
             }
-            const input = self.to_read.items;
-            const n = @min(input.len, output.len);
-            @memcpy(output[0..n], input[0..n]);
-            @memcpy(input[0 .. input.len - n], input[n..]);
-            self.to_read.shrinkRetainingCapacity(input.len - n);
-            return n;
+            return n_read;
         }
     };
 }

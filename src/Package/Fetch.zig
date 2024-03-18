@@ -807,16 +807,16 @@ const Resource = union(enum) {
     fn reader(resource: *Resource) std.io.AnyReader {
         return .{
             .context = resource,
-            .readFn = read,
+            .readvFn = readv,
         };
     }
 
-    fn read(context: *const anyopaque, buffer: []u8) anyerror!usize {
+    fn readv(context: *const anyopaque, iov: []std.posix.iovec) anyerror!usize {
         const resource: *Resource = @constCast(@ptrCast(@alignCast(context)));
         switch (resource.*) {
-            .file => |*f| return f.read(buffer),
-            .http_request => |*r| return r.read(buffer),
-            .git => |*g| return g.fetch_stream.read(buffer),
+            .file => |*f| return f.readv(iov),
+            .http_request => |*r| return r.readv(iov),
+            .git => |*g| return g.fetch_stream.reader().readv(iov),
             .dir => unreachable,
         }
     }
