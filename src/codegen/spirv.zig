@@ -2407,17 +2407,21 @@ const DeclGen = struct {
             } else rhs_elem_id;
 
             const value_id = self.spv.allocId();
-            const args = .{
-                .id_result_type = wip.ty_id,
-                .id_result = value_id,
-                .base = lhs_elem_id,
-                .shift = shift_id,
-            };
 
             if (result_ty.isSignedInt(mod)) {
-                try self.func.body.emit(self.spv.gpa, signed, args);
+                try self.func.body.emit(self.spv.gpa, signed, .{
+                    .id_result_type = wip.ty_id,
+                    .id_result = value_id,
+                    .base = lhs_elem_id,
+                    .shift = shift_id,
+                });
             } else {
-                try self.func.body.emit(self.spv.gpa, unsigned, args);
+                try self.func.body.emit(self.spv.gpa, unsigned, .{
+                    .id_result_type = wip.ty_id,
+                    .id_result = value_id,
+                    .base = lhs_elem_id,
+                    .shift = shift_id,
+                });
             }
 
             result_id.* = try self.normalize(wip.ty_ref, value_id, info);
@@ -2606,17 +2610,26 @@ const DeclGen = struct {
             const rhs_elem_id = try wip.elementAt(ty, rhs_id, i);
 
             const value_id = self.spv.allocId();
-            const operands = .{
-                .id_result_type = wip.ty_id,
-                .id_result = value_id,
-                .operand_1 = lhs_elem_id,
-                .operand_2 = rhs_elem_id,
-            };
 
             switch (opcode_index) {
-                0 => try self.func.body.emit(self.spv.gpa, fop, operands),
-                1 => try self.func.body.emit(self.spv.gpa, sop, operands),
-                2 => try self.func.body.emit(self.spv.gpa, uop, operands),
+                0 => try self.func.body.emit(self.spv.gpa, fop, .{
+                    .id_result_type = wip.ty_id,
+                    .id_result = value_id,
+                    .operand_1 = lhs_elem_id,
+                    .operand_2 = rhs_elem_id,
+                }),
+                1 => try self.func.body.emit(self.spv.gpa, sop, .{
+                    .id_result_type = wip.ty_id,
+                    .id_result = value_id,
+                    .operand_1 = lhs_elem_id,
+                    .operand_2 = rhs_elem_id,
+                }),
+                2 => try self.func.body.emit(self.spv.gpa, uop, .{
+                    .id_result_type = wip.ty_id,
+                    .id_result = value_id,
+                    .operand_1 = lhs_elem_id,
+                    .operand_2 = rhs_elem_id,
+                }),
                 else => unreachable,
             }
 
@@ -3218,15 +3231,19 @@ const DeclGen = struct {
                 // op == .neq => lhs_valid != rhs_valid || lhs_pl != rhs_pl
 
                 const result_id = self.spv.allocId();
-                const args = .{
-                    .id_result_type = self.typeId(bool_ty_ref),
-                    .id_result = result_id,
-                    .operand_1 = valid_cmp_id,
-                    .operand_2 = pl_cmp_id,
-                };
                 switch (op) {
-                    .eq => try self.func.body.emit(self.spv.gpa, .OpLogicalAnd, args),
-                    .neq => try self.func.body.emit(self.spv.gpa, .OpLogicalOr, args),
+                    .eq => try self.func.body.emit(self.spv.gpa, .OpLogicalAnd, .{
+                        .id_result_type = self.typeId(bool_ty_ref),
+                        .id_result = result_id,
+                        .operand_1 = valid_cmp_id,
+                        .operand_2 = pl_cmp_id,
+                    }),
+                    .neq => try self.func.body.emit(self.spv.gpa, .OpLogicalOr, .{
+                        .id_result_type = self.typeId(bool_ty_ref),
+                        .id_result = result_id,
+                        .operand_1 = valid_cmp_id,
+                        .operand_2 = pl_cmp_id,
+                    }),
                     else => unreachable,
                 }
                 return result_id;
@@ -3546,20 +3563,23 @@ const DeclGen = struct {
         defer wip.deinit();
 
         for (0..wip.results.len) |i| {
-            const args = .{
-                .id_result_type = wip.ty_id,
-                .id_result = wip.allocId(i),
-                .operand = try wip.elementAt(result_ty, operand_id, i),
-            };
             switch (info.class) {
                 .bool => {
-                    try self.func.body.emit(self.spv.gpa, .OpLogicalNot, args);
+                    try self.func.body.emit(self.spv.gpa, .OpLogicalNot, .{
+                        .id_result_type = wip.ty_id,
+                        .id_result = wip.allocId(i),
+                        .operand = try wip.elementAt(result_ty, operand_id, i),
+                    });
                 },
                 .float => unreachable,
                 .composite_integer => unreachable, // TODO
                 .strange_integer, .integer => {
                     // Note: strange integer bits will be masked before operations that do not hold under modulo.
-                    try self.func.body.emit(self.spv.gpa, .OpNot, args);
+                    try self.func.body.emit(self.spv.gpa, .OpNot, .{
+                        .id_result_type = wip.ty_id,
+                        .id_result = wip.allocId(i),
+                        .operand = try wip.elementAt(result_ty, operand_id, i),
+                    });
                 },
             }
         }
@@ -4907,15 +4927,19 @@ const DeclGen = struct {
             try self.extractField(Type.anyerror, operand_id, eu_layout.errorFieldIndex());
 
         const result_id = self.spv.allocId();
-        const operands = .{
-            .id_result_type = self.typeId(bool_ty_ref),
-            .id_result = result_id,
-            .operand_1 = error_id,
-            .operand_2 = try self.constInt(err_ty_ref, 0),
-        };
         switch (pred) {
-            .is_err => try self.func.body.emit(self.spv.gpa, .OpINotEqual, operands),
-            .is_non_err => try self.func.body.emit(self.spv.gpa, .OpIEqual, operands),
+            .is_err => try self.func.body.emit(self.spv.gpa, .OpINotEqual, .{
+                .id_result_type = self.typeId(bool_ty_ref),
+                .id_result = result_id,
+                .operand_1 = error_id,
+                .operand_2 = try self.constInt(err_ty_ref, 0),
+            }),
+            .is_non_err => try self.func.body.emit(self.spv.gpa, .OpIEqual, .{
+                .id_result_type = self.typeId(bool_ty_ref),
+                .id_result = result_id,
+                .operand_1 = error_id,
+                .operand_2 = try self.constInt(err_ty_ref, 0),
+            }),
         }
         return result_id;
     }

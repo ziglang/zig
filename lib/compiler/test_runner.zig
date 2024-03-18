@@ -3,7 +3,7 @@ const std = @import("std");
 const io = std.io;
 const builtin = @import("builtin");
 
-pub const std_options = .{
+pub const std_options = std.Options{
     .logFn = log,
 };
 

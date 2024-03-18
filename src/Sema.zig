@@ -19906,7 +19906,7 @@ fn zirStructInit(
     const result_ty = sema.resolveType(block, src, first_field_type_extra.container_type) catch |err| switch (err) {
         error.GenericPoison => {
             // The type wasn't actually known, so treat this as an anon struct init.
-            return sema.structInitAnon(block, src, .typed_init, extra.data, extra.end, is_ref);
+            return sema.structInitAnon(block, inst, src, .typed_init, extra.data, extra.end, is_ref);
         },
         else => |e| return e,
     };
@@ -20229,12 +20229,13 @@ fn zirStructInitAnon(
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = inst_data.src();
     const extra = sema.code.extraData(Zir.Inst.StructInitAnon, inst_data.payload_index);
-    return sema.structInitAnon(block, src, .anon_init, extra.data, extra.end, false);
+    return sema.structInitAnon(block, inst, src, .anon_init, extra.data, extra.end, false);
 }
 
 fn structInitAnon(
     sema: *Sema,
     block: *Block,
+    inst: Zir.Inst.Index,
     src: LazySrcLoc,
     /// It is possible for a typed struct_init to be downgraded to an anonymous init due to a
     /// generic poison type. In this case, we need to know to interpret the extra data differently.
@@ -20251,15 +20252,18 @@ fn structInitAnon(
     const ip = &mod.intern_pool;
     const zir_datas = sema.code.instructions.items(.data);
 
+    var hasher = std.hash.Wyhash.init(0);
+    std.hash.autoHash(&hasher, extra_data.fields_len);
+
     const types = try sema.arena.alloc(InternPool.Index, extra_data.fields_len);
     const values = try sema.arena.alloc(InternPool.Index, types.len);
     const names = try sema.arena.alloc(InternPool.NullTerminatedString, types.len);
 
-    // Find which field forces the expression to be runtime, if any.
-    const opt_runtime_index = rs: {
+    const opt_runtime_index, const any_comptime_fields = blk: {
         var runtime_index: ?usize = null;
+        var any_comptime_fields = false;
         var extra_index = extra_end;
-        for (types, values, names, 0..) |*field_ty, *field_val, *field_name, i_usize| {
+        for (0..extra_data.fields_len) |i| {
             const item = switch (kind) {
                 .anon_init => sema.code.extraData(Zir.Inst.StructInitAnon.Item, extra_index),
                 .typed_init => sema.code.extraData(Zir.Inst.StructInit.Item, extra_index),
@@ -20275,46 +20279,93 @@ fn structInitAnon(
                     break :name sema.code.nullTerminatedString(field_type_extra.data.name_start);
                 },
             };
+            hasher.update(name);
 
-            const name_ip = try mod.intern_pool.getOrPutString(gpa, name);
-            field_name.* = name_ip;
+            names[i] = try mod.intern_pool.getOrPutString(gpa, name);
 
             const init = try sema.resolveInst(item.data.init);
-            field_ty.* = sema.typeOf(init).toIntern();
-            if (Type.fromInterned(field_ty.*).zigTypeTag(mod) == .Opaque) {
+            types[i] = sema.typeOf(init).toIntern();
+            std.hash.autoHash(&hasher, types[i]);
+            if (Type.fromInterned(types[i]).zigTypeTag(mod) == .Opaque) {
                 const msg = msg: {
                     const decl = mod.declPtr(block.src_decl);
-                    const field_src = mod.initSrc(src.node_offset.x, decl, @intCast(i_usize));
+                    const field_src = mod.initSrc(src.node_offset.x, decl, @intCast(i));
                     const msg = try sema.errMsg(block, field_src, "opaque types have unknown size and therefore cannot be directly embedded in structs", .{});
                     errdefer msg.destroy(sema.gpa);
 
-                    try sema.addDeclaredHereNote(msg, Type.fromInterned(field_ty.*));
+                    try sema.addDeclaredHereNote(msg, Type.fromInterned(types[i]));
                     break :msg msg;
                 };
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
             if (try sema.resolveValue(init)) |init_val| {
-                field_val.* = try init_val.intern(Type.fromInterned(field_ty.*), mod);
+                values[i] = try init_val.intern(Type.fromInterned(types[i]), mod);
+                any_comptime_fields = true;
             } else {
-                field_val.* = .none;
-                runtime_index = @intCast(i_usize);
+                values[i] = .none;
+                runtime_index = @intCast(i);
             }
+            std.hash.autoHash(&hasher, values[i]);
         }
-        break :rs runtime_index;
+        break :blk .{ runtime_index, any_comptime_fields };
     };
 
-    const tuple_ty = try ip.getAnonStructType(gpa, .{
-        .names = names,
-        .types = types,
-        .values = values,
-    });
+    std.hash.autoHash(&hasher, opt_runtime_index);
+    std.hash.autoHash(&hasher, any_comptime_fields);
+
+    const struct_ty = switch (try ip.getStructType(gpa, .{
+        .layout = .Auto,
+        .fields_len = extra_data.fields_len,
+        .known_non_opv = false,
+        .requires_comptime = .unknown,
+        .is_tuple = false,
+        .any_comptime_fields = any_comptime_fields,
+        .any_default_inits = any_comptime_fields,
+        .any_aligned_fields = false,
+        .inits_resolved = true,
+        .has_namespace = false,
+        .key = .{ .reified = .{
+            .zir_index = try ip.trackZir(gpa, block.getFileScope(mod), inst),
+            .type_hash = hasher.final(),
+        } },
+    })) {
+        .wip => |wip_ty| blk: {
+            errdefer wip_ty.cancel(ip);
+            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
+                .ty = Type.type,
+                .val = Value.fromInterned(wip_ty.index),
+            }, .anon, "struct", inst);
+            mod.declPtr(new_decl_index).owns_tv = true;
+            errdefer mod.abortAnonDecl(new_decl_index);
+
+            const struct_type = ip.loadStructType(wip_ty.index);
+
+            for (types, values, names, 0..) |t, v, n, i| {
+                if (struct_type.addFieldName(ip, n)) |prev_index| {
+                    _ = prev_index; // TODO: better source location
+                    return sema.fail(block, src, "duplicate struct field name {}", .{n.fmt(ip)});
+                }
+                struct_type.field_types.get(ip)[i] = t;
+                if (any_comptime_fields) {
+                    if (v != .none) struct_type.setFieldComptime(ip, i);
+                    struct_type.field_inits.get(ip)[i] = v;
+                }
+            }
+
+            try mod.finalizeAnonDecl(new_decl_index);
+            const struct_ty = wip_ty.finish(ip, new_decl_index, .none);
+            try sema.resolveStructFully(Type.fromInterned(struct_ty));
+            break :blk struct_ty;
+        },
+        .existing => |ty| ty,
+    };
 
     const runtime_index = opt_runtime_index orelse {
-        const tuple_val = try mod.intern(.{ .aggregate = .{
-            .ty = tuple_ty,
+        const val = try mod.intern(.{ .aggregate = .{
+            .ty = struct_ty,
             .storage = .{ .elems = values },
         } });
-        return sema.addConstantMaybeRef(tuple_val, is_ref);
+        return sema.addConstantMaybeRef(val, is_ref);
     };
 
     sema.requireRuntimeBlock(block, .unneeded, null) catch |err| switch (err) {
@@ -20330,7 +20381,7 @@ fn structInitAnon(
     if (is_ref) {
         const target = mod.getTarget();
         const alloc_ty = try sema.ptrType(.{
-            .child = tuple_ty,
+            .child = struct_ty,
             .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
         });
         const alloc = try block.addTy(.alloc, alloc_ty);
@@ -20368,7 +20419,7 @@ fn structInitAnon(
         element_refs[i] = try sema.resolveInst(item.data.init);
     }
 
-    return block.addAggregateInit(Type.fromInterned(tuple_ty), element_refs);
+    return block.addAggregateInit(Type.fromInterned(struct_ty), element_refs);
 }
 
 fn zirArrayInit(
@@ -28861,27 +28912,6 @@ fn coerceExtra(
                     else => {},
                 },
                 .One => switch (Type.fromInterned(dest_info.child).zigTypeTag(mod)) {
-                    .Union => {
-                        // pointer to anonymous struct to pointer to union
-                        if (inst_ty.isSinglePointer(mod) and
-                            inst_ty.childType(mod).isAnonStruct(mod) and
-                            sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
-                        {
-                            return sema.coerceAnonStructToUnionPtrs(block, dest_ty, dest_ty_src, inst, inst_src);
-                        }
-                    },
-                    .Struct => {
-                        // pointer to anonymous struct to pointer to struct
-                        if (inst_ty.isSinglePointer(mod) and
-                            inst_ty.childType(mod).isAnonStruct(mod) and
-                            sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result))
-                        {
-                            return sema.coerceAnonStructToStructPtrs(block, dest_ty, dest_ty_src, inst, inst_src) catch |err| switch (err) {
-                                error.NotCoercible => break :pointer,
-                                else => |e| return e,
-                            };
-                        }
-                    },
                     .Array => {
                         // pointer to tuple to pointer to array
                         if (inst_ty.isSinglePointer(mod) and
@@ -29145,11 +29175,6 @@ fn coerceExtra(
         },
         .Union => switch (inst_ty.zigTypeTag(mod)) {
             .Enum, .EnumLiteral => return sema.coerceEnumToUnion(block, dest_ty, dest_ty_src, inst, inst_src),
-            .Struct => {
-                if (inst_ty.isAnonStruct(mod)) {
-                    return sema.coerceAnonStructToUnion(block, dest_ty, dest_ty_src, inst, inst_src);
-                }
-            },
             else => {},
         },
         .Array => switch (inst_ty.zigTypeTag(mod)) {
@@ -31834,96 +31859,6 @@ fn coerceEnumToUnion(
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
-}
-
-fn coerceAnonStructToUnion(
-    sema: *Sema,
-    block: *Block,
-    union_ty: Type,
-    union_ty_src: LazySrcLoc,
-    inst: Air.Inst.Ref,
-    inst_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const mod = sema.mod;
-    const ip = &mod.intern_pool;
-    const inst_ty = sema.typeOf(inst);
-    const field_info: union(enum) {
-        name: InternPool.NullTerminatedString,
-        count: usize,
-    } = switch (ip.indexToKey(inst_ty.toIntern())) {
-        .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len == 1)
-            .{ .name = anon_struct_type.names.get(ip)[0] }
-        else
-            .{ .count = anon_struct_type.names.len },
-        .struct_type => name: {
-            const field_names = ip.loadStructType(inst_ty.toIntern()).field_names.get(ip);
-            break :name if (field_names.len == 1)
-                .{ .name = field_names[0] }
-            else
-                .{ .count = field_names.len };
-        },
-        else => unreachable,
-    };
-    switch (field_info) {
-        .name => |field_name| {
-            const init = try sema.structFieldVal(block, inst_src, inst, field_name, inst_src, inst_ty);
-            return sema.unionInit(block, init, inst_src, union_ty, union_ty_src, field_name, inst_src);
-        },
-        .count => |field_count| {
-            assert(field_count != 1);
-            const msg = msg: {
-                const msg = if (field_count > 1) try sema.errMsg(
-                    block,
-                    inst_src,
-                    "cannot initialize multiple union fields at once; unions can only have one active field",
-                    .{},
-                ) else try sema.errMsg(
-                    block,
-                    inst_src,
-                    "union initializer must initialize one field",
-                    .{},
-                );
-                errdefer msg.destroy(sema.gpa);
-
-                // TODO add notes for where the anon struct was created to point out
-                // the extra fields.
-
-                try sema.addDeclaredHereNote(msg, union_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
-        },
-    }
-}
-
-fn coerceAnonStructToUnionPtrs(
-    sema: *Sema,
-    block: *Block,
-    ptr_union_ty: Type,
-    union_ty_src: LazySrcLoc,
-    ptr_anon_struct: Air.Inst.Ref,
-    anon_struct_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const mod = sema.mod;
-    const union_ty = ptr_union_ty.childType(mod);
-    const anon_struct = try sema.analyzeLoad(block, anon_struct_src, ptr_anon_struct, anon_struct_src);
-    const union_inst = try sema.coerceAnonStructToUnion(block, union_ty, union_ty_src, anon_struct, anon_struct_src);
-    return sema.analyzeRef(block, union_ty_src, union_inst);
-}
-
-fn coerceAnonStructToStructPtrs(
-    sema: *Sema,
-    block: *Block,
-    ptr_struct_ty: Type,
-    struct_ty_src: LazySrcLoc,
-    ptr_anon_struct: Air.Inst.Ref,
-    anon_struct_src: LazySrcLoc,
-) !Air.Inst.Ref {
-    const mod = sema.mod;
-    const struct_ty = ptr_struct_ty.childType(mod);
-    const anon_struct = try sema.analyzeLoad(block, anon_struct_src, ptr_anon_struct, anon_struct_src);
-    const struct_inst = try sema.coerceTupleToStruct(block, struct_ty, anon_struct, anon_struct_src);
-    return sema.analyzeRef(block, struct_ty_src, struct_inst);
 }
 
 /// If the lengths match, coerces element-wise.

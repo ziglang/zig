@@ -13344,7 +13344,7 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const operand = try self.resolveInst(un_op);
     const ty = self.typeOf(un_op);
     const result = switch (try self.isNull(inst, ty, operand)) {
-        .eflags => |cc| .{ .eflags = cc.negate() },
+        .eflags => |cc| MCValue{ .eflags = cc.negate() },
         else => unreachable,
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
@@ -13355,7 +13355,7 @@ fn airIsNonNullPtr(self: *Self, inst: Air.Inst.Index) !void {
     const operand = try self.resolveInst(un_op);
     const ty = self.typeOf(un_op);
     const result = switch (try self.isNullPtr(inst, ty, operand)) {
-        .eflags => |cc| .{ .eflags = cc.negate() },
+        .eflags => |cc| MCValue{ .eflags = cc.negate() },
         else => unreachable,
     };
     return self.finishAir(inst, result, .{ un_op, .none, .none });

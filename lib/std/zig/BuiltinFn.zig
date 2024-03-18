@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const BuiltinFn = @This();
+
 pub const Tag = enum {
     add_with_overflow,
     addrspace_cast,
@@ -160,38 +162,38 @@ param_count: ?u8,
 
 pub const list = list: {
     @setEvalBranchQuota(3000);
-    break :list std.ComptimeStringMap(@This(), .{
+    break :list std.ComptimeStringMap(BuiltinFn, &.{
         .{
             "@addWithOverflow",
-            .{
+            BuiltinFn{
                 .tag = .add_with_overflow,
                 .param_count = 2,
             },
         },
         .{
             "@addrSpaceCast",
-            .{
+            BuiltinFn{
                 .tag = .addrspace_cast,
                 .param_count = 1,
             },
         },
         .{
             "@alignCast",
-            .{
+            BuiltinFn{
                 .tag = .align_cast,
                 .param_count = 1,
             },
         },
         .{
             "@alignOf",
-            .{
+            BuiltinFn{
                 .tag = .align_of,
                 .param_count = 1,
             },
         },
         .{
             "@as",
-            .{
+            BuiltinFn{
                 .tag = .as,
                 .needs_mem_loc = .forward1,
                 .eval_to_error = .maybe,
@@ -200,35 +202,35 @@ pub const list = list: {
         },
         .{
             "@asyncCall",
-            .{
+            BuiltinFn{
                 .tag = .async_call,
                 .param_count = 4,
             },
         },
         .{
             "@atomicLoad",
-            .{
+            BuiltinFn{
                 .tag = .atomic_load,
                 .param_count = 3,
             },
         },
         .{
             "@atomicRmw",
-            .{
+            BuiltinFn{
                 .tag = .atomic_rmw,
                 .param_count = 5,
             },
         },
         .{
             "@atomicStore",
-            .{
+            BuiltinFn{
                 .tag = .atomic_store,
                 .param_count = 4,
             },
         },
         .{
             "@bitCast",
-            .{
+            BuiltinFn{
                 .tag = .bit_cast,
                 .needs_mem_loc = .forward0,
                 .param_count = 1,
@@ -236,28 +238,28 @@ pub const list = list: {
         },
         .{
             "@bitOffsetOf",
-            .{
+            BuiltinFn{
                 .tag = .bit_offset_of,
                 .param_count = 2,
             },
         },
         .{
             "@intFromBool",
-            .{
+            BuiltinFn{
                 .tag = .int_from_bool,
                 .param_count = 1,
             },
         },
         .{
             "@bitSizeOf",
-            .{
+            BuiltinFn{
                 .tag = .bit_size_of,
                 .param_count = 1,
             },
         },
         .{
             "@breakpoint",
-            .{
+            BuiltinFn{
                 .tag = .breakpoint,
                 .param_count = 0,
                 .illegal_outside_function = true,
@@ -265,35 +267,35 @@ pub const list = list: {
         },
         .{
             "@mulAdd",
-            .{
+            BuiltinFn{
                 .tag = .mul_add,
                 .param_count = 4,
             },
         },
         .{
             "@byteSwap",
-            .{
+            BuiltinFn{
                 .tag = .byte_swap,
                 .param_count = 1,
             },
         },
         .{
             "@bitReverse",
-            .{
+            BuiltinFn{
                 .tag = .bit_reverse,
                 .param_count = 1,
             },
         },
         .{
             "@offsetOf",
-            .{
+            BuiltinFn{
                 .tag = .offset_of,
                 .param_count = 2,
             },
         },
         .{
             "@call",
-            .{
+            BuiltinFn{
                 .tag = .call,
                 .needs_mem_loc = .always,
                 .eval_to_error = .maybe,
@@ -302,104 +304,108 @@ pub const list = list: {
         },
         .{
             "@cDefine",
-            .{
+            BuiltinFn{
                 .tag = .c_define,
                 .param_count = 2,
             },
         },
         .{
             "@cImport",
-            .{
+            BuiltinFn{
                 .tag = .c_import,
                 .param_count = 1,
             },
         },
         .{
             "@cInclude",
-            .{
+            BuiltinFn{
                 .tag = .c_include,
                 .param_count = 1,
             },
         },
         .{
             "@clz",
-            .{
+            BuiltinFn{
                 .tag = .clz,
                 .param_count = 1,
             },
         },
         .{
             "@cmpxchgStrong",
-            .{
+            BuiltinFn{
                 .tag = .cmpxchg_strong,
                 .param_count = 6,
             },
         },
         .{
             "@cmpxchgWeak",
-            .{
+            BuiltinFn{
                 .tag = .cmpxchg_weak,
                 .param_count = 6,
             },
         },
         .{
             "@compileError",
-            .{
+            BuiltinFn{
                 .tag = .compile_error,
                 .param_count = 1,
             },
         },
         .{
             "@compileLog",
-            .{
+            BuiltinFn{
                 .tag = .compile_log,
                 .param_count = null,
             },
         },
         .{
             "@constCast",
-            .{
+            BuiltinFn{
                 .tag = .const_cast,
                 .param_count = 1,
             },
         },
         .{
             "@ctz",
-            .{
+            BuiltinFn{
                 .tag = .ctz,
                 .param_count = 1,
             },
         },
         .{
             "@cUndef",
-            .{
+            BuiltinFn{
                 .tag = .c_undef,
                 .param_count = 1,
             },
         },
         .{
-            "@cVaArg", .{
+            "@cVaArg",
+            BuiltinFn{
                 .tag = .c_va_arg,
                 .param_count = 2,
                 .illegal_outside_function = true,
             },
         },
         .{
-            "@cVaCopy", .{
+            "@cVaCopy",
+            BuiltinFn{
                 .tag = .c_va_copy,
                 .param_count = 1,
                 .illegal_outside_function = true,
             },
         },
         .{
-            "@cVaEnd", .{
+            "@cVaEnd",
+            BuiltinFn{
                 .tag = .c_va_end,
                 .param_count = 1,
                 .illegal_outside_function = true,
             },
         },
         .{
-            "@cVaStart", .{
+            "@cVaStart",
+            BuiltinFn{
                 .tag = .c_va_start,
                 .param_count = 0,
                 .illegal_outside_function = true,
@@ -407,63 +413,63 @@ pub const list = list: {
         },
         .{
             "@divExact",
-            .{
+            BuiltinFn{
                 .tag = .div_exact,
                 .param_count = 2,
             },
         },
         .{
             "@divFloor",
-            .{
+            BuiltinFn{
                 .tag = .div_floor,
                 .param_count = 2,
             },
         },
         .{
             "@divTrunc",
-            .{
+            BuiltinFn{
                 .tag = .div_trunc,
                 .param_count = 2,
             },
         },
         .{
             "@embedFile",
-            .{
+            BuiltinFn{
                 .tag = .embed_file,
                 .param_count = 1,
             },
         },
         .{
             "@intFromEnum",
-            .{
+            BuiltinFn{
                 .tag = .int_from_enum,
                 .param_count = 1,
             },
         },
         .{
             "@errorName",
-            .{
+            BuiltinFn{
                 .tag = .error_name,
                 .param_count = 1,
             },
         },
         .{
             "@errorReturnTrace",
-            .{
+            BuiltinFn{
                 .tag = .error_return_trace,
                 .param_count = 0,
             },
         },
         .{
             "@intFromError",
-            .{
+            BuiltinFn{
                 .tag = .int_from_error,
                 .param_count = 1,
             },
         },
         .{
             "@errorCast",
-            .{
+            BuiltinFn{
                 .tag = .error_cast,
                 .eval_to_error = .always,
                 .param_count = 1,
@@ -471,28 +477,28 @@ pub const list = list: {
         },
         .{
             "@export",
-            .{
+            BuiltinFn{
                 .tag = .@"export",
                 .param_count = 2,
             },
         },
         .{
             "@extern",
-            .{
+            BuiltinFn{
                 .tag = .@"extern",
                 .param_count = 2,
             },
         },
         .{
             "@fence",
-            .{
+            BuiltinFn{
                 .tag = .fence,
                 .param_count = 1,
             },
         },
         .{
             "@field",
-            .{
+            BuiltinFn{
                 .tag = .field,
                 .needs_mem_loc = .always,
                 .eval_to_error = .maybe,
@@ -502,42 +508,42 @@ pub const list = list: {
         },
         .{
             "@fieldParentPtr",
-            .{
+            BuiltinFn{
                 .tag = .field_parent_ptr,
                 .param_count = 3,
             },
         },
         .{
             "@floatCast",
-            .{
+            BuiltinFn{
                 .tag = .float_cast,
                 .param_count = 1,
             },
         },
         .{
             "@intFromFloat",
-            .{
+            BuiltinFn{
                 .tag = .int_from_float,
                 .param_count = 1,
             },
         },
         .{
             "@frame",
-            .{
+            BuiltinFn{
                 .tag = .frame,
                 .param_count = 0,
             },
         },
         .{
             "@Frame",
-            .{
+            BuiltinFn{
                 .tag = .Frame,
                 .param_count = 1,
             },
         },
         .{
             "@frameAddress",
-            .{
+            BuiltinFn{
                 .tag = .frame_address,
                 .param_count = 0,
                 .illegal_outside_function = true,
@@ -545,56 +551,56 @@ pub const list = list: {
         },
         .{
             "@frameSize",
-            .{
+            BuiltinFn{
                 .tag = .frame_size,
                 .param_count = 1,
             },
         },
         .{
             "@hasDecl",
-            .{
+            BuiltinFn{
                 .tag = .has_decl,
                 .param_count = 2,
             },
         },
         .{
             "@hasField",
-            .{
+            BuiltinFn{
                 .tag = .has_field,
                 .param_count = 2,
             },
         },
         .{
             "@import",
-            .{
+            BuiltinFn{
                 .tag = .import,
                 .param_count = 1,
             },
         },
         .{
             "@inComptime",
-            .{
+            BuiltinFn{
                 .tag = .in_comptime,
                 .param_count = 0,
             },
         },
         .{
             "@intCast",
-            .{
+            BuiltinFn{
                 .tag = .int_cast,
                 .param_count = 1,
             },
         },
         .{
             "@enumFromInt",
-            .{
+            BuiltinFn{
                 .tag = .enum_from_int,
                 .param_count = 1,
             },
         },
         .{
             "@errorFromInt",
-            .{
+            BuiltinFn{
                 .tag = .error_from_int,
                 .eval_to_error = .always,
                 .param_count = 1,
@@ -602,119 +608,119 @@ pub const list = list: {
         },
         .{
             "@floatFromInt",
-            .{
+            BuiltinFn{
                 .tag = .float_from_int,
                 .param_count = 1,
             },
         },
         .{
             "@ptrFromInt",
-            .{
+            BuiltinFn{
                 .tag = .ptr_from_int,
                 .param_count = 1,
             },
         },
         .{
             "@max",
-            .{
+            BuiltinFn{
                 .tag = .max,
                 .param_count = null,
             },
         },
         .{
             "@memcpy",
-            .{
+            BuiltinFn{
                 .tag = .memcpy,
                 .param_count = 2,
             },
         },
         .{
             "@memset",
-            .{
+            BuiltinFn{
                 .tag = .memset,
                 .param_count = 2,
             },
         },
         .{
             "@min",
-            .{
+            BuiltinFn{
                 .tag = .min,
                 .param_count = null,
             },
         },
         .{
             "@wasmMemorySize",
-            .{
+            BuiltinFn{
                 .tag = .wasm_memory_size,
                 .param_count = 1,
             },
         },
         .{
             "@wasmMemoryGrow",
-            .{
+            BuiltinFn{
                 .tag = .wasm_memory_grow,
                 .param_count = 2,
             },
         },
         .{
             "@mod",
-            .{
+            BuiltinFn{
                 .tag = .mod,
                 .param_count = 2,
             },
         },
         .{
             "@mulWithOverflow",
-            .{
+            BuiltinFn{
                 .tag = .mul_with_overflow,
                 .param_count = 2,
             },
         },
         .{
             "@panic",
-            .{
+            BuiltinFn{
                 .tag = .panic,
                 .param_count = 1,
             },
         },
         .{
             "@popCount",
-            .{
+            BuiltinFn{
                 .tag = .pop_count,
                 .param_count = 1,
             },
         },
         .{
             "@prefetch",
-            .{
+            BuiltinFn{
                 .tag = .prefetch,
                 .param_count = 2,
             },
         },
         .{
             "@ptrCast",
-            .{
+            BuiltinFn{
                 .tag = .ptr_cast,
                 .param_count = 1,
             },
         },
         .{
             "@intFromPtr",
-            .{
+            BuiltinFn{
                 .tag = .int_from_ptr,
                 .param_count = 1,
             },
         },
         .{
             "@rem",
-            .{
+            BuiltinFn{
                 .tag = .rem,
                 .param_count = 2,
             },
         },
         .{
             "@returnAddress",
-            .{
+            BuiltinFn{
                 .tag = .return_address,
                 .param_count = 0,
                 .illegal_outside_function = true,
@@ -722,14 +728,14 @@ pub const list = list: {
         },
         .{
             "@select",
-            .{
+            BuiltinFn{
                 .tag = .select,
                 .param_count = 4,
             },
         },
         .{
             "@setAlignStack",
-            .{
+            BuiltinFn{
                 .tag = .set_align_stack,
                 .param_count = 1,
                 .illegal_outside_function = true,
@@ -737,7 +743,7 @@ pub const list = list: {
         },
         .{
             "@setCold",
-            .{
+            BuiltinFn{
                 .tag = .set_cold,
                 .param_count = 1,
                 .illegal_outside_function = true,
@@ -745,77 +751,77 @@ pub const list = list: {
         },
         .{
             "@setEvalBranchQuota",
-            .{
+            BuiltinFn{
                 .tag = .set_eval_branch_quota,
                 .param_count = 1,
             },
         },
         .{
             "@setFloatMode",
-            .{
+            BuiltinFn{
                 .tag = .set_float_mode,
                 .param_count = 1,
             },
         },
         .{
             "@setRuntimeSafety",
-            .{
+            BuiltinFn{
                 .tag = .set_runtime_safety,
                 .param_count = 1,
             },
         },
         .{
             "@shlExact",
-            .{
+            BuiltinFn{
                 .tag = .shl_exact,
                 .param_count = 2,
             },
         },
         .{
             "@shlWithOverflow",
-            .{
+            BuiltinFn{
                 .tag = .shl_with_overflow,
                 .param_count = 2,
             },
         },
         .{
             "@shrExact",
-            .{
+            BuiltinFn{
                 .tag = .shr_exact,
                 .param_count = 2,
             },
         },
         .{
             "@shuffle",
-            .{
+            BuiltinFn{
                 .tag = .shuffle,
                 .param_count = 4,
             },
         },
         .{
             "@sizeOf",
-            .{
+            BuiltinFn{
                 .tag = .size_of,
                 .param_count = 1,
             },
         },
         .{
             "@splat",
-            .{
+            BuiltinFn{
                 .tag = .splat,
                 .param_count = 1,
             },
         },
         .{
             "@reduce",
-            .{
+            BuiltinFn{
                 .tag = .reduce,
                 .param_count = 2,
             },
         },
         .{
             "@src",
-            .{
+            BuiltinFn{
                 .tag = .src,
                 .needs_mem_loc = .always,
                 .param_count = 0,
@@ -824,168 +830,168 @@ pub const list = list: {
         },
         .{
             "@sqrt",
-            .{
+            BuiltinFn{
                 .tag = .sqrt,
                 .param_count = 1,
             },
         },
         .{
             "@sin",
-            .{
+            BuiltinFn{
                 .tag = .sin,
                 .param_count = 1,
             },
         },
         .{
             "@cos",
-            .{
+            BuiltinFn{
                 .tag = .cos,
                 .param_count = 1,
             },
         },
         .{
             "@tan",
-            .{
+            BuiltinFn{
                 .tag = .tan,
                 .param_count = 1,
             },
         },
         .{
             "@exp",
-            .{
+            BuiltinFn{
                 .tag = .exp,
                 .param_count = 1,
             },
         },
         .{
             "@exp2",
-            .{
+            BuiltinFn{
                 .tag = .exp2,
                 .param_count = 1,
             },
         },
         .{
             "@log",
-            .{
+            BuiltinFn{
                 .tag = .log,
                 .param_count = 1,
             },
         },
         .{
             "@log2",
-            .{
+            BuiltinFn{
                 .tag = .log2,
                 .param_count = 1,
             },
         },
         .{
             "@log10",
-            .{
+            BuiltinFn{
                 .tag = .log10,
                 .param_count = 1,
             },
         },
         .{
             "@abs",
-            .{
+            BuiltinFn{
                 .tag = .abs,
                 .param_count = 1,
             },
         },
         .{
             "@floor",
-            .{
+            BuiltinFn{
                 .tag = .floor,
                 .param_count = 1,
             },
         },
         .{
             "@ceil",
-            .{
+            BuiltinFn{
                 .tag = .ceil,
                 .param_count = 1,
             },
         },
         .{
             "@trunc",
-            .{
+            BuiltinFn{
                 .tag = .trunc,
                 .param_count = 1,
             },
         },
         .{
             "@round",
-            .{
+            BuiltinFn{
                 .tag = .round,
                 .param_count = 1,
             },
         },
         .{
             "@subWithOverflow",
-            .{
+            BuiltinFn{
                 .tag = .sub_with_overflow,
                 .param_count = 2,
             },
         },
         .{
             "@tagName",
-            .{
+            BuiltinFn{
                 .tag = .tag_name,
                 .param_count = 1,
             },
         },
         .{
             "@This",
-            .{
+            BuiltinFn{
                 .tag = .This,
                 .param_count = 0,
             },
         },
         .{
             "@trap",
-            .{
+            BuiltinFn{
                 .tag = .trap,
                 .param_count = 0,
             },
         },
         .{
             "@truncate",
-            .{
+            BuiltinFn{
                 .tag = .truncate,
                 .param_count = 1,
             },
         },
         .{
             "@Type",
-            .{
+            BuiltinFn{
                 .tag = .Type,
                 .param_count = 1,
             },
         },
         .{
             "@typeInfo",
-            .{
+            BuiltinFn{
                 .tag = .type_info,
                 .param_count = 1,
             },
         },
         .{
             "@typeName",
-            .{
+            BuiltinFn{
                 .tag = .type_name,
                 .param_count = 1,
             },
         },
         .{
             "@TypeOf",
-            .{
+            BuiltinFn{
                 .tag = .TypeOf,
                 .param_count = null,
             },
         },
         .{
             "@unionInit",
-            .{
+            BuiltinFn{
                 .tag = .union_init,
                 .needs_mem_loc = .always,
                 .param_count = 3,
@@ -993,20 +999,21 @@ pub const list = list: {
         },
         .{
             "@Vector",
-            .{
+            BuiltinFn{
                 .tag = .Vector,
                 .param_count = 2,
             },
         },
         .{
             "@volatileCast",
-            .{
+            BuiltinFn{
                 .tag = .volatile_cast,
                 .param_count = 1,
             },
         },
         .{
-            "@workItemId", .{
+            "@workItemId",
+            BuiltinFn{
                 .tag = .work_item_id,
                 .param_count = 1,
                 .illegal_outside_function = true,
@@ -1014,7 +1021,7 @@ pub const list = list: {
         },
         .{
             "@workGroupSize",
-            .{
+            BuiltinFn{
                 .tag = .work_group_size,
                 .param_count = 1,
                 .illegal_outside_function = true,
@@ -1022,7 +1029,7 @@ pub const list = list: {
         },
         .{
             "@workGroupId",
-            .{
+            BuiltinFn{
                 .tag = .work_group_id,
                 .param_count = 1,
                 .illegal_outside_function = true,

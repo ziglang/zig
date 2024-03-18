@@ -1249,7 +1249,7 @@ const WaitGroup = std.Thread.WaitGroup;
 const build_options = @import("build_options");
 const Package = @import("../../src/Package.zig");
 
-pub const std_options = .{
+pub const std_options = std.Options{
     .log_level = .err,
 };
 

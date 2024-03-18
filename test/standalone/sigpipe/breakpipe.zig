@@ -2,7 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 
 pub usingnamespace if (build_options.keep_sigpipe) struct {
-    pub const std_options = .{
+    pub const std_options = std.Options{
         .keep_sigpipe = true,
     };
 } else struct {};

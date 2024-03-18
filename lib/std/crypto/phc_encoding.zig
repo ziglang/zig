@@ -258,8 +258,7 @@ fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
     var it = mem.splitScalar(u8, str, kv_delimiter_scalar);
     const key = it.first();
     const value = it.next() orelse return Error.InvalidEncoding;
-    const ret = .{ .key = key, .value = value };
-    return ret;
+    return .{ .key = key, .value = value };
 }
 
 test "phc format - encoding/decoding" {
