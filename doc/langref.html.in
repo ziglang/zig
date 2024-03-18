@@ -11471,7 +11471,7 @@ pub fn main() !void {
 1: 123
 2: hello{#end_shell_samp#}
       <p>A more interesting example would be extracting the list of preopens from the runtime.
-      This is now supported in the standard library via {#syntax#}std.fs.wasi.PreopenList{#endsyntax#}:</p>
+      This is now supported in the standard library via {#syntax#}std.fs.wasi.Preopens{#endsyntax#}:</p>
       {#code_begin|exe|wasi_preopens#}
       {#target_wasi#}
 const std = @import("std");
