@@ -1636,3 +1636,24 @@ test "runtime isNan(inf * 0)" {
     const zero_times_inf = 0 * std.math.inf(f64);
     try std.testing.expect(std.math.isNan(zero_times_inf));
 }
+
+test "optimized float mode" {
+    if (builtin.mode == .Debug) return error.SkipZigTest;
+
+    const big = 0x1p40;
+    const small = 0.001;
+    const tiny = 0x1p-10;
+
+    const S = struct {
+        fn strict(x: f64) f64 {
+            @setFloatMode(.strict);
+            return x + big - big;
+        }
+        fn optimized(x: f64) f64 {
+            @setFloatMode(.optimized);
+            return x + big - big;
+        }
+    };
+    try expect(S.optimized(small) == small);
+    try expect(S.strict(small) == tiny);
+}
