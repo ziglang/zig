@@ -6641,21 +6641,42 @@ fn airByteSwap(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result try (try func.binOp(tmp, lsb, ty, .@"or")).toLocal(func, ty);
             },
             32 => {
-                const shl_tmp = try func.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
-                var lhs = try (try func.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, ty, .@"and")).toLocal(func, ty);
-                defer lhs.free(func);
-                const shr_tmp = try func.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
-                var rhs = try (try func.binOp(shr_tmp, .{ .imm32 = 0xFF00FF }, ty, .@"and")).toLocal(func, ty);
-                defer rhs.free(func);
-                var tmp_or = try (try func.binOp(lhs, rhs, ty, .@"or")).toLocal(func, ty);
-                defer tmp_or.free(func);
+                const shl_tmp = try func.binOp(operand, .{ .imm32 = 8 }, Type.u32, .shl);
+                const lhs = try func.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, Type.u32, .@"and");
+                const shr_tmp = try func.binOp(operand, .{ .imm32 = 8 }, Type.u32, .shr);
+                const rhs = try func.binOp(shr_tmp, .{ .imm32 = 0x00FF00FF }, Type.u32, .@"and");
+                var tmp_or = try (try func.binOp(lhs, rhs, Type.u32, .@"or")).toLocal(func, Type.u32);
 
-                const shl = try func.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shl);
-                const shr = try func.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shr);
-                const res = if (int_info.signedness == .signed) blk: {
-                    break :blk try func.wrapOperand(shr, Type.u16);
-                } else shr;
-                break :result try (try func.binOp(shl, res, ty, .@"or")).toLocal(func, ty);
+                const shl = try func.binOp(tmp_or, .{ .imm32 = 16 }, Type.u32, .shl);
+                const shr = try func.binOp(tmp_or, .{ .imm32 = 16 }, Type.u32, .shr);
+
+                tmp_or.free(func);
+
+                break :result try (try func.binOp(shl, shr, Type.u32, .@"or")).toLocal(func, Type.u32);
+            },
+            64 => {
+                const shl_tmp_1 = try func.binOp(operand, .{ .imm64 = 8 }, Type.u64, .shl);
+                const lhs_1 = try func.binOp(shl_tmp_1, .{ .imm64 = 0xFF00FF00FF00FF00 }, Type.u64, .@"and");
+
+                const shr_tmp_1 = try func.binOp(operand, .{ .imm64 = 8 }, Type.u64, .shr);
+                const rhs_1 = try func.binOp(shr_tmp_1, .{ .imm64 = 0x00FF00FF00FF00FF }, Type.u64, .@"and");
+
+                var tmp_or_1 = try (try func.binOp(lhs_1, rhs_1, Type.u64, .@"or")).toLocal(func, Type.u64);
+
+                const shl_tmp_2 = try func.binOp(tmp_or_1, .{ .imm64 = 16 }, Type.u64, .shl);
+                const lhs_2 = try func.binOp(shl_tmp_2, .{ .imm64 = 0xFFFF0000FFFF0000 }, Type.u64, .@"and");
+
+                const shr_tmp_2 = try func.binOp(tmp_or_1, .{ .imm64 = 16 }, Type.u64, .shr);
+                tmp_or_1.free(func);
+                const rhs_2 = try func.binOp(shr_tmp_2, .{ .imm64 = 0x0000FFFF0000FFFF }, Type.u64, .@"and");
+
+                var tmp_or_2 = try (try func.binOp(lhs_2, rhs_2, Type.u64, .@"or")).toLocal(func, Type.u64);
+
+                const shl = try func.binOp(tmp_or_2, .{ .imm64 = 32 }, Type.u64, .shl);
+                const shr = try func.binOp(tmp_or_2, .{ .imm64 = 32 }, Type.u64, .shr);
+                tmp_or_2.free(func);
+
+                break :result try (try func.binOp(shl, shr, Type.u64, .@"or")).toLocal(func, Type.u64);
             },
             else => return func.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits}),
         }
