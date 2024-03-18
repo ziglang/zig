@@ -1442,8 +1442,29 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.comp.module.?;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement array_elem_val for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const array_ty = self.typeOf(bin_op.lhs);
+        const array_mcv = try self.resolveInst(bin_op.lhs);
+
+        const index_mcv = try self.resolveInst(bin_op.rhs);
+
+        const elem_ty = array_ty.childType(mod);
+        const elem_abi_size = elem_ty.abiSize(mod);
+
+        switch (array_mcv) {
+            // all we need to do is calculate the offset that the elem exits at.
+            .stack_offset => |off| {
+                if (index_mcv == .immediate) {
+                    const true_offset: u32 = @intCast(index_mcv.immediate * elem_abi_size);
+                    break :result MCValue{ .stack_offset = off + true_offset };
+                }
+                return self.fail("TODO: airArrayElemVal with runtime index", .{});
+            },
+            else => return self.fail("TODO: airArrayElemVal {s}", .{@tagName(array_mcv)}),
+        }
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1639,17 +1660,10 @@ fn load(self: *Self, dst_mcv: MCValue, src_ptr: MCValue, ptr_ty: Type) InnerErro
         .dead => unreachable,
         .immediate => |imm| try self.setValue(elem_ty, dst_mcv, .{ .memory = imm }),
         .ptr_stack_offset => |off| try self.setValue(elem_ty, dst_mcv, .{ .stack_offset = off }),
-        .register => try self.setValue(elem_ty, dst_mcv, src_ptr),
-        .memory,
         .stack_offset,
-        => {
-            const reg = try self.register_manager.allocReg(null, gp);
-            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
-            errdefer self.register_manager.unlockReg(reg_lock);
-
-            try self.genSetReg(ptr_ty, reg, src_ptr);
-            try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
-        },
+        .register,
+        => try self.setValue(elem_ty, dst_mcv, src_ptr),
+        .memory => return self.fail("TODO: load memory", .{}),
         .load_symbol => {
             const reg = try self.copyToTmpRegister(ptr_ty, src_ptr);
             try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
@@ -1675,7 +1689,8 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
                 // The MCValue that holds the pointer can be re-used as the value.
                 break :blk ptr;
             } else {
-                break :blk try self.allocRegOrMem(inst, true);
+                // TODO: set this to true, will need to implement register version of arrays and structs
+                break :blk try self.allocRegOrMem(inst, false);
             }
         };
         try self.load(dst_mcv, ptr, self.typeOf(ty_op.operand));
@@ -1750,7 +1765,13 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         const field_ty = struct_ty.structFieldType(index, mod);
         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result .none;
 
-        const field_off = @as(u32, @intCast(struct_ty.structFieldOffset(index, mod)));
+        const field_off: u32 = switch (struct_ty.containerLayout(mod)) {
+            .Auto, .Extern => @intCast(struct_ty.structFieldOffset(index, mod) * 8),
+            .Packed => if (mod.typeToStruct(struct_ty)) |struct_type|
+                mod.structPackedFieldBitOffset(struct_type, index)
+            else
+                0,
+        };
 
         switch (src_mcv) {
             .dead, .unreach => unreachable,
@@ -1778,9 +1799,14 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                             },
                         },
                     });
+
+                    return self.fail("TODO: airStructFieldVal register with field_off > 0", .{});
                 }
 
                 break :result if (field_off == 0) dst_mcv else try self.copyToNewRegister(inst, dst_mcv);
+            },
+            .stack_offset => |off| {
+                break :result MCValue{ .stack_offset = off + field_off };
             },
             else => return self.fail("TODO: airStructField {s}", .{@tagName(src_mcv)}),
         }
@@ -2435,7 +2461,8 @@ fn performReloc(self: *Self, inst: Mir.Inst.Index, target: Mir.Inst.Index) !void
         .bne,
         .beq,
         => self.mir_instructions.items(.data)[inst].b_type.inst = target,
-        .jal => self.mir_instructions.items(.data)[inst].j_type.inst = target,
+        .jal,
+        => self.mir_instructions.items(.data)[inst].j_type.inst = target,
         else => return self.fail("TODO: performReloc {s}", .{@tagName(tag)}),
     }
 }
@@ -2614,6 +2641,7 @@ fn setValue(self: *Self, ty: Type, dst_val: MCValue, src_val: MCValue) !void {
     if (dst_val == .none) return;
 
     if (!dst_val.isMutable()) {
+        // panic so we can see the trace
         return std.debug.panic("tried to setValue immutable: {s}", .{@tagName(dst_val)});
     }
 
@@ -2649,8 +2677,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) Inner
         .register => |reg| {
             switch (abi_size) {
                 1, 2, 4, 8 => {
-                    assert(std.mem.isAlignedGeneric(u32, stack_offset, abi_size));
-
                     const tag: Mir.Inst.Tag = switch (abi_size) {
                         1 => .sb,
                         2 => .sh,
@@ -2733,7 +2759,6 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) Inner
             // memcpy(src, dst, len)
             try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
         },
-
         else => return self.fail("TODO: genSetStack {s}", .{@tagName(src_val)}),
     }
 }
