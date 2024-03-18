@@ -2633,8 +2633,17 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) Inner
     switch (src_val) {
         .none => return,
         .dead => unreachable,
+        .undef => {
+            if (!self.wantSafety()) return;
+            try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
+        },
         .immediate => {
-            const reg = try self.copyToTmpRegister(ty, src_val);
+            const reg = try self.register_manager.allocReg(null, gp);
+            const reg_lock = self.register_manager.lockReg(reg);
+            defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
+
+            try self.genSetReg(ty, reg, src_val);
+
             return self.genSetStack(ty, stack_offset, .{ .register = reg });
         },
         .register => |reg| {
@@ -2724,6 +2733,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) Inner
             // memcpy(src, dst, len)
             try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
         },
+
         else => return self.fail("TODO: genSetStack {s}", .{@tagName(src_val)}),
     }
 }
@@ -2826,9 +2836,34 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_val: MCValue) InnerError!
                     } },
                 });
             } else {
-                // li rd, immediate
-                // "Myriad sequences"
-                return self.fail("TODO genSetReg 33-64 bit immediates for riscv64", .{}); // glhf
+                const temp = try self.register_manager.allocReg(null, gp);
+                const maybe_temp_lock = self.register_manager.lockReg(temp);
+                defer if (maybe_temp_lock) |temp_lock| self.register_manager.unlockReg(temp_lock);
+
+                const lo32: i32 = @truncate(x);
+                const carry: i32 = if (lo32 < 0) 1 else 0;
+                const hi32: i32 = @truncate((x >> 32) +% carry);
+
+                try self.genSetReg(Type.i32, temp, .{ .immediate = @bitCast(@as(i64, lo32)) });
+                try self.genSetReg(Type.i32, reg, .{ .immediate = @bitCast(@as(i64, hi32)) });
+
+                _ = try self.addInst(.{
+                    .tag = .slli,
+                    .data = .{ .i_type = .{
+                        .imm12 = 32,
+                        .rd = reg,
+                        .rs1 = reg,
+                    } },
+                });
+
+                _ = try self.addInst(.{
+                    .tag = .add,
+                    .data = .{ .r_type = .{
+                        .rd = reg,
+                        .rs1 = reg,
+                        .rs2 = temp,
+                    } },
+                });
             }
         },
         .register => |src_reg| {
