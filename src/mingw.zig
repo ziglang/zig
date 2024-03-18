@@ -152,6 +152,7 @@ fn add_cc_args(
         "-D_CRTBLD",
         "-D_SYSCRT=1",
         "-DCRTDLL=1",
+        "-D_WIN32_WINNT=0x0f00",
         // According to Martin Storsjö,
         // > the files under mingw-w64-crt are designed to always
         // be built with __MSVCRT_VERSION__=0x700
