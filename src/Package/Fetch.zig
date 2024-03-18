@@ -461,7 +461,8 @@ fn runResource(
         };
         defer tmp_directory.handle.close();
 
-        try unpackResource(f, resource, uri_path, tmp_directory);
+        var errors = try unpackResource(f, resource, uri_path, tmp_directory);
+        defer errors.deinit();
 
         // Load, parse, and validate the unpacked build.zig.zon file. It is allowed
         // for the file to be missing, in which case this fetched package is
@@ -478,6 +479,9 @@ fn runResource(
         const filter: Filter = .{
             .include_paths = if (f.manifest) |m| m.paths else .{},
         };
+
+        try errors.remove(filter);
+        try f.emitUnpackErrors(&errors);
 
         // Compute the package hash based on the remaining files in the temporary
         // directory.
@@ -1032,7 +1036,7 @@ fn unpackResource(
     resource: *Resource,
     uri_path: []const u8,
     tmp_directory: Cache.Directory,
-) RunError!void {
+) RunError!Unpack.Errors {
     const eb = &f.error_bundle;
     const file_type = switch (resource.*) {
         .file => FileType.fromPath(uri_path) orelse
@@ -1096,15 +1100,15 @@ fn unpackResource(
         .dir => |dir| return try f.recursiveDirectoryCopy(dir, tmp_directory.handle, uri_path),
     };
 
-    switch (file_type) {
+    return switch (file_type) {
         .tar => try unpackTarball(f, tmp_directory.handle, resource.reader()),
-        .@"tar.gz" => {
+        .@"tar.gz" => brk: {
             const reader = resource.reader();
             var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
             var dcp = std.compress.gzip.decompressor(br.reader());
-            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            break :brk try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .@"tar.xz" => {
+        .@"tar.xz" => brk: {
             const gpa = f.arena.child_allocator;
             const reader = resource.reader();
             var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
@@ -1115,9 +1119,9 @@ fn unpackResource(
                 ));
             };
             defer dcp.deinit();
-            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            break :brk try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .@"tar.zst" => {
+        .@"tar.zst" => brk: {
             const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
             const window_buffer = try f.arena.allocator().create([window_size]u8);
             const reader = resource.reader();
@@ -1125,28 +1129,26 @@ fn unpackResource(
             var dcp = std.compress.zstd.decompressor(br.reader(), .{
                 .window_buffer = window_buffer,
             });
-            return unpackTarball(f, tmp_directory.handle, dcp.reader());
+            break :brk try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
         .git_pack => try unpackGitPack(f, tmp_directory.handle, resource),
-    }
+    };
 }
 
 const Unpack = @import("Unpack.zig");
 
-fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
+fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!Unpack.Errors {
     var unpack = Unpack.init(f.arena.child_allocator, out_dir);
-    defer unpack.deinit();
     unpack.tarball(reader) catch |err| return f.failMsg(
         err,
         "unable to unpack tarball to temporary directory: {s}",
         .{@errorName(err)},
     );
-    try f.checkUnpackErrors(&unpack);
+    return unpack.errors;
 }
 
-fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) RunError!void {
+fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) RunError!Unpack.Errors {
     var unpack = Unpack.init(f.arena.child_allocator, out_dir);
-    defer unpack.deinit();
 
     const want_oid = resource.git.want_oid;
     const reader = resource.git.fetch_stream.reader();
@@ -1155,18 +1157,17 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) RunError!void 
         "unable to unpack git files: {s}",
         .{@errorName(err)},
     );
-    try f.checkUnpackErrors(&unpack);
+    return unpack.errors;
 }
 
-fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, out_dir: fs.Dir, uri_path: []const u8) RunError!void {
+fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, out_dir: fs.Dir, uri_path: []const u8) RunError!Unpack.Errors {
     var unpack = Unpack.init(f.arena.child_allocator, out_dir);
-    defer unpack.deinit();
     unpack.directory(dir) catch |err| return f.failMsg(
         err,
         "unable to copy directory '{s}': {s}",
         .{ uri_path, @errorName(err) },
     );
-    try f.checkUnpackErrors(&unpack);
+    return unpack.errors;
 }
 
 fn failMsg(f: *Fetch, err: anyerror, comptime fmt: []const u8, args: anytype) RunError {
@@ -1177,18 +1178,18 @@ fn failMsg(f: *Fetch, err: anyerror, comptime fmt: []const u8, args: anytype) Ru
     }
 }
 
-fn checkUnpackErrors(f: *Fetch, unpack: *Unpack) RunError!void {
-    if (!unpack.hasErrors()) return;
+fn emitUnpackErrors(f: *Fetch, errors: *Unpack.Errors) RunError!void {
+    if (errors.count() == 0) return;
 
     const eb = &f.error_bundle;
-    const notes_len: u32 = @intCast(unpack.errors.items.len);
+    const notes_len: u32 = @intCast(errors.count());
     try eb.addRootErrorMessage(.{
         .msg = try eb.addString("unable to unpack"),
         .src_loc = try f.srcLoc(f.location_tok),
         .notes_len = notes_len,
     });
     const notes_start = try eb.reserveNotes(notes_len);
-    for (unpack.errors.items, notes_start..) |item, note_i| {
+    for (errors.list.items, notes_start..) |item, note_i| {
         switch (item) {
             .unable_to_create_sym_link => |info| {
                 eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
