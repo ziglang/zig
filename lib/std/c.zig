@@ -1881,6 +1881,7 @@ pub const FILE = opaque {};
 pub extern "c" fn dlopen(path: [*:0]const u8, mode: c_int) ?*anyopaque;
 pub extern "c" fn dlclose(handle: *anyopaque) c_int;
 pub extern "c" fn dlsym(handle: ?*anyopaque, symbol: [*:0]const u8) ?*anyopaque;
+pub extern "c" fn dlerror() ?[*:0]u8;
 
 pub extern "c" fn sync() void;
 pub extern "c" fn syncfs(fd: c_int) c_int;
