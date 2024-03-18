@@ -36,11 +36,13 @@ pub fn BufferedTee(
         wp: usize = 0, // writer pointer; data is sent to the output up to this position
 
         pub const Error = InputReaderType.Error || OutputWriterType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, readv);
 
         const Self = @This();
 
-        pub fn read(self: *Self, dest: []u8) Error!usize {
+        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+            const first = iov[0];
+            const dest = first.iov_base[0..first.iov_len];
             var dest_index: usize = 0;
 
             while (dest_index < dest.len) {
@@ -153,7 +155,7 @@ test "OneByte" {
 
         const Error = error{NoError};
         const Self = @This();
-        const Reader = io.Reader(*Self, Error, read);
+        const Reader = io.Reader(*Self, Error, readv);
 
         fn init(str: []const u8) Self {
             return Self{
@@ -162,7 +164,9 @@ test "OneByte" {
             };
         }
 
-        fn read(self: *Self, dest: []u8) Error!usize {
+        fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+            const first = iov[0];
+            const dest = first.iov_base[0..first.iov_len];
             if (self.str.len <= self.curr or dest.len == 0)
                 return 0;
 
@@ -226,11 +230,11 @@ test "Block" {
             .output = io.null_writer,
         };
         var out_buf: [4]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 
     // len out < block
@@ -240,13 +244,13 @@ test "Block" {
             .output = io.null_writer,
         };
         var out_buf: [3]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "012");
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "301");
-        const n = try test_buf_reader.read(&out_buf);
+        const n = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, out_buf[0..n], "23");
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 
     // len out > block
@@ -256,11 +260,11 @@ test "Block" {
             .output = io.null_writer,
         };
         var out_buf: [5]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "01230");
-        const n = try test_buf_reader.read(&out_buf);
+        const n = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, out_buf[0..n], "123");
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 
     // len out == 0
@@ -270,7 +274,7 @@ test "Block" {
             .output = io.null_writer,
         };
         var out_buf: [0]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "");
     }
 
@@ -281,11 +285,11 @@ test "Block" {
             .output = io.null_writer,
         };
         var out_buf: [4]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 }
 
@@ -301,7 +305,7 @@ test "with zero lookahead" {
     var buf: [16]u8 = undefined;
     var read_len: usize = 0;
     for (0..buf.len) |i| {
-        const n = try bt.read(buf[0..i]);
+        const n = try bt.reader().read(buf[0..i]);
         try testing.expectEqual(i, n);
         read_len += i;
         try testing.expectEqual(read_len, out.items.len);
@@ -321,7 +325,7 @@ test "with lookahead" {
 
         var read_len: usize = 0;
         for (1..buf.len) |i| {
-            const n = try bt.read(buf[0..i]);
+            const n = try bt.reader().read(buf[0..i]);
             try testing.expectEqual(i, n);
             read_len += i;
             const out_len = if (read_len < lookahead) 0 else read_len - lookahead;
@@ -342,14 +346,14 @@ test "internal state" {
     var bt = bufferedTee(8, 4, in.reader(), out.writer());
 
     var buf: [16]u8 = undefined;
-    var n = try bt.read(buf[0..3]);
+    var n = try bt.reader().read(buf[0..3]);
     try testing.expectEqual(3, n);
     try testing.expectEqualSlices(u8, data[0..3], buf[0..n]);
     try testing.expectEqual(8, bt.tail);
     try testing.expectEqual(3, bt.rp);
     try testing.expectEqual(0, out.items.len);
 
-    n = try bt.read(buf[0..6]);
+    n = try bt.reader().read(buf[0..6]);
     try testing.expectEqual(6, n);
     try testing.expectEqualSlices(u8, data[3..9], buf[0..n]);
     try testing.expectEqual(8, bt.tail);
@@ -357,7 +361,7 @@ test "internal state" {
     try testing.expectEqualSlices(u8, data[4..12], &bt.buf);
     try testing.expectEqual(5, out.items.len);
 
-    n = try bt.read(buf[0..9]);
+    n = try bt.reader().read(buf[0..9]);
     try testing.expectEqual(9, n);
     try testing.expectEqualSlices(u8, data[9..18], buf[0..n]);
     try testing.expectEqual(8, bt.tail);
@@ -369,7 +373,7 @@ test "internal state" {
     try testing.expectEqual(18, out.items.len);
 
     bt.putBack(4);
-    n = try bt.read(buf[0..4]);
+    n = try bt.reader().read(buf[0..4]);
     try testing.expectEqual(4, n);
     try testing.expectEqualSlices(u8, data[14..18], buf[0..n]);
 

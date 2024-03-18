@@ -298,7 +298,7 @@ test "stringify tuple" {
 fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions) !void {
     const ValidationWriter = struct {
         const Self = @This();
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.Writer(*Self, Error, writev);
         pub const Error = error{
             TooMuchData,
             DifferentData,
@@ -314,7 +314,9 @@ fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions
             return .{ .context = self };
         }
 
-        fn write(self: *Self, bytes: []const u8) Error!usize {
+        fn writev(self: *Self, iov: []std.os.iovec_const) Error!usize {
+            const first = iov[0];
+            const bytes = first.iov_base[0..first.iov_len];
             if (self.expected_remaining.len < bytes.len) {
                 std.debug.print(
                     \\====== expected this output: =========

@@ -64,6 +64,7 @@ const Cipher = union(enum) {
     handshake: HandshakeCipher,
 };
 
+// Useful mostly as reference or until std.io.Any* types don't type erase errors.
 pub const ReadError = anyerror || tls.Error || error{EndOfStream};
 pub const WriteError = anyerror || error{TlsEncodeError};
 
@@ -131,7 +132,7 @@ pub fn flush(self: *Self) WriteError!void {
 }
 
 /// Flush a change cipher spec message to the underlying stream.
-pub fn changeCipherSpec(self: *Self) WriteError!void {
+pub fn changeCipherSpec(self: *Self) !void {
     self.version = .tls_1_2;
 
     const plaintext = Plaintext{
@@ -156,8 +157,7 @@ pub fn writeError(self: *Self, err: Alert.Description) tls.Error {
     self.flush() catch {};
 
     self.close();
-    @panic("TODO: fixme");
-    // return err.toError();
+    return err.toError();
 }
 
 pub fn close(self: *Self) void {
@@ -169,13 +169,15 @@ pub fn close(self: *Self) void {
 }
 
 /// Write bytes to `stream`, potentially flushing once `self.buffer` is full.
-pub fn writeBytes(self: *Self, bytes: []const u8) WriteError!usize {
+pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+    const first = iov[0];
+    const bytes = first.iov_base[0..first.iov_len];
     if (self.nocommit > 0) return bytes.len;
 
     const available = self.buffer.len - self.view.len;
     const to_consume = bytes[0..@min(available, bytes.len)];
 
-    @memcpy(self.buffer[self.view.len..][0..bytes.len], to_consume);
+    @memcpy(self.buffer[self.view.len..][0..to_consume.len], to_consume);
     self.view = self.buffer[0 .. self.view.len + to_consume.len];
 
     if (self.view.len == self.buffer.len) try self.flush();
@@ -183,15 +185,7 @@ pub fn writeBytes(self: *Self, bytes: []const u8) WriteError!usize {
     return to_consume.len;
 }
 
-pub fn writeAll(self: *Self, bytes: []const u8) WriteError!usize {
-    var index: usize = 0;
-    while (index != bytes.len) {
-        index += try self.writeBytes(bytes[index..]);
-    }
-    return index;
-}
-
-pub fn writeArray(self: *Self, comptime PrefixT: type, comptime T: type, values: []const T) WriteError!usize {
+pub fn writeArray(self: *Self, comptime PrefixT: type, comptime T: type, values: []const T) !usize {
     var res: usize = 0;
     for (values) |v| res += self.length(T, v);
 
@@ -208,11 +202,18 @@ pub fn writeArray(self: *Self, comptime PrefixT: type, comptime T: type, values:
     return res;
 }
 
-pub fn write(self: *Self, comptime T: type, value: T) WriteError!usize {
+/// Returns number of bytes written. Convienent for encoding struct types in tls.zig .
+pub fn writeAll(self: *Self, bytes: []const u8) !usize {
+    try self.any().writer().writeAll(bytes);
+    return bytes.len;
+}
+
+pub fn write(self: *Self, comptime T: type, value: T) !usize {
     switch (@typeInfo(T)) {
         .Int, .Enum => {
             const encoded = Encoder.encode(T, value);
-            return try self.writeAll(&encoded);
+            try self.any().writer().writeAll(&encoded);
+            return encoded.len;
         },
         .Struct, .Union => {
             return try T.write(value, self);
@@ -240,10 +241,10 @@ pub fn arrayLength(
     return res;
 }
 
-/// Reads bytes from `view`, potentially reading more fragments from `stream`.
+/// Reads bytes from `view`, potentially reading more fragments from underlying `stream`.
 ///
 /// A return value of 0 indicates EOF.
-pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
+pub fn readv(self: *Self, iov: []std.os.iovec) ReadError!usize {
     // > Any data received after a closure alert has been received MUST be ignored.
     if (self.eof()) return 0;
 
@@ -251,7 +252,7 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
 
     var bytes_read: usize = 0;
 
-    for (buffers) |b| {
+    for (iov) |b| {
         var bytes_read_buffer: usize = 0;
         while (bytes_read_buffer != b.iov_len) {
             const to_read = @min(b.iov_len, self.view.len);
@@ -268,17 +269,10 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
     return bytes_read;
 }
 
-/// Reads bytes from `view`, potentially reading more fragments from `stream`.
-/// A return value of 0 indicates EOF.
-pub fn readBytes(self: *Self, buf: []u8) ReadError!usize {
-    const buffers = [_]std.os.iovec{.{ .iov_base = buf.ptr, .iov_len = buf.len }};
-    return try self.readv(&buffers);
-}
-
 /// Reads plaintext from `stream` into `buffer` and updates `view`.
 /// Skips non-fatal alert and change_cipher_spec messages.
 /// Will decrypt according to `encryptionMethod` if receiving application_data message.
-pub fn readPlaintext(self: *Self) ReadError!Plaintext {
+pub fn readPlaintext(self: *Self) !Plaintext {
     std.debug.assert(self.view.len == 0); // last read should have completed
     var plaintext_bytes: [Plaintext.size]u8 = undefined;
     var n_read: usize = 0;
@@ -299,26 +293,25 @@ pub fn readPlaintext(self: *Self) ReadError!Plaintext {
             if (res.len < self.ciphertextOverhead()) return self.writeError(.decode_error);
 
             switch (self.cipher) {
-                inline .handshake, .application => |*cipher| {
-                    switch (cipher.*) {
-                        inline else => |*c| {
-                            const C = @TypeOf(c.*);
-                            const tag_len = C.AEAD.tag_length;
+                inline .handshake, .application => |*cipher| switch (cipher.*) {
+                    inline else => |*c| {
+                        const C = @TypeOf(c.*);
+                        const tag_len = C.AEAD.tag_length;
 
-                            const ciphertext = self.view[0 .. self.view.len - tag_len];
-                            const tag = self.view[self.view.len - tag_len ..][0..tag_len].*;
-                            const out: []u8 = @constCast(self.view[0..ciphertext.len]);
-                            c.decrypt(ciphertext, &plaintext_bytes, tag, self.is_client, out) catch
-                                return self.writeError(.bad_record_mac);
-                            const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
-                            if (padding_start) |s| {
-                                res.type = @enumFromInt(self.view[s]);
-                                self.view = self.view[0..s];
-                            } else {
-                                return self.writeError(.decode_error);
-                            }
-                        },
-                    }
+                        const ciphertext = self.view[0 .. self.view.len - tag_len];
+                        const tag = self.view[self.view.len - tag_len ..][0..tag_len].*;
+                        const out: []u8 = @constCast(self.view[0..ciphertext.len]);
+                        c.decrypt(ciphertext, &plaintext_bytes, tag, self.is_client, out) catch
+                            return self.writeError(.bad_record_mac);
+
+                        const padding_start = std.mem.lastIndexOfNone(u8, out, &[_]u8{0});
+                        if (padding_start) |s| {
+                            res.type = @enumFromInt(self.view[s]);
+                            self.view = self.view[0..s];
+                        } else {
+                            return self.writeError(.decode_error);
+                        }
+                    },
                 },
                 else => unreachable,
             }
@@ -330,11 +323,19 @@ pub fn readPlaintext(self: *Self) ReadError!Plaintext {
                 const description = try self.read(Alert.Description);
                 std.log.debug("TLS alert {} {}", .{ level, description });
 
-                if (description == .close_notify) {
-                    self.closed = true;
-                    return res;
+                switch (description) {
+                    .close_notify => {
+                        self.closed = true;
+                        return res;
+                    },
+                    .certificate_revoked,
+                    .certificate_unknown,
+                    .certificate_expired,
+                    .certificate_required => {},
+                    else => {
+                        return self.writeError(.unexpected_message);
+                    }
                 }
-                if (level == .fatal) return self.writeError(.unexpected_message);
             },
             // > An implementation may receive an unencrypted record of type
             // > change_cipher_spec consisting of the single byte value 0x01 at any
@@ -353,14 +354,18 @@ pub fn readPlaintext(self: *Self) ReadError!Plaintext {
     }
 }
 
-pub fn readInnerPlaintext(self: *Self) ReadError!InnerPlaintext {
+pub fn readInnerPlaintext(self: *Self) !InnerPlaintext {
     var res: InnerPlaintext = .{
         .type = self.content_type,
         .handshake_type = if (self.handshake_type) |h| h else undefined,
-        .len = undefined,
+        .len = 0,
     };
+    if (self.closed) return res;
+
     if (self.view.len == 0) {
         const plaintext = try self.readPlaintext();
+        if (self.closed) return res;
+
         res.type = plaintext.type;
         res.len = plaintext.len;
 
@@ -383,7 +388,7 @@ pub fn expectInnerPlaintext(
     self: *Self,
     expected_content: ContentType,
     expected_handshake: ?HandshakeType,
-) ReadError!void {
+) !void {
     const inner_plaintext = try self.readInnerPlaintext();
     if (expected_content != inner_plaintext.type) {
         std.debug.print("expected {} got {}\n", .{ expected_content, inner_plaintext });
@@ -394,10 +399,10 @@ pub fn expectInnerPlaintext(
     }
 }
 
-pub fn read(self: *Self, comptime T: type) ReadError!T {
+pub fn read(self: *Self, comptime T: type) !T {
     comptime std.debug.assert(@sizeOf(T) < fragment_size);
     switch (@typeInfo(T)) {
-        .Int => return self.reader().readInt(T, .big) catch |err| switch (err) {
+        .Int => return self.any().reader().readInt(T, .big) catch |err| switch (err) {
             error.EndOfStream => return self.writeError(.decode_error),
             else => |e| return e,
         },
@@ -448,7 +453,7 @@ fn Iterator(comptime T: type) type {
         stream: *Self,
         end: usize,
 
-        pub fn next(self: *@This()) ReadError!?T {
+        pub fn next(self: *@This()) !?T {
             const cur_offset = self.stream.buffer.len - self.stream.view.len;
             if (cur_offset > self.end) return null;
             return try self.stream.read(T);
@@ -456,7 +461,7 @@ fn Iterator(comptime T: type) type {
     };
 }
 
-pub fn iterator(self: *Self, comptime Len: type, comptime Tag: type) ReadError!Iterator(Tag) {
+pub fn iterator(self: *Self, comptime Len: type, comptime Tag: type) !Iterator(Tag) {
     const offset = self.buffer.len - self.view.len;
     const len = try self.read(Len);
     return Iterator(Tag){
@@ -465,7 +470,7 @@ pub fn iterator(self: *Self, comptime Len: type, comptime Tag: type) ReadError!I
     };
 }
 
-pub fn extensions(self: *Self) ReadError!Iterator(Extension.Header) {
+pub fn extensions(self: *Self) !Iterator(Extension.Header) {
     return self.iterator(u16, Extension.Header);
 }
 
@@ -473,14 +478,9 @@ pub fn eof(self: Self) bool {
     return self.closed and self.view.len == 0;
 }
 
-pub const Reader = std.io.Reader(*Self, ReadError, readBytes);
-pub const Writer = std.io.Writer(*Self, WriteError, writeBytes);
+pub const GenericStream = std.io.GenericStream(*Self, ReadError, readv, WriteError, writev, close);
 
-pub fn reader(self: *Self) Reader {
-    return .{ .context = self };
-}
-
-pub fn writer(self: *Self) Writer {
+pub fn any(self: *Self) GenericStream {
     return .{ .context = self };
 }
 

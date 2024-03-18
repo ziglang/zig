@@ -220,10 +220,6 @@ pub const Parsed = struct {
         return p.slice(p.pub_key_slice);
     }
 
-    pub fn pubKeySigAlgo(p: Parsed) []const u8 {
-        return p.slice(p.pub_key_signature_algorithm_slice);
-    }
-
     pub fn message(p: Parsed) []const u8 {
         return p.slice(p.message_slice);
     }
@@ -973,7 +969,7 @@ pub const rsa = struct {
             comptime modulus_len: usize,
             msg: []const u8,
             comptime Hash: type,
-            private_key: PrivateKey,
+            private_key: SecretKey,
             salt: [Hash.digest_length]u8,
         ) ![modulus_len]u8 {
             const mod_bits = modulus_len * 8;
@@ -1273,12 +1269,12 @@ pub const rsa = struct {
         }
     };
 
-    pub const PrivateKey = struct {
+    pub const SecretKey = struct {
         public: PublicKey,
         /// private exponent
         d: Fe,
 
-        pub fn fromBytes(mod: []const u8, public: []const u8, private: []const u8) !PrivateKey {
+        pub fn fromBytes(mod: []const u8, public: []const u8, private: []const u8) !SecretKey {
             const _public = try PublicKey.fromBytes(mod, public);
 
             const _d = Fe.fromBytes(_public.n, private, .big) catch return error.CertificatePrivateKeyInvalid;
@@ -1288,7 +1284,7 @@ pub const rsa = struct {
         }
 
         // RFC8017 Appendix A.1.2
-        pub fn fromDer(bytes: []const u8) !PrivateKey {
+        pub fn fromDer(bytes: []const u8) !SecretKey {
             const seq = try der.Element.parse(bytes, 0);
             if (seq.identifier.tag != .sequence) return error.PrivateKeyWrongDataType;
 
@@ -1312,7 +1308,7 @@ pub const rsa = struct {
             return try fromBytes(modulus, pub_exponent, priv_exponent);
         }
 
-        fn decrypt(self: PrivateKey, comptime modulus_len: usize, msg: [modulus_len]u8) ![modulus_len]u8 {
+        fn decrypt(self: SecretKey, comptime modulus_len: usize, msg: [modulus_len]u8) ![modulus_len]u8 {
             const m = Fe.fromBytes(self.public.n, &msg, .big) catch return error.MessageTooLong;
             const e = self.public.n.pow(m, self.d) catch unreachable;
             var res: [modulus_len]u8 = undefined;

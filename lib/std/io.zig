@@ -11,6 +11,8 @@ const mem = std.mem;
 const meta = std.meta;
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
+const iovec = std.os.iovec;
+const iovec_const = std.os.iovec_const;
 
 fn getStdOutHandle() os.fd_t {
     if (builtin.os.tag == .windows) {
@@ -78,7 +80,7 @@ pub fn GenericReader(
     /// Returns the number of bytes read. It may be less than buffer.len.
     /// If the number of bytes read is 0, it means end of stream.
     /// End of stream is not an error condition.
-    comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
+    comptime readvFn: fn (context: Context, iov: []iovec) ReadError!usize,
 ) type {
     return struct {
         context: Context,
@@ -88,8 +90,12 @@ pub fn GenericReader(
             EndOfStream,
         };
 
+        pub inline fn readv(self: Self, iov: []iovec) Error!usize {
+            return readvFn(self.context, iov);
+        }
+
         pub inline fn read(self: Self, buffer: []u8) Error!usize {
-            return readFn(self.context, buffer);
+            return @errorCast(self.any().read(buffer));
         }
 
         pub inline fn readAll(self: Self, buffer: []u8) Error!usize {
@@ -283,18 +289,24 @@ pub fn GenericReader(
             return @errorCast(self.any().readEnum(Enum, endian));
         }
 
+        /// Reads the stream until the end, ignoring all the data.
+        /// Returns the number of bytes discarded.
+        pub inline fn discard(self: Self) anyerror!u64 {
+            return @errorCast(self.any().discard());
+        }
+
         pub inline fn any(self: *const Self) AnyReader {
             return .{
                 .context = @ptrCast(&self.context),
-                .readFn = typeErasedReadFn,
+                .readvFn = typeErasedReadvFn,
             };
         }
 
         const Self = @This();
 
-        fn typeErasedReadFn(context: *const anyopaque, buffer: []u8) anyerror!usize {
+        fn typeErasedReadvFn(context: *const anyopaque, iov: []iovec) anyerror!usize {
             const ptr: *const Context = @alignCast(@ptrCast(context));
-            return readFn(ptr.*, buffer);
+            return readvFn(ptr.*, iov);
         }
     };
 }
@@ -302,7 +314,7 @@ pub fn GenericReader(
 pub fn GenericWriter(
     comptime Context: type,
     comptime WriteError: type,
-    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
+    comptime writevFn: fn (context: Context, iov: []iovec_const) WriteError!usize,
 ) type {
     return struct {
         context: Context,
@@ -310,8 +322,16 @@ pub fn GenericWriter(
         const Self = @This();
         pub const Error = WriteError;
 
+        pub inline fn writev(self: Self, iov: []iovec_const) Error!usize {
+            return writevFn(self.context, iov);
+        }
+
+        pub inline fn writevAll(self: Self, iov: []iovec_const) Error!void {
+            return @errorCast(self.any().writevAll(iov));
+        }
+
         pub inline fn write(self: Self, bytes: []const u8) Error!usize {
-            return writeFn(self.context, bytes);
+            return @errorCast(self.any().write(bytes));
         }
 
         pub inline fn writeAll(self: Self, bytes: []const u8) Error!void {
@@ -345,13 +365,13 @@ pub fn GenericWriter(
         pub inline fn any(self: *const Self) AnyWriter {
             return .{
                 .context = @ptrCast(&self.context),
-                .writeFn = typeErasedWriteFn,
+                .writevFn = typeErasedWritevFn,
             };
         }
 
-        fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
+        fn typeErasedWritevFn(context: *const anyopaque, iov: []iovec_const) anyerror!usize {
             const ptr: *const Context = @alignCast(@ptrCast(context));
-            return writeFn(ptr.*, bytes);
+            return writevFn(ptr.*, iov);
         }
     };
 }
@@ -362,16 +382,16 @@ pub fn GenericStream(
     /// Returns the number of bytes read. It may be less than buffer.len.
     /// If the number of bytes read is 0, it means end of stream.
     /// End of stream is not an error condition.
-    comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
+    comptime readvFn: fn (context: Context, iov: []iovec) ReadError!usize,
     comptime WriteError: type,
-    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
+    comptime writevFn: fn (context: Context, iov: []iovec_const) WriteError!usize,
     comptime closeFn: fn (context: Context) void,
 ) type {
     return struct {
         context: Context,
 
-        const ReaderType = GenericReader(Context, ReadError, readFn);
-        const WriterType = GenericWriter(Context, WriteError, writeFn);
+        const ReaderType = GenericReader(Context, ReadError, readvFn);
+        const WriterType = GenericWriter(Context, WriteError, writevFn);
 
         const Self = @This();
 
@@ -390,8 +410,8 @@ pub fn GenericStream(
         pub inline fn any(self: *const Self) AnyStream {
             return .{
                 .context = @ptrCast(&self.context),
-                .readFn = self.reader().any().readFn,
-                .writeFn = self.writer().any().writeFn,
+                .readvFn = self.reader().any().readvFn,
+                .writevFn = self.writer().any().writevFn,
                 .closeFn = typeErasedCloseFn,
             };
         }
@@ -467,10 +487,12 @@ pub const tty = @import("io/tty.zig");
 /// A Writer that doesn't write to anything.
 pub const null_writer = @as(NullWriter, .{ .context = {} });
 
-const NullWriter = Writer(void, error{}, dummyWrite);
-fn dummyWrite(context: void, data: []const u8) error{}!usize {
+const NullWriter = Writer(void, error{}, dummyWritev);
+fn dummyWritev(context: void, iov: []std.os.iovec_const) error{}!usize {
     _ = context;
-    return data.len;
+    var written: usize = 0;
+    for (iov) |v| written += v.iov_len;
+    return written;
 }
 
 test "null_writer" {
@@ -746,6 +768,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = AnyReader;
     _ = AnyWriter;
+    _ = AnyStream;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");

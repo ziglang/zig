@@ -126,7 +126,7 @@ pub fn send_hello(self: *Self, key_pairs: KeyPairs) !void {
 
 pub fn recv_hello(self: *Self, key_pairs: KeyPairs) !void {
     var stream = &self.stream;
-    var r = stream.reader();
+    var r = stream.any().reader();
 
     // > The value of TLSPlaintext.legacy_record_version MUST be ignored by all implementations.
     _ = try stream.read(tls.Version);
@@ -239,7 +239,7 @@ pub fn recv_hello(self: *Self, key_pairs: KeyPairs) !void {
 
 pub fn recv_encrypted_extensions(self: *Self) !void {
     var stream = &self.stream;
-    var r = stream.reader();
+    var r = stream.any().reader();
 
     var iter = try stream.extensions();
     while (try iter.next()) |ext| {
@@ -252,7 +252,7 @@ pub fn recv_encrypted_extensions(self: *Self) !void {
 /// Caller owns allocated Certificate.Parsed.certificate.
 pub fn recv_certificate(self: *Self) !Certificate.Parsed {
     var stream = &self.stream;
-    var r = stream.reader();
+    var r = stream.any().reader();
     const allocator = self.options.allocator;
     const ca_bundle = self.options.ca_bundle;
     const verify = ca_bundle != null;
@@ -315,7 +315,7 @@ pub fn recv_certificate(self: *Self) !Certificate.Parsed {
 
 pub fn recv_certificate_verify(self: *Self, digest: []const u8, cert: Certificate.Parsed) !void {
     var stream = &self.stream;
-    var r = stream.reader();
+    var r = stream.any().reader();
     const allocator = self.options.allocator;
 
     const sig_content = tls.sigContent(digest);
@@ -385,7 +385,7 @@ pub fn recv_certificate_verify(self: *Self, digest: []const u8, cert: Certificat
 
 pub fn recv_finished(self: *Self, digest: []const u8) !void {
     var stream = &self.stream;
-    var r = stream.reader();
+    var r = stream.any().reader();
     const cipher = stream.cipher.handshake;
 
     switch (cipher) {
@@ -434,7 +434,7 @@ pub const ReadError = anyerror;
 pub const WriteError = anyerror;
 
 /// Reads next application_data message.
-pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
+pub fn readv(self: *Self, buffers: []std.os.iovec) ReadError!usize {
     var stream = &self.stream;
 
     if (stream.eof()) return 0;
@@ -446,7 +446,7 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
                 switch (inner_plaintext.handshake_type) {
                     // A multithreaded client could use these.
                     .new_session_ticket => {
-                        try stream.reader().skipBytes(inner_plaintext.len, .{});
+                        try stream.any().reader().skipBytes(inner_plaintext.len, .{});
                     },
                     .key_update => {
                         switch (stream.cipher.application) {
@@ -476,22 +476,18 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
                     else => return stream.writeError(.unexpected_message),
                 }
             },
+            .alert => {},
             .application_data => {},
             else => return stream.writeError(.unexpected_message),
         }
     }
-    return try self.stream.readv(buffers);
+    return try stream.readv(buffers);
 }
 
-pub fn read(self: *Self, buf: []u8) ReadError!usize {
-    const buffers = [_]std.os.iovec{.{ .iov_base = buf.ptr, .iov_len = buf.len }};
-    return try self.readv(&buffers);
-}
-
-pub fn write(self: *Self, buf: []const u8) WriteError!usize {
+pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
     if (self.stream.eof()) return 0;
 
-    const res = try self.stream.writeBytes(buf);
+    const res = try self.stream.writev(iov);
     try self.stream.flush();
     return res;
 }
@@ -500,14 +496,9 @@ pub fn close(self: *Self) void {
     self.stream.close();
 }
 
-pub const Reader = std.io.Reader(*Self, ReadError, read);
-pub const Writer = std.io.Writer(*Self, WriteError, write);
+pub const GenericStream = std.io.GenericStream(*Self, ReadError, readv, WriteError, writev, close);
 
-pub fn reader(self: *Self) Reader {
-    return .{ .context = self };
-}
-
-pub fn writer(self: *Self) Writer {
+pub fn any(self: *Self) GenericStream {
     return .{ .context = self };
 }
 
@@ -604,7 +595,8 @@ pub const KeyPairs = struct {
     }
 };
 
-/// A command to send or receive a single message. Allows testing `advance` on a single thread.
+/// A command to send or receive a single message. Allows deterministically
+/// testing `advance` on a single thread.
 pub const Command = union(enum) {
     send_hello: KeyPairs,
     recv_hello: KeyPairs,

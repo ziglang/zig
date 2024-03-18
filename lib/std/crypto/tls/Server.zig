@@ -16,17 +16,37 @@ const Self = @This();
 /// Initiates a TLS handshake and establishes a TLSv1.3 session
 pub fn init(stream: std.io.AnyStream, options: Options) !Self {
     var transcript_hash: tls.MultiHash = .{};
-    var stream_ = tls.Stream{
+    const stream_ = tls.Stream{
         .stream = stream,
         .is_client = false,
         .transcript_hash = &transcript_hash,
     };
     var res = Self{ .stream = stream_, .options = options };
-    const client_hello = try res.recv_hello(&stream_);
-    _ = client_hello;
 
-    var command = Command{ .recv_hello = {} };
-    while (command != .none) command = try res.next(command);
+    // Verify that the certificate key matches the certificate.
+    const cert_buf = Certificate{ .buffer = options.certificate.entries[0].data, .index = 0 };
+    // TODO: don't reparse cert in send_certificate_verify
+    const cert = try cert_buf.parse();
+    const expected: std.meta.Tag(Options.CertificateKey) = switch (cert.pub_key_algo) {
+        .rsaEncryption => .rsa,
+        .X9_62_id_ecPublicKey => |curve| switch (curve) {
+            .X9_62_prime256v1 => .ecdsa256,
+            .secp384r1 => .ecdsa384,
+            else => return error.UnsupportedCertificateSignature,
+        },
+        .curveEd25519 => .ed25519,
+    };
+    if (expected != options.certificate_key) return error.CertificateKeyMismatch;
+    // TODO: verify private key corresponds to public key
+
+    const cmd_init = Command{ .recv_hello = {} };
+    var command = cmd_init;
+    while (command != .none) {
+        command = res.next(command) catch |err| switch (err) {
+            error.ConnectionResetByPeer => cmd_init,
+            else => return err,
+        };
+    }
 
     return res;
 }
@@ -87,7 +107,7 @@ pub fn next(self: *Self, command: Command) !Command {
 
 pub fn recv_hello(self: *Self) !ClientHello {
     var stream = &self.stream;
-    var reader = stream.reader();
+    var reader = stream.any().reader();
 
     try stream.expectInnerPlaintext(.handshake, .client_hello);
 
@@ -142,9 +162,8 @@ pub fn recv_hello(self: *Self) !ClientHello {
 
                 var key_share_iter = try stream.iterator(u16, tls.KeyShare);
                 while (try key_share_iter.next()) |ks| {
-                    switch (ks) {
-                        .x25519 => key_share = ks,
-                        else => {},
+                    for (self.options.key_shares) |s| {
+                        if (ks == s and key_share == null) key_share = ks;
                     }
                 }
             },
@@ -155,9 +174,20 @@ pub fn recv_hello(self: *Self) !ClientHello {
                 }
             },
             .signature_algorithms => {
+                const acceptable = switch (self.options.certificate_key) {
+                    .rsa => &[_]tls.SignatureScheme{
+                        .rsa_pss_rsae_sha384,
+                        .rsa_pss_rsae_sha256,
+                    },
+                    .ecdsa256 => &[_]tls.SignatureScheme{ .ecdsa_secp256r1_sha256 },
+                    .ecdsa384 => &[_]tls.SignatureScheme{ .ecdsa_secp384r1_sha384 },
+                    .ed25519 => &[_]tls.SignatureScheme{ .ed25519 },
+                };
                 var algos_iter = try stream.iterator(u16, tls.SignatureScheme);
                 while (try algos_iter.next()) |algo| {
-                    if (algo == .rsa_pss_rsae_sha256) sig_scheme = algo;
+                    for (acceptable) |a| {
+                        if (algo == a and sig_scheme == null) sig_scheme = algo;
+                    }
                 }
             },
             else => {
@@ -174,8 +204,17 @@ pub fn recv_hello(self: *Self) !ClientHello {
     var server_random: [32]u8 = undefined;
     crypto.random.bytes(&server_random);
 
-    const key_pair = .{
-        .x25519 = crypto.dh.X25519.KeyPair.create(server_random) catch unreachable,
+    const key_pair: tls.KeyPair = switch (key_share.?) {
+        inline
+            .secp256r1,
+            .secp384r1,
+            .x25519,
+            .x25519_kyber768d00,
+        =>  |_, tag| brk: {
+            const pair = tls.NamedGroupT(tag).KeyPair.create(null) catch unreachable;
+            break :brk @unionInit(tls.KeyPair, @tagName(tag), pair);
+        },
+        else => return stream.writeError(.decode_error),
     };
 
     return .{
@@ -266,68 +305,66 @@ pub fn send_certificate_verify(self: *Self, verify: Command.CertificateVerify) !
     const digest = stream.transcript_hash.?.peek();
     const sig_content = tls.sigContent(digest);
 
-    const key = self.options.certificate_key;
-    const cert_buf = Certificate{ .buffer = self.options.certificate.entries[0].data, .index = 0 };
-    const cert = cert_buf.parse() catch return stream.writeError(.bad_certificate);
-
     const signature: []const u8 = switch (verify.scheme) {
-        // inline .ecdsa_secp256r1_sha256,
-        // .ecdsa_secp384r1_sha384,
-        // => |comptime_scheme| {
-        //     if (cert.pub_key_algo != .X9_62_id_ecPublicKey)
-        //         return stream.writeError(.bad_certificate);
-        //     const Ecdsa = comptime_scheme.Ecdsa();
-        //     const sig = Ecdsa.Signature.fromDer(sig_bytes) catch
-        //         return stream.writeError(.decode_error);
-        //     const key = Ecdsa.PublicKey.fromSec1(cert.pubKey()) catch
-        //         return stream.writeError(.decode_error);
-        //     sig.verify(sig_content, key) catch return stream.writeError(.bad_certificate);
-        // },
+        inline .ecdsa_secp256r1_sha256, .ecdsa_secp384r1_sha384 => |comptime_scheme| brk: {
+             const Ecdsa = comptime_scheme.Ecdsa();
+             const key = switch (comptime_scheme) {
+                 .ecdsa_secp256r1_sha256 => self.options.certificate_key.ecdsa256,
+                 .ecdsa_secp384r1_sha384 => self.options.certificate_key.ecdsa384,
+                 else => unreachable,
+             };
+
+             var signer = Ecdsa.Signer.init(key, verify.salt[0..Ecdsa.noise_length].*);
+             signer.update(sig_content);
+             const sig = signer.finalize() catch return stream.writeError(.internal_error);
+             break :brk &sig.toBytes();
+        },
         inline .rsa_pss_rsae_sha256,
         .rsa_pss_rsae_sha384,
         .rsa_pss_rsae_sha512,
         => |comptime_scheme| brk: {
-            if (cert.pub_key_algo != .rsaEncryption)
-                return stream.writeError(.bad_certificate);
-
             const Hash = comptime_scheme.Hash();
-            const rsa = Certificate.rsa;
-            // if (!std.mem.eql(u8, cert.pubKey(), key.public))
-            //     return stream.writeError(.bad_certificate);
+            const key = self.options.certificate_key.rsa;
 
             switch (key.public.n.bits() / 8) {
                 inline 128, 256, 512 => |modulus_length| {
-                    break :brk &(rsa.PSSSignature.sign(
+                    const sig  = Certificate.rsa.PSSSignature.sign(
                         modulus_length,
                         sig_content,
                         Hash,
                         key,
                        verify.salt[0..Hash.digest_length].*,
-                    ) catch return stream.writeError(.bad_certificate));
+                    ) catch return stream.writeError(.bad_certificate);
+                    break :brk &sig;
                 },
                 else => return stream.writeError(.bad_certificate),
             }
         },
-        // inline .ed25519 => |comptime_scheme| {
-        //     if (cert.pub_key_algo != .curveEd25519)
-        //         return stream.writeError(.bad_certificate);
-        //     const Eddsa = comptime_scheme.Eddsa();
-        //     if (sig_content.len != Eddsa.Signature.encoded_length)
-        //         return stream.writeError(.decode_error);
-        //     const sig = Eddsa.Signature.fromBytes(sig_bytes[0..Eddsa.Signature.encoded_length].*);
-        //     if (cert.pubKey().len != Eddsa.PublicKey.encoded_length)
-        //         return stream.writeError(.decode_error);
-        //     const key = Eddsa.PublicKey.fromBytes(cert.pubKey()[0..Eddsa.PublicKey.encoded_length].*) catch
-        //         return stream.writeError(.bad_certificate);
-        //     sig.verify(sig_content, key) catch return stream.writeError(.bad_certificate);
-        // },
+        .ed25519 => brk: {
+            const Ed25519 = crypto.sign.Ed25519;
+            const key = self.options.certificate_key.ed25519;
+
+            const pub_key = brk2: {
+                const cert_buf = Certificate{ .buffer = self.options.certificate.entries[0].data, .index = 0 };
+                const cert = try cert_buf.parse();
+                const expected_len = Ed25519.PublicKey.encoded_length;
+                if (cert.pubKey().len != expected_len) return stream.writeError(.bad_certificate);
+                break :brk2 Ed25519.PublicKey.fromBytes(cert.pubKey()[0..expected_len].*) catch
+                    return stream.writeError(.bad_certificate);
+            };
+            const nonce: Ed25519.CompressedScalar = verify.salt[0..Ed25519.noise_length].*;
+
+            const key_pair = Ed25519.KeyPair{ .public_key = pub_key, .secret_key = key };
+            const sig = key_pair.sign(sig_content, nonce) catch return stream.writeError(.internal_error);
+            break :brk &sig.toBytes();
+        },
         else => {
             return stream.writeError(.bad_certificate);
         },
     };
 
     _ = try self.stream.write(tls.Handshake, .{ .certificate_verify = tls.CertificateVerify{
-        .algorithm = .rsa_pss_rsae_sha256,
+        .algorithm = verify.scheme,
         .signature = signature,
     } });
     try stream.flush();
@@ -336,23 +373,21 @@ pub fn send_certificate_verify(self: *Self, verify: Command.CertificateVerify) !
 pub fn send_finished(self: *Self) !void {
     var stream = &self.stream;
     const verify_data = switch (stream.cipher.handshake) {
-        inline .aes_256_gcm_sha384,
-        => |v| brk: {
+        inline else => |v| brk: {
             const T = @TypeOf(v);
             const secret = v.server_finished_key;
             const transcript_hash = stream.transcript_hash.?.peek();
 
-            break :brk tls.hmac(T.Hmac, transcript_hash, secret);
+            break :brk &tls.hmac(T.Hmac, transcript_hash, secret);
         },
-        else => return stream.writeError(.illegal_parameter),
     };
-    _ = try stream.write(tls.Handshake, .{ .finished = &verify_data });
+    _ = try stream.write(tls.Handshake, .{ .finished = verify_data });
     try stream.flush();
 }
 
 pub fn recv_finished(self: *Self) !void {
     var stream = &self.stream;
-    var reader = stream.reader();
+    var reader = stream.any().reader();
 
     const handshake_hash = stream.transcript_hash.?.peek();
 
@@ -381,14 +416,64 @@ pub fn recv_finished(self: *Self) !void {
     stream.transcript_hash = null;
 }
 
+pub const ReadError = anyerror;
+pub const WriteError = anyerror;
+
+/// Reads next application_data message.
+pub fn readv(self: *Self, buffers: []std.os.iovec) ReadError!usize {
+    var stream = &self.stream;
+
+    if (stream.eof()) return 0;
+
+    while (stream.view.len == 0) {
+        const inner_plaintext = try stream.readInnerPlaintext();
+        switch (inner_plaintext.type) {
+            .application_data => {},
+            .alert => {},
+            else => return stream.writeError(.unexpected_message),
+        }
+    }
+    return try self.stream.readv(buffers);
+}
+
+pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+    if (self.stream.eof()) return 0;
+
+    const res = try self.stream.writev(iov);
+    try self.stream.flush();
+    return res;
+}
+
+pub fn close(self: *Self) void {
+    self.stream.close();
+}
+
+pub const GenericStream = std.io.GenericStream(*Self, ReadError, readv, WriteError, writev, close);
+
+pub fn any(self: *Self) GenericStream {
+    return .{ .context = self };
+}
+
 pub const Options = struct {
     /// List of potential cipher suites in descending order of preference.
     cipher_suites: []const tls.CipherSuite = &tls.default_cipher_suites,
+    /// Types of shared keys to accept from client.
+    key_shares: []const tls.NamedGroup = &tls.supported_groups,
+    /// Certificate(s) to send in `send_certificate` messages.
     certificate: tls.Certificate,
-    certificate_key: Certificate.rsa.PrivateKey,
+   /// Key to use in `send_certificate_verify`. Must match `certificate.parse().pub_key_algo`.
+    certificate_key: CertificateKey,
+
+    pub const CertificateKey = union(enum) {
+        rsa: crypto.Certificate.rsa.SecretKey,
+        ecdsa256: tls.NamedGroupT(.secp256r1).SecretKey,
+        ecdsa384: tls.NamedGroupT(.secp384r1).SecretKey,
+        ed25519: crypto.sign.Ed25519.SecretKey,
+    };
 };
 
-/// A command to send or receive a single message. Allows testing `advance` on a single thread.
+/// A command to send or receive a single message. Allows deterministically
+/// testing `advance` on a single thread.
 pub const Command = union(enum) {
     recv_hello: void,
     send_hello: ClientHello,

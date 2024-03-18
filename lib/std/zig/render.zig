@@ -3335,7 +3335,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
     return struct {
         const Self = @This();
         pub const WriteError = UnderlyingWriter.Error;
-        pub const Writer = std.io.Writer(*Self, WriteError, write);
+        pub const Writer = std.io.Writer(*Self, WriteError, writev);
 
         underlying_writer: UnderlyingWriter,
 
@@ -3361,12 +3361,15 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             return .{ .context = self };
         }
 
-        pub fn write(self: *Self, bytes: []const u8) WriteError!usize {
-            if (bytes.len == 0)
-                return @as(usize, 0);
+        pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+            var n_written: usize = 0;
+            for (iov) |v| {
+                if (v.iov_len == 0) return n_written;
 
-            try self.applyIndent();
-            return self.writeNoIndent(bytes);
+                try self.applyIndent();
+                n_written += try self.writeNoIndent(v.iov_base[0..v.iov_len]);
+            }
+            return n_written;
         }
 
         // Change the indent delta without changing the final indentation level

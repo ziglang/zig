@@ -344,7 +344,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                 "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
         else
-            std.io.Writer(*Self, Allocator.Error, appendWrite);
+            std.io.Writer(*Self, Allocator.Error, appendWritev);
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self) Writer {
@@ -354,9 +354,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Same as `append` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
         /// Invalidates element pointers if additional memory is needed.
-        fn appendWrite(self: *Self, m: []const u8) Allocator.Error!usize {
-            try self.appendSlice(m);
-            return m.len;
+        fn appendWritev(self: *Self, iov: []std.os.iovec_const) Allocator.Error!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                try self.appendSlice(v.iov_base[0..v.iov_len]);
+                written += v.iov_len;
+            }
+            return written;
         }
 
         /// Append a value to the list `n` times.
@@ -930,7 +934,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             @compileError("The Writer interface is only defined for ArrayList(u8) " ++
                 "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
         else
-            std.io.Writer(WriterContext, Allocator.Error, appendWrite);
+            std.io.Writer(WriterContext, Allocator.Error, appendWritev);
 
         /// Initializes a Writer which will append to the list.
         pub fn writer(self: *Self, allocator: Allocator) Writer {
@@ -941,12 +945,16 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// which is always the same as `m.len`. The purpose of this function
         /// existing is to match `std.io.Writer` API.
         /// Invalidates element pointers if additional memory is needed.
-        fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
-            try context.self.appendSlice(context.allocator, m);
-            return m.len;
+        fn appendWritev(context: WriterContext, iov: []std.os.iovec_const) Allocator.Error!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                try context.self.appendSlice(context.allocator, v.iov_base[0..v.iov_len]);
+                written += v.iov_len;
+            }
+            return written;
         }
 
-        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWritevFixed);
 
         /// Initializes a Writer which will append to the list but will return
         /// `error.OutOfMemory` rather than increasing capacity.
@@ -955,13 +963,18 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
-            const available_capacity = self.capacity - self.items.len;
-            if (m.len > available_capacity)
-                return error.OutOfMemory;
+        fn appendWritevFixed(self: *Self, iov: []std.os.iovec_const) error{OutOfMemory}!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                const m = v.iov_base[0..v.iov_len];
+                const available_capacity = self.capacity - self.items.len;
+                if (m.len > available_capacity)
+                    return error.OutOfMemory;
 
-            self.appendSliceAssumeCapacity(m);
-            return m.len;
+                self.appendSliceAssumeCapacity(m);
+                written += m.len;
+            }
+            return written;
         }
 
         /// Append a value to the list `n` times.

@@ -1195,7 +1195,7 @@ pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     }
 }
 
-pub const WriteError = error{
+pub const WriteError = anyerror || error{
     DiskQuota,
     FileTooBig,
     InputOutput,

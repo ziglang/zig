@@ -16,7 +16,7 @@ pub fn PeekStream(
         fifo: FifoType,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, readv);
 
         const Self = @This();
         const FifoType = std.fifo.LinearFifo(u8, buffer_type);
@@ -59,13 +59,17 @@ pub fn PeekStream(
             try self.fifo.unget(bytes);
         }
 
-        pub fn read(self: *Self, dest: []u8) Error!usize {
-            // copy over anything putBack()'d
-            var dest_index = self.fifo.read(dest);
-            if (dest_index == dest.len) return dest_index;
+        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+            var dest_index: usize = 0;
+            for (iov) |v| {
+                const dest = v.iov_base[0..v.iov_len];
+                // copy over anything putBack()'d
+                dest_index = self.fifo.read(dest);
+                if (dest_index == dest.len) return dest_index;
 
-            // ask the backing stream for more
-            dest_index += try self.unbuffered_reader.read(dest[dest_index..]);
+                // ask the backing stream for more
+                dest_index += try self.unbuffered_reader.read(dest[dest_index..]);
+            }
             return dest_index;
         }
 

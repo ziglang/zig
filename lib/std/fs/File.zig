@@ -1441,13 +1441,13 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
     }
 }
 
-pub const Reader = io.Reader(File, ReadError, read);
+pub const Reader = io.Reader(File, ReadError, readv);
 
 pub fn reader(file: File) Reader {
     return .{ .context = file };
 }
 
-pub const Writer = io.Writer(File, WriteError, write);
+pub const Writer = io.Writer(File, WriteError, writev);
 
 pub fn writer(file: File) Writer {
     return .{ .context = file };

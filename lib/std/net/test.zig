@@ -189,17 +189,17 @@ test "listen on a port, send bytes, receive bytes" {
             const socket = try net.tcpConnectToAddress(server_address);
             defer socket.close();
 
-            _ = try socket.writer().writeAll("Hello world!");
+            _ = try socket.any().writer().writeAll("Hello world!");
         }
     };
 
     const t = try std.Thread.spawn(.{}, S.clientFn, .{server.listen_address});
     defer t.join();
 
-    var client = try server.accept();
-    defer client.stream.close();
+    var client = try server.accept(null);
+    defer client.stream().close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    const n = try client.stream().reader().read(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -247,7 +247,7 @@ fn testClient(addr: net.Address) anyerror!void {
 fn testServer(server: *net.Server) anyerror!void {
     if (builtin.os.tag == .wasi) return error.SkipZigTest;
 
-    var client = try server.accept();
+    var client = try server.accept(null);
 
     const stream = client.stream.writer();
     try stream.print("hello from server\n", .{});
@@ -280,17 +280,17 @@ test "listen on a unix socket, send bytes, receive bytes" {
             const socket = try net.connectUnixSocket(path);
             defer socket.close();
 
-            _ = try socket.writer().writeAll("Hello world!");
+            _ = try socket.any().writer().writeAll("Hello world!");
         }
     };
 
     const t = try std.Thread.spawn(.{}, S.clientFn, .{socket_path});
     defer t.join();
 
-    var client = try server.accept();
-    defer client.stream.close();
+    var client = try server.accept(null);
+    defer client.stream().close();
     var buf: [16]u8 = undefined;
-    const n = try client.stream.reader().read(&buf);
+    const n = try client.stream().reader().read(&buf);
 
     try testing.expectEqual(@as(usize, 12), n);
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
@@ -317,13 +317,13 @@ test "non-blocking tcp server" {
     var server = localhost.listen(.{ .force_nonblocking = true });
     defer server.deinit();
 
-    const accept_err = server.accept();
+    const accept_err = server.accept(null);
     try testing.expectError(error.WouldBlock, accept_err);
 
     const socket_file = try net.tcpConnectToAddress(server.listen_address);
     defer socket_file.close();
 
-    var client = try server.accept();
+    var client = try server.accept(null);
     defer client.stream.close();
     const stream = client.stream.writer();
     try stream.print("hello from server\n", .{});

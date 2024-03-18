@@ -10,6 +10,7 @@ const posix = std.posix;
 const fs = std.fs;
 const io = std.io;
 const native_endian = builtin.target.cpu.arch.endian();
+const tls = std.crypto.tls;
 
 // Windows 10 added support for unix sockets in build 17063, redstone 4 is the
 // first release to support them.
@@ -264,10 +265,6 @@ pub const Address = extern union {
         try posix.getsockname(sockfd, &s.listen_address.any, &socklen);
         return s;
     }
-
-    // The returned `Server` has an open `stream`.
-    // pub fn listenTls(address: Address, options: ListenOptions) ListenError!Server {
-    // }
 };
 
 pub const Ip4Address = extern struct {
@@ -1804,29 +1801,10 @@ pub const Stream = struct {
 
     pub const ReadError = os.ReadError;
     pub const WriteError = os.WriteError;
+    pub const GenericStream = io.GenericStream(Stream, ReadError, readv, WriteError, writev, close);
 
-    pub const Reader = io.GenericReader(Stream, ReadError, read);
-    pub const Writer = io.GenericWriter(Stream, WriteError, write);
-    pub const GenericStream = io.GenericStream(Stream, ReadError, read, WriteError, write, close);
-
-    pub fn reader(self: Stream) Reader {
+    pub fn any(self: Stream) GenericStream {
         return .{ .context = self };
-    }
-
-    pub fn writer(self: Stream) Writer {
-        return .{ .context = self };
-    }
-
-    pub fn stream(self: Stream) GenericStream {
-        return .{ .context = self };
-    }
-
-    pub fn read(self: Stream, buffer: []u8) ReadError!usize {
-        if (builtin.os.tag == .windows) {
-            return os.windows.ReadFile(self.handle, buffer, null);
-        }
-
-        return os.read(self.handle, buffer);
     }
 
     pub fn readv(s: Stream, iovecs: []const os.iovec) ReadError!usize {
@@ -1840,51 +1818,31 @@ pub const Stream = struct {
         return os.readv(s.handle, iovecs);
     }
 
-    /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
-    /// file system thread instead of non-blocking. It needs to be reworked to properly
-    /// use non-blocking I/O.
-    pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (builtin.os.tag == .windows) {
-            return os.windows.WriteFile(self.handle, buffer, null);
-        }
-
-        return os.write(self.handle, buffer);
-    }
-
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.fs.File.writev`.
     pub fn writev(self: Stream, iovecs: []const os.iovec_const) WriteError!usize {
         return os.writev(self.handle, iovecs);
     }
-
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial writes from the underlying OS layer.
-    /// See https://github.com/ziglang/zig/issues/7699
-    /// See equivalent function: `std.fs.File.writevAll`.
-    pub fn writevAll(self: Stream, iovecs: []os.iovec_const) WriteError!void {
-        if (iovecs.len == 0) return;
-
-        var i: usize = 0;
-        while (true) {
-            var amt = try self.writev(iovecs[i..]);
-            while (amt >= iovecs[i].iov_len) {
-                amt -= iovecs[i].iov_len;
-                i += 1;
-                if (i >= iovecs.len) return;
-            }
-            iovecs[i].iov_base += amt;
-            iovecs[i].iov_len -= amt;
-        }
-    }
 };
 
 pub const Server = struct {
     listen_address: Address,
-    stream: net.Stream,
+    stream: Stream,
 
     pub const Connection = struct {
-        stream: net.Stream,
         address: Address,
+        protocol: Protocol,
+        socket: Stream,
+        tls: tls.Server,
+
+        pub const Protocol = enum { plain, tls };
+
+        pub inline fn stream(conn: *Connection) std.io.AnyStream {
+            return switch (conn.protocol) {
+                .plain => conn.socket.any().any(),
+               .tls => conn.tls.any().any(),
+            };
+        }
     };
 
     pub fn deinit(s: *Server) void {
@@ -1892,17 +1850,24 @@ pub const Server = struct {
         s.* = undefined;
     }
 
-    pub const AcceptError = posix.AcceptError;
-
-    /// Blocks until a client connects to the server. The returned `Connection` has
-    /// an open stream.
-    pub fn accept(s: *Server) AcceptError!Connection {
+    /// Blocks until a client connects to the server.
+    /// If tls_options are supplied, will await a client handshake.
+    /// The returned `Connection` has an open stream.
+    pub fn accept(s: *Server, tls_options: ?tls.Server.Options) !Connection {
         var accepted_addr: Address = undefined;
         var addr_len: posix.socklen_t = @sizeOf(Address);
         const fd = try posix.accept(s.stream.handle, &accepted_addr.any, &addr_len, posix.SOCK.CLOEXEC);
+        const socket = Stream{ .handle = fd };
+        const protocol: Connection.Protocol = if (tls_options == null) .plain else .tls;
+        const _tls: tls.Server = if (tls_options) |options|
+            try tls.Server.init(socket.any().any(), options)
+        else
+            undefined;
         return .{
-            .stream = .{ .handle = fd },
             .address = accepted_addr,
+            .protocol = protocol,
+            .socket = socket,
+            .tls = _tls,
         };
     }
 };

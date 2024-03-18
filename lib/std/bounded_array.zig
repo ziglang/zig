@@ -271,7 +271,7 @@ pub fn BoundedArrayAligned(
             @compileError("The Writer interface is only defined for BoundedArray(u8, ...) " ++
                 "but the given type is BoundedArray(" ++ @typeName(T) ++ ", ...)")
         else
-            std.io.Writer(*Self, error{Overflow}, appendWrite);
+            std.io.Writer(*Self, error{Overflow}, appendWritev);
 
         /// Initializes a writer which will write into the array.
         pub fn writer(self: *Self) Writer {
@@ -280,9 +280,14 @@ pub fn BoundedArrayAligned(
 
         /// Same as `appendSlice` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWrite(self: *Self, m: []const u8) error{Overflow}!usize {
-            try self.appendSlice(m);
-            return m.len;
+        fn appendWritev(self: *Self, iov: []std.os.iovec_const) error{Overflow}!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                const m = v.iov_base[0..v.iov_len];
+                try self.appendSlice(m);
+                written += m.len;
+            }
+            return written;
         }
     };
 }

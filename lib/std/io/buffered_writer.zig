@@ -10,7 +10,7 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         end: usize = 0,
 
         pub const Error = WriterType.Error;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.Writer(*Self, Error, writev);
 
         const Self = @This();
 
@@ -23,17 +23,22 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
             return .{ .context = self };
         }
 
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (self.end + bytes.len > self.buf.len) {
-                try self.flush();
-                if (bytes.len > self.buf.len)
-                    return self.unbuffered_writer.write(bytes);
-            }
+        pub fn writev(self: *Self, iov: []std.os.iovec_const) Error!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                const bytes = v.iov_base[0..v.iov_len];
+                if (self.end + bytes.len > self.buf.len) {
+                    try self.flush();
+                    if (bytes.len > self.buf.len)
+                        return self.unbuffered_writer.write(bytes);
+                }
 
-            const new_end = self.end + bytes.len;
-            @memcpy(self.buf[self.end..new_end], bytes);
-            self.end = new_end;
-            return bytes.len;
+                const new_end = self.end + bytes.len;
+                @memcpy(self.buf[self.end..new_end], bytes);
+                self.end = new_end;
+                written += bytes.len;
+            }
+            return written;
         }
     };
 }

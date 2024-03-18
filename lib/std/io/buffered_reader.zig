@@ -12,11 +12,13 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         end: usize = 0,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, readv);
 
         const Self = @This();
 
-        pub fn read(self: *Self, dest: []u8) Error!usize {
+        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+            const first = iov[0];
+            const dest = first.iov_base[0..first.iov_len];
             var dest_index: usize = 0;
 
             while (dest_index < dest.len) {
@@ -60,7 +62,7 @@ test "OneByte" {
 
         const Error = error{NoError};
         const Self = @This();
-        const Reader = io.Reader(*Self, Error, read);
+        const Reader = io.Reader(*Self, Error, readv);
 
         fn init(str: []const u8) Self {
             return Self{
@@ -69,7 +71,9 @@ test "OneByte" {
             };
         }
 
-        fn read(self: *Self, dest: []u8) Error!usize {
+        fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+            const first = iov[0];
+            const dest = first.iov_base[0..first.iov_len];
             if (self.str.len <= self.curr or dest.len == 0)
                 return 0;
 
@@ -135,11 +139,11 @@ test "Block" {
             .unbuffered_reader = BlockReader.init(block, 2),
         };
         var out_buf: [4]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 
     // len out < block
@@ -148,13 +152,13 @@ test "Block" {
             .unbuffered_reader = BlockReader.init(block, 2),
         };
         var out_buf: [3]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "012");
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "301");
-        const n = try test_buf_reader.read(&out_buf);
+        const n = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, out_buf[0..n], "23");
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 
     // len out > block
@@ -163,11 +167,11 @@ test "Block" {
             .unbuffered_reader = BlockReader.init(block, 2),
         };
         var out_buf: [5]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "01230");
-        const n = try test_buf_reader.read(&out_buf);
+        const n = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, out_buf[0..n], "123");
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 
     // len out == 0
@@ -176,7 +180,7 @@ test "Block" {
             .unbuffered_reader = BlockReader.init(block, 2),
         };
         var out_buf: [0]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "");
     }
 
@@ -186,10 +190,10 @@ test "Block" {
             .unbuffered_reader = BlockReader.init(block, 2),
         };
         var out_buf: [4]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try test_buf_reader.reader().read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try test_buf_reader.reader().read(&out_buf), 0);
     }
 }

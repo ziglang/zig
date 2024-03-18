@@ -4,7 +4,7 @@ pub const ReversedByteReader = struct {
     remaining_bytes: usize,
     bytes: []const u8,
 
-    const Reader = std.io.Reader(*ReversedByteReader, error{}, readFn);
+    const Reader = std.io.Reader(*ReversedByteReader, error{}, readvFn);
 
     pub fn init(bytes: []const u8) ReversedByteReader {
         return .{
@@ -17,7 +17,10 @@ pub const ReversedByteReader = struct {
         return .{ .context = self };
     }
 
-    fn readFn(ctx: *ReversedByteReader, buffer: []u8) !usize {
+    fn readvFn(ctx: *ReversedByteReader, iov: []std.os.iovec) !usize {
+        const first = iov[0];
+        const buffer = first.iov_base[0..first.iov_len];
+        std.debug.assert(buffer.len > 0);
         if (ctx.remaining_bytes == 0) return 0;
         const byte_index = ctx.remaining_bytes - 1;
         buffer[0] = ctx.bytes[byte_index];

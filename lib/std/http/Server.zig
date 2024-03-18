@@ -1,8 +1,6 @@
 //! Blocking HTTP(s) server
 //!
 //! Handles a single connection's lifecycle.
-//!
-//! TLS support may be disabled via `std.options.http_disable_tls`.
 
 const std = @import("../std.zig");
 const http = std.http;
@@ -13,9 +11,6 @@ const assert = std.debug.assert;
 const testing = std.testing;
 
 const Server = @This();
-
-pub const disable_tls = std.options.http_disable_tls;
-const TlsServer = if (disable_tls) void else std.crypto.tls.Server(net.Stream);
 
 connection: net.Server.Connection,
 /// Keeps track of whether the Server is ready to accept a new request on the
@@ -105,7 +100,7 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
         const buf = s.read_buffer[s.read_buffer_len..];
         if (buf.len == 0)
             return error.HttpHeadersOversize;
-        const read_n = s.connection.stream.read(buf) catch
+        const read_n = s.connection.stream().reader().read(buf) catch
             return error.HttpHeadersUnreadable;
         if (read_n == 0) {
             if (s.read_buffer_len > 0) {
@@ -434,7 +429,7 @@ pub const Request = struct {
             h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
             if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
             h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
-            try request.server.connection.stream.writeAll(h.items);
+            try request.server.connection.stream().writer().writeAll(h.items);
             return;
         }
         h.fixedWriter().print("{s} {d} {s}\r\n", .{
@@ -540,7 +535,7 @@ pub const Request = struct {
             }
         }
 
-        try request.server.connection.stream.writevAll(iovecs[0..iovecs_len]);
+        try request.server.connection.stream().writer().writevAll(iovecs[0..iovecs_len]);
     }
 
     pub const RespondStreamingOptions = struct {
@@ -620,7 +615,7 @@ pub const Request = struct {
         };
 
         return .{
-            .stream = request.server.connection.stream,
+            .stream = request.server.connection.stream(),
             .send_buffer = options.send_buffer,
             .send_buffer_start = 0,
             .send_buffer_end = h.items.len,
@@ -635,12 +630,14 @@ pub const Request = struct {
         };
     }
 
-    pub const ReadError = net.Stream.ReadError || error{
+    pub const ReadError = anyerror || net.Stream.ReadError || error{
         HttpChunkInvalid,
         HttpHeadersOversize,
     };
 
-    fn read_cl(context: *const anyopaque, buffer: []u8) ReadError!usize {
+    fn read_cl(context: *const anyopaque, iov: []std.os.iovec) ReadError!usize {
+        const first = iov[0];
+        const buffer = first.iov_base[0..first.iov_len];
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
         const s = request.server;
 
@@ -664,11 +661,13 @@ pub const Request = struct {
         const available = s.read_buffer[s.next_request_start..s.read_buffer_len];
         if (available.len > 0) return available;
         s.next_request_start = head_end;
-        s.read_buffer_len = head_end + try s.connection.stream.read(s.read_buffer[head_end..]);
+        s.read_buffer_len = head_end + try s.connection.stream().reader().read(s.read_buffer[head_end..]);
         return s.read_buffer[head_end..s.read_buffer_len];
     }
 
-    fn read_chunked(context: *const anyopaque, buffer: []u8) ReadError!usize {
+    fn readv_chunked(context: *const anyopaque, iov: []std.os.iovec) ReadError!usize {
+        const first = iov[0];
+        const buffer = first.iov_base[0..first.iov_len];
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
         const s = request.server;
 
@@ -726,7 +725,7 @@ pub const Request = struct {
                                     const buf = s.read_buffer[s.read_buffer_len..];
                                     if (buf.len == 0)
                                         return error.HttpHeadersOversize;
-                                    const read_n = try s.connection.stream.read(buf);
+                                    const read_n = try s.connection.stream().reader().read(buf);
                                     s.read_buffer_len += read_n;
                                     const bytes = buf[0..read_n];
                                     const end = hp.feed(bytes);
@@ -776,7 +775,7 @@ pub const Request = struct {
 
         if (request.head.expect) |expect| {
             if (mem.eql(u8, expect, "100-continue")) {
-                try request.server.connection.stream.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
+                try request.server.connection.stream().writer().writeAll("HTTP/1.1 100 Continue\r\n\r\n");
                 request.head.expect = null;
             } else {
                 return error.HttpExpectationFailed;
@@ -787,7 +786,7 @@ pub const Request = struct {
             .chunked => {
                 request.reader_state = .{ .chunk_parser = http.ChunkParser.init };
                 return .{
-                    .readFn = read_chunked,
+                    .readvFn = readv_chunked,
                     .context = request,
                 };
             },
@@ -796,7 +795,7 @@ pub const Request = struct {
                     .remaining_content_length = request.head.content_length orelse 0,
                 };
                 return .{
-                    .readFn = read_cl,
+                    .readvFn = read_cl,
                     .context = request,
                 };
             },
@@ -837,7 +836,7 @@ pub const Request = struct {
 };
 
 pub const Response = struct {
-    stream: net.Stream,
+    stream: std.io.AnyStream,
     send_buffer: []u8,
     /// Index of the first byte in `send_buffer`.
     /// This is 0 unless a short write happens in `write`.
@@ -899,19 +898,11 @@ pub const Response = struct {
         r.* = undefined;
     }
 
-    /// If using content-length, asserts that writing these bytes to the client
-    /// would not exceed the content-length value sent in the HTTP header.
-    /// May return 0, which does not indicate end of stream. The caller decides
-    /// when the end of stream occurs by calling `end`.
-    pub fn write(r: *Response, bytes: []const u8) WriteError!usize {
-        switch (r.transfer_encoding) {
-            .content_length, .none => return write_cl(r, bytes),
-            .chunked => return write_chunked(r, bytes),
-        }
-    }
-
-    fn write_cl(context: *const anyopaque, bytes: []const u8) WriteError!usize {
+    fn write_cl(context: *const anyopaque, iov: []std.os.iovec_const) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
+
+        const first = iov[0];
+        const bytes = first.iov_base[0..first.iov_len];
 
         var trash: u64 = std.math.maxInt(u64);
         const len = switch (r.transfer_encoding) {
@@ -926,7 +917,7 @@ pub const Response = struct {
 
         if (bytes.len + r.send_buffer_end > r.send_buffer.len) {
             const send_buffer_len = r.send_buffer_end - r.send_buffer_start;
-            var iovecs: [2]std.posix.iovec_const = .{
+            var iovecs: [2]std.os.iovec_const = .{
                 .{
                     .iov_base = r.send_buffer.ptr + r.send_buffer_start,
                     .iov_len = send_buffer_len,
@@ -960,9 +951,12 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    fn write_chunked(context: *const anyopaque, bytes: []const u8) WriteError!usize {
+    fn write_chunked(context: *const anyopaque, iov: []std.os.iovec_const) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
         assert(r.transfer_encoding == .chunked);
+
+        const first = iov[0];
+        const bytes = first.iov_base[0..first.iov_len];
 
         if (r.elide_body)
             return bytes.len;
@@ -997,7 +991,7 @@ pub const Response = struct {
             };
             // TODO make this writev instead of writevAll, which involves
             // complicating the logic of this function.
-            try r.stream.writevAll(&iovecs);
+            try r.stream.writer().writevAll(&iovecs);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1011,15 +1005,6 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    /// If using content-length, asserts that writing these bytes to the client
-    /// would not exceed the content-length value sent in the HTTP header.
-    pub fn writeAll(r: *Response, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try write(r, bytes[index..]);
-        }
-    }
-
     /// Sends all buffered data to the client.
     /// This is redundant after calling `end`.
     /// Respects the value of `elide_body` to omit all data after the headers.
@@ -1031,7 +1016,7 @@ pub const Response = struct {
     }
 
     fn flush_cl(r: *Response) WriteError!void {
-        try r.stream.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
+        try r.stream.writer().writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
     }
@@ -1044,7 +1029,7 @@ pub const Response = struct {
         const http_headers = r.send_buffer[r.send_buffer_start .. r.send_buffer_end - r.chunk_len];
 
         if (r.elide_body) {
-            try r.stream.writeAll(http_headers);
+            try r.stream.writer().writeAll(http_headers);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1125,7 +1110,7 @@ pub const Response = struct {
             iovecs_len += 1;
         }
 
-        try r.stream.writevAll(iovecs[0..iovecs_len]);
+        try r.stream.writer().writevAll(iovecs[0..iovecs_len]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
         r.chunk_len = 0;
@@ -1133,7 +1118,7 @@ pub const Response = struct {
 
     pub fn writer(r: *Response) std.io.AnyWriter {
         return .{
-            .writeFn = switch (r.transfer_encoding) {
+            .writevFn = switch (r.transfer_encoding) {
                 .none, .content_length => write_cl,
                 .chunked => write_chunked,
             },

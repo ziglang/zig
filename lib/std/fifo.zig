@@ -38,8 +38,8 @@ pub fn LinearFifo(
         count: usize,
 
         const Self = @This();
-        pub const Reader = std.io.Reader(*Self, error{}, readFn);
-        pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWrite);
+        pub const Reader = std.io.Reader(*Self, error{}, readvFn);
+        pub const Writer = std.io.Writer(*Self, error{OutOfMemory}, appendWritev);
 
         // Type of Self argument for slice operations.
         // If buffer is inline (Static) then we need to ensure we haven't
@@ -232,8 +232,15 @@ pub fn LinearFifo(
 
         /// Same as `read` except it returns an error union
         /// The purpose of this function existing is to match `std.io.Reader` API.
-        fn readFn(self: *Self, dest: []u8) error{}!usize {
-            return self.read(dest);
+        fn readvFn(self: *Self, iov: []std.os.iovec) error{}!usize {
+            var n_read: usize = 0;
+            for (iov) |v| {
+                const n = self.read(v.iov_base[0..v.iov_len]);
+                if (n == 0) return n_read;
+
+                n_read += n;
+            }
+            return n_read;
         }
 
         pub fn reader(self: *Self) Reader {
@@ -321,9 +328,13 @@ pub fn LinearFifo(
 
         /// Same as `write` except it returns the number of bytes written, which is always the same
         /// as `bytes.len`. The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWrite(self: *Self, bytes: []const u8) error{OutOfMemory}!usize {
-            try self.write(bytes);
-            return bytes.len;
+        fn appendWritev(self: *Self, iov: []std.os.iovec_const) error{OutOfMemory}!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                try self.write(v.iov_base[0..v.iov_len]);
+                written += v.iov_len;
+            }
+            return written;
         }
 
         pub fn writer(self: *Self) Writer {

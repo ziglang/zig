@@ -116,7 +116,7 @@ pub const Handshake = union(HandshakeType) {
 
     // If `HandshakeCipherT.encode` accepts iovecs for the message this can be moved
     // to `Stream.writeFragment` and this type can be deleted.
-    pub fn write(self: @This(), stream: anytype) !usize {
+    pub fn write(self: @This(), stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.write(HandshakeType, self);
         switch (self) {
@@ -164,6 +164,7 @@ pub const KeyUpdate = enum(u8) {
     _,
 };
 
+/// A DER encoded certificate chain with the first entry being for this domain.
 pub const Certificate = struct {
     context: []const u8 = "",
     entries: []const Entry,
@@ -171,13 +172,13 @@ pub const Certificate = struct {
     pub const max_context_len = 255;
 
     pub const Entry = struct {
-        /// Either ASN1_subjectPublicKeyInfo or cert_data based on CertificateType.
+        /// DER encoded
         data: []const u8,
         extensions: []const Extension = &.{},
 
         pub const max_data_len = 1 << 24 - 1;
 
-        pub fn write(self: @This(), stream: anytype) !usize {
+        pub fn write(self: @This(), stream: *Stream) !usize {
             var res: usize = 0;
             res += try stream.writeArray(u24, u8, self.data);
             res += try stream.writeArray(u16, Extension, self.extensions);
@@ -187,7 +188,7 @@ pub const Certificate = struct {
 
     const Self = @This();
 
-    pub fn write(self: Self, stream: anytype) !usize {
+    pub fn write(self: Self, stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.writeArray(u8, u8, self.context);
         res += try stream.writeArray(u24, Entry, self.entries);
@@ -201,7 +202,7 @@ pub const CertificateVerify = struct {
 
     pub const max_signature_length = 1 << 16 - 1;
 
-    pub fn write(self: @This(), stream: anytype) !usize {
+    pub fn write(self: @This(), stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.write(SignatureScheme, self.algorithm);
         res += try stream.writeArray(u16, u8, self.signature);
@@ -456,13 +457,13 @@ pub const Alert = struct {
 
     const Self = @This();
 
-    pub fn read(stream: anytype) Self {
+    pub fn read(stream: *Stream) Self {
         const level = try stream.read(Level);
         const description = try stream.read(Description);
         return .{ .level = level, .description = description };
     }
 
-    pub fn write(self: Self, stream: anytype) !usize {
+    pub fn write(self: Self, stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.write(Level, self.level);
         res += try stream.write(Description, self.description);
@@ -475,26 +476,21 @@ pub const Alert = struct {
 /// Note: This enum is named `SignatureScheme` because there is already a
 /// `SignatureAlgorithm` type in TLS 1.2, which this replaces.
 pub const SignatureScheme = enum(u16) {
-    // RSASSA-PKCS1-v1_5 algorithms
     rsa_pkcs1_sha256 = 0x0401,
     rsa_pkcs1_sha384 = 0x0501,
     rsa_pkcs1_sha512 = 0x0601,
 
-    // ECDSA algorithms
     ecdsa_secp256r1_sha256 = 0x0403,
     ecdsa_secp384r1_sha384 = 0x0503,
     ecdsa_secp521r1_sha512 = 0x0603,
 
-    // RSASSA-PSS algorithms with public key OID rsaEncryption
     rsa_pss_rsae_sha256 = 0x0804,
     rsa_pss_rsae_sha384 = 0x0805,
     rsa_pss_rsae_sha512 = 0x0806,
 
-    // EdDSA algorithms
     ed25519 = 0x0807,
     ed448 = 0x0808,
 
-    // RSASSA-PSS algorithms with public key OID RSASSA-PSS
     rsa_pss_pss_sha256 = 0x0809,
     rsa_pss_pss_sha384 = 0x080a,
     rsa_pss_pss_sha512 = 0x080b,
@@ -515,9 +511,9 @@ pub const SignatureScheme = enum(u16) {
 
     pub fn Hash(comptime self: @This()) type {
         return switch (self) {
-            .rsa_pss_rsae_sha256 => crypto.hash.sha2.Sha256,
-            .rsa_pss_rsae_sha384 => crypto.hash.sha2.Sha384,
-            .rsa_pss_rsae_sha512 => crypto.hash.sha2.Sha512,
+            .ecdsa_secp256r1_sha256, .rsa_pss_rsae_sha256 => crypto.hash.sha2.Sha256,
+            .ecdsa_secp384r1_sha384, .rsa_pss_rsae_sha384 => crypto.hash.sha2.Sha384,
+            .ecdsa_secp521r1_sha512, .rsa_pss_rsae_sha512 => crypto.hash.sha2.Sha512,
             else => @compileError("bad scheme"),
         };
     }
@@ -576,6 +572,19 @@ pub const X25519Kyber768Draft = struct {
     pub const KeyPair = struct {
         x25519: X25519.KeyPair,
         kyber768d00: Kyber768.KeyPair,
+
+        pub const seed_length = X25519.KeyPair.seed_length + Kyber768.KeyPair.seed_length;
+
+        pub fn create(seed: ?[seed_length]u8) !@This() {
+            var seed_: [seed_length]u8 = seed orelse undefined;
+            if (seed == null) {
+                crypto.random.bytes(&seed_);
+            }
+            return .{
+                .x25519 = try X25519.KeyPair.create(seed_[0..X25519.KeyPair.seed_length].*),
+                .kyber768d00 = try Kyber768.KeyPair.create(seed_[X25519.KeyPair.seed_length..].*),
+            };
+        }
     };
     pub const PublicKey = struct {
         x25519: X25519.PublicKey,
@@ -641,10 +650,10 @@ pub const KeyShare = union(NamedGroup) {
 
     const Self = @This();
 
-    pub fn read(stream: anytype) !Self {
+    pub fn read(stream: *Stream) !Self {
         std.debug.assert(!stream.is_client);
 
-        var reader = stream.reader();
+        var reader = stream.any().reader();
         const group = try stream.read(NamedGroup);
         const len = try stream.read(u16);
         switch (group) {
@@ -679,7 +688,7 @@ pub const KeyShare = union(NamedGroup) {
         return .{ .invalid = {} };
     }
 
-    pub fn write(self: Self, stream: anytype) !usize {
+    pub fn write(self: Self, stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.write(NamedGroup, self);
         const public = switch (self) {
@@ -862,7 +871,7 @@ pub const ClientHello = struct {
 
     const Self = @This();
 
-    pub fn write(self: Self, stream: anytype) !usize {
+    pub fn write(self: Self, stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.write(Version, self.version);
         res += try stream.writeAll(&self.random);
@@ -894,7 +903,7 @@ pub const ServerHello = struct {
 
     const Self = @This();
 
-    pub fn write(self: Self, stream: anytype) !usize {
+    pub fn write(self: Self, stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.write(Version, self.version);
         res += try stream.writeAll(&self.random);
@@ -911,7 +920,7 @@ pub const EncryptedExtensions = struct {
 
     const Self = @This();
 
-    pub fn write(self: Self, stream: anytype) !usize {
+    pub fn write(self: Self, stream: *Stream) !usize {
         return try stream.writeArray(u16, Extension, self.extensions);
     }
 };
@@ -953,7 +962,7 @@ pub const Extension = union(ExtensionType) {
 
     const Self = @This();
 
-    pub fn write(self: Self, stream: anytype) !usize {
+    pub fn write(self: Self, stream: *Stream) !usize {
         const PrefixLen = enum { zero, one, two };
         const prefix_len: PrefixLen = if (stream.is_client) switch (self) {
             .supported_versions, .ec_point_formats, .psk_key_exchange_modes => .one,
@@ -996,7 +1005,7 @@ pub const Extension = union(ExtensionType) {
         type: ExtensionType,
         len: u16,
 
-        pub fn read(stream: anytype) @TypeOf(stream.*).ReadError!@This() {
+        pub fn read(stream: *Stream) @TypeOf(stream.*).ReadError!@This() {
             const ty = try stream.read(ExtensionType);
             const length = try stream.read(u16);
             return .{ .type = ty, .len = length };
@@ -1023,7 +1032,7 @@ pub const ServerName = struct {
 
     pub const NameType = enum(u8) { host_name = 0, _ };
 
-    pub fn write(self: @This(), stream: anytype) !usize {
+    pub fn write(self: @This(), stream: *Stream) !usize {
         var res: usize = 0;
         res += try stream.write(NameType, self.type);
         res += try stream.writeArray(u16, u8, self.host_name);
@@ -1328,14 +1337,19 @@ const TestStream = struct {
         self.buffer.deinit(allocator);
     }
 
-    pub fn read(self: *Self, buffer: []u8) ReadError!usize {
-        try self.buffer.readFirst(buffer, buffer.len);
-        return buffer.len;
+    pub fn readv(self: *Self, iov: []std.os.iovec) ReadError!usize {
+        const first = iov[0];
+        try self.buffer.readFirst(first.iov_base[0..first.iov_len], first.iov_len);
+        return first.iov_len;
     }
 
-    pub fn write(self: *Self, bytes: []const u8) WriteError!usize {
-        try self.buffer.writeSlice(bytes);
-        return bytes.len;
+    pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+        var written: usize = 0;
+        for (iov) |v| {
+            try self.buffer.writeSlice(v.iov_base[0..v.iov_len]);
+            written += v.iov_len;
+        }
+        return written;
     }
 
     pub fn peek(self: *Self, out: []u8) ReadError!void {
@@ -1356,7 +1370,7 @@ const TestStream = struct {
         try std.testing.expectEqualSlices(u8, expected, buf);
     }
 
-    const GenericStream = std.io.GenericStream(*Self, ReadError, read, WriteError, write, close);
+    const GenericStream = std.io.GenericStream(*Self, ReadError, readv, WriteError, writev, close);
 
     pub fn stream(self: *Self) GenericStream {
         return .{ .context = self };
@@ -1382,7 +1396,7 @@ test "tls client and server handshake, data, and close_notify" {
 
     const server_cert = @embedFile("./testdata/cert.der");
     const server_key = @embedFile("./testdata/key.der");
-    const server_rsa = try crypto.Certificate.rsa.PrivateKey.fromDer(server_key);
+    const server_rsa = try crypto.Certificate.rsa.SecretKey.fromDer(server_key);
     var server_transcript: MultiHash = .{};
     var server = Server{
         .stream = Stream{
@@ -1493,10 +1507,10 @@ test "tls client and server handshake, data, and close_notify" {
         try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
 
-    try client.writer().writeAll("ping");
+    try client.any().writer().writeAll("ping");
 
     var recv_ping: [4]u8 = undefined;
-    _ = try server.stream.reader().readAll(&recv_ping);
+    _ = try server.stream.any().reader().readAll(&recv_ping);
     try std.testing.expectEqualStrings("ping", &recv_ping);
 
     server.stream.close();

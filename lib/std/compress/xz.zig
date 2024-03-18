@@ -34,7 +34,7 @@ pub fn Decompress(comptime ReaderType: type) type {
         const Self = @This();
 
         pub const Error = ReaderType.Error || block.Decoder(ReaderType).Error;
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.Reader(*Self, Error, readv);
 
         allocator: Allocator,
         block_decoder: block.Decoder(ReaderType),
@@ -71,7 +71,9 @@ pub fn Decompress(comptime ReaderType: type) type {
             return .{ .context = self };
         }
 
-        pub fn read(self: *Self, buffer: []u8) Error!usize {
+        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+            const first = iov[0];
+            const buffer = first.iov_base[0..first.iov_len];
             if (buffer.len == 0)
                 return 0;
 
