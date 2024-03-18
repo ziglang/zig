@@ -13,7 +13,7 @@ const __muldf3 = @import("muldf3.zig").__muldf3;
 const __mulsf3 = @import("mulsf3.zig").__mulsf3;
 
 // return true if equal
-// use two 64-bit integers intead of one 128-bit integer
+// use two 64-bit integers instead of one 128-bit integer
 // because 128-bit integer constant can't be assigned directly
 fn compareResultLD(result: f128, expectedHi: u64, expectedLo: u64) bool {
     const rep: u128 = @bitCast(result);

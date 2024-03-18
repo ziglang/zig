@@ -67,6 +67,9 @@ src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index) 
 /// Dependencies on the value of a Decl.
 /// Value is index into `dep_entries` of the first dependency on this Decl value.
 decl_val_deps: std.AutoArrayHashMapUnmanaged(DeclIndex, DepEntry.Index) = .{},
+/// Dependencies on the IES of a runtime function.
+/// Value is index into `dep_entries` of the first dependency on this Decl value.
+func_ies_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index) = .{},
 /// Dependencies on the full set of names in a ZIR namespace.
 /// Key refers to a `struct_decl`, `union_decl`, etc.
 /// Value is index into `dep_entries` of the first dependency on this namespace.
@@ -167,6 +170,7 @@ pub const Depender = enum(u32) {
 pub const Dependee = union(enum) {
     src_hash: TrackedInst.Index,
     decl_val: DeclIndex,
+    func_ies: Index,
     namespace: TrackedInst.Index,
     namespace_name: NamespaceNameKey,
 };
@@ -212,6 +216,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
     const first_entry = switch (dependee) {
         .src_hash => |x| ip.src_hash_deps.get(x),
         .decl_val => |x| ip.decl_val_deps.get(x),
+        .func_ies => |x| ip.func_ies_deps.get(x),
         .namespace => |x| ip.namespace_deps.get(x),
         .namespace_name => |x| ip.namespace_name_deps.get(x),
     } orelse return .{
@@ -251,6 +256,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: Depender, depend
             const gop = try switch (tag) {
                 .src_hash => ip.src_hash_deps,
                 .decl_val => ip.decl_val_deps,
+                .func_ies => ip.func_ies_deps,
                 .namespace => ip.namespace_deps,
                 .namespace_name => ip.namespace_name_deps,
             }.getOrPut(gpa, dependee_payload);
@@ -759,16 +765,10 @@ pub const Key = union(enum) {
         /// Tells whether a parameter is noalias. See `paramIsNoalias` helper
         /// method for accessing this.
         noalias_bits: u32,
-        /// `none` indicates the function has the default alignment for
-        /// function code on the target. In this case, this field *must* be set
-        /// to `none`, otherwise the `InternPool` equality and hashing
-        /// functions will return incorrect results.
-        alignment: Alignment,
         cc: std.builtin.CallingConvention,
         is_var_args: bool,
         is_generic: bool,
         is_noinline: bool,
-        align_is_generic: bool,
         cc_is_generic: bool,
         section_is_generic: bool,
         addrspace_is_generic: bool,
@@ -788,7 +788,6 @@ pub const Key = union(enum) {
                 a.return_type == b.return_type and
                 a.comptime_bits == b.comptime_bits and
                 a.noalias_bits == b.noalias_bits and
-                a.alignment == b.alignment and
                 a.cc == b.cc and
                 a.is_var_args == b.is_var_args and
                 a.is_generic == b.is_generic and
@@ -802,7 +801,6 @@ pub const Key = union(enum) {
             std.hash.autoHash(hasher, self.return_type);
             std.hash.autoHash(hasher, self.comptime_bits);
             std.hash.autoHash(hasher, self.noalias_bits);
-            std.hash.autoHash(hasher, self.alignment);
             std.hash.autoHash(hasher, self.cc);
             std.hash.autoHash(hasher, self.is_var_args);
             std.hash.autoHash(hasher, self.is_generic);
@@ -3581,18 +3579,16 @@ pub const Tag = enum(u8) {
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
-            alignment: Alignment,
             cc: std.builtin.CallingConvention,
             is_var_args: bool,
             is_generic: bool,
             has_comptime_bits: bool,
             has_noalias_bits: bool,
             is_noinline: bool,
-            align_is_generic: bool,
             cc_is_generic: bool,
             section_is_generic: bool,
             addrspace_is_generic: bool,
-            _: u9 = 0,
+            _: u16 = 0,
         };
     };
 
@@ -4324,6 +4320,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 
     ip.src_hash_deps.deinit(gpa);
     ip.decl_val_deps.deinit(gpa);
+    ip.func_ies_deps.deinit(gpa);
     ip.namespace_deps.deinit(gpa);
     ip.namespace_name_deps.deinit(gpa);
 
@@ -4911,11 +4908,9 @@ fn extraFuncType(ip: *const InternPool, extra_index: u32) Key.FuncType {
         .return_type = type_function.data.return_type,
         .comptime_bits = comptime_bits,
         .noalias_bits = noalias_bits,
-        .alignment = type_function.data.flags.alignment,
         .cc = type_function.data.flags.cc,
         .is_var_args = type_function.data.flags.is_var_args,
         .is_noinline = type_function.data.flags.is_noinline,
-        .align_is_generic = type_function.data.flags.align_is_generic,
         .cc_is_generic = type_function.data.flags.cc_is_generic,
         .section_is_generic = type_function.data.flags.section_is_generic,
         .addrspace_is_generic = type_function.data.flags.addrspace_is_generic,
@@ -6204,8 +6199,6 @@ pub const GetFuncTypeKey = struct {
     comptime_bits: u32 = 0,
     noalias_bits: u32 = 0,
     /// `null` means generic.
-    alignment: ?Alignment = .none,
-    /// `null` means generic.
     cc: ?std.builtin.CallingConvention = .Unspecified,
     is_var_args: bool = false,
     is_generic: bool = false,
@@ -6235,14 +6228,12 @@ pub fn getFuncType(ip: *InternPool, gpa: Allocator, key: GetFuncTypeKey) Allocat
         .params_len = params_len,
         .return_type = key.return_type,
         .flags = .{
-            .alignment = key.alignment orelse .none,
             .cc = key.cc orelse .Unspecified,
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
             .is_generic = key.is_generic,
             .is_noinline = key.is_noinline,
-            .align_is_generic = key.alignment == null,
             .cc_is_generic = key.cc == null,
             .section_is_generic = key.section_is_generic,
             .addrspace_is_generic = key.addrspace_is_generic,
@@ -6426,14 +6417,12 @@ pub fn getFuncDeclIes(ip: *InternPool, gpa: Allocator, key: GetFuncDeclIesKey) A
         .params_len = params_len,
         .return_type = @enumFromInt(ip.items.len - 2),
         .flags = .{
-            .alignment = key.alignment orelse .none,
             .cc = key.cc orelse .Unspecified,
             .is_var_args = key.is_var_args,
             .has_comptime_bits = key.comptime_bits != 0,
             .has_noalias_bits = key.noalias_bits != 0,
             .is_generic = key.is_generic,
             .is_noinline = key.is_noinline,
-            .align_is_generic = key.alignment == null,
             .cc_is_generic = key.cc == null,
             .section_is_generic = key.section_is_generic,
             .addrspace_is_generic = key.addrspace_is_generic,
@@ -6546,7 +6535,6 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         .param_types = arg.param_types,
         .return_type = arg.bare_return_type,
         .noalias_bits = arg.noalias_bits,
-        .alignment = arg.alignment,
         .cc = arg.cc,
         .is_noinline = arg.is_noinline,
     });
@@ -6603,6 +6591,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         func_index,
         func_extra_index,
         func_ty,
+        arg.alignment,
         arg.section,
     );
 }
@@ -6666,14 +6655,12 @@ pub fn getFuncInstanceIes(
         .params_len = params_len,
         .return_type = error_union_type,
         .flags = .{
-            .alignment = arg.alignment,
             .cc = arg.cc,
             .is_var_args = false,
             .has_comptime_bits = false,
             .has_noalias_bits = arg.noalias_bits != 0,
             .is_generic = false,
             .is_noinline = arg.is_noinline,
-            .align_is_generic = false,
             .cc_is_generic = false,
             .section_is_generic = false,
             .addrspace_is_generic = false,
@@ -6734,6 +6721,7 @@ pub fn getFuncInstanceIes(
         func_index,
         func_extra_index,
         func_ty,
+        arg.alignment,
         arg.section,
     );
 }
@@ -6745,6 +6733,7 @@ fn finishFuncInstance(
     func_index: Index,
     func_extra_index: u32,
     func_ty: Index,
+    alignment: Alignment,
     section: OptionalNullTerminatedString,
 ) Allocator.Error!Index {
     const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(generic_owner));
@@ -6757,7 +6746,7 @@ fn finishFuncInstance(
         .owns_tv = true,
         .ty = @import("type.zig").Type.fromInterned(func_ty),
         .val = @import("Value.zig").fromInterned(func_index),
-        .alignment = .none,
+        .alignment = alignment,
         .@"linksection" = section,
         .@"addrspace" = fn_owner_decl.@"addrspace",
         .analysis = .complete,
@@ -7103,7 +7092,7 @@ pub fn getGeneratedTagEnumType(ip: *InternPool, gpa: Allocator, ini: GeneratedTa
     return @enumFromInt(gop.index);
 }
 
-pub const OpaqueTypeIni = struct {
+pub const OpaqueTypeInit = struct {
     has_namespace: bool,
     key: union(enum) {
         declared: struct {
@@ -7117,7 +7106,7 @@ pub const OpaqueTypeIni = struct {
     },
 };
 
-pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeIni) Allocator.Error!WipNamespaceType.Result {
+pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeInit) Allocator.Error!WipNamespaceType.Result {
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .opaque_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
@@ -9216,7 +9205,7 @@ pub fn funcTypeParamsLen(ip: *const InternPool, i: Index) u32 {
     return ip.extra.items[start + std.meta.fieldIndex(Tag.TypeFunction, "params_len").?];
 }
 
-fn unwrapCoercedFunc(ip: *const InternPool, i: Index) Index {
+pub fn unwrapCoercedFunc(ip: *const InternPool, i: Index) Index {
     const tags = ip.items.items(.tag);
     return switch (tags[@intFromEnum(i)]) {
         .func_coerced => {

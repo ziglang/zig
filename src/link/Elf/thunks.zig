@@ -1,6 +1,7 @@
 pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const cpu_arch = elf_file.getTarget().cpu.arch;
+    const max_distance = maxAllowedDistance(cpu_arch);
     const shdr = &elf_file.shdrs.items[shndx];
     const atoms = elf_file.output_sections.get(shndx).?.items;
     assert(atoms.len > 0);
@@ -17,12 +18,11 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
         start_atom.value = try advance(shdr, start_atom.size, start_atom.alignment);
         i += 1;
 
-        while (i < atoms.len and
-            shdr.sh_size - start_atom.value < maxAllowedDistance(cpu_arch)) : (i += 1)
-        {
+        while (i < atoms.len) : (i += 1) {
             const atom_index = atoms[i];
             const atom = elf_file.atom(atom_index).?;
             assert(atom.flags.alive);
+            if (atom.alignment.forward(shdr.sh_size) - start_atom.value >= max_distance) break;
             atom.value = try advance(shdr, atom.size, atom.alignment);
         }
 
@@ -103,7 +103,7 @@ pub const Thunk = struct {
     }
 
     pub fn write(thunk: Thunk, elf_file: *Elf, writer: anytype) !void {
-        switch (elf_file.options.cpu_arch.?) {
+        switch (elf_file.getTarget().cpu.arch) {
             .aarch64 => try aarch64.write(thunk, elf_file, writer),
             .x86_64, .riscv64 => unreachable,
             else => @panic("unhandled arch"),

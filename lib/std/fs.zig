@@ -493,7 +493,7 @@ pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
         // not the path that the symlink points to. However, because we are opening
         // the file, we can let the openFileW call follow the symlink for us.
         const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
-        const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+        const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
         const prefixed_path_w = try os.windows.wToPrefixedFileW(null, image_path_name);
         return cwd().openFileW(prefixed_path_w.span(), flags);
     }
@@ -664,7 +664,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         },
         .windows => {
             const image_path_unicode_string = &os.windows.peb().ProcessParameters.ImagePathName;
-            const image_path_name = image_path_unicode_string.Buffer[0 .. image_path_unicode_string.Length / 2 :0];
+            const image_path_name = image_path_unicode_string.Buffer.?[0 .. image_path_unicode_string.Length / 2 :0];
 
             // If ImagePathName is a symlink, then it will contain the path of the
             // symlink, not the path that the symlink points to. We want the path

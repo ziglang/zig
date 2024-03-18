@@ -37,6 +37,12 @@ pub const sqrt2 = 1.414213562373095048801688724209698079;
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 
+/// pi/180.0
+pub const rad_per_deg = 0.0174532925199432957692369076848861271344287188854172545609719144;
+
+/// 180.0/pi
+pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
+
 pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
 pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
 pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;
@@ -293,32 +299,68 @@ pub inline fn tan(value: anytype) @TypeOf(value) {
     return @tan(value);
 }
 
-/// Converts an angle in radians to degrees. T must be a float type.
-pub fn radiansToDegrees(comptime T: type, angle_in_radians: T) T {
-    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
-        @compileError("T must be a float type");
-    return angle_in_radians * 180.0 / pi;
+/// Converts an angle in radians to degrees. T must be a float or comptime number or a vector of floats.
+pub fn radiansToDegrees(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => return ang * deg_per_rad,
+        .Vector => |V| if (@typeInfo(V.child) == .Float) return ang * @as(T, @splat(deg_per_rad)),
+        else => {},
+    }
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
 test "radiansToDegrees" {
-    try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(f32, 0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(f32, pi / 2.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(f32, -pi / 4.0), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(f32, pi), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(f32, 2.0 * pi), 1e-6);
+    const zero: f32 = 0;
+    const half_pi: f32 = pi / 2.0;
+    const neg_quart_pi: f32 = -pi / 4.0;
+    const one_pi: f32 = pi;
+    const two_pi: f32 = 2.0 * pi;
+    try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(zero), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(half_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(neg_quart_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(one_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(two_pi), 1e-6);
+
+    const result = radiansToDegrees(@Vector(4, f32){
+        half_pi,
+        neg_quart_pi,
+        one_pi,
+        two_pi,
+    });
+    try std.testing.expectApproxEqAbs(@as(f32, 90), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -45), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 180), result[2], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), result[3], 1e-6);
 }
 
-/// Converts an angle in degrees to radians. T must be a float type.
-pub fn degreesToRadians(comptime T: type, angle_in_degrees: T) T {
-    if (@typeInfo(T) != .Float and @typeInfo(T) != .ComptimeFloat)
-        @compileError("T must be a float type");
-    return angle_in_degrees * pi / 180.0;
+/// Converts an angle in degrees to radians. T must be a float or comptime number or a vector of floats.
+pub fn degreesToRadians(ang: anytype) if (@TypeOf(ang) == comptime_int) comptime_float else @TypeOf(ang) {
+    const T = @TypeOf(ang);
+    switch (@typeInfo(T)) {
+        .Float, .ComptimeFloat, .ComptimeInt => return ang * rad_per_deg,
+        .Vector => |V| if (@typeInfo(V.child) == .Float) return ang * @as(T, @splat(rad_per_deg)),
+        else => {},
+    }
+    @compileError("Input must be float or a comptime number, or a vector of floats.");
 }
 
 test "degreesToRadians" {
-    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(f32, 90), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(f32, -270), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(f32, 360), 1e-6);
+    const ninety: f32 = 90;
+    const neg_two_seventy: f32 = -270;
+    const three_sixty: f32 = 360;
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), degreesToRadians(ninety), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), degreesToRadians(neg_two_seventy), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), degreesToRadians(three_sixty), 1e-6);
+
+    const result = degreesToRadians(@Vector(3, f32){
+        ninety,
+        neg_two_seventy,
+        three_sixty,
+    });
+    try std.testing.expectApproxEqAbs(@as(f32, pi / 2.0), result[0], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, -3 * pi / 2.0), result[1], 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), result[2], 1e-6);
 }
 
 /// Base-e exponential function on a floating point number.
@@ -682,15 +724,15 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        const ar: Log2Int(C) = @intCast(@mod(r, @typeInfo(C).Int.bits));
         return (x >> @splat(ar)) | (x << @splat(1 + ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
-        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
+        if (comptime isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar: Log2Int(T) = @intCast(@mod(r, @typeInfo(T).Int.bits));
             return x >> ar | x << (1 +% ~ar);
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -713,6 +755,7 @@ test "rotr" {
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotr(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotr(u8, 0b00000001, @as(isize, -1)) == 0b00000010);
+    try testing.expect(rotr(u12, 0o7777, 1) == 0o7777);
     try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(usize, 1))[0] == @as(u32, 1) << 31);
     try testing.expect(rotr(@Vector(1, u32), @Vector(1, u32){1}, @as(isize, -1))[0] == @as(u32, 1) << 1);
 }
@@ -727,15 +770,15 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
         if (@typeInfo(C).Int.signedness == .signed) {
             @compileError("cannot rotate signed integers");
         }
-        const ar = @as(Log2Int(C), @intCast(@mod(r, @typeInfo(C).Int.bits)));
+        const ar: Log2Int(C) = @intCast(@mod(r, @typeInfo(C).Int.bits));
         return (x << @splat(ar)) | (x >> @splat(1 +% ~ar));
     } else if (@typeInfo(T).Int.signedness == .signed) {
         @compileError("cannot rotate signed integer");
     } else {
         if (T == u0) return 0;
 
-        if (isPowerOfTwo(@typeInfo(T).Int.bits)) {
-            const ar = @as(Log2Int(T), @intCast(@mod(r, @typeInfo(T).Int.bits)));
+        if (comptime isPowerOfTwo(@typeInfo(T).Int.bits)) {
+            const ar: Log2Int(T) = @intCast(@mod(r, @typeInfo(T).Int.bits));
             return x << ar | x >> 1 +% ~ar;
         } else {
             const ar = @mod(r, @typeInfo(T).Int.bits);
@@ -758,6 +801,7 @@ test "rotl" {
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 8)) == 0b00000001);
     try testing.expect(rotl(u8, 0b00000001, @as(usize, 4)) == 0b00010000);
     try testing.expect(rotl(u8, 0b00000001, @as(isize, -1)) == 0b10000000);
+    try testing.expect(rotl(u12, 0o7777, 1) == 0o7777);
     try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(usize, 1))[0] == 1);
     try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
@@ -1363,23 +1407,13 @@ test "lossyCast" {
 }
 
 /// Performs linear interpolation between *a* and *b* based on *t*.
-/// *t* must be in range 0.0 to 1.0. Supports floats and vectors of floats.
+/// *t* ranges from 0.0 to 1.0, but may exceed these bounds.
+/// Supports floats and vectors of floats.
 ///
 /// This does not guarantee returning *b* if *t* is 1 due to floating-point errors.
 /// This is monotonic.
 pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
     const Type = @TypeOf(a, b, t);
-
-    switch (@typeInfo(Type)) {
-        .Float, .ComptimeFloat => assert(t >= 0 and t <= 1),
-        .Vector => {
-            const lower_bound = @reduce(.And, t >= @as(Type, @splat(0)));
-            const upper_bound = @reduce(.And, t <= @as(Type, @splat(1)));
-            assert(lower_bound and upper_bound);
-        },
-        else => comptime unreachable,
-    }
-
     return @mulAdd(Type, b - a, t, a);
 }
 
@@ -1391,6 +1425,9 @@ test "lerp" {
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));
     try testing.expectEqual(@as(f64, -31.25), lerp(-50, 25, 0.25));
+
+    try testing.expectEqual(@as(f64, 30), lerp(10, 20, 2.0));
+    try testing.expectEqual(@as(f64, 5), lerp(10, 20, -0.5));
 
     try testing.expectApproxEqRel(@as(f32, -7.16067345e+03), lerp(-10000.12345, -5000.12345, 0.56789), 1e-19);
     try testing.expectApproxEqRel(@as(f64, 7.010987590521e+62), lerp(0.123456789e-64, 0.123456789e64, 0.56789), 1e-33);
@@ -1405,8 +1442,8 @@ test "lerp" {
         const b: @Vector(3, f32) = @splat(50);
         const t: @Vector(3, f32) = @splat(0.5);
         try testing.expectEqual(
-            lerp(a, b, t),
             @Vector(3, f32){ 25, 25, 25 },
+            lerp(a, b, t),
         );
     }
     {
@@ -1414,8 +1451,17 @@ test "lerp" {
         const b: @Vector(3, f64) = @splat(100);
         const t: @Vector(3, f64) = @splat(0.5);
         try testing.expectEqual(
-            lerp(a, b, t),
             @Vector(3, f64){ 75, 75, 75 },
+            lerp(a, b, t),
+        );
+    }
+    {
+        const a: @Vector(2, f32) = @splat(40);
+        const b: @Vector(2, f32) = @splat(80);
+        const t: @Vector(2, f32) = @Vector(2, f32){ 0.25, 0.75 };
+        try testing.expectEqual(
+            @Vector(2, f32){ 50, 70 },
+            lerp(a, b, t),
         );
     }
 }

@@ -717,19 +717,14 @@ test "vector shift operators" {
     };
 
     switch (builtin.target.cpu.arch) {
-        .x86,
-        .aarch64,
         .aarch64_be,
         .aarch64_32,
-        .arm,
         .armeb,
         .thumb,
         .thumbeb,
         .mips,
-        .mipsel,
         .mips64,
         .mips64el,
-        .riscv64,
         .sparc64,
         => {
             // LLVM miscompiles on this architecture

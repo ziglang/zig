@@ -1181,7 +1181,9 @@ fn evalZigTest(
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
-                    const msg = std.mem.trim(u8, stderr.readableSlice(0), "\n");
+                    const orig_msg = stderr.readableSlice(0);
+                    defer stderr.discard(orig_msg.len);
+                    const msg = std.mem.trim(u8, orig_msg, "\n");
                     const label = if (tr_hdr.flags.fail)
                         "failed"
                     else if (tr_hdr.flags.leak)
@@ -1195,7 +1197,6 @@ fn evalZigTest(
                     } else {
                         try self.step.addError("'{s}' {s}", .{ name, label });
                     }
-                    stderr.discard(msg.len);
                 }
 
                 try requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node);

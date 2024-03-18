@@ -965,9 +965,9 @@ pub const DeclGen = struct {
                 .Array, .Vector => {
                     const ai = ty.arrayInfo(mod);
                     if (ai.elem_type.eql(Type.u8, mod)) {
-                        var literal = stringLiteral(writer);
-                        try literal.start();
                         const c_len = ty.arrayLenIncludingSentinel(mod);
+                        var literal = stringLiteral(writer, c_len);
+                        try literal.start();
                         var index: u64 = 0;
                         while (index < c_len) : (index += 1)
                             try literal.writeChar(0xaa);
@@ -1290,46 +1290,24 @@ pub const DeclGen = struct {
                     }
                     // Fall back to generic implementation.
 
-                    // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal
-                    const max_string_initializer_len = 65535;
-
                     const ai = ty.arrayInfo(mod);
                     if (ai.elem_type.eql(Type.u8, mod)) {
-                        if (ai.len <= max_string_initializer_len) {
-                            var literal = stringLiteral(writer);
-                            try literal.start();
-                            var index: usize = 0;
-                            while (index < ai.len) : (index += 1) {
-                                const elem_val = try val.elemValue(mod, index);
-                                const elem_val_u8: u8 = if (elem_val.isUndef(mod))
-                                    undefPattern(u8)
-                                else
-                                    @intCast(elem_val.toUnsignedInt(mod));
-                                try literal.writeChar(elem_val_u8);
-                            }
-                            if (ai.sentinel) |s| {
-                                const s_u8: u8 = @intCast(s.toUnsignedInt(mod));
-                                if (s_u8 != 0) try literal.writeChar(s_u8);
-                            }
-                            try literal.end();
-                        } else {
-                            try writer.writeByte('{');
-                            var index: usize = 0;
-                            while (index < ai.len) : (index += 1) {
-                                if (index != 0) try writer.writeByte(',');
-                                const elem_val = try val.elemValue(mod, index);
-                                const elem_val_u8: u8 = if (elem_val.isUndef(mod))
-                                    undefPattern(u8)
-                                else
-                                    @intCast(elem_val.toUnsignedInt(mod));
-                                try writer.print("'\\x{x}'", .{elem_val_u8});
-                            }
-                            if (ai.sentinel) |s| {
-                                if (index != 0) try writer.writeByte(',');
-                                try dg.renderValue(writer, ai.elem_type, s, initializer_type);
-                            }
-                            try writer.writeByte('}');
+                        var literal = stringLiteral(writer, ty.arrayLenIncludingSentinel(mod));
+                        try literal.start();
+                        var index: usize = 0;
+                        while (index < ai.len) : (index += 1) {
+                            const elem_val = try val.elemValue(mod, index);
+                            const elem_val_u8: u8 = if (elem_val.isUndef(mod))
+                                undefPattern(u8)
+                            else
+                                @intCast(elem_val.toUnsignedInt(mod));
+                            try literal.writeChar(elem_val_u8);
                         }
+                        if (ai.sentinel) |s| {
+                            const s_u8: u8 = @intCast(s.toUnsignedInt(mod));
+                            if (s_u8 != 0) try literal.writeChar(s_u8);
+                        }
+                        try literal.end();
                     } else {
                         try writer.writeByte('{');
                         var index: usize = 0;
@@ -1635,7 +1613,7 @@ pub const DeclGen = struct {
 
         switch (kind) {
             .forward => {},
-            .complete => if (fn_info.alignment.toByteUnitsOptional()) |a| {
+            .complete => if (fn_decl.alignment.toByteUnitsOptional()) |a| {
                 try w.print("{}zig_align_fn({})", .{ trailing, a });
                 trailing = .maybe_space;
             },
@@ -1666,7 +1644,7 @@ pub const DeclGen = struct {
 
         switch (kind) {
             .forward => {
-                if (fn_info.alignment.toByteUnitsOptional()) |a| {
+                if (fn_decl.alignment.toByteUnitsOptional()) |a| {
                     try w.print(" zig_align_fn({})", .{a});
                 }
                 switch (name) {
@@ -7660,11 +7638,17 @@ fn compareOperatorC(operator: std.math.CompareOperator) []const u8 {
 }
 
 fn StringLiteral(comptime WriterType: type) type {
+    // MSVC throws C2078 if an array of size 65536 or greater is initialized with a string literal,
+    // regardless of the length of the string literal initializing it. Array initializer syntax is
+    // used instead.
+    const max_string_initializer_len = 65535;
+
     // MSVC has a length limit of 16380 per string literal (before concatenation)
     const max_char_len = 4;
-    const max_len = 16380 - max_char_len;
+    const max_literal_len = 16380 - max_char_len;
 
     return struct {
+        len: u64,
         cur_len: u64 = 0,
         counting_writer: std.io.CountingWriter(WriterType),
 
@@ -7674,12 +7658,20 @@ fn StringLiteral(comptime WriterType: type) type {
 
         pub fn start(self: *Self) Error!void {
             const writer = self.counting_writer.writer();
-            try writer.writeByte('\"');
+            if (self.len <= max_string_initializer_len) {
+                try writer.writeByte('\"');
+            } else {
+                try writer.writeByte('{');
+            }
         }
 
         pub fn end(self: *Self) Error!void {
             const writer = self.counting_writer.writer();
-            try writer.writeByte('\"');
+            if (self.len <= max_string_initializer_len) {
+                try writer.writeByte('\"');
+            } else {
+                try writer.writeByte('}');
+            }
         }
 
         fn writeStringLiteralChar(writer: anytype, c: u8) !void {
@@ -7701,24 +7693,34 @@ fn StringLiteral(comptime WriterType: type) type {
 
         pub fn writeChar(self: *Self, c: u8) Error!void {
             const writer = self.counting_writer.writer();
+            if (self.len <= max_string_initializer_len) {
+                if (self.cur_len == 0 and self.counting_writer.bytes_written > 1)
+                    try writer.writeAll("\"\"");
 
-            if (self.cur_len == 0 and self.counting_writer.bytes_written > 1)
-                try writer.writeAll("\"\"");
+                const len = self.counting_writer.bytes_written;
+                try writeStringLiteralChar(writer, c);
 
-            const len = self.counting_writer.bytes_written;
-            try writeStringLiteralChar(writer, c);
+                const char_length = self.counting_writer.bytes_written - len;
+                assert(char_length <= max_char_len);
+                self.cur_len += char_length;
 
-            const char_length = self.counting_writer.bytes_written - len;
-            assert(char_length <= max_char_len);
-            self.cur_len += char_length;
-
-            if (self.cur_len >= max_len) self.cur_len = 0;
+                if (self.cur_len >= max_literal_len) self.cur_len = 0;
+            } else {
+                if (self.counting_writer.bytes_written > 1) try writer.writeByte(',');
+                try writer.print("'\\x{x}'", .{c});
+            }
         }
     };
 }
 
-fn stringLiteral(child_stream: anytype) StringLiteral(@TypeOf(child_stream)) {
-    return .{ .counting_writer = std.io.countingWriter(child_stream) };
+fn stringLiteral(
+    child_stream: anytype,
+    len: u64,
+) StringLiteral(@TypeOf(child_stream)) {
+    return .{
+        .len = len,
+        .counting_writer = std.io.countingWriter(child_stream),
+    };
 }
 
 const FormatStringContext = struct { str: []const u8, sentinel: ?u8 };
@@ -7730,7 +7732,7 @@ fn formatStringLiteral(
 ) @TypeOf(writer).Error!void {
     if (fmt.len != 1 or fmt[0] != 's') @compileError("Invalid fmt: " ++ fmt);
 
-    var literal = stringLiteral(writer);
+    var literal = stringLiteral(writer, data.str.len + @intFromBool(data.sentinel != null));
     try literal.start();
     for (data.str) |c| try literal.writeChar(c);
     if (data.sentinel) |sentinel| if (sentinel != 0) try literal.writeChar(sentinel);

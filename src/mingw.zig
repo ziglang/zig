@@ -268,7 +268,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
-        const def_final_file = try comp.global_cache_directory.handle.createFile(def_final_path, .{ .truncate = true });
+        const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
         try pp.prettyPrintTokens(def_final_file.writer());
     }

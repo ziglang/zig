@@ -7,14 +7,41 @@ const elf = std.elf;
 const windows = std.os.windows;
 const system = std.os.system;
 
-pub const DynLib = switch (builtin.os.tag) {
-    .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .static)
-        ElfDynLib
-    else
-        DlDynLib,
-    .windows => WindowsDynLib,
-    .macos, .tvos, .watchos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
-    else => void,
+/// Cross-platform dynamic library loading and symbol lookup.
+/// Platform-specific functionality is available through the `inner` field.
+pub const DynLib = struct {
+    const InnerType = switch (builtin.os.tag) {
+        .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .static)
+            ElfDynLib
+        else
+            DlDynLib,
+        .windows => WindowsDynLib,
+        .macos, .tvos, .watchos, .ios, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
+        else => @compileError("unsupported platform"),
+    };
+
+    inner: InnerType,
+
+    pub const Error = ElfDynLib.Error || DlDynLib.Error || WindowsDynLib.Error;
+
+    /// Trusts the file. Malicious file will be able to execute arbitrary code.
+    pub fn open(path: []const u8) Error!DynLib {
+        return .{ .inner = try InnerType.open(path) };
+    }
+
+    /// Trusts the file. Malicious file will be able to execute arbitrary code.
+    pub fn openZ(path_c: [*:0]const u8) Error!DynLib {
+        return .{ .inner = try InnerType.open(path_c) };
+    }
+
+    /// Trusts the file.
+    pub fn close(self: *DynLib) void {
+        return self.inner.close();
+    }
+
+    pub fn lookup(self: *DynLib, comptime T: type, name: [:0]const u8) ?T {
+        return self.inner.lookup(T, name);
+    }
 };
 
 // The link_map structure is not completely specified beside the fields
@@ -59,12 +86,12 @@ pub fn get_DYNAMIC() ?[*]elf.Dyn {
     return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
 }
 
-pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
+pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
     _ = phdrs;
     const _DYNAMIC = get_DYNAMIC() orelse {
         // No PT_DYNAMIC means this is either a statically-linked program or a
         // badly corrupted dynamically-linked one.
-        return LinkMap.Iterator{ .current = null };
+        return .{ .current = null };
     };
 
     const link_map_ptr = init: {
@@ -89,10 +116,10 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) !LinkMap.Iterator {
                 else => {},
             }
         }
-        return LinkMap.Iterator{ .current = null };
+        return .{ .current = null };
     };
 
-    return LinkMap.Iterator{ .current = link_map_ptr };
+    return .{ .current = link_map_ptr };
 }
 
 pub const ElfDynLib = struct {
@@ -111,10 +138,10 @@ pub const ElfDynLib = struct {
         ElfStringSectionNotFound,
         ElfSymSectionNotFound,
         ElfHashTableNotFound,
-    };
+    } || os.OpenError || os.MMapError;
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
-    pub fn open(path: []const u8) !ElfDynLib {
+    pub fn open(path: []const u8) Error!ElfDynLib {
         const fd = try os.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
         defer os.close(fd);
 
@@ -239,7 +266,7 @@ pub const ElfDynLib = struct {
             }
         }
 
-        return ElfDynLib{
+        return .{
             .memory = all_loaded_mem,
             .strings = maybe_strings orelse return error.ElfStringSectionNotFound,
             .syms = maybe_syms orelse return error.ElfSymSectionNotFound,
@@ -250,7 +277,7 @@ pub const ElfDynLib = struct {
     }
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
-    pub fn openZ(path_c: [*:0]const u8) !ElfDynLib {
+    pub fn openZ(path_c: [*:0]const u8) Error!ElfDynLib {
         return open(mem.sliceTo(path_c, 0));
     }
 
@@ -260,7 +287,7 @@ pub const ElfDynLib = struct {
         self.* = undefined;
     }
 
-    pub fn lookup(self: *ElfDynLib, comptime T: type, name: [:0]const u8) ?T {
+    pub fn lookup(self: *const ElfDynLib, comptime T: type, name: [:0]const u8) ?T {
         if (self.lookupAddress("", name)) |symbol| {
             return @as(T, @ptrFromInt(symbol));
         } else {
@@ -268,6 +295,7 @@ pub const ElfDynLib = struct {
         }
     }
 
+    /// ElfDynLib specific
     /// Returns the address of the symbol
     pub fn lookupAddress(self: *const ElfDynLib, vername: []const u8, name: []const u8) ?usize {
         const maybe_versym = if (self.verdef == null) null else self.versym;
@@ -314,41 +342,59 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
     return mem.eql(u8, vername, mem.sliceTo(strings + aux.vda_name, 0));
 }
 
+test "ElfDynLib" {
+    if (builtin.os.tag != .linux) {
+        return error.SkipZigTest;
+    }
+
+    try testing.expectError(error.FileNotFound, ElfDynLib.open("invalid_so.so"));
+}
+
 pub const WindowsDynLib = struct {
-    pub const Error = error{FileNotFound};
+    pub const Error = error{
+        FileNotFound,
+        InvalidPath,
+    } || windows.LoadLibraryError;
 
     dll: windows.HMODULE,
 
-    pub fn open(path: []const u8) !WindowsDynLib {
+    pub fn open(path: []const u8) Error!WindowsDynLib {
         return openEx(path, .none);
     }
 
-    pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
-        const path_w = try windows.sliceToPrefixedFileW(null, path);
+    /// WindowsDynLib specific
+    /// Opens dynamic library with specified library loading flags.
+    pub fn openEx(path: []const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
+        const path_w = windows.sliceToPrefixedFileW(null, path) catch return error.InvalidPath;
         return openExW(path_w.span().ptr, flags);
     }
 
-    pub fn openZ(path_c: [*:0]const u8) !WindowsDynLib {
+    pub fn openZ(path_c: [*:0]const u8) Error!WindowsDynLib {
         return openExZ(path_c, .none);
     }
 
-    pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) !WindowsDynLib {
+    /// WindowsDynLib specific
+    /// Opens dynamic library with specified library loading flags.
+    pub fn openExZ(path_c: [*:0]const u8, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
         const path_w = try windows.cStrToPrefixedFileW(null, path_c);
         return openExW(path_w.span().ptr, flags);
     }
 
-    pub fn openW(path_w: [*:0]const u16) !WindowsDynLib {
+    /// WindowsDynLib specific
+    pub fn openW(path_w: [*:0]const u16) Error!WindowsDynLib {
         return openExW(path_w, .none);
     }
 
-    pub fn openExW(path_w: [*:0]const u16, flags: windows.LoadLibraryFlags) !WindowsDynLib {
+    /// WindowsDynLib specific
+    /// Opens dynamic library with specified library loading flags.
+    pub fn openExW(path_w: [*:0]const u16, flags: windows.LoadLibraryFlags) Error!WindowsDynLib {
         var offset: usize = 0;
         if (path_w[0] == '\\' and path_w[1] == '?' and path_w[2] == '?' and path_w[3] == '\\') {
             // + 4 to skip over the \??\
             offset = 4;
         }
 
-        return WindowsDynLib{
+        return .{
             .dll = try windows.LoadLibraryExW(path_w + offset, flags),
         };
     }
@@ -368,17 +414,17 @@ pub const WindowsDynLib = struct {
 };
 
 pub const DlDynLib = struct {
-    pub const Error = error{FileNotFound};
+    pub const Error = error{ FileNotFound, NameTooLong };
 
     handle: *anyopaque,
 
-    pub fn open(path: []const u8) !DlDynLib {
+    pub fn open(path: []const u8) Error!DlDynLib {
         const path_c = try os.toPosixPath(path);
         return openZ(&path_c);
     }
 
-    pub fn openZ(path_c: [*:0]const u8) !DlDynLib {
-        return DlDynLib{
+    pub fn openZ(path_c: [*:0]const u8) Error!DlDynLib {
+        return .{
             .handle = system.dlopen(path_c, system.RTLD.LAZY) orelse {
                 return error.FileNotFound;
             },
@@ -386,7 +432,10 @@ pub const DlDynLib = struct {
     }
 
     pub fn close(self: *DlDynLib) void {
-        _ = system.dlclose(self.handle);
+        switch (std.os.errno(system.dlclose(self.handle))) {
+            .SUCCESS => return,
+            else => unreachable,
+        }
         self.* = undefined;
     }
 
@@ -399,6 +448,13 @@ pub const DlDynLib = struct {
             return null;
         }
     }
+
+    /// DlDynLib specific
+    /// Returns human readable string describing most recent error than occurred from `lookup`
+    /// or `null` if no error has occurred since initialization or when `getError` was last called.
+    pub fn getError() ?[:0]const u8 {
+        return mem.span(system.dlerror());
+    }
 };
 
 test "dynamic_library" {
@@ -409,8 +465,5 @@ test "dynamic_library" {
         else => return error.SkipZigTest,
     };
 
-    _ = DynLib.open(libname) catch |err| {
-        try testing.expect(err == error.FileNotFound);
-        return;
-    };
+    try testing.expectError(error.FileNotFound, DynLib.open(libname));
 }

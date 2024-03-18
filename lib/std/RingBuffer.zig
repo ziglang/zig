@@ -74,6 +74,7 @@ pub fn writeSlice(self: *RingBuffer, bytes: []const u8) Error!void {
 /// bytes will be overwritten.
 /// Uses memcpy and so `bytes` must not overlap ring buffer data.
 pub fn writeSliceAssumeCapacity(self: *RingBuffer, bytes: []const u8) void {
+    assert(bytes.len <= self.data.len);
     const data_start = self.mask(self.write_index);
     const part1_data_end = @min(data_start + bytes.len, self.data.len);
     const part1_len = part1_data_end - data_start;
@@ -104,6 +105,7 @@ pub fn writeSliceForwards(self: *RingBuffer, bytes: []const u8) Error!void {
 /// bytes will be overwritten.
 /// Uses copyForwards and can write slices from this RingBuffer into itself.
 pub fn writeSliceForwardsAssumeCapacity(self: *RingBuffer, bytes: []const u8) void {
+    assert(bytes.len <= self.data.len);
     const data_start = self.mask(self.write_index);
     const part1_data_end = @min(data_start + bytes.len, self.data.len);
     const part1_len = part1_data_end - data_start;
@@ -148,18 +150,15 @@ pub fn readFirst(self: *RingBuffer, dest: []u8, length: usize) Error!void {
 /// Uses memcpy and so `dest` must not overlap ring buffer data.
 pub fn readFirstAssumeLength(self: *RingBuffer, dest: []u8, length: usize) void {
     assert(length <= self.len() and length <= dest.len);
-    const data_start = self.mask(self.read_index);
-    const part1_data_end = @min(self.data.len, data_start + length);
-    const part1_len = part1_data_end - data_start;
-    const part2_len = length - part1_len;
-    @memcpy(dest[0..part1_len], self.data[data_start..part1_data_end]);
-    @memcpy(dest[part1_len..length], self.data[0..part2_len]);
+    const slice = self.sliceAt(self.read_index, length);
+    slice.copyTo(dest);
     self.read_index = self.mask2(self.read_index + length);
 }
 
 /// Reads last `length` bytes written to the ring buffer into `dest`; Returns
 /// Error.ReadLengthInvalid if length greater than ring or dest length
 /// Uses memcpy and so `dest` must not overlap ring buffer data.
+/// Reduces write index by `length`.
 pub fn readLast(self: *RingBuffer, dest: []u8, length: usize) Error!void {
     if (length > self.len() or length > dest.len) return error.ReadLengthInvalid;
     self.readLastAssumeLength(dest, length);
@@ -168,15 +167,15 @@ pub fn readLast(self: *RingBuffer, dest: []u8, length: usize) Error!void {
 /// Reads last `length` bytes written to the ring buffer into `dest`;
 /// Asserts that length not greater than ring buffer or dest length
 /// Uses memcpy and so `dest` must not overlap ring buffer data.
+/// Reduces write index by `length`.
 pub fn readLastAssumeLength(self: *RingBuffer, dest: []u8, length: usize) void {
     assert(length <= self.len() and length <= dest.len);
-    const data_start = self.mask(self.write_index + self.data.len - length);
-    const part1_data_end = @min(self.data.len, data_start + length);
-    const part1_len = part1_data_end - data_start;
-    const part2_len = length - part1_len;
-    @memcpy(dest[0..part1_len], self.data[data_start..part1_data_end]);
-    @memcpy(dest[part1_len..length], self.data[0..part2_len]);
-    self.write_index = if (self.write_index >= self.data.len) self.write_index - length else data_start;
+    const slice = self.sliceLast(length);
+    slice.copyTo(dest);
+    self.write_index = if (self.write_index >= self.data.len)
+        self.write_index - length
+    else
+        self.mask(self.write_index + self.data.len - length);
 }
 
 /// Returns `true` if the ring buffer is empty and `false` otherwise.
@@ -189,7 +188,7 @@ pub fn isFull(self: RingBuffer) bool {
     return self.mask2(self.write_index + self.data.len) == self.read_index;
 }
 
-/// Returns the length
+/// Returns the length of data available for reading
 pub fn len(self: RingBuffer) usize {
     const wrap_offset = 2 * self.data.len * @intFromBool(self.write_index < self.read_index);
     const adjusted_write_index = self.write_index + wrap_offset;
@@ -202,6 +201,12 @@ pub fn len(self: RingBuffer) usize {
 pub const Slice = struct {
     first: []u8,
     second: []u8,
+
+    /// Copy data from `self` into `dest`
+    pub fn copyTo(self: Slice, dest: []u8) void {
+        @memcpy(dest[0..self.first.len], self.first);
+        @memcpy(dest[self.first.len..][0..self.second.len], self.second);
+    }
 };
 
 /// Returns a `Slice` for the region of the ring buffer starting at

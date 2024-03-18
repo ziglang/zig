@@ -1101,7 +1101,7 @@ pub const Coff = struct {
         return coff;
     }
 
-    pub fn getPdbPath(self: *Coff, buffer: []u8) !?usize {
+    pub fn getPdbPath(self: *Coff) !?[]const u8 {
         assert(self.is_image);
 
         const data_dirs = self.getDataDirectories();
@@ -1145,17 +1145,9 @@ pub const Coff = struct {
         self.age = try reader.readInt(u32, .little);
 
         // Finally read the null-terminated string.
-        var byte = try reader.readByte();
-        i = 0;
-        while (byte != 0 and i < buffer.len) : (i += 1) {
-            buffer[i] = byte;
-            byte = try reader.readByte();
-        }
-
-        if (byte != 0 and i == buffer.len)
-            return error.NameTooLong;
-
-        return @as(usize, i);
+        const start = reader.context.pos;
+        const len = std.mem.indexOfScalar(u8, self.data[start..], 0) orelse return null;
+        return self.data[start .. start + len];
     }
 
     pub fn getCoffHeader(self: Coff) CoffHeader {

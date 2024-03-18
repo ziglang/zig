@@ -204,13 +204,12 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
             }
         },
         .assign_destructure => {
-            const lhs_count = tree.extra_data[node_datas[node].lhs];
-            const all_lhs = tree.extra_data[node_datas[node].lhs + 1 ..][0..lhs_count];
-            for (all_lhs) |lhs| {
-                _ = try astrl.expr(lhs, block, ResultInfo.none);
+            const full = tree.assignDestructure(node);
+            for (full.ast.variables) |variable_node| {
+                _ = try astrl.expr(variable_node, block, ResultInfo.none);
             }
             // We don't need to gather any meaningful data here, because destructures always use RLS
-            _ = try astrl.expr(node_datas[node].rhs, block, ResultInfo.none);
+            _ = try astrl.expr(full.ast.value_expr, block, ResultInfo.none);
             return false;
         },
         .assign => {

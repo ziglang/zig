@@ -578,3 +578,9 @@ test "call generic function that uses capture from function declaration's scope"
     const s = S.foo(123);
     try expectEqual(123.0, s[0]);
 }
+
+comptime {
+    // The same function parameter instruction being analyzed multiple times
+    // should override the result of the previous analysis.
+    for (0..2) |_| _ = fn (void) void;
+}

@@ -814,7 +814,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
         return windows.ntdll.RtlCaptureStackBackTrace(0, addresses.len, @as(**anyopaque, @ptrCast(addresses.ptr)), null);
     }
 
-    const tib = @as(*const windows.NT_TIB, @ptrCast(&windows.teb().Reserved1));
+    const tib = &windows.teb().NtTib;
 
     var context: windows.CONTEXT = undefined;
     if (existing_context) |context_ptr| {
@@ -1093,12 +1093,17 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             di.dwarf = dwarf;
         }
 
-        var path_buf: [windows.MAX_PATH]u8 = undefined;
-        const len = try coff_obj.getPdbPath(path_buf[0..]) orelse return di;
-        const raw_path = path_buf[0..len];
-
-        const path = try fs.path.resolve(allocator, &[_][]const u8{raw_path});
-        defer allocator.free(path);
+        const raw_path = try coff_obj.getPdbPath() orelse return di;
+        const path = blk: {
+            if (fs.path.isAbsolute(raw_path)) {
+                break :blk raw_path;
+            } else {
+                const self_dir = try fs.selfExeDirPathAlloc(allocator);
+                defer allocator.free(self_dir);
+                break :blk try fs.path.join(allocator, &.{ self_dir, raw_path });
+            }
+        };
+        defer if (path.ptr != raw_path.ptr) allocator.free(path);
 
         di.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => {
@@ -2832,6 +2837,29 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         }
     };
 }
+
+pub const SafetyLock = struct {
+    state: State = .unlocked,
+
+    pub const State = if (runtime_safety) enum { unlocked, locked } else enum { unlocked };
+
+    pub fn lock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+        l.state = .locked;
+    }
+
+    pub fn unlock(l: *SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .locked);
+        l.state = .unlocked;
+    }
+
+    pub fn assertUnlocked(l: SafetyLock) void {
+        if (!runtime_safety) return;
+        assert(l.state == .unlocked);
+    }
+};
 
 test {
     _ = &dump_hex;

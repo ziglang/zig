@@ -2598,7 +2598,10 @@ pub const Object = struct {
                 defer gpa.free(name);
 
                 const union_type = ip.loadUnionType(ty.toIntern());
-                if (!union_type.haveFieldTypes(ip) or !ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!union_type.haveFieldTypes(ip) or
+                    !ty.hasRuntimeBitsIgnoreComptime(mod) or
+                    !union_type.haveLayout(ip))
+                {
                     const debug_union_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
                     try o.debug_type_map.put(gpa, ty, debug_union_type);
                     return debug_union_type;
@@ -2849,7 +2852,7 @@ pub const Object = struct {
         const stack_trace_str = try mod.intern_pool.getOrPutString(mod.gpa, "StackTrace");
         // buffer is only used for int_type, `builtin` is a struct.
         const builtin_ty = mod.declPtr(builtin_decl).val.toType();
-        const builtin_namespace = builtin_ty.getNamespace(mod).?;
+        const builtin_namespace = mod.namespacePtrUnwrap(builtin_ty.getNamespaceIndex(mod)).?;
         const stack_trace_decl_index = builtin_namespace.decls.getKeyAdapted(stack_trace_str, Module.DeclAdapter{ .zcu = mod }).?;
         const stack_trace_decl = mod.declPtr(stack_trace_decl_index);
 
@@ -2949,8 +2952,8 @@ pub const Object = struct {
             else => function_index.setCallConv(toLlvmCallConv(fn_info.cc, target), &o.builder),
         }
 
-        if (fn_info.alignment != .none)
-            function_index.setAlignment(fn_info.alignment.toLlvm(), &o.builder);
+        if (decl.alignment != .none)
+            function_index.setAlignment(decl.alignment.toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
         try o.addCommonFnAttributes(&attributes, owner_mod);

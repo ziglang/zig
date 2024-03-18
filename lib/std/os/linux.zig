@@ -1327,16 +1327,14 @@ pub fn flock(fd: fd_t, operation: i32) usize {
     return syscall2(.flock, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, operation))));
 }
 
-var vdso_clock_gettime = @as(?*const anyopaque, @ptrCast(&init_vdso_clock_gettime));
-
 // We must follow the C calling convention when we call into the VDSO
-const vdso_clock_gettime_ty = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
 pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
-        const ptr = @atomicLoad(?*const anyopaque, &vdso_clock_gettime, .unordered);
-        if (ptr) |fn_ptr| {
-            const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));
+        const ptr = @atomicLoad(?VdsoClockGettime, &vdso_clock_gettime, .unordered);
+        if (ptr) |f| {
             const rc = f(clk_id, tp);
             switch (rc) {
                 0, @as(usize, @bitCast(-@as(isize, @intFromEnum(E.INVAL)))) => return rc,
@@ -1348,15 +1346,12 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
 }
 
 fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
-    const ptr = @as(?*const anyopaque, @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM)));
+    const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
-    @atomicStore(?*const anyopaque, &vdso_clock_gettime, ptr, .monotonic);
+    @atomicStore(?VdsoClockGettime, &vdso_clock_gettime, ptr, .monotonic);
     // Call into the VDSO if available
-    if (ptr) |fn_ptr| {
-        const f = @as(vdso_clock_gettime_ty, @ptrCast(fn_ptr));
-        return f(clk, ts);
-    }
+    if (ptr) |f| return f(clk, ts);
     return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
 }
 
@@ -2516,9 +2511,9 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 } else if (is_sparc) struct {
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
@@ -2560,9 +2555,9 @@ pub const SIG = if (is_mips) struct {
     pub const PWR = LOST;
     pub const IO = SIG.POLL;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 } else struct {
     pub const BLOCK = 0;
     pub const UNBLOCK = 1;
@@ -2603,9 +2598,9 @@ pub const SIG = if (is_mips) struct {
     pub const SYS = 31;
     pub const UNUSED = SIG.SYS;
 
-    pub const ERR = @as(?Sigaction.handler_fn, @ptrFromInt(maxInt(usize)));
-    pub const DFL = @as(?Sigaction.handler_fn, @ptrFromInt(0));
-    pub const IGN = @as(?Sigaction.handler_fn, @ptrFromInt(1));
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+    pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
+    pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
 };
 
 pub const kernel_rwf = u32;
@@ -3709,7 +3704,7 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?*const fn (c_int) align(1) callconv(.C) void;
+    const handler = ?*align(1) const fn (c_int) callconv(.C) void;
     const restorer = *const fn () callconv(.C) void;
 };
 
@@ -3736,7 +3731,7 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *const fn (c_int) align(1) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (c_int) callconv(.C) void;
     pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
 
     handler: extern union {
@@ -4387,6 +4382,16 @@ pub const io_uring_cqe = extern struct {
         }
         return .SUCCESS;
     }
+
+    // On successful completion of the provided buffers IO request, the CQE flags field
+    // will have IORING_CQE_F_BUFFER set and the selected buffer ID will be indicated by
+    // the upper 16-bits of the flags field.
+    pub fn buffer_id(self: io_uring_cqe) !u16 {
+        if (self.flags & IORING_CQE_F_BUFFER != IORING_CQE_F_BUFFER) {
+            return error.NoBufferSelected;
+        }
+        return @as(u16, @intCast(self.flags >> IORING_CQE_BUFFER_SHIFT));
+    }
 };
 
 // io_uring_cqe.flags
@@ -4667,8 +4672,12 @@ pub const io_uring_buf = extern struct {
     resv: u16,
 };
 
-// io_uring_buf_ring struct omitted
-// it's a io_uring_buf array with the resv of the first item used as a "tail" field.
+pub const io_uring_buf_ring = extern struct {
+    resv1: u64,
+    resv2: u32,
+    resv3: u16,
+    tail: u16,
+};
 
 /// argument for IORING_(UN)REGISTER_PBUF_RING
 pub const io_uring_buf_reg = extern struct {
