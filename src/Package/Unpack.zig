@@ -5,8 +5,7 @@ const ErrorBundle = std.zig.ErrorBundle;
 
 allocator: std.mem.Allocator,
 root: fs.Dir,
-
-errors: std.ArrayListUnmanaged(Error) = .{},
+errors: Errors,
 
 pub const Error = union(enum) {
     unable_to_create_sym_link: struct {
@@ -18,17 +17,28 @@ pub const Error = union(enum) {
         code: anyerror,
         file_name: []const u8,
     },
+
+    pub fn filtered(self: Error, filter: Filter) bool {
+        switch (self) {
+            .unable_to_create_file => |info| return !filter.includePath(info.file_name),
+            .unable_to_create_sym_link => |info| return !filter.includePath(info.target_path),
+        }
+    }
 };
 
-pub fn init(allocator: std.mem.Allocator, root: fs.Dir) Self {
-    return .{
-        .allocator = allocator,
-        .root = root,
-    };
-}
+pub const Errors = struct {
+    allocator: std.mem.Allocator,
+    list: std.ArrayListUnmanaged(Error) = .{},
 
-pub fn deinit(self: *Self) void {
-    for (self.errors.items) |item| {
+    pub fn deinit(self: *Errors) void {
+        for (self.list.items) |item| {
+            self.free(item);
+        }
+        self.list.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    fn free(self: *Errors, item: Error) void {
         switch (item) {
             .unable_to_create_sym_link => |info| {
                 self.allocator.free(info.target_path);
@@ -39,8 +49,49 @@ pub fn deinit(self: *Self) void {
             },
         }
     }
-    self.errors.deinit(self.allocator);
-    self.* = undefined;
+
+    pub fn count(self: *Errors) usize {
+        return self.list.items.len;
+    }
+
+    fn createFile(self: *Errors, sub_path: []const u8, err: anyerror) !void {
+        try self.list.append(self.allocator, .{ .unable_to_create_file = .{
+            .code = err,
+            .file_name = try self.allocator.dupe(u8, sub_path),
+        } });
+    }
+
+    fn symLink(self: *Errors, target_path: []const u8, sym_link_path: []const u8, err: anyerror) !void {
+        try self.list.append(self.allocator, .{ .unable_to_create_sym_link = .{
+            .code = err,
+            .target_path = try self.allocator.dupe(u8, target_path),
+            .sym_link_path = try self.allocator.dupe(u8, sym_link_path),
+        } });
+    }
+
+    pub fn remove(self: *Errors, filter: Filter) !void {
+        var i = self.list.items.len;
+        while (i > 0) {
+            i -= 1;
+            const item = self.list.items[i];
+            if (item.filtered(filter)) {
+                _ = self.list.swapRemove(i);
+                self.free(item);
+            }
+        }
+    }
+};
+
+pub fn init(allocator: std.mem.Allocator, root: fs.Dir) Self {
+    return .{
+        .allocator = allocator,
+        .errors = Errors{ .allocator = allocator },
+        .root = root,
+    };
+}
+
+pub fn deinit(self: *Self) void {
+    self.errors.deinit();
 }
 
 const Self = @This();
@@ -143,7 +194,7 @@ pub fn directory(self: *Self, source: fs.Dir) !void {
 }
 
 pub fn hasErrors(self: *Self) bool {
-    return self.errors.items.len > 0;
+    return self.errors.count() > 0;
 }
 
 fn copyFile(source_dir: fs.Dir, source_path: []const u8, dest_dir: fs.Dir, dest_path: []const u8) !void {
@@ -160,21 +211,14 @@ fn copyFile(source_dir: fs.Dir, source_path: []const u8, dest_dir: fs.Dir, dest_
 /// Errors are collected in errors list.
 fn createFile(self: *Self, sub_path: []const u8) !?fs.File {
     return createFilePath(self.root, sub_path) catch |err| {
-        try self.errors.append(self.allocator, .{ .unable_to_create_file = .{
-            .code = err,
-            .file_name = try self.allocator.dupe(u8, sub_path),
-        } });
+        try self.errors.createFile(sub_path, err);
         return null;
     };
 }
 
 fn symLink(self: *Self, target_path: []const u8, sym_link_path: []const u8) !void {
     symLinkPath(self.root, target_path, sym_link_path) catch |err| {
-        try self.errors.append(self.allocator, .{ .unable_to_create_sym_link = .{
-            .code = err,
-            .target_path = try self.allocator.dupe(u8, target_path),
-            .sym_link_path = try self.allocator.dupe(u8, sym_link_path),
-        } });
+        try self.errors.symLink(target_path, sym_link_path, err);
     };
 }
 
@@ -254,7 +298,7 @@ test gitPack {
 
     // unpack git pack
     {
-        var unpack = Unpack{ .allocator = testing.allocator, .root = tmp.dir };
+        var unpack = Unpack.init(testing.allocator, tmp.dir);
         defer unpack.deinit();
         const commit_id = try git.parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");
         try unpack.gitPack(commit_id, fbs.reader());
@@ -285,7 +329,7 @@ test tarball {
     {
         var fbs = std.io.fixedBufferStream(&buf);
 
-        var unpack = Unpack{ .allocator = testing.allocator, .root = tmp.dir };
+        var unpack = Unpack.init(testing.allocator, tmp.dir);
         defer unpack.deinit();
         try unpack.tarball(fbs.reader());
     }
@@ -313,20 +357,22 @@ test directory {
     var dest = testing.tmpDir(.{ .iterate = true });
     defer dest.cleanup();
 
-    var unpack = Unpack{ .allocator = testing.allocator, .root = dest.dir };
+    var unpack = Unpack.init(testing.allocator, dest.dir);
     defer unpack.deinit();
     try unpack.directory(source.dir);
 
     try expectDirFiles(dest.dir, paths);
 }
 
-test "collect errors" {
-    // Tarball with two files with same path.
-    // Unpack will have 1 error in errors list.
+test "collect/filter errors" {
+    const gpa = std.testing.allocator;
 
+    // Tarball with duplicating files path to simulate fs write fail.
     const paths: []const []const u8 = &.{
         "dir/file",
+        "dir1/file1",
         "dir/file",
+        "dir1/file1",
     };
     var buf: [paths.len * @sizeOf(TarHeader)]u8 = undefined;
     try createTarball(paths, &buf);
@@ -335,15 +381,43 @@ test "collect errors" {
     defer tmp.cleanup();
 
     var fbs = std.io.fixedBufferStream(&buf);
-    var unpack = Unpack{ .allocator = testing.allocator, .root = tmp.dir };
+    var unpack = Unpack.init(gpa, tmp.dir);
     defer unpack.deinit();
     try unpack.tarball(fbs.reader());
+    try testing.expect(unpack.hasErrors());
 
-    try expectDirFiles(tmp.dir, paths[0..1]);
+    try expectDirFiles(tmp.dir, paths[0..2]);
 
-    try testing.expectEqual(1, unpack.errors.items.len);
-    try testing.expectEqualStrings(paths[1], unpack.errors.items[0].unable_to_create_file.file_name);
+    try testing.expectEqual(2, unpack.errors.count());
+    try testing.expectEqualStrings(paths[2], unpack.errors.list.items[0].unable_to_create_file.file_name);
+    try testing.expectEqualStrings(paths[3], unpack.errors.list.items[1].unable_to_create_file.file_name);
+
+    {
+        var filter: Filter = .{};
+        defer filter.include_paths.deinit(gpa);
+
+        // no filter all paths are included
+        try unpack.errors.remove(filter);
+        try testing.expectEqual(2, unpack.errors.count());
+
+        // dir1 is included, dir excluded
+        try filter.include_paths.put(gpa, "dir1", {});
+        try unpack.errors.remove(filter);
+        try testing.expectEqual(1, unpack.errors.count());
+        try testing.expectEqualStrings("dir1/file1", unpack.errors.list.items[0].unable_to_create_file.file_name);
+    }
+    {
+        var filter: Filter = .{};
+        defer filter.include_paths.deinit(gpa);
+
+        // only src included that filters all error paths
+        try filter.include_paths.put(gpa, "src", {});
+        try unpack.errors.remove(filter);
+        try testing.expectEqual(0, unpack.errors.count());
+    }
 }
+
+const Filter = @import("Fetch.zig").Filter;
 
 fn createTarball(paths: []const []const u8, buf: []u8) !void {
     var fbs = std.io.fixedBufferStream(buf);

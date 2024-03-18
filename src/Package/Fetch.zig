@@ -1532,7 +1532,7 @@ fn normalizePath(bytes: []u8) void {
     std.mem.replaceScalar(u8, bytes, fs.path.sep, canonical_sep);
 }
 
-const Filter = struct {
+pub const Filter = struct {
     include_paths: std.StringArrayHashMapUnmanaged(void) = .{},
 
     /// sub_path is relative to the package root.
