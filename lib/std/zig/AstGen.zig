@@ -6072,8 +6072,9 @@ fn fieldAccess(
     switch (ri.rl) {
         .ref, .ref_coerced_ty => return addFieldAccess(.field_ptr, gz, scope, .{ .rl = .ref }, node),
         else => {
-            const access = try addFieldAccess(.field_val, gz, scope, .{ .rl = .none }, node);
-            return rvalue(gz, ri, access, node);
+            const ptr = try addFieldAccess(.field_ptr, gz, scope, .{ .rl = .ref }, node);
+            const result = try gz.addUnNode(.load, ptr, node);
+            return rvalue(gz, ri, result, node);
         },
     }
 }
@@ -6125,14 +6126,16 @@ fn arrayAccess(
             return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
         },
         else => {
-            const lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs);
+            const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
             const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
             try emitDbgStmt(gz, cursor);
 
-            return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
+            const ptr = try gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+            const result = try gz.addUnNode(.load, ptr, node);
+            return rvalue(gz, ri, result, node);
         },
     }
 }

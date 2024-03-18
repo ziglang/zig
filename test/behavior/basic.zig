@@ -1386,3 +1386,12 @@ test "loading array from struct is not optimized away" {
     var s = S{};
     try s.doTheTest();
 }
+
+test "length of array in global struct is comptime-known" {
+    const S = struct {
+        arr: [5]u8 = undefined,
+        var x: @This() = .{};
+    };
+
+    try expect(comptime S.x.arr.len == 5);
+}
