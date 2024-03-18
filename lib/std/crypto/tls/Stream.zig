@@ -328,13 +328,10 @@ pub fn readPlaintext(self: *Self) !Plaintext {
                         self.closed = true;
                         return res;
                     },
-                    .certificate_revoked,
-                    .certificate_unknown,
-                    .certificate_expired,
-                    .certificate_required => {},
+                    .certificate_revoked, .certificate_unknown, .certificate_expired, .certificate_required => {},
                     else => {
                         return self.writeError(.unexpected_message);
-                    }
+                    },
                 }
             },
             // > An implementation may receive an unencrypted record of type
@@ -544,4 +541,3 @@ const InnerPlaintext = struct {
     handshake_type: HandshakeType,
     len: u24,
 };
-

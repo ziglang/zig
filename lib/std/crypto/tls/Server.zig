@@ -179,9 +179,9 @@ pub fn recv_hello(self: *Self) !ClientHello {
                         .rsa_pss_rsae_sha384,
                         .rsa_pss_rsae_sha256,
                     },
-                    .ecdsa256 => &[_]tls.SignatureScheme{ .ecdsa_secp256r1_sha256 },
-                    .ecdsa384 => &[_]tls.SignatureScheme{ .ecdsa_secp384r1_sha384 },
-                    .ed25519 => &[_]tls.SignatureScheme{ .ed25519 },
+                    .ecdsa256 => &[_]tls.SignatureScheme{.ecdsa_secp256r1_sha256},
+                    .ecdsa384 => &[_]tls.SignatureScheme{.ecdsa_secp384r1_sha384},
+                    .ed25519 => &[_]tls.SignatureScheme{.ed25519},
                 };
                 var algos_iter = try stream.iterator(u16, tls.SignatureScheme);
                 while (try algos_iter.next()) |algo| {
@@ -205,12 +205,11 @@ pub fn recv_hello(self: *Self) !ClientHello {
     crypto.random.bytes(&server_random);
 
     const key_pair: tls.KeyPair = switch (key_share.?) {
-        inline
-            .secp256r1,
-            .secp384r1,
-            .x25519,
-            .x25519_kyber768d00,
-        =>  |_, tag| brk: {
+        inline .secp256r1,
+        .secp384r1,
+        .x25519,
+        .x25519_kyber768d00,
+        => |_, tag| brk: {
             const pair = tls.NamedGroupT(tag).KeyPair.create(null) catch unreachable;
             break :brk @unionInit(tls.KeyPair, @tagName(tag), pair);
         },
@@ -307,17 +306,17 @@ pub fn send_certificate_verify(self: *Self, verify: Command.CertificateVerify) !
 
     const signature: []const u8 = switch (verify.scheme) {
         inline .ecdsa_secp256r1_sha256, .ecdsa_secp384r1_sha384 => |comptime_scheme| brk: {
-             const Ecdsa = comptime_scheme.Ecdsa();
-             const key = switch (comptime_scheme) {
-                 .ecdsa_secp256r1_sha256 => self.options.certificate_key.ecdsa256,
-                 .ecdsa_secp384r1_sha384 => self.options.certificate_key.ecdsa384,
-                 else => unreachable,
-             };
+            const Ecdsa = comptime_scheme.Ecdsa();
+            const key = switch (comptime_scheme) {
+                .ecdsa_secp256r1_sha256 => self.options.certificate_key.ecdsa256,
+                .ecdsa_secp384r1_sha384 => self.options.certificate_key.ecdsa384,
+                else => unreachable,
+            };
 
-             var signer = Ecdsa.Signer.init(key, verify.salt[0..Ecdsa.noise_length].*);
-             signer.update(sig_content);
-             const sig = signer.finalize() catch return stream.writeError(.internal_error);
-             break :brk &sig.toBytes();
+            var signer = Ecdsa.Signer.init(key, verify.salt[0..Ecdsa.noise_length].*);
+            signer.update(sig_content);
+            const sig = signer.finalize() catch return stream.writeError(.internal_error);
+            break :brk &sig.toBytes();
         },
         inline .rsa_pss_rsae_sha256,
         .rsa_pss_rsae_sha384,
@@ -328,12 +327,12 @@ pub fn send_certificate_verify(self: *Self, verify: Command.CertificateVerify) !
 
             switch (key.public.n.bits() / 8) {
                 inline 128, 256, 512 => |modulus_length| {
-                    const sig  = Certificate.rsa.PSSSignature.sign(
+                    const sig = Certificate.rsa.PSSSignature.sign(
                         modulus_length,
                         sig_content,
                         Hash,
                         key,
-                       verify.salt[0..Hash.digest_length].*,
+                        verify.salt[0..Hash.digest_length].*,
                     ) catch return stream.writeError(.bad_certificate);
                     break :brk &sig;
                 },
@@ -391,10 +390,7 @@ pub fn recv_finished(self: *Self) !void {
 
     const handshake_hash = stream.transcript_hash.?.peek();
 
-    const application_cipher = tls.ApplicationCipher.init(
-        stream.cipher.handshake,
-        handshake_hash,
-    );
+    const application_cipher = tls.ApplicationCipher.init(stream.cipher.handshake, handshake_hash);
 
     const expected = switch (stream.cipher.handshake) {
         inline else => |p| brk: {
@@ -461,7 +457,7 @@ pub const Options = struct {
     key_shares: []const tls.NamedGroup = &tls.supported_groups,
     /// Certificate(s) to send in `send_certificate` messages.
     certificate: tls.Certificate,
-   /// Key to use in `send_certificate_verify`. Must match `certificate.parse().pub_key_algo`.
+    /// Key to use in `send_certificate_verify`. Must match `certificate.parse().pub_key_algo`.
     certificate_key: CertificateKey,
 
     pub const CertificateKey = union(enum) {

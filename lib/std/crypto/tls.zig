@@ -1458,10 +1458,8 @@ test "tls client and server handshake, data, and close_notify" {
         try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
         try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
         try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
-       const client_iv = [_]u8{
-0x77, 0x02, 0x2F, 0x09, 0xB2, 0x93, 0x5A, 0x5E, 0x3F, 0x2B, 0xB0, 0x32
-       };
-       try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
+        const client_iv = [_]u8{ 0x77, 0x02, 0x2F, 0x09, 0xB2, 0x93, 0x5A, 0x5E, 0x3F, 0x2B, 0xB0, 0x32 };
+        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
 
     server_command = try server.next(server_command); // send_change_cipher_spec
@@ -1501,9 +1499,7 @@ test "tls client and server handshake, data, and close_notify" {
         try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
         try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
         try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
-        const client_iv = [_]u8{
-0x54, 0xF3, 0x34, 0x20, 0xA8, 0x50, 0xF5, 0x3A, 0x22, 0x9A, 0xBB, 0x1B
-        };
+        const client_iv = [_]u8{ 0x54, 0xF3, 0x34, 0x20, 0xA8, 0x50, 0xF5, 0x3A, 0x22, 0x9A, 0xBB, 0x1B };
         try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
 

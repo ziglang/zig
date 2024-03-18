@@ -34,7 +34,7 @@ pub fn writevAll(self: Self, iovecs: []iovec_const) anyerror!void {
 }
 
 pub fn write(self: Self, bytes: []const u8) anyerror!usize {
-    var iov = [_]iovec_const{ .{ .iov_base = bytes.ptr, .iov_len = bytes.len } };
+    var iov = [_]iovec_const{.{ .iov_base = bytes.ptr, .iov_len = bytes.len }};
     return self.writev(&iov);
 }
 

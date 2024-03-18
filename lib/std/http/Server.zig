@@ -1137,4 +1137,3 @@ fn rebase(s: *Server, index: usize) void {
     }
     s.read_buffer_len = index + leftover.len;
 }
-

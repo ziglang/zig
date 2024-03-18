@@ -282,7 +282,7 @@ pub const Connection = struct {
             .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
             .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
         };
-        const nread =  try conn.readvDirect(&iovecs);
+        const nread = try conn.readvDirect(&iovecs);
 
         if (nread > buffer.len) {
             conn.read_start = 0;
@@ -1139,7 +1139,6 @@ pub const Request = struct {
         switch (req.transfer_encoding) {
             .chunked => {
                 var w = req.connection.?.writer();
-
 
                 if (iov_len > 0) {
                     try w.print("{x}\r\n", .{iov_len});

@@ -322,8 +322,9 @@ fn fmtPathFile(
         return;
 
     if (check_mode) {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        const stdout = std.io.getStdOut();
+        try stdout.writeAll(file_path);
+        try stdout.writeAll("\n");
         fmt.any_error = true;
     } else {
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });

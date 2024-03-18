@@ -1840,7 +1840,7 @@ pub const Server = struct {
         pub inline fn stream(conn: *Connection) std.io.AnyStream {
             return switch (conn.protocol) {
                 .plain => conn.socket.any().any(),
-               .tls => conn.tls.any().any(),
+                .tls => conn.tls.any().any(),
             };
         }
     };
