@@ -108,7 +108,7 @@ pub const ConnectionPool = struct {
         pool.mutex.lock();
         defer pool.mutex.unlock();
 
-        const node = @fieldParentPtr(Node, "data", connection);
+        const node = @fieldParentPtr(*Node, "data", connection);
 
         pool.used.remove(node);
 

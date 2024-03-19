@@ -1103,8 +1103,8 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             while (true) {
                 switch (scope.id) {
                     .root => unreachable,
-                    .block => return @fieldParentPtr(Block, "base", scope),
-                    .condition => return @fieldParentPtr(Condition, "base", scope).getBlockScope(c),
+                    .block => return @fieldParentPtr(*Block, "base", scope),
+                    .condition => return @fieldParentPtr(*Condition, "base", scope).getBlockScope(c),
                     else => scope = scope.parent.?,
                 }
             }
@@ -1116,7 +1116,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 switch (scope.id) {
                     .root => unreachable,
                     .block => {
-                        const block = @fieldParentPtr(Block, "base", scope);
+                        const block = @fieldParentPtr(*Block, "base", scope);
                         if (block.return_type) |ty| return ty;
                         scope = scope.parent.?;
                     },
@@ -1128,15 +1128,15 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
         pub fn getAlias(scope: *ScopeExtraScope, name: []const u8) []const u8 {
             return switch (scope.id) {
                 .root => return name,
-                .block => @fieldParentPtr(Block, "base", scope).getAlias(name),
+                .block => @fieldParentPtr(*Block, "base", scope).getAlias(name),
                 .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
             };
         }
 
         pub fn contains(scope: *ScopeExtraScope, name: []const u8) bool {
             return switch (scope.id) {
-                .root => @fieldParentPtr(Root, "base", scope).contains(name),
-                .block => @fieldParentPtr(Block, "base", scope).contains(name),
+                .root => @fieldParentPtr(*Root, "base", scope).contains(name),
+                .block => @fieldParentPtr(*Block, "base", scope).contains(name),
                 .loop, .do_loop, .condition => scope.parent.?.contains(name),
             };
         }
@@ -1158,11 +1158,11 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             while (true) {
                 switch (scope.id) {
                     .root => {
-                        const root = @fieldParentPtr(Root, "base", scope);
+                        const root = @fieldParentPtr(*Root, "base", scope);
                         return root.nodes.append(node);
                     },
                     .block => {
-                        const block = @fieldParentPtr(Block, "base", scope);
+                        const block = @fieldParentPtr(*Block, "base", scope);
                         return block.statements.append(node);
                     },
                     else => scope = scope.parent.?,
@@ -1184,7 +1184,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 switch (scope.id) {
                     .root => return,
                     .block => {
-                        const block = @fieldParentPtr(Block, "base", scope);
+                        const block = @fieldParentPtr(*Block, "base", scope);
                         if (block.variable_discards.get(name)) |discard| {
                             discard.data.should_skip = true;
                             return;

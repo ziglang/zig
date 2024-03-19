@@ -11686,20 +11686,20 @@ const Scope = struct {
     fn cast(base: *Scope, comptime T: type) ?*T {
         if (T == Defer) {
             switch (base.tag) {
-                .defer_normal, .defer_error => return @fieldParentPtr(T, "base", base),
+                .defer_normal, .defer_error => return @alignCast(@fieldParentPtr(*align(1) T, "base", base)),
                 else => return null,
             }
         }
         if (T == Namespace) {
             switch (base.tag) {
-                .namespace => return @fieldParentPtr(T, "base", base),
+                .namespace => return @alignCast(@fieldParentPtr(*align(1) T, "base", base)),
                 else => return null,
             }
         }
         if (base.tag != T.base_tag)
             return null;
 
-        return @fieldParentPtr(T, "base", base);
+        return @alignCast(@fieldParentPtr(*align(1) T, "base", base));
     }
 
     fn parent(base: *Scope) ?*Scope {
