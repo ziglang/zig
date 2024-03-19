@@ -135,6 +135,7 @@ pub const Stat = system.Stat;
 pub const T = system.T;
 pub const TCSA = system.TCSA;
 pub const TCP = system.TCP;
+pub const TIMER = system.TIMER;
 pub const VDSO = system.VDSO;
 pub const W = system.W;
 pub const addrinfo = system.addrinfo;
@@ -5808,6 +5809,48 @@ pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
             },
             // This prong handles success as well as unexpected errors.
             else => return,
+        }
+    }
+}
+
+pub const ClockNanosleepError = error{
+    InvalidArgument,
+    NotImplemented,
+    UnsupportedClock,
+} || UnexpectedError;
+
+// The interface choices here are a blend of the existing ones from nanosleep()
+// and clock_gettime(), and EINTR is retried internally to mirror nanosleep()
+// while handling TIMER.ABSTIME properly.
+pub fn clock_nanosleep(clk_id: i32, flags: i32, seconds: u64, nanoseconds: u64) ClockNanosleepError!void {
+    // We could also potentially do a poor emulation via clock_gettime() +
+    // nanosleep() on systems that have those, but for now:
+    if (!@hasDecl(system, "clock_nanosleep"))
+        @compileError("Unsupported OS");
+
+    var req = timespec{
+        .tv_sec = std.math.cast(isize, seconds) orelse std.math.maxInt(isize),
+        .tv_nsec = std.math.cast(isize, nanoseconds) orelse std.math.maxInt(isize),
+    };
+    var rem: timespec = undefined;
+    while (true) {
+        // All the POSIX/libc versions of clock_nanosleep return *positive*
+        // errno numbers, which are unusual.  The direct Linux syscall uses
+        // normal -errno stuff.
+        const rc = system.clock_nanosleep(clk_id, flags, &req, &rem);
+        const errval: E = if (use_libc) @enumFromInt(rc) else errno(rc);
+        switch (errval) {
+            .SUCCESS => return,
+            .INTR => {
+                if (flags != system.TIMER.ABSTIME)
+                    req = rem;
+                continue;
+            },
+            .OPNOTSUPP => return error.UnsupportedClock,
+            .INVAL => return error.InvalidArgument,
+            .NOSYS => return error.NotImplemented, // NetBSD
+            .FAULT => unreachable,
+            else => |err| return unexpectedErrno(err),
         }
     }
 }
