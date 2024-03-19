@@ -324,9 +324,6 @@ pub const SpawnError = error{
     /// would exceed the limit.
     LockedMemoryLimitExceeded,
 
-    /// An allocator is required to spawn a thread
-    AllocatorRequired,
-
     Unexpected,
 };
 
@@ -836,7 +833,7 @@ const WasiThreadImpl = struct {
 
     fn spawn(config: std.Thread.SpawnConfig, comptime f: anytype, args: anytype) SpawnError!WasiThreadImpl {
         if (config.allocator == null) {
-            return error.AllocatorRequired; // an allocator is required to spawn a WASI thread
+            @panic("an allocator is required to spawn a WASI thread");
         }
 
         // Wrapping struct required to hold the user-provided function arguments.
