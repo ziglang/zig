@@ -6080,6 +6080,9 @@ fn fieldAccess(
         .ref, .ref_coerced_ty => return addFieldAccess(.field_ptr, gz, scope, .{ .rl = .ref }, node),
         .pseudo_ref => return addFieldAccess(.field_ptr, gz, scope, .{ .rl = .pseudo_ref }, node),
         else => {
+            if ((gz.is_comptime and gz.astgen.fn_block != null) or !nodeAccessesIdentifier(gz.astgen.tree, node)) {
+                return rvalue(gz, ri, try addFieldAccess(.field_val, gz, scope, .{ .rl = .none }, node), node);
+            }
             const ptr = try addFieldAccess(.field_ptr, gz, scope, .{ .rl = .pseudo_ref }, node);
             const result = try gz.addUnNode(.load, ptr, node);
             return rvalue(gz, ri, result, node);
@@ -6122,40 +6125,32 @@ fn arrayAccess(
 ) InnerError!Zir.Inst.Ref {
     const tree = gz.astgen.tree;
     const node_datas = tree.nodes.items(.data);
-    switch (ri.rl) {
-        .ref, .ref_coerced_ty => {
-            const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+    const lhs_result: ResultInfo, const need_load = switch (ri.rl) {
+        .ref, .ref_coerced_ty => .{ .{ .rl = .ref }, false },
+        .pseudo_ref => .{ .{ .rl = .pseudo_ref }, false },
+        else => if ((gz.is_comptime and gz.astgen.fn_block != null) or !nodeAccessesIdentifier(tree, node)) {
+            const lhs = try expr(gz, scope, .{ .rl = .none }, node_datas[node].lhs);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
             const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
             try emitDbgStmt(gz, cursor);
 
-            return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
-        },
-        .pseudo_ref => {
-            const lhs = try expr(gz, scope, .{ .rl = .pseudo_ref }, node_datas[node].lhs);
+            return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
+        } else .{ .{ .rl = .pseudo_ref }, true },
+    };
+    const lhs = try expr(gz, scope, lhs_result, node_datas[node].lhs);
 
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+    const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
-            const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, cursor);
+    const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
+    try emitDbgStmt(gz, cursor);
 
-            return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
-        },
-        else => {
-            const lhs = try expr(gz, scope, .{ .rl = .pseudo_ref }, node_datas[node].lhs);
-
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-
-            const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, cursor);
-
-            const ptr = try gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
-            const result = try gz.addUnNode(.load, ptr, node);
-            return rvalue(gz, ri, result, node);
-        },
-    }
+    const ptr = try gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+    if (!need_load) return ptr;
+    
+    const loaded = try gz.addUnNode(.load, ptr, node);
+    return rvalue(gz, ri, loaded, node);
 }
 
 fn simpleBinOp(
@@ -10950,6 +10945,31 @@ fn nodeUsesAnonNameStrategy(tree: *const Ast, node: Ast.Node.Index) bool {
             return std.mem.eql(u8, builtin_name, "@Type");
         },
         else => return false,
+    }
+}
+
+/// Returns `true` if field/array access chain ultimately refers to an identifier.
+fn nodeAccessesIdentifier(tree: *const Ast, start_node: Ast.Node.Index) bool {
+    const node_tags = tree.nodes.items(.tag);
+    const node_datas = tree.nodes.items(.data);
+
+    var node = start_node;
+    while (true) {
+        switch (node_tags[node]) {
+            .identifier => return true,
+
+            // Forward the question to the LHS sub-expression.
+            .grouped_expression,
+            .@"try",
+            .@"nosuspend",
+            .unwrap_optional,
+            .deref,
+            .field_access,
+            .array_access,
+            => node = node_datas[node].lhs,
+
+            else => return false,
+        }
     }
 }
 
