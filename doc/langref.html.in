@@ -835,11 +835,11 @@ pub fn main() void {
         </tr>
         <tr>
             <th scope="row"><code>\'</code></th>
-          <td>Single Quote</td>
+          <td>Single Quote (only in Unicode code point literals)</td>
         </tr>
         <tr>
             <th scope="row"><code>\"</code></th>
-          <td>Double Quote</td>
+          <td>Double Quote (only in string literals)</td>
         </tr>
         <tr>
             <th scope="row"><code>\xNN</code></th>
