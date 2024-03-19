@@ -839,7 +839,7 @@ pub fn main() void {
         </tr>
         <tr>
             <th scope="row"><code>\"</code></th>
-          <td>Double Quote (only in string literals)</td>
+          <td>Double Quote (only in single line string literals)</td>
         </tr>
         <tr>
             <th scope="row"><code>\xNN</code></th>
