@@ -14,6 +14,9 @@ stream: tls.Stream,
 /// save it here instead of in `Command`.
 random: [32]u8 = undefined,
 options: Options,
+// For logging after `key_update` messages
+server_update_n: usize = 0,
+client_update_n: usize = 0,
 
 const Self = @This();
 
@@ -453,6 +456,10 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
                                 p.server_key = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "key", "", P.AEAD.key_length);
                                 p.server_iv = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "iv", "", P.AEAD.nonce_length);
                                 p.read_seq = 0;
+
+                                self.server_update_n += 1;
+                                self.options.key_log.print("SERVER_TRAFFIC_SECRET_{d}", .{self.server_update_n}) catch {};
+                                tls.writeKeyLogEntry(self.options.key_log, "", &self.random, &p.server_secret) catch {};
                             },
                         }
                         const update = try stream.read(tls.KeyUpdate);
@@ -464,6 +471,10 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
                                     p.client_key = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "key", "", P.AEAD.key_length);
                                     p.client_iv = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "iv", "", P.AEAD.nonce_length);
                                     p.write_seq = 0;
+
+                                    self.client_update_n += 1;
+                                    self.options.key_log.print("CLIENT_TRAFFIC_SECRET_{d}", .{self.client_update_n}) catch {};
+                                    tls.writeKeyLogEntry(self.options.key_log, "", &self.random, &p.client_secret) catch {};
                                 },
                             }
                         }

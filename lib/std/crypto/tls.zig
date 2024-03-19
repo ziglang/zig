@@ -687,47 +687,11 @@ pub const HandshakeCipher = union(CipherSuite) {
             .aegis_256_sha512,
             .aegis_128l_sha256,
             => |tag| {
-                var res = @unionInit(Self, @tagName(tag), .{
-                    .handshake_secret = undefined,
-                    .client_key = undefined,
-                    .server_key = undefined,
-                    .client_finished_key = undefined,
-                    .server_finished_key = undefined,
-                    .client_iv = undefined,
-                    .server_iv = undefined,
-                });
-                const P = std.meta.TagPayloadByName(Self, @tagName(tag));
-                const p = &@field(res, @tagName(tag));
-
-                const zeroes = [1]u8{0} ** P.Hash.digest_length;
-                const early_secret = P.Hkdf.extract(&[1]u8{0}, &zeroes);
-                const empty_hash = emptyHash(P.Hash);
-
-                const derived_secret = hkdfExpandLabel(P.Hkdf, early_secret, "derived", &empty_hash, P.Hash.digest_length);
-                p.handshake_secret = P.Hkdf.extract(&derived_secret, shared_key);
-                const client_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "c hs traffic", hello_hash, P.Hash.digest_length);
-                const server_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "s hs traffic", hello_hash, P.Hash.digest_length);
-
-                // Not being able to log our secrets shouldn't prevent the handshake from continuing.
-                writeKeyLogEntry(logger, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", client_random, &client_secret) catch {};
-                writeKeyLogEntry(logger, "SERVER_HANDSHAKE_TRAFFIC_SECRET", client_random, &server_secret) catch {};
-
-                p.client_finished_key = hkdfExpandLabel(P.Hkdf, client_secret, "finished", "", P.Hmac.key_length);
-                p.server_finished_key = hkdfExpandLabel(P.Hkdf, server_secret, "finished", "", P.Hmac.key_length);
-                p.client_key = hkdfExpandLabel(P.Hkdf, client_secret, "key", "", P.AEAD.key_length);
-                p.server_key = hkdfExpandLabel(P.Hkdf, server_secret, "key", "", P.AEAD.key_length);
-                p.client_iv = hkdfExpandLabel(P.Hkdf, client_secret, "iv", "", P.AEAD.nonce_length);
-                p.server_iv = hkdfExpandLabel(P.Hkdf, server_secret, "iv", "", P.AEAD.nonce_length);
-
-                return res;
+                const T = std.meta.TagPayloadByName(Self, @tagName(tag));
+                const cipher = T.init(shared_key, hello_hash, logger, client_random);
+                return @unionInit(Self, @tagName(tag), cipher);
             },
             _ => return Error.TlsIllegalParameter,
-        }
-    }
-
-    pub fn print(self: Self) void {
-        switch (self) {
-            inline else => |v| v.print(),
         }
     }
 };
@@ -754,35 +718,9 @@ pub const ApplicationCipher = union(CipherSuite) {
             .aegis_256_sha512,
             .aegis_128l_sha256,
             => |c, tag| {
-                var res = @unionInit(Self, @tagName(tag), .{
-                    .client_secret = undefined,
-                    .server_secret = undefined,
-                    .client_key = undefined,
-                    .server_key = undefined,
-                    .client_iv = undefined,
-                    .server_iv = undefined,
-                });
-                const P = std.meta.TagPayloadByName(Self, @tagName(tag));
-                const p = &@field(res, @tagName(tag));
-
-                const zeroes = [1]u8{0} ** P.Hash.digest_length;
-                const empty_hash = emptyHash(P.Hash);
-
-                const derived_secret = hkdfExpandLabel(P.Hkdf, c.handshake_secret, "derived", &empty_hash, P.Hash.digest_length);
-                const master_secret = P.Hkdf.extract(&derived_secret, &zeroes);
-                p.client_secret = hkdfExpandLabel(P.Hkdf, master_secret, "c ap traffic", handshake_hash, P.Hash.digest_length);
-                p.server_secret = hkdfExpandLabel(P.Hkdf, master_secret, "s ap traffic", handshake_hash, P.Hash.digest_length);
-
-                // Not being able to log our secrets shouldn't prevent the handshake from continuing.
-                writeKeyLogEntry(logger, "CLIENT_TRAFFIC_SECRET_0", client_random, &p.client_secret) catch {};
-                writeKeyLogEntry(logger, "SERVER_TRAFFIC_SECRET_0", client_random, &p.server_secret) catch {};
-
-                p.client_key = hkdfExpandLabel(P.Hkdf, p.client_secret, "key", "", P.AEAD.key_length);
-                p.server_key = hkdfExpandLabel(P.Hkdf, p.server_secret, "key", "", P.AEAD.key_length);
-                p.client_iv = hkdfExpandLabel(P.Hkdf, p.client_secret, "iv", "", P.AEAD.nonce_length);
-                p.server_iv = hkdfExpandLabel(P.Hkdf, p.server_secret, "iv", "", P.AEAD.nonce_length);
-
-                return res;
+                const T = std.meta.TagPayloadByName(Self, @tagName(tag));
+                const cipher = T.init(c.handshake_secret, handshake_hash, logger, client_random);
+                return @unionInit(Self, @tagName(tag), cipher);
             },
         }
     }
@@ -1069,6 +1007,36 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
 
         const Self = @This();
 
+        pub fn init(
+            shared_key: []const u8,
+            hello_hash: []const u8,
+            logger: std.io.AnyWriter,
+            client_random: []const u8,
+        ) Self {
+            const zeroes = [1]u8{0} ** Hash.digest_length;
+            const early = Hkdf.extract(&[1]u8{0}, &zeroes);
+            const empty = emptyHash(Hash);
+
+            const derived = hkdfExpandLabel(Hkdf, early, "derived", &empty, Hash.digest_length);
+            const handshake = Hkdf.extract(&derived, shared_key);
+            const client = hkdfExpandLabel(Hkdf, handshake, "c hs traffic", hello_hash, Hash.digest_length);
+            const server = hkdfExpandLabel(Hkdf, handshake, "s hs traffic", hello_hash, Hash.digest_length);
+
+            // Not being able to log our secrets shouldn't prevent the handshake from continuing.
+            writeKeyLogEntry(logger, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", client_random, &client) catch {};
+            writeKeyLogEntry(logger, "SERVER_HANDSHAKE_TRAFFIC_SECRET", client_random, &server) catch {};
+
+            return .{
+                .handshake_secret = handshake,
+                .client_finished_key = hkdfExpandLabel(Hkdf, client, "finished", "", Hmac.key_length),
+                .server_finished_key = hkdfExpandLabel(Hkdf, server, "finished", "", Hmac.key_length),
+                .client_key = hkdfExpandLabel(Hkdf, client, "key", "", AEAD.key_length),
+                .server_key = hkdfExpandLabel(Hkdf, server, "key", "", AEAD.key_length),
+                .client_iv = hkdfExpandLabel(Hkdf, client, "iv", "", AEAD.nonce_length),
+                .server_iv = hkdfExpandLabel(Hkdf, server, "iv", "", AEAD.nonce_length),
+            };
+        }
+
         pub fn encrypt(
             self: *Self,
             data: []const u8,
@@ -1099,10 +1067,6 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
             AEAD.decrypt(out, data, tag, additional, nonce, key) catch return Error.TlsBadRecordMac;
             self.read_seq += 1;
         }
-
-        pub fn print(self: Self) void {
-            inline for (std.meta.fields(Self)) |f| debugPrint(f.name, @field(self, f.name));
-        }
     };
 }
 
@@ -1129,6 +1093,34 @@ fn ApplicationCipherT(comptime suite: CipherSuite) type {
         write_seq: usize = 0,
 
         const Self = @This();
+
+        pub fn init(
+            handshake_secret: [Hkdf.prk_length]u8,
+            handshake_hash: []const u8,
+            logger: std.io.AnyWriter,
+            client_random: []const u8,
+        ) Self {
+            const zeroes = [1]u8{0} ** Hash.digest_length;
+            const empty_hash = emptyHash(Hash);
+
+            const derived = hkdfExpandLabel(Hkdf, handshake_secret, "derived", &empty_hash, Hash.digest_length);
+            const master = Hkdf.extract(&derived, &zeroes);
+            const client = hkdfExpandLabel(Hkdf, master, "c ap traffic", handshake_hash, Hash.digest_length);
+            const server = hkdfExpandLabel(Hkdf, master, "s ap traffic", handshake_hash, Hash.digest_length);
+
+            // Not being able to log our secrets shouldn't prevent the handshake from continuing.
+            writeKeyLogEntry(logger, "CLIENT_TRAFFIC_SECRET_0", client_random, &client) catch {};
+            writeKeyLogEntry(logger, "SERVER_TRAFFIC_SECRET_0", client_random, &server) catch {};
+
+            return .{
+                .client_secret = client,
+                .server_secret = server,
+                .client_key = hkdfExpandLabel(Hkdf, client, "key", "", AEAD.key_length),
+                .server_key = hkdfExpandLabel(Hkdf, server, "key", "", AEAD.key_length),
+                .client_iv = hkdfExpandLabel(Hkdf, client, "iv", "", AEAD.nonce_length),
+                .server_iv = hkdfExpandLabel(Hkdf, server, "iv", "", AEAD.nonce_length),
+            };
+        }
 
         pub fn encrypt(
             self: *Self,

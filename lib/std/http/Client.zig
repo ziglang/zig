@@ -1308,7 +1308,17 @@ pub const basic_authorization = struct {
     }
 };
 
-pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
+pub const ConnectTcpError = Allocator.Error || tls.Client.ReadError || tls.Client.WriteError || error{
+    ConnectionRefused,
+    NetworkUnreachable,
+    ConnectionTimedOut,
+    ConnectionResetByPeer,
+    TemporaryNameServerFailure,
+    NameServerFailure,
+    UnknownHostName,
+    HostLacksNetworkAddresses,
+    UnexpectedConnectFailure,
+};
 
 /// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
 ///
@@ -1348,7 +1358,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     errdefer client.allocator.free(conn.data.host);
 
     if (protocol == .tls) {
-        conn.data.tls = tls.Client.init(conn.data.socket.stream().any(), .{
+        conn.data.tls = try tls.Client.init(conn.data.socket.stream().any(), .{
             .ca_bundle = client.tls_options.ca_bundle,
             .cipher_suites = client.tls_options.cipher_suites,
             .host = host,
@@ -1356,7 +1366,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
             // the content length which is used to detect truncation attacks.
             .allow_truncation_attacks = true,
             .allocator = client.allocator,
-        }) catch return error.TlsInitializationFailed;
+        });
     }
 
     client.connection_pool.addUsed(conn);

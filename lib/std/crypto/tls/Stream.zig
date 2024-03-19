@@ -157,7 +157,8 @@ pub fn writeError(self: *Self, err: Alert.Description) tls.Error {
     self.flush() catch {};
 
     self.close();
-    return err.toError();
+    @panic("ohnooo");
+    // return err.toError();
 }
 
 pub fn close(self: *Self) void {
