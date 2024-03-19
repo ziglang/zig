@@ -39,8 +39,12 @@ const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
 
 const SpvModule = @import("../codegen/spirv/Module.zig");
+const Section = @import("../codegen/spirv/Section.zig");
 const spec = @import("../codegen/spirv/spec.zig");
 const IdResult = spec.IdResult;
+const Word = spec.Word;
+
+const BinaryModule = @import("SpirV/BinaryModule.zig");
 
 base: link.File,
 
@@ -163,7 +167,8 @@ pub fn updateExports(
             .Vertex => spec.ExecutionModel.Vertex,
             .Fragment => spec.ExecutionModel.Fragment,
             .Kernel => spec.ExecutionModel.Kernel,
-            else => return,
+            .C => return, // TODO: What to do here?
+            else => unreachable,
         };
         const is_vulkan = target.os.tag == .vulkan;
 
@@ -197,8 +202,6 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    _ = arena; // Has the same lifetime as the call to Compilation.update.
-
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -223,9 +226,9 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors");
-    const module = self.base.comp.module.?;
-    for (module.global_error_set.keys()) |name_nts| {
-        const name = module.intern_pool.stringToSlice(name_nts);
+    const mod = self.base.comp.module.?;
+    for (mod.global_error_set.keys()) |name_nts| {
+        const name = mod.intern_pool.stringToSlice(name_nts);
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
@@ -239,7 +242,34 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
         .extension = error_info.items,
     });
 
-    try spv.flush(self.base.file.?, target);
+    const module = try spv.finalize(arena, target);
+    errdefer arena.free(module);
+
+    const linked_module = self.linkModule(arena, module) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |other| {
+            log.err("error while linking: {s}\n", .{@errorName(other)});
+            return error.FlushFailure;
+        },
+    };
+
+    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
+}
+
+fn linkModule(self: *SpirV, a: Allocator, module: []Word) ![]Word {
+    _ = self;
+
+    const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
+    const prune_unused = @import("SpirV/prune_unused.zig");
+
+    var parser = try BinaryModule.Parser.init(a);
+    defer parser.deinit();
+    var binary = try parser.parse(module);
+
+    try lower_invocation_globals.run(&parser, &binary);
+    try prune_unused.run(&parser, &binary);
+
+    return binary.finalize(a);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {

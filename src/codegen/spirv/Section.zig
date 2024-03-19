@@ -53,6 +53,17 @@ pub fn emitRaw(
     section.writeWord((@as(Word, @intCast(word_count << 16))) | @intFromEnum(opcode));
 }
 
+/// Write an entire instruction, including all operands
+pub fn emitRawInstruction(
+    section: *Section,
+    allocator: Allocator,
+    opcode: Opcode,
+    operands: []const Word,
+) !void {
+    try section.emitRaw(allocator, opcode, operands.len);
+    section.writeWords(operands);
+}
+
 pub fn emit(
     section: *Section,
     allocator: Allocator,
@@ -123,7 +134,7 @@ fn writeOperands(section: *Section, comptime Operands: type, operands: Operands)
 
 pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand) void {
     switch (Operand) {
-        spec.IdResult => section.writeWord(operand.id),
+        spec.IdResult => section.writeWord(@intFromEnum(operand)),
 
         spec.LiteralInteger => section.writeWord(operand),
 
@@ -138,9 +149,9 @@ pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand)
         // instruction in which it is used.
         spec.LiteralSpecConstantOpInteger => section.writeWord(@intFromEnum(operand.opcode)),
 
-        spec.PairLiteralIntegerIdRef => section.writeWords(&.{ operand.value, operand.label.id }),
-        spec.PairIdRefLiteralInteger => section.writeWords(&.{ operand.target.id, operand.member }),
-        spec.PairIdRefIdRef => section.writeWords(&.{ operand[0].id, operand[1].id }),
+        spec.PairLiteralIntegerIdRef => section.writeWords(&.{ operand.value, @enumFromInt(operand.label) }),
+        spec.PairIdRefLiteralInteger => section.writeWords(&.{ @intFromEnum(operand.target), operand.member }),
+        spec.PairIdRefIdRef => section.writeWords(&.{ @intFromEnum(operand[0]), @intFromEnum(operand[1]) }),
 
         else => switch (@typeInfo(Operand)) {
             .Enum => section.writeWord(@intFromEnum(operand)),
@@ -338,8 +349,8 @@ test "SPIR-V Section emit() - simple" {
     defer section.deinit(std.testing.allocator);
 
     try section.emit(std.testing.allocator, .OpUndef, .{
-        .id_result_type = .{ .id = 0 },
-        .id_result = .{ .id = 1 },
+        .id_result_type = @enumFromInt(0),
+        .id_result = @enumFromInt(1),
     });
 
     try testing.expectEqualSlices(Word, &.{
@@ -356,7 +367,7 @@ test "SPIR-V Section emit() - string" {
     try section.emit(std.testing.allocator, .OpSource, .{
         .source_language = .Unknown,
         .version = 123,
-        .file = .{ .id = 456 },
+        .file = @enumFromInt(256),
         .source = "pub fn main() void {}",
     });
 
@@ -381,8 +392,8 @@ test "SPIR-V Section emit() - extended mask" {
     defer section.deinit(std.testing.allocator);
 
     try section.emit(std.testing.allocator, .OpLoopMerge, .{
-        .merge_block = .{ .id = 10 },
-        .continue_target = .{ .id = 20 },
+        .merge_block = @enumFromInt(10),
+        .continue_target = @enumFromInt(20),
         .loop_control = .{
             .Unroll = true,
             .DependencyLength = .{
@@ -405,7 +416,7 @@ test "SPIR-V Section emit() - extended union" {
     defer section.deinit(std.testing.allocator);
 
     try section.emit(std.testing.allocator, .OpExecutionMode, .{
-        .entry_point = .{ .id = 888 },
+        .entry_point = @enumFromInt(888),
         .mode = .{
             .LocalSize = .{ .x_size = 4, .y_size = 8, .z_size = 16 },
         },

@@ -194,6 +194,11 @@ inst: struct {
 /// This map maps results to their tracked values.
 value_map: AsmValueMap = .{},
 
+/// This set is used to quickly transform from an opcode name to the
+/// index in its instruction set. The index of the key is the
+/// index in `spec.InstructionSet.core.instructions()`.
+instruction_map: std.StringArrayHashMapUnmanaged(void) = .{},
+
 /// Free the resources owned by this assembler.
 pub fn deinit(self: *Assembler) void {
     for (self.errors.items) |err| {
@@ -204,9 +209,20 @@ pub fn deinit(self: *Assembler) void {
     self.inst.operands.deinit(self.gpa);
     self.inst.string_bytes.deinit(self.gpa);
     self.value_map.deinit(self.gpa);
+    self.instruction_map.deinit(self.gpa);
 }
 
 pub fn assemble(self: *Assembler) Error!void {
+    // Populate the opcode map if it isn't already
+    if (self.instruction_map.count() == 0) {
+        const instructions = spec.InstructionSet.core.instructions();
+        try self.instruction_map.ensureUnusedCapacity(self.gpa, @intCast(instructions.len));
+        for (spec.InstructionSet.core.instructions(), 0..) |inst, i| {
+            const entry = try self.instruction_map.getOrPut(self.gpa, inst.name);
+            assert(entry.index == i);
+        }
+    }
+
     try self.tokenize();
     while (!self.testToken(.eof)) {
         try self.parseInstruction();
@@ -475,12 +491,14 @@ fn parseInstruction(self: *Assembler) !void {
     }
 
     const opcode_text = self.tokenText(opcode_tok);
-    @setEvalBranchQuota(10000);
-    self.inst.opcode = std.meta.stringToEnum(Opcode, opcode_text) orelse {
+    const index = self.instruction_map.getIndex(opcode_text) orelse {
         return self.fail(opcode_tok.start, "invalid opcode '{s}'", .{opcode_text});
     };
 
-    const expected_operands = self.inst.opcode.operands();
+    const inst = spec.InstructionSet.core.instructions()[index];
+    self.inst.opcode = @enumFromInt(inst.opcode);
+
+    const expected_operands = inst.operands;
     // This is a loop because the result-id is not always the first operand.
     const requires_lhs_result = for (expected_operands) |op| {
         if (op.kind == .IdResult) break true;
