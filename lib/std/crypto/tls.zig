@@ -1,59 +1,21 @@
-//! Plaintext:
-//! * type: ContentType
-//! * legacy_record_version: u16 = 0x0303,
-//! * length: u16,
-//!   - The length (in bytes) of the following TLSPlaintext.fragment.  The
-//!     length MUST NOT exceed 2^14 bytes.
-//! * fragment: opaque
-//!   - the data being transmitted
-//!
-//! Ciphertext
-//! * ContentType opaque_type = application_data; /* 23 */
-//! * ProtocolVersion legacy_record_version = 0x0303; /* TLS v1.2 */
-//! * uint16 length;
-//! * opaque encrypted_record[TLSCiphertext.length];
-//!
-//! Handshake:
-//! * type: HandshakeType
-//! * length: u24
-//! * data: opaque
-//!
-//! ServerHello:
-//! * ProtocolVersion legacy_version = 0x0303;
-//! * Random random;
-//! * opaque legacy_session_id_echo<0..32>;
-//! * CipherSuite cipher_suite;
-//! * uint8 legacy_compression_method = 0;
-//! * Extension extensions<6..2^16-1>;
-//!
-//! Extension:
-//! * ExtensionType extension_type;
-//! * opaque extension_data<0..2^16-1>;
-
 const std = @import("../std.zig");
+const builtin = @import("builtin");
+pub const Client = @import("tls/Client.zig");
+pub const Server = @import("tls/Server.zig");
+pub const Stream = @import("tls/Stream.zig");
+
 const Tls = @This();
 const net = std.net;
 const mem = std.mem;
 const crypto = std.crypto;
 const assert = std.debug.assert;
+const native_endian = builtin.cpu.arch.endian();
+pub const ServerOptions = Server.Options;
+pub const ClientOptions = Client.Options;
 
-pub const Client = @import("tls/Client.zig");
-
-pub const record_header_len = 5;
-pub const max_cipertext_inner_record_len = 1 << 14;
-pub const max_ciphertext_len = max_cipertext_inner_record_len + 256;
-pub const max_ciphertext_record_len = max_ciphertext_len + record_header_len;
-pub const hello_retry_request_sequence = [32]u8{
-    0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
-    0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
-};
-
-pub const close_notify_alert = [_]u8{
-    @intFromEnum(AlertLevel.warning),
-    @intFromEnum(AlertDescription.close_notify),
-};
-
-pub const ProtocolVersion = enum(u16) {
+pub const Version = enum(u16) {
+    tls_1_0 = 0x0301,
+    tls_1_1 = 0x0302,
     tls_1_2 = 0x0303,
     tls_1_3 = 0x0304,
     _,
@@ -61,28 +23,194 @@ pub const ProtocolVersion = enum(u16) {
 
 pub const ContentType = enum(u8) {
     invalid = 0,
-    change_cipher_spec = 20,
-    alert = 21,
-    handshake = 22,
-    application_data = 23,
+    change_cipher_spec = 0x14,
+    alert = 0x15,
+    handshake = 0x16,
+    application_data = 0x17,
+    heartbeat = 0x18,
     _,
 };
 
+pub const Plaintext = struct {
+    type: ContentType,
+    version: Version = .tls_1_0,
+    len: u16,
+
+    pub const size = @sizeOf(ContentType) + @sizeOf(Version) + @sizeOf(u16);
+    pub const max_length = 1 << 14;
+
+    const Self = @This();
+
+    pub fn init(bytes: [size]u8) Self {
+        var stream = std.io.fixedBufferStream(&bytes);
+        var reader = stream.reader();
+        const ty = reader.readInt(u8, .big) catch unreachable;
+        const version = reader.readInt(u16, .big) catch unreachable;
+        const len = reader.readInt(u16, .big) catch unreachable;
+        return .{ .type = @enumFromInt(ty), .version = @enumFromInt(version), .len = len };
+    }
+};
+
 pub const HandshakeType = enum(u8) {
+    /// Deprecated.
+    hello_request = 0,
     client_hello = 1,
     server_hello = 2,
+    /// Deprecated.
+    hello_verify_request = 3,
     new_session_ticket = 4,
     end_of_early_data = 5,
+    /// Deprecated.
+    hello_retry_request = 6,
     encrypted_extensions = 8,
     certificate = 11,
+    /// Deprecated.
+    server_key_exchange = 12,
     certificate_request = 13,
+    /// Deprecated.
+    server_hello_done = 14,
     certificate_verify = 15,
+    /// Deprecated.
+    client_key_exchange = 16,
     finished = 20,
+    /// Deprecated.
+    certificate_url = 21,
+    /// Deprecated.
+    certificate_status = 22,
+    /// Deprecated.
+    supplemental_data = 23,
     key_update = 24,
     message_hash = 254,
     _,
 };
 
+pub const Handshake = union(HandshakeType) {
+    hello_request: void,
+    client_hello: ClientHello,
+    server_hello: ServerHello,
+    /// Deprecated.
+    hello_verify_request: void,
+    new_session_ticket: void,
+    end_of_early_data: void,
+    /// Deprecated.
+    hello_retry_request: void,
+    encrypted_extensions: []const Extension,
+    certificate: Certificate,
+    /// Deprecated.
+    server_key_exchange: void,
+    certificate_request: void,
+    /// Deprecated.
+    server_hello_done: void,
+    certificate_verify: CertificateVerify,
+    /// Deprecated.
+    client_key_exchange: void,
+    finished: []const u8,
+    /// Deprecated.
+    certificate_url: void,
+    /// Deprecated.
+    certificate_status: void,
+    /// Deprecated.
+    supplemental_data: void,
+    key_update: KeyUpdate,
+    message_hash: void,
+
+    // If `HandshakeCipherT.encode` accepts iovecs for the message this can be moved
+    // to `Stream.writeFragment` and this type can be deleted.
+    pub fn write(self: @This(), stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.write(HandshakeType, self);
+        switch (self) {
+            .finished => |verification| {
+                res += try stream.writeArray(u24, u8, verification);
+            },
+            inline else => |value| {
+                var len: usize = 0;
+                const T = @TypeOf(value);
+                switch (@typeInfo(T)) {
+                    .Void => {
+                        res += try stream.write(u24, @intCast(len));
+                    },
+                    .Pointer => |info| {
+                        len += stream.arrayLength(u16, info.child, value);
+                        res += try stream.write(u24, @intCast(len));
+                        res += try stream.writeArray(u16, info.child, value);
+                    },
+                    .Struct => {
+                        len += stream.length(T, value);
+                        res += try stream.write(u24, @intCast(len));
+                        res += try stream.write(T, value);
+                    },
+                    .Enum => |info| {
+                        len += @bitSizeOf(info.tag_type) / 8;
+                        res += try stream.write(u24, @intCast(len));
+                        res += try stream.write(T, value);
+                    },
+                    else => |t| @compileError("implement writing " ++ @tagName(t)),
+                }
+            },
+        }
+        return res;
+    }
+
+    pub const Header = struct {
+        type: HandshakeType,
+        len: u24,
+    };
+};
+
+pub const KeyUpdate = enum(u8) {
+    update_not_requested = 0,
+    update_requested = 1,
+    _,
+};
+
+/// A DER encoded certificate chain with the first entry being for this domain.
+pub const Certificate = struct {
+    context: []const u8 = "",
+    entries: []const Entry,
+
+    pub const max_context_len = 255;
+
+    pub const Entry = struct {
+        /// DER encoded
+        data: []const u8,
+        extensions: []const Extension = &.{},
+
+        pub const max_data_len = 1 << 24 - 1;
+
+        pub fn write(self: @This(), stream: *Stream) !usize {
+            var res: usize = 0;
+            res += try stream.writeArray(u24, u8, self.data);
+            res += try stream.writeArray(u16, Extension, self.extensions);
+            return res;
+        }
+    };
+
+    const Self = @This();
+
+    pub fn write(self: Self, stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.writeArray(u8, u8, self.context);
+        res += try stream.writeArray(u24, Entry, self.entries);
+        return res;
+    }
+};
+
+pub const CertificateVerify = struct {
+    algorithm: SignatureScheme,
+    signature: []const u8,
+
+    pub const max_signature_length = 1 << 16 - 1;
+
+    pub fn write(self: @This(), stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.write(SignatureScheme, self.algorithm);
+        res += try stream.writeArray(u16, u8, self.signature);
+        return res;
+    }
+};
+
+// https://www.iana.org/assignments/tls-extensiontype-values/tls-extensiontype-values.xhtml
 pub const ExtensionType = enum(u16) {
     /// RFC 6066
     server_name = 0,
@@ -90,8 +218,10 @@ pub const ExtensionType = enum(u16) {
     max_fragment_length = 1,
     /// RFC 6066
     status_request = 5,
-    /// RFC 8422, 7919
+    /// RFC 8422, 7919. renamed from "elliptic_curves"
     supported_groups = 10,
+    /// RFC 8422 S5.1.2
+    ec_point_formats = 11,
     /// RFC 8446
     signature_algorithms = 13,
     /// RFC 5764
@@ -108,6 +238,12 @@ pub const ExtensionType = enum(u16) {
     server_certificate_type = 20,
     /// RFC 7685
     padding = 21,
+    /// RFC7366
+    encrypt_then_mac = 22,
+    /// RFC 7627
+    extended_master_secret = 23,
+    /// RFC 5077
+    session_ticket = 35,
     /// RFC 8446
     pre_shared_key = 41,
     /// RFC 8446
@@ -128,130 +264,233 @@ pub const ExtensionType = enum(u16) {
     signature_algorithms_cert = 50,
     /// RFC 8446
     key_share = 51,
-
+    /// Reserved for private use.
+    none = 65280,
     _,
 };
 
-pub const AlertLevel = enum(u8) {
-    warning = 1,
-    fatal = 2,
-    _,
+/// Matching error set for Alert.Description.
+pub const Error = error{
+    TlsUnexpectedMessage,
+    TlsBadRecordMac,
+    TlsRecordOverflow,
+    TlsHandshakeFailure,
+    TlsBadCertificate,
+    TlsUnsupportedCertificate,
+    TlsCertificateRevoked,
+    TlsCertificateExpired,
+    TlsCertificateUnknown,
+    TlsIllegalParameter,
+    TlsUnknownCa,
+    TlsAccessDenied,
+    TlsDecodeError,
+    TlsDecryptError,
+    TlsProtocolVersion,
+    TlsInsufficientSecurity,
+    TlsInternalError,
+    TlsInappropriateFallback,
+    TlsMissingExtension,
+    TlsUnsupportedExtension,
+    TlsUnrecognizedName,
+    TlsBadCertificateStatusResponse,
+    TlsUnknownPskIdentity,
+    TlsCertificateRequired,
+    TlsNoApplicationProtocol,
+    TlsUnknown,
 };
 
-pub const AlertDescription = enum(u8) {
-    pub const Error = error{
-        TlsAlertUnexpectedMessage,
-        TlsAlertBadRecordMac,
-        TlsAlertRecordOverflow,
-        TlsAlertHandshakeFailure,
-        TlsAlertBadCertificate,
-        TlsAlertUnsupportedCertificate,
-        TlsAlertCertificateRevoked,
-        TlsAlertCertificateExpired,
-        TlsAlertCertificateUnknown,
-        TlsAlertIllegalParameter,
-        TlsAlertUnknownCa,
-        TlsAlertAccessDenied,
-        TlsAlertDecodeError,
-        TlsAlertDecryptError,
-        TlsAlertProtocolVersion,
-        TlsAlertInsufficientSecurity,
-        TlsAlertInternalError,
-        TlsAlertInappropriateFallback,
-        TlsAlertMissingExtension,
-        TlsAlertUnsupportedExtension,
-        TlsAlertUnrecognizedName,
-        TlsAlertBadCertificateStatusResponse,
-        TlsAlertUnknownPskIdentity,
-        TlsAlertCertificateRequired,
-        TlsAlertNoApplicationProtocol,
-        TlsAlertUnknown,
+pub const Alert = struct {
+    /// > In TLS 1.3, the severity is implicit in the type of alert being sent
+    /// > and the "level" field can safely be ignored.
+    level: Level,
+    description: Description,
+
+    pub const Level = enum(u8) {
+        warning = 1,
+        fatal = 2,
+        _,
+    };
+    pub const Description = enum(u8) {
+        /// Stream is closing.
+        close_notify = 0,
+        /// An inappropriate message (e.g., the wrong
+        /// handshake message, premature Application Data, etc.) was received.
+        /// This alert should never be observed in communication between
+        /// proper implementations.
+        unexpected_message = 10,
+        /// This alert is returned if a record is received which
+        /// cannot be deprotected.  Because AEAD algorithms combine decryption
+        /// and verification, and also to avoid side-channel attacks, this
+        /// alert is used for all deprotection failures.  This alert should
+        /// never be observed in communication between proper implementations,
+        /// except when messages were corrupted in the network.
+        bad_record_mac = 20,
+        /// A TLSCiphertext record was received that had a
+        /// length more than 2^14 + 256 bytes, or a record decrypted to a
+        /// TLSPlaintext record with more than 2^14 bytes (or some other
+        /// negotiated limit).  This alert should never be observed in
+        /// communication between proper implementations, except when messages
+        /// were corrupted in the network.
+        record_overflow = 22,
+        /// Receipt of a "handshake_failure" alert message
+        /// indicates that the sender was unable to negotiate an acceptable
+        /// set of security parameters given the options available.
+        handshake_failure = 40,
+        /// A certificate was corrupt, contained signatures
+        /// that did not verify correctly, etc.
+        bad_certificate = 42,
+        /// A certificate was of an unsupported type.
+        unsupported_certificate = 43,
+        /// A certificate was revoked by its signer.
+        certificate_revoked = 44,
+        /// A certificate has expired or is not currently valid.
+        certificate_expired = 45,
+        /// Some other (unspecified) issue arose in processing the certificate,
+        /// rendering it unacceptable.
+        certificate_unknown = 46,
+        /// A field in the handshake was incorrect or
+        /// inconsistent with other fields.  This alert is used for errors
+        /// which conform to the formal protocol syntax but are otherwise
+        /// incorrect.
+        illegal_parameter = 47,
+        /// A valid certificate chain or partial chain was received,
+        /// but the certificate was not accepted because the CA certificate
+        /// could not be located or could not be matched with a known trust
+        /// anchor.
+        unknown_ca = 48,
+        /// A valid certificate or PSK was received, but when
+        /// access control was applied, the sender decided not to proceed with
+        /// negotiation.
+        access_denied = 49,
+        /// A message could not be decoded because some field was
+        /// out of the specified range or the length of the message was
+        /// incorrect.  This alert is used for errors where the message does
+        /// not conform to the formal protocol syntax.  This alert should
+        /// never be observed in communication between proper implementations,
+        /// except when messages were corrupted in the network.
+        decode_error = 50,
+        /// A handshake (not record layer) cryptographic
+        /// operation failed, including being unable to correctly verify a
+        /// signature or validate a Finished message or a PSK binder.
+        decrypt_error = 51,
+        /// The protocol version the peer has attempted to
+        /// negotiate is recognized but not supported (see Appendix D).
+        protocol_version = 70,
+        /// Returned instead of "handshake_failure" when
+        /// a negotiation has failed specifically because the server requires
+        /// parameters more secure than those supported by the client.
+        insufficient_security = 71,
+        /// An internal error unrelated to the peer or the
+        /// correctness of the protocol (such as a memory allocation failure)
+        /// makes it impossible to continue.
+        internal_error = 80,
+        /// Sent by a server in response to an invalid
+        /// connection retry attempt from a client (see [RFC7507]).
+        inappropriate_fallback = 86,
+        /// User cancelled handshake.
+        user_canceled = 90,
+        /// Sent by endpoints that receive a handshake
+        /// message not containing an extension that is mandatory to send for
+        /// the offered TLS version or other negotiated parameters.
+        missing_extension = 109,
+        /// Sent by endpoints receiving any handshake
+        /// message containing an extension known to be prohibited for
+        /// inclusion in the given handshake message, or including any
+        /// extensions in a ServerHello or Certificate not first offered in
+        /// the corresponding ClientHello or CertificateRequest.
+        unsupported_extension = 110,
+        /// Sent by servers when no server exists identified
+        /// by the name provided by the client via the "server_name" extension
+        /// (see [RFC6066]).
+        unrecognized_name = 112,
+        /// Sent by clients when an invalid or
+        /// unacceptable OCSP response is provided by the server via the
+        /// "status_request" extension (see [RFC6066]).
+        bad_certificate_status_response = 113,
+        /// Sent by servers when PSK key establishment is
+        /// desired but no acceptable PSK identity is provided by the client.
+        /// Sending this alert is OPTIONAL; servers MAY instead choose to send
+        /// a "decrypt_error" alert to merely indicate an invalid PSK
+        /// identity.
+        unknown_psk_identity = 115,
+        /// Sent by servers when a client certificate is
+        /// desired but none was provided by the client.
+        certificate_required = 116,
+        /// Sent by servers when a client
+        /// "application_layer_protocol_negotiation" extension advertises only
+        /// protocols that the server does not support (see [RFC7301]).
+        no_application_protocol = 120,
+        _,
+
+        pub fn toError(alert: @This()) Error {
+            return switch (alert) {
+                .close_notify, .user_canceled => unreachable, // not an error
+                .unexpected_message => Error.TlsUnexpectedMessage,
+                .bad_record_mac => Error.TlsBadRecordMac,
+                .record_overflow => Error.TlsRecordOverflow,
+                .handshake_failure => Error.TlsHandshakeFailure,
+                .bad_certificate => Error.TlsBadCertificate,
+                .unsupported_certificate => Error.TlsUnsupportedCertificate,
+                .certificate_revoked => Error.TlsCertificateRevoked,
+                .certificate_expired => Error.TlsCertificateExpired,
+                .certificate_unknown => Error.TlsCertificateUnknown,
+                .illegal_parameter => Error.TlsIllegalParameter,
+                .unknown_ca => Error.TlsUnknownCa,
+                .access_denied => Error.TlsAccessDenied,
+                .decode_error => Error.TlsDecodeError,
+                .decrypt_error => Error.TlsDecryptError,
+                .protocol_version => Error.TlsProtocolVersion,
+                .insufficient_security => Error.TlsInsufficientSecurity,
+                .internal_error => Error.TlsInternalError,
+                .inappropriate_fallback => Error.TlsInappropriateFallback,
+                .missing_extension => Error.TlsMissingExtension,
+                .unsupported_extension => Error.TlsUnsupportedExtension,
+                .unrecognized_name => Error.TlsUnrecognizedName,
+                .bad_certificate_status_response => Error.TlsBadCertificateStatusResponse,
+                .unknown_psk_identity => Error.TlsUnknownPskIdentity,
+                .certificate_required => Error.TlsCertificateRequired,
+                .no_application_protocol => Error.TlsNoApplicationProtocol,
+                _ => Error.TlsUnknown,
+            };
+        }
     };
 
-    close_notify = 0,
-    unexpected_message = 10,
-    bad_record_mac = 20,
-    record_overflow = 22,
-    handshake_failure = 40,
-    bad_certificate = 42,
-    unsupported_certificate = 43,
-    certificate_revoked = 44,
-    certificate_expired = 45,
-    certificate_unknown = 46,
-    illegal_parameter = 47,
-    unknown_ca = 48,
-    access_denied = 49,
-    decode_error = 50,
-    decrypt_error = 51,
-    protocol_version = 70,
-    insufficient_security = 71,
-    internal_error = 80,
-    inappropriate_fallback = 86,
-    user_canceled = 90,
-    missing_extension = 109,
-    unsupported_extension = 110,
-    unrecognized_name = 112,
-    bad_certificate_status_response = 113,
-    unknown_psk_identity = 115,
-    certificate_required = 116,
-    no_application_protocol = 120,
-    _,
+    const Self = @This();
 
-    pub fn toError(alert: AlertDescription) Error!void {
-        return switch (alert) {
-            .close_notify => {}, // not an error
-            .unexpected_message => error.TlsAlertUnexpectedMessage,
-            .bad_record_mac => error.TlsAlertBadRecordMac,
-            .record_overflow => error.TlsAlertRecordOverflow,
-            .handshake_failure => error.TlsAlertHandshakeFailure,
-            .bad_certificate => error.TlsAlertBadCertificate,
-            .unsupported_certificate => error.TlsAlertUnsupportedCertificate,
-            .certificate_revoked => error.TlsAlertCertificateRevoked,
-            .certificate_expired => error.TlsAlertCertificateExpired,
-            .certificate_unknown => error.TlsAlertCertificateUnknown,
-            .illegal_parameter => error.TlsAlertIllegalParameter,
-            .unknown_ca => error.TlsAlertUnknownCa,
-            .access_denied => error.TlsAlertAccessDenied,
-            .decode_error => error.TlsAlertDecodeError,
-            .decrypt_error => error.TlsAlertDecryptError,
-            .protocol_version => error.TlsAlertProtocolVersion,
-            .insufficient_security => error.TlsAlertInsufficientSecurity,
-            .internal_error => error.TlsAlertInternalError,
-            .inappropriate_fallback => error.TlsAlertInappropriateFallback,
-            .user_canceled => {}, // not an error
-            .missing_extension => error.TlsAlertMissingExtension,
-            .unsupported_extension => error.TlsAlertUnsupportedExtension,
-            .unrecognized_name => error.TlsAlertUnrecognizedName,
-            .bad_certificate_status_response => error.TlsAlertBadCertificateStatusResponse,
-            .unknown_psk_identity => error.TlsAlertUnknownPskIdentity,
-            .certificate_required => error.TlsAlertCertificateRequired,
-            .no_application_protocol => error.TlsAlertNoApplicationProtocol,
-            _ => error.TlsAlertUnknown,
-        };
+    pub fn read(stream: *Stream) Self {
+        const level = try stream.read(Level);
+        const description = try stream.read(Description);
+        return .{ .level = level, .description = description };
+    }
+
+    pub fn write(self: Self, stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.write(Level, self.level);
+        res += try stream.write(Description, self.description);
+        return res;
     }
 };
 
+/// Scheme for certificate verification
+///
+/// Note: This enum is named `SignatureScheme` because there is already a
+/// `SignatureAlgorithm` type in TLS 1.2, which this replaces.
 pub const SignatureScheme = enum(u16) {
-    // RSASSA-PKCS1-v1_5 algorithms
     rsa_pkcs1_sha256 = 0x0401,
     rsa_pkcs1_sha384 = 0x0501,
     rsa_pkcs1_sha512 = 0x0601,
 
-    // ECDSA algorithms
     ecdsa_secp256r1_sha256 = 0x0403,
     ecdsa_secp384r1_sha384 = 0x0503,
     ecdsa_secp521r1_sha512 = 0x0603,
 
-    // RSASSA-PSS algorithms with public key OID rsaEncryption
     rsa_pss_rsae_sha256 = 0x0804,
     rsa_pss_rsae_sha384 = 0x0805,
     rsa_pss_rsae_sha512 = 0x0806,
 
-    // EdDSA algorithms
     ed25519 = 0x0807,
     ed448 = 0x0808,
 
-    // RSASSA-PSS algorithms with public key OID RSASSA-PSS
     rsa_pss_pss_sha256 = 0x0809,
     rsa_pss_pss_sha384 = 0x080a,
     rsa_pss_pss_sha512 = 0x080b,
@@ -261,104 +500,682 @@ pub const SignatureScheme = enum(u16) {
     ecdsa_sha1 = 0x0203,
 
     _,
+
+    pub fn Ecdsa(comptime self: @This()) type {
+        return switch (self) {
+            .ecdsa_secp256r1_sha256 => crypto.sign.ecdsa.EcdsaP256Sha256,
+            .ecdsa_secp384r1_sha384 => crypto.sign.ecdsa.EcdsaP384Sha384,
+            else => @compileError("bad scheme"),
+        };
+    }
+
+    pub fn Hash(comptime self: @This()) type {
+        return switch (self) {
+            .ecdsa_secp256r1_sha256, .rsa_pss_rsae_sha256 => crypto.hash.sha2.Sha256,
+            .ecdsa_secp384r1_sha384, .rsa_pss_rsae_sha384 => crypto.hash.sha2.Sha384,
+            .ecdsa_secp521r1_sha512, .rsa_pss_rsae_sha512 => crypto.hash.sha2.Sha512,
+            else => @compileError("bad scheme"),
+        };
+    }
+
+    pub fn Eddsa(comptime self: @This()) type {
+        return switch (self) {
+            .ed25519 => crypto.sign.Ed25519,
+            else => @compileError("bad scheme"),
+        };
+    }
+};
+pub const supported_signature_schemes = [_]SignatureScheme{
+    .ecdsa_secp256r1_sha256,
+    .ecdsa_secp384r1_sha384,
+    .rsa_pss_rsae_sha256,
+    .rsa_pss_rsae_sha384,
+    .rsa_pss_rsae_sha512,
+    .ed25519,
 };
 
+/// Key exchange formats
+///
+/// https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml
 pub const NamedGroup = enum(u16) {
+    // Use reserved value for invalid.
+    invalid = 0x0000,
     // Elliptic Curve Groups (ECDHE)
     secp256r1 = 0x0017,
     secp384r1 = 0x0018,
     secp521r1 = 0x0019,
     x25519 = 0x001D,
-    x448 = 0x001E,
 
-    // Finite Field Groups (DHE)
-    ffdhe2048 = 0x0100,
-    ffdhe3072 = 0x0101,
-    ffdhe4096 = 0x0102,
-    ffdhe6144 = 0x0103,
-    ffdhe8192 = 0x0104,
-
-    // Hybrid post-quantum key agreements
-    x25519_kyber512d00 = 0xFE30,
+    // Hybrid post-quantum key agreements. Still in draft.
     x25519_kyber768d00 = 0x6399,
 
     _,
 };
+pub fn NamedGroupT(comptime named_group: NamedGroup) type {
+    return switch (named_group) {
+        .secp256r1 => crypto.sign.ecdsa.EcdsaP256Sha256,
+        .secp384r1 => crypto.sign.ecdsa.EcdsaP384Sha384,
+        .x25519 => crypto.dh.X25519,
+        else => |t| @compileError("unsupported named group " ++ @tagName(t)),
+    };
+}
+pub const KeyPair = union(NamedGroup) {
+    invalid: void,
+    secp256r1: NamedGroupT(.secp256r1).KeyPair,
+    secp384r1: NamedGroupT(.secp384r1).KeyPair,
+    secp521r1: void,
+    x25519: NamedGroupT(.x25519).KeyPair,
+    x25519_kyber768d00: void,
+
+    pub fn toKeyShare(self: @This()) KeyShare {
+        return switch (self) {
+            .secp256r1 => |k| .{ .secp256r1 = k.public_key },
+            .secp384r1 => |k| .{ .secp384r1 = k.public_key },
+            .x25519 => |k| .{ .x25519 = k.public_key },
+            inline else => |_, t| @unionInit(KeyShare, @tagName(t), {}),
+        };
+    }
+};
+/// The public portion of a KeyPair.
+pub const KeyShare = union(NamedGroup) {
+    invalid: void,
+    secp256r1: NamedGroupT(.secp256r1).PublicKey,
+    secp384r1: NamedGroupT(.secp384r1).PublicKey,
+    secp521r1: void,
+    x25519: NamedGroupT(.x25519).PublicKey,
+    x25519_kyber768d00: void,
+
+    const Self = @This();
+
+    pub fn read(stream: *Stream) !Self {
+        std.debug.assert(!stream.is_client);
+
+        var reader = stream.any().reader();
+        const group = try stream.read(NamedGroup);
+        const len = try stream.read(u16);
+        switch (group) {
+            inline .secp256r1, .secp384r1 => |k| {
+                const T = NamedGroupT(k).PublicKey;
+                var buf: [T.uncompressed_sec1_encoded_length]u8 = undefined;
+                try reader.readNoEof(&buf);
+                const val = T.fromSec1(&buf) catch return Error.TlsDecryptError;
+                return @unionInit(Self, @tagName(k), val);
+            },
+            .x25519 => {
+                var res = Self{ .x25519 = undefined };
+                try reader.readNoEof(&res.x25519);
+                return res;
+            },
+            else => {
+                try reader.skipBytes(len, .{});
+            },
+        }
+        return .{ .invalid = {} };
+    }
+
+    pub fn write(self: Self, stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.write(NamedGroup, self);
+        const public = switch (self) {
+            .secp256r1 => |k| &k.toUncompressedSec1(),
+            .secp384r1 => |k| &k.toUncompressedSec1(),
+            .x25519 => |k| &k,
+            else => "",
+        };
+        res += try stream.writeArray(u16, u8, public);
+        return res;
+    }
+};
+/// In descending order of preference
+pub const supported_groups = [_]NamedGroup{
+    .secp256r1,
+    .secp384r1,
+    .x25519,
+};
 
 pub const CipherSuite = enum(u16) {
-    AES_128_GCM_SHA256 = 0x1301,
-    AES_256_GCM_SHA384 = 0x1302,
-    CHACHA20_POLY1305_SHA256 = 0x1303,
-    AES_128_CCM_SHA256 = 0x1304,
-    AES_128_CCM_8_SHA256 = 0x1305,
-    AEGIS_256_SHA512 = 0x1306,
-    AEGIS_128L_SHA256 = 0x1307,
+    aes_128_gcm_sha256 = 0x1301,
+    aes_256_gcm_sha384 = 0x1302,
+    chacha20_poly1305_sha256 = 0x1303,
+    aegis_256_sha512 = 0x1306,
+    aegis_128l_sha256 = 0x1307,
     _,
+
+    pub fn Hash(comptime self: @This()) type {
+        return switch (self) {
+            .aes_128_gcm_sha256 => crypto.hash.sha2.Sha256,
+            .aes_256_gcm_sha384 => crypto.hash.sha2.Sha384,
+            .chacha20_poly1305_sha256 => crypto.hash.sha2.Sha256,
+            .aegis_256_sha512 => crypto.hash.sha2.Sha512,
+            .aegis_128l_sha256 => crypto.hash.sha2.Sha256,
+            else => @compileError("unknown suite " ++ @tagName(self)),
+        };
+    }
+
+    pub fn Aead(comptime self: @This()) type {
+        return switch (self) {
+            .aes_128_gcm_sha256 => crypto.aead.aes_gcm.Aes128Gcm,
+            .aes_256_gcm_sha384 => crypto.aead.aes_gcm.Aes256Gcm,
+            .chacha20_poly1305_sha256 => crypto.aead.chacha_poly.ChaCha20Poly1305,
+            .aegis_256_sha512 => crypto.aead.aegis.Aegis256,
+            .aegis_128l_sha256 => crypto.aead.aegis.Aegis128L,
+            else => @compileError("unknown suite " ++ @tagName(self)),
+        };
+    }
 };
 
-pub const CertificateType = enum(u8) {
-    X509 = 0,
-    RawPublicKey = 2,
-    _,
+pub const HandshakeCipher = union(CipherSuite) {
+    aes_128_gcm_sha256: HandshakeCipherT(.aes_128_gcm_sha256),
+    aes_256_gcm_sha384: HandshakeCipherT(.aes_256_gcm_sha384),
+    chacha20_poly1305_sha256: HandshakeCipherT(.chacha20_poly1305_sha256),
+    aegis_256_sha512: HandshakeCipherT(.aegis_256_sha512),
+    aegis_128l_sha256: HandshakeCipherT(.aegis_128l_sha256),
+
+    const Self = @This();
+
+    pub fn init(
+        suite: CipherSuite,
+        shared_key: []const u8,
+        hello_hash: []const u8,
+        logger: std.io.AnyWriter,
+        client_random: []const u8,
+    ) Error!Self {
+        switch (suite) {
+            inline .aes_128_gcm_sha256,
+            .aes_256_gcm_sha384,
+            .chacha20_poly1305_sha256,
+            .aegis_256_sha512,
+            .aegis_128l_sha256,
+            => |tag| {
+                const T = std.meta.TagPayloadByName(Self, @tagName(tag));
+                const cipher = T.init(shared_key, hello_hash, logger, client_random);
+                return @unionInit(Self, @tagName(tag), cipher);
+            },
+            _ => return Error.TlsIllegalParameter,
+        }
+    }
 };
 
-pub const KeyUpdateRequest = enum(u8) {
-    update_not_requested = 0,
-    update_requested = 1,
-    _,
+pub const ApplicationCipher = union(CipherSuite) {
+    aes_128_gcm_sha256: ApplicationCipherT(.aes_128_gcm_sha256),
+    aes_256_gcm_sha384: ApplicationCipherT(.aes_256_gcm_sha384),
+    chacha20_poly1305_sha256: ApplicationCipherT(.chacha20_poly1305_sha256),
+    aegis_256_sha512: ApplicationCipherT(.aegis_256_sha512),
+    aegis_128l_sha256: ApplicationCipherT(.aegis_128l_sha256),
+
+    const Self = @This();
+
+    pub fn init(
+        handshake_cipher: HandshakeCipher,
+        handshake_hash: []const u8,
+        logger: std.io.AnyWriter,
+        client_random: []const u8,
+    ) Self {
+        switch (handshake_cipher) {
+            inline .aes_128_gcm_sha256,
+            .aes_256_gcm_sha384,
+            .chacha20_poly1305_sha256,
+            .aegis_256_sha512,
+            .aegis_128l_sha256,
+            => |c, tag| {
+                const T = std.meta.TagPayloadByName(Self, @tagName(tag));
+                const cipher = T.init(c.handshake_secret, handshake_hash, logger, client_random);
+                return @unionInit(Self, @tagName(tag), cipher);
+            },
+        }
+    }
+
+    pub fn print(self: Self) void {
+        switch (self) {
+            inline else => |v| v.print(),
+        }
+    }
 };
 
-pub fn HandshakeCipherT(comptime AeadType: type, comptime HashType: type) type {
-    return struct {
-        pub const AEAD = AeadType;
-        pub const Hash = HashType;
-        pub const Hmac = crypto.auth.hmac.Hmac(Hash);
-        pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
+/// RFC 8446 S4.1.2
+pub const ClientHello = struct {
+    /// Legacy field for TLS 1.2 middleboxes
+    version: Version = .tls_1_2,
+    random: [32]u8,
+    /// Legacy session resumption. Max len 32.
+    session_id: []const u8,
+    /// In descending order of preference
+    cipher_suites: []const CipherSuite,
+    // Legacy and unsecure, requires at least 1 for compat, MUST error if anything else
+    compression_methods: [1]u8 = .{0},
+    // Certain extensions are mandatory for TLS 1.3
+    extensions: []const Extension,
 
-        handshake_secret: [Hkdf.prk_length]u8,
-        master_secret: [Hkdf.prk_length]u8,
-        client_handshake_key: [AEAD.key_length]u8,
-        server_handshake_key: [AEAD.key_length]u8,
-        client_finished_key: [Hmac.key_length]u8,
-        server_finished_key: [Hmac.key_length]u8,
-        client_handshake_iv: [AEAD.nonce_length]u8,
-        server_handshake_iv: [AEAD.nonce_length]u8,
-        transcript_hash: Hash,
+    pub const session_id_max_len = 32;
+
+    const Self = @This();
+
+    pub fn write(self: Self, stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.write(Version, self.version);
+        res += try stream.writeAll(&self.random);
+        res += try stream.writeArray(u8, u8, self.session_id);
+        res += try stream.writeArray(u16, CipherSuite, self.cipher_suites);
+        res += try stream.writeArray(u8, u8, &self.compression_methods);
+        res += try stream.writeArray(u16, Extension, self.extensions);
+        return res;
+    }
+};
+
+pub const ServerHello = struct {
+    /// Legacy field for TLS 1.2 middleboxes
+    version: Version = .tls_1_2,
+    /// Should be an echo of the sent `client_random`.
+    random: [32]u8,
+    /// Legacy session resumption
+    session_id: []const u8,
+    cipher_suite: CipherSuite,
+    compression_method: u8 = 0,
+    /// Certain extensions are mandatory for TLS 1.3
+    extensions: []const Extension,
+
+    /// When `random` equals this it means the client should resend the `ClientHello`.
+    pub const hello_retry_request = [32]u8{
+        0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+        0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
     };
-}
 
-pub const HandshakeCipher = union(enum) {
-    AES_128_GCM_SHA256: HandshakeCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256),
-    AES_256_GCM_SHA384: HandshakeCipherT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384),
-    CHACHA20_POLY1305_SHA256: HandshakeCipherT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256),
-    AEGIS_256_SHA512: HandshakeCipherT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha512),
-    AEGIS_128L_SHA256: HandshakeCipherT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256),
+    const Self = @This();
+
+    pub fn write(self: Self, stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.write(Version, self.version);
+        res += try stream.writeAll(&self.random);
+        res += try stream.writeArray(u8, u8, self.session_id);
+        res += try stream.write(CipherSuite, self.cipher_suite);
+        res += try stream.write(u8, self.compression_method);
+        res += try stream.writeArray(u16, Extension, self.extensions);
+        return res;
+    }
 };
 
-pub fn ApplicationCipherT(comptime AeadType: type, comptime HashType: type) type {
+pub const EncryptedExtensions = struct {
+    extensions: []const Extension,
+
+    const Self = @This();
+
+    pub fn write(self: Self, stream: *Stream) !usize {
+        return try stream.writeArray(u16, Extension, self.extensions);
+    }
+};
+
+pub const Extension = union(ExtensionType) {
+    // MUST NOT contain more than one name of the same name_type
+    server_name: []const ServerName,
+    max_fragment_length: void,
+    status_request: void,
+    supported_groups: []const NamedGroup,
+    ec_point_formats: []const EcPointFormat,
+    /// For signature_verify messages
+    signature_algorithms: []const SignatureScheme,
+    use_srtp: void,
+    /// https://en.wikipedia.org/wiki/Heartbleed
+    heartbeat: void,
+    application_layer_protocol_negotiation: void,
+    signed_certificate_timestamp: void,
+    client_certificate_type: void,
+    server_certificate_type: void,
+    padding: void,
+    encrypt_then_mac: void,
+    extended_master_secret: void,
+    session_ticket: void,
+    pre_shared_key: void,
+    early_data: void,
+    supported_versions: []const Version,
+    cookie: void,
+    psk_key_exchange_modes: []const PskKeyExchangeMode,
+    certificate_authorities: void,
+    oid_filters: void,
+    post_handshake_auth: void,
+    /// For certificate signatures.
+    /// > Implementations which have the same policy in both cases MAY omit the
+    /// > "signature_algorithms_cert" extension.
+    signature_algorithms_cert: void,
+    key_share: []const KeyShare,
+    none: void,
+
+    const Self = @This();
+
+    pub fn write(self: Self, stream: *Stream) !usize {
+        const PrefixLen = enum { zero, one, two };
+        const prefix_len: PrefixLen = if (stream.is_client) switch (self) {
+            .supported_versions, .ec_point_formats, .psk_key_exchange_modes => .one,
+            .server_name, .supported_groups, .signature_algorithms, .key_share => .two,
+            else => .zero,
+        } else .zero;
+
+        var res: usize = 0;
+        res += try stream.write(ExtensionType, self);
+
+        switch (self) {
+            inline else => |items| {
+                const T = @TypeOf(items);
+                switch (@typeInfo(T)) {
+                    .Void => {
+                        res += try stream.write(u16, 0);
+                    },
+                    .Pointer => |info| {
+                        switch (prefix_len) {
+                            inline else => |t| {
+                                const PrefixT = switch (t) {
+                                    .zero => void,
+                                    .one => u8,
+                                    .two => u16,
+                                };
+                                const len = stream.arrayLength(PrefixT, info.child, items);
+                                res += try stream.write(u16, @intCast(len));
+                                res += try stream.writeArray(PrefixT, info.child, items);
+                            },
+                        }
+                    },
+                    else => |t| @compileError("unsupported type " ++ @typeName(T) ++ " for member " ++ @tagName(t)),
+                }
+            },
+        }
+        return res;
+    }
+
+    pub const Header = struct {
+        type: ExtensionType,
+        len: u16,
+
+        pub fn read(stream: *Stream) @TypeOf(stream.*).ReadError!@This() {
+            const ty = try stream.read(ExtensionType);
+            const length = try stream.read(u16);
+            return .{ .type = ty, .len = length };
+        }
+    };
+};
+
+/// RFC 8446 S4.2.9
+pub const PskKeyExchangeMode = enum(u8) {
+    /// PSK-only key establishment.  In this mode, the server
+    /// MUST NOT supply a "key_share" value.
+    ke = 1,
+    /// PSK with (EC)DHE key establishment.  In this mode, the
+    /// client and server MUST supply "key_share" values as described in
+    /// Section 4.2.8.
+    dhe_ke = 2,
+    _,
+};
+
+/// RFC 8446 S4.1.3
+pub const ServerName = struct {
+    type: NameType = .host_name,
+    host_name: []const u8,
+
+    pub const NameType = enum(u8) { host_name = 0, _ };
+
+    pub fn write(self: @This(), stream: *Stream) !usize {
+        var res: usize = 0;
+        res += try stream.write(NameType, self.type);
+        res += try stream.writeArray(u16, u8, self.host_name);
+        return res;
+    }
+};
+
+pub const EcPointFormat = enum(u8) {
+    uncompressed = 0,
+    ansiX962_compressed_prime = 1,
+    ansiX962_compressed_char2 = 2,
+    _,
+};
+
+/// RFC 5246 S7.1
+pub const ChangeCipherSpec = enum(u8) { change_cipher_spec = 1, _ };
+
+/// One of these potential hashes will be selected after receiving the other party's hello.
+///
+/// We init them before sending any messages to avoid having to store our first message until the
+/// other party's handshake message returns. This message is usually larger than
+/// `@sizeOf(MultiHash)` = 560
+///
+/// A nice benefit is decreased latency on hosts where one round trip takes longer than calling
+/// `update` with `active == .all`.
+pub const MultiHash = struct {
+    sha256: sha2.Sha256 = sha2.Sha256.init(.{}),
+    sha384: sha2.Sha384 = sha2.Sha384.init(.{}),
+    sha512: sha2.Sha512 = sha2.Sha512.init(.{}),
+    /// Chosen during handshake.
+    active: enum { all, sha256, sha384, sha512, none } = .all,
+
+    const sha2 = crypto.hash.sha2;
+    pub const max_digest_len = sha2.Sha512.digest_length;
+    const Self = @This();
+
+    pub fn update(self: *Self, bytes: []const u8) void {
+        switch (self.active) {
+            .all => {
+                self.sha256.update(bytes);
+                self.sha384.update(bytes);
+                self.sha512.update(bytes);
+            },
+            .sha256 => self.sha256.update(bytes),
+            .sha384 => self.sha384.update(bytes),
+            .sha512 => self.sha512.update(bytes),
+            .none => {},
+        }
+    }
+
+    pub fn setActive(self: *Self, cipher_suite: CipherSuite) void {
+        self.active = switch (cipher_suite) {
+            .aes_128_gcm_sha256, .chacha20_poly1305_sha256, .aegis_128l_sha256 => .sha256,
+            .aes_256_gcm_sha384 => .sha384,
+            .aegis_256_sha512 => .sha512,
+            _ => .all,
+        };
+    }
+
+    pub inline fn peek(self: Self) []const u8 {
+        return &switch (self.active) {
+            .all, .none => [_]u8{},
+            .sha256 => self.sha256.peek(),
+            .sha384 => self.sha384.peek(),
+            .sha512 => self.sha512.peek(),
+        };
+    }
+};
+
+fn HandshakeCipherT(comptime suite: CipherSuite) type {
     return struct {
-        pub const AEAD = AeadType;
-        pub const Hash = HashType;
+        pub const AEAD = suite.Aead();
+        pub const Hash = suite.Hash();
         pub const Hmac = crypto.auth.hmac.Hmac(Hash);
         pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
 
-        client_secret: [Hash.digest_length]u8,
-        server_secret: [Hash.digest_length]u8,
+        // Later used in ApplicationCipher.init
+        handshake_secret: [Hkdf.prk_length]u8,
+        // For encrypting/decrypting handshake messages
         client_key: [AEAD.key_length]u8,
         server_key: [AEAD.key_length]u8,
+        // For generating handshake finished messages
+        client_finished_key: [Hmac.key_length]u8,
+        server_finished_key: [Hmac.key_length]u8,
+        // Used as a nonce for encrypting/decrypting handshake messages
+        // iv = initialization vector
         client_iv: [AEAD.nonce_length]u8,
         server_iv: [AEAD.nonce_length]u8,
+
+        // m0aR s3cUr1tY!
+        read_seq: usize = 0,
+        write_seq: usize = 0,
+
+        const Self = @This();
+
+        pub fn init(
+            shared_key: []const u8,
+            hello_hash: []const u8,
+            logger: std.io.AnyWriter,
+            client_random: []const u8,
+        ) Self {
+            const zeroes = [1]u8{0} ** Hash.digest_length;
+            const early = Hkdf.extract(&[1]u8{0}, &zeroes);
+            const empty = emptyHash(Hash);
+
+            const derived = hkdfExpandLabel(Hkdf, early, "derived", &empty, Hash.digest_length);
+            const handshake = Hkdf.extract(&derived, shared_key);
+            const client = hkdfExpandLabel(Hkdf, handshake, "c hs traffic", hello_hash, Hash.digest_length);
+            const server = hkdfExpandLabel(Hkdf, handshake, "s hs traffic", hello_hash, Hash.digest_length);
+
+            // Not being able to log our secrets shouldn't prevent the handshake from continuing.
+            writeKeyLogEntry(logger, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", client_random, &client) catch {};
+            writeKeyLogEntry(logger, "SERVER_HANDSHAKE_TRAFFIC_SECRET", client_random, &server) catch {};
+
+            return .{
+                .handshake_secret = handshake,
+                .client_finished_key = hkdfExpandLabel(Hkdf, client, "finished", "", Hmac.key_length),
+                .server_finished_key = hkdfExpandLabel(Hkdf, server, "finished", "", Hmac.key_length),
+                .client_key = hkdfExpandLabel(Hkdf, client, "key", "", AEAD.key_length),
+                .server_key = hkdfExpandLabel(Hkdf, server, "key", "", AEAD.key_length),
+                .client_iv = hkdfExpandLabel(Hkdf, client, "iv", "", AEAD.nonce_length),
+                .server_iv = hkdfExpandLabel(Hkdf, server, "iv", "", AEAD.nonce_length),
+            };
+        }
+
+        pub fn encrypt(
+            self: *Self,
+            data: []const u8,
+            additional: []const u8,
+            is_client: bool,
+            out: []u8,
+        ) [AEAD.tag_length]u8 {
+            var res: [AEAD.tag_length]u8 = undefined;
+            const key = if (is_client) self.client_key else self.server_key;
+            const iv = if (is_client) self.client_iv else self.server_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.write_seq);
+            AEAD.encrypt(out, &res, data, additional, nonce, key);
+            self.write_seq += 1;
+            return res;
+        }
+
+        pub fn decrypt(
+            self: *Self,
+            data: []const u8,
+            additional: []const u8,
+            tag: [AEAD.tag_length]u8,
+            is_client: bool,
+            out: []u8,
+        ) Error!void {
+            const key = if (is_client) self.server_key else self.client_key;
+            const iv = if (is_client) self.server_iv else self.client_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.read_seq);
+            AEAD.decrypt(out, data, tag, additional, nonce, key) catch return Error.TlsBadRecordMac;
+            self.read_seq += 1;
+        }
     };
 }
 
-/// Encryption parameters for application traffic.
-pub const ApplicationCipher = union(enum) {
-    AES_128_GCM_SHA256: ApplicationCipherT(crypto.aead.aes_gcm.Aes128Gcm, crypto.hash.sha2.Sha256),
-    AES_256_GCM_SHA384: ApplicationCipherT(crypto.aead.aes_gcm.Aes256Gcm, crypto.hash.sha2.Sha384),
-    CHACHA20_POLY1305_SHA256: ApplicationCipherT(crypto.aead.chacha_poly.ChaCha20Poly1305, crypto.hash.sha2.Sha256),
-    AEGIS_256_SHA512: ApplicationCipherT(crypto.aead.aegis.Aegis256, crypto.hash.sha2.Sha512),
-    AEGIS_128L_SHA256: ApplicationCipherT(crypto.aead.aegis.Aegis128L, crypto.hash.sha2.Sha256),
-};
+fn ApplicationCipherT(comptime suite: CipherSuite) type {
+    return struct {
+        pub const AEAD = suite.Aead();
+        pub const Hash = suite.Hash();
+        pub const Hmac = crypto.auth.hmac.Hmac(Hash);
+        pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
+
+        // Used to derive new keys and iv's in key_update messages
+        client_secret: [Hash.digest_length]u8,
+        server_secret: [Hash.digest_length]u8,
+        // For encrypting/decrypting application data messages
+        client_key: [AEAD.key_length]u8,
+        server_key: [AEAD.key_length]u8,
+        // Used as a nonce for encrypting/decrypting application data messages
+        // iv = initialization vector
+        client_iv: [AEAD.nonce_length]u8,
+        server_iv: [AEAD.nonce_length]u8,
+
+        // m0aR s3cUr1tY!
+        read_seq: usize = 0,
+        write_seq: usize = 0,
+
+        const Self = @This();
+
+        pub fn init(
+            handshake_secret: [Hkdf.prk_length]u8,
+            handshake_hash: []const u8,
+            logger: std.io.AnyWriter,
+            client_random: []const u8,
+        ) Self {
+            const zeroes = [1]u8{0} ** Hash.digest_length;
+            const empty_hash = emptyHash(Hash);
+
+            const derived = hkdfExpandLabel(Hkdf, handshake_secret, "derived", &empty_hash, Hash.digest_length);
+            const master = Hkdf.extract(&derived, &zeroes);
+            const client = hkdfExpandLabel(Hkdf, master, "c ap traffic", handshake_hash, Hash.digest_length);
+            const server = hkdfExpandLabel(Hkdf, master, "s ap traffic", handshake_hash, Hash.digest_length);
+
+            // Not being able to log our secrets shouldn't prevent the handshake from continuing.
+            writeKeyLogEntry(logger, "CLIENT_TRAFFIC_SECRET_0", client_random, &client) catch {};
+            writeKeyLogEntry(logger, "SERVER_TRAFFIC_SECRET_0", client_random, &server) catch {};
+
+            return .{
+                .client_secret = client,
+                .server_secret = server,
+                .client_key = hkdfExpandLabel(Hkdf, client, "key", "", AEAD.key_length),
+                .server_key = hkdfExpandLabel(Hkdf, server, "key", "", AEAD.key_length),
+                .client_iv = hkdfExpandLabel(Hkdf, client, "iv", "", AEAD.nonce_length),
+                .server_iv = hkdfExpandLabel(Hkdf, server, "iv", "", AEAD.nonce_length),
+            };
+        }
+
+        pub fn encrypt(
+            self: *Self,
+            data: []const u8,
+            additional: []const u8,
+            is_client: bool,
+            out: []u8,
+        ) [AEAD.tag_length]u8 {
+            var res: [AEAD.tag_length]u8 = undefined;
+            const key = if (is_client) self.client_key else self.server_key;
+            const iv = if (is_client) self.client_iv else self.server_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.write_seq);
+            AEAD.encrypt(out, &res, data, additional, nonce, key);
+            self.write_seq += 1;
+            return res;
+        }
+
+        pub fn decrypt(
+            self: *Self,
+            data: []const u8,
+            additional: []const u8,
+            tag: [AEAD.tag_length]u8,
+            is_client: bool,
+            out: []u8,
+        ) !void {
+            const key = if (is_client) self.server_key else self.client_key;
+            const iv = if (is_client) self.server_iv else self.client_iv;
+            const nonce = nonce_for_len(AEAD.nonce_length, iv, self.read_seq);
+            try AEAD.decrypt(out, data, tag, additional, nonce, key);
+            self.read_seq += 1;
+        }
+
+        pub fn print(self: Self) void {
+            inline for (std.meta.fields(Self)) |f| debugPrint(f.name, @field(self, f.name));
+        }
+    };
+}
+
+fn nonce_for_len(len: comptime_int, iv: [len]u8, seq: usize) [len]u8 {
+    if (builtin.zig_backend == .stage2_x86_64 and len > comptime std.simd.suggestVectorLength(u8) orelse 1) {
+        var res = iv;
+        const operand = std.mem.readInt(u64, res[res.len - 8 ..], .big);
+        std.mem.writeInt(u64, res[res.len - 8 ..], operand ^ seq, .big);
+        return res;
+    } else {
+        const V = @Vector(len, u8);
+        const pad = [1]u8{0} ** (len - 8);
+        const big = switch (native_endian) {
+            .big => seq,
+            .little => @byteSwap(seq),
+        };
+        const operand: V = pad ++ @as([8]u8, @bitCast(big));
+        return @as(V, iv) ^ operand;
+    }
+}
 
 pub fn hkdfExpandLabel(
     comptime Hkdf: type,
@@ -399,163 +1216,268 @@ pub fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) 
     return result;
 }
 
-pub inline fn extension(comptime et: ExtensionType, bytes: anytype) [2 + 2 + bytes.len]u8 {
-    return int2(@intFromEnum(et)) ++ array(1, bytes);
+/// Slice of stack allocated signature content from RFC 8446 S4.4.3
+pub inline fn sigContent(digest: []const u8) []const u8 {
+    const max_digest_len = MultiHash.max_digest_len;
+    var buf = [_]u8{0x20} ** 64 ++ "TLS 1.3, server CertificateVerify\x00".* ++ @as([max_digest_len]u8, undefined);
+    @memcpy(buf[buf.len - max_digest_len ..][0..digest.len], digest);
+
+    return buf[0 .. buf.len - (max_digest_len - digest.len)];
 }
 
-pub inline fn array(comptime elem_size: comptime_int, bytes: anytype) [2 + bytes.len]u8 {
-    comptime assert(bytes.len % elem_size == 0);
-    return int2(bytes.len) ++ bytes;
-}
-
-pub inline fn enum_array(comptime E: type, comptime tags: []const E) [2 + @sizeOf(E) * tags.len]u8 {
-    assert(@sizeOf(E) == 2);
-    var result: [tags.len * 2]u8 = undefined;
-    for (tags, 0..) |elem, i| {
-        result[i * 2] = @as(u8, @truncate(@intFromEnum(elem) >> 8));
-        result[i * 2 + 1] = @as(u8, @truncate(@intFromEnum(elem)));
+/// Default suites used for client and server in descending order of preference.
+/// The order is chosen based on what crypto algorithms Zig has available in
+/// the standard library and their speed on x86_64-linux.
+///
+/// Measurement taken with 0.11.0-dev.810+c2f5848fe
+/// on x86_64-linux Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz:
+/// zig run .lib/std/crypto/benchmark.zig -OReleaseFast
+///       aegis-128l:      15382 MiB/s
+///        aegis-256:       9553 MiB/s
+///       aes128-gcm:       3721 MiB/s
+///       aes256-gcm:       3010 MiB/s
+/// chacha20Poly1305:        597 MiB/s
+///
+/// Measurement taken with 0.11.0-dev.810+c2f5848fe
+/// on x86_64-linux Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz:
+/// zig run .lib/std/crypto/benchmark.zig -OReleaseFast -mcpu=baseline
+///       aegis-128l:        629 MiB/s
+/// chacha20Poly1305:        529 MiB/s
+///        aegis-256:        461 MiB/s
+///       aes128-gcm:        138 MiB/s
+///       aes256-gcm:        120 MiB/s
+pub const default_cipher_suites =
+    if (crypto.core.aes.has_hardware_support)
+    [_]CipherSuite{
+        .aegis_128l_sha256,
+        .aegis_256_sha512,
+        .aes_128_gcm_sha256,
+        .aes_256_gcm_sha384,
+        .chacha20_poly1305_sha256,
     }
-    return array(2, result);
-}
-
-pub inline fn int2(x: u16) [2]u8 {
-    return .{
-        @as(u8, @truncate(x >> 8)),
-        @as(u8, @truncate(x)),
+else
+    [_]CipherSuite{
+        .chacha20_poly1305_sha256,
+        .aegis_128l_sha256,
+        .aegis_256_sha512,
+        .aes_128_gcm_sha256,
+        .aes_256_gcm_sha384,
     };
-}
 
-pub inline fn int3(x: u24) [3]u8 {
-    return .{
-        @as(u8, @truncate(x >> 16)),
-        @as(u8, @truncate(x >> 8)),
-        @as(u8, @truncate(x)),
-    };
-}
+// Implements `StreamInterface` with a ring buffer
+const TestStream = struct {
+    buffer: Buffer,
 
-/// An abstraction to ensure that protocol-parsing code does not perform an
-/// out-of-bounds read.
-pub const Decoder = struct {
-    buf: []u8,
-    /// Points to the next byte in buffer that will be decoded.
-    idx: usize = 0,
-    /// Up to this point in `buf` we have already checked that `cap` is greater than it.
-    our_end: usize = 0,
-    /// Beyond this point in `buf` is extra tag-along bytes beyond the amount we
-    /// requested with `readAtLeast`.
-    their_end: usize = 0,
-    /// Points to the end within buffer that has been filled. Beyond this point
-    /// in buf is undefined bytes.
-    cap: usize = 0,
-    /// Debug helper to prevent illegal calls to read functions.
-    disable_reads: bool = false,
+    const Buffer = std.RingBuffer;
+    const Self = @This();
 
-    pub fn fromTheirSlice(buf: []u8) Decoder {
-        return .{
-            .buf = buf,
-            .their_end = buf.len,
-            .cap = buf.len,
-            .disable_reads = true,
-        };
+    pub const ReadError = Buffer.Error;
+    pub const WriteError = Buffer.Error;
+
+    pub fn init(allocator: std.mem.Allocator) !Self {
+        return Self{ .buffer = try Buffer.init(allocator, Plaintext.max_length) };
     }
 
-    /// Use this function to increase `their_end`.
-    pub fn readAtLeast(d: *Decoder, stream: anytype, their_amt: usize) !void {
-        assert(!d.disable_reads);
-        const existing_amt = d.cap - d.idx;
-        d.their_end = d.idx + their_amt;
-        if (their_amt <= existing_amt) return;
-        const request_amt = their_amt - existing_amt;
-        const dest = d.buf[d.cap..];
-        if (request_amt > dest.len) return error.TlsRecordOverflow;
-        const actual_amt = try stream.readAtLeast(dest, request_amt);
-        if (actual_amt < request_amt) return error.TlsConnectionTruncated;
-        d.cap += actual_amt;
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        self.buffer.deinit(allocator);
     }
 
-    /// Same as `readAtLeast` but also increases `our_end` by exactly `our_amt`.
-    /// Use when `our_amt` is calculated by us, not by them.
-    pub fn readAtLeastOurAmt(d: *Decoder, stream: anytype, our_amt: usize) !void {
-        assert(!d.disable_reads);
-        try readAtLeast(d, stream, our_amt);
-        d.our_end = d.idx + our_amt;
+    pub fn readv(self: *Self, iov: []const std.os.iovec) ReadError!usize {
+        const first = iov[0];
+        try self.buffer.readFirst(first.iov_base[0..first.iov_len], first.iov_len);
+        return first.iov_len;
     }
 
-    /// Use this function to increase `our_end`.
-    /// This should always be called with an amount provided by us, not them.
-    pub fn ensure(d: *Decoder, amt: usize) !void {
-        d.our_end = @max(d.idx + amt, d.our_end);
-        if (d.our_end > d.their_end) return error.TlsDecodeError;
-    }
-
-    /// Use this function to increase `idx`.
-    pub fn decode(d: *Decoder, comptime T: type) T {
-        switch (@typeInfo(T)) {
-            .Int => |info| switch (info.bits) {
-                8 => {
-                    skip(d, 1);
-                    return d.buf[d.idx - 1];
-                },
-                16 => {
-                    skip(d, 2);
-                    const b0: u16 = d.buf[d.idx - 2];
-                    const b1: u16 = d.buf[d.idx - 1];
-                    return (b0 << 8) | b1;
-                },
-                24 => {
-                    skip(d, 3);
-                    const b0: u24 = d.buf[d.idx - 3];
-                    const b1: u24 = d.buf[d.idx - 2];
-                    const b2: u24 = d.buf[d.idx - 1];
-                    return (b0 << 16) | (b1 << 8) | b2;
-                },
-                else => @compileError("unsupported int type: " ++ @typeName(T)),
-            },
-            .Enum => |info| {
-                const int = d.decode(info.tag_type);
-                if (info.is_exhaustive) @compileError("exhaustive enum cannot be used");
-                return @as(T, @enumFromInt(int));
-            },
-            else => @compileError("unsupported type: " ++ @typeName(T)),
+    pub fn writev(self: *Self, iov: []const std.os.iovec_const) WriteError!usize {
+        var written: usize = 0;
+        for (iov) |v| {
+            try self.buffer.writeSlice(v.iov_base[0..v.iov_len]);
+            written += v.iov_len;
         }
+        return written;
     }
 
-    /// Use this function to increase `idx`.
-    pub fn array(d: *Decoder, comptime len: usize) *[len]u8 {
-        skip(d, len);
-        return d.buf[d.idx - len ..][0..len];
+    pub fn peek(self: *Self, out: []u8) ReadError!void {
+        const read_index = self.buffer.read_index;
+        _ = try self.read(out);
+        self.buffer.read_index = read_index;
     }
 
-    /// Use this function to increase `idx`.
-    pub fn slice(d: *Decoder, len: usize) []u8 {
-        skip(d, len);
-        return d.buf[d.idx - len ..][0..len];
+    pub fn close(self: *Self) void {
+        _ = self;
     }
 
-    /// Use this function to increase `idx`.
-    pub fn skip(d: *Decoder, amt: usize) void {
-        d.idx += amt;
-        assert(d.idx <= d.our_end); // insufficient ensured bytes
+    pub fn expect(self: *Self, expected: []const u8) !void {
+        var tmp_buf: [Plaintext.max_length]u8 = undefined;
+        const buf = tmp_buf[0..self.buffer.len()];
+        try self.peek(buf);
+
+        try std.testing.expectEqualSlices(u8, expected, buf);
     }
 
-    pub fn eof(d: Decoder) bool {
-        assert(d.our_end <= d.their_end);
-        assert(d.idx <= d.our_end);
-        return d.idx == d.their_end;
-    }
+    const GenericStream = std.io.GenericStream(*Self, ReadError, readv, WriteError, writev, close);
 
-    /// Provide the length they claim, and receive a sub-decoder specific to that slice.
-    /// The parent decoder is advanced to the end.
-    pub fn sub(d: *Decoder, their_len: usize) !Decoder {
-        const end = d.idx + their_len;
-        if (end > d.their_end) return error.TlsDecodeError;
-        const sub_buf = d.buf[d.idx..end];
-        d.idx = end;
-        d.our_end = end;
-        return fromTheirSlice(sub_buf);
-    }
-
-    pub fn rest(d: Decoder) []u8 {
-        return d.buf[d.idx..d.cap];
+    pub fn stream(self: *Self) GenericStream {
+        return .{ .context = self };
     }
 };
+
+test "tls client and server handshake, data, and close_notify" {
+    const allocator = std.testing.allocator;
+
+    var inner_stream = try TestStream.init(allocator);
+    defer inner_stream.deinit(allocator);
+    const stream = inner_stream.stream();
+
+    // Use these seeded values for reproducible handshake and application ciphertext.
+    const session_id: [32]u8 = ("session_id012345" ** 2).*;
+    const client_random: [32]u8 = ("client_random012" ** 2).*;
+    const server_random: [32]u8 = ("server_random012" ** 2).*;
+    const client_key_seed: [32]u8 = ("client_seed01234" ** 2).*;
+    const server_keygen_seed: [48]u8 = ("server_seed01234" ** 3).*;
+    const server_sig_salt: [MultiHash.max_digest_len]u8 = ("server_sig_salt0" ** 4).*;
+
+    const stdout = std.io.getStdOut();
+    var client_transcript: MultiHash = .{};
+    var client = Client{
+        .random = client_random,
+        .stream = Stream{
+            .stream = stream.any(),
+            .is_client = true,
+            .transcript_hash = &client_transcript,
+        },
+        .options = .{
+            .host = "localhost",
+            .ca_bundle = null,
+            .allocator = allocator,
+            .key_log = stdout.writer().any(),
+        },
+    };
+
+    const server_cert = @embedFile("./testdata/cert.der");
+    const server_key = @embedFile("./testdata/key.der");
+    const server_rsa = try crypto.Certificate.rsa.SecretKey.fromDer(server_key);
+    var server_transcript: MultiHash = .{};
+    var server = Server{
+        .stream = Stream{
+            .stream = stream.any(),
+            .is_client = false,
+            .transcript_hash = &server_transcript,
+        },
+        .options = .{
+            .cipher_suites = &[_]CipherSuite{.aes_256_gcm_sha384},
+            .key_shares = &[_]NamedGroup{.x25519},
+            .certificate = .{ .entries = &[_]Certificate.Entry{
+                .{ .data = server_cert },
+            } },
+            .certificate_key = .{ .rsa = server_rsa },
+        },
+    };
+
+    const key_pairs = try Client.KeyPairs.initAdvanced(
+        session_id,
+        client_key_seed,
+        client_key_seed ++ [_]u8{0} ** (48 - 32),
+        client_key_seed,
+    );
+    var client_command = Client.Command{ .send_hello = key_pairs };
+    client_command = try client.next(client_command);
+    try std.testing.expect(client_command == .recv_hello);
+
+    var server_command = Server.Command{ .recv_hello = .{
+        .server_random = server_random,
+        .keygen_seed = server_keygen_seed,
+    } };
+    server_command = try server.next(server_command); // recv_hello
+    try std.testing.expect(server_command == .send_hello);
+
+    server_command = try server.next(server_command); // send_hello
+    try std.testing.expect(server_command == .send_change_cipher_spec);
+
+    client_command = try client.next(client_command); // recv_hello
+    try std.testing.expect(client_command == .recv_encrypted_extensions);
+    {
+        const s = server.stream.cipher.handshake.aes_256_gcm_sha384;
+        const c = client.stream.cipher.handshake.aes_256_gcm_sha384;
+
+        try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
+        try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
+        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+    }
+
+    server_command = try server.next(server_command); // send_change_cipher_spec
+    try std.testing.expect(server_command == .send_encrypted_extensions);
+    server_command = try server.next(server_command); // send_encrypted_extensions
+    try std.testing.expect(server_command == .send_certificate);
+    server_command = try server.next(server_command); // send_certificate
+    try std.testing.expect(server_command == .send_certificate_verify);
+    server_command.send_certificate_verify.salt = server_sig_salt;
+    server_command = try server.next(server_command); // send_certificate_verify
+    try std.testing.expect(server_command == .send_finished);
+    server_command = try server.next(server_command); // send_finished
+    try std.testing.expect(server_command == .recv_finished);
+
+    client_command = try client.next(client_command); // recv_encrypted_extensions
+    try std.testing.expect(client_command == .recv_certificate_or_finished);
+    client_command = try client.next(client_command); // recv_certificate_or_finished (certificate)
+    try std.testing.expect(client_command == .recv_certificate_verify);
+    client_command = try client.next(client_command); // recv_certificate_verify
+    try std.testing.expect(client_command == .recv_finished);
+    client_command = try client.next(client_command); // recv_finished
+    try std.testing.expect(client_command == .send_change_cipher_spec);
+    client_command = try client.next(client_command); // send_change_cipher_spec
+    try std.testing.expect(client_command == .send_finished);
+    client_command = try client.next(client_command); // send_finished
+    try std.testing.expect(client_command == .none);
+
+    server_command = try server.next(server_command); // recv_finished
+    try std.testing.expect(server_command == .none);
+    {
+        const s = server.stream.cipher.application.aes_256_gcm_sha384;
+        const c = client.stream.cipher.application.aes_256_gcm_sha384;
+
+        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+    }
+
+    try client.any().writer().writeAll("ping");
+
+    var recv_ping: [4]u8 = undefined;
+    _ = try server.stream.any().reader().readAll(&recv_ping);
+    try std.testing.expectEqualStrings("ping", &recv_ping);
+
+    server.stream.close();
+    try std.testing.expect(server.stream.closed);
+
+    _ = try client.stream.readPlaintext();
+    try std.testing.expect(client.stream.closed);
+}
+
+pub fn debugPrint(name: []const u8, slice: anytype) void {
+    std.debug.print("{s} ", .{name});
+    if (@typeInfo(@TypeOf(slice)) == .Int) {
+        std.debug.print("{d} ", .{slice});
+    } else {
+        for (slice) |c| std.debug.print("{x:0>2} ", .{c});
+    }
+    std.debug.print("\n", .{});
+}
+
+pub fn writeKeyLogEntry(
+    writer: std.io.AnyWriter,
+    label: []const u8,
+    client_random: []const u8,
+    secret: []const u8,
+) !void {
+    try writer.writeAll(label);
+    try writer.writeByte(' ');
+    for (client_random) |b| writer.print("{x:0>2}", .{b}) catch {};
+    try writer.writeByte(' ');
+    for (secret) |b| writer.print("{x:0>2}", .{b}) catch {};
+    try writer.writeByte('\n');
+}

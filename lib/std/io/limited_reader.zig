@@ -9,7 +9,7 @@ pub fn LimitedReader(comptime ReaderType: type) type {
         bytes_left: u64,
 
         pub const Error = ReaderType.Error;
-        pub const Reader = io.Reader(*Self, Error, read);
+        pub const Reader = io.Reader(*Self, Error, readv);
 
         const Self = @This();
 
@@ -18,6 +18,12 @@ pub fn LimitedReader(comptime ReaderType: type) type {
             const n = try self.inner_reader.read(dest[0..max_read]);
             self.bytes_left -= n;
             return n;
+        }
+
+        pub fn readv(self: *Self, iov: []const std.os.iovec) Error!usize {
+            const first = iov[0];
+            const buf = first.iov_base[0..first.iov_len];
+            return try self.read(buf);
         }
 
         pub fn reader(self: *Self) Reader {

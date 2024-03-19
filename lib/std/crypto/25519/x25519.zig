@@ -19,15 +19,19 @@ pub const X25519 = struct {
     pub const public_length = 32;
     /// Length (in bytes) of the output of the DH function.
     pub const shared_length = 32;
-    /// Seed (for key pair creation) length in bytes.
-    pub const seed_length = 32;
+
+    pub const PublicKey = [public_length]u8;
+    pub const SecretKey = [secret_length]u8;
 
     /// An X25519 key pair.
     pub const KeyPair = struct {
         /// Public part.
-        public_key: [public_length]u8,
+        public_key: PublicKey,
         /// Secret part.
-        secret_key: [secret_length]u8,
+        secret_key: SecretKey,
+
+        /// Seed (for key pair creation) length in bytes.
+        pub const seed_length = 32;
 
         /// Create a new key pair using an optional seed.
         pub fn create(seed: ?[seed_length]u8) IdentityElementError!KeyPair {

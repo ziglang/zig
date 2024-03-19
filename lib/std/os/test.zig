@@ -819,7 +819,7 @@ test "shutdown socket" {
         error.SocketNotConnected => {},
         else => |e| return e,
     };
-    std.net.Stream.close(.{ .handle = sock });
+    std.net.Socket.close(.{ .handle = sock });
 }
 
 test "sigaction" {

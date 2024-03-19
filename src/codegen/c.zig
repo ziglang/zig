@@ -7500,12 +7500,12 @@ const ArrayListWriter = ErrorOnlyGenericWriter(std.ArrayList(u8).Writer.Error);
 fn arrayListWriter(list: *std.ArrayList(u8)) ArrayListWriter {
     return .{ .context = .{
         .context = list,
-        .writeFn = struct {
-            fn write(context: *const anyopaque, bytes: []const u8) anyerror!usize {
+        .writevFn = struct {
+            fn writev(context: *const anyopaque, iov: []const std.os.iovec_const) anyerror!usize {
                 const l: *std.ArrayList(u8) = @alignCast(@constCast(@ptrCast(context)));
-                return l.writer().write(bytes);
+                return l.writer().writev(iov);
             }
-        }.write,
+        }.writev,
     } };
 }
 
@@ -7524,25 +7524,28 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
         pub fn writer(self: *Self) Writer {
             return .{ .context = .{
                 .context = self,
-                .writeFn = writeAny,
+                .writevFn = writevAny,
             } };
         }
 
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (bytes.len == 0) return @as(usize, 0);
-
-            const current_indent = self.indent_count * Self.indent_delta;
-            if (self.current_line_empty and current_indent > 0) {
-                try self.underlying_writer.writeByteNTimes(' ', current_indent);
+        pub fn writev(self: *Self, iov: []const std.os.iovec_const) Error!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                const bytes = v.iov_base[0..v.iov_len];
+                const current_indent = self.indent_count * Self.indent_delta;
+                if (self.current_line_empty and current_indent > 0) {
+                    try self.underlying_writer.writeByteNTimes(' ', current_indent);
+                }
+                self.current_line_empty = false;
+                written += try self.writeNoIndent(bytes);
             }
-            self.current_line_empty = false;
 
-            return self.writeNoIndent(bytes);
+            return written;
         }
 
-        fn writeAny(context: *const anyopaque, bytes: []const u8) anyerror!usize {
+        fn writevAny(context: *const anyopaque, iov: []const std.os.iovec_const) anyerror!usize {
             const self: *Self = @alignCast(@constCast(@ptrCast(context)));
-            return self.write(bytes);
+            return self.writev(iov);
         }
 
         pub fn insertNewline(self: *Self) Error!void {
@@ -7576,10 +7579,10 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
 /// maintaining ease of error handling.
 fn ErrorOnlyGenericWriter(comptime Error: type) type {
     return std.io.GenericWriter(std.io.AnyWriter, Error, struct {
-        fn write(context: std.io.AnyWriter, bytes: []const u8) Error!usize {
-            return @errorCast(context.write(bytes));
+        fn writev(context: std.io.AnyWriter, iov: []const std.os.iovec_const) Error!usize {
+            return @errorCast(context.writev(iov));
         }
-    }.write);
+    }.writev);
 }
 
 fn toCIntBits(zig_bits: u32) ?u32 {

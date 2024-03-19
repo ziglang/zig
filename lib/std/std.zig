@@ -151,13 +151,6 @@ pub const Options = struct {
     /// it like any other error.
     keep_sigpipe: bool = false,
 
-    /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
-    /// disable TLS support.
-    ///
-    /// This will likely reduce the size of the binary, but it will also make it impossible to
-    /// make a HTTPS connection.
-    http_disable_tls: bool = false,
-
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
 };
 

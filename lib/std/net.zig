@@ -10,6 +10,7 @@ const posix = std.posix;
 const fs = std.fs;
 const io = std.io;
 const native_endian = builtin.target.cpu.arch.endian();
+const tls = std.crypto.tls;
 
 // Windows 10 added support for unix sockets in build 17063, redstone 4 is the
 // first release to support them.
@@ -708,26 +709,26 @@ pub const Ip6Address = extern struct {
     }
 };
 
-pub fn connectUnixSocket(path: []const u8) !Stream {
+pub fn connectUnixSocket(path: []const u8) !Socket {
     const opt_non_block = 0;
     const sockfd = try os.socket(
         os.AF.UNIX,
         os.SOCK.STREAM | os.SOCK.CLOEXEC | opt_non_block,
         0,
     );
-    errdefer Stream.close(.{ .handle = sockfd });
+    errdefer Socket.close(.{ .handle = sockfd });
 
     var addr = try std.net.Address.initUnix(path);
     try os.connect(sockfd, &addr.any, addr.getOsSockLen());
 
-    return Stream{ .handle = sockfd };
+    return Socket{ .handle = sockfd };
 }
 
 fn if_nametoindex(name: []const u8) IPv6InterfaceError!u32 {
     if (builtin.target.os.tag == .linux) {
         var ifr: os.ifreq = undefined;
         const sockfd = try os.socket(os.AF.UNIX, os.SOCK.DGRAM | os.SOCK.CLOEXEC, 0);
-        defer Stream.close(.{ .handle = sockfd });
+        defer Socket.close(.{ .handle = sockfd });
 
         @memcpy(ifr.ifrn.name[0..name.len], name);
         ifr.ifrn.name[name.len] = 0;
@@ -772,7 +773,7 @@ pub const AddressList = struct {
 pub const TcpConnectToHostError = GetAddressListError || TcpConnectToAddressError;
 
 /// All memory allocated with `allocator` will be freed before this function returns.
-pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) TcpConnectToHostError!Stream {
+pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) TcpConnectToHostError!Socket {
     const list = try getAddressList(allocator, name, port);
     defer list.deinit();
 
@@ -791,16 +792,16 @@ pub fn tcpConnectToHost(allocator: mem.Allocator, name: []const u8, port: u16) T
 
 pub const TcpConnectToAddressError = std.os.SocketError || std.os.ConnectError;
 
-pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
+pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Socket {
     const nonblock = 0;
     const sock_flags = os.SOCK.STREAM | nonblock |
         (if (builtin.target.os.tag == .windows) 0 else os.SOCK.CLOEXEC);
     const sockfd = try os.socket(address.any.family, sock_flags, os.IPPROTO.TCP);
-    errdefer Stream.close(.{ .handle = sockfd });
+    errdefer Socket.close(.{ .handle = sockfd });
 
     try os.connect(sockfd, &address.any, address.getOsSockLen());
 
-    return Stream{ .handle = sockfd };
+    return Socket{ .handle = sockfd };
 }
 
 const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || std.os.SocketError || std.os.BindError || std.os.SetSockOptError || error{
@@ -1126,7 +1127,7 @@ fn linuxLookupName(
         var prefixlen: i32 = 0;
         const sock_flags = os.SOCK.DGRAM | os.SOCK.CLOEXEC;
         if (os.socket(addr.addr.any.family, sock_flags, os.IPPROTO.UDP)) |fd| syscalls: {
-            defer Stream.close(.{ .handle = fd });
+            defer Socket.close(.{ .handle = fd });
             os.connect(fd, da, dalen) catch break :syscalls;
             key |= DAS_USABLE;
             os.getsockname(fd, sa, &salen) catch break :syscalls;
@@ -1611,7 +1612,7 @@ fn resMSendRc(
         },
         else => |e| return e,
     };
-    defer Stream.close(.{ .handle = fd });
+    defer Socket.close(.{ .handle = fd });
 
     // Past this point, there are no errors. Each individual query will
     // yield either no reply (indicated by zero length) or an answer
@@ -1786,12 +1787,12 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
     }
 }
 
-pub const Stream = struct {
+pub const Socket = struct {
     /// Underlying platform-defined type which may or may not be
     /// interchangeable with a file system file descriptor.
     handle: posix.socket_t,
 
-    pub fn close(s: Stream) void {
+    pub fn close(s: Socket) void {
         switch (builtin.os.tag) {
             .windows => std.os.windows.closesocket(s.handle) catch unreachable,
             else => posix.close(s.handle),
@@ -1800,27 +1801,13 @@ pub const Stream = struct {
 
     pub const ReadError = os.ReadError;
     pub const WriteError = os.WriteError;
+    pub const GenericStream = io.GenericStream(Socket, ReadError, readv, WriteError, writev, close);
 
-    pub const Reader = io.Reader(Stream, ReadError, read);
-    pub const Writer = io.Writer(Stream, WriteError, write);
-
-    pub fn reader(self: Stream) Reader {
+    pub fn stream(self: Socket) GenericStream {
         return .{ .context = self };
     }
 
-    pub fn writer(self: Stream) Writer {
-        return .{ .context = self };
-    }
-
-    pub fn read(self: Stream, buffer: []u8) ReadError!usize {
-        if (builtin.os.tag == .windows) {
-            return os.windows.ReadFile(self.handle, buffer, null);
-        }
-
-        return os.read(self.handle, buffer);
-    }
-
-    pub fn readv(s: Stream, iovecs: []const os.iovec) ReadError!usize {
+    pub fn readv(s: Socket, iovecs: []const os.iovec) ReadError!usize {
         if (builtin.os.tag == .windows) {
             // TODO improve this to use ReadFileScatter
             if (iovecs.len == 0) return @as(usize, 0);
@@ -1831,81 +1818,31 @@ pub const Stream = struct {
         return os.readv(s.handle, iovecs);
     }
 
-    /// Returns the number of bytes read. If the number read is smaller than
-    /// `buffer.len`, it means the stream reached the end. Reaching the end of
-    /// a stream is not an error condition.
-    pub fn readAll(s: Stream, buffer: []u8) ReadError!usize {
-        return readAtLeast(s, buffer, buffer.len);
-    }
-
-    /// Returns the number of bytes read, calling the underlying read function
-    /// the minimal number of times until the buffer has at least `len` bytes
-    /// filled. If the number read is less than `len` it means the stream
-    /// reached the end. Reaching the end of the stream is not an error
-    /// condition.
-    pub fn readAtLeast(s: Stream, buffer: []u8, len: usize) ReadError!usize {
-        assert(len <= buffer.len);
-        var index: usize = 0;
-        while (index < len) {
-            const amt = try s.read(buffer[index..]);
-            if (amt == 0) break;
-            index += amt;
-        }
-        return index;
-    }
-
-    /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
-    /// file system thread instead of non-blocking. It needs to be reworked to properly
-    /// use non-blocking I/O.
-    pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (builtin.os.tag == .windows) {
-            return os.windows.WriteFile(self.handle, buffer, null);
-        }
-
-        return os.write(self.handle, buffer);
-    }
-
-    pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try self.write(bytes[index..]);
-        }
-    }
-
     /// See https://github.com/ziglang/zig/issues/7699
     /// See equivalent function: `std.fs.File.writev`.
-    pub fn writev(self: Stream, iovecs: []const os.iovec_const) WriteError!usize {
+    pub fn writev(self: Socket, iovecs: []const os.iovec_const) WriteError!usize {
         return os.writev(self.handle, iovecs);
-    }
-
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial writes from the underlying OS layer.
-    /// See https://github.com/ziglang/zig/issues/7699
-    /// See equivalent function: `std.fs.File.writevAll`.
-    pub fn writevAll(self: Stream, iovecs: []os.iovec_const) WriteError!void {
-        if (iovecs.len == 0) return;
-
-        var i: usize = 0;
-        while (true) {
-            var amt = try self.writev(iovecs[i..]);
-            while (amt >= iovecs[i].iov_len) {
-                amt -= iovecs[i].iov_len;
-                i += 1;
-                if (i >= iovecs.len) return;
-            }
-            iovecs[i].iov_base += amt;
-            iovecs[i].iov_len -= amt;
-        }
     }
 };
 
 pub const Server = struct {
     listen_address: Address,
-    stream: std.net.Stream,
+    stream: Socket,
 
     pub const Connection = struct {
-        stream: std.net.Stream,
         address: Address,
+        protocol: Protocol,
+        socket: Socket,
+        tls: tls.Server,
+
+        pub const Protocol = enum { plain, tls };
+
+        pub inline fn stream(conn: *Connection) std.io.AnyStream {
+            return switch (conn.protocol) {
+                .plain => conn.socket.stream().any(),
+                .tls => conn.tls.any().any(),
+            };
+        }
     };
 
     pub fn deinit(s: *Server) void {
@@ -1913,17 +1850,24 @@ pub const Server = struct {
         s.* = undefined;
     }
 
-    pub const AcceptError = posix.AcceptError;
-
-    /// Blocks until a client connects to the server. The returned `Connection` has
-    /// an open stream.
-    pub fn accept(s: *Server) AcceptError!Connection {
+    /// Blocks until a client connects to the server.
+    /// If tls_options are supplied, will await a client handshake.
+    /// The returned `Connection` has an open stream.
+    pub fn accept(s: *Server, tls_options: ?tls.Server.Options) !Connection {
         var accepted_addr: Address = undefined;
         var addr_len: posix.socklen_t = @sizeOf(Address);
         const fd = try posix.accept(s.stream.handle, &accepted_addr.any, &addr_len, posix.SOCK.CLOEXEC);
+        const socket = Socket{ .handle = fd };
+        const protocol: Connection.Protocol = if (tls_options == null) .plain else .tls;
+        const _tls: tls.Server = if (tls_options) |options|
+            try tls.Server.init(socket.stream().any(), options)
+        else
+            undefined;
         return .{
-            .stream = .{ .handle = fd },
             .address = accepted_addr,
+            .protocol = protocol,
+            .socket = socket,
+            .tls = _tls,
         };
     }
 };
@@ -1931,6 +1875,6 @@ pub const Server = struct {
 test {
     _ = @import("net/test.zig");
     _ = Server;
-    _ = Stream;
+    _ = Socket;
     _ = Address;
 }

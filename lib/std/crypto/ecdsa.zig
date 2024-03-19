@@ -17,7 +17,7 @@ pub const EcdsaP256Sha256 = Ecdsa(crypto.ecc.P256, crypto.hash.sha2.Sha256);
 pub const EcdsaP256Sha3_256 = Ecdsa(crypto.ecc.P256, crypto.hash.sha3.Sha3_256);
 /// ECDSA over P-384 with SHA-384.
 pub const EcdsaP384Sha384 = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha384);
-/// ECDSA over P-384 with SHA3-384.
+/// ECDSA over P-256 with SHA3-384.
 pub const EcdsaP256Sha3_384 = Ecdsa(crypto.ecc.P384, crypto.hash.sha3.Sha3_384);
 /// ECDSA over Secp256k1 with SHA-256.
 pub const EcdsaSecp256k1Sha256 = Ecdsa(crypto.ecc.Secp256k1, crypto.hash.sha2.Sha256);
@@ -183,7 +183,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             secret_key: SecretKey,
             noise: ?[noise_length]u8,
 
-            fn init(secret_key: SecretKey, noise: ?[noise_length]u8) !Signer {
+            pub fn init(secret_key: SecretKey, noise: ?[noise_length]u8) Signer {
                 return Signer{
                     .h = Hash.init(.{}),
                     .secret_key = secret_key,

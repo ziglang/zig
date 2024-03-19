@@ -21,8 +21,8 @@ pub const Ed25519 = struct {
     /// Length (in bytes) of optional random bytes, for non-deterministic signatures.
     pub const noise_length = 32;
 
-    const CompressedScalar = Curve.scalar.CompressedScalar;
-    const Scalar = Curve.scalar.Scalar;
+    pub const CompressedScalar = Curve.scalar.CompressedScalar;
+    pub const Scalar = Curve.scalar.Scalar;
 
     /// An Ed25519 secret key.
     pub const SecretKey = struct {
@@ -73,7 +73,7 @@ pub const Ed25519 = struct {
         nonce: CompressedScalar,
         r_bytes: [Curve.encoded_length]u8,
 
-        fn init(scalar: CompressedScalar, nonce: CompressedScalar, public_key: PublicKey) (IdentityElementError || KeyMismatchError || NonCanonicalError || WeakPublicKeyError)!Signer {
+        pub fn init(scalar: CompressedScalar, nonce: CompressedScalar, public_key: PublicKey) (IdentityElementError || WeakPublicKeyError)!Signer {
             const r = try Curve.basePoint.mul(nonce);
             const r_bytes = r.toBytes();
 

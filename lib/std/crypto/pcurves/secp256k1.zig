@@ -167,7 +167,7 @@ pub const Secp256k1 = struct {
     /// Serialize a point using the uncompressed SEC-1 format.
     pub fn toUncompressedSec1(p: Secp256k1) [65]u8 {
         var out: [65]u8 = undefined;
-        out[0] = 4;
+        out[0] = 4; // uncompressed
         const xy = p.affineCoordinates();
         out[1..33].* = xy.x.toBytes(.big);
         out[33..65].* = xy.y.toBytes(.big);

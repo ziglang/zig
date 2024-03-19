@@ -15,16 +15,16 @@ pub fn MultiWriter(comptime Writers: type) type {
         streams: Writers,
 
         pub const Error = ErrSet;
-        pub const Writer = io.Writer(*Self, Error, write);
+        pub const Writer = io.Writer(*Self, Error, writev);
 
         pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            inline for (self.streams) |stream|
-                try stream.writeAll(bytes);
-            return bytes.len;
+        pub fn writev(self: *Self, iov: []const std.os.iovec_const) Error!usize {
+            var written: usize = 0;
+            inline for (self.streams) |stream| written = try stream.writev(iov);
+            return written;
         }
     };
 }

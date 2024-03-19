@@ -628,6 +628,11 @@ test "basic" {
     try testing.expectEqual(@as(?u16, null), parsed.port);
 }
 
+test "subdomain" {
+    const parsed = try parse("http://a.b.example.com");
+    try testing.expectEqualStrings("a.b.example.com", parsed.host orelse return error.UnexpectedNull);
+}
+
 test "with port" {
     const parsed = try parse("http://example:1337/");
     try testing.expectEqualStrings("http", parsed.scheme);
