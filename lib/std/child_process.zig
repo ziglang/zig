@@ -81,6 +81,8 @@ pub const ChildProcess = struct {
     /// `spawn`.
     resource_usage_statistics: ResourceUsageStatistics = .{},
 
+    detached: bool = false,
+
     pub const ResourceUsageStatistics = struct {
         rusage: @TypeOf(rusage_init) = rusage_init,
 
@@ -609,6 +611,15 @@ pub const ChildProcess = struct {
                 os.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
+            if (self.detached) {
+                (switch (os.errno(@as(usize, @intCast(os.linux.setsid())))) {
+                    .SUCCESS => {},
+                    else => |err| os.unexpectedErrno(err),
+                }) catch |err| {
+                    forkChildErrReport(err_pipe[1], err);
+                };
+            }
+
             const err = switch (self.expand_arg0) {
                 .expand => os.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
                 .no_expand => os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
@@ -823,6 +834,13 @@ pub const ChildProcess = struct {
         run: {
             const PATH: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
             const PATHEXT: [:0]const u16 = std.os.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
+            const dwCreationFlags: windows.DWORD = blk: {
+                var flags: windows.DWORD = 0;
+                if (self.detached) {
+                    flags |= windows.DETACHED_PROCESS;
+                }
+                break :blk flags;
+            };
 
             var app_buf = std.ArrayListUnmanaged(u16){};
             defer app_buf.deinit(self.allocator);
@@ -845,7 +863,7 @@ pub const ChildProcess = struct {
                 dir_buf.shrinkRetainingCapacity(normalized_len);
             }
 
-            windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+            windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo, dwCreationFlags) catch |no_path_err| {
                 const original_err = switch (no_path_err) {
                     error.FileNotFound, error.InvalidExe, error.AccessDenied => |e| e,
                     error.UnrecoverableInvalidExe => return error.InvalidExe,
@@ -871,7 +889,7 @@ pub const ChildProcess = struct {
                     const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
                     dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                    if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
+                    if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, cmd_line_w.ptr, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo, dwCreationFlags)) {
                         break :run;
                     } else |err| switch (err) {
                         error.FileNotFound, error.AccessDenied, error.InvalidExe => continue,
@@ -939,6 +957,7 @@ fn windowsCreateProcessPathExt(
     cwd_ptr: ?[*:0]u16,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
+    dwCreationFlags: windows.DWORD,
 ) !void {
     const app_name_len = app_buf.items.len;
     const dir_path_len = dir_buf.items.len;
@@ -1068,7 +1087,7 @@ fn windowsCreateProcessPathExt(
             try dir_buf.append(allocator, 0);
             const full_app_name = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
 
-            if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation, dwCreationFlags)) |_| {
                 return;
             } else |err| switch (err) {
                 error.FileNotFound,
@@ -1110,7 +1129,7 @@ fn windowsCreateProcessPathExt(
         try dir_buf.append(allocator, 0);
         const full_app_name = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
 
-        if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+        if (windowsCreateProcess(full_app_name.ptr, cmd_line, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation, dwCreationFlags)) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -1131,7 +1150,7 @@ fn windowsCreateProcessPathExt(
     return unappended_err;
 }
 
-fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*:0]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION) !void {
+fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u16, cwd_ptr: ?[*:0]u16, lpStartupInfo: *windows.STARTUPINFOW, lpProcessInformation: *windows.PROCESS_INFORMATION, dwCreationFlags: windows.DWORD) !void {
     // TODO the docs for environment pointer say:
     // > A pointer to the environment block for the new process. If this parameter
     // > is NULL, the new process uses the environment of the calling process.
@@ -1155,7 +1174,7 @@ fn windowsCreateProcess(app_name: [*:0]u16, cmd_line: [*:0]u16, envp_ptr: ?[*]u1
         null,
         null,
         windows.TRUE,
-        windows.CREATE_UNICODE_ENVIRONMENT,
+        windows.CREATE_UNICODE_ENVIRONMENT | dwCreationFlags,
         @as(?*anyopaque, @ptrCast(envp_ptr)),
         cwd_ptr,
         lpStartupInfo,
