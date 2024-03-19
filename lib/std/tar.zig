@@ -549,7 +549,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                 // The data inside the symbolic link.
                 const link_name = file.link_name;
 
-                try createDirAndSymlink(dir, link_name, file_name);
+                createDirAndSymlink(dir, link_name, file_name) catch return error.UnableToCreateSymLink;
             },
         }
     }
@@ -558,10 +558,10 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
 const default_mode = std.fs.File.default_mode;
 
 fn fileMode(mode: u32, options: PipeOptions) std.fs.File.Mode {
+    if (!std.fs.has_executable_bit or options.mode_mode == .ignore)
+        return default_mode;
     const S = std.posix.S;
-    if (!std.fs.has_executable_bit or
-        options.mode_mode == .ignore or
-        mode & S.IXUSR == 0)
+    if (mode & S.IXUSR == 0)
         return default_mode;
     return default_mode | S.IXUSR | S.IXGRP | S.IXOTH;
 }
