@@ -989,7 +989,7 @@ pub const Response = struct {
             };
             // TODO make this writev instead of writevAll, which involves
             // complicating the logic of this function.
-           try  r.connection.stream().writer().writevAll(&iovecs);
+            try r.connection.stream().writer().writevAll(&iovecs);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;

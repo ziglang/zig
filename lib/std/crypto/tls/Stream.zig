@@ -1,6 +1,6 @@
 //! Abstraction over TLS record layer (RFC 8446 S5).
 //!
-//! After writing must call `flush` before reading or contents will not be written.
+//! After writing must `flush` before reading.
 //!
 //! Handles:
 //!   * Fragmentation

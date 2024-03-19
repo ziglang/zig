@@ -673,7 +673,13 @@ pub const HandshakeCipher = union(CipherSuite) {
 
     const Self = @This();
 
-    pub fn init(suite: CipherSuite, shared_key: []const u8, hello_hash: []const u8) Error!Self {
+    pub fn init(
+        suite: CipherSuite,
+        shared_key: []const u8,
+        hello_hash: []const u8,
+        logger: std.io.AnyWriter,
+        client_random: []const u8,
+    ) Error!Self {
         switch (suite) {
             inline .aes_128_gcm_sha256,
             .aes_256_gcm_sha384,
@@ -683,11 +689,10 @@ pub const HandshakeCipher = union(CipherSuite) {
             => |tag| {
                 var res = @unionInit(Self, @tagName(tag), .{
                     .handshake_secret = undefined,
-                    .master_secret = undefined,
-                    .client_finished_key = undefined,
-                    .server_finished_key = undefined,
                     .client_key = undefined,
                     .server_key = undefined,
+                    .client_finished_key = undefined,
+                    .server_finished_key = undefined,
                     .client_iv = undefined,
                     .server_iv = undefined,
                 });
@@ -700,10 +705,13 @@ pub const HandshakeCipher = union(CipherSuite) {
 
                 const derived_secret = hkdfExpandLabel(P.Hkdf, early_secret, "derived", &empty_hash, P.Hash.digest_length);
                 p.handshake_secret = P.Hkdf.extract(&derived_secret, shared_key);
-                const ap_derived_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "derived", &empty_hash, P.Hash.digest_length);
-                p.master_secret = P.Hkdf.extract(&ap_derived_secret, &zeroes);
                 const client_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "c hs traffic", hello_hash, P.Hash.digest_length);
                 const server_secret = hkdfExpandLabel(P.Hkdf, p.handshake_secret, "s hs traffic", hello_hash, P.Hash.digest_length);
+
+                // Not being able to log our secrets shouldn't prevent the handshake from continuing.
+                writeKeyLogEntry(logger, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", client_random, &client_secret) catch {};
+                writeKeyLogEntry(logger, "SERVER_HANDSHAKE_TRAFFIC_SECRET", client_random, &server_secret) catch {};
+
                 p.client_finished_key = hkdfExpandLabel(P.Hkdf, client_secret, "finished", "", P.Hmac.key_length);
                 p.server_finished_key = hkdfExpandLabel(P.Hkdf, server_secret, "finished", "", P.Hmac.key_length);
                 p.client_key = hkdfExpandLabel(P.Hkdf, client_secret, "key", "", P.AEAD.key_length);
@@ -733,7 +741,12 @@ pub const ApplicationCipher = union(CipherSuite) {
 
     const Self = @This();
 
-    pub fn init(handshake_cipher: HandshakeCipher, handshake_hash: []const u8) Self {
+    pub fn init(
+        handshake_cipher: HandshakeCipher,
+        handshake_hash: []const u8,
+        logger: std.io.AnyWriter,
+        client_random: []const u8,
+    ) Self {
         switch (handshake_cipher) {
             inline .aes_128_gcm_sha256,
             .aes_256_gcm_sha384,
@@ -759,6 +772,11 @@ pub const ApplicationCipher = union(CipherSuite) {
                 const master_secret = P.Hkdf.extract(&derived_secret, &zeroes);
                 p.client_secret = hkdfExpandLabel(P.Hkdf, master_secret, "c ap traffic", handshake_hash, P.Hash.digest_length);
                 p.server_secret = hkdfExpandLabel(P.Hkdf, master_secret, "s ap traffic", handshake_hash, P.Hash.digest_length);
+
+                // Not being able to log our secrets shouldn't prevent the handshake from continuing.
+                writeKeyLogEntry(logger, "CLIENT_TRAFFIC_SECRET_0", client_random, &p.client_secret) catch {};
+                writeKeyLogEntry(logger, "SERVER_TRAFFIC_SECRET_0", client_random, &p.server_secret) catch {};
+
                 p.client_key = hkdfExpandLabel(P.Hkdf, p.client_secret, "key", "", P.AEAD.key_length);
                 p.server_key = hkdfExpandLabel(P.Hkdf, p.server_secret, "key", "", P.AEAD.key_length);
                 p.client_iv = hkdfExpandLabel(P.Hkdf, p.client_secret, "iv", "", P.AEAD.nonce_length);
@@ -1032,14 +1050,20 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
         pub const Hmac = crypto.auth.hmac.Hmac(Hash);
         pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
 
+        // Later used in ApplicationCipher.init
         handshake_secret: [Hkdf.prk_length]u8,
-        master_secret: [Hkdf.prk_length]u8,
-        client_finished_key: [Hmac.key_length]u8,
-        server_finished_key: [Hmac.key_length]u8,
+        // For encrypting/decrypting handshake messages
         client_key: [AEAD.key_length]u8,
         server_key: [AEAD.key_length]u8,
+        // For generating handshake finished messages
+        client_finished_key: [Hmac.key_length]u8,
+        server_finished_key: [Hmac.key_length]u8,
+        // Used as a nonce for encrypting/decrypting handshake messages
+        // iv = initialization vector
         client_iv: [AEAD.nonce_length]u8,
         server_iv: [AEAD.nonce_length]u8,
+
+        // m0aR s3cUr1tY!
         read_seq: usize = 0,
         write_seq: usize = 0,
 
@@ -1089,12 +1113,18 @@ fn ApplicationCipherT(comptime suite: CipherSuite) type {
         pub const Hmac = crypto.auth.hmac.Hmac(Hash);
         pub const Hkdf = crypto.kdf.hkdf.Hkdf(Hmac);
 
+        // Used to derive new keys and iv's in key_update messages
         client_secret: [Hash.digest_length]u8,
         server_secret: [Hash.digest_length]u8,
+        // For encrypting/decrypting application data messages
         client_key: [AEAD.key_length]u8,
         server_key: [AEAD.key_length]u8,
+        // Used as a nonce for encrypting/decrypting application data messages
+        // iv = initialization vector
         client_iv: [AEAD.nonce_length]u8,
         server_iv: [AEAD.nonce_length]u8,
+
+        // m0aR s3cUr1tY!
         read_seq: usize = 0,
         write_seq: usize = 0,
 
@@ -1307,14 +1337,29 @@ test "tls client and server handshake, data, and close_notify" {
     defer inner_stream.deinit(allocator);
     const stream = inner_stream.stream();
 
+    // Use these seeded values for reproducible handshake and application ciphertext.
+    const session_id: [32]u8 = ("session_id012345" ** 2).*;
+    const client_random: [32]u8 = ("client_random012" ** 2).*;
+    const server_random: [32]u8 = ("server_random012" ** 2).*;
+    const client_key_seed: [32]u8 = ("client_seed01234" ** 2).*;
+    const server_keygen_seed: [48]u8 = ("server_seed01234" ** 3).*;
+    const server_sig_salt: [MultiHash.max_digest_len]u8 = ("server_sig_salt0" ** 4).*;
+
+    const stdout = std.io.getStdOut();
     var client_transcript: MultiHash = .{};
     var client = Client{
+        .random = client_random,
         .stream = Stream{
             .stream = stream.any(),
             .is_client = true,
             .transcript_hash = &client_transcript,
         },
-        .options = .{ .host = "localhost", .ca_bundle = null, .allocator = allocator },
+        .options = .{
+            .host = "localhost",
+            .ca_bundle = null,
+            .allocator = allocator,
+            .key_log = stdout.writer().any(),
+        },
     };
 
     const server_cert = @embedFile("./testdata/cert.der");
@@ -1337,16 +1382,7 @@ test "tls client and server handshake, data, and close_notify" {
         },
     };
 
-    // Use these seeded values for reproducible handshake and application ciphertext.
-    const session_id: [32]u8 = ("session_id012345" ** 2).*;
-    const client_random: [32]u8 = ("client_random012" ** 2).*;
-    const server_random: [32]u8 = ("server_random012" ** 2).*;
-    const client_key_seed: [32]u8 = ("client_seed01234" ** 2).*;
-    const server_keygen_seed: [48]u8 = ("server_seed01234" ** 3).*;
-    const server_sig_salt: [MultiHash.max_digest_len]u8 = ("server_sig_salt0" ** 4).*;
-
     const key_pairs = try Client.KeyPairs.initAdvanced(
-        client_random,
         session_id,
         client_key_seed,
         client_key_seed ++ [_]u8{0} ** (48 - 32),
@@ -1372,8 +1408,6 @@ test "tls client and server handshake, data, and close_notify" {
         const s = server.stream.cipher.handshake.aes_256_gcm_sha384;
         const c = client.stream.cipher.handshake.aes_256_gcm_sha384;
 
-        try std.testing.expectEqualSlices(u8, &s.handshake_secret, &c.handshake_secret);
-        try std.testing.expectEqualSlices(u8, &s.master_secret, &c.master_secret);
         try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
         try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
         try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
@@ -1413,8 +1447,6 @@ test "tls client and server handshake, data, and close_notify" {
         const s = server.stream.cipher.application.aes_256_gcm_sha384;
         const c = client.stream.cipher.application.aes_256_gcm_sha384;
 
-        try std.testing.expectEqualSlices(u8, &s.client_secret, &c.client_secret);
-        try std.testing.expectEqualSlices(u8, &s.server_secret, &c.server_secret);
         try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
         try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
         try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
@@ -1442,4 +1474,18 @@ pub fn debugPrint(name: []const u8, slice: anytype) void {
         for (slice) |c| std.debug.print("{x:0>2} ", .{c});
     }
     std.debug.print("\n", .{});
+}
+
+pub fn writeKeyLogEntry(
+    writer: std.io.AnyWriter,
+    label: []const u8,
+    client_random: []const u8,
+    secret: []const u8,
+) !void {
+    try writer.writeAll(label);
+    try writer.writeByte(' ');
+    for (client_random) |b| writer.print("{x:0>2}", .{b}) catch {};
+    try writer.writeByte(' ');
+    for (secret) |b| writer.print("{x:0>2}", .{b}) catch {};
+    try writer.writeByte('\n');
 }

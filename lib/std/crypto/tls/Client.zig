@@ -6,6 +6,13 @@ const assert = std.debug.assert;
 const Certificate = crypto.Certificate;
 
 stream: tls.Stream,
+/// The value sent in our `ClientHello` message.
+///
+/// Used as a session identifier by `options.key_log`.
+/// Since the server may renegotiate (without a new random)
+/// after the initial handshake in a `key_update` message,
+/// save it here instead of in `Command`.
+random: [32]u8 = undefined,
 options: Options,
 
 const Self = @This();
@@ -18,7 +25,10 @@ pub fn init(stream: std.io.AnyStream, options: Options) !Self {
         .is_client = true,
         .transcript_hash = &transcript_hash,
     };
-    var res = Self{ .stream = stream_, .options = options };
+    var random: [32]u8 = undefined;
+    crypto.random.bytes(&random);
+
+    var res = Self{ .stream = stream_, .random = random, .options = options };
 
     var command = Command{ .send_hello = KeyPairs.init() };
     while (command != .none) command = try res.next(command);
@@ -100,7 +110,7 @@ pub fn next(self: *Self, command: Command) !Command {
 
 pub fn send_hello(self: *Self, key_pairs: KeyPairs) !void {
     const hello = tls.ClientHello{
-        .random = key_pairs.hello_rand,
+        .random = self.random,
         .session_id = &key_pairs.session_id,
         .cipher_suites = self.options.cipher_suites,
         .extensions = &.{
@@ -213,6 +223,8 @@ pub fn recv_hello(self: *Self, key_pairs: KeyPairs) !void {
         cipher_suite,
         shared_key.?,
         hello_hash,
+        self.options.key_log,
+        &self.random,
     ) catch return stream.writeError(.illegal_parameter);
     stream.cipher = .{ .handshake = handshake_cipher };
 }
@@ -404,7 +416,12 @@ pub fn send_finished(self: *Self) !void {
     _ = try stream.write(tls.Handshake, .{ .finished = verify_data });
     try stream.flush();
 
-    const application_cipher = tls.ApplicationCipher.init(stream.cipher.handshake, handshake_hash);
+    const application_cipher = tls.ApplicationCipher.init(
+        stream.cipher.handshake,
+        handshake_hash,
+        self.options.key_log,
+        &self.random,
+    );
     stream.cipher = .{ .application = application_cipher };
     stream.content_type = .application_data;
     stream.transcript_hash = null;
@@ -432,10 +449,9 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
                         switch (stream.cipher.application) {
                             inline else => |*p| {
                                 const P = @TypeOf(p.*);
-                                const server_secret = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "traffic upd", "", P.Hash.digest_length);
-                                p.server_secret = server_secret;
-                                p.server_key = tls.hkdfExpandLabel(P.Hkdf, server_secret, "key", "", P.AEAD.key_length);
-                                p.server_iv = tls.hkdfExpandLabel(P.Hkdf, server_secret, "iv", "", P.AEAD.nonce_length);
+                                p.server_secret = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "traffic upd", "", P.Hash.digest_length);
+                                p.server_key = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "key", "", P.AEAD.key_length);
+                                p.server_iv = tls.hkdfExpandLabel(P.Hkdf, p.server_secret, "iv", "", P.AEAD.nonce_length);
                                 p.read_seq = 0;
                             },
                         }
@@ -444,10 +460,9 @@ pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
                             switch (stream.cipher.application) {
                                 inline else => |*p| {
                                     const P = @TypeOf(p.*);
-                                    const client_secret = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "traffic upd", "", P.Hash.digest_length);
-                                    p.client_secret = client_secret;
-                                    p.client_key = tls.hkdfExpandLabel(P.Hkdf, client_secret, "key", "", P.AEAD.key_length);
-                                    p.client_iv = tls.hkdfExpandLabel(P.Hkdf, client_secret, "iv", "", P.AEAD.nonce_length);
+                                    p.client_secret = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "traffic upd", "", P.Hash.digest_length);
+                                    p.client_key = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "key", "", P.AEAD.key_length);
+                                    p.client_iv = tls.hkdfExpandLabel(P.Hkdf, p.client_secret, "iv", "", P.AEAD.nonce_length);
                                     p.write_seq = 0;
                                 },
                             }
@@ -502,17 +517,19 @@ pub const Options = struct {
     /// Certificate verify messages may be up to 2^16-1 bytes long.
     /// This is the allocator used for them.
     allocator: std.mem.Allocator,
+    /// Writer to log shared secrets for traffic decryption.
+    ///
+    /// See https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-01.html
+    key_log: std.io.AnyWriter = std.io.null_writer.any(),
 };
 
 /// One of these potential key pairs will be selected during the handshake.
 pub const KeyPairs = struct {
-    hello_rand: [hello_rand_length]u8,
     session_id: [session_id_length]u8,
     secp256r1: Secp256r1,
     secp384r1: Secp384r1,
     x25519: X25519,
 
-    const hello_rand_length = 32;
     const session_id_length = 32;
     const X25519 = tls.NamedGroupT(.x25519).KeyPair;
     const Secp256r1 = tls.NamedGroupT(.secp256r1).KeyPair;
@@ -520,8 +537,7 @@ pub const KeyPairs = struct {
 
     pub fn init() @This() {
         var random_buffer: [
-            hello_rand_length +
-                session_id_length +
+            session_id_length +
                 Secp256r1.seed_length +
                 Secp384r1.seed_length +
                 X25519.seed_length
@@ -530,29 +546,27 @@ pub const KeyPairs = struct {
         while (true) {
             crypto.random.bytes(&random_buffer);
 
-            const split1 = hello_rand_length;
-            const split2 = split1 + session_id_length;
-            const split3 = split2 + Secp256r1.seed_length;
-            const split4 = split3 + Secp384r1.seed_length;
+            const split1 = session_id_length;
+            const split2 = split1 + Secp256r1.seed_length;
+            const split3 = split2 + Secp384r1.seed_length;
 
             return initAdvanced(
                 random_buffer[0..split1].*,
                 random_buffer[split1..split2].*,
                 random_buffer[split2..split3].*,
-                random_buffer[split3..split4].*,
-                random_buffer[split4..].*,
+                random_buffer[split3..].*,
             ) catch continue;
         }
     }
 
     pub fn initAdvanced(
-        hello_rand: [hello_rand_length]u8,
         session_id: [session_id_length]u8,
         secp256r1_seed: [Secp256r1.seed_length]u8,
         secp384r1_seed: [Secp384r1.seed_length]u8,
         x25519_seed: [X25519.seed_length]u8,
     ) !@This() {
         return .{
+            .session_id = session_id,
             .secp256r1 = Secp256r1.create(secp256r1_seed) catch |err| switch (err) {
                 error.IdentityElement => return error.InsufficientEntropy, // Private key is all zeroes.
             },
@@ -562,8 +576,6 @@ pub const KeyPairs = struct {
             .x25519 = X25519.create(x25519_seed) catch |err| switch (err) {
                 error.IdentityElement => return error.InsufficientEntropy, // Private key is all zeroes.
             },
-            .hello_rand = hello_rand,
-            .session_id = session_id,
         };
     }
 };

@@ -274,7 +274,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     const stream = socket.stream();
     defer stream.close();
     try stream.writer().writeAll(request_bytes);
-            std.debug.print("requested\n", .{});
+    std.debug.print("requested\n", .{});
 
     const response = try stream.reader().readAllAlloc(gpa, 8192);
     defer gpa.free(response);

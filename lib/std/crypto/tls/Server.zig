@@ -275,6 +275,8 @@ pub fn send_hello(self: *Self, client_hello: ClientHello) !void {
         client_hello.cipher_suite,
         shared_key,
         hello_hash,
+        self.options.key_log,
+        &client_hello.random,
     ) catch
         return stream.writeError(.illegal_parameter);
     stream.cipher = .{ .handshake = handshake_cipher };
@@ -384,7 +386,12 @@ pub fn recv_finished(self: *Self) !void {
 
     const handshake_hash = stream.transcript_hash.?.peek();
 
-    const application_cipher = tls.ApplicationCipher.init(stream.cipher.handshake, handshake_hash);
+    const application_cipher = tls.ApplicationCipher.init(
+        stream.cipher.handshake,
+        handshake_hash,
+        self.options.key_log,
+        "idk",
+    );
 
     const expected = switch (stream.cipher.handshake) {
         inline else => |p| brk: {
@@ -453,6 +460,10 @@ pub const Options = struct {
     certificate: tls.Certificate,
     /// Key to use in `send_certificate_verify`. Must match `certificate.parse().pub_key_algo`.
     certificate_key: CertificateKey,
+    /// Writer to log shared secrets for traffic decryption.
+    ///
+    /// See https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-01.html
+    key_log: std.io.AnyWriter = std.io.null_writer.any(),
 
     pub const CertificateKey = union(enum) {
         rsa: crypto.Certificate.rsa.SecretKey,

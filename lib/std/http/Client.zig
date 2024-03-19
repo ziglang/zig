@@ -1012,8 +1012,8 @@ pub const Request = struct {
                 // leave the connection in a known good state.
                 req.response.skip = true;
                 var buf: [0]u8 = undefined;
- // we're skipping, no buffer is necessary
-                const iovecs = [_]std.os.iovec{ .{ .iov_base = &buf, .iov_len  = 0 } };
+                // we're skipping, no buffer is necessary
+                const iovecs = [_]std.os.iovec{.{ .iov_base = &buf, .iov_len = 0 }};
                 const n_read = try req.transferReadv(&iovecs);
                 assert(n_read == 0);
 

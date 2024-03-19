@@ -86,7 +86,7 @@ pub fn GenericReader(
         context: Context,
 
         pub const Error = ReadError;
-        pub const NoEofError = ReadError || error{ EndOfStream };
+        pub const NoEofError = ReadError || error{EndOfStream};
 
         pub inline fn readv(self: Self, iov: []const iovec) Error!usize {
             return readvFn(self.context, iov);
