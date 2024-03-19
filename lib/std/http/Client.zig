@@ -1011,7 +1011,11 @@ pub const Request = struct {
                 // skip the body of the redirect response, this will at least
                 // leave the connection in a known good state.
                 req.response.skip = true;
-                assert(try req.transferReadv(&.{}) == 0); // we're skipping, no buffer is necessary
+                var buf: [0]u8 = undefined;
+ // we're skipping, no buffer is necessary
+                const iovecs = [_]std.os.iovec{ .{ .iov_base = &buf, .iov_len  = 0 } };
+                const n_read = try req.transferReadv(&iovecs);
+                assert(n_read == 0);
 
                 if (req.redirect_behavior == .not_allowed) return error.TooManyHttpRedirects;
 

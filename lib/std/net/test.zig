@@ -189,7 +189,7 @@ test "listen on a port, send bytes, receive bytes" {
             const socket = try net.tcpConnectToAddress(server_address);
             defer socket.close();
 
-            _ = try socket.any().writer().writeAll("Hello world!");
+            _ = try socket.stream().writer().writeAll("Hello world!");
         }
     };
 
@@ -280,7 +280,7 @@ test "listen on a unix socket, send bytes, receive bytes" {
             const socket = try net.connectUnixSocket(path);
             defer socket.close();
 
-            _ = try socket.any().writer().writeAll("Hello world!");
+            _ = try socket.stream().writer().writeAll("Hello world!");
         }
     };
 

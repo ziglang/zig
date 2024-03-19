@@ -835,7 +835,7 @@ test "general client/server API coverage" {
     // connection has been kept alive
     try expect(client.http_proxy != null or client.connection_pool.free_len == 1);
 
-    { // issue 16282 *** This test leaves the client in an invalid state, it must be last ***
+    {
         const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/get", .{port});
         defer gpa.free(location);
         const uri = try std.Uri.parse(location);
