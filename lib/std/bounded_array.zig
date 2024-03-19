@@ -280,7 +280,7 @@ pub fn BoundedArrayAligned(
 
         /// Same as `appendSlice` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWritev(self: *Self, iov: []std.os.iovec_const) error{Overflow}!usize {
+        fn appendWritev(self: *Self, iov: []const std.os.iovec_const) error{Overflow}!usize {
             var written: usize = 0;
             for (iov) |v| {
                 const m = v.iov_base[0..v.iov_len];

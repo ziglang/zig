@@ -80,17 +80,15 @@ pub fn GenericReader(
     /// Returns the number of bytes read. It may be less than buffer.len.
     /// If the number of bytes read is 0, it means end of stream.
     /// End of stream is not an error condition.
-    comptime readvFn: fn (context: Context, iov: []iovec) ReadError!usize,
+    comptime readvFn: fn (context: Context, iov: []const iovec) ReadError!usize,
 ) type {
     return struct {
         context: Context,
 
         pub const Error = ReadError;
-        pub const NoEofError = ReadError || error{
-            EndOfStream,
-        };
+        pub const NoEofError = ReadError || error{ EndOfStream };
 
-        pub inline fn readv(self: Self, iov: []iovec) Error!usize {
+        pub inline fn readv(self: Self, iov: []const iovec) Error!usize {
             return readvFn(self.context, iov);
         }
 
@@ -304,7 +302,7 @@ pub fn GenericReader(
 
         const Self = @This();
 
-        fn typeErasedReadvFn(context: *const anyopaque, iov: []iovec) anyerror!usize {
+        fn typeErasedReadvFn(context: *const anyopaque, iov: []const iovec) anyerror!usize {
             const ptr: *const Context = @alignCast(@ptrCast(context));
             return readvFn(ptr.*, iov);
         }
@@ -314,7 +312,7 @@ pub fn GenericReader(
 pub fn GenericWriter(
     comptime Context: type,
     comptime WriteError: type,
-    comptime writevFn: fn (context: Context, iov: []iovec_const) WriteError!usize,
+    comptime writevFn: fn (context: Context, iov: []const iovec_const) WriteError!usize,
 ) type {
     return struct {
         context: Context,
@@ -322,7 +320,7 @@ pub fn GenericWriter(
         const Self = @This();
         pub const Error = WriteError;
 
-        pub inline fn writev(self: Self, iov: []iovec_const) Error!usize {
+        pub inline fn writev(self: Self, iov: []const iovec_const) Error!usize {
             return writevFn(self.context, iov);
         }
 
@@ -369,7 +367,7 @@ pub fn GenericWriter(
             };
         }
 
-        fn typeErasedWritevFn(context: *const anyopaque, iov: []iovec_const) anyerror!usize {
+        fn typeErasedWritevFn(context: *const anyopaque, iov: []const iovec_const) anyerror!usize {
             const ptr: *const Context = @alignCast(@ptrCast(context));
             return writevFn(ptr.*, iov);
         }
@@ -382,9 +380,9 @@ pub fn GenericStream(
     /// Returns the number of bytes read. It may be less than buffer.len.
     /// If the number of bytes read is 0, it means end of stream.
     /// End of stream is not an error condition.
-    comptime readvFn: fn (context: Context, iov: []iovec) ReadError!usize,
+    comptime readvFn: fn (context: Context, iov: []const iovec) ReadError!usize,
     comptime WriteError: type,
-    comptime writevFn: fn (context: Context, iov: []iovec_const) WriteError!usize,
+    comptime writevFn: fn (context: Context, iov: []const iovec_const) WriteError!usize,
     comptime closeFn: fn (context: Context) void,
 ) type {
     return struct {
@@ -485,7 +483,7 @@ pub const tty = @import("io/tty.zig");
 pub const null_writer = @as(NullWriter, .{ .context = {} });
 
 const NullWriter = Writer(void, error{}, dummyWritev);
-fn dummyWritev(context: void, iov: []std.os.iovec_const) error{}!usize {
+fn dummyWritev(context: void, iov: []const std.os.iovec_const) error{}!usize {
     _ = context;
     var written: usize = 0;
     for (iov) |v| written += v.iov_len;

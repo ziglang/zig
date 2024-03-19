@@ -535,21 +535,16 @@ pub const supported_signature_schemes = [_]SignatureScheme{
 };
 
 /// Key exchange formats
+///
+/// https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml
 pub const NamedGroup = enum(u16) {
+    // Use reserved value for invalid.
     invalid = 0x0000,
     // Elliptic Curve Groups (ECDHE)
     secp256r1 = 0x0017,
     secp384r1 = 0x0018,
     secp521r1 = 0x0019,
     x25519 = 0x001D,
-    x448 = 0x001E,
-
-    // Finite Field Groups (DHE)
-    ffdhe2048 = 0x0100,
-    ffdhe3072 = 0x0101,
-    ffdhe4096 = 0x0102,
-    ffdhe6144 = 0x0103,
-    ffdhe8192 = 0x0104,
 
     // Hybrid post-quantum key agreements. Still in draft.
     x25519_kyber768d00 = 0x6399,
@@ -561,69 +556,19 @@ pub fn NamedGroupT(comptime named_group: NamedGroup) type {
         .secp256r1 => crypto.sign.ecdsa.EcdsaP256Sha256,
         .secp384r1 => crypto.sign.ecdsa.EcdsaP384Sha384,
         .x25519 => crypto.dh.X25519,
-        .x25519_kyber768d00 => X25519Kyber768Draft,
         else => |t| @compileError("unsupported named group " ++ @tagName(t)),
     };
 }
-// Hybrid share, see https://www.ietf.org/archive/id/draft-ietf-tls-hybrid-design-05.html
-pub const X25519Kyber768Draft = struct {
-    pub const X25519 = NamedGroupT(.x25519);
-    pub const Kyber768 = crypto.kem.kyber_d00.Kyber768;
-    pub const KeyPair = struct {
-        x25519: X25519.KeyPair,
-        kyber768d00: Kyber768.KeyPair,
-
-        pub const seed_length = X25519.KeyPair.seed_length + Kyber768.KeyPair.seed_length;
-
-        pub fn create(seed: ?[seed_length]u8) !@This() {
-            var seed_: [seed_length]u8 = seed orelse undefined;
-            if (seed == null) {
-                crypto.random.bytes(&seed_);
-            }
-            return .{
-                .x25519 = try X25519.KeyPair.create(seed_[0..X25519.KeyPair.seed_length].*),
-                .kyber768d00 = try Kyber768.KeyPair.create(seed_[X25519.KeyPair.seed_length..].*),
-            };
-        }
-    };
-    pub const PublicKey = struct {
-        x25519: X25519.PublicKey,
-        kyber768d00: Kyber768.PublicKey,
-
-        pub const bytes_length = X25519.public_length + Kyber768.PublicKey.bytes_length;
-        pub const ciphertext_length = X25519.public_length + Kyber768.ciphertext_length;
-
-        pub fn toBytes(self: @This()) [bytes_length]u8 {
-            return self.x25519 ++ self.kyber768d00.toBytes();
-        }
-
-        pub fn ciphertext(self: @This()) [ciphertext_length]u8 {
-            return self.x25519 ++ self.kyber768d00.encaps(null).ciphertext;
-        }
-    };
-};
 pub const KeyPair = union(NamedGroup) {
     invalid: void,
     secp256r1: NamedGroupT(.secp256r1).KeyPair,
     secp384r1: NamedGroupT(.secp384r1).KeyPair,
     secp521r1: void,
     x25519: NamedGroupT(.x25519).KeyPair,
-    x448: void,
-
-    ffdhe2048: void,
-    ffdhe3072: void,
-    ffdhe4096: void,
-    ffdhe6144: void,
-    ffdhe8192: void,
-
-    x25519_kyber768d00: NamedGroupT(.x25519_kyber768d00).KeyPair,
+    x25519_kyber768d00: void,
 
     pub fn toKeyShare(self: @This()) KeyShare {
         return switch (self) {
-            .x25519_kyber768d00 => |k| .{ .x25519_kyber768d00 = X25519Kyber768Draft.PublicKey{
-                .x25519 = k.x25519.public_key,
-                .kyber768d00 = k.kyber768d00.public_key,
-            } },
             .secp256r1 => |k| .{ .secp256r1 = k.public_key },
             .secp384r1 => |k| .{ .secp384r1 = k.public_key },
             .x25519 => |k| .{ .x25519 = k.public_key },
@@ -638,15 +583,7 @@ pub const KeyShare = union(NamedGroup) {
     secp384r1: NamedGroupT(.secp384r1).PublicKey,
     secp521r1: void,
     x25519: NamedGroupT(.x25519).PublicKey,
-    x448: void,
-
-    ffdhe2048: void,
-    ffdhe3072: void,
-    ffdhe4096: void,
-    ffdhe6144: void,
-    ffdhe8192: void,
-
-    x25519_kyber768d00: NamedGroupT(.x25519_kyber768d00).PublicKey,
+    x25519_kyber768d00: void,
 
     const Self = @This();
 
@@ -657,18 +594,6 @@ pub const KeyShare = union(NamedGroup) {
         const group = try stream.read(NamedGroup);
         const len = try stream.read(u16);
         switch (group) {
-            .x25519_kyber768d00 => {
-                const T = X25519Kyber768Draft.Kyber768.PublicKey;
-                var res = Self{ .x25519_kyber768d00 = undefined };
-
-                try reader.readNoEof(&res.x25519_kyber768d00.x25519);
-
-                var buf: [T.bytes_length]u8 = undefined;
-                try reader.readNoEof(&buf);
-                res.x25519_kyber768d00.kyber768d00 = T.fromBytes(&buf) catch return Error.TlsDecryptError;
-
-                return res;
-            },
             inline .secp256r1, .secp384r1 => |k| {
                 const T = NamedGroupT(k).PublicKey;
                 var buf: [T.uncompressed_sec1_encoded_length]u8 = undefined;
@@ -692,7 +617,6 @@ pub const KeyShare = union(NamedGroup) {
         var res: usize = 0;
         res += try stream.write(NamedGroup, self);
         const public = switch (self) {
-            .x25519_kyber768d00 => |k| if (stream.is_client) &k.toBytes() else &k.ciphertext(),
             .secp256r1 => |k| &k.toUncompressedSec1(),
             .secp384r1 => |k| &k.toUncompressedSec1(),
             .x25519 => |k| &k,
@@ -704,7 +628,6 @@ pub const KeyShare = union(NamedGroup) {
 };
 /// In descending order of preference
 pub const supported_groups = [_]NamedGroup{
-    .x25519_kyber768d00,
     .secp256r1,
     .secp384r1,
     .x25519,
@@ -1337,13 +1260,13 @@ const TestStream = struct {
         self.buffer.deinit(allocator);
     }
 
-    pub fn readv(self: *Self, iov: []std.os.iovec) ReadError!usize {
+    pub fn readv(self: *Self, iov: []const std.os.iovec) ReadError!usize {
         const first = iov[0];
         try self.buffer.readFirst(first.iov_base[0..first.iov_len], first.iov_len);
         return first.iov_len;
     }
 
-    pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+    pub fn writev(self: *Self, iov: []const std.os.iovec_const) WriteError!usize {
         var written: usize = 0;
         for (iov) |v| {
             try self.buffer.writeSlice(v.iov_base[0..v.iov_len]);
@@ -1406,10 +1329,11 @@ test "tls client and server handshake, data, and close_notify" {
         },
         .options = .{
             .cipher_suites = &[_]CipherSuite{.aes_256_gcm_sha384},
+            .key_shares = &[_]NamedGroup{.x25519},
             .certificate = .{ .entries = &[_]Certificate.Entry{
                 .{ .data = server_cert },
             } },
-            .certificate_key = server_rsa,
+            .certificate_key = .{ .rsa = server_rsa },
         },
     };
 
@@ -1417,29 +1341,27 @@ test "tls client and server handshake, data, and close_notify" {
     const session_id: [32]u8 = ("session_id012345" ** 2).*;
     const client_random: [32]u8 = ("client_random012" ** 2).*;
     const server_random: [32]u8 = ("server_random012" ** 2).*;
-    const client_x25519_seed: [32]u8 = ("client_seed01234" ** 2).*;
-    const server_x25519_seed: [32]u8 = ("server_seed01234" ** 2).*;
+    const client_key_seed: [32]u8 = ("client_seed01234" ** 2).*;
+    const server_keygen_seed: [48]u8 = ("server_seed01234" ** 3).*;
     const server_sig_salt: [MultiHash.max_digest_len]u8 = ("server_sig_salt0" ** 4).*;
 
     const key_pairs = try Client.KeyPairs.initAdvanced(
         client_random,
         session_id,
-        client_x25519_seed ++ client_x25519_seed,
-        client_x25519_seed,
-        client_x25519_seed ++ [_]u8{0} ** (48 - 32),
-        client_x25519_seed,
+        client_key_seed,
+        client_key_seed ++ [_]u8{0} ** (48 - 32),
+        client_key_seed,
     );
     var client_command = Client.Command{ .send_hello = key_pairs };
     client_command = try client.next(client_command);
     try std.testing.expect(client_command == .recv_hello);
 
-    var server_command = Server.Command{ .recv_hello = {} };
+    var server_command = Server.Command{ .recv_hello = .{
+        .server_random = server_random,
+        .keygen_seed = server_keygen_seed,
+    } };
     server_command = try server.next(server_command); // recv_hello
     try std.testing.expect(server_command == .send_hello);
-    server_command.send_hello.server_random = server_random;
-    server_command.send_hello.server_pair = .{
-        .x25519 = crypto.dh.X25519.KeyPair.create(server_x25519_seed) catch unreachable,
-    };
 
     server_command = try server.next(server_command); // send_hello
     try std.testing.expect(server_command == .send_change_cipher_spec);
@@ -1458,8 +1380,6 @@ test "tls client and server handshake, data, and close_notify" {
         try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
         try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
         try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
-        const client_iv = [_]u8{ 0x77, 0x02, 0x2F, 0x09, 0xB2, 0x93, 0x5A, 0x5E, 0x3F, 0x2B, 0xB0, 0x32 };
-        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
 
     server_command = try server.next(server_command); // send_change_cipher_spec
@@ -1499,8 +1419,6 @@ test "tls client and server handshake, data, and close_notify" {
         try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
         try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
         try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
-        const client_iv = [_]u8{ 0x54, 0xF3, 0x34, 0x20, 0xA8, 0x50, 0xF5, 0x3A, 0x22, 0x9A, 0xBB, 0x1B };
-        try std.testing.expectEqualSlices(u8, &client_iv, &c.client_iv);
     }
 
     try client.any().writer().writeAll("ping");

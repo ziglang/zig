@@ -314,7 +314,7 @@ fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions
             return .{ .context = self };
         }
 
-        fn writev(self: *Self, iov: []std.os.iovec_const) Error!usize {
+        fn writev(self: *Self, iov: []const std.os.iovec_const) Error!usize {
             const first = iov[0];
             const bytes = first.iov_base[0..first.iov_len];
             if (self.expected_remaining.len < bytes.len) {

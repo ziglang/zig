@@ -23,7 +23,7 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
             return .{ .context = self };
         }
 
-        pub fn writev(self: *Self, iov: []std.os.iovec_const) Error!usize {
+        pub fn writev(self: *Self, iov: []const std.os.iovec_const) Error!usize {
             var written: usize = 0;
             for (iov) |v| {
                 const bytes = v.iov_base[0..v.iov_len];

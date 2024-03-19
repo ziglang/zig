@@ -17,7 +17,7 @@ pub const ReversedByteReader = struct {
         return .{ .context = self };
     }
 
-    fn readvFn(ctx: *ReversedByteReader, iov: []std.os.iovec) !usize {
+    fn readvFn(ctx: *ReversedByteReader, iov: []const std.os.iovec) !usize {
         const first = iov[0];
         const buffer = first.iov_base[0..first.iov_len];
         std.debug.assert(buffer.len > 0);

@@ -63,7 +63,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             self.* = undefined;
         }
 
-        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+        pub fn readv(self: *Self, iov: []const std.os.iovec) Error!usize {
             const writer = self.to_read.writer(self.allocator);
             var n_read: usize = 0;
             for (iov) |v| {

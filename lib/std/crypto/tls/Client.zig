@@ -110,11 +110,8 @@ pub fn send_hello(self: *Self, key_pairs: KeyPairs) !void {
             .{ .signature_algorithms = &tls.supported_signature_schemes },
             .{ .supported_versions = &[_]tls.Version{.tls_1_3} },
             .{ .key_share = &[_]tls.KeyShare{
-                .{ .x25519_kyber768d00 = .{
-                    .x25519 = key_pairs.x25519.public_key,
-                    .kyber768d00 = key_pairs.kyber768d00.public_key,
-                } },
                 .{ .secp256r1 = key_pairs.secp256r1.public_key },
+                .{ .secp384r1 = key_pairs.secp384r1.public_key },
                 .{ .x25519 = key_pairs.x25519.public_key },
             } },
         },
@@ -165,23 +162,6 @@ pub fn recv_hello(self: *Self, key_pairs: KeyPairs) !void {
                 const named_group = try stream.read(tls.NamedGroup);
                 const key_size = try stream.read(u16);
                 switch (named_group) {
-                    .x25519_kyber768d00 => {
-                        const T = tls.NamedGroupT(.x25519_kyber768d00);
-                        const x25519_len = T.X25519.public_length;
-                        const expected_len = x25519_len + T.Kyber768.ciphertext_length;
-                        if (key_size != expected_len) return stream.writeError(.illegal_parameter);
-                        var server_ks: [expected_len]u8 = undefined;
-                        try r.readNoEof(&server_ks);
-
-                        const mult = T.X25519.scalarmult(
-                            key_pairs.x25519.secret_key,
-                            server_ks[0..x25519_len].*,
-                        ) catch return stream.writeError(.decrypt_error);
-                        const decaps = key_pairs.kyber768d00.secret_key.decaps(
-                            server_ks[x25519_len..expected_len],
-                        ) catch return stream.writeError(.decrypt_error);
-                        shared_key = &(mult ++ decaps);
-                    },
                     .x25519 => {
                         const T = tls.NamedGroupT(.x25519);
                         const expected_len = T.public_length;
@@ -434,7 +414,7 @@ pub const ReadError = anyerror;
 pub const WriteError = anyerror;
 
 /// Reads next application_data message.
-pub fn readv(self: *Self, buffers: []std.os.iovec) ReadError!usize {
+pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
     var stream = &self.stream;
 
     if (stream.eof()) return 0;
@@ -484,7 +464,7 @@ pub fn readv(self: *Self, buffers: []std.os.iovec) ReadError!usize {
     return try stream.readv(buffers);
 }
 
-pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+pub fn writev(self: *Self, iov: []const std.os.iovec_const) WriteError!usize {
     if (self.stream.eof()) return 0;
 
     const res = try self.stream.writev(iov);
@@ -528,7 +508,6 @@ pub const Options = struct {
 pub const KeyPairs = struct {
     hello_rand: [hello_rand_length]u8,
     session_id: [session_id_length]u8,
-    kyber768d00: Kyber768,
     secp256r1: Secp256r1,
     secp384r1: Secp384r1,
     x25519: X25519,
@@ -538,13 +517,11 @@ pub const KeyPairs = struct {
     const X25519 = tls.NamedGroupT(.x25519).KeyPair;
     const Secp256r1 = tls.NamedGroupT(.secp256r1).KeyPair;
     const Secp384r1 = tls.NamedGroupT(.secp384r1).KeyPair;
-    const Kyber768 = tls.NamedGroupT(.x25519_kyber768d00).Kyber768.KeyPair;
 
     pub fn init() @This() {
         var random_buffer: [
             hello_rand_length +
                 session_id_length +
-                Kyber768.seed_length +
                 Secp256r1.seed_length +
                 Secp384r1.seed_length +
                 X25519.seed_length
@@ -555,17 +532,15 @@ pub const KeyPairs = struct {
 
             const split1 = hello_rand_length;
             const split2 = split1 + session_id_length;
-            const split3 = split2 + Kyber768.seed_length;
-            const split4 = split3 + Secp256r1.seed_length;
-            const split5 = split4 + Secp384r1.seed_length;
+            const split3 = split2 + Secp256r1.seed_length;
+            const split4 = split3 + Secp384r1.seed_length;
 
             return initAdvanced(
                 random_buffer[0..split1].*,
                 random_buffer[split1..split2].*,
                 random_buffer[split2..split3].*,
                 random_buffer[split3..split4].*,
-                random_buffer[split4..split5].*,
-                random_buffer[split5..].*,
+                random_buffer[split4..].*,
             ) catch continue;
         }
     }
@@ -573,13 +548,11 @@ pub const KeyPairs = struct {
     pub fn initAdvanced(
         hello_rand: [hello_rand_length]u8,
         session_id: [session_id_length]u8,
-        kyber_768_seed: [Kyber768.seed_length]u8,
         secp256r1_seed: [Secp256r1.seed_length]u8,
         secp384r1_seed: [Secp384r1.seed_length]u8,
         x25519_seed: [X25519.seed_length]u8,
     ) !@This() {
         return .{
-            .kyber768d00 = Kyber768.create(kyber_768_seed) catch {},
             .secp256r1 = Secp256r1.create(secp256r1_seed) catch |err| switch (err) {
                 error.IdentityElement => return error.InsufficientEntropy, // Private key is all zeroes.
             },

@@ -192,7 +192,7 @@ pub const ConnectionPool = struct {
 /// An interface to either a plain or TLS connection.
 pub const Connection = struct {
     /// Underlying socket
-    socket: net.Stream,
+    socket: net.Socket,
     /// TLS client.
     tls: tls.Client,
 
@@ -225,7 +225,7 @@ pub const Connection = struct {
 
     pub inline fn stream(conn: *Connection) std.io.AnyStream {
         return switch (conn.protocol) {
-            .plain => conn.socket.any().any(),
+            .plain => conn.socket.stream().any(),
             .tls => conn.tls.any().any(),
         };
     }
@@ -293,7 +293,7 @@ pub const Connection = struct {
         return nread;
     }
 
-    pub fn readv(conn: *Connection, iov: []std.os.iovec) ReadError!usize {
+    pub fn readv(conn: *Connection, iov: []const std.os.iovec) ReadError!usize {
         const first = iov[0];
         const buffer = first.iov_base[0..first.iov_len];
         return try conn.read(buffer);
@@ -333,7 +333,7 @@ pub const Connection = struct {
         return buffer.len;
     }
 
-    pub fn writev(conn: *Connection, iov: []std.os.iovec_const) WriteError!usize {
+    pub fn writev(conn: *Connection, iov: []const std.os.iovec_const) WriteError!usize {
         const first = iov[0];
         const buffer = first.iov_base[0..first.iov_len];
         return try conn.write(buffer);
@@ -903,7 +903,7 @@ pub const Request = struct {
         return .{ .context = req };
     }
 
-    fn transferReadv(req: *Request, iov: []std.os.iovec) TransferReadError!usize {
+    fn transferReadv(req: *Request, iov: []const std.os.iovec) TransferReadError!usize {
         if (req.response.parser.done) return 0;
         const first = iov[0];
         const buf = first.iov_base[0..first.iov_len];
@@ -1102,7 +1102,7 @@ pub const Request = struct {
     }
 
     /// Reads data from the response body. Must be called after `wait`.
-    pub fn readv(req: *Request, iov: []std.os.iovec) ReadError!usize {
+    pub fn readv(req: *Request, iov: []const std.os.iovec) ReadError!usize {
         const out_index = switch (req.response.compression) {
             .deflate => |*deflate| deflate.readv(iov) catch return error.DecompressionFailure,
             .gzip => |*gzip| gzip.readv(iov) catch return error.DecompressionFailure,
@@ -1132,7 +1132,7 @@ pub const Request = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
     /// Must be called after `send` and before `finish`.
-    pub fn writev(req: *Request, iov: []std.os.iovec_const) WriteError!usize {
+    pub fn writev(req: *Request, iov: []const std.os.iovec_const) WriteError!usize {
         var iov_len: usize = 0;
         for (iov) |v| iov_len += v.iov_len;
 
@@ -1142,7 +1142,7 @@ pub const Request = struct {
 
                 if (iov_len > 0) {
                     try w.print("{x}\r\n", .{iov_len});
-                    try w.writevAll(iov);
+                    for (iov) |v| try w.writeAll(v.iov_base[0..v.iov_len]);
                     try w.writeAll("\r\n");
                 }
 
@@ -1344,7 +1344,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     errdefer client.allocator.free(conn.data.host);
 
     if (protocol == .tls) {
-        conn.data.tls = tls.Client.init(conn.data.socket.any().any(), .{
+        conn.data.tls = tls.Client.init(conn.data.socket.stream().any(), .{
             .ca_bundle = client.tls_options.ca_bundle,
             .cipher_suites = client.tls_options.cipher_suites,
             .host = host,
@@ -1381,7 +1381,7 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     errdefer stream.close();
 
     conn.data = .{
-        .stream = stream.any(),
+        .stream = stream.stream(),
         .protocol = .plain,
 
         .host = try client.allocator.dupe(u8, path),

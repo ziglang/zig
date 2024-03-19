@@ -10,6 +10,8 @@ const testing = std.testing;
 const Allocator = mem.Allocator;
 const Sha1 = std.crypto.hash.Sha1;
 const assert = std.debug.assert;
+const hashedWriter = std.compress.hashedWriter;
+const hashedReader = std.compress.hashedReader;
 
 pub const oid_length = Sha1.digest_length;
 pub const fmt_oid_length = 2 * oid_length;
@@ -667,7 +669,7 @@ pub const Session = struct {
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
         try request.send(.{});
-        try request.writeAll(body.items);
+        try request.writer().writeAll(body.items);
         try request.finish();
 
         try request.wait();
@@ -772,7 +774,7 @@ pub const Session = struct {
         errdefer request.deinit();
         request.transfer_encoding = .{ .content_length = body.items.len };
         try request.send(.{});
-        try request.writeAll(body.items);
+        try request.writer().writeAll(body.items);
         try request.finish();
 
         try request.wait();
@@ -819,7 +821,7 @@ pub const Session = struct {
             ProtocolError,
             UnexpectedPacket,
         };
-        pub const Reader = std.io.Reader(*FetchStream, ReadError, read);
+        pub const Reader = std.io.Reader(*FetchStream, ReadError, readv);
 
         const StreamCode = enum(u8) {
             pack_data = 1,
@@ -857,6 +859,12 @@ pub const Session = struct {
             return size;
         }
     };
+
+    pub fn readv(stream: *FetchStream, iov: []const std.os.iovec) !usize {
+        const first = iov[0];
+        const buf = first.iov_base[0..first.iov_len];
+        return try stream.read(buf);
+    }
 };
 
 const PackHeader = struct {
@@ -1113,7 +1121,7 @@ fn indexPackFirstPass(
 ) ![Sha1.digest_length]u8 {
     var pack_buffered_reader = std.io.bufferedReader(pack.reader());
     var pack_counting_reader = std.io.countingReader(pack_buffered_reader.reader());
-    var pack_hashed_reader = std.compress.hashedReader(pack_counting_reader.reader(), Sha1.init(.{}));
+    var pack_hashed_reader = hashedReader(pack_counting_reader.reader(), Sha1.init(.{}));
     const pack_reader = pack_hashed_reader.reader();
 
     const pack_header = try PackHeader.read(pack_reader);
@@ -1121,7 +1129,7 @@ fn indexPackFirstPass(
     var current_entry: u32 = 0;
     while (current_entry < pack_header.total_objects) : (current_entry += 1) {
         const entry_offset = pack_counting_reader.bytes_read;
-        var entry_crc32_reader = std.compress.hashedReader(pack_reader, std.hash.Crc32.init());
+        var entry_crc32_reader = hashedReader(pack_reader, std.hash.Crc32.init());
         const entry_header = try EntryHeader.read(entry_crc32_reader.reader());
         switch (entry_header) {
             .commit, .tree, .blob, .tag => |object| {
@@ -1323,36 +1331,6 @@ fn expandDelta(base_object: anytype, delta_reader: anytype, writer: anytype) !vo
             return error.InvalidDeltaInstruction;
         }
     }
-}
-
-fn HashedWriter(
-    comptime WriterType: anytype,
-    comptime HasherType: anytype,
-) type {
-    return struct {
-        child_writer: WriterType,
-        hasher: HasherType,
-
-        const Error = WriterType.Error;
-        const Writer = std.io.Writer(*@This(), Error, write);
-
-        fn write(hashed_writer: *@This(), buf: []const u8) Error!usize {
-            const amt = try hashed_writer.child_writer.write(buf);
-            hashed_writer.hasher.update(buf);
-            return amt;
-        }
-
-        fn writer(hashed_writer: *@This()) Writer {
-            return .{ .context = hashed_writer };
-        }
-    };
-}
-
-fn hashedWriter(
-    writer: anytype,
-    hasher: anytype,
-) HashedWriter(@TypeOf(writer), @TypeOf(hasher)) {
-    return .{ .child_writer = writer, .hasher = hasher };
 }
 
 test "packfile indexing and checkout" {

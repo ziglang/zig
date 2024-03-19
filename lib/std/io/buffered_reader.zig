@@ -16,7 +16,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
 
         const Self = @This();
 
-        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+        pub fn readv(self: *Self, iov: []const std.os.iovec) Error!usize {
             const first = iov[0];
             const dest = first.iov_base[0..first.iov_len];
             var dest_index: usize = 0;
@@ -71,7 +71,7 @@ test "OneByte" {
             };
         }
 
-        fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+        fn readv(self: *Self, iov: []const std.os.iovec) Error!usize {
             const first = iov[0];
             const dest = first.iov_base[0..first.iov_len];
             if (self.str.len <= self.curr or dest.len == 0)

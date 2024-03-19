@@ -807,16 +807,16 @@ const Resource = union(enum) {
     fn reader(resource: *Resource) std.io.AnyReader {
         return .{
             .context = resource,
-            .readFn = read,
+            .readvFn = readv,
         };
     }
 
-    fn read(context: *const anyopaque, buffer: []u8) anyerror!usize {
+    fn readv(context: *const anyopaque, iov: []const std.os.iovec) anyerror!usize {
         const resource: *Resource = @constCast(@ptrCast(@alignCast(context)));
         switch (resource.*) {
-            .file => |*f| return f.read(buffer),
-            .http_request => |*r| return r.read(buffer),
-            .git => |*g| return g.fetch_stream.read(buffer),
+            .file => |*f| return f.readv(iov),
+            .http_request => |*r| return r.readv(iov),
+            .git => |*g| return g.fetch_stream.reader().readv(iov),
             .dir => unreachable,
         }
     }
@@ -1105,14 +1105,14 @@ fn unpackResource(
         .tar => try unpackTarball(f, tmp_directory.handle, resource.reader()),
         .@"tar.gz" => {
             const reader = resource.reader();
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var br = std.io.bufferedReaderSize(4096, reader);
             var dcp = std.compress.gzip.decompressor(br.reader());
             try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
             const reader = resource.reader();
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var br = std.io.bufferedReaderSize(4096, reader);
             var dcp = std.compress.xz.decompress(gpa, br.reader()) catch |err| {
                 return f.fail(f.location_tok, try eb.printString(
                     "unable to decompress tarball: {s}",
@@ -1126,7 +1126,7 @@ fn unpackResource(
             const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
             const window_buffer = try f.arena.allocator().create([window_size]u8);
             const reader = resource.reader();
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var br = std.io.bufferedReaderSize(4096, reader);
             var dcp = std.compress.zstd.decompressor(br.reader(), .{
                 .window_buffer = window_buffer,
             });

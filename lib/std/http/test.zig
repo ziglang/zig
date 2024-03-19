@@ -133,8 +133,8 @@ test "HTTP server handles a chunked transfer coding request" {
         "\r\n";
 
     const gpa = std.testing.allocator;
-    const tcp_stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
-    const stream = tcp_stream.any();
+    const socket = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    const stream = socket.stream();
     defer stream.close();
     try stream.writer().writeAll(request_bytes);
 
@@ -270,10 +270,11 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 
     const request_bytes = "GET /foo HTTP/1.1\r\n\r\n";
     const gpa = std.testing.allocator;
-    const tcp_stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
-    const stream = tcp_stream.any();
+    const socket = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    const stream = socket.stream();
     defer stream.close();
     try stream.writer().writeAll(request_bytes);
+            std.debug.print("requested\n", .{});
 
     const response = try stream.reader().readAllAlloc(gpa, 8192);
     defer gpa.free(response);
@@ -334,8 +335,8 @@ test "receiving arbitrary http headers from the client" {
         "aoeu:  asdf \r\n" ++
         "\r\n";
     const gpa = std.testing.allocator;
-    const tcp_stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
-    const stream = tcp_stream.any();
+    const socket = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
+    const stream = socket.stream();
     defer stream.close();
     try stream.writer().writeAll(request_bytes);
 

@@ -39,14 +39,22 @@ pub fn init(stream: std.io.AnyStream, options: Options) !Self {
     if (expected != options.certificate_key) return error.CertificateKeyMismatch;
     // TODO: verify private key corresponds to public key
 
-    const cmd_init = Command{ .recv_hello = {} };
-    var command = cmd_init;
+    var command = initial_command();
     while (command != .none) {
         command = res.next(command) catch |err| switch (err) {
-            error.ConnectionResetByPeer => cmd_init,
+            // Prevent replay attacks in later handshake stages.
+            error.ConnectionResetByPeer => initial_command(),
             else => return err,
         };
     }
+
+    return res;
+}
+
+inline fn initial_command() Command {
+    var res = Command{ .recv_hello = undefined };
+    crypto.random.bytes(&res.recv_hello.server_random);
+    crypto.random.bytes(&res.recv_hello.keygen_seed);
 
     return res;
 }
@@ -56,8 +64,8 @@ pub fn next(self: *Self, command: Command) !Command {
     var stream = &self.stream;
 
     switch (command) {
-        .recv_hello => {
-            const client_hello = try self.recv_hello();
+        .recv_hello => |random| {
+            const client_hello = try self.recv_hello(random);
 
             return .{ .send_hello = client_hello };
         },
@@ -105,7 +113,7 @@ pub fn next(self: *Self, command: Command) !Command {
     }
 }
 
-pub fn recv_hello(self: *Self) !ClientHello {
+pub fn recv_hello(self: *Self, random: Command.Random) !ClientHello {
     var stream = &self.stream;
     var reader = stream.any().reader();
 
@@ -166,12 +174,14 @@ pub fn recv_hello(self: *Self) !ClientHello {
                         if (ks == s and key_share == null) key_share = ks;
                     }
                 }
+                if (key_share == null) return stream.writeError(.decode_error);
             },
             .ec_point_formats => {
                 var format_iter = try stream.iterator(u8, tls.EcPointFormat);
                 while (try format_iter.next()) |f| {
                     if (f == .uncompressed) ec_point_format = .uncompressed;
                 }
+                if (ec_point_format == null) return stream.writeError(.decode_error);
             },
             .signature_algorithms => {
                 const acceptable = switch (self.options.certificate_key) {
@@ -189,6 +199,7 @@ pub fn recv_hello(self: *Self) !ClientHello {
                         if (algo == a and sig_scheme == null) sig_scheme = algo;
                     }
                 }
+                if (sig_scheme == null) return stream.writeError(.decode_error);
             },
             else => {
                 try reader.skipBytes(ext.len, .{});
@@ -201,16 +212,13 @@ pub fn recv_hello(self: *Self) !ClientHello {
     if (ec_point_format == null) return stream.writeError(.missing_extension);
     if (sig_scheme == null) return stream.writeError(.missing_extension);
 
-    var server_random: [32]u8 = undefined;
-    crypto.random.bytes(&server_random);
-
-    const key_pair: tls.KeyPair = switch (key_share.?) {
+    const key_pair = switch (key_share.?) {
         inline .secp256r1,
         .secp384r1,
         .x25519,
-        .x25519_kyber768d00,
         => |_, tag| brk: {
-            const pair = tls.NamedGroupT(tag).KeyPair.create(null) catch unreachable;
+            const T = tls.NamedGroupT(tag).KeyPair;
+            const pair = T.create(random.keygen_seed[0..T.seed_length].*) catch unreachable;
             break :brk @unionInit(tls.KeyPair, @tagName(tag), pair);
         },
         else => return stream.writeError(.decode_error),
@@ -223,7 +231,7 @@ pub fn recv_hello(self: *Self) !ClientHello {
         .cipher_suite = cipher_suite,
         .key_share = key_share.?,
         .sig_scheme = sig_scheme.?,
-        .server_random = server_random,
+        .server_random = random.server_random,
         .server_pair = key_pair,
     };
 }
@@ -246,19 +254,6 @@ pub fn send_hello(self: *Self, client_hello: ClientHello) !void {
     try stream.flush();
 
     const shared_key = switch (client_hello.key_share) {
-        .x25519_kyber768d00 => |ks| brk: {
-            const T = tls.NamedGroupT(.x25519_kyber768d00);
-            const pair: tls.X25519Kyber768Draft.KeyPair = key_pair.x25519_kyber768d00;
-            const shared_point = T.X25519.scalarmult(
-                ks.x25519,
-                pair.x25519.secret_key,
-            ) catch return stream.writeError(.decrypt_error);
-            // pair.kyber768d00.secret_key
-            // ks.kyber768d00
-            const encaps = ks.kyber768d00.encaps(null).ciphertext;
-
-            break :brk &(shared_point ++ encaps);
-        },
         .x25519 => |ks| brk: {
             const shared_point = tls.NamedGroupT(.x25519).scalarmult(
                 key_pair.x25519.secret_key,
@@ -266,11 +261,10 @@ pub fn send_hello(self: *Self, client_hello: ClientHello) !void {
             ) catch return stream.writeError(.decrypt_error);
             break :brk &shared_point;
         },
-        .secp256r1 => |ks| brk: {
-            const mul = ks.p.mulPublic(
-                key_pair.secp256r1.secret_key.bytes,
-                .big,
-            ) catch return stream.writeError(.decrypt_error);
+        inline .secp256r1, .secp384r1 => |ks, tag| brk: {
+            const key = @field(key_pair, @tagName(tag));
+            const mul = ks.p.mulPublic(key.secret_key.bytes, .big) catch
+                return stream.writeError(.decrypt_error);
             break :brk &mul.affineCoordinates().x.toBytes(.big);
         },
         else => return stream.writeError(.illegal_parameter),
@@ -416,7 +410,7 @@ pub const ReadError = anyerror;
 pub const WriteError = anyerror;
 
 /// Reads next application_data message.
-pub fn readv(self: *Self, buffers: []std.os.iovec) ReadError!usize {
+pub fn readv(self: *Self, buffers: []const std.os.iovec) ReadError!usize {
     var stream = &self.stream;
 
     if (stream.eof()) return 0;
@@ -432,7 +426,7 @@ pub fn readv(self: *Self, buffers: []std.os.iovec) ReadError!usize {
     return try self.stream.readv(buffers);
 }
 
-pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+pub fn writev(self: *Self, iov: []const std.os.iovec_const) WriteError!usize {
     if (self.stream.eof()) return 0;
 
     const res = try self.stream.writev(iov);
@@ -471,7 +465,7 @@ pub const Options = struct {
 /// A command to send or receive a single message. Allows deterministically
 /// testing `advance` on a single thread.
 pub const Command = union(enum) {
-    recv_hello: void,
+    recv_hello: Random,
     send_hello: ClientHello,
     send_change_cipher_spec: tls.SignatureScheme,
     send_encrypted_extensions: tls.SignatureScheme,
@@ -480,6 +474,11 @@ pub const Command = union(enum) {
     send_finished: void,
     recv_finished: void,
     none: void,
+
+    pub const Random = struct {
+        server_random: [32]u8,
+        keygen_seed: [tls.NamedGroupT(.secp384r1).KeyPair.seed_length]u8,
+    };
 
     pub const CertificateVerify = struct {
         scheme: tls.SignatureScheme,
@@ -495,6 +494,8 @@ pub const ClientHello = struct {
     key_share: tls.KeyShare,
     sig_scheme: tls.SignatureScheme,
     server_random: [32]u8,
-    /// active member MUST match `key_share`
+    /// Everything needed to generate a shared secret and send ciphertext to the client
+    /// so it can do the same.
+    /// Active member MUST match `key_share`.
     server_pair: tls.KeyPair,
 };

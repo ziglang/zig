@@ -13,7 +13,7 @@ pub fn CountingWriter(comptime WriterType: type) type {
 
         const Self = @This();
 
-        pub fn writev(self: *Self, iov: []std.os.iovec_const) Error!usize {
+        pub fn writev(self: *Self, iov: []const std.os.iovec_const) Error!usize {
             const amt = try self.child_stream.writev(iov);
             self.bytes_written += amt;
             return amt;

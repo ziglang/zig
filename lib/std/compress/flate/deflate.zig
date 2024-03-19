@@ -359,7 +359,7 @@ fn Deflate(comptime container: Container, comptime WriterType: type, comptime Bl
 
         /// Write `input` of uncompressed data.
         /// See compress.
-        pub fn writev(self: *Self, iov: []std.os.iovec_const) !usize {
+        pub fn writev(self: *Self, iov: []const std.os.iovec_const) !usize {
             var written: usize = 0;
             for (iov) |v| {
                 const input = v.iov_base[0..v.iov_len];

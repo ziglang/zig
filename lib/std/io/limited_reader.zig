@@ -13,12 +13,17 @@ pub fn LimitedReader(comptime ReaderType: type) type {
 
         const Self = @This();
 
-        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
-            for (iov) |*v| {
-                v.iov_len = @min(self.bytes_left, v.iov_len);
-                self.bytes_left -= v.iov_len;
-            }
-            return try self.inner_reader.readv(iov);
+        pub fn read(self: *Self, dest: []u8) Error!usize {
+            const max_read = @min(self.bytes_left, dest.len);
+            const n = try self.inner_reader.read(dest[0..max_read]);
+            self.bytes_left -= n;
+            return n;
+        }
+
+        pub fn readv(self: *Self, iov: []const std.os.iovec) Error!usize {
+            const first = iov[0];
+            const buf = first.iov_base[0..first.iov_len];
+            return try self.read(buf);
         }
 
         pub fn reader(self: *Self) Reader {

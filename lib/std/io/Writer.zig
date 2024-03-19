@@ -4,12 +4,12 @@ const mem = std.mem;
 const iovec_const = std.os.iovec_const;
 
 context: *const anyopaque,
-writevFn: *const fn (context: *const anyopaque, iov: []iovec_const) anyerror!usize,
+writevFn: *const fn (context: *const anyopaque, iov: []const iovec_const) anyerror!usize,
 
 const Self = @This();
 pub const Error = anyerror;
 
-pub fn writev(self: Self, iov: []iovec_const) anyerror!usize {
+pub fn writev(self: Self, iov: []const iovec_const) anyerror!usize {
     return self.writevFn(self.context, iov);
 }
 

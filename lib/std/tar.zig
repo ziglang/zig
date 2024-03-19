@@ -295,13 +295,13 @@ pub fn Iterator(comptime ReaderType: type) type {
             unread_bytes: *u64,
             parent_reader: ReaderType,
 
-            pub const Reader = std.io.Reader(File, ReaderType.Error, File.readv);
+            pub const Reader = std.io.Reader(File, ReaderType.Error, readv);
 
             pub fn reader(self: File) Reader {
                 return .{ .context = self };
             }
 
-            pub fn readv(self: File, iov: []std.os.iovec) ReaderType.Error!usize {
+            pub fn readv(self: File, iov: []const std.os.iovec) ReaderType.Error!usize {
                 var n_read: usize = 0;
                 for (iov) |v| {
                     const dest = v.iov_base[0..v.iov_len];

@@ -8,14 +8,14 @@ const native_endian = @import("builtin").target.cpu.arch.endian();
 const iovec = std.os.iovec;
 
 context: *const anyopaque,
-readvFn: *const fn (context: *const anyopaque, iov: []iovec) anyerror!usize,
+readvFn: *const fn (context: *const anyopaque, iov: []const iovec) anyerror!usize,
 
 pub const Error = anyerror;
 
 /// Returns the number of bytes read. It may be less than buffer.len.
 /// If the number of bytes read is 0, it means end of stream.
 /// End of stream is not an error condition.
-pub fn readv(self: Self, iov: []iovec) anyerror!usize {
+pub fn readv(self: Self, iov: []const iovec) anyerror!usize {
     return self.readvFn(self.context, iov);
 }
 

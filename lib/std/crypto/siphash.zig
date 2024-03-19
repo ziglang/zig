@@ -240,11 +240,15 @@ fn SipHash(comptime T: type, comptime c_rounds: usize, comptime d_rounds: usize)
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.Writer(*Self, Error, writev);
 
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
+        fn writev(self: *Self, iov: []const std.os.iovec_const) Error!usize {
+            var written: usize = 0;
+            for (iov) |v| {
+                self.update(v.iov_base[0..v.iov_len]);
+                written += v.iov_len;
+            }
+            return written;
         }
 
         pub fn writer(self: *Self) Writer {

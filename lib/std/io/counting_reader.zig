@@ -13,7 +13,7 @@ pub fn CountingReader(comptime ReaderType: anytype) type {
 
         const Self = @This();
 
-        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+        pub fn readv(self: *Self, iov: []const std.os.iovec) Error!usize {
             const amt = try self.child_reader.readv(iov);
             self.bytes_read += amt;
             return amt;

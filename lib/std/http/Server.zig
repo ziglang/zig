@@ -615,7 +615,7 @@ pub const Request = struct {
         };
 
         return .{
-            .stream = request.server.connection.stream(),
+            .connection = request.server.connection,
             .send_buffer = options.send_buffer,
             .send_buffer_start = 0,
             .send_buffer_end = h.items.len,
@@ -630,12 +630,12 @@ pub const Request = struct {
         };
     }
 
-    pub const ReadError = anyerror || net.Stream.ReadError || error{
+    pub const ReadError = anyerror || net.Socket.ReadError || error{
         HttpChunkInvalid,
         HttpHeadersOversize,
     };
 
-    fn read_cl(context: *const anyopaque, iov: []std.os.iovec) ReadError!usize {
+    fn read_cl(context: *const anyopaque, iov: []const std.os.iovec) ReadError!usize {
         const first = iov[0];
         const buffer = first.iov_base[0..first.iov_len];
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
@@ -665,7 +665,7 @@ pub const Request = struct {
         return s.read_buffer[head_end..s.read_buffer_len];
     }
 
-    fn readv_chunked(context: *const anyopaque, iov: []std.os.iovec) ReadError!usize {
+    fn readv_chunked(context: *const anyopaque, iov: []const std.os.iovec) ReadError!usize {
         const first = iov[0];
         const buffer = first.iov_base[0..first.iov_len];
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
@@ -836,7 +836,7 @@ pub const Request = struct {
 };
 
 pub const Response = struct {
-    stream: std.io.AnyStream,
+    connection: net.Server.Connection,
     send_buffer: []u8,
     /// Index of the first byte in `send_buffer`.
     /// This is 0 unless a short write happens in `write`.
@@ -860,14 +860,12 @@ pub const Response = struct {
         chunked,
     };
 
-    pub const WriteError = net.Stream.WriteError;
-
     /// When using content-length, asserts that the amount of data sent matches
     /// the value sent in the header, then calls `flush`.
     /// Otherwise, transfer-encoding: chunked is being used, and it writes the
     /// end-of-stream message, then flushes the stream to the system.
     /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn end(r: *Response) WriteError!void {
+    pub fn end(r: *Response) !void {
         switch (r.transfer_encoding) {
             .content_length => |len| {
                 assert(len == 0); // Trips when end() called before all bytes written.
@@ -892,13 +890,13 @@ pub const Response = struct {
     /// flushes the stream to the system.
     /// Respects the value of `elide_body` to omit all data after the headers.
     /// Asserts there are at most 25 trailers.
-    pub fn endChunked(r: *Response, options: EndChunkedOptions) WriteError!void {
+    pub fn endChunked(r: *Response, options: EndChunkedOptions) !void {
         assert(r.transfer_encoding == .chunked);
         try flush_chunked(r, options.trailers);
         r.* = undefined;
     }
 
-    fn write_cl(context: *const anyopaque, iov: []std.os.iovec_const) WriteError!usize {
+    fn write_cl(context: *const anyopaque, iov: []const std.os.iovec_const) !usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
 
         const first = iov[0];
@@ -927,7 +925,7 @@ pub const Response = struct {
                     .iov_len = bytes.len,
                 },
             };
-            const n = try r.stream.writev(&iovecs);
+            const n = try r.connection.stream().writev(&iovecs);
 
             if (n >= send_buffer_len) {
                 // It was enough to reset the buffer.
@@ -951,7 +949,7 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    fn write_chunked(context: *const anyopaque, iov: []std.os.iovec_const) WriteError!usize {
+    fn write_chunked(context: *const anyopaque, iov: []const std.os.iovec_const) !usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
         assert(r.transfer_encoding == .chunked);
 
@@ -991,7 +989,7 @@ pub const Response = struct {
             };
             // TODO make this writev instead of writevAll, which involves
             // complicating the logic of this function.
-            try r.stream.writer().writevAll(&iovecs);
+           try  r.connection.stream().writer().writevAll(&iovecs);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1008,20 +1006,20 @@ pub const Response = struct {
     /// Sends all buffered data to the client.
     /// This is redundant after calling `end`.
     /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn flush(r: *Response) WriteError!void {
+    pub fn flush(r: *Response) !void {
         switch (r.transfer_encoding) {
             .none, .content_length => return flush_cl(r),
             .chunked => return flush_chunked(r, null),
         }
     }
 
-    fn flush_cl(r: *Response) WriteError!void {
-        try r.stream.writer().writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
+    fn flush_cl(r: *Response) !void {
+        try r.connection.stream().writer().writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
     }
 
-    fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) WriteError!void {
+    fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) !void {
         const max_trailers = 25;
         if (end_trailers) |trailers| assert(trailers.len <= max_trailers);
         assert(r.transfer_encoding == .chunked);
@@ -1029,7 +1027,7 @@ pub const Response = struct {
         const http_headers = r.send_buffer[r.send_buffer_start .. r.send_buffer_end - r.chunk_len];
 
         if (r.elide_body) {
-            try r.stream.writer().writeAll(http_headers);
+            try r.connection.stream().writer().writeAll(http_headers);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1110,7 +1108,7 @@ pub const Response = struct {
             iovecs_len += 1;
         }
 
-        try r.stream.writer().writevAll(iovecs[0..iovecs_len]);
+        try r.connection.stream().writer().writevAll(iovecs[0..iovecs_len]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
         r.chunk_len = 0;

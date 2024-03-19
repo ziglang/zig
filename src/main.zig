@@ -3373,13 +3373,13 @@ fn buildOutputType(
             });
             defer server.deinit();
 
-            const conn = try server.accept();
-            defer conn.stream.close();
+            var conn = try server.accept(null);
+            defer conn.stream().close();
 
             try serve(
                 comp,
-                .{ .handle = conn.stream.handle },
-                .{ .handle = conn.stream.handle },
+                .{ .handle = conn.socket.handle },
+                .{ .handle = conn.socket.handle },
                 test_exec_args.items,
                 self_exe_path,
                 arg_mode,

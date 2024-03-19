@@ -345,7 +345,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
-        pub fn readv(self: *Self, iov: []std.os.iovec) Error!usize {
+        pub fn readv(self: *Self, iov: []const std.os.iovec) Error!usize {
             var read: usize = 0;
             for (iov) |v| {
                 const out = try self.get(v.iov_len);

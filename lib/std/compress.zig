@@ -21,7 +21,7 @@ pub fn HashedReader(
         pub const Error = ReaderType.Error;
         pub const Reader = std.io.Reader(*@This(), Error, readv);
 
-        pub fn readv(self: *@This(), iov: []std.os.iovec) Error!usize {
+        pub fn readv(self: *@This(), iov: []const std.os.iovec) Error!usize {
             const n_read = try self.child_reader.readv(iov);
             var hashed_amt: usize = 0;
             for (iov) |v| {
@@ -55,9 +55,9 @@ pub fn HashedWriter(
         hasher: HasherType,
 
         pub const Error = WriterType.Error;
-        pub const Writer = std.io.Writer(*@This(), Error, write);
+        pub const Writer = std.io.Writer(*@This(), Error, writev);
 
-        pub fn write(self: *@This(), iov: []std.os.iovec_const) Error!usize {
+        pub fn writev(self: *@This(), iov: []const std.os.iovec_const) Error!usize {
             const n_written = try self.child_writer.writev(iov);
             var hashed_amt: usize = 0;
             for (iov) |v| {

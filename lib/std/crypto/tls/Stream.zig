@@ -169,7 +169,7 @@ pub fn close(self: *Self) void {
 }
 
 /// Write bytes to `stream`, potentially flushing once `self.buffer` is full.
-pub fn writev(self: *Self, iov: []std.os.iovec_const) WriteError!usize {
+pub fn writev(self: *Self, iov: []const std.os.iovec_const) WriteError!usize {
     const first = iov[0];
     const bytes = first.iov_base[0..first.iov_len];
     if (self.nocommit > 0) return bytes.len;
@@ -244,7 +244,7 @@ pub fn arrayLength(
 /// Reads bytes from `view`, potentially reading more fragments from underlying `stream`.
 ///
 /// A return value of 0 indicates EOF.
-pub fn readv(self: *Self, iov: []std.os.iovec) ReadError!usize {
+pub fn readv(self: *Self, iov: []const std.os.iovec) ReadError!usize {
     // > Any data received after a closure alert has been received MUST be ignored.
     if (self.eof()) return 0;
 

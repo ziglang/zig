@@ -38,7 +38,7 @@ pub const StreamSource = union(enum) {
         getEndPos,
     );
 
-    pub fn readv(self: *StreamSource, iov: []std.os.iovec) ReadError!usize {
+    pub fn readv(self: *StreamSource, iov: []const std.os.iovec) ReadError!usize {
         switch (self.*) {
             .buffer => |*x| return x.readv(iov),
             .const_buffer => |*x| return x.readv(iov),
@@ -46,7 +46,7 @@ pub const StreamSource = union(enum) {
         }
     }
 
-    pub fn writev(self: *StreamSource, iov: []std.os.iovec_const) WriteError!usize {
+    pub fn writev(self: *StreamSource, iov: []const std.os.iovec_const) WriteError!usize {
         switch (self.*) {
             .buffer => |*x| return x.writev(iov),
             .const_buffer => return error.AccessDenied,
