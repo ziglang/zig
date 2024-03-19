@@ -27256,6 +27256,37 @@ fn fieldPtr(
             if (ip.stringEqlSlice(field_name, "len")) {
                 const int_val = try mod.intValue(Type.usize, inner_ty.arrayLen(mod));
                 return anonDeclRef(sema, int_val.toIntern());
+            } else if (ip.stringEqlSlice(field_name, "ptr") and is_pointer_to) {
+                const ptr_info = object_ty.ptrInfo(mod);
+                const new_ptr_ty = try sema.ptrType(.{
+                    .child = Type.fromInterned(ptr_info.child).childType(mod).toIntern(),
+                    .sentinel = if (object_ty.sentinel(mod)) |s| s.toIntern() else .none,
+                    .flags = .{
+                        .size = .Many,
+                        .alignment = ptr_info.flags.alignment,
+                        .is_const = ptr_info.flags.is_const,
+                        .is_volatile = ptr_info.flags.is_volatile,
+                        .is_allowzero = ptr_info.flags.is_allowzero,
+                        .address_space = ptr_info.flags.address_space,
+                        .vector_index = ptr_info.flags.vector_index,
+                    },
+                    .packed_offset = ptr_info.packed_offset,
+                });
+                const ptr_ptr_info = object_ptr_ty.ptrInfo(mod);
+                const result_ty = try sema.ptrType(.{
+                    .child = new_ptr_ty.toIntern(),
+                    .sentinel = if (object_ptr_ty.sentinel(mod)) |s| s.toIntern() else .none,
+                    .flags = .{
+                        .alignment = ptr_ptr_info.flags.alignment,
+                        .is_const = ptr_ptr_info.flags.is_const,
+                        .is_volatile = ptr_ptr_info.flags.is_volatile,
+                        .is_allowzero = ptr_ptr_info.flags.is_allowzero,
+                        .address_space = ptr_ptr_info.flags.address_space,
+                        .vector_index = ptr_ptr_info.flags.vector_index,
+                    },
+                    .packed_offset = ptr_ptr_info.packed_offset,
+                });
+                return sema.bitCast(block, result_ty, object_ptr, src, null);
             } else {
                 return sema.fail(
                     block,
