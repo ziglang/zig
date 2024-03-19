@@ -5985,8 +5985,12 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// garbage collector to run concurrently to zig processes, and to allow multiple
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
+    const have_rlimit = switch (builtin.os.tag) {
+        .windows, .wasi => false,
+        else => true,
+    };
+    if (!have_rlimit) return;
     const posix = std.posix;
-    if (!@hasDecl(posix, "rlimit")) return;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
     if (comptime builtin.target.isDarwin()) {
