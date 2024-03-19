@@ -11536,6 +11536,51 @@ this documentation along with the compiler in order to provide a point of
 reference, should anyone wish to point to an authority on agreed upon Zig
 coding style.
       </p>
+      {#header_open|Avoid Redundancy in Names#}
+      <p>Avoid these words in type names:</p>
+      <ul>
+        <li>Value</li>
+        <li>Data</li>
+        <li>Context</li>
+        <li>Manager</li>
+        <li>utils, misc, or somebody's initials</li>
+      </ul>
+      <p>Everything is a value, all types are data, everything is context, all logic manages state.
+      Nothing is communicated by using a word that applies to all types.</p> 
+      <p>Temptation to use "utilities", "miscellaneous", or somebody's initials
+      is a failure to categorize, or more commonly, overcategorization. Such
+      declarations can live at the root of a module that needs them with no
+      namespace needed.</p>
+      {#header_close#}
+
+      {#header_open|Avoid Redundant Names in Fully-Qualified Namespaces#}
+      <p>Every declaration is assigned a <strong>fully qualified
+      namespace</strong> by the compiler, creating a tree structure. Choose names based
+      on the fully-qualified namespace, and avoid redundant name segments.</p>
+      {#code_begin|exe|redundant_fqn#}
+const std = @import("std");
+
+pub const json = struct {
+    pub const JsonValue = union(enum) {
+        number: f64,
+        boolean: bool,
+        // ...
+    };
+};
+
+pub fn main() void {
+    std.debug.print("{s}\n", .{@typeName(json.JsonValue)});
+}
+      {#code_end#}
+      <p>In this example, "json" is repeated in the fully-qualified namespace. The solution
+      is to delete <code>Json</code> from <code>JsonValue</code>. In this example we have
+      an empty struct named <code>json</code> but remember that files also act
+      as part of the fully-qualified namespace.</p>
+      <p>This example is an exception to the rule specified in {#link|Avoid Redundancy in Names#}.
+      The meaning of the type has been reduced to its core: it is a json value. The name
+      cannot be any more specific without being incorrect.</p>
+      {#header_close#}
+
       {#header_open|Whitespace#}
       <ul>
         <li>
