@@ -4136,10 +4136,10 @@ pub fn getDebugSymbols(self: *MachO) ?*DebugSymbols {
     return null;
 }
 
-pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {
+pub fn ptraceAttach(self: *MachO, pid: std.posix.pid_t) !void {
     if (!is_hot_update_compatible) return;
 
-    const mach_task = try std.os.darwin.machTaskForPid(pid);
+    const mach_task = try std.c.machTaskForPid(pid);
     log.debug("Mach task for pid {d}: {any}", .{ pid, mach_task });
     self.hot_state.mach_task = mach_task;
 
@@ -4149,7 +4149,7 @@ pub fn ptraceAttach(self: *MachO, pid: std.os.pid_t) !void {
     // try std.os.ptrace(std.os.darwin.PT.ATTACHEXC, pid, 0, 0);
 }
 
-pub fn ptraceDetach(self: *MachO, pid: std.os.pid_t) !void {
+pub fn ptraceDetach(self: *MachO, pid: std.posix.pid_t) !void {
     if (!is_hot_update_compatible) return;
 
     _ = pid;
@@ -4330,7 +4330,7 @@ const Section = struct {
 };
 
 const HotUpdateState = struct {
-    mach_task: ?std.os.darwin.MachTask = null,
+    mach_task: ?std.c.MachTask = null,
 };
 
 pub const DynamicRelocs = struct {

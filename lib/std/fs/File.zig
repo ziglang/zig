@@ -457,7 +457,7 @@ pub fn stat(self: File) StatError!Stat {
     }
 
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
-        const st = try posix.fstat_wasi(self.handle);
+        const st = try std.os.fstat_wasi(self.handle);
         return Stat.fromWasi(st);
     }
 
@@ -1004,7 +1004,7 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     .statx = stx,
                 };
             },
-            .wasi => .{ .stat = try posix.fstat_wasi(self.handle) },
+            .wasi => .{ .stat = try std.os.fstat_wasi(self.handle) },
             else => .{ .stat = try posix.fstat(self.handle) },
         },
     };

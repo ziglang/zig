@@ -81,7 +81,7 @@ pub const Actions = struct {
     }
 
     pub fn open(self: *Actions, fd: std.c.fd_t, path: []const u8, flags: u32, mode: std.c.mode_t) Error!void {
-        const posix_path = try std.os.toPosixPath(path);
+        const posix_path = try std.posix.toPosixPath(path);
         return self.openZ(fd, &posix_path, flags, mode);
     }
 
@@ -130,7 +130,7 @@ pub const Actions = struct {
     }
 
     pub fn chdir(self: *Actions, path: []const u8) Error!void {
-        const posix_path = try std.os.toPosixPath(path);
+        const posix_path = try std.posix.toPosixPath(path);
         return self.chdirZ(&posix_path);
     }
 
@@ -164,7 +164,7 @@ pub fn spawn(
     argv: [*:null]?[*:0]const u8,
     envp: [*:null]?[*:0]const u8,
 ) Error!std.c.pid_t {
-    const posix_path = try std.os.toPosixPath(path);
+    const posix_path = try std.posix.toPosixPath(path);
     return spawnZ(&posix_path, actions, attr, argv, envp);
 }
 
@@ -204,12 +204,12 @@ pub fn spawnZ(
     }
 }
 
-pub fn waitpid(pid: std.c.pid_t, flags: u32) Error!std.os.WaitPidResult {
+pub fn waitpid(pid: std.c.pid_t, flags: u32) Error!std.posix.WaitPidResult {
     var status: c_int = undefined;
     while (true) {
         const rc = waitpid(pid, &status, @as(c_int, @intCast(flags)));
         switch (errno(rc)) {
-            .SUCCESS => return std.os.WaitPidResult{
+            .SUCCESS => return std.posix.WaitPidResult{
                 .pid = @as(std.c.pid_t, @intCast(rc)),
                 .status = @as(u32, @bitCast(status)),
             },

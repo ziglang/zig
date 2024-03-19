@@ -1635,7 +1635,7 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenE
         errdefer close(fd);
 
         if (flags.write) {
-            const info = try fstat_wasi(fd);
+            const info = try std.os.fstat_wasi(fd);
             if (info.filetype == .DIRECTORY)
                 return error.IsDir;
         }
@@ -4282,7 +4282,7 @@ pub const FStatError = error{
 /// Return information about a file descriptor.
 pub fn fstat(fd: fd_t) FStatError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
-        return Stat.fromFilestat(try fstat_wasi(fd));
+        return Stat.fromFilestat(try std.os.fstat_wasi(fd));
     }
     if (native_os == .windows) {
         @compileError("fstat is not yet implemented on Windows");
@@ -4300,19 +4300,6 @@ pub fn fstat(fd: fd_t) FStatError!Stat {
     }
 }
 
-fn fstat_wasi(fd: fd_t) FStatError!wasi.filestat_t {
-    var stat: wasi.filestat_t = undefined;
-    switch (wasi.fd_filestat_get(fd, &stat)) {
-        .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
-        .NOMEM => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        .NOTCAPABLE => return error.AccessDenied,
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
 pub const FStatAtError = FStatError || error{
     NameTooLong,
     FileNotFound,
@@ -4325,10 +4312,10 @@ pub const FStatAtError = FStatError || error{
 /// which is relative to `dirfd` handle.
 /// On WASI, `pathname` should be encoded as valid UTF-8.
 /// On other platforms, `pathname` is an opaque sequence of bytes with no particular encoding.
-/// See also `fstatatZ` and `fstatat_wasi`.
+/// See also `fstatatZ` and `std.os.fstatat_wasi`.
 pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try fstatat_wasi(dirfd, pathname, .{
+        const filestat = try std.os.fstatat_wasi(dirfd, pathname, .{
             .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
         });
         return Stat.fromFilestat(filestat);
@@ -4344,7 +4331,7 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
 /// See also `fstatat`.
 pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try fstatat_wasi(dirfd, mem.sliceTo(pathname, 0), .{
+        const filestat = try std.os.fstatat_wasi(dirfd, mem.sliceTo(pathname, 0), .{
             .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
         });
         return Stat.fromFilestat(filestat);
@@ -4368,27 +4355,6 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
             return error.InvalidUtf8
         else
             return unexpectedErrno(err),
-        else => |err| return unexpectedErrno(err),
-    }
-}
-
-/// WASI-only. Same as `fstatat` but targeting WASI.
-/// `pathname` should be encoded as valid UTF-8.
-/// See also `fstatat`.
-fn fstatat_wasi(dirfd: fd_t, pathname: []const u8, flags: wasi.lookupflags_t) FStatAtError!wasi.filestat_t {
-    var stat: wasi.filestat_t = undefined;
-    switch (wasi.path_filestat_get(dirfd, flags, pathname.ptr, pathname.len, &stat)) {
-        .SUCCESS => return stat,
-        .INVAL => unreachable,
-        .BADF => unreachable, // Always a race condition.
-        .NOMEM => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        .FAULT => unreachable,
-        .NAMETOOLONG => return error.NameTooLong,
-        .NOENT => return error.FileNotFound,
-        .NOTDIR => return error.FileNotFound,
-        .NOTCAPABLE => return error.AccessDenied,
-        .ILSEQ => return error.InvalidUtf8,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -4822,7 +4788,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
         const resolved: RelativePathWasi = .{ .dir_fd = dirfd, .relative_path = path };
 
         const st = blk: {
-            break :blk fstatat_wasi(dirfd, path, .{
+            break :blk std.os.fstatat_wasi(dirfd, path, .{
                 .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
             });
         } catch |err| switch (err) {

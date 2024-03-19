@@ -2555,7 +2555,7 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         return file.stat();
     }
     if (native_os == .wasi and !builtin.link_libc) {
-        const st = try posix.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
+        const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
         return Stat.fromWasi(st);
     }
     const st = try posix.fstatat(self.fd, sub_path, 0);
