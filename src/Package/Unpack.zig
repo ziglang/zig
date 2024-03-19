@@ -1,7 +1,7 @@
 const std = @import("std");
 const fs = std.fs;
 const git = @import("Fetch/git.zig");
-const ErrorBundle = std.zig.ErrorBundle;
+const Filter = @import("Fetch.zig").Filter;
 
 allocator: std.mem.Allocator,
 root: fs.Dir,
@@ -18,7 +18,7 @@ pub const Error = union(enum) {
         file_name: []const u8,
     },
 
-    pub fn filtered(self: Error, filter: Filter) bool {
+    pub fn excluded(self: Error, filter: Filter) bool {
         switch (self) {
             .unable_to_create_file => |info| return !filter.includePath(info.file_name),
             .unable_to_create_sym_link => |info| return !filter.includePath(info.target_path),
@@ -69,12 +69,12 @@ pub const Errors = struct {
         } });
     }
 
-    pub fn remove(self: *Errors, filter: Filter) !void {
+    pub fn filterWith(self: *Errors, filter: Filter) !void {
         var i = self.list.items.len;
         while (i > 0) {
             i -= 1;
             const item = self.list.items[i];
-            if (item.filtered(filter)) {
+            if (item.excluded(filter)) {
                 _ = self.list.swapRemove(i);
                 self.free(item);
             }
@@ -195,6 +195,10 @@ pub fn directory(self: *Self, source: fs.Dir) !void {
 
 pub fn hasErrors(self: *Self) bool {
     return self.errors.count() > 0;
+}
+
+pub fn filterErrors(self: *Self, filter: Filter) !void {
+    try self.errors.filterWith(filter);
 }
 
 fn copyFile(source_dir: fs.Dir, source_path: []const u8, dest_dir: fs.Dir, dest_path: []const u8) !void {
@@ -397,12 +401,12 @@ test "collect/filter errors" {
         defer filter.include_paths.deinit(gpa);
 
         // no filter all paths are included
-        try unpack.errors.remove(filter);
+        try unpack.filterErrors(filter);
         try testing.expectEqual(2, unpack.errors.count());
 
         // dir1 is included, dir excluded
         try filter.include_paths.put(gpa, "dir1", {});
-        try unpack.errors.remove(filter);
+        try unpack.filterErrors(filter);
         try testing.expectEqual(1, unpack.errors.count());
         try testing.expectEqualStrings("dir1/file1", unpack.errors.list.items[0].unable_to_create_file.file_name);
     }
@@ -412,12 +416,10 @@ test "collect/filter errors" {
 
         // only src included that filters all error paths
         try filter.include_paths.put(gpa, "src", {});
-        try unpack.errors.remove(filter);
+        try unpack.filterErrors(filter);
         try testing.expectEqual(0, unpack.errors.count());
     }
 }
-
-const Filter = @import("Fetch.zig").Filter;
 
 fn createTarball(paths: []const []const u8, buf: []u8) !void {
     var fbs = std.io.fixedBufferStream(buf);
