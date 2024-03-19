@@ -985,6 +985,7 @@ const InlineParser = struct {
                     ip.pos += 1;
                 },
                 ']' => try ip.parseLink(),
+                '<' => try ip.parseAutolink(),
                 '*', '_' => try ip.parseEmphasis(),
                 '`' => try ip.parseCodeSpan(),
                 else => {},
@@ -1074,6 +1075,52 @@ const InlineParser = struct {
         }
         try ip.parent.string_bytes.append(ip.parent.allocator, 0);
         return @enumFromInt(string_top);
+    }
+
+    /// Parses an autolink, starting at the opening `<`. `ip.pos` is left at the
+    /// closing `>`, or remains unchanged at the opening `<` if there is none.
+    fn parseAutolink(ip: *InlineParser) !void {
+        const start = ip.pos;
+        ip.pos += 1;
+        var state: enum {
+            start,
+            scheme,
+            target,
+        } = .start;
+        while (ip.pos < ip.content.len) : (ip.pos += 1) {
+            switch (state) {
+                .start => switch (ip.content[ip.pos]) {
+                    'A'...'Z', 'a'...'z' => state = .scheme,
+                    else => break,
+                },
+                .scheme => switch (ip.content[ip.pos]) {
+                    'A'...'Z', 'a'...'z', '0'...'9', '+', '.', '-' => {},
+                    ':' => state = .target,
+                    else => break,
+                },
+                .target => switch (ip.content[ip.pos]) {
+                    '<', ' ', '\t', '\n' => break, // Not allowed in autolinks
+                    '>' => {
+                        // Backslash escapes are not recognized in autolink targets.
+                        const target = try ip.parent.addString(ip.content[start + 1 .. ip.pos]);
+                        const node = try ip.parent.addNode(.{
+                            .tag = .autolink,
+                            .data = .{ .text = .{
+                                .content = target,
+                            } },
+                        });
+                        try ip.completed_inlines.append(ip.parent.allocator, .{
+                            .node = node,
+                            .start = start,
+                            .len = ip.pos - start + 1,
+                        });
+                        return;
+                    },
+                    else => {},
+                },
+            }
+        }
+        ip.pos = start;
     }
 
     /// Parses emphasis, starting at the beginning of a run of `*` or `_`
