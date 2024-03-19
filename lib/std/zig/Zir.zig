@@ -940,9 +940,6 @@ pub const Inst = struct {
         /// The addend communicates the type of the builtin.
         /// The mulends need to be coerced to the same type.
         mul_add,
-        /// Implements the `@fieldParentPtr` builtin.
-        /// Uses the `pl_node` union field with payload `FieldParentPtr`.
-        field_parent_ptr,
         /// Implements the `@memcpy` builtin.
         /// Uses the `pl_node` union field with payload `Bin`.
         memcpy,
@@ -1230,7 +1227,6 @@ pub const Inst = struct {
                 .atomic_store,
                 .mul_add,
                 .builtin_call,
-                .field_parent_ptr,
                 .max,
                 .memcpy,
                 .memset,
@@ -1522,7 +1518,6 @@ pub const Inst = struct {
                 .atomic_rmw,
                 .mul_add,
                 .builtin_call,
-                .field_parent_ptr,
                 .max,
                 .min,
                 .c_import,
@@ -1794,7 +1789,6 @@ pub const Inst = struct {
                 .atomic_store = .pl_node,
                 .mul_add = .pl_node,
                 .builtin_call = .pl_node,
-                .field_parent_ptr = .pl_node,
                 .max = .pl_node,
                 .memcpy = .pl_node,
                 .memset = .pl_node,
@@ -2064,6 +2058,12 @@ pub const Inst = struct {
         /// with a specific value. For instance, this is used for the capture of an `errdefer`.
         /// This should never appear in a body.
         value_placeholder,
+        /// Implements the `@fieldParentPtr` builtin.
+        /// `operand` is payload index to `FieldParentPtr`.
+        /// `small` contains `FullPtrCastFlags`.
+        /// Guaranteed to not have the `ptr_cast` flag.
+        /// Uses the `pl_node` union field with payload `FieldParentPtr`.
+        field_parent_ptr,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3363,9 +3363,14 @@ pub const Inst = struct {
     };
 
     pub const FieldParentPtr = struct {
-        parent_type: Ref,
+        src_node: i32,
+        parent_ptr_type: Ref,
         field_name: Ref,
         field_ptr: Ref,
+
+        pub fn src(self: FieldParentPtr) LazySrcLoc {
+            return LazySrcLoc.nodeOffset(self.src_node);
+        }
     };
 
     pub const Shuffle = struct {

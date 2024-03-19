@@ -8,7 +8,7 @@ export fn entry() u32 {
 // backend=stage2
 // target=native
 //
-// :3:23: error: cast increases pointer alignment
+// :3:23: error: @ptrCast increases pointer alignment
 // :3:32: note: '*u8' has alignment '1'
 // :3:23: note: '*u32' has alignment '4'
 // :3:23: note: use @alignCast to assert pointer alignment

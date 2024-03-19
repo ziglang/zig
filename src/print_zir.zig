@@ -355,7 +355,6 @@ const Writer = struct {
             .atomic_rmw => try self.writeAtomicRmw(stream, inst),
             .shuffle => try self.writeShuffle(stream, inst),
             .mul_add => try self.writeMulAdd(stream, inst),
-            .field_parent_ptr => try self.writeFieldParentPtr(stream, inst),
             .builtin_call => try self.writeBuiltinCall(stream, inst),
 
             .field_type_ref => try self.writeFieldTypeRef(stream, inst),
@@ -609,6 +608,7 @@ const Writer = struct {
 
             .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
             .closure_get => try self.writeClosureGet(stream, extended),
+            .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
         }
     }
 
@@ -901,16 +901,21 @@ const Writer = struct {
         try self.writeSrc(stream, inst_data.src());
     }
 
-    fn writeFieldParentPtr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const extra = self.code.extraData(Zir.Inst.FieldParentPtr, inst_data.payload_index).data;
-        try self.writeInstRef(stream, extra.parent_type);
+    fn writeFieldParentPtr(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const extra = self.code.extraData(Zir.Inst.FieldParentPtr, extended.operand).data;
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
+        if (flags.align_cast) try stream.writeAll("align_cast, ");
+        if (flags.addrspace_cast) try stream.writeAll("addrspace_cast, ");
+        if (flags.const_cast) try stream.writeAll("const_cast, ");
+        if (flags.volatile_cast) try stream.writeAll("volatile_cast, ");
+        try self.writeInstRef(stream, extra.parent_ptr_type);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.field_name);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.field_ptr);
         try stream.writeAll(") ");
-        try self.writeSrc(stream, inst_data.src());
+        try self.writeSrc(stream, extra.src());
     }
 
     fn writeBuiltinAsyncCall(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
@@ -1069,7 +1074,8 @@ const Writer = struct {
     }
 
     fn writePtrCastFull(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const flags = @as(Zir.Inst.FullPtrCastFlags, @bitCast(@as(u5, @truncate(extended.small))));
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
         const src = LazySrcLoc.nodeOffset(extra.node);
         if (flags.ptr_cast) try stream.writeAll("ptr_cast, ");
@@ -1085,7 +1091,8 @@ const Writer = struct {
     }
 
     fn writePtrCastNoDest(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const flags = @as(Zir.Inst.FullPtrCastFlags, @bitCast(@as(u5, @truncate(extended.small))));
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
         const src = LazySrcLoc.nodeOffset(extra.node);
         if (flags.const_cast) try stream.writeAll("const_cast, ");
