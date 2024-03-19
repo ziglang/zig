@@ -299,7 +299,7 @@ const ValueArena = struct {
     /// and must live until the matching call to release().
     pub fn acquire(self: *ValueArena, child_allocator: Allocator, out_arena_allocator: *std.heap.ArenaAllocator) Allocator {
         if (self.state_acquired) |state_acquired| {
-            return @fieldParentPtr(std.heap.ArenaAllocator, "state", state_acquired).allocator();
+            return @as(*std.heap.ArenaAllocator, @fieldParentPtr("state", state_acquired)).allocator();
         }
 
         out_arena_allocator.* = self.state.promote(child_allocator);
@@ -309,7 +309,7 @@ const ValueArena = struct {
 
     /// Releases the allocator acquired by `acquire. `arena_allocator` must match the one passed to `acquire`.
     pub fn release(self: *ValueArena, arena_allocator: *std.heap.ArenaAllocator) void {
-        if (@fieldParentPtr(std.heap.ArenaAllocator, "state", self.state_acquired.?) == arena_allocator) {
+        if (@as(*std.heap.ArenaAllocator, @fieldParentPtr("state", self.state_acquired.?)) == arena_allocator) {
             self.state = self.state_acquired.?.*;
             self.state_acquired = null;
         }

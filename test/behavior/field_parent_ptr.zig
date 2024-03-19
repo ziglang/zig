@@ -12,14 +12,14 @@ test "@fieldParentPtr struct" {
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -27,7 +27,7 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -36,21 +36,21 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -58,7 +58,7 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -67,21 +67,21 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{255} };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{255} };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -89,7 +89,7 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -98,21 +98,21 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -120,7 +120,7 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -129,7 +129,7 @@ test "@fieldParentPtr struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -145,14 +145,14 @@ test "@fieldParentPtr extern struct" {
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -160,7 +160,7 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -169,21 +169,21 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -191,7 +191,7 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -200,21 +200,21 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -222,7 +222,7 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -231,21 +231,21 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -253,7 +253,7 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -262,7 +262,7 @@ test "@fieldParentPtr extern struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -277,14 +277,14 @@ test "@fieldParentPtr extern struct first zero-bit field" {
     {
         const c: C = .{ .a = 0 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 0 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -292,7 +292,7 @@ test "@fieldParentPtr extern struct first zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -301,21 +301,21 @@ test "@fieldParentPtr extern struct first zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -323,7 +323,7 @@ test "@fieldParentPtr extern struct first zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -332,21 +332,21 @@ test "@fieldParentPtr extern struct first zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -354,7 +354,7 @@ test "@fieldParentPtr extern struct first zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -363,7 +363,7 @@ test "@fieldParentPtr extern struct first zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 }
@@ -378,14 +378,14 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -393,7 +393,7 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -402,21 +402,21 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -424,7 +424,7 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -433,21 +433,21 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -455,7 +455,7 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -464,7 +464,7 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 }
@@ -479,14 +479,14 @@ test "@fieldParentPtr extern struct last zero-bit field" {
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -494,7 +494,7 @@ test "@fieldParentPtr extern struct last zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -503,21 +503,21 @@ test "@fieldParentPtr extern struct last zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = -1111111111 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = -1111111111 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -525,7 +525,7 @@ test "@fieldParentPtr extern struct last zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -534,21 +534,21 @@ test "@fieldParentPtr extern struct last zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = 0 };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = 0 };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -556,7 +556,7 @@ test "@fieldParentPtr extern struct last zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -565,7 +565,7 @@ test "@fieldParentPtr extern struct last zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 }
@@ -585,14 +585,14 @@ test "@fieldParentPtr unaligned packed struct" {
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -600,7 +600,7 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -609,21 +609,21 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -631,7 +631,7 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -640,21 +640,21 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -662,7 +662,7 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -671,21 +671,21 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -693,7 +693,7 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -702,7 +702,7 @@ test "@fieldParentPtr unaligned packed struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -722,14 +722,14 @@ test "@fieldParentPtr aligned packed struct" {
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -737,7 +737,7 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -746,21 +746,21 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = -1111111111 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = -1111111111 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -768,7 +768,7 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -777,21 +777,21 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -799,7 +799,7 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -808,21 +808,21 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = false };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = false };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -830,7 +830,7 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -839,7 +839,7 @@ test "@fieldParentPtr aligned packed struct" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -862,11 +862,11 @@ test "@fieldParentPtr nested packed struct" {
         {
             const c: C = .{ .a = 0, .b = .{ .a = 0, .b = .{ .a = 0 } } };
             const pcbba = &c.b.b.a;
-            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr(*align(1) const @TypeOf(c.b.b), "a", pcbba));
+            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
-            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr(*align(1) const @TypeOf(c.b), "b", pcbb));
+            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
-            const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcb));
+            const pc: *const C = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
 
@@ -876,13 +876,13 @@ test "@fieldParentPtr nested packed struct" {
             var pcbba: @TypeOf(&c.b.b.a) = undefined;
             pcbba = &c.b.b.a;
             var pcbb: @TypeOf(&c.b.b) = undefined;
-            pcbb = @alignCast(@fieldParentPtr(*align(1) @TypeOf(c.b.b), "a", pcbba));
+            pcbb = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
             var pcb: @TypeOf(&c.b) = undefined;
-            pcb = @alignCast(@fieldParentPtr(*align(1) @TypeOf(c.b), "b", pcbb));
+            pcb = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
             var pc: *C = undefined;
-            pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcb));
+            pc = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
     }
@@ -901,11 +901,11 @@ test "@fieldParentPtr nested packed struct" {
         {
             const c: C = .{ .a = 0, .b = .{ .a = 0, .b = .{ .a = 0 } } };
             const pcbba = &c.b.b.a;
-            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr(*align(1:17:4) const @TypeOf(c.b.b), "a", pcbba));
+            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
-            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr(*align(1:8:4) const @TypeOf(c.b), "b", pcbb));
+            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
-            const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcb));
+            const pc: *const C = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
 
@@ -915,13 +915,13 @@ test "@fieldParentPtr nested packed struct" {
             var pcbba: @TypeOf(&c.b.b.a) = undefined;
             pcbba = &c.b.b.a;
             var pcbb: @TypeOf(&c.b.b) = undefined;
-            pcbb = @alignCast(@fieldParentPtr(*align(1:17:4) @TypeOf(c.b.b), "a", pcbba));
+            pcbb = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
             var pcb: @TypeOf(&c.b) = undefined;
-            pcb = @alignCast(@fieldParentPtr(*align(1:8:4) @TypeOf(c.b), "b", pcbb));
+            pcb = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
             var pc: *C = undefined;
-            pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcb));
+            pc = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
     }
@@ -940,11 +940,11 @@ test "@fieldParentPtr nested packed struct" {
         {
             const c: C = .{ .a = 0, .b = .{ .a = 0, .b = .{ .a = 0 } } };
             const pcbba = &c.b.b.a;
-            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr(*align(1) const @TypeOf(c.b.b), "a", pcbba));
+            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
-            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr(*align(1:9:3) const @TypeOf(c.b), "b", pcbb));
+            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
-            const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcb));
+            const pc: *const C = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
 
@@ -954,13 +954,13 @@ test "@fieldParentPtr nested packed struct" {
             var pcbba: @TypeOf(&c.b.b.a) = undefined;
             pcbba = &c.b.b.a;
             var pcbb: @TypeOf(&c.b.b) = undefined;
-            pcbb = @alignCast(@fieldParentPtr(*align(1) @TypeOf(c.b.b), "a", pcbba));
+            pcbb = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
             var pcb: @TypeOf(&c.b) = undefined;
-            pcb = @alignCast(@fieldParentPtr(*align(1:9:3) @TypeOf(c.b), "b", pcbb));
+            pcb = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
             var pc: *C = undefined;
-            pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcb));
+            pc = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
     }
@@ -979,11 +979,11 @@ test "@fieldParentPtr nested packed struct" {
         {
             const c: C = .{ .a = 0, .b = .{ .a = 0, .b = .{ .a = 0 } } };
             const pcbba = &c.b.b.a;
-            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr(*align(1:17:4) const @TypeOf(c.b.b), "a", pcbba));
+            const pcbb: @TypeOf(&c.b.b) = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
-            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr(*align(1:9:4) const @TypeOf(c.b), "b", pcbb));
+            const pcb: @TypeOf(&c.b) = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
-            const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcb));
+            const pc: *const C = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
 
@@ -993,13 +993,13 @@ test "@fieldParentPtr nested packed struct" {
             var pcbba: @TypeOf(&c.b.b.a) = undefined;
             pcbba = &c.b.b.a;
             var pcbb: @TypeOf(&c.b.b) = undefined;
-            pcbb = @alignCast(@fieldParentPtr(*align(1:17:4) @TypeOf(c.b.b), "a", pcbba));
+            pcbb = @alignCast(@fieldParentPtr("a", pcbba));
             try expect(pcbb == &c.b.b);
             var pcb: @TypeOf(&c.b) = undefined;
-            pcb = @alignCast(@fieldParentPtr(*align(1:9:4) @TypeOf(c.b), "b", pcbb));
+            pcb = @alignCast(@fieldParentPtr("b", pcbb));
             try expect(pcb == &c.b);
             var pc: *C = undefined;
-            pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcb));
+            pc = @alignCast(@fieldParentPtr("b", pcb));
             try expect(pc == &c);
         }
     }
@@ -1018,14 +1018,14 @@ test "@fieldParentPtr packed struct first zero-bit field" {
     {
         const c: C = .{ .a = 0 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 0 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1033,7 +1033,7 @@ test "@fieldParentPtr packed struct first zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1042,21 +1042,21 @@ test "@fieldParentPtr packed struct first zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 666.667 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1064,7 +1064,7 @@ test "@fieldParentPtr packed struct first zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1073,21 +1073,21 @@ test "@fieldParentPtr packed struct first zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1095,7 +1095,7 @@ test "@fieldParentPtr packed struct first zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1104,7 +1104,7 @@ test "@fieldParentPtr packed struct first zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 }
@@ -1122,14 +1122,14 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1137,7 +1137,7 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1146,21 +1146,21 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1168,7 +1168,7 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1177,21 +1177,21 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = -1111111111 };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1199,7 +1199,7 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1208,7 +1208,7 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 }
@@ -1226,14 +1226,14 @@ test "@fieldParentPtr packed struct last zero-bit field" {
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 666.667 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1241,7 +1241,7 @@ test "@fieldParentPtr packed struct last zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1250,21 +1250,21 @@ test "@fieldParentPtr packed struct last zero-bit field" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = -1111111111 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = -1111111111 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1272,7 +1272,7 @@ test "@fieldParentPtr packed struct last zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1281,21 +1281,21 @@ test "@fieldParentPtr packed struct last zero-bit field" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = 0 };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = 0 };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1303,7 +1303,7 @@ test "@fieldParentPtr packed struct last zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1312,7 +1312,7 @@ test "@fieldParentPtr packed struct last zero-bit field" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 }
@@ -1328,14 +1328,14 @@ test "@fieldParentPtr tagged union" {
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1343,7 +1343,7 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1352,21 +1352,21 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1374,7 +1374,7 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1383,21 +1383,21 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{255} };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{255} };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1405,7 +1405,7 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1414,21 +1414,21 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1436,7 +1436,7 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1445,7 +1445,7 @@ test "@fieldParentPtr tagged union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -1461,14 +1461,14 @@ test "@fieldParentPtr untagged union" {
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1476,7 +1476,7 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1485,21 +1485,21 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1507,7 +1507,7 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1516,21 +1516,21 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{255} };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{255} };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1538,7 +1538,7 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1547,21 +1547,21 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1569,7 +1569,7 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1578,7 +1578,7 @@ test "@fieldParentPtr untagged union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -1594,14 +1594,14 @@ test "@fieldParentPtr extern union" {
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1609,7 +1609,7 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1618,21 +1618,21 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1640,7 +1640,7 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1649,21 +1649,21 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1671,7 +1671,7 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1680,21 +1680,21 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1702,7 +1702,7 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1711,7 +1711,7 @@ test "@fieldParentPtr extern union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -1729,14 +1729,14 @@ test "@fieldParentPtr packed union" {
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = false };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1744,7 +1744,7 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1753,21 +1753,21 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1775,7 +1775,7 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1784,21 +1784,21 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .c = .{ .x = 255 } };
         const pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1806,7 +1806,7 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
     {
@@ -1815,21 +1815,21 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.c) = undefined;
         pcf = &c.c;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "c", pcf));
+        pc = @alignCast(@fieldParentPtr("c", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .d = -1111111111 };
         const pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1837,7 +1837,7 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
     {
@@ -1846,7 +1846,7 @@ test "@fieldParentPtr packed union" {
         var pcf: @TypeOf(&c.d) = undefined;
         pcf = &c.d;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "d", pcf));
+        pc = @alignCast(@fieldParentPtr("d", pcf));
         try expect(pc == &c);
     }
 }
@@ -1863,14 +1863,14 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
     {
         const c: C = .{ .a = 0 };
         const pcf = &c.a;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .a = 0 };
         const pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1878,7 +1878,7 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
     {
@@ -1887,21 +1887,21 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
         var pcf: @TypeOf(&c.a) = undefined;
         pcf = &c.a;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "a", pcf));
+        pc = @alignCast(@fieldParentPtr("a", pcf));
         try expect(pc == &c);
     }
 
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
-        const pc: *const C = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        const pc: *const C = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
         const c: C = .{ .b = 0 };
         const pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1909,7 +1909,7 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *const C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) const C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
     {
@@ -1918,7 +1918,7 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
         var pcf: @TypeOf(&c.b) = undefined;
         pcf = &c.b;
         var pc: *C = undefined;
-        pc = @alignCast(@fieldParentPtr(*align(1) C, "b", pcf));
+        pc = @alignCast(@fieldParentPtr("b", pcf));
         try expect(pc == &c);
     }
 }

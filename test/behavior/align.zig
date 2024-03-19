@@ -693,5 +693,5 @@ test "zero-bit fields in extern struct pad fields appropriately" {
     try expect(@intFromPtr(&s) % 2 == 0);
     try expect(@intFromPtr(&s.y) - @intFromPtr(&s.x) == 2);
     try expect(@intFromPtr(&s.y) == @intFromPtr(&s.a));
-    try expect(@fieldParentPtr(*S, "a", &s.a) == &s);
+    try expect(@as(*S, @fieldParentPtr("a", &s.a)) == &s);
 }

@@ -19,7 +19,7 @@ pub const Tree = struct {
     }
 
     pub fn root(self: *Tree) *Node.Root {
-        return @fieldParentPtr(Node.Root, "base", self.node);
+        return @alignCast(@fieldParentPtr("base", self.node));
     }
 
     pub fn dump(self: *Tree, writer: anytype) @TypeOf(writer).Error!void {
@@ -174,7 +174,7 @@ pub const Node = struct {
 
     pub fn cast(base: *Node, comptime id: Id) ?*id.Type() {
         if (base.id == id) {
-            return @fieldParentPtr(id.Type(), "base", base);
+            return @alignCast(@fieldParentPtr("base", base));
         }
         return null;
     }
@@ -461,7 +461,7 @@ pub const Node = struct {
     pub fn isNumberExpression(node: *const Node) bool {
         switch (node.id) {
             .literal => {
-                const literal = @fieldParentPtr(Node.Literal, "base", node);
+                const literal: *const Node.Literal = @alignCast(@fieldParentPtr("base", node));
                 return switch (literal.token.id) {
                     .number => true,
                     else => false,
@@ -475,7 +475,7 @@ pub const Node = struct {
     pub fn isStringLiteral(node: *const Node) bool {
         switch (node.id) {
             .literal => {
-                const literal = @fieldParentPtr(Node.Literal, "base", node);
+                const literal: *const Node.Literal = @alignCast(@fieldParentPtr("base", node));
                 return switch (literal.token.id) {
                     .quoted_ascii_string, .quoted_wide_string => true,
                     else => false,
@@ -489,105 +489,103 @@ pub const Node = struct {
         switch (node.id) {
             .root => unreachable,
             .resource_external => {
-                const casted = @fieldParentPtr(Node.ResourceExternal, "base", node);
+                const casted: *const Node.ResourceExternal = @alignCast(@fieldParentPtr("base", node));
                 return casted.id;
             },
             .resource_raw_data => {
-                const casted = @fieldParentPtr(Node.ResourceRawData, "base", node);
+                const casted: *const Node.ResourceRawData = @alignCast(@fieldParentPtr("base", node));
                 return casted.id;
             },
             .literal => {
-                const casted = @fieldParentPtr(Node.Literal, "base", node);
+                const casted: *const Node.Literal = @alignCast(@fieldParentPtr("base", node));
                 return casted.token;
             },
             .binary_expression => {
-                const casted = @fieldParentPtr(Node.BinaryExpression, "base", node);
+                const casted: *const Node.BinaryExpression = @alignCast(@fieldParentPtr("base", node));
                 return casted.left.getFirstToken();
             },
             .grouped_expression => {
-                const casted = @fieldParentPtr(Node.GroupedExpression, "base", node);
+                const casted: *const Node.GroupedExpression = @alignCast(@fieldParentPtr("base", node));
                 return casted.open_token;
             },
             .not_expression => {
-                const casted = @fieldParentPtr(Node.NotExpression, "base", node);
+                const casted: *const Node.NotExpression = @alignCast(@fieldParentPtr("base", node));
                 return casted.not_token;
             },
             .accelerators => {
-                const casted = @fieldParentPtr(Node.Accelerators, "base", node);
+                const casted: *const Node.Accelerators = @alignCast(@fieldParentPtr("base", node));
                 return casted.id;
             },
             .accelerator => {
-                const casted = @fieldParentPtr(Node.Accelerator, "base", node);
+                const casted: *const Node.Accelerator = @alignCast(@fieldParentPtr("base", node));
                 return casted.event.getFirstToken();
             },
             .dialog => {
-                const casted = @fieldParentPtr(Node.Dialog, "base", node);
+                const casted: *const Node.Dialog = @alignCast(@fieldParentPtr("base", node));
                 return casted.id;
             },
             .control_statement => {
-                const casted = @fieldParentPtr(Node.ControlStatement, "base", node);
+                const casted: *const Node.ControlStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.type;
             },
             .toolbar => {
-                const casted = @fieldParentPtr(Node.Toolbar, "base", node);
+                const casted: *const Node.Toolbar = @alignCast(@fieldParentPtr("base", node));
                 return casted.id;
             },
             .menu => {
-                const casted = @fieldParentPtr(Node.Menu, "base", node);
+                const casted: *const Node.Menu = @alignCast(@fieldParentPtr("base", node));
                 return casted.id;
             },
             inline .menu_item, .menu_item_separator, .menu_item_ex => |menu_item_type| {
-                const node_type = menu_item_type.Type();
-                const casted = @fieldParentPtr(node_type, "base", node);
+                const casted: *const menu_item_type.Type() = @alignCast(@fieldParentPtr("base", node));
                 return casted.menuitem;
             },
             inline .popup, .popup_ex => |popup_type| {
-                const node_type = popup_type.Type();
-                const casted = @fieldParentPtr(node_type, "base", node);
+                const casted: *const popup_type.Type() = @alignCast(@fieldParentPtr("base", node));
                 return casted.popup;
             },
             .version_info => {
-                const casted = @fieldParentPtr(Node.VersionInfo, "base", node);
+                const casted: *const Node.VersionInfo = @alignCast(@fieldParentPtr("base", node));
                 return casted.id;
             },
             .version_statement => {
-                const casted = @fieldParentPtr(Node.VersionStatement, "base", node);
+                const casted: *const Node.VersionStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.type;
             },
             .block => {
-                const casted = @fieldParentPtr(Node.Block, "base", node);
+                const casted: *const Node.Block = @alignCast(@fieldParentPtr("base", node));
                 return casted.identifier;
             },
             .block_value => {
-                const casted = @fieldParentPtr(Node.BlockValue, "base", node);
+                const casted: *const Node.BlockValue = @alignCast(@fieldParentPtr("base", node));
                 return casted.identifier;
             },
             .block_value_value => {
-                const casted = @fieldParentPtr(Node.BlockValueValue, "base", node);
+                const casted: *const Node.BlockValueValue = @alignCast(@fieldParentPtr("base", node));
                 return casted.expression.getFirstToken();
             },
             .string_table => {
-                const casted = @fieldParentPtr(Node.StringTable, "base", node);
+                const casted: *const Node.StringTable = @alignCast(@fieldParentPtr("base", node));
                 return casted.type;
             },
             .string_table_string => {
-                const casted = @fieldParentPtr(Node.StringTableString, "base", node);
+                const casted: *const Node.StringTableString = @alignCast(@fieldParentPtr("base", node));
                 return casted.id.getFirstToken();
             },
             .language_statement => {
-                const casted = @fieldParentPtr(Node.LanguageStatement, "base", node);
+                const casted: *const Node.LanguageStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.language_token;
             },
             .font_statement => {
-                const casted = @fieldParentPtr(Node.FontStatement, "base", node);
+                const casted: *const Node.FontStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.identifier;
             },
             .simple_statement => {
-                const casted = @fieldParentPtr(Node.SimpleStatement, "base", node);
+                const casted: *const Node.SimpleStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.identifier;
             },
             .invalid => {
-                const casted = @fieldParentPtr(Node.Invalid, "base", node);
+                const casted: *const Node.Invalid = @alignCast(@fieldParentPtr("base", node));
                 return casted.context[0];
             },
         }
@@ -597,44 +595,44 @@ pub const Node = struct {
         switch (node.id) {
             .root => unreachable,
             .resource_external => {
-                const casted = @fieldParentPtr(Node.ResourceExternal, "base", node);
+                const casted: *const Node.ResourceExternal = @alignCast(@fieldParentPtr("base", node));
                 return casted.filename.getLastToken();
             },
             .resource_raw_data => {
-                const casted = @fieldParentPtr(Node.ResourceRawData, "base", node);
+                const casted: *const Node.ResourceRawData = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .literal => {
-                const casted = @fieldParentPtr(Node.Literal, "base", node);
+                const casted: *const Node.Literal = @alignCast(@fieldParentPtr("base", node));
                 return casted.token;
             },
             .binary_expression => {
-                const casted = @fieldParentPtr(Node.BinaryExpression, "base", node);
+                const casted: *const Node.BinaryExpression = @alignCast(@fieldParentPtr("base", node));
                 return casted.right.getLastToken();
             },
             .grouped_expression => {
-                const casted = @fieldParentPtr(Node.GroupedExpression, "base", node);
+                const casted: *const Node.GroupedExpression = @alignCast(@fieldParentPtr("base", node));
                 return casted.close_token;
             },
             .not_expression => {
-                const casted = @fieldParentPtr(Node.NotExpression, "base", node);
+                const casted: *const Node.NotExpression = @alignCast(@fieldParentPtr("base", node));
                 return casted.number_token;
             },
             .accelerators => {
-                const casted = @fieldParentPtr(Node.Accelerators, "base", node);
+                const casted: *const Node.Accelerators = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .accelerator => {
-                const casted = @fieldParentPtr(Node.Accelerator, "base", node);
+                const casted: *const Node.Accelerator = @alignCast(@fieldParentPtr("base", node));
                 if (casted.type_and_options.len > 0) return casted.type_and_options[casted.type_and_options.len - 1];
                 return casted.idvalue.getLastToken();
             },
             .dialog => {
-                const casted = @fieldParentPtr(Node.Dialog, "base", node);
+                const casted: *const Node.Dialog = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .control_statement => {
-                const casted = @fieldParentPtr(Node.ControlStatement, "base", node);
+                const casted: *const Node.ControlStatement = @alignCast(@fieldParentPtr("base", node));
                 if (casted.extra_data_end) |token| return token;
                 if (casted.help_id) |help_id_node| return help_id_node.getLastToken();
                 if (casted.exstyle) |exstyle_node| return exstyle_node.getLastToken();
@@ -647,80 +645,79 @@ pub const Node = struct {
                 return casted.height.getLastToken();
             },
             .toolbar => {
-                const casted = @fieldParentPtr(Node.Toolbar, "base", node);
+                const casted: *const Node.Toolbar = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .menu => {
-                const casted = @fieldParentPtr(Node.Menu, "base", node);
+                const casted: *const Node.Menu = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .menu_item => {
-                const casted = @fieldParentPtr(Node.MenuItem, "base", node);
+                const casted: *const Node.MenuItem = @alignCast(@fieldParentPtr("base", node));
                 if (casted.option_list.len > 0) return casted.option_list[casted.option_list.len - 1];
                 return casted.result.getLastToken();
             },
             .menu_item_separator => {
-                const casted = @fieldParentPtr(Node.MenuItemSeparator, "base", node);
+                const casted: *const Node.MenuItemSeparator = @alignCast(@fieldParentPtr("base", node));
                 return casted.separator;
             },
             .menu_item_ex => {
-                const casted = @fieldParentPtr(Node.MenuItemEx, "base", node);
+                const casted: *const Node.MenuItemEx = @alignCast(@fieldParentPtr("base", node));
                 if (casted.state) |state_node| return state_node.getLastToken();
                 if (casted.type) |type_node| return type_node.getLastToken();
                 if (casted.id) |id_node| return id_node.getLastToken();
                 return casted.text;
             },
             inline .popup, .popup_ex => |popup_type| {
-                const node_type = popup_type.Type();
-                const casted = @fieldParentPtr(node_type, "base", node);
+                const casted: *const popup_type.Type() = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .version_info => {
-                const casted = @fieldParentPtr(Node.VersionInfo, "base", node);
+                const casted: *const Node.VersionInfo = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .version_statement => {
-                const casted = @fieldParentPtr(Node.VersionStatement, "base", node);
+                const casted: *const Node.VersionStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.parts[casted.parts.len - 1].getLastToken();
             },
             .block => {
-                const casted = @fieldParentPtr(Node.Block, "base", node);
+                const casted: *const Node.Block = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .block_value => {
-                const casted = @fieldParentPtr(Node.BlockValue, "base", node);
+                const casted: *const Node.BlockValue = @alignCast(@fieldParentPtr("base", node));
                 if (casted.values.len > 0) return casted.values[casted.values.len - 1].getLastToken();
                 return casted.key;
             },
             .block_value_value => {
-                const casted = @fieldParentPtr(Node.BlockValueValue, "base", node);
+                const casted: *const Node.BlockValueValue = @alignCast(@fieldParentPtr("base", node));
                 return casted.expression.getLastToken();
             },
             .string_table => {
-                const casted = @fieldParentPtr(Node.StringTable, "base", node);
+                const casted: *const Node.StringTable = @alignCast(@fieldParentPtr("base", node));
                 return casted.end_token;
             },
             .string_table_string => {
-                const casted = @fieldParentPtr(Node.StringTableString, "base", node);
+                const casted: *const Node.StringTableString = @alignCast(@fieldParentPtr("base", node));
                 return casted.string;
             },
             .language_statement => {
-                const casted = @fieldParentPtr(Node.LanguageStatement, "base", node);
+                const casted: *const Node.LanguageStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.sublanguage_id.getLastToken();
             },
             .font_statement => {
-                const casted = @fieldParentPtr(Node.FontStatement, "base", node);
+                const casted: *const Node.FontStatement = @alignCast(@fieldParentPtr("base", node));
                 if (casted.char_set) |char_set_node| return char_set_node.getLastToken();
                 if (casted.italic) |italic_node| return italic_node.getLastToken();
                 if (casted.weight) |weight_node| return weight_node.getLastToken();
                 return casted.typeface;
             },
             .simple_statement => {
-                const casted = @fieldParentPtr(Node.SimpleStatement, "base", node);
+                const casted: *const Node.SimpleStatement = @alignCast(@fieldParentPtr("base", node));
                 return casted.value.getLastToken();
             },
             .invalid => {
-                const casted = @fieldParentPtr(Node.Invalid, "base", node);
+                const casted: *const Node.Invalid = @alignCast(@fieldParentPtr("base", node));
                 return casted.context[casted.context.len - 1];
             },
         }
@@ -737,31 +734,31 @@ pub const Node = struct {
         switch (node.id) {
             .root => {
                 try writer.writeAll("\n");
-                const root = @fieldParentPtr(Node.Root, "base", node);
+                const root: *Node.Root = @alignCast(@fieldParentPtr("base", node));
                 for (root.body) |body_node| {
                     try body_node.dump(tree, writer, indent + 1);
                 }
             },
             .resource_external => {
-                const resource = @fieldParentPtr(Node.ResourceExternal, "base", node);
+                const resource: *Node.ResourceExternal = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ resource.id.slice(tree.source), resource.type.slice(tree.source), resource.common_resource_attributes.len });
                 try resource.filename.dump(tree, writer, indent + 1);
             },
             .resource_raw_data => {
-                const resource = @fieldParentPtr(Node.ResourceRawData, "base", node);
+                const resource: *Node.ResourceRawData = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes] raw data: {}\n", .{ resource.id.slice(tree.source), resource.type.slice(tree.source), resource.common_resource_attributes.len, resource.raw_data.len });
                 for (resource.raw_data) |data_expression| {
                     try data_expression.dump(tree, writer, indent + 1);
                 }
             },
             .literal => {
-                const literal = @fieldParentPtr(Node.Literal, "base", node);
+                const literal: *Node.Literal = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll(" ");
                 try writer.writeAll(literal.token.slice(tree.source));
                 try writer.writeAll("\n");
             },
             .binary_expression => {
-                const binary = @fieldParentPtr(Node.BinaryExpression, "base", node);
+                const binary: *Node.BinaryExpression = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll(" ");
                 try writer.writeAll(binary.operator.slice(tree.source));
                 try writer.writeAll("\n");
@@ -769,7 +766,7 @@ pub const Node = struct {
                 try binary.right.dump(tree, writer, indent + 1);
             },
             .grouped_expression => {
-                const grouped = @fieldParentPtr(Node.GroupedExpression, "base", node);
+                const grouped: *Node.GroupedExpression = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll("\n");
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll(grouped.open_token.slice(tree.source));
@@ -780,7 +777,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .not_expression => {
-                const not = @fieldParentPtr(Node.NotExpression, "base", node);
+                const not: *Node.NotExpression = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll(" ");
                 try writer.writeAll(not.not_token.slice(tree.source));
                 try writer.writeAll(" ");
@@ -788,7 +785,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .accelerators => {
-                const accelerators = @fieldParentPtr(Node.Accelerators, "base", node);
+                const accelerators: *Node.Accelerators = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ accelerators.id.slice(tree.source), accelerators.type.slice(tree.source), accelerators.common_resource_attributes.len });
                 for (accelerators.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
@@ -804,7 +801,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .accelerator => {
-                const accelerator = @fieldParentPtr(Node.Accelerator, "base", node);
+                const accelerator: *Node.Accelerator = @alignCast(@fieldParentPtr("base", node));
                 for (accelerator.type_and_options, 0..) |option, i| {
                     if (i != 0) try writer.writeAll(",");
                     try writer.writeByte(' ');
@@ -815,7 +812,7 @@ pub const Node = struct {
                 try accelerator.idvalue.dump(tree, writer, indent + 1);
             },
             .dialog => {
-                const dialog = @fieldParentPtr(Node.Dialog, "base", node);
+                const dialog: *Node.Dialog = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ dialog.id.slice(tree.source), dialog.type.slice(tree.source), dialog.common_resource_attributes.len });
                 inline for (.{ "x", "y", "width", "height" }) |arg| {
                     try writer.writeByteNTimes(' ', indent + 1);
@@ -841,7 +838,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .control_statement => {
-                const control = @fieldParentPtr(Node.ControlStatement, "base", node);
+                const control: *Node.ControlStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}", .{control.type.slice(tree.source)});
                 if (control.text) |text| {
                     try writer.print(" text: {s}", .{text.slice(tree.source)});
@@ -877,7 +874,7 @@ pub const Node = struct {
                 }
             },
             .toolbar => {
-                const toolbar = @fieldParentPtr(Node.Toolbar, "base", node);
+                const toolbar: *Node.Toolbar = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ toolbar.id.slice(tree.source), toolbar.type.slice(tree.source), toolbar.common_resource_attributes.len });
                 inline for (.{ "button_width", "button_height" }) |arg| {
                     try writer.writeByteNTimes(' ', indent + 1);
@@ -895,7 +892,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .menu => {
-                const menu = @fieldParentPtr(Node.Menu, "base", node);
+                const menu: *Node.Menu = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ menu.id.slice(tree.source), menu.type.slice(tree.source), menu.common_resource_attributes.len });
                 for (menu.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
@@ -916,16 +913,16 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .menu_item => {
-                const menu_item = @fieldParentPtr(Node.MenuItem, "base", node);
+                const menu_item: *Node.MenuItem = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} options]\n", .{ menu_item.menuitem.slice(tree.source), menu_item.text.slice(tree.source), menu_item.option_list.len });
                 try menu_item.result.dump(tree, writer, indent + 1);
             },
             .menu_item_separator => {
-                const menu_item = @fieldParentPtr(Node.MenuItemSeparator, "base", node);
+                const menu_item: *Node.MenuItemSeparator = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ menu_item.menuitem.slice(tree.source), menu_item.separator.slice(tree.source) });
             },
             .menu_item_ex => {
-                const menu_item = @fieldParentPtr(Node.MenuItemEx, "base", node);
+                const menu_item: *Node.MenuItemEx = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ menu_item.menuitem.slice(tree.source), menu_item.text.slice(tree.source) });
                 inline for (.{ "id", "type", "state" }) |arg| {
                     if (@field(menu_item, arg)) |val_node| {
@@ -936,7 +933,7 @@ pub const Node = struct {
                 }
             },
             .popup => {
-                const popup = @fieldParentPtr(Node.Popup, "base", node);
+                const popup: *Node.Popup = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} options]\n", .{ popup.popup.slice(tree.source), popup.text.slice(tree.source), popup.option_list.len });
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll(popup.begin_token.slice(tree.source));
@@ -949,7 +946,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .popup_ex => {
-                const popup = @fieldParentPtr(Node.PopupEx, "base", node);
+                const popup: *Node.PopupEx = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ popup.popup.slice(tree.source), popup.text.slice(tree.source) });
                 inline for (.{ "id", "type", "state", "help_id" }) |arg| {
                     if (@field(popup, arg)) |val_node| {
@@ -969,7 +966,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .version_info => {
-                const version_info = @fieldParentPtr(Node.VersionInfo, "base", node);
+                const version_info: *Node.VersionInfo = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ version_info.id.slice(tree.source), version_info.versioninfo.slice(tree.source), version_info.common_resource_attributes.len });
                 for (version_info.fixed_info) |fixed_info| {
                     try fixed_info.dump(tree, writer, indent + 1);
@@ -985,14 +982,14 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .version_statement => {
-                const version_statement = @fieldParentPtr(Node.VersionStatement, "base", node);
+                const version_statement: *Node.VersionStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}\n", .{version_statement.type.slice(tree.source)});
                 for (version_statement.parts) |part| {
                     try part.dump(tree, writer, indent + 1);
                 }
             },
             .block => {
-                const block = @fieldParentPtr(Node.Block, "base", node);
+                const block: *Node.Block = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ block.identifier.slice(tree.source), block.key.slice(tree.source) });
                 for (block.values) |value| {
                     try value.dump(tree, writer, indent + 1);
@@ -1008,14 +1005,14 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .block_value => {
-                const block_value = @fieldParentPtr(Node.BlockValue, "base", node);
+                const block_value: *Node.BlockValue = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ block_value.identifier.slice(tree.source), block_value.key.slice(tree.source) });
                 for (block_value.values) |value| {
                     try value.dump(tree, writer, indent + 1);
                 }
             },
             .block_value_value => {
-                const block_value = @fieldParentPtr(Node.BlockValueValue, "base", node);
+                const block_value: *Node.BlockValueValue = @alignCast(@fieldParentPtr("base", node));
                 if (block_value.trailing_comma) {
                     try writer.writeAll(" ,");
                 }
@@ -1023,7 +1020,7 @@ pub const Node = struct {
                 try block_value.expression.dump(tree, writer, indent + 1);
             },
             .string_table => {
-                const string_table = @fieldParentPtr(Node.StringTable, "base", node);
+                const string_table: *Node.StringTable = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} [{d} common_resource_attributes]\n", .{ string_table.type.slice(tree.source), string_table.common_resource_attributes.len });
                 for (string_table.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
@@ -1040,19 +1037,19 @@ pub const Node = struct {
             },
             .string_table_string => {
                 try writer.writeAll("\n");
-                const string = @fieldParentPtr(Node.StringTableString, "base", node);
+                const string: *Node.StringTableString = @alignCast(@fieldParentPtr("base", node));
                 try string.id.dump(tree, writer, indent + 1);
                 try writer.writeByteNTimes(' ', indent + 1);
                 try writer.print("{s}\n", .{string.string.slice(tree.source)});
             },
             .language_statement => {
-                const language = @fieldParentPtr(Node.LanguageStatement, "base", node);
+                const language: *Node.LanguageStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}\n", .{language.language_token.slice(tree.source)});
                 try language.primary_language_id.dump(tree, writer, indent + 1);
                 try language.sublanguage_id.dump(tree, writer, indent + 1);
             },
             .font_statement => {
-                const font = @fieldParentPtr(Node.FontStatement, "base", node);
+                const font: *Node.FontStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} typeface: {s}\n", .{ font.identifier.slice(tree.source), font.typeface.slice(tree.source) });
                 try writer.writeByteNTimes(' ', indent + 1);
                 try writer.writeAll("point_size:\n");
@@ -1066,12 +1063,12 @@ pub const Node = struct {
                 }
             },
             .simple_statement => {
-                const statement = @fieldParentPtr(Node.SimpleStatement, "base", node);
+                const statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}\n", .{statement.identifier.slice(tree.source)});
                 try statement.value.dump(tree, writer, indent + 1);
             },
             .invalid => {
-                const invalid = @fieldParentPtr(Node.Invalid, "base", node);
+                const invalid: *Node.Invalid = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" context.len: {}\n", .{invalid.context.len});
                 for (invalid.context) |context_token| {
                     try writer.writeByteNTimes(' ', indent + 1);
