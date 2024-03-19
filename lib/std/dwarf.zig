@@ -2188,12 +2188,12 @@ pub fn openDwarfDebugInfo(di: *DwarfInfo, allocator: mem.Allocator) !void {
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
 fn badDwarf() error{InvalidDebugInfo} {
-    //std.os.abort(); // can be handy to uncomment when working on this file
+    //if (true) @panic("badDwarf"); // can be handy to uncomment when working on this file
     return error.InvalidDebugInfo;
 }
 
 fn missingDwarf() error{MissingDebugInfo} {
-    //std.os.abort(); // can be handy to uncomment when working on this file
+    //if (true) @panic("missingDwarf"); // can be handy to uncomment when working on this file
     return error.MissingDebugInfo;
 }
 

@@ -782,7 +782,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         },
         .wasi => {
             std.debug.print("{s}", .{msg});
-            std.os.abort();
+            std.posix.abort();
         },
         .uefi => {
             const uefi = std.os.uefi;
@@ -830,9 +830,9 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             }
 
             // Didn't have boot_services, just fallback to whatever.
-            std.os.abort();
+            std.posix.abort();
         },
-        .cuda, .amdhsa => std.os.abort(),
+        .cuda, .amdhsa => std.posix.abort(),
         .plan9 => {
             var status: [std.os.plan9.ERRMAX]u8 = undefined;
             const len = @min(msg.len, status.len - 1);

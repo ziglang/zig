@@ -1137,7 +1137,7 @@ fn addModuleTableToCacheHash(
     root_mod: *Package.Module,
     main_mod: *Package.Module,
     hash_type: union(enum) { path_bytes, files: *Cache.Manifest },
-) (error{OutOfMemory} || std.os.GetCwdError)!void {
+) (error{OutOfMemory} || std.process.GetCwdError)!void {
     var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
     defer seen_table.deinit(gpa);
 
@@ -2741,7 +2741,7 @@ const Header = extern struct {
 /// saved, such as the target and most CLI flags. A cache hit will only occur
 /// when subsequent compiler invocations use the same set of flags.
 pub fn saveState(comp: *Compilation) !void {
-    var bufs_list: [19]std.os.iovec_const = undefined;
+    var bufs_list: [19]std.posix.iovec_const = undefined;
     var bufs_len: usize = 0;
 
     const lf = comp.bin_file orelse return;
@@ -2808,7 +2808,7 @@ pub fn saveState(comp: *Compilation) !void {
     try af.finish();
 }
 
-fn addBuf(bufs_list: []std.os.iovec_const, bufs_len: *usize, buf: []const u8) void {
+fn addBuf(bufs_list: []std.posix.iovec_const, bufs_len: *usize, buf: []const u8) void {
     const i = bufs_len.*;
     bufs_len.* = i + 1;
     bufs_list[i] = .{
@@ -3791,7 +3791,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
             break :p padding_buffer[0..n];
         };
 
-        var header_and_trailer: [2]std.os.iovec_const = .{
+        var header_and_trailer: [2]std.posix.iovec_const = .{
             .{ .iov_base = header_bytes.ptr, .iov_len = header_bytes.len },
             .{ .iov_base = padding.ptr, .iov_len = padding.len },
         };

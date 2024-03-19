@@ -2,7 +2,7 @@ const builtin = @import("builtin");
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const maxInt = std.math.maxInt;
-const iovec = std.os.iovec;
+const iovec = std.posix.iovec;
 
 extern "c" threadlocal var errno: c_int;
 pub fn _errno() *c_int {

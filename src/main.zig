@@ -48,7 +48,7 @@ pub const panic = crash_report.panic;
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
     // Expect the first preopen to be current working directory.
-    const cwd_fd: std.os.fd_t = 3;
+    const cwd_fd: std.posix.fd_t = 3;
     assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
     return cwd_fd;
 }
@@ -222,7 +222,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         fatal("expected command argument", .{});
     }
 
-    if (process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
+    if (process.can_execv and std.posix.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
         // via child process execution due to the CC environment variable pointing to Zig.
@@ -4434,16 +4434,16 @@ fn runOrTestHotSwap(
 
     switch (builtin.target.os.tag) {
         .macos, .ios, .tvos, .watchos => {
-            const PosixSpawn = std.os.darwin.PosixSpawn;
+            const PosixSpawn = @import("DarwinPosixSpawn.zig");
 
             var attr = try PosixSpawn.Attr.init();
             defer attr.deinit();
 
             // ASLR is probably a good default for better debugging experience/programming
             // with hot-code updates in mind. However, we can also make it work with ASLR on.
-            const flags: u16 = std.os.darwin.POSIX_SPAWN.SETSIGDEF |
-                std.os.darwin.POSIX_SPAWN.SETSIGMASK |
-                std.os.darwin.POSIX_SPAWN.DISABLE_ASLR;
+            const flags: u16 = std.c.POSIX_SPAWN.SETSIGDEF |
+                std.c.POSIX_SPAWN.SETSIGMASK |
+                std.c.POSIX_SPAWN.DISABLE_ASLR;
             try attr.set(flags);
 
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -5985,8 +5985,8 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// garbage collector to run concurrently to zig processes, and to allow multiple
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
-    if (!@hasDecl(std.os.system, "rlimit")) return;
-    const posix = std.os;
+    const posix = std.posix;
+    if (!@hasDecl(posix, "rlimit")) return;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
     if (comptime builtin.target.isDarwin()) {

@@ -1,16 +1,16 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const mem = std.mem;
-const os = std.os;
 const testing = std.testing;
 const elf = std.elf;
 const windows = std.os.windows;
-const system = std.os.system;
+const native_os = builtin.os.tag;
+const posix = std.posix;
 
 /// Cross-platform dynamic library loading and symbol lookup.
 /// Platform-specific functionality is available through the `inner` field.
 pub const DynLib = struct {
-    const InnerType = switch (builtin.os.tag) {
+    const InnerType = switch (native_os) {
         .linux => if (!builtin.link_libc or builtin.abi == .musl and builtin.link_mode == .static)
             ElfDynLib
         else
@@ -125,7 +125,7 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
 pub const ElfDynLib = struct {
     strings: [*:0]u8,
     syms: [*]elf.Sym,
-    hashtab: [*]os.Elf_Symndx,
+    hashtab: [*]posix.Elf_Symndx,
     versym: ?[*]u16,
     verdef: ?*elf.Verdef,
     memory: []align(mem.page_size) u8,
@@ -138,27 +138,27 @@ pub const ElfDynLib = struct {
         ElfStringSectionNotFound,
         ElfSymSectionNotFound,
         ElfHashTableNotFound,
-    } || os.OpenError || os.MMapError;
+    } || posix.OpenError || posix.MMapError;
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!ElfDynLib {
-        const fd = try os.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-        defer os.close(fd);
+        const fd = try posix.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
+        defer posix.close(fd);
 
-        const stat = try os.fstat(fd);
+        const stat = try posix.fstat(fd);
         const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
         // This one is to read the ELF info. We do more mmapping later
         // corresponding to the actual LOAD sections.
-        const file_bytes = try os.mmap(
+        const file_bytes = try posix.mmap(
             null,
             mem.alignForward(usize, size, mem.page_size),
-            os.PROT.READ,
+            posix.PROT.READ,
             .{ .TYPE = .PRIVATE },
             fd,
             0,
         );
-        defer os.munmap(file_bytes);
+        defer posix.munmap(file_bytes);
 
         const eh = @as(*elf.Ehdr, @ptrCast(file_bytes.ptr));
         if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
@@ -188,15 +188,15 @@ pub const ElfDynLib = struct {
         const dynv = maybe_dynv orelse return error.MissingDynamicLinkingInformation;
 
         // Reserve the entire range (with no permissions) so that we can do MAP.FIXED below.
-        const all_loaded_mem = try os.mmap(
+        const all_loaded_mem = try posix.mmap(
             null,
             virt_addr_end,
-            os.PROT.NONE,
+            posix.PROT.NONE,
             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
         );
-        errdefer os.munmap(all_loaded_mem);
+        errdefer posix.munmap(all_loaded_mem);
 
         const base = @intFromPtr(all_loaded_mem.ptr);
 
@@ -220,7 +220,7 @@ pub const ElfDynLib = struct {
                         const prot = elfToMmapProt(ph.p_flags);
                         if ((ph.p_flags & elf.PF_W) == 0) {
                             // If it does not need write access, it can be mapped from the fd.
-                            _ = try os.mmap(
+                            _ = try posix.mmap(
                                 ptr,
                                 extended_memsz,
                                 prot,
@@ -229,7 +229,7 @@ pub const ElfDynLib = struct {
                                 ph.p_offset - extra_bytes,
                             );
                         } else {
-                            const sect_mem = try os.mmap(
+                            const sect_mem = try posix.mmap(
                                 ptr,
                                 extended_memsz,
                                 prot,
@@ -247,7 +247,7 @@ pub const ElfDynLib = struct {
 
         var maybe_strings: ?[*:0]u8 = null;
         var maybe_syms: ?[*]elf.Sym = null;
-        var maybe_hashtab: ?[*]os.Elf_Symndx = null;
+        var maybe_hashtab: ?[*]posix.Elf_Symndx = null;
         var maybe_versym: ?[*]u16 = null;
         var maybe_verdef: ?*elf.Verdef = null;
 
@@ -258,7 +258,7 @@ pub const ElfDynLib = struct {
                 switch (dynv[i]) {
                     elf.DT_STRTAB => maybe_strings = @as([*:0]u8, @ptrFromInt(p)),
                     elf.DT_SYMTAB => maybe_syms = @as([*]elf.Sym, @ptrFromInt(p)),
-                    elf.DT_HASH => maybe_hashtab = @as([*]os.Elf_Symndx, @ptrFromInt(p)),
+                    elf.DT_HASH => maybe_hashtab = @as([*]posix.Elf_Symndx, @ptrFromInt(p)),
                     elf.DT_VERSYM => maybe_versym = @as([*]u16, @ptrFromInt(p)),
                     elf.DT_VERDEF => maybe_verdef = @as(*elf.Verdef, @ptrFromInt(p)),
                     else => {},
@@ -283,7 +283,7 @@ pub const ElfDynLib = struct {
 
     /// Trusts the file
     pub fn close(self: *ElfDynLib) void {
-        os.munmap(self.memory);
+        posix.munmap(self.memory);
         self.* = undefined;
     }
 
@@ -320,10 +320,10 @@ pub const ElfDynLib = struct {
     }
 
     fn elfToMmapProt(elf_prot: u64) u32 {
-        var result: u32 = os.PROT.NONE;
-        if ((elf_prot & elf.PF_R) != 0) result |= os.PROT.READ;
-        if ((elf_prot & elf.PF_W) != 0) result |= os.PROT.WRITE;
-        if ((elf_prot & elf.PF_X) != 0) result |= os.PROT.EXEC;
+        var result: u32 = posix.PROT.NONE;
+        if ((elf_prot & elf.PF_R) != 0) result |= posix.PROT.READ;
+        if ((elf_prot & elf.PF_W) != 0) result |= posix.PROT.WRITE;
+        if ((elf_prot & elf.PF_X) != 0) result |= posix.PROT.EXEC;
         return result;
     }
 };
@@ -343,7 +343,7 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
 }
 
 test "ElfDynLib" {
-    if (builtin.os.tag != .linux) {
+    if (native_os != .linux) {
         return error.SkipZigTest;
     }
 
@@ -419,20 +419,20 @@ pub const DlDynLib = struct {
     handle: *anyopaque,
 
     pub fn open(path: []const u8) Error!DlDynLib {
-        const path_c = try os.toPosixPath(path);
+        const path_c = try posix.toPosixPath(path);
         return openZ(&path_c);
     }
 
     pub fn openZ(path_c: [*:0]const u8) Error!DlDynLib {
         return .{
-            .handle = system.dlopen(path_c, system.RTLD.LAZY) orelse {
+            .handle = std.c.dlopen(path_c, std.c.RTLD.LAZY) orelse {
                 return error.FileNotFound;
             },
         };
     }
 
     pub fn close(self: *DlDynLib) void {
-        switch (std.os.errno(system.dlclose(self.handle))) {
+        switch (posix.errno(std.c.dlclose(self.handle))) {
             .SUCCESS => return,
             else => unreachable,
         }
@@ -442,7 +442,7 @@ pub const DlDynLib = struct {
     pub fn lookup(self: *DlDynLib, comptime T: type, name: [:0]const u8) ?T {
         // dlsym (and other dl-functions) secretly take shadow parameter - return address on stack
         // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66826
-        if (@call(.never_tail, system.dlsym, .{ self.handle, name.ptr })) |symbol| {
+        if (@call(.never_tail, std.c.dlsym, .{ self.handle, name.ptr })) |symbol| {
             return @as(T, @ptrCast(@alignCast(symbol)));
         } else {
             return null;
@@ -453,12 +453,12 @@ pub const DlDynLib = struct {
     /// Returns human readable string describing most recent error than occurred from `lookup`
     /// or `null` if no error has occurred since initialization or when `getError` was last called.
     pub fn getError() ?[:0]const u8 {
-        return mem.span(system.dlerror());
+        return mem.span(std.c.dlerror());
     }
 };
 
 test "dynamic_library" {
-    const libname = switch (builtin.os.tag) {
+    const libname = switch (native_os) {
         .linux, .freebsd, .openbsd, .solaris, .illumos => "invalid_so.so",
         .windows => "invalid_dll.dll",
         .macos, .tvos, .watchos, .ios => "invalid_dylib.dylib",

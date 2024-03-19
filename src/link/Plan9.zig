@@ -368,7 +368,7 @@ fn putFn(self: *Plan9, decl_index: InternPool.DeclIndex, out: FnDeclOutput) !voi
         // getting the full file path
         var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const full_path = try std.fs.path.join(arena, &.{
-            file.mod.root.root_dir.path orelse try std.os.getcwd(&buf),
+            file.mod.root.root_dir.path orelse try std.posix.getcwd(&buf),
             file.mod.root.sub_path,
             file.sub_file_path,
         });
@@ -722,7 +722,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, prog_node: *std.Progress.Node
     defer gpa.free(got_table);
 
     // + 4 for header, got, symbols, linecountinfo
-    var iovecs = try gpa.alloc(std.os.iovec_const, self.atomCount() + 4 - self.externCount());
+    var iovecs = try gpa.alloc(std.posix.iovec_const, self.atomCount() + 4 - self.externCount());
     defer gpa.free(iovecs);
 
     const file = self.base.file.?;

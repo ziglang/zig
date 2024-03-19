@@ -882,7 +882,7 @@ fn findConfigH(b: *std.Build, config_h_path_option: ?[]const u8) ?[]const u8 {
             return path;
         } else |_| {
             std.log.err("Could not open provided config.h: \"{s}\"", .{path});
-            std.os.exit(1);
+            std.process.exit(1);
         }
     }
 

@@ -1002,7 +1002,7 @@ pub const EnvVar = enum {
     }
 
     pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
-        return std.os.getenvZ(@tagName(ev));
+        return std.posix.getenvZ(@tagName(ev));
     }
 };
 

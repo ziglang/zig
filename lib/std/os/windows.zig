@@ -11,6 +11,7 @@ const assert = std.debug.assert;
 const math = std.math;
 const maxInt = std.math.maxInt;
 const native_arch = builtin.cpu.arch;
+const UnexpectedError = std.posix.UnexpectedError;
 
 test {
     if (builtin.os.tag == .windows) {
@@ -547,7 +548,7 @@ pub const GetQueuedCompletionStatusError = error{
     Cancelled,
     EOF,
     Timeout,
-} || std.os.UnexpectedError;
+} || UnexpectedError;
 
 pub fn GetQueuedCompletionStatusEx(
     completion_port: HANDLE,
@@ -1701,7 +1702,7 @@ pub fn VirtualProtectEx(handle: HANDLE, addr: ?LPVOID, size: SIZE_T, new_prot: D
         .SUCCESS => return old_prot,
         .INVALID_ADDRESS => return error.InvalidAddress,
         // TODO: map errors
-        else => |rc| return std.os.windows.unexpectedStatus(rc),
+        else => |rc| return unexpectedStatus(rc),
     }
 }
 
@@ -1946,7 +1947,7 @@ pub fn SetFileTime(
 pub const LockFileError = error{
     SystemResources,
     WouldBlock,
-} || std.os.UnexpectedError;
+} || UnexpectedError;
 
 pub fn LockFile(
     FileHandle: HANDLE,
@@ -1983,7 +1984,7 @@ pub fn LockFile(
 
 pub const UnlockFileError = error{
     RangeNotLocked,
-} || std.os.UnexpectedError;
+} || UnexpectedError;
 
 pub fn UnlockFile(
     FileHandle: HANDLE,
@@ -2672,8 +2673,8 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
-pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+pub fn unexpectedError(err: Win32Error) UnexpectedError {
+    if (std.posix.unexpected_error_tracing) {
         // 614 is the length of the longest windows error description
         var buf_wstr: [614]WCHAR = undefined;
         const len = kernel32.FormatMessageW(
@@ -2694,14 +2695,14 @@ pub fn unexpectedError(err: Win32Error) std.os.UnexpectedError {
     return error.Unexpected;
 }
 
-pub fn unexpectedWSAError(err: ws2_32.WinsockError) std.os.UnexpectedError {
+pub fn unexpectedWSAError(err: ws2_32.WinsockError) UnexpectedError {
     return unexpectedError(@as(Win32Error, @enumFromInt(@intFromEnum(err))));
 }
 
 /// Call this when you made a windows NtDll call
 /// and you get an unexpected status.
-pub fn unexpectedStatus(status: NTSTATUS) std.os.UnexpectedError {
-    if (std.os.unexpected_error_tracing) {
+pub fn unexpectedStatus(status: NTSTATUS) UnexpectedError {
+    if (std.posix.unexpected_error_tracing) {
         std.debug.print("error.Unexpected NTSTATUS=0x{x}\n", .{@intFromEnum(status)});
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
@@ -4246,7 +4247,7 @@ pub const KNONVOLATILE_CONTEXT_POINTERS = switch (native_arch) {
 
 pub const EXCEPTION_POINTERS = extern struct {
     ExceptionRecord: *EXCEPTION_RECORD,
-    ContextRecord: *std.os.windows.CONTEXT,
+    ContextRecord: *CONTEXT,
 };
 
 pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;

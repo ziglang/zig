@@ -85,12 +85,11 @@ pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
 pub const meta = @import("meta.zig");
 pub const net = @import("net.zig");
-pub const posix = @import("os.zig");
-/// Non-portable Operating System-specific API.
 pub const os = @import("os.zig");
 pub const once = @import("once.zig").once;
 pub const packed_int_array = @import("packed_int_array.zig");
 pub const pdb = @import("pdb.zig");
+pub const posix = @import("posix.zig");
 pub const process = @import("process.zig");
 /// Deprecated: use `Random` instead.
 pub const rand = Random;
@@ -169,4 +168,8 @@ comptime {
 
 test {
     testing.refAllDecls(@This());
+}
+
+comptime {
+    debug.assert(@import("std") == @This()); // std lib tests require --zig-lib-dir
 }
