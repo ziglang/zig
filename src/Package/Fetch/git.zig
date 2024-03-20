@@ -146,15 +146,15 @@ pub const Repository = struct {
             };
         };
 
-        fn next(iterator: *TreeIterator) !?Entry {
-            if (iterator.pos == iterator.data.len) return null;
+        fn next(iter: *TreeIterator) !?Entry {
+            if (iter.pos == iter.data.len) return null;
 
-            const mode_end = mem.indexOfScalarPos(u8, iterator.data, iterator.pos, ' ') orelse return error.InvalidTree;
+            const mode_end = mem.indexOfScalarPos(u8, iter.data, iter.pos, ' ') orelse return error.InvalidTree;
             const mode: packed struct {
                 permission: u9,
                 unused: u3,
                 type: u4,
-            } = @bitCast(std.fmt.parseUnsigned(u16, iterator.data[iterator.pos..mode_end], 8) catch return error.InvalidTree);
+            } = @bitCast(std.fmt.parseUnsigned(u16, iter.data[iter.pos..mode_end], 8) catch return error.InvalidTree);
             const @"type" = std.meta.intToEnum(Entry.Type, mode.type) catch return error.InvalidTree;
             const executable = switch (mode.permission) {
                 0 => if (@"type" == .file) return error.InvalidTree else false,
@@ -162,17 +162,129 @@ pub const Repository = struct {
                 0o755 => if (@"type" != .file) return error.InvalidTree else true,
                 else => return error.InvalidTree,
             };
-            iterator.pos = mode_end + 1;
+            iter.pos = mode_end + 1;
 
-            const name_end = mem.indexOfScalarPos(u8, iterator.data, iterator.pos, 0) orelse return error.InvalidTree;
-            const name = iterator.data[iterator.pos..name_end :0];
-            iterator.pos = name_end + 1;
+            const name_end = mem.indexOfScalarPos(u8, iter.data, iter.pos, 0) orelse return error.InvalidTree;
+            const name = iter.data[iter.pos..name_end :0];
+            iter.pos = name_end + 1;
 
-            if (iterator.pos + oid_length > iterator.data.len) return error.InvalidTree;
-            const oid = iterator.data[iterator.pos..][0..oid_length].*;
-            iterator.pos += oid_length;
+            if (iter.pos + oid_length > iter.data.len) return error.InvalidTree;
+            const oid = iter.data[iter.pos..][0..oid_length].*;
+            iter.pos += oid_length;
 
             return .{ .type = @"type", .executable = executable, .name = name, .oid = oid };
+        }
+    };
+
+    /// Iterator over all repository entries at `commit_id`.
+    pub fn iterator(repository: *Repository, commit_oid: Oid) !Iterator {
+        const allocator = repository.odb.allocator;
+        try repository.odb.seekOid(commit_oid);
+        const tree_oid = tree_oid: {
+            const commit_object = try repository.odb.readObject();
+            if (commit_object.type != .commit) return error.NotACommit;
+            break :tree_oid try getCommitTree(commit_object.data);
+        };
+        var dirs = std.ArrayList(Iterator.Directory).init(allocator);
+        try dirs.append(.{ .oid = tree_oid, .path = "" });
+        return .{
+            .repository = repository,
+            .dirs = dirs,
+        };
+    }
+
+    pub const Iterator = struct {
+        pub const Entry = struct {
+            type: TreeIterator.Entry.Type,
+            executable: bool = false,
+            path: []const u8,
+            name: [:0]const u8,
+            data: []const u8,
+
+            pub fn reader(entry: Entry) std.io.FixedBufferStream([]const u8) {
+                return std.io.fixedBufferStream(entry.data);
+            }
+        };
+        const Directory = struct {
+            oid: Oid,
+            path: []const u8,
+        };
+
+        repository: *Repository,
+        tree_iter: ?TreeIterator = null,
+        tree_path: ?[]const u8 = null,
+        dirs: std.ArrayList(Directory),
+
+        pub fn next(iter: *Iterator) !?Entry {
+            var odb = &iter.repository.odb;
+            const allocator = odb.allocator;
+
+            while (true) {
+                if (iter.tree_iter) |*tree_iter| {
+                    const tree_path = iter.tree_path.?;
+                    if (try tree_iter.next()) |entry| {
+                        switch (entry.type) {
+                            .directory => {
+                                try iter.dirs.append(.{
+                                    .oid = entry.oid,
+                                    .path = try std.fs.path.join(allocator, &.{ tree_path, entry.name }),
+                                });
+                                return .{
+                                    .type = .directory,
+                                    .path = tree_path,
+                                    .name = entry.name,
+                                    .data = "",
+                                };
+                            },
+                            .file, .symlink => {
+                                try odb.seekOid(entry.oid);
+                                const object = try odb.readObject();
+                                if (object.type != .blob) return error.InvalidFile;
+
+                                return .{
+                                    .type = entry.type,
+                                    .executable = entry.executable,
+                                    .path = tree_path,
+                                    .name = entry.name,
+                                    .data = object.data,
+                                };
+                            },
+                            .gitlink => {},
+                        }
+                    } else {
+                        allocator.free(tree_iter.data);
+                        allocator.free(tree_path);
+                        iter.tree_path = null;
+                        iter.tree_iter = null;
+                    }
+                } else {
+                    if (iter.dirs.items.len == 0) return null;
+                    const dir = iter.dirs.pop();
+
+                    try odb.seekOid(dir.oid);
+                    const object = try odb.readObject();
+                    if (object.type != .tree) return error.NotATree;
+
+                    iter.tree_iter = .{ .data = try allocator.dupe(u8, object.data) };
+                    iter.tree_path = dir.path;
+                }
+            }
+        }
+
+        pub fn deinit(iter: *Iterator) void {
+            const allocator = iter.repository.odb.allocator;
+
+            if (iter.tree_iter) |*tree_iter| {
+                allocator.free(tree_iter.data);
+                iter.tree_iter = null;
+            }
+            if (iter.tree_path) |tree_path| {
+                allocator.free(tree_path);
+                iter.tree_path = null;
+            }
+            for (iter.dirs.items) |dir| allocator.free(dir.path);
+            iter.dirs.deinit();
+            iter.* = undefined;
         }
     };
 };
@@ -1327,23 +1439,14 @@ test "packfile indexing and checkout" {
     // 3. `git fsck` -> note the "dangling commit" ID (which matches the commit
     //    checked out below)
     // 4. `git checkout dd582c0720819ab7130b103635bd7271b9fd4feb`
-    const testrepo_pack = @embedFile("git/testdata/testrepo.pack");
-
-    var git_dir = testing.tmpDir(.{});
-    defer git_dir.cleanup();
-    var pack_file = try git_dir.dir.createFile("testrepo.pack", .{ .read = true });
-    defer pack_file.close();
-    try pack_file.writeAll(testrepo_pack);
-
-    var index_file = try git_dir.dir.createFile("testrepo.idx", .{ .read = true });
-    defer index_file.close();
-    try indexPack(testing.allocator, pack_file, index_file.writer());
+    var repo = try TestRepo.open();
+    defer repo.close();
 
     // Arbitrary size limit on files read while checking the repository contents
     // (all files in the test repo are known to be much smaller than this)
     const max_file_size = 4096;
 
-    const index_file_data = try git_dir.dir.readFileAlloc(testing.allocator, "testrepo.idx", max_file_size);
+    const index_file_data = try repo.git_dir.dir.readFileAlloc(testing.allocator, "testrepo.idx", max_file_size);
     defer testing.allocator.free(index_file_data);
     // testrepo.idx is generated by Git. The index created by this file should
     // match it exactly. Running `git verify-pack -v testrepo.pack` can verify
@@ -1351,32 +1454,14 @@ test "packfile indexing and checkout" {
     const testrepo_idx = @embedFile("git/testdata/testrepo.idx");
     try testing.expectEqualSlices(u8, testrepo_idx, index_file_data);
 
-    var repository = try Repository.init(testing.allocator, pack_file, index_file);
+    var repository = try Repository.init(testing.allocator, repo.pack_file, repo.index_file);
     defer repository.deinit();
 
     var worktree = testing.tmpDir(.{ .iterate = true });
     defer worktree.cleanup();
 
-    const commit_id = try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");
-    try repository.checkout(worktree.dir, commit_id);
+    try repository.checkout(worktree.dir, repo.commit_id);
 
-    const expected_files: []const []const u8 = &.{
-        "dir/file",
-        "dir/subdir/file",
-        "dir/subdir/file2",
-        "dir2/file",
-        "dir3/file",
-        "dir3/file2",
-        "file",
-        "file2",
-        "file3",
-        "file4",
-        "file5",
-        "file6",
-        "file7",
-        "file8",
-        "file9",
-    };
     var actual_files: std.ArrayListUnmanaged([]u8) = .{};
     defer actual_files.deinit(testing.allocator);
     defer for (actual_files.items) |file| testing.allocator.free(file);
@@ -1394,7 +1479,7 @@ test "packfile indexing and checkout" {
             return mem.lessThan(u8, a, b);
         }
     }.lessThan);
-    try testing.expectEqualDeep(expected_files, actual_files.items);
+    try testing.expectEqualDeep(repo.expected_files, actual_files.items);
 
     const expected_file_contents =
         \\revision 1
@@ -1415,6 +1500,90 @@ test "packfile indexing and checkout" {
     const actual_file_contents = try worktree.dir.readFileAlloc(testing.allocator, "file", max_file_size);
     defer testing.allocator.free(actual_file_contents);
     try testing.expectEqualStrings(expected_file_contents, actual_file_contents);
+}
+
+const TestRepo = struct {
+    git_dir: testing.TmpDir,
+    pack_file: std.fs.File,
+    index_file: std.fs.File,
+    commit_id: Oid,
+    expected_files: []const []const u8 = &.{
+        "dir/file",
+        "dir/subdir/file",
+        "dir/subdir/file2",
+        "dir2/file",
+        "dir3/file",
+        "dir3/file2",
+        "file",
+        "file2",
+        "file3",
+        "file4",
+        "file5",
+        "file6",
+        "file7",
+        "file8",
+        "file9",
+    },
+
+    fn open() !TestRepo {
+        const testrepo_pack = @embedFile("git/testdata/testrepo.pack");
+
+        var git_dir = testing.tmpDir(.{});
+        errdefer git_dir.cleanup();
+
+        var pack_file = try git_dir.dir.createFile("testrepo.pack", .{ .read = true });
+        errdefer pack_file.close();
+        try pack_file.writeAll(testrepo_pack);
+
+        var index_file = try git_dir.dir.createFile("testrepo.idx", .{ .read = true });
+        errdefer index_file.close();
+        try indexPack(testing.allocator, pack_file, index_file.writer());
+
+        var repository = try Repository.init(testing.allocator, pack_file, index_file);
+        errdefer repository.deinit();
+
+        return .{
+            .git_dir = git_dir,
+            .pack_file = pack_file,
+            .index_file = index_file,
+            .commit_id = try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb"),
+        };
+    }
+
+    fn close(tr: *TestRepo) void {
+        tr.index_file.close();
+        tr.pack_file.close();
+        tr.git_dir.cleanup();
+    }
+};
+
+test "packfile iterator" {
+    var repo = try TestRepo.open();
+    defer repo.close();
+
+    var repository = try Repository.init(testing.allocator, repo.pack_file, repo.index_file);
+    defer repository.deinit();
+
+    var iter = try repository.iterator(repo.commit_id);
+    defer iter.deinit();
+
+    var actual_files = std.ArrayList([]u8).init(testing.allocator);
+    defer actual_files.deinit();
+    defer for (actual_files.items) |file| testing.allocator.free(file);
+    while (try iter.next()) |entry| {
+        if (entry.type != .file) continue;
+        const path = try std.fs.path.join(testing.allocator, &.{ entry.path, entry.name });
+        errdefer testing.allocator.free(path);
+        mem.replaceScalar(u8, path, std.fs.path.sep, '/');
+        try actual_files.append(path);
+    }
+
+    mem.sortUnstable([]u8, actual_files.items, {}, struct {
+        fn lessThan(_: void, a: []u8, b: []u8) bool {
+            return mem.lessThan(u8, a, b);
+        }
+    }.lessThan);
+    try testing.expectEqualDeep(repo.expected_files, actual_files.items);
 }
 
 /// Checks out a commit of a packfile. Intended for experimenting with and
