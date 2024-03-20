@@ -410,9 +410,6 @@ pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAt
 
 pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
-pub const BufferedTee = @import("io/buffered_tee.zig").BufferedTee;
-pub const bufferedTee = @import("io/buffered_tee.zig").bufferedTee;
-
 pub const tty = @import("io/tty.zig");
 
 /// A Writer that doesn't write to anything.
@@ -709,5 +706,4 @@ test {
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
-    _ = @import("io/buffered_tee.zig");
 }
