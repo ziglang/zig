@@ -94,9 +94,6 @@ pub fn main() !void {
 
             if (blacklisted) continue;
 
-            if (std.mem.startsWith(u8, entry.basename, "api-ms-win-"))
-                continue;
-
             src_crt_dir.copyFile(entry.path, dest_crt_dir, entry.path, .{}) catch |err| {
                 std.log.err("unable to copy {s}: {s}", .{ entry.path, @errorName(err) });
                 fail = true;
