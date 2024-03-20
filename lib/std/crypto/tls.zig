@@ -9,9 +9,11 @@ const net = std.net;
 const mem = std.mem;
 const crypto = std.crypto;
 const assert = std.debug.assert;
+const testing = std.testing;
 const native_endian = builtin.cpu.arch.endian();
 pub const ServerOptions = Server.Options;
 pub const ClientOptions = Client.Options;
+const Allocator = std.mem.Allocator;
 
 pub const Version = enum(u16) {
     tls_1_0 = 0x0301,
@@ -167,7 +169,7 @@ pub const KeyUpdate = enum(u8) {
 /// A DER encoded certificate chain with the first entry being for this domain.
 pub const Certificate = struct {
     context: []const u8 = "",
-    entries: []const Entry,
+    entries: []const Entry = &.{},
 
     pub const max_context_len = 255;
 
@@ -590,7 +592,7 @@ pub const KeyShare = union(NamedGroup) {
     pub fn read(stream: *Stream) !Self {
         std.debug.assert(!stream.is_client);
 
-        var reader = stream.any().reader();
+        var reader = stream.stream().reader();
         const group = try stream.read(NamedGroup);
         const len = try stream.read(u16);
         switch (group) {
@@ -677,8 +679,7 @@ pub const HandshakeCipher = union(CipherSuite) {
         suite: CipherSuite,
         shared_key: []const u8,
         hello_hash: []const u8,
-        logger: std.io.AnyWriter,
-        client_random: []const u8,
+        logger: KeyLogger,
     ) Error!Self {
         switch (suite) {
             inline .aes_128_gcm_sha256,
@@ -688,7 +689,7 @@ pub const HandshakeCipher = union(CipherSuite) {
             .aegis_128l_sha256,
             => |tag| {
                 const T = std.meta.TagPayloadByName(Self, @tagName(tag));
-                const cipher = T.init(shared_key, hello_hash, logger, client_random);
+                const cipher = T.init(shared_key, hello_hash, logger);
                 return @unionInit(Self, @tagName(tag), cipher);
             },
             _ => return Error.TlsIllegalParameter,
@@ -708,8 +709,7 @@ pub const ApplicationCipher = union(CipherSuite) {
     pub fn init(
         handshake_cipher: HandshakeCipher,
         handshake_hash: []const u8,
-        logger: std.io.AnyWriter,
-        client_random: []const u8,
+        logger: KeyLogger,
     ) Self {
         switch (handshake_cipher) {
             inline .aes_128_gcm_sha256,
@@ -719,7 +719,7 @@ pub const ApplicationCipher = union(CipherSuite) {
             .aegis_128l_sha256,
             => |c, tag| {
                 const T = std.meta.TagPayloadByName(Self, @tagName(tag));
-                const cipher = T.init(c.handshake_secret, handshake_hash, logger, client_random);
+                const cipher = T.init(c.handshake_secret, handshake_hash, logger);
                 return @unionInit(Self, @tagName(tag), cipher);
             },
         }
@@ -1010,8 +1010,7 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
         pub fn init(
             shared_key: []const u8,
             hello_hash: []const u8,
-            logger: std.io.AnyWriter,
-            client_random: []const u8,
+            logger: KeyLogger,
         ) Self {
             const zeroes = [1]u8{0} ** Hash.digest_length;
             const early = Hkdf.extract(&[1]u8{0}, &zeroes);
@@ -1023,8 +1022,8 @@ fn HandshakeCipherT(comptime suite: CipherSuite) type {
             const server = hkdfExpandLabel(Hkdf, handshake, "s hs traffic", hello_hash, Hash.digest_length);
 
             // Not being able to log our secrets shouldn't prevent the handshake from continuing.
-            writeKeyLogEntry(logger, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", client_random, &client) catch {};
-            writeKeyLogEntry(logger, "SERVER_HANDSHAKE_TRAFFIC_SECRET", client_random, &server) catch {};
+            logger.writeLine("CLIENT_HANDSHAKE_TRAFFIC_SECRET", &client) catch {};
+            logger.writeLine("SERVER_HANDSHAKE_TRAFFIC_SECRET", &server) catch {};
 
             return .{
                 .handshake_secret = handshake,
@@ -1097,8 +1096,7 @@ fn ApplicationCipherT(comptime suite: CipherSuite) type {
         pub fn init(
             handshake_secret: [Hkdf.prk_length]u8,
             handshake_hash: []const u8,
-            logger: std.io.AnyWriter,
-            client_random: []const u8,
+            logger: KeyLogger,
         ) Self {
             const zeroes = [1]u8{0} ** Hash.digest_length;
             const empty_hash = emptyHash(Hash);
@@ -1109,8 +1107,8 @@ fn ApplicationCipherT(comptime suite: CipherSuite) type {
             const server = hkdfExpandLabel(Hkdf, master, "s ap traffic", handshake_hash, Hash.digest_length);
 
             // Not being able to log our secrets shouldn't prevent the handshake from continuing.
-            writeKeyLogEntry(logger, "CLIENT_TRAFFIC_SECRET_0", client_random, &client) catch {};
-            writeKeyLogEntry(logger, "SERVER_TRAFFIC_SECRET_0", client_random, &server) catch {};
+            logger.writeLine("CLIENT_TRAFFIC_SECRET_0", &client) catch {};
+            logger.writeLine("SERVER_TRAFFIC_SECRET_0", &server) catch {};
 
             return .{
                 .client_secret = client,
@@ -1322,48 +1320,44 @@ const TestStream = struct {
     }
 };
 
-test "tls client and server handshake, data, and close_notify" {
-    const allocator = std.testing.allocator;
-
-    var inner_stream = try TestStream.init(allocator);
-    defer inner_stream.deinit(allocator);
-    const stream = inner_stream.stream();
-
-    // Use these seeded values for reproducible handshake and application ciphertext.
-    const session_id: [32]u8 = ("session_id012345" ** 2).*;
+fn seededClientHandshake(allocator: Allocator, stream: std.io.AnyStream) !Client.Handshake {
     const client_random: [32]u8 = ("client_random012" ** 2).*;
-    const server_random: [32]u8 = ("server_random012" ** 2).*;
-    const client_key_seed: [32]u8 = ("client_seed01234" ** 2).*;
-    const server_keygen_seed: [48]u8 = ("server_seed01234" ** 3).*;
-    const server_sig_salt: [MultiHash.max_digest_len]u8 = ("server_sig_salt0" ** 4).*;
+    const session_id: [32]u8 = ("session_id012345" ** 2).*;
+    const client_key_seed: [16]u8 = "client_seed01234".*;
+    const key_pairs = try Client.Handshake.KeyPairs.initAdvanced(
+        client_key_seed ** 2,
+        client_key_seed ** 3,
+        client_key_seed ** 2,
+    );
 
-    const stdout = std.io.getStdOut();
-    var client_transcript: MultiHash = .{};
-    var client = Client{
-        .random = client_random,
-        .stream = Stream{
-            .stream = stream.any(),
-            .is_client = true,
-            .transcript_hash = &client_transcript,
-        },
+    return Client.Handshake{
+        .tls_stream = .{ .inner_stream = stream, .is_client = true },
         .options = .{
             .host = "localhost",
             .ca_bundle = null,
             .allocator = allocator,
-            .key_log = stdout.writer().any(),
         },
+        .client_random = client_random,
+        .session_id = session_id,
+        .key_pairs = key_pairs,
     };
+}
+
+fn seededServerHandshake(stream: std.io.AnyStream) !Server.Handshake {
+    const server_random: [32]u8 = ("server_random012" ** 2).*;
+    const server_keygen_seed: [48]u8 = ("server_seed01234" ** 3).*;
+    const server_sig_salt: [MultiHash.max_digest_len]u8 = ("server_sig_salt0" ** 4).*;
 
     const server_cert = @embedFile("./testdata/cert.der");
     const server_key = @embedFile("./testdata/key.der");
     const server_rsa = try crypto.Certificate.rsa.SecretKey.fromDer(server_key);
-    var server_transcript: MultiHash = .{};
-    var server = Server{
-        .stream = Stream{
-            .stream = stream.any(),
-            .is_client = false,
-            .transcript_hash = &server_transcript,
-        },
+
+    // For debugging
+    const stdout = std.io.getStdOut();
+    const key_log = stdout.writer().any();
+
+    return Server.Handshake{
+        .tls_stream = .{ .inner_stream = stream, .is_client = false },
         .options = .{
             .cipher_suites = &[_]CipherSuite{.aes_256_gcm_sha384},
             .key_shares = &[_]NamedGroup{.x25519},
@@ -1371,91 +1365,97 @@ test "tls client and server handshake, data, and close_notify" {
                 .{ .data = server_cert },
             } },
             .certificate_key = .{ .rsa = server_rsa },
+            .key_log = key_log,
         },
-    };
-
-    const key_pairs = try Client.KeyPairs.initAdvanced(
-        session_id,
-        client_key_seed,
-        client_key_seed ++ [_]u8{0} ** (48 - 32),
-        client_key_seed,
-    );
-    var client_command = Client.Command{ .send_hello = key_pairs };
-    client_command = try client.next(client_command);
-    try std.testing.expect(client_command == .recv_hello);
-
-    var server_command = Server.Command{ .recv_hello = .{
         .server_random = server_random,
         .keygen_seed = server_keygen_seed,
-    } };
-    server_command = try server.next(server_command); // recv_hello
-    try std.testing.expect(server_command == .send_hello);
+        .certificate_verify_salt = server_sig_salt,
+    };
+}
 
-    server_command = try server.next(server_command); // send_hello
-    try std.testing.expect(server_command == .send_change_cipher_spec);
+test "tls client and server handshake, data, and close_notify" {
+    const allocator = testing.allocator;
 
-    client_command = try client.next(client_command); // recv_hello
-    try std.testing.expect(client_command == .recv_encrypted_extensions);
+    var inner_stream = try TestStream.init(allocator);
+    defer inner_stream.deinit(allocator);
+    const stream = inner_stream.stream();
+
+    var c_hs = try seededClientHandshake(allocator, stream.any());
+    var s_hs = try seededServerHandshake(stream.any());
+
+    try c_hs.next();
+    try testing.expectEqual(.recv_hello, c_hs.command);
+
+    try s_hs.next(); // recv_hello
+    try testing.expectEqual(.send_hello, s_hs.command);
+
+    try s_hs.next(); // send_hello
+    try testing.expectEqual(.send_change_cipher_spec, s_hs.command);
+
+    try c_hs.next(); // recv_hello
+    try testing.expectEqual(.recv_encrypted_extensions, c_hs.command);
     {
-        const s = server.stream.cipher.handshake.aes_256_gcm_sha384;
-        const c = client.stream.cipher.handshake.aes_256_gcm_sha384;
+        const s = s_hs.tls_stream.cipher.handshake.aes_256_gcm_sha384;
+        const c = c_hs.tls_stream.cipher.handshake.aes_256_gcm_sha384;
 
-        try std.testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
-        try std.testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
-        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
-        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
-        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
-        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+        try testing.expectEqualSlices(u8, &s.server_finished_key, &c.server_finished_key);
+        try testing.expectEqualSlices(u8, &s.client_finished_key, &c.client_finished_key);
+        try testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+        try testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
     }
 
-    server_command = try server.next(server_command); // send_change_cipher_spec
-    try std.testing.expect(server_command == .send_encrypted_extensions);
-    server_command = try server.next(server_command); // send_encrypted_extensions
-    try std.testing.expect(server_command == .send_certificate);
-    server_command = try server.next(server_command); // send_certificate
-    try std.testing.expect(server_command == .send_certificate_verify);
-    server_command.send_certificate_verify.salt = server_sig_salt;
-    server_command = try server.next(server_command); // send_certificate_verify
-    try std.testing.expect(server_command == .send_finished);
-    server_command = try server.next(server_command); // send_finished
-    try std.testing.expect(server_command == .recv_finished);
+    try s_hs.next(); // send_change_cipher_spec
+    try testing.expectEqual(.send_encrypted_extensions, s_hs.command);
+    try s_hs.next(); // send_encrypted_extensions
+    try testing.expectEqual(.send_certificate, s_hs.command);
+    try s_hs.next(); // send_certificate
+    try testing.expectEqual(.send_certificate_verify, s_hs.command);
+    try s_hs.next(); // send_certificate_verify
+    try testing.expectEqual(.send_finished, s_hs.command);
+    try s_hs.next(); // send_finished
+    try testing.expectEqual(.recv_finished, s_hs.command);
 
-    client_command = try client.next(client_command); // recv_encrypted_extensions
-    try std.testing.expect(client_command == .recv_certificate_or_finished);
-    client_command = try client.next(client_command); // recv_certificate_or_finished (certificate)
-    try std.testing.expect(client_command == .recv_certificate_verify);
-    client_command = try client.next(client_command); // recv_certificate_verify
-    try std.testing.expect(client_command == .recv_finished);
-    client_command = try client.next(client_command); // recv_finished
-    try std.testing.expect(client_command == .send_change_cipher_spec);
-    client_command = try client.next(client_command); // send_change_cipher_spec
-    try std.testing.expect(client_command == .send_finished);
-    client_command = try client.next(client_command); // send_finished
-    try std.testing.expect(client_command == .none);
+    try c_hs.next(); // recv_encrypted_extensions
+    try testing.expectEqual(.recv_certificate_or_finished, c_hs.command);
+    try c_hs.next(); // recv_certificate_or_finished (certificate)
+    try testing.expectEqual(.recv_certificate_verify, c_hs.command);
+    try c_hs.next(); // recv_certificate_verify
+    try testing.expectEqual(.recv_finished, c_hs.command);
+    try c_hs.next(); // recv_finished
+    try testing.expectEqual(.send_change_cipher_spec, c_hs.command);
+    try c_hs.next(); // send_change_cipher_spec
+    try testing.expectEqual(.send_finished, c_hs.command);
+    try c_hs.next(); // send_finished
+    try testing.expectEqual(.none, c_hs.command);
 
-    server_command = try server.next(server_command); // recv_finished
-    try std.testing.expect(server_command == .none);
+    try s_hs.next(); // recv_finished
+    try testing.expectEqual(.none, s_hs.command);
     {
-        const s = server.stream.cipher.application.aes_256_gcm_sha384;
-        const c = client.stream.cipher.application.aes_256_gcm_sha384;
+        const s = s_hs.tls_stream.cipher.application.aes_256_gcm_sha384;
+        const c = c_hs.tls_stream.cipher.application.aes_256_gcm_sha384;
 
-        try std.testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
-        try std.testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
-        try std.testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
-        try std.testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
+        try testing.expectEqualSlices(u8, &s.client_key, &c.client_key);
+        try testing.expectEqualSlices(u8, &s.server_key, &c.server_key);
+        try testing.expectEqualSlices(u8, &s.client_iv, &c.client_iv);
+        try testing.expectEqualSlices(u8, &s.server_iv, &c.server_iv);
     }
 
-    try client.any().writer().writeAll("ping");
+    var client = try c_hs.handshake();
+    var server = try s_hs.handshake();
+
+    try client.stream().writer().writeAll("ping");
 
     var recv_ping: [4]u8 = undefined;
-    _ = try server.stream.any().reader().readAll(&recv_ping);
-    try std.testing.expectEqualStrings("ping", &recv_ping);
+    _ = try server.tls_stream.stream().reader().readAll(&recv_ping);
+    try testing.expectEqualStrings("ping", &recv_ping);
 
-    server.stream.close();
-    try std.testing.expect(server.stream.closed);
+    server.tls_stream.close();
+    try testing.expect(server.tls_stream.closed);
 
-    _ = try client.stream.readPlaintext();
-    try std.testing.expect(client.stream.closed);
+    _ = try client.stream().reader().discard();
+    try testing.expect(client.tls_stream.closed);
 }
 
 pub fn debugPrint(name: []const u8, slice: anytype) void {
@@ -1468,16 +1468,29 @@ pub fn debugPrint(name: []const u8, slice: anytype) void {
     std.debug.print("\n", .{});
 }
 
-pub fn writeKeyLogEntry(
-    writer: std.io.AnyWriter,
-    label: []const u8,
-    client_random: []const u8,
-    secret: []const u8,
-) !void {
-    try writer.writeAll(label);
-    try writer.writeByte(' ');
-    for (client_random) |b| writer.print("{x:0>2}", .{b}) catch {};
-    try writer.writeByte(' ');
-    for (secret) |b| writer.print("{x:0>2}", .{b}) catch {};
-    try writer.writeByte('\n');
-}
+/// https://www.ietf.org/archive/id/draft-thomson-tls-keylogfile-01.html
+pub const KeyLogger = struct {
+    /// Copy of `options.key_log`. Needed for `key_update` messages.
+    writer: std.io.AnyWriter = std.io.null_writer.any(),
+    /// The value received in our `ClientHello` message.
+    /// Used as a session identifier in messages sent to `key_log`.
+    client_random: [32]u8 = undefined,
+    // For logging after `key_update` messages.
+    server_update_n: u32 = 0,
+    client_update_n: u32 = 0,
+
+    pub fn writeLine(
+        self: @This(),
+        label: []const u8,
+        secret: []const u8,
+    ) !void {
+        var w = self.writer;
+
+        try w.writeAll(label);
+        try w.writeByte(' ');
+        for (self.client_random) |b| w.print("{x:0>2}", .{b}) catch {};
+        try w.writeByte(' ');
+        for (secret) |b| w.print("{x:0>2}", .{b}) catch {};
+        try w.writeByte('\n');
+    }
+};

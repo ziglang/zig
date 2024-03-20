@@ -11,7 +11,7 @@
 const std = @import("../../std.zig");
 const tls = std.crypto.tls;
 
-stream: std.io.AnyStream,
+inner_stream: std.io.AnyStream,
 /// Used for both reading and writing.
 /// Stores plaintext or briefly ciphertext, but not Plaintext headers.
 buffer: [fragment_size]u8 = undefined,
@@ -23,11 +23,10 @@ view: []const u8 = "",
 content_type: ContentType = .handshake,
 /// When sending this is the flushed version.
 version: Version = .tls_1_0,
-/// When receiving a handshake message will be expected with this type.
+/// When receiving a handshake message this is its expected type.
 handshake_type: ?HandshakeType = .client_hello,
 
-/// Used to decrypt .application_data messages.
-/// Used to encrypt messages that aren't alert or change_cipher_spec.
+/// Used to encrypt and decrypt messages.
 cipher: Cipher = .none,
 
 /// True when we send or receive a close_notify alert.
@@ -35,15 +34,15 @@ closed: bool = false,
 
 /// True if we're being used as a client. This changes:
 ///     * Certain shared struct formats (like Extension)
-///     * Which ciphers are used for encoding/decoding handshake and application messages.
+///     * Which cipher members are used for encryption/decryption
 is_client: bool,
 
-/// When > 0 won't actually do anything with writes. Used to discover prefix lengths.
-nocommit: usize = 0,
+/// When > 0 will discard writes. Used to discover prefix lengths.
+nocommit: u32 = 0,
 
-/// Client and server implementations can set this. While set sent or received handshake messages
-/// will update the hash.
-transcript_hash: ?*MultiHash,
+/// Client and server implementations can set this to cause
+/// sent and received handshake messages to update the hash.
+transcript_hash: ?*MultiHash = null,
 
 const Self = @This();
 const ContentType = tls.ContentType;
@@ -64,7 +63,6 @@ const Cipher = union(enum) {
     handshake: HandshakeCipher,
 };
 
-// Useful mostly as reference or until std.io.Any* types don't type erase errors.
 pub const ReadError = anyerror || tls.Error || error{EndOfStream};
 pub const WriteError = anyerror || error{TlsEncodeError};
 
@@ -125,9 +123,9 @@ pub fn flush(self: *Self) WriteError!void {
     }
 
     // TODO: contiguous buffer management
-    try self.stream.writer().writeAll(&header);
-    try self.stream.writer().writeAll(self.view);
-    try self.stream.writer().writeAll(aead);
+    try self.inner_stream.writer().writeAll(&header);
+    try self.inner_stream.writer().writeAll(self.view);
+    try self.inner_stream.writer().writeAll(aead);
     self.view = self.buffer[0..0];
 }
 
@@ -143,8 +141,8 @@ pub fn changeCipherSpec(self: *Self) !void {
     const msg = [_]u8{1};
     const header: [Plaintext.size]u8 = Encoder.encode(Plaintext, plaintext);
     // TODO: contiguous buffer management
-    try self.stream.writer().writeAll(&header);
-    try self.stream.writer().writeAll(&msg);
+    try self.inner_stream.writer().writeAll(&header);
+    try self.inner_stream.writer().writeAll(&msg);
 }
 
 /// Write an alert to stream and call `close_notify` after. Returns Zig error.
@@ -205,7 +203,7 @@ pub fn writeArray(self: *Self, comptime PrefixT: type, comptime T: type, values:
 
 /// Returns number of bytes written. Convienent for encoding struct types in tls.zig .
 pub fn writeAll(self: *Self, bytes: []const u8) !usize {
-    try self.any().writer().writeAll(bytes);
+    try self.stream().writer().writeAll(bytes);
     return bytes.len;
 }
 
@@ -213,7 +211,7 @@ pub fn write(self: *Self, comptime T: type, value: T) !usize {
     switch (@typeInfo(T)) {
         .Int, .Enum => {
             const encoded = Encoder.encode(T, value);
-            try self.any().writer().writeAll(&encoded);
+            try self.stream().writer().writeAll(&encoded);
             return encoded.len;
         },
         .Struct, .Union => {
@@ -255,7 +253,7 @@ pub fn readv(self: *Self, iov: []const std.os.iovec) ReadError!usize {
 
     for (iov) |b| {
         var bytes_read_buffer: usize = 0;
-        while (bytes_read_buffer != b.iov_len) {
+        while (bytes_read_buffer != b.iov_len and !self.eof()) {
             const to_read = @min(b.iov_len, self.view.len);
             if (to_read == 0) return bytes_read;
 
@@ -279,14 +277,14 @@ pub fn readPlaintext(self: *Self) !Plaintext {
     var n_read: usize = 0;
 
     while (true) {
-        n_read = try self.stream.reader().readAll(&plaintext_bytes);
+        n_read = try self.inner_stream.reader().readAll(&plaintext_bytes);
         if (n_read != plaintext_bytes.len) return self.writeError(.decode_error);
 
         var res = Plaintext.init(plaintext_bytes);
         if (res.len > Plaintext.max_length) return self.writeError(.record_overflow);
 
         self.view = self.buffer[0..res.len];
-        n_read = try self.stream.reader().readAll(@constCast(self.view));
+        n_read = try self.inner_stream.reader().readAll(@constCast(self.view));
         if (n_read != res.len) return self.writeError(.decode_error);
 
         const encryption_method = self.encryptionMethod(res.type);
@@ -388,10 +386,7 @@ pub fn expectInnerPlaintext(
     expected_handshake: ?HandshakeType,
 ) !void {
     const inner_plaintext = try self.readInnerPlaintext();
-    if (expected_content != inner_plaintext.type) {
-        std.debug.print("expected {} got {}\n", .{ expected_content, inner_plaintext });
-        return self.writeError(.unexpected_message);
-    }
+    if (expected_content != inner_plaintext.type) return self.writeError(.unexpected_message);
     if (expected_handshake) |expected| {
         if (expected != inner_plaintext.handshake_type) return self.writeError(.decode_error);
     }
@@ -400,7 +395,7 @@ pub fn expectInnerPlaintext(
 pub fn read(self: *Self, comptime T: type) !T {
     comptime std.debug.assert(@sizeOf(T) < fragment_size);
     switch (@typeInfo(T)) {
-        .Int => return self.any().reader().readInt(T, .big) catch |err| switch (err) {
+        .Int => return self.stream().reader().readInt(T, .big) catch |err| switch (err) {
             error.EndOfStream => return self.writeError(.decode_error),
             else => |e| return e,
         },
@@ -478,7 +473,7 @@ pub fn eof(self: Self) bool {
 
 pub const GenericStream = std.io.GenericStream(*Self, ReadError, readv, WriteError, writev, close);
 
-pub fn any(self: *Self) GenericStream {
+pub fn stream(self: *Self) GenericStream {
     return .{ .context = self };
 }
 

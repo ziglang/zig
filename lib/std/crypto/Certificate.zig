@@ -1260,7 +1260,7 @@ pub const rsa = struct {
             return try fromBytes(modulus, exponent);
         }
 
-        fn encrypt(self: PublicKey, comptime modulus_len: usize, msg: [modulus_len]u8) ![modulus_len]u8 {
+        pub fn encrypt(self: PublicKey, comptime modulus_len: usize, msg: [modulus_len]u8) ![modulus_len]u8 {
             const m = Fe.fromBytes(self.n, &msg, .big) catch return error.MessageTooLong;
             const e = self.n.powPublic(m, self.e) catch unreachable;
             var res: [modulus_len]u8 = undefined;
@@ -1308,7 +1308,7 @@ pub const rsa = struct {
             return try fromBytes(modulus, pub_exponent, priv_exponent);
         }
 
-        fn decrypt(self: SecretKey, comptime modulus_len: usize, msg: [modulus_len]u8) ![modulus_len]u8 {
+        pub fn decrypt(self: SecretKey, comptime modulus_len: usize, msg: [modulus_len]u8) ![modulus_len]u8 {
             const m = Fe.fromBytes(self.public.n, &msg, .big) catch return error.MessageTooLong;
             const e = self.public.n.pow(m, self.d) catch unreachable;
             var res: [modulus_len]u8 = undefined;
