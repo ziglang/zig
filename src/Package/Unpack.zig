@@ -57,7 +57,7 @@ pub const Errors = struct {
     fn createFile(self: *Errors, subdir_path: []const u8, file_path: []const u8, err: anyerror) !void {
         try self.list.append(self.allocator, .{ .unable_to_create_file = .{
             .code = err,
-            .file_name = try std.fs.path.join(testing.allocator, &.{ subdir_path, file_path }),
+            .file_name = try std.fs.path.join(self.allocator, &.{ subdir_path, file_path }),
         } });
     }
 
@@ -65,7 +65,7 @@ pub const Errors = struct {
         try self.list.append(self.allocator, .{ .unable_to_create_sym_link = .{
             .code = err,
             .target_path = try self.allocator.dupe(u8, target_path),
-            .sym_link_path = try std.fs.path.join(testing.allocator, &.{ subdir_path, sym_link_path }),
+            .sym_link_path = try std.fs.path.join(self.allocator, &.{ subdir_path, sym_link_path }),
         } });
     }
 
