@@ -2799,6 +2799,16 @@ fn buildOutputType(
 
     const target = main_mod.resolved_target.result;
 
+    if (target.os.tag == .windows and major_subsystem_version == null and minor_subsystem_version == null) {
+        major_subsystem_version, minor_subsystem_version = switch (target.os.version_range.windows.min) {
+            .nt4 => .{ 4, 0 },
+            .win2k => .{ 5, 0 },
+            .xp => if (target.cpu.arch == .x86_64) .{ 5, 2 } else .{ 5, 1 },
+            .ws2003 => .{ 5, 2 },
+            else => .{ null, null },
+        };
+    }
+
     if (target.ofmt != .coff) {
         if (manifest_file != null) {
             fatal("manifest file is not allowed unless the target object format is coff (Windows/UEFI)", .{});
