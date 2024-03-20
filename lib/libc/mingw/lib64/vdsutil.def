@@ -262,6 +262,5 @@ EXPORTS
 ?WindowProcEntry@CVdsPnPNotificationBase@@CA_JPEAUHWND__@@I_K_J@Z
 ; public: void __cdecl CVdsAsyncObjectBase::ZeroAsyncOut(void) __ptr64
 ?ZeroAsyncOut@CVdsAsyncObjectBase@@QEAAXXZ
-DllMain
 RegisterVdsFabric
 UnregisterVdsFabric

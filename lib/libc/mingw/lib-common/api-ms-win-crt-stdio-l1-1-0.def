@@ -39,6 +39,7 @@ _eof
 eof == _eof
 _fclose_nolock
 _fcloseall
+fcloseall == _fcloseall
 _fflush_nolock
 _fgetc_nolock
 _fgetchar

@@ -14,7 +14,6 @@ ClearAutoLogon
 DllCanUnloadNow
 DllGetClassObject
 DllInstall
-DllMain
 DllRegisterServer
 DllUnregisterServer
 NetAccessWizard

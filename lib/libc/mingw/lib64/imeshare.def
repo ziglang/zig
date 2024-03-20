@@ -6,7 +6,6 @@
 ;
 LIBRARY imeshare.dll
 EXPORTS
-DllMain
 FInitIMEShare
 EndIMEShare
 FRefreshStyle

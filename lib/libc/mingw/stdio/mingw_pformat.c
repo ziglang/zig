@@ -1026,6 +1026,8 @@ void __pformat_xint( int fmt, __pformat_intarg_t value, __pformat_t *stream )
     __pformat_putc( '\x20', stream );
 }
 
+#include "../gdtoa/gdtoa.h"
+
 typedef union
 {
   /* A multifaceted representation of an IEEE extended precision,
@@ -1039,14 +1041,8 @@ typedef union
     signed short         __pformat_fpreg_exponent;
   };
   unsigned short         __pformat_fpreg_bitmap[5];
-  unsigned int           __pformat_fpreg_bits;
+  ULong                  __pformat_fpreg_bits;
 } __pformat_fpreg_t;
-
-#ifdef _WIN32
-/* TODO: make this unconditional in final release...
- * (see note at head of associated `#else' block.
- */
-#include "../gdtoa/gdtoa.h"
 
 static __pformat_fpreg_t init_fpreg_ldouble( long double val )
 {
@@ -1166,61 +1162,6 @@ char *__pformat_fcvt( long double x, int precision, int *dp, int *sign )
  */
 #define __pformat_ecvt_release( value ) __freedtoa( value )
 #define __pformat_fcvt_release( value ) __freedtoa( value )
-
-#else
-/*
- * TODO: remove this before final release; it is included here as a
- * convenience for testing, without requiring a working `__gdtoa()'.
- */
-static
-char *__pformat_ecvt( long double x, int precision, int *dp, int *sign )
-{
-  /* Define in terms of `ecvt()'...
-   */
-  char *retval = ecvt( (double)(x), precision, dp, sign );
-  if( isinf( x ) || isnan( x ) )
-  {
-    /* emulating `__gdtoa()' reporting for infinities and NaN.
-     */
-    *dp = PFORMAT_INFNAN;
-    if( *retval == '-' )
-    {
-      /* Need to force the `sign' flag, (particularly for NaN).
-       */
-      ++retval; *sign = 1;
-    }
-  }
-  return retval;
-}
-
-static
-char *__pformat_fcvt( long double x, int precision, int *dp, int *sign )
-{
-  /* Define in terms of `fcvt()'...
-   */
-  char *retval = fcvt( (double)(x), precision, dp, sign );
-  if( isinf( x ) || isnan( x ) )
-  {
-    /* emulating `__gdtoa()' reporting for infinities and NaN.
-     */
-    *dp = PFORMAT_INFNAN;
-    if( *retval == '-' )
-    {
-      /* Need to force the `sign' flag, (particularly for NaN).
-       */
-      ++retval; *sign = 1;
-    }
-  }
-  return retval;
-}
-
-/* No memory pool clean up needed, for these emulated cases...
- */
-#define __pformat_ecvt_release( value ) /* nothing to be done */
-#define __pformat_fcvt_release( value ) /* nothing to be done */
-
-/* TODO: end of conditional to be removed. */
-#endif
 
 static
 void __pformat_emit_radix_point( __pformat_t *stream )

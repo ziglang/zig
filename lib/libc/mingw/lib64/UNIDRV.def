@@ -6,7 +6,6 @@
 ;
 LIBRARY unidrv.dll
 EXPORTS
-DllMain
 DrvDisableDriver
 DrvEnableDriver
 DrvQueryDriverInfo
