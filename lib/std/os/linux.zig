@@ -2264,7 +2264,7 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => enum(i32) {
+    .mips, .mipsel => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -2406,7 +2406,7 @@ pub const E = switch (native_arch) {
 
         pub const init = errnoFromSyscall;
     },
-    .sparc, .sparcel, .sparc64 => enum(i32) {
+    .sparc, .sparcel, .sparc64 => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 

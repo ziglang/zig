@@ -39,12 +39,8 @@ const linux = std.os.linux;
 const windows = std.os.windows;
 const wasi = std.os.wasi;
 
-/// Applications can override the `system` API layer in their root source file.
-/// Otherwise, when linking libc, this is the C API.
-/// When not linking libc, it is the OS-specific system interface.
-pub const system = if (@hasDecl(root, "os") and @hasDecl(root.os, "system") and root.os != @This())
-    root.os.system
-else if (use_libc)
+/// A libc-compatible API layer.
+pub const system = if (use_libc)
     std.c
 else switch (native_os) {
     .linux => linux,
