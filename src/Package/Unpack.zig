@@ -54,18 +54,18 @@ pub const Errors = struct {
         return self.list.items.len;
     }
 
-    fn createFile(self: *Errors, sub_path: []const u8, err: anyerror) !void {
+    fn createFile(self: *Errors, subdir_path: []const u8, file_path: []const u8, err: anyerror) !void {
         try self.list.append(self.allocator, .{ .unable_to_create_file = .{
             .code = err,
-            .file_name = try self.allocator.dupe(u8, sub_path),
+            .file_name = try std.fs.path.join(testing.allocator, &.{ subdir_path, file_path }),
         } });
     }
 
-    fn symLink(self: *Errors, target_path: []const u8, sym_link_path: []const u8, err: anyerror) !void {
+    fn symLink(self: *Errors, subdir_path: []const u8, target_path: []const u8, sym_link_path: []const u8, err: anyerror) !void {
         try self.list.append(self.allocator, .{ .unable_to_create_sym_link = .{
             .code = err,
             .target_path = try self.allocator.dupe(u8, target_path),
-            .sym_link_path = try self.allocator.dupe(u8, sym_link_path),
+            .sym_link_path = try std.fs.path.join(testing.allocator, &.{ subdir_path, sym_link_path }),
         } });
     }
 
@@ -116,7 +116,7 @@ pub fn tarball(self: *Self, reader: anytype) !void {
                     if (entry.size == 0 and entry.name.len == 0) continue;
                     const file_name = stripComponents(entry.name, strip_components);
                     if (file_name.len == 0) return error.BadFileName;
-                    if (try self.createFile(file_name)) |file| {
+                    if (try self.createFile("", file_name)) |file| {
                         defer file.close();
                         try entry.writeAll(file);
                     }
@@ -125,7 +125,7 @@ pub fn tarball(self: *Self, reader: anytype) !void {
                     const file_name = stripComponents(entry.name, strip_components);
                     if (file_name.len == 0) return error.BadFileName;
                     const link_name = entry.link_name;
-                    try self.symLink(link_name, file_name);
+                    try self.symLink("", link_name, file_name);
                 },
             }
         } else break;
@@ -133,21 +133,6 @@ pub fn tarball(self: *Self, reader: anytype) !void {
 }
 
 pub fn gitPack(self: *Self, commit_oid: git.Oid, reader: anytype) !void {
-    // Same interface as std.fs.Dir.createFile, symLink
-    const inf = struct {
-        parent: *Self,
-
-        pub fn makePath(_: @This(), _: []const u8) !void {}
-
-        pub fn createFile(t: @This(), sub_path: []const u8, _: fs.File.CreateFlags) !fs.File {
-            return (try t.parent.createFile(sub_path)) orelse error.Skip;
-        }
-
-        pub fn symLink(t: @This(), target_path: []const u8, sym_link_path: []const u8, _: fs.Dir.SymLinkFlags) !void {
-            try t.parent.symLink(target_path, sym_link_path);
-        }
-    }{ .parent = self };
-
     var pack_dir = try self.root.makeOpenPath(".git", .{});
     defer pack_dir.close();
     var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
@@ -168,7 +153,22 @@ pub fn gitPack(self: *Self, commit_oid: git.Oid, reader: anytype) !void {
     {
         var repository = try git.Repository.init(self.allocator, pack_file, index_file);
         defer repository.deinit();
-        try repository.checkout(inf, commit_oid);
+        var iter = try repository.iterator(commit_oid);
+        defer iter.deinit();
+        while (try iter.next()) |entry| {
+            switch (entry.type) {
+                .file => {
+                    if (try self.createFile(entry.path, entry.name)) |file| {
+                        defer file.close();
+                        try file.writeAll(entry.data);
+                    }
+                },
+                .symlink => {
+                    try self.symLink(entry.path, entry.data, entry.name);
+                },
+                else => {}, // skip empty directory
+            }
+        }
     }
 
     try self.root.deleteTree(".git");
@@ -186,7 +186,7 @@ pub fn directory(self: *Self, source: fs.Dir) !void {
             .sym_link => {
                 var buf: [fs.MAX_PATH_BYTES]u8 = undefined;
                 const link_name = try source.readLink(entry.path, &buf);
-                try self.symLink(link_name, entry.path);
+                try self.symLink("", link_name, entry.path);
             },
             else => return error.IllegalFileTypeInPackage,
         }
@@ -201,6 +201,12 @@ pub fn filterErrors(self: *Self, filter: Filter) !void {
     try self.errors.filterWith(filter);
 }
 
+fn makePath(self: *Self, sub_path: []const u8) !fs.Dir {
+    if (sub_path.len == 0) return self.root;
+    try self.root.makePath(sub_path);
+    return try self.root.openDir(sub_path, .{});
+}
+
 fn copyFile(source_dir: fs.Dir, source_path: []const u8, dest_dir: fs.Dir, dest_path: []const u8) !void {
     source_dir.copyFile(source_path, dest_dir, dest_path, .{}) catch |err| switch (err) {
         error.FileNotFound => {
@@ -213,32 +219,44 @@ fn copyFile(source_dir: fs.Dir, source_path: []const u8, dest_dir: fs.Dir, dest_
 
 /// Returns fs.File on success, null on failure.
 /// Errors are collected in errors list.
-fn createFile(self: *Self, sub_path: []const u8) !?fs.File {
-    return createFilePath(self.root, sub_path) catch |err| {
-        try self.errors.createFile(sub_path, err);
+fn createFile(self: *Self, subdir_path: []const u8, file_path: []const u8) !?fs.File {
+    return createFilePath(self.root, subdir_path, file_path) catch |err| {
+        try self.errors.createFile(subdir_path, file_path, err);
         return null;
     };
 }
 
-fn symLink(self: *Self, target_path: []const u8, sym_link_path: []const u8) !void {
-    symLinkPath(self.root, target_path, sym_link_path) catch |err| {
-        try self.errors.symLink(target_path, sym_link_path, err);
+fn symLink(self: *Self, subdir_path: []const u8, target_path: []const u8, sym_link_path: []const u8) !void {
+    symLinkPath(self.root, subdir_path, target_path, sym_link_path) catch |err| {
+        try self.errors.symLink(subdir_path, target_path, sym_link_path, err);
     };
 }
 
-fn createFilePath(dir: fs.Dir, sub_path: []const u8) !fs.File {
-    return dir.createFile(sub_path, .{ .exclusive = true }) catch |err| switch (err) {
+fn createFilePath(root: fs.Dir, subdir_path: []const u8, file_path: []const u8) !fs.File {
+    var dir = root;
+    if (subdir_path.len > 0) {
+        try dir.makePath(subdir_path);
+        dir = try dir.openDir(subdir_path, .{});
+    }
+
+    return dir.createFile(file_path, .{ .exclusive = true }) catch |err| switch (err) {
         error.FileNotFound => {
-            if (std.fs.path.dirname(sub_path)) |dirname| try dir.makePath(dirname);
-            return try dir.createFile(sub_path, .{ .exclusive = true });
+            if (std.fs.path.dirname(file_path)) |dirname| try dir.makePath(dirname);
+            return try dir.createFile(file_path, .{ .exclusive = true });
         },
         else => |e| return e,
     };
 }
 
-fn symLinkPath(dir: fs.Dir, target_path: []const u8, sym_link_path: []const u8) !void {
+fn symLinkPath(root: fs.Dir, subdir_path: []const u8, target_path: []const u8, sym_link_path: []const u8) !void {
     // TODO: if this would create a symlink to outside
     // the destination directory, fail with an error instead.
+    var dir = root;
+    if (subdir_path.len > 0) {
+        try dir.makePath(subdir_path);
+        dir = try dir.openDir(subdir_path, .{});
+    }
+
     dir.symLink(target_path, sym_link_path, .{}) catch |err| switch (err) {
         error.FileNotFound => {
             if (fs.path.dirname(sym_link_path)) |dirname| try dir.makePath(dirname);
@@ -275,40 +293,21 @@ test "tar stripComponents" {
 }
 
 test gitPack {
-    const paths: []const []const u8 = &.{
-        "dir/file",
-        "dir/subdir/file",
-        "dir/subdir/file2",
-        "dir2/file",
-        "dir3/file",
-        "dir3/file2",
-        "file",
-        "file2",
-        "file3",
-        "file4",
-        "file5",
-        "file6",
-        "file7",
-        "file8",
-        "file9",
-    };
-
-    // load git pack with expected files
-    const data = @embedFile("Fetch/git/testdata/testrepo.pack");
-    var fbs = std.io.fixedBufferStream(data);
-
     var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
-    // unpack git pack
+    const repo = git.TestRepo;
+    var stream = repo.stream();
+    const reader = stream.reader();
+
+    // Unpack git repo at commitID from reader
     {
         var unpack = Unpack.init(testing.allocator, tmp.dir);
         defer unpack.deinit();
-        const commit_id = try git.parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");
-        try unpack.gitPack(commit_id, fbs.reader());
+        try unpack.gitPack(try repo.commitID(), reader);
     }
 
-    try expectDirFiles(tmp.dir, paths);
+    try expectDirFiles(tmp.dir, repo.expected_files);
 }
 
 const TarHeader = std.tar.output.Header;
@@ -354,7 +353,7 @@ test directory {
     defer source.cleanup();
 
     for (paths) |path| {
-        const f = try createFilePath(source.dir, path);
+        const f = try createFilePath(source.dir, "", path);
         f.close();
     }
 
@@ -453,6 +452,3 @@ fn expectDirFiles(dir: fs.Dir, expected_files: []const []const u8) !void {
     }.lessThan);
     try testing.expectEqualDeep(expected_files, actual_files.items);
 }
-
-// var buf: [256]u8 = undefined;
-// std.debug.print("tmp dir: {s}\n", .{try tmp.dir.realpath(".", &buf)});

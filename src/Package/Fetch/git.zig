@@ -1479,7 +1479,7 @@ test "packfile indexing and checkout" {
             return mem.lessThan(u8, a, b);
         }
     }.lessThan);
-    try testing.expectEqualDeep(repo.expected_files, actual_files.items);
+    try testing.expectEqualDeep(TestRepo.expected_files, actual_files.items);
 
     const expected_file_contents =
         \\revision 1
@@ -1502,12 +1502,13 @@ test "packfile indexing and checkout" {
     try testing.expectEqualStrings(expected_file_contents, actual_file_contents);
 }
 
-const TestRepo = struct {
+pub const TestRepo = struct {
     git_dir: testing.TmpDir,
     pack_file: std.fs.File,
     index_file: std.fs.File,
     commit_id: Oid,
-    expected_files: []const []const u8 = &.{
+
+    pub const expected_files: []const []const u8 = &.{
         "dir/file",
         "dir/subdir/file",
         "dir/subdir/file2",
@@ -1523,11 +1524,11 @@ const TestRepo = struct {
         "file7",
         "file8",
         "file9",
-    },
+    };
 
-    fn open() !TestRepo {
-        const testrepo_pack = @embedFile("git/testdata/testrepo.pack");
+    const testrepo_pack = @embedFile("git/testdata/testrepo.pack");
 
+    pub fn open() !TestRepo {
         var git_dir = testing.tmpDir(.{});
         errdefer git_dir.cleanup();
 
@@ -1550,7 +1551,15 @@ const TestRepo = struct {
         };
     }
 
-    fn close(tr: *TestRepo) void {
+    pub fn stream() std.io.FixedBufferStream([]const u8) {
+        return .{ .buffer = testrepo_pack, .pos = 0 };
+    }
+
+    pub fn commitID() !Oid {
+        return try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb");
+    }
+
+    pub fn close(tr: *TestRepo) void {
         tr.index_file.close();
         tr.pack_file.close();
         tr.git_dir.cleanup();
@@ -1583,7 +1592,7 @@ test "packfile iterator" {
             return mem.lessThan(u8, a, b);
         }
     }.lessThan);
-    try testing.expectEqualDeep(repo.expected_files, actual_files.items);
+    try testing.expectEqualDeep(TestRepo.expected_files, actual_files.items);
 }
 
 /// Checks out a commit of a packfile. Intended for experimenting with and
