@@ -13,6 +13,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
 
         pub const Error = ReaderType.Error;
         pub const Reader = io.Reader(*Self, Error, read);
+        pub const PeekError = Error || error{EndOfStream};
 
         const Self = @This();
 
@@ -39,27 +40,52 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
             return dest.len;
         }
 
-        /// Peek reads bytes into `dest` and returns the amount read without advancing the reader.
-        /// If the `dest` size is too small for the desired peek amount, partially fill `dest`
-        /// with as much data as fits.
-        /// The minimum amount that will always be available for peeking is the BufferedReader's `buffer_size`.
-        pub fn peek(self: *Self, dest: []u8) !usize {
-            if (dest.len <= self.end - self.start) {
+        /// Returns the next `n` bytes without advancing.
+        ///
+        /// The returned slice is a subslice of the buffer, which may or may not start
+        /// from the beginning. The length of the returned slice is always `n`.
+        ///
+        /// Asserts that the number of requested bytes is less than or equal to the
+        /// buffer size.
+        pub fn peek(self: *Self, n: usize) PeekError![]const u8 {
+            assert(n <= self.buf.len);
+
+            if (n <= self.end - self.start) {
                 // Already enough read.
-                @memcpy(dest, self.buf[self.start..][0..dest.len]);
-                return dest.len;
+                return self.buf[self.start..][0..n];
             }
-            if (dest.len > self.buf.len - self.start) {
-                // Shift buffer's data to free up as much room as available.
+            if (n > self.buf.len - self.start) {
+                // Shift buffer's data to free up as much room as possible.
                 std.mem.copyForwards(u8, &self.buf, self.buf[self.start..self.end]);
                 self.end -= self.start;
                 self.start = 0;
             }
-            const n = try self.unbuffered_reader.read(self.buf[self.end..]);
-            self.end += n;
-            const peeked = @min(dest.len, self.end - self.start);
-            @memcpy(dest[0..peeked], self.buf[self.start..][0..peeked]);
-            return peeked;
+            self.end += try self.unbuffered_reader.read(self.buf[self.end..]);
+            const peeked = @min(n, self.end - self.start);
+            return self.buf[self.start..][0..peeked];
+        }
+
+        /// Discards the next `n` bytes and returns the number of discarded bytes.
+        ///
+        /// Asserts that the number of discared bytes is less than or equal to the
+        /// buffer size.
+        pub fn discard(self: *Self, n: usize) Error!usize {
+            assert(n <= self.buf.len);
+
+            if (n <= self.end - self.start) {
+                self.start += n;
+                return n;
+            }
+            var to_discard = n - (self.end - self.start);
+            while (to_discard > 0) {
+                const buf = self.buf[0..@min(to_discard, self.buf.len)];
+                const r = try self.unbuffered_reader.read(buf);
+                if (r == 0) break;
+                to_discard -= r;
+            }
+            self.start = 0;
+            self.end = 0;
+            return n - to_discard;
         }
 
         pub fn reader(self: *Self) Reader {
@@ -224,8 +250,8 @@ test "BufferedReader.peek" {
         var br = bufferedReader(fbs.reader());
         var out: [2]u8 = undefined;
 
-        const p = try br.peek(out[0..]);
-        try testing.expectEqualSlices(u8, "ab", out[0..p]);
+        const p = try br.peek(2);
+        try testing.expectEqualSlices(u8, "ab", p);
 
         const n = try br.read(out[0..]);
         try testing.expectEqualSlices(u8, "ab", out[0..n]);
@@ -238,23 +264,22 @@ test "BufferedReader.peek" {
 
         _ = try br.read(out[0..]);
 
-        const p = try br.peek(out[0..]);
-        try testing.expectEqualSlices(u8, "cd", out[0..p]);
+        const p = try br.peek(2);
+        try testing.expectEqualSlices(u8, "cd", p);
     }
     {
         // multiple peeks
         fbs.reset();
         var br = bufferedReader(fbs.reader());
-        var out: [4]u8 = undefined;
 
-        const p1 = try br.peek(out[0..2]);
-        try testing.expectEqualSlices(u8, "ab", out[0..p1]);
+        const p1 = try br.peek(2);
+        try testing.expectEqualSlices(u8, "ab", p1);
 
-        const p2 = try br.peek(out[0..4]);
-        try testing.expectEqualSlices(u8, "abcd", out[0..p2]);
+        const p2 = try br.peek(4);
+        try testing.expectEqualSlices(u8, "abcd", p2);
 
-        const p3 = try br.peek(out[0..1]);
-        try testing.expectEqualSlices(u8, "a", out[0..p3]);
+        const p3 = try br.peek(1);
+        try testing.expectEqualSlices(u8, "a", p3);
     }
 
     {
@@ -267,7 +292,34 @@ test "BufferedReader.peek" {
 
         _ = try br.read(out[0..2]);
 
-        const p = try br.peek(out[0..]);
-        try testing.expectEqualSlices(u8, "cdefgh", out[0..p]);
+        const p = try br.peek(8);
+        try testing.expectEqualSlices(u8, "cdefgh", p);
+    }
+}
+
+test "BufferedReader.discard" {
+    var fbs = io.fixedBufferStream("abcdefgh");
+    {
+        // discard some
+        var br = bufferedReader(fbs.reader());
+        var out: [8]u8 = undefined;
+
+        const p = try br.discard(2);
+        try testing.expect(p == 2);
+
+        const n = try br.read(out[0..]);
+        try testing.expectEqualSlices(u8, "cdefgh", out[0..n]);
+    }
+    {
+        // discard all
+        fbs.reset();
+        var br = bufferedReader(fbs.reader());
+        var out: [8]u8 = undefined;
+
+        const p = try br.discard(8);
+        try testing.expect(p == 8);
+
+        const n = try br.read(out[0..]);
+        try testing.expect(n == 0);
     }
 }
