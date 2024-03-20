@@ -7,7 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("common.zig");
 
-const abort = std.os.abort;
+const abort = std.posix.abort;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
