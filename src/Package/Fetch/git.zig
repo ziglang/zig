@@ -51,7 +51,7 @@ pub const Repository = struct {
     /// Checks out the repository at `commit_oid` to `worktree`.
     pub fn checkout(
         repository: *Repository,
-        worktree: anytype,
+        worktree: std.fs.Dir,
         commit_oid: Oid,
     ) !void {
         try repository.odb.seekOid(commit_oid);
@@ -66,7 +66,7 @@ pub const Repository = struct {
     /// Checks out the tree  at `tree_oid` to `worktree`.
     fn checkoutTree(
         repository: *Repository,
-        dir: anytype,
+        dir: std.fs.Dir,
         tree_oid: Oid,
         current_path: []const u8,
     ) !void {
@@ -1460,7 +1460,7 @@ test "packfile indexing and checkout" {
     var worktree = testing.tmpDir(.{ .iterate = true });
     defer worktree.cleanup();
 
-    try repository.checkout(worktree.dir, repo.commit_id);
+    try repository.checkout(worktree.dir, try TestRepo.commitID());
 
     var actual_files: std.ArrayListUnmanaged([]u8) = .{};
     defer actual_files.deinit(testing.allocator);
@@ -1506,7 +1506,6 @@ pub const TestRepo = struct {
     git_dir: testing.TmpDir,
     pack_file: std.fs.File,
     index_file: std.fs.File,
-    commit_id: Oid,
 
     pub const expected_files: []const []const u8 = &.{
         "dir/file",
@@ -1547,7 +1546,6 @@ pub const TestRepo = struct {
             .git_dir = git_dir,
             .pack_file = pack_file,
             .index_file = index_file,
-            .commit_id = try parseOid("dd582c0720819ab7130b103635bd7271b9fd4feb"),
         };
     }
 
@@ -1573,7 +1571,7 @@ test "packfile iterator" {
     var repository = try Repository.init(testing.allocator, repo.pack_file, repo.index_file);
     defer repository.deinit();
 
-    var iter = try repository.iterator(repo.commit_id);
+    var iter = try repository.iterator(try TestRepo.commitID());
     defer iter.deinit();
 
     var actual_files = std.ArrayList([]u8).init(testing.allocator);
