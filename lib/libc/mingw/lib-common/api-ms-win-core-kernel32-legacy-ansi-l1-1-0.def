@@ -1,0 +1,15 @@
+LIBRARY api-ms-win-core-kernel32-legacy-ansi-l1-1-0
+
+EXPORTS
+
+AddLocalAlternateComputerNameA
+CreateFileMappingNumaA
+CreateFileTransactedA
+CreateJobObjectA
+FindFirstVolumeMountPointA
+FindNextVolumeMountPointA
+GetFileAttributesTransactedA
+OpenJobObjectA
+SetDllDirectoryA
+SetVolumeLabelA
+SetVolumeMountPointA

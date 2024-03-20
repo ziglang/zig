@@ -1,0 +1,14 @@
+LIBRARY api-ms-win-core-string-l2-1-0
+
+EXPORTS
+
+CharLowerBuffW
+CharLowerW
+CharNextW
+CharPrevW
+CharUpperBuffW
+CharUpperW
+IsCharAlphaNumericW
+IsCharAlphaW
+IsCharLowerW
+IsCharUpperW

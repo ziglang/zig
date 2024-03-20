@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-registry-l1-1-1
+
+EXPORTS
+
+RegDeleteKeyValueA@12
+RegDeleteKeyValueW@12
+RegSetKeyValueA@24
+RegSetKeyValueW@24

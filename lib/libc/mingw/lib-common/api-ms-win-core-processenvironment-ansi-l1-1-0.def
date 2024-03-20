@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-processenvironment-ansi-l1-1-0
+
+EXPORTS
+
+SetEnvironmentStringsA

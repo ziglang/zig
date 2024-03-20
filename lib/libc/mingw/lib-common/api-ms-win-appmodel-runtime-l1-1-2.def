@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-appmodel-runtime-l1-1-2
+
+EXPORTS
+
+AppPolicyGetClrCompat
+AppPolicyGetCreateFileAccess
+AppPolicyGetLifecycleManagement
+AppPolicyGetMediaFoundationCodecLoading
+AppPolicyGetProcessTerminationMethod
+AppPolicyGetShowDeveloperDiagnostic
+AppPolicyGetThreadInitializationType
+AppPolicyGetWindowingModel

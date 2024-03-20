@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-processenvironment-l1-2-0
+
+EXPORTS
+
+NeedCurrentDirectoryForExePathA@4
+NeedCurrentDirectoryForExePathW@4
+SearchPathA@24

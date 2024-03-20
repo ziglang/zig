@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-libraryloader-l2-1-0
+
+EXPORTS
+
+LoadPackagedLibrary@8
+QueryOptionalDelayLoadedAPI@16

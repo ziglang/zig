@@ -1,0 +1,11 @@
+LIBRARY api-ms-win-core-calendar-l1-1-0
+
+EXPORTS
+
+AdjustCalendarDate@12
+ConvertCalDateTimeToSystemTime@8
+ConvertSystemTimeToCalDateTime@12
+GetCalendarDateFormatEx@24
+GetCalendarSupportedDateRange@12
+IsCalendarLeapYear@12
+UpdateCalendarDayOfWeek@4

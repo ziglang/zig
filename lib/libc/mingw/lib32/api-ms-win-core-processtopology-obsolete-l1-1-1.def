@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-processtopology-obsolete-l1-1-1
+
+EXPORTS
+
+GetActiveProcessorGroupCount@0

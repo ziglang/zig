@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-security-systemfunctions-l1-1-0
+
+EXPORTS
+
+SystemFunction036@8
+SystemFunction040@12
+SystemFunction041@12

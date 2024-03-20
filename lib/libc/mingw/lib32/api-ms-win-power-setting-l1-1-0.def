@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-power-setting-l1-1-0
+
+EXPORTS
+
+PowerGetActiveScheme@8
+PowerReadACValue@28
+PowerReadDCValue@28
+PowerSetActiveScheme@8
+PowerSettingRegisterNotification@16
+PowerSettingUnregisterNotification@4
+PowerWriteACValueIndex@20
+PowerWriteDCValueIndex@20

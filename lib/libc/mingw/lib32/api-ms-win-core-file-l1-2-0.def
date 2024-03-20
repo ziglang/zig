@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-file-l1-2-0
+
+EXPORTS
+
+CreateFile2@20
+GetTempPathW@8
+GetVolumeNameForVolumeMountPointW@12
+GetVolumePathNamesForVolumeNameW@16

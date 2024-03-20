@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-util-l1-1-0
+
+EXPORTS
+
+Beep
+DecodePointer
+DecodeSystemPointer
+EncodePointer
+EncodeSystemPointer

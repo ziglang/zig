@@ -1,0 +1,193 @@
+LIBRARY api-ms-win-crt-stdio-l1-1-0
+
+EXPORTS
+
+__acrt_iob_func
+__p__commode
+__p__fmode
+__stdio_common_vfprintf
+__stdio_common_vfprintf_p
+__stdio_common_vfprintf_s
+__stdio_common_vfscanf
+__stdio_common_vfwprintf
+__stdio_common_vfwprintf_p
+__stdio_common_vfwprintf_s
+__stdio_common_vfwscanf
+__stdio_common_vsnprintf_s
+__stdio_common_vsnwprintf_s
+__stdio_common_vsprintf
+__stdio_common_vsprintf_p
+__stdio_common_vsprintf_s
+__stdio_common_vsscanf
+__stdio_common_vswprintf
+__stdio_common_vswprintf_p
+__stdio_common_vswprintf_s
+__stdio_common_vswscanf
+_chsize
+chsize == _chsize
+_chsize_s
+_close
+close == _close
+_commit
+_creat
+creat == _creat
+_dup
+dup == _dup
+_dup2
+dup2 == _dup2
+_eof
+eof == _eof
+_fclose_nolock
+_fcloseall
+_fflush_nolock
+_fgetc_nolock
+_fgetchar
+fgetchar == _fgetchar
+_fgetwc_nolock
+_fgetwchar
+fgetwchar == _fgetwchar
+_filelength
+filelength == _filelength
+_filelengthi64
+_fileno
+fileno == _fileno
+_flushall
+_fputc_nolock
+_fputchar
+fputchar == _fputchar
+_fputwc_nolock
+_fputwchar
+fputwchar == _fputwchar
+_fread_nolock
+_fread_nolock_s
+_fseek_nolock
+_fseeki64
+_fseeki64_nolock
+_fsopen
+_ftell_nolock
+_ftelli64
+_ftelli64_nolock
+_fwrite_nolock
+_get_fmode
+_get_osfhandle
+_get_printf_count_output
+_get_stream_buffer_pointers
+_getc_nolock
+_getcwd
+getcwd == _getcwd
+_getdcwd
+_getmaxstdio
+_getw
+getw == _getw
+_getwc_nolock
+_getws
+_getws_s
+_isatty
+isatty == _isatty
+_kbhit
+kbhit == _kbhit
+_locking
+_lseek
+lseek == _lseek
+_lseeki64
+_mktemp
+mktemp == _mktemp
+_mktemp_s
+_open
+open == _open
+_open_osfhandle
+_pclose
+pclose == _pclose
+_pipe
+_popen
+popen == _popen
+_putc_nolock
+_putw
+putw == _putw
+_putwc_nolock
+_putws
+_read
+read == _read
+_rmtmp
+rmtmp == _rmtmp
+_set_fmode
+_set_printf_count_output
+_setmaxstdio
+_setmode
+setmode == _setmode
+_sopen
+sopen == _sopen
+_sopen_dispatch
+_sopen_s
+_tell
+tell == _tell
+_telli64
+_tempnam
+tempnam == _tempnam
+_ungetc_nolock
+_ungetwc_nolock
+_wcreat
+_wfdopen
+_wfopen
+_wfopen_s
+_wfreopen
+_wfreopen_s
+_wfsopen
+_wmktemp
+_wmktemp_s
+_wopen
+_wpopen
+wpopen == _wpopen
+_write
+write == _write
+_wsopen
+_wsopen_dispatch
+_wsopen_s
+_wtempnam
+_wtmpnam
+_wtmpnam_s
+clearerr
+clearerr_s
+fclose
+feof
+ferror
+fflush
+fgetc
+fgetpos
+fgets
+fgetwc
+fgetws
+fopen
+fopen_s
+fputc
+fputs
+fputwc
+fputws
+fread
+fread_s
+freopen
+freopen_s
+fseek
+fsetpos
+ftell
+fwrite
+getc
+getchar
+gets
+gets_s
+getwc
+getwchar
+putc
+putchar
+puts
+putwc
+putwchar
+rewind
+setbuf
+setvbuf
+tmpfile
+tmpfile_s
+tmpnam
+tmpnam_s
+ungetc
+ungetwc

@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-namespace-ansi-l1-1-0
+
+EXPORTS
+
+CreateBoundaryDescriptorA
+CreatePrivateNamespaceA
+OpenPrivateNamespaceA

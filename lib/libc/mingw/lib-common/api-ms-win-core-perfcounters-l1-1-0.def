@@ -1,0 +1,18 @@
+LIBRARY api-ms-win-core-perfcounters-l1-1-0
+
+EXPORTS
+
+PerfCreateInstance
+PerfDecrementULongCounterValue
+PerfDecrementULongLongCounterValue
+PerfDeleteInstance
+PerfIncrementULongCounterValue
+PerfIncrementULongLongCounterValue
+PerfQueryInstance
+PerfSetCounterRefValue
+PerfSetCounterSetInfo
+PerfSetULongCounterValue
+PerfSetULongLongCounterValue
+PerfStartProvider
+PerfStartProviderEx
+PerfStopProvider

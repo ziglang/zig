@@ -1,0 +1,25 @@
+LIBRARY api-ms-win-core-psapi-l1-1-0
+
+EXPORTS
+
+K32EmptyWorkingSet@4
+K32EnumDeviceDrivers@12
+K32EnumPageFilesW@8
+K32EnumProcesses@12
+K32EnumProcessModules@16
+K32EnumProcessModulesEx@20
+K32GetDeviceDriverBaseNameW@12
+K32GetDeviceDriverFileNameW@12
+K32GetMappedFileNameW@16
+K32GetModuleBaseNameW@16
+K32GetModuleFileNameExW@16
+K32GetModuleInformation@16
+K32GetPerformanceInfo@8
+K32GetProcessImageFileNameW@12
+K32GetProcessMemoryInfo@12
+K32GetWsChanges@12
+K32GetWsChangesEx@12
+K32InitializeProcessForWsWatch@4
+K32QueryWorkingSet@12
+K32QueryWorkingSetEx@12
+QueryFullProcessImageNameW@16

@@ -1,0 +1,120 @@
+LIBRARY api-ms-win-crt-runtime-l1-1-0
+
+EXPORTS
+
+#include "func.def.in"
+
+_Exit
+F_I386(__control87_2)
+__doserrno
+__fpe_flt_rounds
+__fpecode
+__p___argc
+__p___argv
+__p___wargv
+__p__acmdln
+__p__pgmptr
+__p__wcmdln
+__p__wpgmptr
+__pxcptinfoptrs
+__sys_errlist
+__sys_nerr
+__threadhandle
+__threadid
+__wcserror
+__wcserror_s
+; DATA set manually
+_assert
+_beginthread
+_beginthreadex
+_c_exit
+_cexit
+_clearfp
+_configure_narrow_argv
+_configure_wide_argv
+_control87
+_controlfp
+_controlfp_s
+_crt_at_quick_exit
+_crt_atexit
+_crt_debugger_hook
+_endthread
+_endthreadex
+_errno
+_execute_onexit_table
+_exit
+F_NON_I386(_fpieee_flt)
+; DATA added manually
+_fpreset DATA
+_get_doserrno
+_get_errno
+_get_initial_narrow_environment
+_get_initial_wide_environment
+_get_invalid_parameter_handler
+_get_narrow_winmain_command_line
+_get_pgmptr
+_get_terminate
+_get_thread_local_invalid_parameter_handler
+_get_wide_winmain_command_line
+_get_wpgmptr
+_getdllprocaddr
+_getpid
+getpid == _getpid
+_initialize_narrow_environment
+_initialize_onexit_table
+_initialize_wide_environment
+_initterm
+_initterm_e
+_invalid_parameter_noinfo
+_invalid_parameter_noinfo_noreturn
+_invoke_watson
+_query_app_type
+_register_onexit_function
+_register_thread_local_exe_atexit_callback
+_resetstkoflw
+_seh_filter_dll
+_seh_filter_exe
+_set_abort_behavior
+_set_app_type
+__set_app_type == _set_app_type
+_set_controlfp
+_set_doserrno
+_set_errno
+_set_error_mode
+_set_invalid_parameter_handler
+_set_new_handler
+_set_thread_local_invalid_parameter_handler
+_seterrormode
+_sleep
+_statusfp
+F_I386(_statusfp2)
+_strerror
+_strerror_s
+_wassert
+_wcserror
+_wcserror_s
+_wperror
+_wsystem
+abort
+exit
+; Don't use the float env functions from UCRT; fesetround doesn't seem to have
+; any effect on the FPU control word as required by other libmingwex math
+; routines.
+feclearexcept DATA
+fegetenv DATA
+fegetexceptflag DATA
+fegetround DATA
+feholdexcept DATA
+fesetenv DATA
+fesetexceptflag DATA
+fesetround DATA
+fetestexcept DATA
+perror
+quick_exit
+raise
+set_terminate
+signal
+strerror
+strerror_s
+system
+terminate

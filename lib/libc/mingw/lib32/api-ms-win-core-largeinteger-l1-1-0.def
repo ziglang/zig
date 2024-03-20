@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-largeinteger-l1-1-0
+
+EXPORTS
+
+MulDiv@12
