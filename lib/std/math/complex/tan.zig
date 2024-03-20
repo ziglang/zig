@@ -14,7 +14,7 @@ pub fn tan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
 
 const epsilon = 0.0001;
 
-test "complex.ctan" {
+test tan {
     const a = Complex(f32).init(5, 3);
     const c = tan(a);
 

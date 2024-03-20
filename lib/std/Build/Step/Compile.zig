@@ -28,7 +28,7 @@ linker_script: ?LazyPath = null,
 version_script: ?LazyPath = null,
 out_filename: []const u8,
 out_lib_filename: []const u8,
-linkage: ?Linkage = null,
+linkage: ?std.builtin.LinkMode = null,
 version: ?std.SemanticVersion,
 kind: Kind,
 major_only_filename: ?[]const u8,
@@ -54,8 +54,7 @@ global_base: ?u64 = null,
 /// Set via options; intended to be read-only after that.
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
-filter: ?[]const u8,
-test_evented_io: bool = false,
+filters: []const []const u8,
 test_runner: ?[]const u8,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
@@ -114,6 +113,9 @@ linker_allow_shlib_undefined: ?bool = null,
 /// Allow version scripts to refer to undefined symbols.
 linker_allow_undefined_version: ?bool = null,
 
+// Enable (or disable) the new DT_RUNPATH tag in the dynamic section.
+linker_enable_new_dtags: ?bool = null,
+
 /// Permit read-only relocations in read-only segments. Disallowed by default.
 link_z_notext: bool = false,
 
@@ -148,6 +150,9 @@ headerpad_max_install_names: bool = false,
 
 /// (Darwin) Remove dylibs that are unreachable by the entry point or exported symbols.
 dead_strip_dylibs: bool = false,
+
+/// (Darwin) Force load all members of static archives that implement an Objective-C class or category
+force_load_objc: bool = false,
 
 /// Position Independent Executable
 pie: ?bool = null,
@@ -218,10 +223,10 @@ pub const Options = struct {
     name: []const u8,
     root_module: Module.CreateOptions,
     kind: Kind,
-    linkage: ?Linkage = null,
+    linkage: ?std.builtin.LinkMode = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    filter: ?[]const u8 = null,
+    filters: []const []const u8 = &.{},
     test_runner: ?[]const u8 = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
@@ -240,8 +245,6 @@ pub const Kind = enum {
     obj,
     @"test",
 };
-
-pub const Linkage = enum { dynamic, static };
 
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
@@ -278,10 +281,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .obj => .Obj,
             .exe, .@"test" => .Exe,
         },
-        .link_mode = if (options.linkage) |some| @as(std.builtin.LinkMode, switch (some) {
-            .dynamic => .Dynamic,
-            .static => .Static,
-        }) else null,
+        .link_mode = options.linkage,
         .version = options.version,
     }) catch @panic("OOM");
 
@@ -308,7 +308,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .installed_headers = ArrayList(*Step).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
-        .filter = options.filter,
+        .filters = options.filters,
         .test_runner = options.test_runner,
         .test_server_mode = options.test_runner == null,
         .rdynamic = false,
@@ -526,11 +526,11 @@ pub fn dependsOnSystemLibrary(self: *const Compile, name: []const u8) bool {
 }
 
 pub fn isDynamicLibrary(self: *const Compile) bool {
-    return self.kind == .lib and self.linkage == Linkage.dynamic;
+    return self.kind == .lib and self.linkage == .dynamic;
 }
 
 pub fn isStaticLibrary(self: *const Compile) bool {
-    return self.kind == .lib and self.linkage != Linkage.dynamic;
+    return self.kind == .lib and self.linkage != .dynamic;
 }
 
 pub fn producesPdbFile(self: *Compile) bool {
@@ -920,7 +920,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var zig_args = ArrayList([]const u8).init(arena);
     defer zig_args.deinit();
 
-    try zig_args.append(b.zig_exe);
+    try zig_args.append(b.graph.zig_exe);
 
     const cmd = switch (self.kind) {
         .lib => "build-lib",
@@ -929,6 +929,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .@"test" => "test",
     };
     try zig_args.append(cmd);
+
+    if (!mem.eql(u8, b.graph.host_query_options.arch_os_abi, "native")) {
+        try zig_args.appendSlice(&.{ "--host-target", b.graph.host_query_options.arch_os_abi });
+    }
+    if (b.graph.host_query_options.cpu_features) |cpu| {
+        try zig_args.appendSlice(&.{ "--host-cpu", cpu });
+    }
+    if (b.graph.host_query_options.dynamic_linker) |dl| {
+        try zig_args.appendSlice(&.{ "--host-dynamic-linker", dl });
+    }
 
     if (b.reference_trace) |some| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-freference-trace={d}", .{some}));
@@ -973,7 +983,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         var prev_has_cflags = false;
         var prev_has_rcflags = false;
         var prev_search_strategy: Module.SystemLib.SearchStrategy = .paths_first;
-        var prev_preferred_link_mode: std.builtin.LinkMode = .Dynamic;
+        var prev_preferred_link_mode: std.builtin.LinkMode = .dynamic;
         // Track the number of positional arguments so that a nice error can be
         // emitted if there is nothing to link.
         var total_linker_objects: usize = @intFromBool(self.root_module.root_source_file != null);
@@ -1038,16 +1048,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                         {
                             switch (system_lib.search_strategy) {
                                 .no_fallback => switch (system_lib.preferred_link_mode) {
-                                    .Dynamic => try zig_args.append("-search_dylibs_only"),
-                                    .Static => try zig_args.append("-search_static_only"),
+                                    .dynamic => try zig_args.append("-search_dylibs_only"),
+                                    .static => try zig_args.append("-search_static_only"),
                                 },
                                 .paths_first => switch (system_lib.preferred_link_mode) {
-                                    .Dynamic => try zig_args.append("-search_paths_first"),
-                                    .Static => try zig_args.append("-search_paths_first_static"),
+                                    .dynamic => try zig_args.append("-search_paths_first"),
+                                    .static => try zig_args.append("-search_paths_first_static"),
                                 },
                                 .mode_first => switch (system_lib.preferred_link_mode) {
-                                    .Dynamic => try zig_args.append("-search_dylibs_first"),
-                                    .Static => try zig_args.append("-search_static_first"),
+                                    .dynamic => try zig_args.append("-search_dylibs_first"),
+                                    .static => try zig_args.append("-search_static_first"),
                                 },
                             }
                             prev_search_strategy = system_lib.search_strategy;
@@ -1123,7 +1133,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                                 try zig_args.append(full_path_lib);
                                 total_linker_objects += 1;
 
-                                if (other.linkage == Linkage.dynamic and
+                                if (other.linkage == .dynamic and
                                     self.rootModuleTarget().os.tag != .windows)
                                 {
                                     if (fs.path.dirname(full_path_lib)) |dirname| {
@@ -1185,15 +1195,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                             prev_has_cflags = true;
                         }
 
-                        if (c_source_files.dependency) |dep| {
-                            for (c_source_files.files) |file| {
-                                try zig_args.append(dep.builder.pathFromRoot(file));
-                            }
-                        } else {
-                            for (c_source_files.files) |file| {
-                                try zig_args.append(b.pathFromRoot(file));
-                            }
+                        const root_path = c_source_files.root.getPath2(module.owner, step);
+                        for (c_source_files.files) |file| {
+                            try zig_args.append(b.pathJoin(&.{ root_path, file }));
                         }
+
                         total_linker_objects += c_source_files.files.len;
                     },
 
@@ -1289,13 +1295,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(b.fmt("0x{x}", .{image_base}));
     }
 
-    if (self.filter) |filter| {
+    for (self.filters) |filter| {
         try zig_args.append("--test-filter");
         try zig_args.append(filter);
-    }
-
-    if (self.test_evented_io) {
-        try zig_args.append("--test-evented-io");
     }
 
     if (self.test_runner) |test_runner| {
@@ -1390,7 +1392,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try zig_args.append(b.cache_root.path orelse ".");
 
     try zig_args.append("--global-cache-dir");
-    try zig_args.append(b.global_cache_root.path orelse ".");
+    try zig_args.append(b.graph.global_cache_root.path orelse ".");
 
     try zig_args.append("--name");
     try zig_args.append(self.name);
@@ -1432,6 +1434,9 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.dead_strip_dylibs) {
         try zig_args.append("-dead_strip_dylibs");
+    }
+    if (self.force_load_objc) {
+        try zig_args.append("-ObjC");
     }
 
     try addFlag(&zig_args, "compiler-rt", self.bundle_compiler_rt);
@@ -1481,6 +1486,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     }
     if (self.linker_allow_undefined_version) |x| {
         try zig_args.append(if (x) "--undefined-version" else "--no-undefined-version");
+    }
+
+    if (self.linker_enable_new_dtags) |enabled| {
+        try zig_args.append(if (enabled) "--enable-new-dtags" else "--disable-new-dtags");
     }
 
     if (self.kind == .@"test") {

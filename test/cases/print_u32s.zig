@@ -12,10 +12,10 @@ fn printNumberHex(x: u32) void {
     var i: u5 = 28;
     while (true) : (i -= 4) {
         const digit = (x >> i) & 0xf;
-        _ = std.os.write(1, &.{digit_chars[digit]}) catch {};
+        _ = std.posix.write(1, &.{digit_chars[digit]}) catch {};
         if (i == 0) break;
     }
-    _ = std.os.write(1, "\n") catch {};
+    _ = std.posix.write(1, "\n") catch {};
 }
 
 // run

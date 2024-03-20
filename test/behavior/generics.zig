@@ -371,8 +371,12 @@ test "extern function used as generic parameter" {
     const S = struct {
         extern fn usedAsGenericParameterFoo() void;
         extern fn usedAsGenericParameterBar() void;
-        inline fn usedAsGenericParameterBaz(comptime _: anytype) type {
-            return struct {};
+        inline fn usedAsGenericParameterBaz(comptime token: anytype) type {
+            return struct {
+                comptime {
+                    _ = token;
+                }
+            };
         }
     };
     try expect(S.usedAsGenericParameterBaz(S.usedAsGenericParameterFoo) !=
@@ -557,4 +561,26 @@ test "call generic function with from function called by the generic function" {
     };
 
     ArgSerializer.serializeCommand(GET{ .key = "banana" });
+}
+
+fn StructCapture(comptime T: type) type {
+    return struct {
+        pub fn foo(comptime x: usize) struct { T } {
+            return .{x};
+        }
+    };
+}
+
+test "call generic function that uses capture from function declaration's scope" {
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
+    const S = StructCapture(f64);
+    const s = S.foo(123);
+    try expectEqual(123.0, s[0]);
+}
+
+comptime {
+    // The same function parameter instruction being analyzed multiple times
+    // should override the result of the previous analysis.
+    for (0..2) |_| _ = fn (void) void;
 }

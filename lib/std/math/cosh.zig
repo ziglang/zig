@@ -86,12 +86,12 @@ fn cosh64(x: f64) f64 {
     return expo2(ax);
 }
 
-test "math.cosh" {
+test cosh {
     try expect(cosh(@as(f32, 1.5)) == cosh32(1.5));
     try expect(cosh(@as(f64, 1.5)) == cosh64(1.5));
 }
 
-test "math.cosh32" {
+test cosh32 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f32, cosh32(0.0), 1.0, epsilon));
@@ -104,7 +104,7 @@ test "math.cosh32" {
     try expect(math.approxEqAbs(f32, cosh32(-1.5), 2.352410, epsilon));
 }
 
-test "math.cosh64" {
+test cosh64 {
     const epsilon = 0.000001;
 
     try expect(math.approxEqAbs(f64, cosh64(0.0), 1.0, epsilon));
@@ -117,7 +117,7 @@ test "math.cosh64" {
     try expect(math.approxEqAbs(f64, cosh64(-1.5), 2.352410, epsilon));
 }
 
-test "math.cosh32.special" {
+test "cosh32.special" {
     try expect(cosh32(0.0) == 1.0);
     try expect(cosh32(-0.0) == 1.0);
     try expect(math.isPositiveInf(cosh32(math.inf(f32))));
@@ -125,7 +125,7 @@ test "math.cosh32.special" {
     try expect(math.isNan(cosh32(math.nan(f32))));
 }
 
-test "math.cosh64.special" {
+test "cosh64.special" {
     try expect(cosh64(0.0) == 1.0);
     try expect(cosh64(-0.0) == 1.0);
     try expect(math.isPositiveInf(cosh64(math.inf(f64))));

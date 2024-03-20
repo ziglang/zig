@@ -118,7 +118,7 @@ pub fn getAddress(symbol: Symbol, opts: struct {
             return symbol.getObjcStubsAddress(macho_file);
         }
     }
-    if (symbol.getAtom(macho_file)) |atom| return atom.value + symbol.value;
+    if (symbol.getAtom(macho_file)) |atom| return atom.getAddress(macho_file) + symbol.value;
     return symbol.value;
 }
 
@@ -145,7 +145,7 @@ pub fn getObjcSelrefsAddress(symbol: Symbol, macho_file: *MachO) u64 {
     const extra = symbol.getExtra(macho_file).?;
     const atom = macho_file.getAtom(extra.objc_selrefs).?;
     assert(atom.flags.alive);
-    return atom.value;
+    return atom.getAddress(macho_file);
 }
 
 pub fn getTlvPtrAddress(symbol: Symbol, macho_file: *MachO) u64 {

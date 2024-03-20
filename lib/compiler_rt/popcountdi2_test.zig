@@ -25,7 +25,7 @@ test "popcountdi2" {
     try test__popcountdi2(@as(i64, @bitCast(@as(u64, 0xffffffff_fffffffe))));
     try test__popcountdi2(@as(i64, @bitCast(@as(u64, 0xffffffff_ffffffff))));
 
-    const RndGen = std.rand.DefaultPrng;
+    const RndGen = std.Random.DefaultPrng;
     var rnd = RndGen.init(42);
     var i: u32 = 0;
     while (i < 10_000) : (i += 1) {

@@ -31,6 +31,8 @@ arena: std.heap.ArenaAllocator,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.TokenIndex,
+name_tok: std.zig.Ast.TokenIndex,
+lazy_status: LazyStatus,
 parent_package_root: Package.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: *std.Progress.Node,
@@ -64,6 +66,15 @@ oom_flag: bool,
 /// the root source file.
 module: ?*Package.Module,
 
+pub const LazyStatus = enum {
+    /// Not lazy.
+    eager,
+    /// Lazy, found.
+    available,
+    /// Lazy, not found.
+    unavailable,
+};
+
 /// Contains shared state among all `Fetch` tasks.
 pub const JobQueue = struct {
     mutex: std.Thread.Mutex = .{},
@@ -80,14 +91,27 @@ pub const JobQueue = struct {
     thread_pool: *ThreadPool,
     wait_group: WaitGroup = .{},
     global_cache: Cache.Directory,
+    /// If true then, no fetching occurs, and:
+    /// * The `global_cache` directory is assumed to be the direct parent
+    ///   directory of on-disk packages rather than having the "p/" directory
+    ///   prefix inside of it.
+    /// * An error occurs if any non-lazy packages are not already present in
+    ///   the package cache directory.
+    /// * Missing hash field causes an error, and no fetching occurs so it does
+    ///   not print the correct hash like usual.
+    read_only: bool,
     recursive: bool,
     /// Dumps hash information to stdout which can be used to troubleshoot why
     /// two hashes of the same package do not match.
     /// If this is true, `recursive` must be false.
     debug_hash: bool,
     work_around_btrfs_bug: bool,
+    /// Set of hashes that will be additionally fetched even if they are marked
+    /// as lazy.
+    unlazy_set: UnlazySet = .{},
 
     pub const Table = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, *Fetch);
+    pub const UnlazySet = std.AutoArrayHashMapUnmanaged(Manifest.MultiHashHexDigest, void);
 
     pub fn deinit(jq: *JobQueue) void {
         if (jq.all_fetches.items.len == 0) return;
@@ -141,11 +165,37 @@ pub const JobQueue = struct {
                 // The first one is a dummy package for the current project.
                 continue;
             }
+
             try buf.writer().print(
                 \\    pub const {} = struct {{
+                \\
+            , .{std.zig.fmtId(&hash)});
+
+            lazy: {
+                switch (fetch.lazy_status) {
+                    .eager => break :lazy,
+                    .available => {
+                        try buf.appendSlice(
+                            \\        pub const available = true;
+                            \\
+                        );
+                        break :lazy;
+                    },
+                    .unavailable => {
+                        try buf.appendSlice(
+                            \\        pub const available = false;
+                            \\    };
+                            \\
+                        );
+                        continue;
+                    },
+                }
+            }
+
+            try buf.writer().print(
                 \\        pub const build_root = "{q}";
                 \\
-            , .{ std.zig.fmtId(&hash), fetch.package_root });
+            , .{fetch.package_root});
 
             if (fetch.has_build_zig) {
                 try buf.writer().print(
@@ -270,7 +320,8 @@ pub fn run(f: *Fetch) RunError!void {
                 // We want to fail unless the resolved relative path has a
                 // prefix of "p/$hash/".
                 const digest_len = @typeInfo(Manifest.MultiHashHexDigest).Array.len;
-                const expected_prefix = f.parent_package_root.sub_path[0 .. "p/".len + digest_len];
+                const prefix_len: usize = if (f.job_queue.read_only) 0 else "p/".len;
+                const expected_prefix = f.parent_package_root.sub_path[0 .. prefix_len + digest_len];
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
                     return f.fail(
                         f.location_tok,
@@ -303,7 +354,8 @@ pub fn run(f: *Fetch) RunError!void {
                         .{ path_or_url, @errorName(file_err), @errorName(uri_err) },
                     ));
                 };
-                var resource = try f.initResource(uri);
+                var server_header_buffer: [header_buffer_size]u8 = undefined;
+                var resource = try f.initResource(uri, &server_header_buffer);
                 return runResource(f, uri.path, &resource, null);
             }
         },
@@ -311,8 +363,11 @@ pub fn run(f: *Fetch) RunError!void {
 
     const s = fs.path.sep_str;
     if (remote.hash) |expected_hash| {
-        const pkg_sub_path = "p" ++ s ++ expected_hash;
+        const prefixed_pkg_sub_path = "p" ++ s ++ expected_hash;
+        const prefix_len: usize = if (f.job_queue.read_only) "p/".len else 0;
+        const pkg_sub_path = prefixed_pkg_sub_path[prefix_len..];
         if (cache_root.handle.access(pkg_sub_path, .{})) |_| {
+            assert(f.lazy_status != .unavailable);
             f.package_root = .{
                 .root_dir = cache_root,
                 .sub_path = try arena.dupe(u8, pkg_sub_path),
@@ -322,7 +377,22 @@ pub fn run(f: *Fetch) RunError!void {
             if (!f.job_queue.recursive) return;
             return queueJobsForDeps(f);
         } else |err| switch (err) {
-            error.FileNotFound => {},
+            error.FileNotFound => {
+                switch (f.lazy_status) {
+                    .eager => {},
+                    .available => if (!f.job_queue.unlazy_set.contains(expected_hash)) {
+                        f.lazy_status = .unavailable;
+                        return;
+                    },
+                    .unavailable => unreachable,
+                }
+                if (f.job_queue.read_only) return f.fail(
+                    f.name_tok,
+                    try eb.printString("package not found at '{}{s}'", .{
+                        cache_root, pkg_sub_path,
+                    }),
+                );
+            },
             else => |e| {
                 try eb.addRootErrorMessage(.{
                     .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
@@ -332,6 +402,12 @@ pub fn run(f: *Fetch) RunError!void {
                 return error.FetchFailed;
             },
         }
+    } else if (f.job_queue.read_only) {
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.addString("dependency is missing hash field"),
+            .src_loc = try f.srcLoc(f.location_tok),
+        });
+        return error.FetchFailed;
     }
 
     // Fetch and unpack the remote into a temporary directory.
@@ -340,7 +416,8 @@ pub fn run(f: *Fetch) RunError!void {
         f.location_tok,
         try eb.printString("invalid URI: {s}", .{@errorName(err)}),
     );
-    var resource = try f.initResource(uri);
+    var server_header_buffer: [header_buffer_size]u8 = undefined;
+    var resource = try f.initResource(uri, &server_header_buffer);
     return runResource(f, uri.path, &resource, remote.hash);
 }
 
@@ -405,7 +482,7 @@ fn runResource(
         // Compute the package hash based on the remaining files in the temporary
         // directory.
 
-        if (builtin.os.tag == .linux and f.job_queue.work_around_btrfs_bug) {
+        if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
             // https://github.com/ziglang/zig/issues/17095
             tmp_directory.handle.close();
             tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
@@ -515,7 +592,7 @@ fn loadManifest(f: *Fetch, pkg_root: Package.Path) RunError!void {
 
     if (ast.errors.len > 0) {
         const file_path = try std.fmt.allocPrint(arena, "{}" ++ Manifest.basename, .{pkg_root});
-        try main.putAstErrorsIntoBundle(arena, ast.*, file_path, eb);
+        try std.zig.putAstErrorsIntoBundle(arena, ast.*, file_path, eb);
         return error.FetchFailed;
     }
 
@@ -602,6 +679,8 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .location = location,
                 .location_tok = dep.location_tok,
                 .hash_tok = dep.hash_tok,
+                .name_tok = dep.name_tok,
+                .lazy_status = if (dep.lazy) .available else .eager,
                 .parent_package_root = f.package_root,
                 .parent_manifest_ast = &f.manifest_ast,
                 .prog_node = f.prog_node,
@@ -799,7 +878,9 @@ const FileType = enum {
     }
 };
 
-fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
+const header_buffer_size = 16 * 1024;
+
+fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Resource {
     const gpa = f.arena.child_allocator;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
@@ -817,10 +898,9 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
-        var h = std.http.Headers{ .allocator = gpa };
-        defer h.deinit();
-
-        var req = http_client.open(.GET, uri, h, .{}) catch |err| {
+        var req = http_client.open(.GET, uri, .{
+            .server_header_buffer = server_header_buffer,
+        }) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to connect to server: {s}",
                 .{@errorName(err)},
@@ -858,7 +938,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         transport_uri.scheme = uri.scheme["git+".len..];
         var redirect_uri: []u8 = undefined;
         var session: git.Session = .{ .transport = http_client, .uri = transport_uri };
-        session.discoverCapabilities(gpa, &redirect_uri) catch |err| switch (err) {
+        session.discoverCapabilities(gpa, &redirect_uri, server_header_buffer) catch |err| switch (err) {
             error.Redirected => {
                 defer gpa.free(redirect_uri);
                 return f.fail(f.location_tok, try eb.printString(
@@ -884,6 +964,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
             var ref_iterator = session.listRefs(gpa, .{
                 .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
                 .include_peeled = true,
+                .server_header_buffer = server_header_buffer,
             }) catch |err| {
                 return f.fail(f.location_tok, try eb.printString(
                     "unable to list refs: {s}",
@@ -926,7 +1007,7 @@ fn initResource(f: *Fetch, uri: std.Uri) RunError!Resource {
         _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{
             std.fmt.fmtSliceHexLower(&want_oid),
         }) catch unreachable;
-        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}) catch |err| {
+        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",
                 .{@errorName(err)},
@@ -959,7 +1040,7 @@ fn unpackResource(
 
         .http_request => |req| ft: {
             // Content-Type takes first precedence.
-            const content_type = req.response.headers.getFirstValue("Content-Type") orelse
+            const content_type = req.response.content_type orelse
                 return f.fail(f.location_tok, try eb.addString("missing 'Content-Type' header"));
 
             // Extract the MIME type, ignoring charset and boundary directives
@@ -992,7 +1073,7 @@ fn unpackResource(
             }
 
             // Next, the filename from 'content-disposition: attachment' takes precedence.
-            if (req.response.headers.getFirstValue("Content-Disposition")) |cd_header| {
+            if (req.response.content_disposition) |cd_header| {
                 break :ft FileType.fromContentDisposition(cd_header) orelse {
                     return f.fail(f.location_tok, try eb.printString(
                         "unsupported Content-Disposition header value: '{s}' for Content-Type=application/octet-stream",
@@ -1022,9 +1103,35 @@ fn unpackResource(
 
     switch (file_type) {
         .tar => try unpackTarball(f, tmp_directory.handle, resource.reader()),
-        .@"tar.gz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.gzip),
-        .@"tar.xz" => try unpackTarballCompressed(f, tmp_directory.handle, resource, std.compress.xz),
-        .@"tar.zst" => try unpackTarballCompressed(f, tmp_directory.handle, resource, ZstdWrapper),
+        .@"tar.gz" => {
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.gzip.decompressor(br.reader());
+            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
+        .@"tar.xz" => {
+            const gpa = f.arena.child_allocator;
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.xz.decompress(gpa, br.reader()) catch |err| {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to decompress tarball: {s}",
+                    .{@errorName(err)},
+                ));
+            };
+            defer dcp.deinit();
+            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
+        .@"tar.zst" => {
+            const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
+            const window_buffer = try f.arena.allocator().create([window_size]u8);
+            const reader = resource.reader();
+            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
+            var dcp = std.compress.zstd.decompressor(br.reader(), .{
+                .window_buffer = window_buffer,
+            });
+            return unpackTarball(f, tmp_directory.handle, dcp.reader());
+        },
         .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
             error.OutOfMemory => return error.OutOfMemory,
@@ -1036,55 +1143,17 @@ fn unpackResource(
     }
 }
 
-// due to slight differences in the API of std.compress.(gzip|xz) and std.compress.zstd, zstd is
-// wrapped for generic use in unpackTarballCompressed: see github.com/ziglang/zig/issues/14739
-const ZstdWrapper = struct {
-    fn DecompressType(comptime T: type) type {
-        return error{}!std.compress.zstd.DecompressStream(T, .{});
-    }
-
-    fn decompress(allocator: Allocator, reader: anytype) DecompressType(@TypeOf(reader)) {
-        return std.compress.zstd.decompressStream(allocator, reader);
-    }
-};
-
-fn unpackTarballCompressed(
-    f: *Fetch,
-    out_dir: fs.Dir,
-    resource: *Resource,
-    comptime Compression: type,
-) RunError!void {
-    const gpa = f.arena.child_allocator;
-    const eb = &f.error_bundle;
-    const reader = resource.reader();
-    var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
-
-    var decompress = Compression.decompress(gpa, br.reader()) catch |err| {
-        return f.fail(f.location_tok, try eb.printString(
-            "unable to decompress tarball: {s}",
-            .{@errorName(err)},
-        ));
-    };
-    defer decompress.deinit();
-
-    return unpackTarball(f, out_dir, decompress.reader());
-}
-
 fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
     const eb = &f.error_bundle;
     const gpa = f.arena.child_allocator;
 
-    var diagnostics: std.tar.Options.Diagnostics = .{ .allocator = gpa };
+    var diagnostics: std.tar.Diagnostics = .{ .allocator = gpa };
     defer diagnostics.deinit();
 
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
         .strip_components = 1,
-        // TODO: we would like to set this to executable_bit_only, but two
-        // things need to happen before that:
-        // 1. the tar implementation needs to support it
-        // 2. the hashing algorithm here needs to support detecting the is_executable
-        //    bit on Windows from the ACLs (see the isExecutable function).
+        // https://github.com/ziglang/zig/issues/17463
         .mode_mode = .ignore,
         .exclude_empty_directories = true,
     }) catch |err| return f.fail(f.location_tok, try eb.printString(
@@ -1469,6 +1538,8 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
         .file => {
             var file = try dir.openFile(hashed_file.fs_path, .{});
             defer file.close();
+            // When implementing https://github.com/ziglang/zig/issues/17463
+            // this will change to hard-coded `false`.
             hasher.update(&.{ 0, @intFromBool(try isExecutable(file)) });
             while (true) {
                 const bytes_read = try file.read(&buf);
@@ -1495,15 +1566,17 @@ fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error
 }
 
 fn isExecutable(file: fs.File) !bool {
-    if (builtin.os.tag == .windows) {
-        // TODO check the ACL on Windows.
+    // When implementing https://github.com/ziglang/zig/issues/17463
+    // this function will not check the mode but instead check if the file is an ELF
+    // file or has a shebang line.
+    if (native_os == .windows) {
         // Until this is implemented, this could be a false negative on
         // Windows, which is why we do not yet set executable_bit_only above
         // when unpacking the tarball.
         return false;
     } else {
         const stat = try file.stat();
-        return (stat.mode & std.os.S.IXUSR) != 0;
+        return (stat.mode & std.posix.S.IXUSR) != 0;
     }
 }
 
@@ -1617,11 +1690,11 @@ const Cache = std.Build.Cache;
 const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const Fetch = @This();
-const main = @import("../main.zig");
 const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
+const native_os = builtin.os.tag;
 
 test {
     _ = Filter;

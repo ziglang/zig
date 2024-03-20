@@ -99,11 +99,11 @@ pub const StreamSource = union(enum) {
     }
 };
 
-test "StreamSource (refs)" {
+test "refs" {
     std.testing.refAllDecls(StreamSource);
 }
 
-test "StreamSource (mutable buffer)" {
+test "mutable buffer" {
     var buffer: [64]u8 = undefined;
     var source = StreamSource{ .buffer = std.io.fixedBufferStream(&buffer) };
 
@@ -114,7 +114,7 @@ test "StreamSource (mutable buffer)" {
     try std.testing.expectEqualStrings("Hello, World!", source.buffer.getWritten());
 }
 
-test "StreamSource (const buffer)" {
+test "const buffer" {
     const buffer: [64]u8 = "Hello, World!".* ++ ([1]u8{0xAA} ** 51);
     var source = StreamSource{ .const_buffer = std.io.fixedBufferStream(&buffer) };
 

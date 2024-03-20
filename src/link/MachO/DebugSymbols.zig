@@ -1,5 +1,4 @@
 allocator: Allocator,
-dwarf: Dwarf,
 file: fs.File,
 
 symtab_cmd: macho.symtab_command = .{},
@@ -16,12 +15,6 @@ debug_abbrev_section_index: ?u8 = null,
 debug_str_section_index: ?u8 = null,
 debug_aranges_section_index: ?u8 = null,
 debug_line_section_index: ?u8 = null,
-
-debug_string_table_dirty: bool = false,
-debug_abbrev_section_dirty: bool = false,
-debug_aranges_section_dirty: bool = false,
-debug_info_header_dirty: bool = false,
-debug_line_header_dirty: bool = false,
 
 relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
@@ -44,7 +37,7 @@ pub const Reloc = struct {
 pub fn initMetadata(self: *DebugSymbols, macho_file: *MachO) !void {
     try self.strtab.append(self.allocator, 0);
 
-    if (self.dwarf_segment_cmd_index == null) {
+    {
         self.dwarf_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
 
         const page_size = macho_file.getPageSize();
@@ -63,46 +56,19 @@ pub fn initMetadata(self: *DebugSymbols, macho_file: *MachO) !void {
         });
     }
 
-    if (self.debug_str_section_index == null) {
-        assert(self.dwarf.strtab.buffer.items.len == 0);
-        try self.dwarf.strtab.buffer.append(self.allocator, 0);
-        self.debug_str_section_index = try self.allocateSection(
-            "__debug_str",
-            @as(u32, @intCast(self.dwarf.strtab.buffer.items.len)),
-            0,
-        );
-        self.debug_string_table_dirty = true;
-    }
+    self.debug_str_section_index = try self.allocateSection("__debug_str", 200, 0);
+    self.debug_info_section_index = try self.allocateSection("__debug_info", 200, 0);
+    self.debug_abbrev_section_index = try self.allocateSection("__debug_abbrev", 128, 0);
+    self.debug_aranges_section_index = try self.allocateSection("__debug_aranges", 160, 4);
+    self.debug_line_section_index = try self.allocateSection("__debug_line", 250, 0);
 
-    if (self.debug_info_section_index == null) {
-        self.debug_info_section_index = try self.allocateSection("__debug_info", 200, 0);
-        self.debug_info_header_dirty = true;
-    }
-
-    if (self.debug_abbrev_section_index == null) {
-        self.debug_abbrev_section_index = try self.allocateSection("__debug_abbrev", 128, 0);
-        self.debug_abbrev_section_dirty = true;
-    }
-
-    if (self.debug_aranges_section_index == null) {
-        self.debug_aranges_section_index = try self.allocateSection("__debug_aranges", 160, 4);
-        self.debug_aranges_section_dirty = true;
-    }
-
-    if (self.debug_line_section_index == null) {
-        self.debug_line_section_index = try self.allocateSection("__debug_line", 250, 0);
-        self.debug_line_header_dirty = true;
-    }
-
-    if (self.linkedit_segment_cmd_index == null) {
-        self.linkedit_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
-        try self.segments.append(self.allocator, .{
-            .segname = makeStaticString("__LINKEDIT"),
-            .maxprot = macho.PROT.READ,
-            .initprot = macho.PROT.READ,
-            .cmdsize = @sizeOf(macho.segment_command_64),
-        });
-    }
+    self.linkedit_segment_cmd_index = @as(u8, @intCast(self.segments.items.len));
+    try self.segments.append(self.allocator, .{
+        .segname = makeStaticString("__LINKEDIT"),
+        .maxprot = macho.PROT.READ,
+        .initprot = macho.PROT.READ,
+        .cmdsize = @sizeOf(macho.segment_command_64),
+    });
 }
 
 fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignment: u16) !u8 {
@@ -133,7 +99,13 @@ fn allocateSection(self: *DebugSymbols, sectname: []const u8, size: u64, alignme
     return index;
 }
 
-pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32, requires_file_copy: bool) !void {
+pub fn growSection(
+    self: *DebugSymbols,
+    sect_index: u8,
+    needed_size: u32,
+    requires_file_copy: bool,
+    macho_file: *MachO,
+) !void {
     const sect = self.getSectionPtr(sect_index);
 
     if (needed_size > self.allocatedSize(sect.offset)) {
@@ -162,20 +134,22 @@ pub fn growSection(self: *DebugSymbols, sect_index: u8, needed_size: u32, requir
     }
 
     sect.size = needed_size;
-    self.markDirty(sect_index);
+    self.markDirty(sect_index, macho_file);
 }
 
-pub fn markDirty(self: *DebugSymbols, sect_index: u8) void {
-    if (self.debug_info_section_index.? == sect_index) {
-        self.debug_info_header_dirty = true;
-    } else if (self.debug_line_section_index.? == sect_index) {
-        self.debug_line_header_dirty = true;
-    } else if (self.debug_abbrev_section_index.? == sect_index) {
-        self.debug_abbrev_section_dirty = true;
-    } else if (self.debug_str_section_index.? == sect_index) {
-        self.debug_string_table_dirty = true;
-    } else if (self.debug_aranges_section_index.? == sect_index) {
-        self.debug_aranges_section_dirty = true;
+pub fn markDirty(self: *DebugSymbols, sect_index: u8, macho_file: *MachO) void {
+    if (macho_file.getZigObject()) |zo| {
+        if (self.debug_info_section_index.? == sect_index) {
+            zo.debug_info_header_dirty = true;
+        } else if (self.debug_line_section_index.? == sect_index) {
+            zo.debug_line_header_dirty = true;
+        } else if (self.debug_abbrev_section_index.? == sect_index) {
+            zo.debug_abbrev_dirty = true;
+        } else if (self.debug_str_section_index.? == sect_index) {
+            zo.debug_strtab_dirty = true;
+        } else if (self.debug_aranges_section_index.? == sect_index) {
+            zo.debug_aranges_dirty = true;
+        }
     }
 }
 
@@ -201,13 +175,6 @@ fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 
 }
 
 pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
-    const comp = macho_file.base.comp;
-    // TODO This linker code currently assumes there is only 1 compilation unit
-    // and it corresponds to the Zig source code.
-    const zcu = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
-
-    try self.dwarf.flushModule(zcu);
-
     for (self.relocs.items) |*reloc| {
         const sym = macho_file.getSymbol(reloc.target);
         const sym_name = sym.getName(macho_file);
@@ -226,54 +193,12 @@ pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
         try self.file.pwriteAll(mem.asBytes(&addr), file_offset);
     }
 
-    if (self.debug_abbrev_section_dirty) {
-        try self.dwarf.writeDbgAbbrev();
-        self.debug_abbrev_section_dirty = false;
-    }
-
-    if (self.debug_info_header_dirty) {
-        // Currently only one compilation unit is supported, so the address range is simply
-        // identical to the main program header virtual address and memory size.
-        const text_section = macho_file.sections.items(.header)[macho_file.zig_text_sect_index.?];
-        const low_pc = text_section.addr;
-        const high_pc = text_section.addr + text_section.size;
-        try self.dwarf.writeDbgInfoHeader(zcu, low_pc, high_pc);
-        self.debug_info_header_dirty = false;
-    }
-
-    if (self.debug_aranges_section_dirty) {
-        // Currently only one compilation unit is supported, so the address range is simply
-        // identical to the main program header virtual address and memory size.
-        const text_section = macho_file.sections.items(.header)[macho_file.zig_text_sect_index.?];
-        try self.dwarf.writeDbgAranges(text_section.addr, text_section.size);
-        self.debug_aranges_section_dirty = false;
-    }
-
-    if (self.debug_line_header_dirty) {
-        try self.dwarf.writeDbgLineHeader();
-        self.debug_line_header_dirty = false;
-    }
-
-    {
-        const sect_index = self.debug_str_section_index.?;
-        if (self.debug_string_table_dirty or self.dwarf.strtab.buffer.items.len != self.getSection(sect_index).size) {
-            const needed_size = @as(u32, @intCast(self.dwarf.strtab.buffer.items.len));
-            try self.growSection(sect_index, needed_size, false);
-            try self.file.pwriteAll(self.dwarf.strtab.buffer.items, self.getSection(sect_index).offset);
-            self.debug_string_table_dirty = false;
-        }
-    }
-
     self.finalizeDwarfSegment(macho_file);
     try self.writeLinkeditSegmentData(macho_file);
 
     // Write load commands
     const ncmds, const sizeofcmds = try self.writeLoadCommands(macho_file);
     try self.writeHeader(macho_file, ncmds, sizeofcmds);
-
-    assert(!self.debug_abbrev_section_dirty);
-    assert(!self.debug_aranges_section_dirty);
-    assert(!self.debug_string_table_dirty);
 }
 
 pub fn deinit(self: *DebugSymbols) void {
@@ -281,7 +206,6 @@ pub fn deinit(self: *DebugSymbols) void {
     self.file.close();
     self.segments.deinit(gpa);
     self.sections.deinit(gpa);
-    self.dwarf.deinit();
     self.relocs.deinit(gpa);
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
@@ -345,8 +269,7 @@ fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, u
     defer gpa.free(buffer);
 
     var stream = std.io.fixedBufferStream(buffer);
-    var cwriter = std.io.countingWriter(stream.writer());
-    const writer = cwriter.writer();
+    const writer = stream.writer();
 
     var ncmds: usize = 0;
 
@@ -390,7 +313,7 @@ fn writeLoadCommands(self: *DebugSymbols, macho_file: *MachO) !struct { usize, u
     try writer.writeStruct(self.symtab_cmd);
     ncmds += 1;
 
-    assert(cwriter.bytes_written == needed_size);
+    assert(stream.pos == needed_size);
 
     try self.file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
@@ -534,7 +457,6 @@ const padToIdeal = MachO.padToIdeal;
 const trace = @import("../../tracy.zig").trace;
 
 const Allocator = mem.Allocator;
-const Dwarf = @import("../Dwarf.zig");
 const MachO = @import("../MachO.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;

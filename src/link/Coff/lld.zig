@@ -45,7 +45,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
     defer sub_prog_node.end();
 
     const is_lib = comp.config.output_mode == .Lib;
-    const is_dyn_lib = comp.config.link_mode == .Dynamic and is_lib;
+    const is_dyn_lib = comp.config.link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or comp.config.output_mode == .Exe;
     const link_in_crt = comp.config.link_libc and is_exe_or_dyn_lib;
     const target = comp.root_mod.resolved_target.result;
@@ -70,7 +70,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 11);
+        comptime assert(Compilation.link_hash_implementation_version == 13);
 
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -184,9 +184,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             const out_pdb = self.pdb_out_path orelse try allocPrint(arena, "{s}.pdb", .{
                 full_out_path[0 .. full_out_path.len - out_ext.len],
             });
+            const out_pdb_basename = std.fs.path.basename(out_pdb);
 
             try argv.append(try allocPrint(arena, "-PDB:{s}", .{out_pdb}));
-            try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb}));
+            try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb_basename}));
         }
         if (comp.version) |version| {
             try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
@@ -411,16 +412,16 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
                         try argv.append(try comp.get_libc_crt_file(arena, "mingwex.lib"));
                     } else {
                         const lib_str = switch (comp.config.link_mode) {
-                            .Dynamic => "",
-                            .Static => "lib",
+                            .dynamic => "",
+                            .static => "lib",
                         };
                         const d_str = switch (optimize_mode) {
                             .Debug => "d",
                             else => "",
                         };
                         switch (comp.config.link_mode) {
-                            .Static => try argv.append(try allocPrint(arena, "libcmt{s}.lib", .{d_str})),
-                            .Dynamic => try argv.append(try allocPrint(arena, "msvcrt{s}.lib", .{d_str})),
+                            .static => try argv.append(try allocPrint(arena, "libcmt{s}.lib", .{d_str})),
+                            .dynamic => try argv.append(try allocPrint(arena, "msvcrt{s}.lib", .{d_str})),
                         }
 
                         try argv.append(try allocPrint(arena, "{s}vcruntime{s}.lib", .{ lib_str, d_str }));

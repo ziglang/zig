@@ -1,3 +1,5 @@
+//! Cryptography.
+
 const root = @import("root");
 
 /// Authenticated Encryption with Associated Data
@@ -70,7 +72,8 @@ pub const dh = struct {
 
 /// Key Encapsulation Mechanisms.
 pub const kem = struct {
-    pub const kyber_d00 = @import("crypto/kyber_d00.zig");
+    pub const kyber_d00 = @import("crypto/ml_kem.zig").kyber_d00;
+    pub const ml_kem_01 = @import("crypto/ml_kem.zig").ml_kem_01;
 };
 
 /// Elliptic-curve arithmetic.

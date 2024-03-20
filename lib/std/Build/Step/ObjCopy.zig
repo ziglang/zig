@@ -33,7 +33,7 @@ output_file: std.Build.GeneratedFile,
 output_file_debug: ?std.Build.GeneratedFile,
 
 format: ?RawFormat,
-only_section: ?[]const u8,
+only_sections: ?[]const []const u8,
 pad_to: ?u64,
 strip: Strip,
 compress_debug: bool,
@@ -41,7 +41,7 @@ compress_debug: bool,
 pub const Options = struct {
     basename: ?[]const u8 = null,
     format: ?RawFormat = null,
-    only_section: ?[]const u8 = null,
+    only_sections: ?[]const []const u8 = null,
     pad_to: ?u64 = null,
 
     compress_debug: bool = false,
@@ -71,7 +71,7 @@ pub fn create(
         .output_file = std.Build.GeneratedFile{ .step = &self.step },
         .output_file_debug = if (options.strip != .none and options.extract_to_separate_file) std.Build.GeneratedFile{ .step = &self.step } else null,
         .format = options.format,
-        .only_section = options.only_section,
+        .only_sections = options.only_sections,
         .pad_to = options.pad_to,
         .strip = options.strip,
         .compress_debug = options.compress_debug,
@@ -94,7 +94,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const self = @fieldParentPtr(ObjCopy, "step", step);
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     // Random bytes to make ObjCopy unique. Refresh this with new random
@@ -103,7 +103,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const full_src_path = self.input_file.getPath(b);
     _ = try man.addFile(full_src_path, null);
-    man.hash.addOptionalBytes(self.only_section);
+    man.hash.addOptionalListOfBytes(self.only_sections);
     man.hash.addOptional(self.pad_to);
     man.hash.addOptional(self.format);
     man.hash.add(self.compress_debug);
@@ -133,10 +133,12 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     };
 
     var argv = std.ArrayList([]const u8).init(b.allocator);
-    try argv.appendSlice(&.{ b.zig_exe, "objcopy" });
+    try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
 
-    if (self.only_section) |only_section| {
-        try argv.appendSlice(&.{ "-j", only_section });
+    if (self.only_sections) |only_sections| {
+        for (only_sections) |only_section| {
+            try argv.appendSlice(&.{ "-j", only_section });
+        }
     }
     switch (self.strip) {
         .none => {},

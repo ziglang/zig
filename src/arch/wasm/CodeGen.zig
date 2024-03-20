@@ -14,9 +14,9 @@ const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
 const Decl = Module.Decl;
 const Type = @import("../../type.zig").Type;
-const Value = @import("../../value.zig").Value;
+const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
-const LazySrcLoc = Module.LazySrcLoc;
+const LazySrcLoc = std.zig.LazySrcLoc;
 const link = @import("../../link.zig");
 const TypedValue = @import("../../TypedValue.zig");
 const Air = @import("../../Air.zig");
@@ -735,7 +735,7 @@ free_locals_v128: std.ArrayListUnmanaged(u32) = .{},
 /// stored in our `values` map and therefore cause bugs.
 air_bookkeeping: @TypeOf(bookkeeping_init) = bookkeeping_init,
 
-const bookkeeping_init = if (builtin.mode == .Debug) @as(usize, 0) else {};
+const bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 
 const InnerError = error{
     OutOfMemory,
@@ -767,8 +767,7 @@ pub fn deinit(func: *CodeGen) void {
 /// Sets `err_msg` on `CodeGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
 fn fail(func: *CodeGen, comptime fmt: []const u8, args: anytype) InnerError {
     const mod = func.bin_file.base.comp.module.?;
-    const src = LazySrcLoc.nodeOffset(0);
-    const src_loc = src.toSrcLoc(func.decl, mod);
+    const src_loc = func.decl.srcLoc(mod);
     func.err_msg = try Module.ErrorMsg.create(func.gpa, src_loc, fmt, args);
     return error.CodegenFail;
 }
@@ -831,7 +830,7 @@ fn finishAir(func: *CodeGen, inst: Air.Inst.Index, result: WValue, operands: []c
         branch.values.putAssumeCapacityNoClobber(inst.toRef(), result);
     }
 
-    if (builtin.mode == .Debug) {
+    if (std.debug.runtime_safety) {
         func.air_bookkeeping += 1;
     }
 }
@@ -867,7 +866,7 @@ const BigTomb = struct {
             bt.gen.currentBranch().values.putAssumeCapacityNoClobber(bt.inst.toRef(), result);
         }
 
-        if (builtin.mode == .Debug) {
+        if (std.debug.runtime_safety) {
             bt.gen.air_bookkeeping += 1;
         }
     }
@@ -1019,7 +1018,7 @@ fn typeToValtype(ty: Type, mod: *Module) wasm.Valtype {
             .unrolled => wasm.Valtype.i32,
         },
         .Union => switch (ty.containerLayout(mod)) {
-            .Packed => {
+            .@"packed" => {
                 const int_ty = mod.intType(.unsigned, @as(u16, @intCast(ty.bitSize(mod)))) catch @panic("out of memory");
                 return typeToValtype(int_ty, mod);
             },
@@ -1287,8 +1286,9 @@ fn genFunc(func: *CodeGen) InnerError!void {
         var prologue = std.ArrayList(Mir.Inst).init(func.gpa);
         defer prologue.deinit();
 
+        const sp = @intFromEnum(func.bin_file.zigObjectPtr().?.stack_pointer_sym);
         // load stack pointer
-        try prologue.append(.{ .tag = .global_get, .data = .{ .label = 0 } });
+        try prologue.append(.{ .tag = .global_get, .data = .{ .label = sp } });
         // store stack pointer so we can restore it when we return from the function
         try prologue.append(.{ .tag = .local_tee, .data = .{ .label = func.initial_stack_value.local.value } });
         // get the total stack size
@@ -1304,7 +1304,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
         try prologue.append(.{ .tag = .local_tee, .data = .{ .label = func.bottom_stack_value.local.value } });
         // Store the current stack pointer value into the global stack pointer so other function calls will
         // start from this value instead and not overwrite the current stack.
-        try prologue.append(.{ .tag = .global_set, .data = .{ .label = 0 } });
+        try prologue.append(.{ .tag = .global_set, .data = .{ .label = sp } });
 
         // reserve space and insert all prologue instructions at the front of the instruction list
         // We insert them in reserve order as there is no insertSlice in multiArrayList.
@@ -1432,21 +1432,13 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
             }
             assert(ty_classes[0] == .direct);
             const scalar_type = abi.scalarType(ty, mod);
-            const abi_size = scalar_type.abiSize(mod);
-            try func.emitWValue(value);
-
-            // When the value lives in the virtual stack, we must load it onto the actual stack
-            if (value != .imm32 and value != .imm64) {
-                const opcode = buildOpcode(.{
-                    .op = .load,
-                    .width = @as(u8, @intCast(abi_size)),
-                    .signedness = if (scalar_type.isSignedInt(mod)) .signed else .unsigned,
-                    .valtype1 = typeToValtype(scalar_type, mod),
-                });
-                try func.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
-                    .offset = value.offset(),
-                    .alignment = @intCast(scalar_type.abiAlignment(mod).toByteUnitsOptional().?),
-                });
+            switch (value) {
+                .memory,
+                .memory_offset,
+                .stack_offset,
+                => _ = try func.load(value, scalar_type, 0),
+                .dead => unreachable,
+                else => try func.emitWValue(value),
             }
         },
         .Int, .Float => {
@@ -1511,7 +1503,7 @@ fn restoreStackPointer(func: *CodeGen) !void {
     try func.emitWValue(func.initial_stack_value);
 
     // save its value in the global stack pointer
-    try func.addLabel(.global_set, 0);
+    try func.addLabel(.global_set, @intFromEnum(func.bin_file.zigObjectPtr().?.stack_pointer_sym));
 }
 
 /// From a given type, will create space on the virtual stack to store the value of such type.
@@ -1745,7 +1737,7 @@ fn isByRef(ty: Type, mod: *Module) bool {
         => return ty.hasRuntimeBitsIgnoreComptime(mod),
         .Union => {
             if (mod.typeToUnion(ty)) |union_obj| {
-                if (union_obj.getLayout(ip) == .Packed) {
+                if (union_obj.getLayout(ip) == .@"packed") {
                     return ty.abiSize(mod) > 8;
                 }
             }
@@ -1918,17 +1910,10 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .@"try" => func.airTry(inst),
         .try_ptr => func.airTryPtr(inst),
 
-        // TODO
-        .dbg_inline_begin,
-        .dbg_inline_end,
-        .dbg_block_begin,
-        .dbg_block_end,
-        => func.finishAir(inst, .none, &.{}),
-
+        .dbg_stmt => func.airDbgStmt(inst),
+        .dbg_inline_block => func.airDbgInlineBlock(inst),
         .dbg_var_ptr => func.airDbgVar(inst, true),
         .dbg_var_val => func.airDbgVar(inst, false),
-
-        .dbg_stmt => func.airDbgStmt(inst),
 
         .call => func.airCall(inst, .auto),
         .call_always_tail => func.airCall(inst, .always_tail),
@@ -2089,7 +2074,7 @@ fn genBody(func: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, Liveness.bpi);
         try func.genInst(inst);
 
-        if (builtin.mode == .Debug and func.air_bookkeeping < old_bookkeeping_value + 1) {
+        if (std.debug.runtime_safety and func.air_bookkeeping < old_bookkeeping_value + 1) {
             std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{}')", .{
                 inst,
                 func.air.instructions.items(.tag)[@intFromEnum(inst)],
@@ -2216,7 +2201,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
             const type_index = try func.bin_file.storeDeclType(extern_func.decl, func_type);
             try func.bin_file.addOrUpdateImport(
                 mod.intern_pool.stringToSlice(ext_decl.name),
-                atom.getSymbolIndex().?,
+                atom.sym_index,
                 mod.intern_pool.stringToSliceUnwrap(ext_decl.getOwnedExternFunc(mod).?.lib_name),
                 type_index,
             );
@@ -2250,8 +2235,8 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     }
 
     if (callee) |direct| {
-        const atom_index = func.bin_file.decls.get(direct).?;
-        try func.addLabel(.call, func.bin_file.getAtom(atom_index).sym_index);
+        const atom_index = func.bin_file.zigObjectPtr().?.decls_map.get(direct).?.atom;
+        try func.addLabel(.call, @intFromEnum(func.bin_file.getAtom(atom_index).sym_index));
     } else {
         // in this case we call a function pointer
         // so load its value onto the stack
@@ -2262,7 +2247,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), mod);
         defer fn_type.deinit(func.gpa);
 
-        const fn_type_index = try func.bin_file.putOrGetFuncType(fn_type);
+        const fn_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, fn_type);
         try func.addLabel(.call_indirect, fn_type_index);
     }
 
@@ -2522,7 +2507,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
         return WValue{ .stack = {} };
     }
 
-    const abi_size = @as(u8, @intCast(ty.abiSize(mod)));
+    const abi_size: u8 = @intCast(ty.abiSize(mod));
     const opcode = buildOpcode(.{
         .valtype1 = typeToValtype(ty, mod),
         .width = abi_size * 8,
@@ -2673,19 +2658,19 @@ fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) Inner
         .rem => return func.callIntrinsic("__umodti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         .shr => return func.callIntrinsic("__lshrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
         .shl => return func.callIntrinsic("__ashlti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
-        .xor => {
+        .@"and", .@"or", .xor => {
             const result = try func.allocStack(ty);
             try func.emitWValue(result);
             const lhs_high_bit = try func.load(lhs, Type.u64, 0);
             const rhs_high_bit = try func.load(rhs, Type.u64, 0);
-            const xor_high_bit = try func.binOp(lhs_high_bit, rhs_high_bit, Type.u64, .xor);
-            try func.store(.stack, xor_high_bit, Type.u64, result.offset());
+            const op_high_bit = try func.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
+            try func.store(.stack, op_high_bit, Type.u64, result.offset());
 
             try func.emitWValue(result);
             const lhs_low_bit = try func.load(lhs, Type.u64, 8);
             const rhs_low_bit = try func.load(rhs, Type.u64, 8);
-            const xor_low_bit = try func.binOp(lhs_low_bit, rhs_low_bit, Type.u64, .xor);
-            try func.store(.stack, xor_low_bit, Type.u64, result.offset() + 8);
+            const op_low_bit = try func.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
+            try func.store(.stack, op_low_bit, Type.u64, result.offset() + 8);
             return result;
         },
         .add, .sub => {
@@ -3112,7 +3097,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
                     break :blk parent_ty.structFieldOffset(field_index, mod);
                 },
                 .Union => switch (parent_ty.containerLayout(mod)) {
-                    .Packed => 0,
+                    .@"packed" => 0,
                     else => blk: {
                         const layout: Module.UnionLayout = parent_ty.unionGetLayout(mod);
                         if (layout.payload_size == 0) break :blk 0;
@@ -3168,8 +3153,8 @@ fn lowerAnonDeclRef(
             return error.CodegenFail;
         },
     }
-    const target_atom_index = func.bin_file.anon_decls.get(decl_val).?;
-    const target_sym_index = func.bin_file.getAtom(target_atom_index).getSymbolIndex().?;
+    const target_atom_index = func.bin_file.zigObjectPtr().?.anon_decls.get(decl_val).?;
+    const target_sym_index = @intFromEnum(func.bin_file.getAtom(target_atom_index).sym_index);
     if (is_fn_body) {
         return WValue{ .function_index = target_sym_index };
     } else if (offset == 0) {
@@ -3179,9 +3164,6 @@ fn lowerAnonDeclRef(
 
 fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
-    if (tv.ty.isSlice(mod)) {
-        return WValue{ .memory = try func.bin_file.lowerUnnamedConst(tv, decl_index) };
-    }
 
     const decl = mod.declPtr(decl_index);
     // check if decl is an alias to a function, in which case we
@@ -3203,9 +3185,8 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.Decl
     const atom_index = try func.bin_file.getOrCreateAtomForDecl(decl_index);
     const atom = func.bin_file.getAtom(atom_index);
 
-    const target_sym_index = atom.sym_index;
+    const target_sym_index = @intFromEnum(atom.sym_index);
     if (decl.ty.zigTypeTag(mod) == .Fn) {
-        try func.bin_file.addTableFunction(target_sym_index);
         return WValue{ .function_index = target_sym_index };
     } else if (offset == 0) {
         return WValue{ .memory = target_sym_index };
@@ -3335,6 +3316,18 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .f64 => |f64_val| return WValue{ .float64 = f64_val },
             else => unreachable,
         },
+        .slice => |slice| {
+            var ptr = ip.indexToKey(slice.ptr).ptr;
+            const owner_decl = while (true) switch (ptr.addr) {
+                .decl => |decl| break decl,
+                .mut_decl => |mut_decl| break mut_decl.decl,
+                .int, .anon_decl => return func.fail("Wasm TODO: lower slice where ptr is not owned by decl", .{}),
+                .opt_payload, .eu_payload => |base| ptr = ip.indexToKey(base).ptr,
+                .elem, .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
+                .comptime_field => unreachable,
+            };
+            return .{ .memory = try func.bin_file.lowerUnnamedConst(.{ .ty = ty, .val = val }, owner_decl) };
+        },
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
             .mut_decl => |mut_decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, mut_decl.decl, 0),
@@ -3361,10 +3354,11 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 val.writeToMemory(ty, mod, &buf) catch unreachable;
                 return func.storeSimdImmd(buf);
             },
-            .struct_type => |struct_type| {
+            .struct_type => {
+                const struct_type = ip.loadStructType(ty.toIntern());
                 // non-packed structs are not handled in this function because they
                 // are by-ref types.
-                assert(struct_type.layout == .Packed);
+                assert(struct_type.layout == .@"packed");
                 var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
                 val.writeToPackedMemory(ty, mod, &buf, 0) catch unreachable;
                 const backing_int_ty = Type.fromInterned(struct_type.backingIntType(ip).*);
@@ -3478,12 +3472,14 @@ fn intStorageAsI32(storage: InternPool.Key.Int.Storage, mod: *Module) i32 {
 }
 
 fn airBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const block_ty = ty_pl.ty.toType();
-    const wasm_block_ty = genBlockType(block_ty, mod);
     const extra = func.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]);
+    try func.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn lowerBlock(func: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
+    const mod = func.bin_file.base.comp.module.?;
+    const wasm_block_ty = genBlockType(block_ty, mod);
 
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
     const block_result: WValue = if (wasm_block_ty != wasm.block_empty) blk: {
@@ -3714,7 +3710,7 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     const sym_index = try func.bin_file.getGlobalSymbol("__zig_errors_len", null);
-    const errors_len = WValue{ .memory = sym_index };
+    const errors_len = WValue{ .memory = @intFromEnum(sym_index) };
 
     try func.emitWValue(operand);
     const mod = func.bin_file.base.comp.module.?;
@@ -3894,7 +3890,7 @@ fn structFieldPtr(
     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(mod);
 
     const offset = switch (struct_ty.containerLayout(mod)) {
-        .Packed => switch (struct_ty.zigTypeTag(mod)) {
+        .@"packed" => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => offset: {
                 if (result_ty.ptrInfo(mod).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
@@ -3932,7 +3928,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) return func.finishAir(inst, .none, &.{struct_field.struct_operand});
 
     const result = switch (struct_ty.containerLayout(mod)) {
-        .Packed => switch (struct_ty.zigTypeTag(mod)) {
+        .@"packed" => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => result: {
                 const packed_struct = mod.typeToPackedStruct(struct_ty).?;
                 const offset = mod.structPackedFieldBitOffset(packed_struct, field_index);
@@ -5325,7 +5321,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result_value result;
             },
             .Struct => switch (result_ty.containerLayout(mod)) {
-                .Packed => {
+                .@"packed" => {
                     if (isByRef(result_ty, mod)) {
                         return func.fail("TODO: airAggregateInit for packed structs larger than 64 bits", .{});
                     }
@@ -5416,7 +5412,7 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const layout = union_ty.unionGetLayout(mod);
         const union_obj = mod.typeToUnion(union_ty).?;
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
-        const field_name = union_obj.field_names.get(ip)[extra.field_index];
+        const field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
 
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
@@ -6474,7 +6470,27 @@ fn airCtz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
-fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
+fn airDbgStmt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
+
+    const dbg_stmt = func.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
+    try func.addInst(.{ .tag = .dbg_line, .data = .{
+        .payload = try func.addExtra(Mir.DbgLineColumn{
+            .line = dbg_stmt.line,
+            .column = dbg_stmt.column,
+        }),
+    } });
+    func.finishAir(inst, .none, &.{});
+}
+
+fn airDbgInlineBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = func.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+    // TODO
+    try func.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+}
+
+fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void {
     if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
 
     const mod = func.bin_file.base.comp.module.?;
@@ -6496,19 +6512,6 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) !void {
     };
     try func.debug_output.dwarf.genVarDbgInfo(name, ty, mod.funcOwnerDeclIndex(func.func_index), is_ptr, loc);
 
-    func.finishAir(inst, .none, &.{});
-}
-
-fn airDbgStmt(func: *CodeGen, inst: Air.Inst.Index) !void {
-    if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
-
-    const dbg_stmt = func.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
-    try func.addInst(.{ .tag = .dbg_line, .data = .{
-        .payload = try func.addExtra(Mir.DbgLineColumn{
-            .line = dbg_stmt.line,
-            .column = dbg_stmt.column,
-        }),
-    } });
     func.finishAir(inst, .none, &.{});
 }
 
@@ -6638,21 +6641,42 @@ fn airByteSwap(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result try (try func.binOp(tmp, lsb, ty, .@"or")).toLocal(func, ty);
             },
             32 => {
-                const shl_tmp = try func.binOp(operand, .{ .imm32 = 8 }, ty, .shl);
-                var lhs = try (try func.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, ty, .@"and")).toLocal(func, ty);
-                defer lhs.free(func);
-                const shr_tmp = try func.binOp(operand, .{ .imm32 = 8 }, ty, .shr);
-                var rhs = try (try func.binOp(shr_tmp, .{ .imm32 = 0xFF00FF }, ty, .@"and")).toLocal(func, ty);
-                defer rhs.free(func);
-                var tmp_or = try (try func.binOp(lhs, rhs, ty, .@"or")).toLocal(func, ty);
-                defer tmp_or.free(func);
+                const shl_tmp = try func.binOp(operand, .{ .imm32 = 8 }, Type.u32, .shl);
+                const lhs = try func.binOp(shl_tmp, .{ .imm32 = 0xFF00FF00 }, Type.u32, .@"and");
+                const shr_tmp = try func.binOp(operand, .{ .imm32 = 8 }, Type.u32, .shr);
+                const rhs = try func.binOp(shr_tmp, .{ .imm32 = 0x00FF00FF }, Type.u32, .@"and");
+                var tmp_or = try (try func.binOp(lhs, rhs, Type.u32, .@"or")).toLocal(func, Type.u32);
 
-                const shl = try func.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shl);
-                const shr = try func.binOp(tmp_or, .{ .imm32 = 16 }, ty, .shr);
-                const res = if (int_info.signedness == .signed) blk: {
-                    break :blk try func.wrapOperand(shr, Type.u16);
-                } else shr;
-                break :result try (try func.binOp(shl, res, ty, .@"or")).toLocal(func, ty);
+                const shl = try func.binOp(tmp_or, .{ .imm32 = 16 }, Type.u32, .shl);
+                const shr = try func.binOp(tmp_or, .{ .imm32 = 16 }, Type.u32, .shr);
+
+                tmp_or.free(func);
+
+                break :result try (try func.binOp(shl, shr, Type.u32, .@"or")).toLocal(func, Type.u32);
+            },
+            64 => {
+                const shl_tmp_1 = try func.binOp(operand, .{ .imm64 = 8 }, Type.u64, .shl);
+                const lhs_1 = try func.binOp(shl_tmp_1, .{ .imm64 = 0xFF00FF00FF00FF00 }, Type.u64, .@"and");
+
+                const shr_tmp_1 = try func.binOp(operand, .{ .imm64 = 8 }, Type.u64, .shr);
+                const rhs_1 = try func.binOp(shr_tmp_1, .{ .imm64 = 0x00FF00FF00FF00FF }, Type.u64, .@"and");
+
+                var tmp_or_1 = try (try func.binOp(lhs_1, rhs_1, Type.u64, .@"or")).toLocal(func, Type.u64);
+
+                const shl_tmp_2 = try func.binOp(tmp_or_1, .{ .imm64 = 16 }, Type.u64, .shl);
+                const lhs_2 = try func.binOp(shl_tmp_2, .{ .imm64 = 0xFFFF0000FFFF0000 }, Type.u64, .@"and");
+
+                const shr_tmp_2 = try func.binOp(tmp_or_1, .{ .imm64 = 16 }, Type.u64, .shr);
+                tmp_or_1.free(func);
+                const rhs_2 = try func.binOp(shr_tmp_2, .{ .imm64 = 0x0000FFFF0000FFFF }, Type.u64, .@"and");
+
+                var tmp_or_2 = try (try func.binOp(lhs_2, rhs_2, Type.u64, .@"or")).toLocal(func, Type.u64);
+
+                const shl = try func.binOp(tmp_or_2, .{ .imm64 = 32 }, Type.u64, .shl);
+                const shr = try func.binOp(tmp_or_2, .{ .imm64 = 32 }, Type.u64, .shr);
+                tmp_or_2.free(func);
+
+                break :result try (try func.binOp(shl, shr, Type.u64, .@"or")).toLocal(func, Type.u64);
             },
             else => return func.fail("TODO: @byteSwap for integers with bitsize {d}", .{int_info.bits}),
         }
@@ -7156,7 +7180,7 @@ fn callIntrinsic(
     args: []const WValue,
 ) InnerError!WValue {
     assert(param_types.len == args.len);
-    const symbol_index = func.bin_file.base.getGlobalSymbol(name, null) catch |err| {
+    const symbol_index = func.bin_file.getGlobalSymbol(name, null) catch |err| {
         return func.fail("Could not find or create global symbol '{s}'", .{@errorName(err)});
     };
 
@@ -7164,7 +7188,7 @@ fn callIntrinsic(
     const mod = func.bin_file.base.comp.module.?;
     var func_type = try genFunctype(func.gpa, .C, param_types, return_type, mod);
     defer func_type.deinit(func.gpa);
-    const func_type_index = try func.bin_file.putOrGetFuncType(func_type);
+    const func_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, func_type);
     try func.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
 
     const want_sret_param = firstParamSRet(.C, return_type, mod);
@@ -7184,7 +7208,7 @@ fn callIntrinsic(
     }
 
     // Actually call our intrinsic
-    try func.addLabel(.call, symbol_index);
+    try func.addLabel(.call, @intFromEnum(symbol_index));
 
     if (!return_type.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue.none;
@@ -7215,18 +7239,19 @@ fn airTagName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     const mod = func.bin_file.base.comp.module.?;
+    const ip = &mod.intern_pool;
     const enum_decl_index = enum_ty.getOwnerDecl(mod);
 
     var arena_allocator = std.heap.ArenaAllocator.init(func.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = mod.intern_pool.stringToSlice(try mod.declPtr(enum_decl_index).getFullyQualifiedName(mod));
+    const fqn = ip.stringToSlice(try mod.declPtr(enum_decl_index).fullyQualifiedName(mod));
     const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{s}", .{fqn});
 
     // check if we already generated code for this.
     if (func.bin_file.findGlobalSymbol(func_name)) |loc| {
-        return loc.index;
+        return @intFromEnum(loc.index);
     }
 
     const int_tag_ty = enum_ty.intTagType(mod);
@@ -7251,9 +7276,9 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
     // TODO: Make switch implementation generic so we can use a jump table for this when the tags are not sparse.
     // generate an if-else chain for each tag value as well as constant.
-    for (enum_ty.enumFields(mod), 0..) |tag_name_ip, field_index_usize| {
-        const field_index = @as(u32, @intCast(field_index_usize));
-        const tag_name = mod.intern_pool.stringToSlice(tag_name_ip);
+    const tag_names = enum_ty.enumFields(mod);
+    for (0..tag_names.len) |tag_index| {
+        const tag_name = ip.stringToSlice(tag_names.get(ip)[tag_index]);
         // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
         const name_ty = try mod.arrayType(.{
@@ -7278,7 +7303,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         try writer.writeByte(std.wasm.opcode(.local_get));
         try leb.writeULEB128(writer, @as(u32, 1));
 
-        const tag_val = try mod.enumValueFieldIndex(enum_ty, field_index);
+        const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
         const tag_value = try func.lowerConstant(tag_val, enum_ty);
 
         switch (tag_value) {
@@ -7366,11 +7391,13 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
     const slice_ty = Type.slice_const_u8_sentinel_0;
     const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty.ip_index}, slice_ty, mod);
-    return func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
+    const sym_index = try func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
+    return @intFromEnum(sym_index);
 }
 
 fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.comp.module.?;
+    const ip = &mod.intern_pool;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -7383,8 +7410,8 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     var lowest: ?u32 = null;
     var highest: ?u32 = null;
-    for (names) |name| {
-        const err_int = @as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(name).?));
+    for (0..names.len) |name_index| {
+        const err_int: Module.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[name_index]).?);
         if (lowest) |*l| {
             if (err_int < l.*) {
                 l.* = err_int;

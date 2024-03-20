@@ -55,7 +55,7 @@ pub const AddExecutableOptions = struct {
     version: ?std.SemanticVersion = null,
     target: ?std.Build.ResolvedTarget = null,
     optimize: ?std.builtin.OptimizeMode = null,
-    linkage: ?Step.Compile.Linkage = null,
+    linkage: ?std.builtin.LinkMode = null,
 };
 
 pub fn getOutput(self: *TranslateC) std.Build.LazyPath {
@@ -121,7 +121,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(TranslateC, "step", step);
 
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
-    try argv_list.append(b.zig_exe);
+    try argv_list.append(b.graph.zig_exe);
     try argv_list.append("translate-c");
     if (self.link_libc) {
         try argv_list.append("-lc");

@@ -1,474 +1,156 @@
 <!doctype html>
-<html lang="en">
+<html>
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Documentation - Zig</title>
-    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAgklEQVR4AWMYWuD7EllJIM4G4g4g5oIJ/odhOJ8wToOxSTXgNxDHoeiBMfA4+wGShjyYOCkG/IGqWQziEzYAoUAeiF9D5U+DxEg14DRU7jWIT5IBIOdCxf+A+CQZAAoopEB7QJwBCBwHiip8UYmRdrAlDpIMgApwQZNnNii5Dq0MBgCxxycBnwEd+wAAAABJRU5ErkJggg==">
+    <title>Zig Documentation</title>
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNTMgMTQwIj48ZyBmaWxsPSIjRjdBNDFEIj48Zz48cG9seWdvbiBwb2ludHM9IjQ2LDIyIDI4LDQ0IDE5LDMwIi8+PHBvbHlnb24gcG9pbnRzPSI0NiwyMiAzMywzMyAyOCw0NCAyMiw0NCAyMiw5NSAzMSw5NSAyMCwxMDAgMTIsMTE3IDAsMTE3IDAsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMzEsOTUgMTIsMTE3IDQsMTA2Ii8+PC9nPjxnPjxwb2x5Z29uIHBvaW50cz0iNTYsMjIgNjIsMzYgMzcsNDQiLz48cG9seWdvbiBwb2ludHM9IjU2LDIyIDExMSwyMiAxMTEsNDQgMzcsNDQgNTYsMzIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTE2LDk1IDk3LDExNyA5MCwxMDQiLz48cG9seWdvbiBwb2ludHM9IjExNiw5NSAxMDAsMTA0IDk3LDExNyA0MiwxMTcgNDIsOTUiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTUwLDAgNTIsMTE3IDMsMTQwIDEwMSwyMiIvPjwvZz48Zz48cG9seWdvbiBwb2ludHM9IjE0MSwyMiAxNDAsNDAgMTIyLDQ1Ii8+PHBvbHlnb24gcG9pbnRzPSIxNTMsMjIgMTUzLDExNyAxMDYsMTE3IDEyMCwxMDUgMTI1LDk1IDEzMSw5NSAxMzEsNDUgMTIyLDQ1IDEzMiwzNiAxNDEsMjIiIHNoYXBlLXJlbmRlcmluZz0iY3Jpc3BFZGdlcyIvPjxwb2x5Z29uIHBvaW50cz0iMTI1LDk1IDEzMCwxMTAgMTA2LDExNyIvPjwvZz48L2c+PC9zdmc+">
-    <style>
-      :root {
-        font-size: 1em;
-        --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-        --mono: "Source Code Pro", monospace;
-        --tx-color: #141414;
-        --bg-color: #ffffff;
-        --link-color: #2A6286;
-        --sidebar-sh-color: rgba(0, 0, 0, 0.09);
-        --sidebar-mod-bg-color: #f1f1f1;
-        --sidebar-modlnk-tx-color: #141414;
-        --sidebar-modlnk-tx-color-hover: #fff;
-        --sidebar-modlnk-tx-color-active: #000;
-        --sidebar-modlnk-bg-color: transparent;
-        --sidebar-modlnk-bg-color-hover: #555;
-        --sidebar-modlnk-bg-color-active: #FFBB4D;
-        --search-bg-color: #f3f3f3;
-        --search-bg-color-focus: #ffffff;
-        --search-sh-color: rgba(0, 0, 0, 0.18);
-        --search-other-results-color: rgb(100, 100, 100);
-        --modal-sh-color: rgba(0, 0, 0, 0.75);
-        --modal-bg-color: #aaa;
-        --warning-popover-bg-color: #ff4747;
+    <style type="text/css">
+      body {
+        font-family: system-ui, -apple-system, Roboto, "Segoe UI", sans-serif;
+        color: #000000;
       }
-
-      html, body { margin: 0; padding: 0; height: 100%; }
-
-      a {
-        text-decoration: none;
-      }
-
-      pre a {
-        text-decoration: underline;
-        color: unset;
-      }
-
-      a:hover {
-        text-decoration: underline;
-      }
-
-      a[href^="src/"] {
-        border-bottom: 2px dotted var(--tx-color);
-      }
-
       .hidden {
-        display: none !important;
-      }
-
-      /* layout */
-      .canvas {
-        display:flex;
-        flex-direction: column;
-        width: 100vw;
-        height: 100vh;
-        margin: 0;
-        padding: 0;
-        font-family: var(--ui);
-        color: var(--tx-color);
-        background-color: var(--bg-color);
-      }
-
-      .flex-main {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-
-        height: 100%;
-        overflow: hidden;
-        
-
-        z-index: 100;
-      }
-
-      .flex-horizontal {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-      }
-
-      .flex-filler {
-        flex-grow: 1;
-        flex-shrink: 1;
-      }
-
-      .flex-left {
-        overflow: auto;
-        -webkit-overflow-scrolling: touch;
-        overflow-wrap: break-word;
-        flex-shrink: 0;
-        flex-grow: 0;
-        margin-right: 0.5rem;
-
-        z-index: 300;
-      }
-
-      .flex-right {
-        display: flex;
-        flex-direction: column;
-        overflow: auto;
-        -webkit-overflow-scrolling: touch;
-        flex-grow: 1;
-        flex-shrink: 1;
-
-        z-index: 200;
-      }
-
-      .flex-right > .wrap {
-        width: 60rem;
-        max-width: 85vw;
-        flex-shrink: 1;
-      }
-
-      .modal-container {
-        z-index: 400;
-      }
-
-      .understated {
-        color: var(--search-other-results-color);
-      }
-
-      .sidebar {
-        background-color: var(--bg-color);
-        box-shadow: 0 0 1rem var(--sidebar-sh-color);
-        clip-path: inset(0px -15px 0px 0px);
-      }
-
-      .logo {
-        margin: 0.5rem;
-        width: 130px; 
-      }
-
-      .logo > svg {
-        display: block;
-      }
-
-      ul.guides-api-switch {
-        display: flex;
-        flex-direction: row;
-        justify-content: center;
-        text-align: center;
-        list-style-type: none;
-        margin: 0;
-        padding: 0;
-      }
-
-      .guides-api-switch a {
-        display: block;
-        padding: 0.5rem 1rem;      
-        color: var(--sidebar-modlnk-tx-color);
-        background-color: var(--sidebar-modlnk-bg-color);
-        border: 1px solid var(--tx-color);
-      }
-
-
-      #ApiSwitch {
-        border-radius: 10px 0 0 10px;        
-      }
-
-      #guideSwitch {
-        border-radius: 0 10px 10px 0;
-      }
-
-      
-      #ApiSwitch:hover, #guideSwitch:hover {
-        text-decoration: none;      
-      }
-
-      #ApiSwitch:hover:not(.active), #guideSwitch:hover:not(.active) {
-        color: var(--sidebar-modlnk-tx-color-hover);
-        background-color: var(--sidebar-modlnk-bg-color-hover);
-      }
-
-      .guides-api-switch .active {
-        color: var(--sidebar-modlnk-tx-color-active);
-        background-color: var(--sidebar-modlnk-bg-color-active);
-      }
-
-      #guidesMenu {
-        height: 100%;
-        overflow: hidden;
-        width: 30%;
-        margin-right: 2rem;
-      }
-      
-      #activeGuide {
-        overflow-y: scroll;
-        height: 100%;
-        width: 70%;
-        padding-right: 1rem;
-      }
-      .sidebar h2 {
-        margin: 0.5rem;
-        padding: 0;
-        font-size: 1.2rem;
-      }
-
-      .sidebar h2 > span {
-        border-bottom: 0.125rem dotted var(--tx-color);
-      }
-
-      .sidebar .modules {
-        list-style-type: none;
-        margin: 0;
-        padding: 0;
-        background-color: var(--sidebar-mod-bg-color);
-      }
-
-      .sidebar .modules > li > a {
-        display: block;
-        padding: 0.5rem 1rem;
-        color: var(--sidebar-modlnk-tx-color);
-        background-color: var(--sidebar-modlnk-bg-color);
-        text-decoration: none;
-      }
-
-      .sidebar .modules > li > a:hover {
-        color: var(--sidebar-modlnk-tx-color-hover);
-        background-color: var(--sidebar-modlnk-bg-color-hover);
-      }
-
-      .sidebar .modules > li > a.active {
-        color: var(--sidebar-modlnk-tx-color-active);
-        background-color: var(--sidebar-modlnk-bg-color-active);
-      }
-
-      .sidebar p.str {
-        margin: 0.5rem;
-        font-family: var(--mono);
-      }
-
-      #guideTocList {
-        padding: 0 1rem;
-      }
-      
-      #guideTocList ul {
-        padding-left: 1rem;
-        margin: 0;
-      }
-
-      #guides {
-        box-sizing: border-box;
-        font-size: 1rem;
-        background-color: var(--bg-color);
-        overflow-wrap: break-word;
-      }
-
-      /* docs section */
-      .docs {
-        flex-grow: 2;
-        padding: 0rem 0.7rem 0rem 1.4rem;
-        font-size: 1rem;
-        background-color: var(--bg-color);
-        overflow-wrap: break-word;
-        height: 100%;
-        overflow-y: scroll;
-      }
-
-      #noDocsNamespaces {
-      	margin: 1rem;
-      	border: 1px solid var(--search-other-results-color);
-      	padding: 0.5rem 1rem;
-      	background-color: var(--help-bg-color);
-      }
-
-      .column {
-        flex-basis: 0;
-        flex-grow: 1;
-        min-width: min(24rem, 90%);
-      }
-
-      
-      .search-container {
-        flex-grow: 2;
-      }
-
-      .search {
-        width: 100%;
-        padding: 0.5rem;
-        font-family: var(--ui);
-        font-size: 1rem;
-        color: var(--tx-color);
-        background-color: var(--search-bg-color);
-        border-top: 0;
-        border-left: 0;
-        border-right: 0;
-        border-bottom-width: 0.125rem;
-        border-bottom-style: solid;
-        border-bottom-color: var(--tx-color);
-        outline: none;
-        transition: border-bottom-color 0.35s, background 0.35s, box-shadow 0.35s;
-        border-radius: 0;
-        -webkit-appearance: none;
-      }
-
-      .search:focus {
-        background-color: var(--search-bg-color-focus);
-        border-bottom-color: #ffbb4d;
-        box-shadow: 0 0.3em 1em 0.125em var(--search-sh-color);
-      }
-
-      #searchPlaceholder {
-        position: absolute;
-        pointer-events: none;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        padding-left: 5px;
-      }
-
-      #searchPlaceholderTextMobile {
         display: none;
       }
-
-      #dotsPopover:before {
-        position: absolute;
-        content: "";
-        left: 20px;
-        top: -8px;
-        border-style: solid;
-        border-width: 0 10px 10px 10px;
-        border-color: transparent transparent var(--warning-popover-bg-color) transparent;
-        transition-duration: 0.3s;
-        transition-property: transform;
-        z-index: 10;
-      }      
-      
-      #dotsPopover {
-        position: absolute;
-        opacity: 0;
-        visibility: hidden;
-        background-color: var(--warning-popover-bg-color);
-        border-radius: 10px;
-        left: 10px;
-        transform: translate(0, -20px);
-        padding: 0.5rem 1rem;
-        box-shadow: 0 2px 5px 0 rgba(0, 0, 0, 0.26);
-        transition: all 0.5s cubic-bezier(0.75, -0.02, 0.2, 0.97);
-        z-index: 20;
-      }
-
-      #dotsPopover.active {
-        opacity: 1;
-        visibility: visible;
-        transform: translate(0, 0);
-      }
-
-      #sectSearchResults {
-        box-sizing: border-box;
-      }
-
-      #searchHelp summary {
-        color: red;
-        list-style-position: outside;
-      }
-
-      #searchHelp summary.normal {
-        color: var(--search-other-results-color);
-        transition: all 0.5s cubic-bezier(0.75, -0.02, 0.2, 0.97);
-      }
-
-      #searchHelp div {
-        background-color: var(--modal-bg-color);
-        padding: 0.5rem 1rem;
-      }
-      
-      .other-results {
-        line-height: 1em;
-        position: relative;
-        outline: 0;
-        border: 0;
-        color: var(--search-other-results-color);
-        text-align: center;
-        height: 1.5em;
-        opacity: .5;
-      }
-      .other-results:before {
-        content: '';
-        background: var(--search-other-results-color);
-        position: absolute;
-        left: 0;
-        top: 50%;
+      table {
         width: 100%;
-        height: 1px;
       }
-        
-      .other-results:after {
-        content: "other results";
-        position: relative;
-        display: inline-block;
-        padding: 0 .5em;
-        line-height: 1.5em;
-        color: var(--search-other-results-color);
-        background-color: var(--bg-color);
-      }
-      
-      
       a {
-        color: var(--link-color);
+        color: #2A6286;
       }
-
-      p {
-        margin: 0.8rem 0;
-      }
-
-      pre {
-        font-family: var(--mono);
-        font-size: 1em;
-        background-color: #F5F5F5;
+      pre{
+        font-family:"Source Code Pro",monospace;
+        font-size:1em;
+        background-color:#F5F5F5;
         padding: 1em;
+        margin: 0;
         overflow-x: auto;
       }
-
-      pre.inline {
-        background-color: var(--bg-color);
-        padding: 0;
-        display: inline;
-      }
-
-
       code {
-        font-family: var(--mono);
-        font-size: 1em;
+        font-family:"Source Code Pro",monospace;
+        font-size: 0.9em;
+      }
+      code a {
+        color: #000000;
+      }
+      #listFields > div, #listParams > div {
+        margin-bottom: 1em;
+      }
+      #hdrName a {
+        font-size: 0.7em;
+        padding-left: 1em;
+      }
+      .fieldDocs {
+        border: 1px solid #F5F5F5;
+        border-top: 0px;
+        padding: 1px 1em;
       }
 
-      h1 {
-        font-size: 1.4em;
-        margin: 0.8em 0;
+      #logo {
+        width: 8em;
+        padding: 0.5em 1em;
+      }
+
+      #navWrap {
+        width: -moz-available;
+        width: -webkit-fill-available;
+        width: stretch;
+        margin-left: 11em;
+      }
+
+      #search {
+        width: 100%;
+      }
+
+      nav {
+        width: 10em;
+        float: left;
+      }
+      nav h2 {
+        font-size: 1.2em;
+        text-decoration: underline;
+        margin: 0;
+        padding: 0.5em 0;
+        text-align: center;
+      }
+      nav p {
+        margin: 0;
         padding: 0;
-        border-bottom: 0.0625rem dashed;
+        text-align: center;
       }
-
-      h2 {
+      section {
+        clear: both;
+        padding-top: 1em;
+      }
+      section h1 {
+        border-bottom: 1px dashed;
+        margin: 0 0;
+      }
+      section h2 {
         font-size: 1.3em;
         margin: 0.5em 0;
         padding: 0;
-        border-bottom: 0.0625rem solid;
+        border-bottom: 1px solid;
       }
-      .listNav {
+      #listNav {
         list-style-type: none;
-        margin: 0;
+        margin: 0.5em 0 0 0;
         padding: 0;
         overflow: hidden;
         background-color: #f1f1f1;
-        display: flex;
-        flex-direction: row;
       }
-      .listNav li {
-      
+      #listNav li {
+        float:left;
       }
-      .listNav li a {
+      #listNav li a {
         display: block;
         color: #000;
         text-align: center;
         padding: .5em .8em;
         text-decoration: none;
       }
-      .listNav li a:hover {
+      #listNav li a:hover {
         background-color: #555;
         color: #fff;
       }
-      .listNav li a.active {
+      #listNav li a.active {
         background-color: #FFBB4D;
         color: #000;
+      }
+
+      #helpDialog {
+        width: 21em;
+        height: 21em;
+        position: fixed;
+        top: 0;
+        left: 0;
+        background-color: #333;
+        color: #fff;
+        border: 1px solid #fff;
+      }
+      #helpDialog h1 {
+        text-align: center;
+        font-size: 1.5em;
+      }
+      #helpDialog dt, #helpDialog dd {
+        display: inline;
+        margin: 0 0.2em;
+      }
+      kbd {
+        color: #000;
+        background-color: #fafbfc;
+        border-color: #d1d5da;
+        border-bottom-color: #c6cbd1;
+        box-shadow-color: #c6cbd1;
+        display: inline-block;
+        padding: 0.3em 0.2em;
+        font: 1.2em monospace;
+        line-height: 0.8em;
+        vertical-align: middle;
+        border: solid 1px;
+        border-radius: 3px;
+        box-shadow: inset 0 -1px 0;
+        cursor: default;
       }
 
       #listSearchResults li.selected {
@@ -479,156 +161,25 @@
         font-weight: bold;
       }
 
-      .expand[open] .sum-less {
-        display: none;
+      dl > div {
+          padding: 0.5em;
+          border: 1px solid #c0c0c0;
+          margin-top: 0.5em;
       }
 
-      .expand[open] .sum-more {
-        display: block;
-      }
-
-      .expand .sum-more {
-        display: none;
-      }
-
-      .expand {
-        position: relative;
-      }
-
-      .expand .button:before {
-        content: "[+] ";
-        font-family: var(--mono);
-        color: var(--link-color);
-        position: sticky;
-        float: left;
-        top: 0.5em;
-        right: -16px;
-        z-index: 1;
-        margin-left: -2em;
-        pointer-events: all;
-        cursor: pointer;
-      }
-
-      .expand[open] .button:before {
-        content: "[-] ";
-      }
-
-      .examples {
-        list-style-type: none;
-        margin: 0;
-        padding: 0;
-      }
-      .examples li {
-        padding: 0.5em 0;
-        white-space: nowrap;
-        overflow-x: auto;
-      }
-
-      .docs td {
+      td {
+        vertical-align: top;
         margin: 0;
         padding: 0.5em;
-        max-width: 27em;
+        max-width: 20em;
         text-overflow: ellipsis;
         overflow-x: hidden;
       }
 
-      .fieldHasDocs {
-        margin-bottom: 0;
+      ul.columns {
+        column-width: 20em;
       }
 
-      .fieldDocs {
-        border: 1px solid #F5F5F5;
-        border-top: 0px;
-        padding: 1px 1em;
-      }
-
-      /* modals */
-      .modal-container {
-        display: flex;
-        width: 100%;
-        height: 100%;
-        position: fixed;
-        top: 0;
-        left: 0;
-        justify-content: center;
-        align-items: center;
-        background-color: rgba(0, 0, 0, 0.15);
-        backdrop-filter: blur(0.3em);
-      }
-
-      .modal-container > .modal {
-        max-width: 97vw;
-        max-height: 97vh;
-        overflow: auto;
-        font-size: 1rem;
-        color: #fff;
-        background-color: var(--modal-bg-color);
-        border: 0.125rem solid #000;
-        box-shadow: 0 0.5rem 2.5rem 0.3rem var(--modal-sh-color);
-      }
-
-      .modal-container h1 {
-        margin: 0.75em 2.5em 1em 2.5em;
-        font-size: 1.5em;
-        text-align: center;
-      }
-
-      .modal-container dt, .modal-container dd {
-        display: inline;
-        margin: 0 0.2em;
-      }
-
-      .modal-container dl {
-        margin-left: 0.5em;
-        margin-right: 0.5em;
-      }
-
-      .prefs-list {
-        list-style: none;
-        padding: 0;
-        margin-left: 0.5em;
-        margin-right: 0.5em;
-      }
-
-      kbd {
-        display: inline-block;
-        padding: 0.3em 0.2em;
-        font-family: var(--mono);
-        font-size: 1em;
-        line-height: 0.8em;
-        vertical-align: middle;
-        color: #000;
-        background-color: #fafbfc;
-        border-color: #d1d5da;
-        border-bottom-color: #c6cbd1;
-        border: solid 0.0625em;
-        border-radius: 0.1875em;
-        box-shadow: inset 0 -0.2em 0 #c6cbd1;
-        cursor: default;
-      }
-      
-      #listFns > div {
-        padding-bottom: 10px;
-      }
-
-      #listFns dt {
-        font-family: var(--mono);
-        display: flex;
-        flex-direction: colunm;
-        justify-content: space-between;
-      }
-      
-      #listFns dt .fnSignature {
-        overflow-x: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
-      }
-      
-      .argBreaker {
-        display: none;
-      }
-
-      /* tokens */
       .tok-kw {
           color: #333;
           font-weight: bold;
@@ -657,51 +208,36 @@
           color: #458;
           font-weight: bold;
       }
-      .tok-decl-ref {
-          color: #0086b3;
-          font-weight: bold;
-      }
 
-      /* dark mode */
       @media (prefers-color-scheme: dark) {
-        :root {
-          --tx-color: #bbb;
-          --bg-color: #111;
-          --link-color: #88f;
-          --sidebar-sh-color: rgba(128, 128, 128, 0.5);
-          --sidebar-mod-bg-color: #333;
-          --sidebar-modlnk-tx-color: #fff;
-          --sidebar-modlnk-tx-color-hover: #fff;
-          --sidebar-modlnk-tx-color-active: #000;
-          --sidebar-modlnk-bg-color: transparent;
-          --sidebar-modlnk-bg-color-hover: #555;
-          --sidebar-modlnk-bg-color-active: #FFBB4D;
-          --search-bg-color: #3c3c3c;
-          --search-bg-color-focus: #000;
-          --search-sh-color: rgba(255, 255, 255, 0.28);
-          --search-other-results-color: rgba(255, 255, 255, 0.28);
-          --modal-sh-color: rgba(142, 142, 142, 0.5);
-          --modal-bg-color: #333;
-        --warning-popover-bg-color: #600000;
+        body {
+          background-color: #111;
+          color: #bbb;
         }
-
         pre {
-          background-color:#2A2A2A;
+          background-color: #222;
+          color: #ccc;
+        }
+        a {
+          color: #88f;
+        }
+        code a {
+          color: #ccc;
         }
         .fieldDocs {
           border-color:#2A2A2A;
         }
-        .listNav {
+        #listNav {
           background-color: #333;
         }
-        .listNav li a {
+        #listNav li a {
           color: #fff;
         }
-        .listNav li a:hover {
+        #listNav li a:hover {
           background-color: #555;
           color: #fff;
         }
-        .listNav li a.active {
+        #listNav li a.active {
           background-color: #FFBB4D;
           color: #000;
         }
@@ -710,6 +246,9 @@
         }
         #listSearchResults li.selected a {
           color: #fff;
+        }
+        dl > div {
+          border-color: #373737;
         }
         .tok-kw {
             color: #eee;
@@ -724,7 +263,7 @@
             color: #aa7;
         }
         .tok-fn {
-            color: #e33;
+            color: #B1A0F8;
         }
         .tok-null {
             color: #ff8080;
@@ -735,511 +274,142 @@
         .tok-type {
             color: #68f;
         }
-        .tok-decl-ref {
-            color: lightblue;
-        }
       }
-
-      @media only screen and (max-width: 750px) {
-        .canvas {
-          overflow: auto;
-        }
-        .flex-main {
-          flex-direction: column;
-        }
-        .sidebar {
-          min-width: calc(100vw - 2.8rem);
-          padding-left: 1.4rem;
-          padding-right: 1.4rem;
-        }
-        .flex-main > .flex-filler {
-          display: none;
-        }
-        .flex-main > .flex-right > .flex-filler {
-          display: none;
-        }
-        .flex-main > .flex-right > .wrap {
-          max-width: 100vw;
-        }
-        .flex-main > .flex-right > .wrap > .docs {
-          padding-right: 1.4rem;
-          background: transparent;
-        }
-        .modules {
-          display: flex;
-          flex-wrap: wrap;
-        }
-        .table-container table {
-          display: flex;
-          flex-direction: column;
-        }
-        .table-container tr {
-          display: flex;
-          flex-direction: column;
-        }
-        .examples {
-          overflow-x: scroll;
-          -webkit-overflow-scrolling: touch;
-          max-width: 100vw;
-          margin-left: -1.4rem;
-          margin-right: -1.4rem;
-        }
-        .examples li {
-          width: max-content;
-          padding-left: 1.4rem;
-          padding-right: 1.4rem;
-        }
-        .mobile-scroll-container {
-          overflow-x: scroll;
-          -webkit-overflow-scrolling: touch;
-          margin-left: -1.4rem;
-          margin-right: -1.4rem;
-          max-width: 100vw;
-        }
-        .mobile-scroll-container > .scroll-item {
-          margin-left: 1.4rem;
-          margin-right: 1.4rem;
-          box-sizing: border-box;
-          width: max-content;
-          display: inline-block;
-          min-width: calc(100% - 2.8rem);
-        }
-        #searchPlaceholderText {
-          display: none;
-        }
-        #searchPlaceholderTextMobile {
-          display: inline;
-        }
-      }
-      .banner {
-        background-color: orange;
-        text-align: center;
-        color: black;
-        padding: 5px 5px;
-      }
-      .banner a {
-        color: black;
-        text-decoration: underline;
-    }
-
-  </style>
-
-  <style>
-      pre {
-        --zig-keyword: #333;
-        --zig-builtin: #0086b3;
-        --zig-identifier: black;
-        --zig-decl-identifier: #0086b3;
-        --zig-string-literal: #d14;
-        --zig-type: #458;
-        --zig-fn: #900;
-      }
-      
-      @media (prefers-color-scheme: dark) { 
-        pre {
-          --zig-keyword: #eee;
-          --zig-builtin: #ff894c;
-          --zig-identifier: #bbbbbb;
-          --zig-decl-identifier: lightblue;
-          --zig-string-literal: #2e5;
-          --zig-type: #68f;
-          --zig-fn: #e33;
-        }
-      }
-
-    .zig_keyword_addrspace,
-    .zig_keyword_align,
-    .zig_keyword_and,
-    .zig_keyword_asm,
-    .zig_keyword_async,
-    .zig_keyword_await,
-    .zig_keyword_break,
-    .zig_keyword_catch,
-    .zig_keyword_comptime,
-    .zig_keyword_const,
-    .zig_keyword_continue,
-    .zig_keyword_defer,
-    .zig_keyword_else,
-    .zig_keyword_enum,
-    .zig_keyword_errdefer,
-    .zig_keyword_error,
-    .zig_keyword_export,
-    .zig_keyword_extern,
-    .zig_keyword_for,
-    .zig_keyword_if,
-    .zig_keyword_inline,
-    .zig_keyword_noalias,
-    .zig_keyword_noinline,
-    .zig_keyword_nosuspend,
-    .zig_keyword_opaque,
-    .zig_keyword_or,
-    .zig_keyword_orelse,
-    .zig_keyword_packed,
-    .zig_keyword_anyframe,
-    .zig_keyword_pub,
-    .zig_keyword_resume,
-    .zig_keyword_return,
-    .zig_keyword_linksection,
-    .zig_keyword_callconv,
-    .zig_keyword_struct,
-    .zig_keyword_suspend,
-    .zig_keyword_switch,
-    .zig_keyword_test,
-    .zig_keyword_threadlocal,
-    .zig_keyword_try,
-    .zig_keyword_union,
-    .zig_keyword_unreachable,
-    .zig_keyword_usingnamespace,
-    .zig_keyword_var,
-    .zig_keyword_volatile,
-    .zig_keyword_allowzero,
-    .zig_keyword_while,
-    .zig_keyword_anytype,
-    .zig_keyword_fn
-    {
-      color: var(--zig-keyword);
-      font-weight: bold;
-    }
-
-
-    .zig_string_literal,
-    .zig_multiline_string_literal_line,
-    .zig_char_literal
-    {
-      color: var(--zig-string-literal);
-    }
-
-    .zig_builtin
-    {
-      color: var(--zig-builtin);
-    }
-
-    .zig_doc_comment,
-    .zig_container_doc_comment,
-    .zig_line_comment {
-      color: #545454;
-      font-style: italic;
-    }
-
-    .zig_identifier {
-      color: var(--zig-identifier);
-      font-weight: bold;
-    }
-    
-    .zig_decl_identifier {
-      color: var(--zig-decl-identifier);
-      font-weight: bold;
-    }
-
-    .zig_number_literal,
-    .zig_special {
-      color: #ff8080;
-    }
-
-    .zig_type {
-      color: var(--zig-type);
-      font-weight: bold;
-    }
-
-    .zig_fn {
-      color: var(--zig-fn);
-      font-weight: bold;
-    }
-   
     </style>
   </head>
-  <body class="canvas">
-    <div id="banner" class="banner">
-      This is a beta autodoc build; expect bugs and missing information.
-      <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Report an Issue</a>,
-      <a href="https://github.com/ziglang/zig/wiki/How-to-contribute-to-Autodoc">Contribute</a>,
-      <a href="https://github.com/ziglang/zig/wiki/How-to-read-the-standard-library-source-code">Learn more about stdlib source code</a>.
+  <body>
+    <nav>
+      <a class="logo" href="#">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
+        <g fill="#F7A41D">
+          <g>
+            <polygon points="46,22 28,44 19,30"/>
+            <polygon points="46,22 33,33 28,44 22,44 22,95 31,95 20,100 12,117 0,117 0,22" shape-rendering="crispEdges"/>
+            <polygon points="31,95 12,117 4,106"/>
+          </g>
+          <g>
+            <polygon points="56,22 62,36 37,44"/>
+            <polygon points="56,22 111,22 111,44 37,44 56,32" shape-rendering="crispEdges"/>
+            <polygon points="116,95 97,117 90,104"/>
+            <polygon points="116,95 100,104 97,117 42,117 42,95" shape-rendering="crispEdges"/>
+            <polygon points="150,0 52,117 3,140 101,22"/>
+          </g>
+          <g>
+            <polygon points="141,22 140,40 122,45"/>
+            <polygon points="153,22 153,117 106,117 120,105 125,95 131,95 131,45 122,45 132,36 141,22" shape-rendering="crispEdges"/>
+            <polygon points="125,95 130,110 106,117"/>
+          </g>
+        </g>
+        <style>
+        #text { fill: #121212 }
+        @media (prefers-color-scheme: dark) { #text { fill: #f2f2f2 } }
+        </style>
+        <g id="text">
+          <g>
+            <polygon points="260,22 260,37 229,40 177,40 177,22" shape-rendering="crispEdges"/>
+            <polygon points="260,37 207,99 207,103 176,103 229,40 229,37"/>
+            <polygon points="261,99 261,117 176,117 176,103 206,99" shape-rendering="crispEdges"/>
+          </g>
+          <rect x="272" y="22" shape-rendering="crispEdges" width="22" height="95"/>
+          <g>
+            <polygon points="394,67 394,106 376,106 376,81 360,70 346,67" shape-rendering="crispEdges"/>
+            <polygon points="360,68 376,81 346,67"/>
+            <path d="M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1    c14.3,0,29.2,5.5,38.9,14l-13,15c-7.1-6.3-16.8-10-25.9-10c-17,0-30.2,12.9-30.2,29.5c0,16.8,13.3,29.6,30.3,29.6    c5.7,0,12.8-2.3,19-5.5L394,106z"/>
+          </g>
+        </g>
+        </svg>
+      </a>
+    </nav>
+    <div id="navWrap">
+      <input type="search" id="search" autocomplete="off" spellcheck="false" placeholder="`s` to search, `?` to see more options">
+      <div id="sectNav" class="hidden"><ul id="listNav"></ul></div>
     </div>
-    <div id="main" class="flex-main">
-      <div class="flex-horizontal" style="justify-content: center; padding: 0 0.5rem;">
-        <div class="flex-left">
-          <div class="logo">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 140">
-            <g fill="#F7A41D">
-              <g>
-                <polygon points="46,22 28,44 19,30"/>
-                <polygon points="46,22 33,33 28,44 22,44 22,95 31,95 20,100 12,117 0,117 0,22" shape-rendering="crispEdges"/>
-                <polygon points="31,95 12,117 4,106"/>
-              </g>
-              <g>
-                <polygon points="56,22 62,36 37,44"/>
-                <polygon points="56,22 111,22 111,44 37,44 56,32" shape-rendering="crispEdges"/>
-                <polygon points="116,95 97,117 90,104"/>
-                <polygon points="116,95 100,104 97,117 42,117 42,95" shape-rendering="crispEdges"/>
-                <polygon points="150,0 52,117 3,140 101,22"/>
-              </g>
-              <g>
-                <polygon points="141,22 140,40 122,45"/>
-                <polygon points="153,22 153,117 106,117 120,105 125,95 131,95 131,45 122,45 132,36 141,22" shape-rendering="crispEdges"/>
-                <polygon points="125,95 130,110 106,117"/>
-              </g>
-            </g>
-            <style>
-            #text { fill: #121212 }
-            @media (prefers-color-scheme: dark) { #text { fill: #f2f2f2 } }
-            </style>
-            <g id="text">
-              <g>
-                <polygon points="260,22 260,37 229,40 177,40 177,22" shape-rendering="crispEdges"/>
-                <polygon points="260,37 207,99 207,103 176,103 229,40 229,37"/>
-                <polygon points="261,99 261,117 176,117 176,103 206,99" shape-rendering="crispEdges"/>
-              </g>
-              <rect x="272" y="22" shape-rendering="crispEdges" width="22" height="95"/>
-              <g>
-                <polygon points="394,67 394,106 376,106 376,81 360,70 346,67" shape-rendering="crispEdges"/>
-                <polygon points="360,68 376,81 346,67"/>
-                <path d="M394,106c-10.2,7.3-24,12-37.7,12c-29,0-51.1-20.8-51.1-48.3c0-27.3,22.5-48.1,52-48.1    c14.3,0,29.2,5.5,38.9,14l-13,15c-7.1-6.3-16.8-10-25.9-10c-17,0-30.2,12.9-30.2,29.5c0,16.8,13.3,29.6,30.3,29.6    c5.7,0,12.8-2.3,19-5.5L394,106z"/>
-              </g>
-            </g>
-            </svg>
-          </div>
-          <div id="sectGuideApiSwitch">
-            <ul class="guides-api-switch">
-              <li><a id="ApiSwitch" class="active" href="#A;">API</a></li>
-              <li><a id="guideSwitch" class="" href="#G;">Guides</a></li>
-            </ul>
-          </div>
-            </div>
-        <div class="flex-right" style="padding-top: 0.5rem;overflow:visible;">
-          <div class="search-container" style="position:relative;">
-            <div id="searchPlaceholder">
-              <span id="searchPlaceholderText"><!-- populated by setPrefSlashSearch --></span>
-              <span id="searchPlaceholderTextMobile">Search</span>
-            </div>
-            <input type="search" class="search" id="search" autocomplete="off" spellcheck="false" disabled>
-            <div id="dotsPopover">
-              Use spaces instead of dots. See $resource for more info.
-            </div>
-          </div>
-          <div id="sectNavAPI" style="margin-top: 0.5rem;"><ul id="listNavAPI" class="listNav"></ul></div>
-          <div id="sectNavGuides" class="hidden" style="margin-top: 0.5rem">
-            <ul id="listNavGuides" class="listNav">
-              <li>
-                <a href="#G;" class="active">Index</a>
-              </li>
-              <li style="flex-grow:1;">
-                <a href="#G;" class="active" onclick="scrollGuidesTop(event);"></a>
-              </li>
-            </ul>
-        </div>
-        </div>
-      </div>
-      <div style="height:100%; overflow:hidden;">
-        <div id="sectSearchResults" class="docs hidden">
-          <details id="searchHelp">
-            <summary id="searchHelpSummary" class="normal">How to search effectively</summary>
-            <div>
-              <h2>How To Search Effectively</h2>
-              <h3>Matching</h3>
-              <ul>
-                <li>Search is case-insensitive by default.</li>
-                <li>Using uppercase letters in your query will make the search
-                  case-sensitive.</li>
-                <li>Given <code>ArrayListUnmanaged</code>:
-                  <ul>
-                    <li>the following search terms (and their prefixes) will match:
-                      <ul>
-                        <li><code>array</code></li>
-                        <li><code>list</code></li>
-                        <li><code>unmanaged</code></li>
-                      </ul>
-                    </li>
-                    <li>the following search terms will <b>NOT</b> match:
-                      <ul>
-                        <li><code>stun</code></li>
-                        <li><code>ray</code></li>
-                        <li><code>managed</code></li>
-                      </ul>
-                    </li>
-                  </ul>
-                </li>
-                <li>More precisely, the search system is based on a Radix Tree. The Radix Tree contains full decl names plus some suffixes, split by following the official style guide (e.g. <code>HashMapUnmanaged</code> also produces <code>MapUnmanaged</code> and <code>Unmanaged</code>, same with snake_case and camelCase names). </li>
-              </ul> 
-
-              <h3>Multiple terms</h3>
-            
-              <ul>
-                <li>When a search query contains multiple terms, order doesn't matter when 
-                    all terms match within a single decl name (e.g. "map auto" will match <code>AutoHashMap</code>).</li>
-                <li>Query term order does matter when matching different decls alognside
-                    a path (e.g. "js parse" matching <code>std.json.parse</code>), in which
-                    case the order of the terms will determine whether the match goes above or 
-                    below the "other results" line.</li>
-                <li>As an example, "fs create" will put above the line all things related to the creation of files and directories inside of `std.fs`, while still showing (but below the line) matches from `std.Bulild`.</li>
-                <li>As another example, "fs windows" will prioritize windows-related results in `std.fs`, while "windows fs" will prioritize "fs"-related results in `std.windows`.</li>
-                <li>This means that if you're searching inside a target namespace, you never have to read below the "other results" line.</li>
-                <li>Since matching doesn't have to be perfect, you can also target a group of namespaces to search into. For example "array orderedremove" will show you all "Array-" namespaces that support <code>orderedRemove</code>.</li>
-                <li>Periods are replaced by spaces because the Radix Tree doesn't index full paths, and in practice you should expect the match scoring system to consistently give you what you're looking for even when your query path is split into multiple terms.</li>
-              </ul>
-            </div>
-          </details>
-          <h2>Search Results</h2>
-          <ul id="listSearchResults"></ul>
-          <p id="sectSearchAllResultsLink" class="hidden"><a href="">show all results</a></p>
-        </div>
-        <div id="sectSearchNoResults" class="docs hidden">
-          <h2>No Results Found</h2>
-          <p>Here are some things you can try:</p>
-          <ul>
-            <li>Check out the <a id="langRefLink">Language Reference</a> for the language itself.</li>
-            <li>Check out the <a href="https://ziglang.org/learn/">Learn page</a> for other helpful resources for learning Zig.</li>
-            <li>Use your search engine.</li>
-          </ul>
-          <p>Press <kbd>?</kbd> to see keyboard shortcuts and <kbd>Esc</kbd> to return.</p>
-        </div>
-        <div id="guides" class="flex-horizontal hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
-          <div id="guidesMenu" class="sidebar">
-            <h2 id="guidesMenuTitle">Table of Contents</h2>
-            <div id="guideTocListEmpty" style="margin:0 1rem;"><i>No content to display.</i></div>
-            <div id="guideTocList" style="height:100%;overflow-y:scroll;"></div>
-          </div>
-          <div id="activeGuide" class="hidden"></div>
-        </div> 
-        <div id="docs" class="hidden" style="align-items:flex-start;height:100%;overflow:hidden;">
-          <section id="docs-scroll" class="docs">
-            <p id="status">Loading...</p>
-            <div id="fnProto" class="hidden">
-              <div class="mobile-scroll-container"><pre id="fnProtoCode" class="scroll-item"></pre></div>
-              <div id="fnSourceLink" style="display:flex;flex-direction:row;justify-content:flex-end;"></div>
-            </div>
-            <h1 id="hdrName" class="hidden"></h1>
-            <div id="fnNoExamples" class="hidden">
-              <p>This function is not tested or referenced.</p>
-            </div>
-            <div id="declNoRef" class="hidden">
-              <p>
-              This declaration is not tested or referenced, and it has therefore not been included in
-              semantic analysis, which means the only documentation available is whatever is in the
-              doc comments.
-              </p>
-            </div>
-            <div id="tldDocs" class="hidden"></div>
-            <div id="sectParams" class="hidden">
-              <h2>Parameters</h2>
-              <div id="listParams"></div>
-            </div>
-            <div id="sectFnErrors" class="hidden">
-              <h2>Errors</h2>
-              <div id="fnErrorsAnyError">
-                <p><span class="tok-type">anyerror</span> means the error set is known only at runtime.</p>
-              </div>
-              <div id="tableFnErrors"><dl id="listFnErrors"></dl></div>
-            </div>
-            <div id="sectFields" class="hidden">
-              <h2>Fields</h2>
-              <div id="listFields"></div>
-            </div>
-            <div id="sectNamespaces" class="hidden">
-              <div style="position:relative;">
-                <h2 style="position:sticky; top:0; background-color:var(--bg-color)">Namespaces</h2>
-                <div class="flex-horizontal" style="justify-content:space-around;align-items:flex-start;flex-wrap:wrap;">
-                  <ul id="listNamespacesLeft" class="column"></ul>
-                  <ul id="listNamespacesRight" class="column"></ul>
-                </div>
-              </div>
-              <h3>Other Namespaces <span style="font-size:1.1rem; cursor:pointer;" title="This box contains namespaces that are exported without a doc comment.">&#9432;</span></h3>
-              <div id="noDocsNamespaces"></div>
-            </div>
-            <div id="sectTypes" class="hidden">
-              <div style="position:relative;">
-                <h2 style="position:sticky; top:0; background-color:var(--bg-color)">Types</h2>
-                <div class="flex-horizontal" style="justify-content:space-around;align-items:flex-start;flex-wrap:wrap;">
-                  <ul id="listTypesLeft" class="column"></ul>
-                  <ul id="listTypesRight" class="column"></ul>
-                </div>
-              </div>
-            </div>
-            <div id="sectGlobalVars" class="hidden">
-              <h2>Global Variables</h2>
-              <div class="table-container">
-                <table>
-                  <tbody id="listGlobalVars"></tbody>
-                </table>
-              </div>
-            </div>
-            <div id="sectFns" class="hidden">
-              <h2>Functions</h2>
-              <div class="table-container">
-                <dl id="listFns"></dl>
-              </div>
-            </div>
-            <div id="sectValues" class="hidden">
-              <h2>Values</h2>
-              <div class="table-container">
-                <table>
-                  <tbody id="listValues"></tbody>
-                </table>
-              </div>
-            </div>
-            <div id="sectErrSets" class="hidden">
-              <h2>Error Sets</h2>
-              <ul id="listErrSets"></ul>
-            </div>
-            <div id="fnExamples" class="hidden">
-              <h2>Examples</h2>
-              <ul id="listFnExamples" class="examples"></ul>
-            </div>
-            <div id="sectDocTests" class="hidden">
-              <h2>Usage Examples <span style="font-size:1.1rem; cursor:pointer;" title="See `doctests` in the language reference to learn more.">&#9432;</span></h2>
-              <pre id="docTestsCode"></pre>
-            </div>
-            <div id="sectTests" class="hidden">
-              <h2>Tests</h2>
-              <div class="table-container">
-                <table>
-                  <tbody id="listTests"></tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        </div>
-        <div class="flex-filler"></div>
+    <section>
+    <p id="status">Loading...</p>
+    <h1 id="hdrName" class="hidden"><span></span><a href="#">[src]</a></h1>
+    <div id="fnProto" class="hidden">
+      <pre><code id="fnProtoCode"></code></pre>
+    </div>
+    <div id="tldDocs" class="hidden"></div>
+    <div id="sectParams" class="hidden">
+      <h2>Parameters</h2>
+      <div id="listParams">
       </div>
     </div>
-    <div id="helpModal" class="hidden">
-      <div class="modal-container">
-        <div class="modal">
-          <h1>Keyboard Shortcuts</h1>
-          <dl><dt><kbd>?</kbd></dt><dd>Toggle this help modal</dd></dl>
-          <dl><dt id="searchKeys"><!-- populated by setPrefSlashSearch --></dt><dd>Focus the search field</dd></dl>
-          <div style="margin-left: 1em">
-            <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
-            <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
-            <dl><dt><kbd>⏎</kbd></dt><dd>Go to active search result</dd></dl>
-          </div>
-          <dl><dt><kbd>p</kbd></dt><dd>Open preferences</dd></dl>
-          <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this modal</dd></dl>
-        </div>
+    <div id="sectFnErrors" class="hidden">
+      <h2>Errors</h2>
+      <div id="fnErrorsAnyError">
+        <p><span class="tok-type">anyerror</span> means the error set is known only at runtime.</p>
+      </div>
+      <div id="tableFnErrors"><dl id="listFnErrors"></dl></div>
+    </div>
+    <div id="sectSearchResults" class="hidden">
+      <h2>Search Results</h2>
+      <ul id="listSearchResults"></ul>
+    </div>
+    <div id="sectSearchNoResults" class="hidden">
+      <h2>No Results Found</h2>
+      <p>Press escape to exit search and then '?' to see more options.</p>
+    </div>
+    <div id="sectFields" class="hidden">
+      <h2>Fields</h2>
+      <div id="listFields">
       </div>
     </div>
-    <div id="prefsModal" class="hidden">
-      <div class="modal-container">
-        <div class="modal">
-          <h1>Preferences</h1>
-          <ul class="prefs-list">
-            <li><input id="prefSlashSearch" type="checkbox"><label for="prefSlashSearch">Enable <kbd>/</kbd> for search</label></li>
-          </ul>
-        </div>
-      </div>
+    <div id="sectTypes" class="hidden">
+      <h2>Types</h2>
+      <ul id="listTypes" class="columns">
+      </ul>
     </div>
-    <script src="data-typeKinds.js"></script>
-    <script src="data-rootMod.js"></script>
-    <script src="data-modules.js"></script>
-    <script src="data-files.js"></script>
-    <script src="data-calls.js"></script>
-    <script src="data-types.js"></script>
-    <script src="data-decls.js"></script>
-    <script src="data-exprs.js"></script>
-    <script src="data-astNodes.js"></script>
-    <script src="data-comptimeExprs.js"></script>
-    <script src="data-guideSections.js"></script>
-    <script src="commonmark.js"></script>
-    <script src="ziglexer.js"></script>
+    <div id="sectNamespaces" class="hidden">
+      <h2>Namespaces</h2>
+      <ul id="listNamespaces" class="columns">
+      </ul>
+    </div>
+    <div id="sectGlobalVars" class="hidden">
+      <h2>Global Variables</h2>
+      <table>
+        <tbody id="listGlobalVars">
+        </tbody>
+      </table>
+    </div>
+    <div id="sectValues" class="hidden">
+      <h2>Values</h2>
+      <table>
+        <tbody id="listValues">
+        </tbody>
+      </table>
+    </div>
+    <div id="sectFns" class="hidden">
+      <h2>Functions</h2>
+      <dl id="listFns">
+      </dl>
+    </div>
+    <div id="sectErrSets" class="hidden">
+      <h2>Error Sets</h2>
+      <ul id="listErrSets" class="columns">
+      </ul>
+    </div>
+    <div id="sectDocTests" class="hidden">
+      <h2>Example Usage</h2>
+      <pre><code id="docTestsCode"></code></pre>
+    </div>
+    <div id="sectSource" class="hidden">
+      <h2>Source Code</h2>
+      <pre><code id="sourceText"></code></pre>
+    </div>
+    </section>
+    <div id="helpDialog" class="hidden">
+      <h1>Keyboard Shortcuts</h1>
+      <dl><dt><kbd>?</kbd></dt><dd>Show this help dialog</dd></dl>
+      <dl><dt><kbd>Esc</kbd></dt><dd>Clear focus; close this dialog</dd></dl>
+      <dl><dt><kbd>s</kbd></dt><dd>Focus the search field</dd></dl>
+      <dl><dt><kbd>u</kbd></dt><dd>Go to source code</dd></dl>
+      <dl><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd></dl>
+      <dl><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd></dl>
+      <dl><dt><kbd>⏎</kbd></dt><dd>Go to active search result</dd></dl>
+    </div>
     <script src="main.js"></script>
   </body>
 </html>
+

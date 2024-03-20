@@ -12,11 +12,11 @@ pub fn main() void {
 }
 
 fn stopSayingThat() void {
-    _ = std.os.write(1, "Hello, my name is Inigo Montoya; you killed my father, prepare to die.\n") catch {};
+    _ = std.posix.write(1, "Hello, my name is Inigo Montoya; you killed my father, prepare to die.\n") catch {};
 }
 
 fn moveEveryZig() void {
-    _ = std.os.write(1, "All your codebase are belong to us\n") catch {};
+    _ = std.posix.write(1, "All your codebase are belong to us\n") catch {};
 }
 
 // run

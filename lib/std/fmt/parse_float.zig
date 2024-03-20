@@ -12,7 +12,7 @@ const epsilon = 1e-7;
 
 // See https://github.com/tiehuis/parse-number-fxx-test-data for a wider-selection of test-data.
 
-test "fmt.parseFloat" {
+test "parseFloat" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         try testing.expectError(error.InvalidCharacter, parseFloat(T, ""));
         try testing.expectError(error.InvalidCharacter, parseFloat(T, "   1"));
@@ -68,7 +68,7 @@ test "fmt.parseFloat" {
     }
 }
 
-test "fmt.parseFloat nan and inf" {
+test "nan and inf" {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const Z = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
 
@@ -78,17 +78,24 @@ test "fmt.parseFloat nan and inf" {
     }
 }
 
-test "fmt.parseFloat #11169" {
+test "largest normals" {
+    try expectEqual(@as(u16, @bitCast(try parseFloat(f16, "65504"))), 0x7bff);
+    try expectEqual(@as(u32, @bitCast(try parseFloat(f32, "3.4028234664E38"))), 0x7f7f_ffff);
+    try expectEqual(@as(u64, @bitCast(try parseFloat(f64, "1.7976931348623157E308"))), 0x7fef_ffff_ffff_ffff);
+    try expectEqual(@as(u128, @bitCast(try parseFloat(f128, "1.1897314953572317650857593266280070162E4932"))), 0x7ffe_ffff_ffff_ffff_ffff_ffff_ffff_ffff);
+}
+
+test "#11169" {
     try expectEqual(try parseFloat(f128, "9007199254740993.0"), 9007199254740993.0);
 }
 
-test "fmt.parseFloat hex.special" {
+test "hex.special" {
     try testing.expect(math.isNan(try parseFloat(f32, "nAn")));
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "iNf")));
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "+Inf")));
     try testing.expect(math.isNegativeInf(try parseFloat(f32, "-iNf")));
 }
-test "fmt.parseFloat hex.zero" {
+test "hex.zero" {
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0"));
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "-0x0"));
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0p42"));
@@ -96,7 +103,7 @@ test "fmt.parseFloat hex.zero" {
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0.00000p666"));
 }
 
-test "fmt.parseFloat hex.f16" {
+test "hex.f16" {
     try testing.expectEqual(try parseFloat(f16, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f16, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f16, "0x10p+10"), 16384.0);
@@ -112,7 +119,7 @@ test "fmt.parseFloat hex.f16" {
     try testing.expectEqual(try parseFloat(f16, "-0x1p-24"), -math.floatTrueMin(f16));
 }
 
-test "fmt.parseFloat hex.f32" {
+test "hex.f32" {
     try testing.expectError(error.InvalidCharacter, parseFloat(f32, "0x"));
     try testing.expectEqual(try parseFloat(f32, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f32, "-0x1p-1"), -0.5);
@@ -131,7 +138,7 @@ test "fmt.parseFloat hex.f32" {
     try testing.expectEqual(try parseFloat(f32, "-0x1P-149"), -math.floatTrueMin(f32));
 }
 
-test "fmt.parseFloat hex.f64" {
+test "hex.f64" {
     try testing.expectEqual(try parseFloat(f64, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f64, "0x10p+10"), 16384.0);
@@ -146,7 +153,7 @@ test "fmt.parseFloat hex.f64" {
     try testing.expectEqual(try parseFloat(f64, "0x1p-1074"), math.floatTrueMin(f64));
     try testing.expectEqual(try parseFloat(f64, "-0x1p-1074"), -math.floatTrueMin(f64));
 }
-test "fmt.parseFloat hex.f128" {
+test "hex.f128" {
     try testing.expectEqual(try parseFloat(f128, "0x1p0"), 1.0);
     try testing.expectEqual(try parseFloat(f128, "-0x1p-1"), -0.5);
     try testing.expectEqual(try parseFloat(f128, "0x10p+10"), 16384.0);

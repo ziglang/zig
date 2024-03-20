@@ -85,5 +85,4 @@ const File = std.fs.File;
 const Dir = std.fs.Dir;
 const fs = std.fs;
 const assert = std.debug.assert;
-// https://github.com/ziglang/zig/issues/5019
-const posix = std.os;
+const posix = std.posix;

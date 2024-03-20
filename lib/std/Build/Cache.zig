@@ -162,7 +162,7 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
 fn getPrefixSubpath(allocator: Allocator, prefix: []const u8, path: []u8) ![]u8 {
     const relative = try std.fs.path.relative(allocator, prefix, path);
     errdefer allocator.free(relative);
-    var component_iterator = std.fs.path.NativeUtf8ComponentIterator.init(relative) catch {
+    var component_iterator = std.fs.path.NativeComponentIterator.init(relative) catch {
         return error.NotASubPath;
     };
     if (component_iterator.root() != null) {
@@ -243,6 +243,11 @@ pub const HashHelper = struct {
     pub fn addListOfBytes(hh: *HashHelper, list_of_bytes: []const []const u8) void {
         hh.add(list_of_bytes.len);
         for (list_of_bytes) |bytes| hh.addBytes(bytes);
+    }
+
+    pub fn addOptionalListOfBytes(hh: *HashHelper, optional_list_of_bytes: ?[]const []const u8) void {
+        hh.add(optional_list_of_bytes != null);
+        hh.addListOfBytes(optional_list_of_bytes orelse return);
     }
 
     /// Convert the input value into bytes and record it as a dependency of the process being cached.
@@ -482,11 +487,11 @@ pub const Manifest = struct {
 
         self.want_refresh_timestamp = true;
 
-        while (true) {
+        const input_file_count = self.files.items.len;
+        while (true) : (self.unhit(bin_digest, input_file_count)) {
             const file_contents = try self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max);
             defer gpa.free(file_contents);
 
-            const input_file_count = self.files.items.len;
             var any_file_changed = false;
             var line_iter = mem.tokenizeScalar(u8, file_contents, '\n');
             var idx: usize = 0;

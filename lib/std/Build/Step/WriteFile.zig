@@ -190,7 +190,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // If, for example, a hard-coded path was used as the location to put WriteFile
     // files, then two WriteFiles executing in parallel might clobber each other.
 
-    var man = b.cache.obtain();
+    var man = b.graph.cache.obtain();
     defer man.deinit();
 
     // Random bytes to make WriteFile unique. Refresh this with

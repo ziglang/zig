@@ -7,7 +7,7 @@ comptime {
             .fields = undefined,
             .decls = undefined,
             .is_tuple = false,
-            .layout = .Auto,
+            .layout = .auto,
         },
     });
 }
@@ -16,7 +16,7 @@ comptime {
     const fields: [1]std.builtin.Type.StructField = undefined;
     _ = @Type(.{
         .Struct = .{
-            .layout = .Auto,
+            .layout = .auto,
             .fields = &fields,
             .decls = &.{},
             .is_tuple = false,

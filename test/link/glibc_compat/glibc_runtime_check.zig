@@ -30,11 +30,11 @@ fn checkStat() !void {
     var stat = std.mem.zeroes(std.c.Stat);
     var result = std.c.fstatat(cwdFd, "a_file_that_definitely_does_not_exist", &stat, 0);
     assert(result == -1);
-    assert(std.c.getErrno(result) == .NOENT);
+    assert(std.posix.errno(result) == .NOENT);
 
     result = std.c.stat("a_file_that_definitely_does_not_exist", &stat);
     assert(result == -1);
-    assert(std.c.getErrno(result) == .NOENT);
+    assert(std.posix.errno(result) == .NOENT);
 }
 
 // PR #17607 - reallocarray not visible in headers

@@ -42,7 +42,7 @@ pub fn log2(x: anytype) @TypeOf(x) {
     }
 }
 
-test "log2" {
+test log2 {
     // https://github.com/ziglang/zig/issues/13703
     if (builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) return error.SkipZigTest;
 

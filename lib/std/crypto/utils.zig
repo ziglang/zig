@@ -138,7 +138,7 @@ pub inline fn secureZero(comptime T: type, s: []T) void {
     @memset(@as([]volatile T, s), 0);
 }
 
-test "crypto.utils.timingSafeEql" {
+test "timingSafeEql" {
     var a: [100]u8 = undefined;
     var b: [100]u8 = undefined;
     random.bytes(a[0..]);
@@ -148,7 +148,7 @@ test "crypto.utils.timingSafeEql" {
     try testing.expect(timingSafeEql([100]u8, a, b));
 }
 
-test "crypto.utils.timingSafeEql (vectors)" {
+test "timingSafeEql (vectors)" {
     if (@import("builtin").zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     var a: [100]u8 = undefined;
@@ -162,7 +162,7 @@ test "crypto.utils.timingSafeEql (vectors)" {
     try testing.expect(timingSafeEql(@Vector(100, u8), v1, v3));
 }
 
-test "crypto.utils.timingSafeCompare" {
+test "timingSafeCompare" {
     var a = [_]u8{10} ** 32;
     var b = [_]u8{10} ** 32;
     try testing.expectEqual(timingSafeCompare(u8, &a, &b, .big), .eq);
@@ -175,7 +175,7 @@ test "crypto.utils.timingSafeCompare" {
     try testing.expectEqual(timingSafeCompare(u8, &a, &b, .little), .lt);
 }
 
-test "crypto.utils.timingSafe{Add,Sub}" {
+test "timingSafe{Add,Sub}" {
     const len = 32;
     var a: [len]u8 = undefined;
     var b: [len]u8 = undefined;
@@ -195,7 +195,7 @@ test "crypto.utils.timingSafe{Add,Sub}" {
     }
 }
 
-test "crypto.utils.secureZero" {
+test "secureZero" {
     var a = [_]u8{0xfe} ** 8;
     var b = [_]u8{0xfe} ** 8;
 

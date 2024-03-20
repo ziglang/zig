@@ -1,7 +1,8 @@
 const builtin = @import("builtin");
 const std = @import("../std.zig");
-const os = std.os;
 const mem = std.mem;
+const native_os = builtin.os.tag;
+const posix = std.posix;
 
 pub fn supportsUnwinding(target: std.Target) bool {
     return switch (target.cpu.arch) {
@@ -138,7 +139,7 @@ pub fn regBytes(
     reg_number: u8,
     reg_context: ?RegisterContext,
 ) AbiError!RegBytesReturnType(@TypeOf(thread_context_ptr)) {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         return switch (builtin.cpu.arch) {
             .x86 => switch (reg_number) {
                 0 => mem.asBytes(&thread_context_ptr.Eax),
@@ -193,61 +194,61 @@ pub fn regBytes(
 
     const ucontext_ptr = thread_context_ptr;
     return switch (builtin.cpu.arch) {
-        .x86 => switch (builtin.os.tag) {
+        .x86 => switch (native_os) {
             .linux, .netbsd, .solaris, .illumos => switch (reg_number) {
-                0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EAX]),
-                1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ECX]),
-                2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDX]),
-                3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBX]),
+                0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EAX]),
+                1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.ECX]),
+                2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EDX]),
+                3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EBX]),
                 4...5 => if (reg_context) |r| bytes: {
                     if (reg_number == 4) {
                         break :bytes if (r.eh_frame and r.is_macho)
-                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP])
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EBP])
                         else
-                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP]);
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.ESP]);
                     } else {
                         break :bytes if (r.eh_frame and r.is_macho)
-                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESP])
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.ESP])
                         else
-                            mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EBP]);
+                            mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EBP]);
                     }
                 } else error.RegisterContextRequired,
-                6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ESI]),
-                7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EDI]),
-                8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EIP]),
-                9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.EFL]),
-                10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.CS]),
-                11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.SS]),
-                12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.DS]),
-                13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.ES]),
-                14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.FS]),
-                15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.GS]),
+                6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.ESI]),
+                7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EDI]),
+                8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EIP]),
+                9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EFL]),
+                10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.CS]),
+                11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.SS]),
+                12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.DS]),
+                13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.ES]),
+                14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.FS]),
+                15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.GS]),
                 16...23 => error.InvalidRegister, // TODO: Support loading ST0-ST7 from mcontext.fpregs
                 32...39 => error.InvalidRegister, // TODO: Support loading XMM0-XMM7 from mcontext.fpregs
                 else => error.InvalidRegister,
             },
             else => error.UnimplementedOs,
         },
-        .x86_64 => switch (builtin.os.tag) {
+        .x86_64 => switch (native_os) {
             .linux, .solaris, .illumos => switch (reg_number) {
-                0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RAX]),
-                1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RDX]),
-                2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RCX]),
-                3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RBX]),
-                4 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RSI]),
-                5 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RDI]),
-                6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RBP]),
-                7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RSP]),
-                8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R8]),
-                9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R9]),
-                10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R10]),
-                11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R11]),
-                12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R12]),
-                13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R13]),
-                14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R14]),
-                15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.R15]),
-                16 => mem.asBytes(&ucontext_ptr.mcontext.gregs[os.REG.RIP]),
-                17...32 => |i| if (builtin.os.tag.isSolarish())
+                0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RAX]),
+                1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RDX]),
+                2 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RCX]),
+                3 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RBX]),
+                4 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RSI]),
+                5 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RDI]),
+                6 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RBP]),
+                7 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RSP]),
+                8 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R8]),
+                9 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R9]),
+                10 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R10]),
+                11 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R11]),
+                12 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R12]),
+                13 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R13]),
+                14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R14]),
+                15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R15]),
+                16 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RIP]),
+                17...32 => |i| if (native_os.isSolarish())
                     mem.asBytes(&ucontext_ptr.mcontext.fpregs.chip_state.xmm[i - 17])
                 else
                     mem.asBytes(&ucontext_ptr.mcontext.fpregs.xmm[i - 17]),
@@ -317,7 +318,7 @@ pub fn regBytes(
             },
             else => error.UnimplementedOs,
         },
-        .arm => switch (builtin.os.tag) {
+        .arm => switch (native_os) {
             .linux => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.arm_r0),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.arm_r1),
@@ -340,7 +341,7 @@ pub fn regBytes(
             },
             else => error.UnimplementedOs,
         },
-        .aarch64 => switch (builtin.os.tag) {
+        .aarch64 => switch (native_os) {
             .macos, .ios => switch (reg_number) {
                 0...28 => mem.asBytes(&ucontext_ptr.mcontext.ss.regs[reg_number]),
                 29 => mem.asBytes(&ucontext_ptr.mcontext.ss.fp),

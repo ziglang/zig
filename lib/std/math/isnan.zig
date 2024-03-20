@@ -17,7 +17,7 @@ pub fn isSignalNan(x: anytype) bool {
     return isNan(x) and (@as(U, @bitCast(x)) & quiet_signal_bit_mask == 0);
 }
 
-test "math.isNan" {
+test isNan {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         try expect(isNan(math.nan(T)));
         try expect(isNan(-math.nan(T)));
@@ -27,7 +27,7 @@ test "math.isNan" {
     }
 }
 
-test "math.isSignalNan" {
+test isSignalNan {
     inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
         // TODO: Signalling NaN values get converted to quiet NaN values in
         //       some cases where they shouldn't such that this can fail.

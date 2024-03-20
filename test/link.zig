@@ -35,11 +35,10 @@ pub const cases = [_]Case{
     },
 
     // WASM Cases
-    // https://github.com/ziglang/zig/issues/16938
-    //.{
-    //    .build_root = "test/link/wasm/archive",
-    //    .import = @import("link/wasm/archive/build.zig"),
-    //},
+    .{
+        .build_root = "test/link/wasm/archive",
+        .import = @import("link/wasm/archive/build.zig"),
+    },
     .{
         .build_root = "test/link/wasm/basic-features",
         .import = @import("link/wasm/basic-features/build.zig"),
@@ -52,11 +51,10 @@ pub const cases = [_]Case{
         .build_root = "test/link/wasm/export",
         .import = @import("link/wasm/export/build.zig"),
     },
-    // https://github.com/ziglang/zig/issues/16937
-    //.{
-    //    .build_root = "test/link/wasm/export-data",
-    //    .import = @import("link/wasm/export-data/build.zig"),
-    //},
+    .{
+        .build_root = "test/link/wasm/export-data",
+        .import = @import("link/wasm/export-data/build.zig"),
+    },
     .{
         .build_root = "test/link/wasm/extern",
         .import = @import("link/wasm/extern/build.zig"),
@@ -80,6 +78,10 @@ pub const cases = [_]Case{
     .{
         .build_root = "test/link/wasm/segments",
         .import = @import("link/wasm/segments/build.zig"),
+    },
+    .{
+        .build_root = "test/link/wasm/shared-memory",
+        .import = @import("link/wasm/shared-memory/build.zig"),
     },
     .{
         .build_root = "test/link/wasm/stack_pointer",
