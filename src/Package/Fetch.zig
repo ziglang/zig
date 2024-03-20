@@ -536,7 +536,7 @@ fn runResource(
         ) });
         return error.FetchFailed;
     };
-    // Remove temporary directory root if that not already done in rename.
+    // Remove temporary directory root if that's not already done in rename.
     if (tmp_package_root_sub_path) |_| {
         cache_root.handle.deleteTree(tmp_dir_sub_path) catch {};
     }
