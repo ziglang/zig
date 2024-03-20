@@ -482,7 +482,7 @@ fn runResource(
         // Compute the package hash based on the remaining files in the temporary
         // directory.
 
-        if (builtin.os.tag == .linux and f.job_queue.work_around_btrfs_bug) {
+        if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
             // https://github.com/ziglang/zig/issues/17095
             tmp_directory.handle.close();
             tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
@@ -1153,11 +1153,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
         .strip_components = 1,
-        // TODO: we would like to set this to executable_bit_only, but two
-        // things need to happen before that:
-        // 1. the tar implementation needs to support it
-        // 2. the hashing algorithm here needs to support detecting the is_executable
-        //    bit on Windows from the ACLs (see the isExecutable function).
+        // https://github.com/ziglang/zig/issues/17463
         .mode_mode = .ignore,
         .exclude_empty_directories = true,
     }) catch |err| return f.fail(f.location_tok, try eb.printString(
@@ -1542,6 +1538,8 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
         .file => {
             var file = try dir.openFile(hashed_file.fs_path, .{});
             defer file.close();
+            // When implementing https://github.com/ziglang/zig/issues/17463
+            // this will change to hard-coded `false`.
             hasher.update(&.{ 0, @intFromBool(try isExecutable(file)) });
             while (true) {
                 const bytes_read = try file.read(&buf);
@@ -1568,15 +1566,17 @@ fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error
 }
 
 fn isExecutable(file: fs.File) !bool {
-    if (builtin.os.tag == .windows) {
-        // TODO check the ACL on Windows.
+    // When implementing https://github.com/ziglang/zig/issues/17463
+    // this function will not check the mode but instead check if the file is an ELF
+    // file or has a shebang line.
+    if (native_os == .windows) {
         // Until this is implemented, this could be a false negative on
         // Windows, which is why we do not yet set executable_bit_only above
         // when unpacking the tarball.
         return false;
     } else {
         const stat = try file.stat();
-        return (stat.mode & std.os.S.IXUSR) != 0;
+        return (stat.mode & std.posix.S.IXUSR) != 0;
     }
 }
 
@@ -1694,6 +1694,7 @@ const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
+const native_os = builtin.os.tag;
 
 test {
     _ = Filter;

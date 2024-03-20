@@ -1,5 +1,5 @@
 const std = @import("../../std.zig");
-const errno = getErrno;
+const errno = linux.E.init;
 const unexpectedErrno = std.os.unexpectedErrno;
 const expectEqual = std.testing.expectEqual;
 const expectError = std.testing.expectError;
@@ -8,7 +8,6 @@ const expect = std.testing.expect;
 const linux = std.os.linux;
 const fd_t = linux.fd_t;
 const pid_t = linux.pid_t;
-const getErrno = linux.getErrno;
 
 pub const btf = @import("bpf/btf.zig");
 pub const kern = @import("bpf/kern.zig");

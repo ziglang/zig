@@ -168,7 +168,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
             .linux => {
-                const uts = std.os.uname();
+                const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 // The release field sometimes has a weird format,
                 // `Version.parse` will attempt to find some meaningful interpretation.
@@ -181,7 +181,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 }
             },
             .solaris, .illumos => {
-                const uts = std.os.uname();
+                const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
                 if (std.SemanticVersion.parse(release)) |ver| {
                     os.version_range.semver.min = ver;
@@ -206,7 +206,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 var value: u32 = undefined;
                 var len: usize = @sizeOf(@TypeOf(value));
 
-                std.os.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
+                posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
                     error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
@@ -257,15 +257,15 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
             },
             .openbsd => {
                 const mib: [2]c_int = [_]c_int{
-                    std.os.CTL.KERN,
-                    std.os.KERN.OSRELEASE,
+                    posix.CTL.KERN,
+                    posix.KERN.OSRELEASE,
                 };
                 var buf: [64]u8 = undefined;
                 // consider that sysctl result includes null-termination
                 // reserve 1 byte to ensure we never overflow when appending ".0"
                 var len: usize = buf.len - 1;
 
-                std.os.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
+                posix.sysctl(&mib, &buf, &len, null, 0) catch |err| switch (err) {
                     error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
@@ -636,8 +636,8 @@ pub fn abiAndDynamicLinkerFromFile(
 
             // So far, no luck. Next we try to see if the information is
             // present in the symlink data for the dynamic linker path.
-            var link_buf: [std.os.PATH_MAX]u8 = undefined;
-            const link_name = std.os.readlink(dl_path, &link_buf) catch |err| switch (err) {
+            var link_buf: [posix.PATH_MAX]u8 = undefined;
+            const link_name = posix.readlink(dl_path, &link_buf) catch |err| switch (err) {
                 error.NameTooLong => unreachable,
                 error.InvalidUtf8 => unreachable, // WASI only
                 error.InvalidWtf8 => unreachable, // Windows only
@@ -670,7 +670,7 @@ pub fn abiAndDynamicLinkerFromFile(
 
         // Nothing worked so far. Finally we fall back to hard-coded search paths.
         // Some distros such as Debian keep their libc.so.6 in `/lib/$triple/`.
-        var path_buf: [std.os.PATH_MAX]u8 = undefined;
+        var path_buf: [posix.PATH_MAX]u8 = undefined;
         var index: usize = 0;
         const prefix = "/lib/";
         const cpu_arch = @tagName(result.cpu.arch);
@@ -1138,6 +1138,7 @@ const fs = std.fs;
 const assert = std.debug.assert;
 const Target = std.Target;
 const native_endian = builtin.cpu.arch.endian();
+const posix = std.posix;
 
 test {
     _ = NativePaths;

@@ -518,7 +518,7 @@ const Flush = struct {
     asm_buf: std.ArrayListUnmanaged(u8) = .{},
 
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
-    all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
+    all_buffers: std.ArrayListUnmanaged(std.posix.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
 
@@ -752,7 +752,7 @@ pub fn flushEmitH(module: *Module) !void {
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     const num_buffers = emit_h.decl_table.count() + 1;
-    var all_buffers = try std.ArrayList(std.os.iovec_const).initCapacity(module.gpa, num_buffers);
+    var all_buffers = try std.ArrayList(std.posix.iovec_const).initCapacity(module.gpa, num_buffers);
     defer all_buffers.deinit();
 
     var file_size: u64 = zig_h.len;

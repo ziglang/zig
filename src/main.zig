@@ -12,6 +12,7 @@ const Color = std.zig.Color;
 const warn = std.log.warn;
 const ThreadPool = std.Thread.Pool;
 const cleanExit = std.process.cleanExit;
+const native_os = builtin.os.tag;
 
 const tracy = @import("tracy.zig");
 const Compilation = @import("Compilation.zig");
@@ -48,7 +49,7 @@ pub const panic = crash_report.panic;
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
     // Expect the first preopen to be current working directory.
-    const cwd_fd: std.os.fd_t = 3;
+    const cwd_fd: std.posix.fd_t = 3;
     assert(mem.eql(u8, wasi_preopens.names[cwd_fd], "."));
     return cwd_fd;
 }
@@ -158,9 +159,9 @@ var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const use_gpa = (build_options.force_gpa or !builtin.link_libc) and builtin.os.tag != .wasi;
+    const use_gpa = (build_options.force_gpa or !builtin.link_libc) and native_os != .wasi;
     const gpa = gpa: {
-        if (builtin.os.tag == .wasi) {
+        if (native_os == .wasi) {
             break :gpa std.heap.wasm_allocator;
         }
         if (use_gpa) {
@@ -187,7 +188,7 @@ pub fn main() anyerror!void {
         return mainArgs(gpa_tracy.allocator(), arena, args);
     }
 
-    if (builtin.os.tag == .wasi) {
+    if (native_os == .wasi) {
         wasi_preopens = try fs.wasi.preopensAlloc(arena);
     }
 
@@ -222,7 +223,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         fatal("expected command argument", .{});
     }
 
-    if (process.can_execv and std.os.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
+    if (process.can_execv and std.posix.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
         // via child process execution due to the CC environment variable pointing to Zig.
@@ -813,9 +814,9 @@ fn buildOutputType(
     var no_builtin = false;
     var listen: Listen = .none;
     var debug_compile_errors = false;
-    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
+    var verbose_link = (native_os != .wasi or builtin.link_libc) and
         EnvVar.ZIG_VERBOSE_LINK.isSet();
-    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
+    var verbose_cc = (native_os != .wasi or builtin.link_libc) and
         EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
@@ -991,7 +992,7 @@ fn buildOutputType(
     // if it exists, default the color setting to .off
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (builtin.os.tag == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet()) .off else .auto;
 
     switch (arg_mode) {
         .build, .translate_c, .zig_test, .run => {
@@ -2684,7 +2685,7 @@ fn buildOutputType(
                     fatal("unable to open zig lib directory '{s}': {s}", .{ lib_dir, @errorName(err) });
                 },
             };
-        } else if (builtin.os.tag == .wasi) {
+        } else if (native_os == .wasi) {
             break :d getWasiPreopen("/lib");
         } else if (self_exe_path) |p| {
             break :d introspect.findZigLibDirFromSelfExe(arena, p) catch |err| {
@@ -2703,7 +2704,7 @@ fn buildOutputType(
                 .path = p,
             };
         }
-        if (builtin.os.tag == .wasi) {
+        if (native_os == .wasi) {
             break :l getWasiPreopen("/cache");
         }
         const p = try introspect.resolveGlobalCacheDir(arena);
@@ -4368,7 +4369,7 @@ fn runOrTest(
         }
     } else {
         const cmd = try std.mem.join(arena, " ", argv.items);
-        fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
+        fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(native_os), cmd });
     }
 }
 
@@ -4434,16 +4435,16 @@ fn runOrTestHotSwap(
 
     switch (builtin.target.os.tag) {
         .macos, .ios, .tvos, .watchos => {
-            const PosixSpawn = std.os.darwin.PosixSpawn;
+            const PosixSpawn = @import("DarwinPosixSpawn.zig");
 
             var attr = try PosixSpawn.Attr.init();
             defer attr.deinit();
 
             // ASLR is probably a good default for better debugging experience/programming
             // with hot-code updates in mind. However, we can also make it work with ASLR on.
-            const flags: u16 = std.os.darwin.POSIX_SPAWN.SETSIGDEF |
-                std.os.darwin.POSIX_SPAWN.SETSIGMASK |
-                std.os.darwin.POSIX_SPAWN.DISABLE_ASLR;
+            const flags: u16 = std.c.POSIX_SPAWN.SETSIGDEF |
+                std.c.POSIX_SPAWN.SETSIGMASK |
+                std.c.POSIX_SPAWN.DISABLE_ASLR;
             try attr.set(flags);
 
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -4747,9 +4748,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var child_argv = std.ArrayList([]const u8).init(arena);
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
-    var verbose_link = (builtin.os.tag != .wasi or builtin.link_libc) and
+    var verbose_link = (native_os != .wasi or builtin.link_libc) and
         EnvVar.ZIG_VERBOSE_LINK.isSet();
-    var verbose_cc = (builtin.os.tag != .wasi or builtin.link_libc) and
+    var verbose_cc = (native_os != .wasi or builtin.link_libc) and
         EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
@@ -4894,7 +4895,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         }
     }
 
-    const work_around_btrfs_bug = builtin.os.tag == .linux and
+    const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     const color: Color = .auto;
 
@@ -5311,7 +5312,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
         } else {
             const cmd = try std.mem.join(arena, " ", child_argv.items);
-            fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(builtin.os.tag), cmd });
+            fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{ @tagName(native_os), cmd });
         }
     }
 }
@@ -5543,7 +5544,7 @@ fn jitCmd(
     if (!process.can_spawn) {
         const cmd = try std.mem.join(arena, " ", child_argv.items);
         fatal("the following command cannot be executed ({s} does not support spawning a child process):\n{s}", .{
-            @tagName(builtin.os.tag), cmd,
+            @tagName(native_os), cmd,
         });
     }
 
@@ -5655,7 +5656,7 @@ pub fn lldMain(
         var count: usize = 0;
     };
     if (CallCounter.count == 1) { // Issue the warning on the first repeat call
-        warn("invoking LLD for the second time within the same process because the host OS ({s}) does not support spawning child processes. This sometimes activates LLD bugs", .{@tagName(builtin.os.tag)});
+        warn("invoking LLD for the second time within the same process because the host OS ({s}) does not support spawning child processes. This sometimes activates LLD bugs", .{@tagName(native_os)});
     }
     CallCounter.count += 1;
 
@@ -5985,17 +5986,21 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 /// garbage collector to run concurrently to zig processes, and to allow multiple
 /// zig processes to run concurrently with each other, without clobbering each other.
 fn gimmeMoreOfThoseSweetSweetFileDescriptors() void {
-    if (!@hasDecl(std.os.system, "rlimit")) return;
-    const posix = std.os;
+    const have_rlimit = switch (native_os) {
+        .windows, .wasi => false,
+        else => true,
+    };
+    if (!have_rlimit) return;
+    const posix = std.posix;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.
-    if (comptime builtin.target.isDarwin()) {
+    if (native_os.isDarwin()) {
         // On Darwin, `NOFILE` is bounded by a hardcoded value `OPEN_MAX`.
         // According to the man pages for setrlimit():
         //   setrlimit() now returns with errno set to EINVAL in places that historically succeeded.
         //   It no longer accepts "rlim_cur = RLIM.INFINITY" for RLIM.NOFILE.
         //   Use "rlim_cur = min(OPEN_MAX, rlim_max)".
-        lim.max = @min(std.os.darwin.OPEN_MAX, lim.max);
+        lim.max = @min(std.c.OPEN_MAX, lim.max);
     }
     if (lim.cur == lim.max) return;
 
@@ -6766,7 +6771,7 @@ fn cmdFetch(
     args: []const []const u8,
 ) !void {
     const color: Color = .auto;
-    const work_around_btrfs_bug = builtin.os.tag == .linux and
+    const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);

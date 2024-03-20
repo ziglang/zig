@@ -965,16 +965,16 @@ fn updateDeclCode(
     if (elf_file.base.child_pid) |pid| {
         switch (builtin.os.tag) {
             .linux => {
-                var code_vec: [1]std.os.iovec_const = .{.{
+                var code_vec: [1]std.posix.iovec_const = .{.{
                     .iov_base = code.ptr,
                     .iov_len = code.len,
                 }};
-                var remote_vec: [1]std.os.iovec_const = .{.{
+                var remote_vec: [1]std.posix.iovec_const = .{.{
                     .iov_base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{}, elf_file))))),
                     .iov_len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
-                switch (std.os.errno(rc)) {
+                switch (std.os.linux.E.init(rc)) {
                     .SUCCESS => assert(rc == code.len),
                     else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
                 }
