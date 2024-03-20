@@ -624,7 +624,7 @@ const PosixThreadImpl = struct {
                 var count: c_int = undefined;
                 var count_size: usize = @sizeOf(c_int);
                 const mib = [_]c_int{ std.c.CTL.HW, std.c.HW.NCPUONLINE };
-                std.c.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
+                posix.sysctl(&mib, &count, &count_size, null, 0) catch |err| switch (err) {
                     error.NameTooLong, error.UnknownName => unreachable,
                     else => |e| return e,
                 };

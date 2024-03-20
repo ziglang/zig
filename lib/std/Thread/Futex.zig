@@ -539,7 +539,7 @@ const PosixImpl = struct {
             // This can be changed with pthread_condattr_setclock, but it's an extension and may not be available everywhere.
             var ts: c.timespec = undefined;
             if (timeout) |timeout_ns| {
-                c.clock_gettime(c.CLOCK.REALTIME, &ts) catch unreachable;
+                std.posix.clock_gettime(c.CLOCK.REALTIME, &ts) catch unreachable;
                 ts.tv_sec +|= @as(@TypeOf(ts.tv_sec), @intCast(timeout_ns / std.time.ns_per_s));
                 ts.tv_nsec += @as(@TypeOf(ts.tv_nsec), @intCast(timeout_ns % std.time.ns_per_s));
 
