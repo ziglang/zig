@@ -79,6 +79,7 @@ pub fn Decompress(comptime ReaderType: type) type {
                 }
                 const input = self.to_read.items;
                 const n = @min(input.len, output.len);
+                if (n == 0) break;
                 @memcpy(output[0..n], input[0..n]);
                 @memcpy(input[0 .. input.len - n], input[n..]);
                 self.to_read.shrinkRetainingCapacity(input.len - n);

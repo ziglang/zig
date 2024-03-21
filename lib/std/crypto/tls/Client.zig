@@ -378,7 +378,7 @@ pub fn init(inner_stream: Stream, ca_bundle: Certificate.Bundle, host: []const u
                             break :nonce @as(V, p.server_handshake_iv) ^ operand;
                         };
                         read_seq += 1;
-                        std.debug.print("", .{});
+                        writer.print("", .{}) catch {};
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
                         break :c cleartext;
@@ -759,7 +759,6 @@ pub fn eof(c: Client) bool {
         c.partial_ciphertext_idx >= c.partial_ciphertext_end;
 }
 
-/// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
 /// Returns the number of bytes read. If the number read is less than the space
 /// provided it means the stream reached the end. Reaching the end of the
 /// stream is not an error condition.
@@ -769,7 +768,6 @@ pub fn readv(c: *Client, iovecs: []std.posix.iovec) !usize {
     return c.readvAtLeast(iovecs, 1);
 }
 
-/// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
 /// Returns the number of bytes read, calling the underlying read function the
 /// minimal number of times until the iovecs have at least `len` bytes filled.
 /// If the number read is less than `len` it means the stream reached the end.
@@ -794,7 +792,6 @@ pub fn readvAtLeast(c: *Client, iovecs: []std.posix.iovec, len: usize) !usize {
     }
 }
 
-/// Receives TLS-encrypted data from `stream`, which must conform to `StreamInterface`.
 /// Returns number of bytes that have been read, populated inside `iovecs`. A
 /// return value of zero bytes does not mean end of stream. Instead, check the `eof()`
 /// for the end of stream. The `eof()` may be true after any call to

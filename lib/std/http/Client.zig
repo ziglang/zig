@@ -1354,8 +1354,14 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
         errdefer client.allocator.destroy(conn.data.tls_client);
 
+        const any_stream = std.io.AnyStream{
+            .context = @ptrCast(&conn.data.socket), // will outlive `tls.Client` since it's heap allocated
+            .readvFn = conn.data.socket.stream().any().readvFn,
+            .writevFn = conn.data.socket.stream().any().writevFn,
+            .closeFn = conn.data.socket.stream().any().closeFn,
+        };
         conn.data.tls_client.* = std.crypto.tls.Client.init(
-            conn.data.socket.stream().any(),
+            any_stream,
             client.ca_bundle,
             host,
         ) catch return error.TlsInitializationFailed;

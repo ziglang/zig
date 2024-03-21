@@ -1796,13 +1796,15 @@ pub const Socket = struct {
     pub const WriteError = posix.WriteError;
     pub const GenericStream = io.GenericStream(Socket, ReadError, readv, WriteError, writev, close);
 
-    pub fn readv(s: Socket, iovecs: []const posix.iovec) ReadError!usize {
+    pub fn readv(s: Socket, iovecs: []posix.iovec) ReadError!usize {
         if (native_os == .windows) {
             // TODO improve this to use ReadFileScatter
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
             return windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null);
         }
+        var len: usize = 0;
+        for (iovecs) |v| len += v.iov_len;
         return posix.readv(s.handle, iovecs);
     }
 

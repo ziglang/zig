@@ -325,7 +325,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
         /// Returns decompressed data from internal sliding window buffer.
         /// Returned buffer can be any length between 0 and `limit` bytes. 0
         /// returned bytes means end of stream reached. With limit=0 returns as
-        /// much data it can. It never will be more than 65536 bytes, which is
+        /// much data it can. It newer will be more than 65536 bytes, which is
         /// size of internal buffer.
         pub fn get(self: *Self, limit: usize) Error![]const u8 {
             while (true) {
@@ -345,14 +345,13 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
         /// Returns the number of bytes read. It may be less than buffer.len.
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
-        pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
-            var read: usize = 0;
-            for (iov) |v| {
-                const out = try self.get(v.iov_len);
-                @memcpy(v.iov_base[0..out.len], out);
-                read += out.len;
-            }
-            return read;
+        pub fn readv(self: *Self, iovecs: []std.posix.iovec) Error!usize {
+            if (iovecs.len == 0) return 0;
+            const first = iovecs[0];
+            const buffer = first.iov_base[0..first.iov_len];
+            const out = try self.get(buffer.len);
+            @memcpy(buffer[0..out.len], out);
+            return out.len;
         }
 
         pub fn reader(self: *Self) Reader {
