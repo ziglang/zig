@@ -13,9 +13,9 @@ const int2 = tls.int2;
 const int3 = tls.int3;
 const array = tls.array;
 const enum_array = tls.enum_array;
-const AnyStream = std.io.AnyStream;
+const Stream = std.io.AnyStream;
 
-inner_stream: AnyStream,
+inner_stream: Stream,
 read_seq: u64,
 write_seq: u64,
 /// The starting index of cleartext bytes inside `partially_read_buffer`.
@@ -50,7 +50,9 @@ partially_read_buffer: [tls.max_ciphertext_record_len]u8,
 /// Initiates a TLS handshake and establishes a TLSv1.3 session with `inner_stream`.
 ///
 /// `host` is only borrowed during this function call.
-pub fn init(inner_stream: AnyStream, ca_bundle: Certificate.Bundle, host: []const u8) !Client {
+pub fn init(inner_stream: Stream, ca_bundle: Certificate.Bundle, host: []const u8) !Client {
+    const reader = inner_stream.reader();
+    const writer = inner_stream.writer();
     const host_len: u16 = @intCast(host.len);
 
     var random_buffer: [128]u8 = undefined;
@@ -135,7 +137,7 @@ pub fn init(inner_stream: AnyStream, ca_bundle: Certificate.Bundle, host: []cons
                 .iov_len = host.len,
             },
         };
-        try inner_stream.writer().writevAll(&iovecs);
+        try writer.writevAll(&iovecs);
     }
 
     const client_hello_bytes1 = plaintext_header[5..];
@@ -144,11 +146,11 @@ pub fn init(inner_stream: AnyStream, ca_bundle: Certificate.Bundle, host: []cons
     var handshake_buffer: [8000]u8 = undefined;
     var d: tls.Decoder = .{ .buf = &handshake_buffer };
     {
-        try d.readAtLeastOurAmt(inner_stream.reader(), tls.record_header_len);
+        try d.readAtLeastOurAmt(reader, tls.record_header_len);
         const ct = d.decode(tls.ContentType);
         d.skip(2); // legacy_record_version
         const record_len = d.decode(u16);
-        try d.readAtLeast(inner_stream.reader(), record_len);
+        try d.readAtLeast(reader, record_len);
         const server_hello_fragment = d.buf[d.idx..][0..record_len];
         var ptd = try d.sub(record_len);
         switch (ct) {
@@ -338,12 +340,12 @@ pub fn init(inner_stream: AnyStream, ca_bundle: Certificate.Bundle, host: []cons
     const now_sec = std.time.timestamp();
 
     while (true) {
-        try d.readAtLeastOurAmt(inner_stream.reader(), tls.record_header_len);
+        try d.readAtLeastOurAmt(reader, tls.record_header_len);
         const record_header = d.buf[d.idx..][0..5];
         const ct = d.decode(tls.ContentType);
         d.skip(2); // legacy_version
         const record_len = d.decode(u16);
-        try d.readAtLeast(inner_stream.reader(), record_len);
+        try d.readAtLeast(reader, record_len);
         var record_decoder = try d.sub(record_len);
         switch (ct) {
             .change_cipher_spec => {
@@ -376,6 +378,7 @@ pub fn init(inner_stream: AnyStream, ca_bundle: Certificate.Bundle, host: []cons
                             break :nonce @as(V, p.server_handshake_iv) ^ operand;
                         };
                         read_seq += 1;
+                        std.debug.print("", .{});
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
                         break :c cleartext;
@@ -591,7 +594,7 @@ pub fn init(inner_stream: AnyStream, ca_bundle: Certificate.Bundle, host: []cons
                                         .iov_base = &both_msgs,
                                         .iov_len = both_msgs.len,
                                     }};
-                                    try inner_stream.writer().writevAll(&both_msgs_vec);
+                                    try writer.writevAll(&both_msgs_vec);
 
                                     const client_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                     const server_secret = hkdfExpandLabel(P.Hkdf, p.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
@@ -681,6 +684,7 @@ fn prepareCiphertextRecord(
     /// How many bytes are taken up by overhead per record.
     overhead_len: usize,
 } {
+    // std.debug.print("prepareCiphertextRecord {}\n", .{ @as(*const std.net.Socket, @ptrCast(@alignCast(c.inner_stream.context))) });
     // Due to the trailing inner content type byte in the ciphertext, we need
     // an additional buffer for storing the cleartext into before encrypting.
     var cleartext_buf: [max_ciphertext_len]u8 = undefined;
@@ -735,6 +739,7 @@ fn prepareCiphertextRecord(
                     break :nonce @as(V, p.client_iv) ^ operand;
                 };
                 c.write_seq += 1; // TODO send key_update on overflow
+                std.debug.print("", .{});
                 P.AEAD.encrypt(ciphertext, auth_tag, cleartext, ad, nonce, p.client_key);
 
                 const record = ciphertext_buf[record_start..ciphertext_end];
@@ -866,7 +871,7 @@ pub fn readvAdvanced(c: *Client, iovecs: []const std.posix.iovec) !usize {
     const wanted_read_len = buf_cap * (max_ciphertext_len + tls.record_header_len);
     const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len);
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
-    const actual_read_len = try c.inner_stream.readv(ask_iovecs);
+    const actual_read_len = try c.inner_stream.reader().readv(ask_iovecs);
     if (actual_read_len == 0) {
         // This is either a truncation attack, a bug in the server, or an
         // intentional omission of the close_notify message due to truncation

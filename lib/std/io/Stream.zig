@@ -34,4 +34,3 @@ pub fn writer(self: Self) std.io.AnyWriter {
 pub fn close(self: Self) void {
     return self.closeFn(self.context);
 }
-

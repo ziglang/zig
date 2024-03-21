@@ -30,15 +30,13 @@ pub fn writevAll(self: Self, iovecs: []iovec_const) anyerror!void {
 }
 
 pub fn write(self: Self, bytes: []const u8) anyerror!usize {
-    var iov = [_]iovec_const{ .{ .iov_base = bytes.ptr, .iov_len = bytes.len } };
+    var iov = [_]iovec_const{.{ .iov_base = bytes.ptr, .iov_len = bytes.len }};
     return self.writev(&iov);
 }
 
 pub fn writeAll(self: Self, bytes: []const u8) anyerror!void {
-    var index: usize = 0;
-    while (index != bytes.len) {
-        index += try self.write(bytes[index..]);
-    }
+    var iov = [_]iovec_const{.{ .iov_base = bytes.ptr, .iov_len = bytes.len }};
+    return self.writevAll(&iov);
 }
 
 pub fn print(self: Self, comptime format: []const u8, args: anytype) anyerror!void {

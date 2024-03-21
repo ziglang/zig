@@ -175,8 +175,7 @@ pub const ConnectionPool = struct {
             defer allocator.destroy(node);
             next = node.next;
 
-            node.data.close();
-            allocator.free(node.data.host);
+            node.data.deinit(allocator);
         }
 
         next = pool.used.first;
@@ -184,8 +183,7 @@ pub const ConnectionPool = struct {
             defer allocator.destroy(node);
             next = node.next;
 
-            node.data.close();
-            allocator.free(node.data.host);
+            node.data.deinit(allocator);
         }
 
         pool.* = undefined;
@@ -223,14 +221,13 @@ pub const Connection = struct {
 
     pub const Protocol = enum { plain, tls };
 
-    /// Used to get raw underlying stream
     inline fn any(conn: *Connection) std.io.AnyStream {
         switch (conn.protocol) {
             .plain => return conn.socket.stream().any(),
             .tls => {
                 if (disable_tls) unreachable;
                 return conn.tls_client.stream().any();
-            }
+            },
         }
     }
 
@@ -292,7 +289,7 @@ pub const Connection = struct {
             .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
             .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
         };
-        const nread =  try conn.readvDirect(&iovecs);
+        const nread = try conn.readvDirect(&iovecs);
 
         if (nread > buffer.len) {
             conn.read_start = 0;
@@ -368,6 +365,14 @@ pub const Connection = struct {
 
     pub fn close(conn: *Connection) void {
         conn.any().close();
+    }
+
+    pub fn deinit(conn: *Connection, allocator: Allocator) void {
+        if (!disable_tls) {
+            if (conn.protocol == .tls) allocator.destroy(conn.tls_client);
+        }
+        allocator.free(conn.host);
+        conn.* = undefined;
     }
 
     pub const GenericStream = std.io.GenericStream(*Connection, ReadError, readv, WriteError, writev, close);
@@ -1349,7 +1354,11 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
         errdefer client.allocator.destroy(conn.data.tls_client);
 
-        conn.data.tls_client.* = std.crypto.tls.Client.init(socket.stream().any(), client.ca_bundle, host,) catch return error.TlsInitializationFailed;
+        conn.data.tls_client.* = std.crypto.tls.Client.init(
+            conn.data.socket.stream().any(),
+            client.ca_bundle,
+            host,
+        ) catch return error.TlsInitializationFailed;
         // This is appropriate for HTTPS because the HTTP headers contain
         // the content length which is used to detect truncation attacks.
         conn.data.tls_client.allow_truncation_attacks = true;

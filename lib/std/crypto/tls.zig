@@ -468,6 +468,7 @@ pub const Decoder = struct {
         const request_amt = their_amt - existing_amt;
         const dest = d.buf[d.cap..];
         if (request_amt > dest.len) return error.TlsRecordOverflow;
+
         const actual_amt = try reader.readAtLeast(dest, request_amt);
         if (actual_amt < request_amt) return error.TlsConnectionTruncated;
         d.cap += actual_amt;

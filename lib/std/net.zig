@@ -1792,13 +1792,6 @@ pub const Socket = struct {
     /// interchangeable with a file system file descriptor.
     handle: posix.socket_t,
 
-    pub fn close(s: Socket) void {
-        switch (native_os) {
-            .windows => windows.closesocket(s.handle) catch unreachable,
-            else => posix.close(s.handle),
-        }
-    }
-
     pub const ReadError = posix.ReadError;
     pub const WriteError = posix.WriteError;
     pub const GenericStream = io.GenericStream(Socket, ReadError, readv, WriteError, writev, close);
@@ -1817,6 +1810,13 @@ pub const Socket = struct {
     /// See equivalent function: `std.fs.File.writev`.
     pub fn writev(self: Socket, iovecs: []const posix.iovec_const) WriteError!usize {
         return posix.writev(self.handle, iovecs);
+    }
+
+    pub fn close(s: Socket) void {
+        switch (native_os) {
+            .windows => windows.closesocket(s.handle) catch unreachable,
+            else => posix.close(s.handle),
+        }
     }
 
     pub fn stream(self: Socket) GenericStream {
