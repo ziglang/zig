@@ -33,7 +33,7 @@ location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.TokenIndex,
 name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
-parent_package_root: Package.Path,
+parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: *std.Progress.Node,
 job_queue: *JobQueue,
@@ -50,7 +50,7 @@ allow_missing_paths_field: bool,
 
 /// This will either be relative to `global_cache`, or to the build root of
 /// the root package.
-package_root: Package.Path,
+package_root: Cache.Path,
 error_bundle: ErrorBundle.Wip,
 manifest: ?Manifest,
 manifest_ast: std.zig.Ast,
@@ -263,7 +263,7 @@ pub const JobQueue = struct {
 pub const Location = union(enum) {
     remote: Remote,
     /// A directory found inside the parent package.
-    relative_path: Package.Path,
+    relative_path: Cache.Path,
     /// Recursive Fetch tasks will never use this Location, but it may be
     /// passed in by the CLI. Indicates the file contents here should be copied
     /// into the global package cache. It may be a file relative to the cwd or
@@ -564,7 +564,7 @@ fn checkBuildFileExistence(f: *Fetch) RunError!void {
 }
 
 /// This function populates `f.manifest` or leaves it `null`.
-fn loadManifest(f: *Fetch, pkg_root: Package.Path) RunError!void {
+fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const manifest_bytes = pkg_root.root_dir.handle.readFileAllocOptions(
@@ -722,7 +722,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
 }
 
 pub fn relativePathDigest(
-    pkg_root: Package.Path,
+    pkg_root: Cache.Path,
     cache_root: Cache.Directory,
 ) Manifest.MultiHashHexDigest {
     var hasher = Manifest.Hash.init(.{});
@@ -1658,7 +1658,7 @@ const Filter = struct {
 };
 
 pub fn depDigest(
-    pkg_root: Package.Path,
+    pkg_root: Cache.Path,
     cache_root: Cache.Directory,
     dep: Manifest.Dependency,
 ) ?Manifest.MultiHashHexDigest {

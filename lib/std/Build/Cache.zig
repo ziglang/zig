@@ -17,6 +17,7 @@ mutex: std.Thread.Mutex = .{},
 prefixes_buffer: [4]Directory = undefined,
 prefixes_len: usize = 0,
 
+pub const Path = @import("Cache/Path.zig");
 pub const Directory = @import("Cache/Directory.zig");
 pub const DepTokenizer = @import("Cache/DepTokenizer.zig");
 
