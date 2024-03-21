@@ -3,13 +3,14 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
 
+pub const ryu128 = @import("fmt/ryu128.zig");
+
 const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
 const meta = std.meta;
-const ryu128 = @import("fmt/ryu128.zig");
 const lossyCast = std.math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 
