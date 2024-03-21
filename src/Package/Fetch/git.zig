@@ -860,7 +860,7 @@ pub const Session = struct {
         }
     };
 
-    pub fn readv(stream: *FetchStream, iov: []std.posix.iovec) !usize {
+    pub fn readv(stream: *FetchStream, iov: []std.io.ReadBuffers) !usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
         const buf = first.ptr[0..first.len];

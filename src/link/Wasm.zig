@@ -3046,7 +3046,7 @@ fn writeToFile(
     }
 
     // finally, write the entire binary into the file.
-    var iovec = [_]std.posix.iovec_const{.{
+    var iovec = [_]std.io.WriteBuffers{.{
         .ptr = binary_bytes.items.ptr,
         .len = binary_bytes.items.len,
     }};

@@ -301,7 +301,7 @@ pub fn Iterator(comptime ReaderType: type) type {
                 return .{ .context = self };
             }
 
-            pub fn readv(self: File, iov: []std.posix.iovec) ReaderType.Error!usize {
+            pub fn readv(self: File, iov: []std.io.ReadBuffers) ReaderType.Error!usize {
                 var n_read: usize = 0;
                 for (iov) |v| {
                     const dest = v.ptr[0..v.len];

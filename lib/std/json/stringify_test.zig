@@ -314,7 +314,7 @@ fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions
             return .{ .context = self };
         }
 
-        fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
+        fn writev(self: *Self, iov: []std.io.WriteBuffers) Error!usize {
             if (iov.len == 0) return 0;
             const first = iov[0];
             const bytes = first.ptr[0..first.len];

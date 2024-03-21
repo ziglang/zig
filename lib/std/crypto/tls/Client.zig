@@ -127,7 +127,7 @@ pub fn init(inner_stream: Stream, ca_bundle: Certificate.Bundle, host: []const u
     } ++ int2(@intCast(out_handshake.len + host_len)) ++ out_handshake;
 
     {
-        var iovecs = [_]std.posix.iovec_const{
+        var iovecs = [_]std.io.WriteBuffers{
             .{
                 .ptr = &plaintext_header,
                 .len = plaintext_header.len,
@@ -590,7 +590,7 @@ pub fn init(inner_stream: Stream, ca_bundle: Certificate.Bundle, host: []const u
                                     P.AEAD.encrypt(ciphertext, auth_tag, &out_cleartext, ad, nonce, p.client_handshake_key);
 
                                     const both_msgs = client_change_cipher_spec_msg ++ finished_msg;
-                                    var both_msgs_vec = [_]std.posix.iovec_const{.{
+                                    var both_msgs_vec = [_]std.io.WriteBuffers{.{
                                         .ptr = &both_msgs,
                                         .len = both_msgs.len,
                                     }};
@@ -643,7 +643,7 @@ pub fn init(inner_stream: Stream, ca_bundle: Certificate.Bundle, host: []const u
 /// TLS session, or a truncation attack.
 pub fn writeEnd(c: *Client, bytes: []const u8, end: bool) !usize {
     var ciphertext_buf: [tls.max_ciphertext_record_len * 4]u8 = undefined;
-    var iovecs_buf: [6]std.posix.iovec_const = undefined;
+    var iovecs_buf: [6]std.io.WriteBuffers = undefined;
     var prepared = prepareCiphertextRecord(c, &iovecs_buf, &ciphertext_buf, bytes, .application_data);
     if (end) {
         prepared.iovec_end += prepareCiphertextRecord(
@@ -665,7 +665,7 @@ pub fn writeEnd(c: *Client, bytes: []const u8, end: bool) !usize {
     return n_written;
 }
 
-pub fn writev(c: *Client, iovecs: []std.posix.iovec_const) !usize {
+pub fn writev(c: *Client, iovecs: []std.io.WriteBuffers) !usize {
     if (iovecs.len == 0) return 0;
     const first = iovecs[0];
     const bytes = first.ptr[0..first.len];
@@ -674,7 +674,7 @@ pub fn writev(c: *Client, iovecs: []std.posix.iovec_const) !usize {
 
 fn prepareCiphertextRecord(
     c: *Client,
-    iovecs: []std.posix.iovec_const,
+    iovecs: []std.io.WriteBuffers,
     ciphertext_buf: []u8,
     bytes: []const u8,
     inner_content_type: tls.ContentType,
@@ -763,7 +763,7 @@ pub fn eof(c: Client) bool {
 /// stream is not an error condition.
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial reads from the underlying stream layer.
-pub fn readv(c: *Client, iovecs: []std.posix.iovec) !usize {
+pub fn readv(c: *Client, iovecs: []std.io.ReadBuffers) !usize {
     return c.readvAtLeast(iovecs, 1);
 }
 
@@ -773,7 +773,7 @@ pub fn readv(c: *Client, iovecs: []std.posix.iovec) !usize {
 /// Reaching the end of the stream is not an error condition.
 /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
 /// order to handle partial reads from the underlying stream layer.
-pub fn readvAtLeast(c: *Client, iovecs: []std.posix.iovec, len: usize) !usize {
+pub fn readvAtLeast(c: *Client, iovecs: []std.io.ReadBuffers, len: usize) !usize {
     if (c.eof()) return 0;
 
     var off_i: usize = 0;
@@ -798,7 +798,7 @@ pub fn readvAtLeast(c: *Client, iovecs: []std.posix.iovec, len: usize) !usize {
 /// function asserts that `eof()` is `false`.
 /// See `readv` for a higher level function that has the same, familiar API as
 /// other read functions, such as `std.fs.File.read`.
-pub fn readvAdvanced(c: *Client, iovecs: []const std.posix.iovec) !usize {
+pub fn readvAdvanced(c: *Client, iovecs: []const std.io.ReadBuffers) !usize {
     var vp: VecPut = .{ .iovecs = iovecs };
 
     // Give away the buffered cleartext we have, if any.
@@ -851,7 +851,7 @@ pub fn readvAdvanced(c: *Client, iovecs: []const std.posix.iovec) !usize {
     c.partial_cleartext_idx = 0;
     const first_iov = c.partially_read_buffer[c.partial_ciphertext_end..];
 
-    var ask_iovecs_buf: [2]std.posix.iovec = .{
+    var ask_iovecs_buf: [2]std.io.ReadBuffers = .{
         .{
             .ptr = first_iov.ptr,
             .len = first_iov.len,
@@ -1215,7 +1215,7 @@ fn SchemeEddsa(comptime scheme: tls.SignatureScheme) type {
 
 /// Abstraction for sending multiple byte buffers to a slice of iovecs.
 const VecPut = struct {
-    iovecs: []const std.posix.iovec,
+    iovecs: []const std.io.ReadBuffers,
     idx: usize = 0,
     off: usize = 0,
     total: usize = 0,
@@ -1276,7 +1276,7 @@ const VecPut = struct {
 };
 
 /// Limit iovecs to a specific byte size.
-fn limitVecs(iovecs: []std.posix.iovec, len: usize) []std.posix.iovec {
+fn limitVecs(iovecs: []std.io.ReadBuffers, len: usize) []std.io.ReadBuffers {
     var bytes_left: usize = len;
     for (iovecs, 0..) |*iovec, vec_i| {
         if (bytes_left <= iovec.len) {

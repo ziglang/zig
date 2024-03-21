@@ -3355,7 +3355,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
             return .{ .context = self };
         }
 
-        pub fn writev(self: *Self, iov: []std.posix.iovec_const) WriteError!usize {
+        pub fn writev(self: *Self, iov: []std.io.WriteBuffers) WriteError!usize {
             var n_written: usize = 0;
             for (iov) |v| {
                 if (v.len == 0) return n_written;

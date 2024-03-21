@@ -7501,7 +7501,7 @@ fn arrayListWriter(list: *std.ArrayList(u8)) ArrayListWriter {
     return .{ .context = .{
         .context = list,
         .writevFn = struct {
-            fn writev(context: *const anyopaque, iov: []std.posix.iovec_const) anyerror!usize {
+            fn writev(context: *const anyopaque, iov: []std.io.WriteBuffers) anyerror!usize {
                 const l: *std.ArrayList(u8) = @alignCast(@constCast(@ptrCast(context)));
                 return l.writer().writev(iov);
             }
@@ -7528,7 +7528,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
             } };
         }
 
-        pub fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
+        pub fn writev(self: *Self, iov: []std.io.WriteBuffers) Error!usize {
             var written: usize = 0;
             for (iov) |v| {
                 const bytes = v.ptr[0..v.len];
@@ -7543,7 +7543,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
             return written;
         }
 
-        fn writevAny(context: *const anyopaque, iov: []std.posix.iovec_const) anyerror!usize {
+        fn writevAny(context: *const anyopaque, iov: []std.io.WriteBuffers) anyerror!usize {
             const self: *Self = @alignCast(@constCast(@ptrCast(context)));
             return self.writev(iov);
         }
@@ -7579,7 +7579,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
 /// maintaining ease of error handling.
 fn ErrorOnlyGenericWriter(comptime Error: type) type {
     return std.io.GenericWriter(std.io.AnyWriter, Error, struct {
-        fn writev(context: std.io.AnyWriter, iov: []std.posix.iovec_const) Error!usize {
+        fn writev(context: std.io.AnyWriter, iov: []std.io.WriteBuffers) Error!usize {
             return @errorCast(context.writev(iov));
         }
     }.writev);

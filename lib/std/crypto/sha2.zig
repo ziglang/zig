@@ -394,7 +394,7 @@ fn Sha2x32(comptime params: Sha2Params32) type {
         pub const Error = error{};
         pub const Writer = std.io.Writer(*Self, Error, writev);
 
-        fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
+        fn writev(self: *Self, iov: []std.io.WriteBuffers) Error!usize {
             var written: usize = 0;
             for (iov) |v| {
                 self.update(v.ptr[0..v.len]);

@@ -1016,7 +1016,7 @@ test "generic type constructed from inferred error set of unresolved function" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn writev(_: void, _: []std.posix.iovec_const) !usize {
+        fn writev(_: void, _: []std.io.WriteBuffers) !usize {
             return 0;
         }
         const T = std.io.Writer(void, @typeInfo(@typeInfo(@TypeOf(writev)).Fn.return_type.?).ErrorUnion.error_set, writev);

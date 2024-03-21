@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const macho = std.macho;
 const native_arch = builtin.target.cpu.arch;
 const maxInt = std.math.maxInt;
-const iovec_const = std.posix.iovec_const;
+const iovec_const = std.io.WriteBuffers;
 
 pub const aarch64 = @import("darwin/aarch64.zig");
 pub const x86_64 = @import("darwin/x86_64.zig");

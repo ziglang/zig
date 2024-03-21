@@ -21,7 +21,7 @@ pub fn MultiWriter(comptime Writers: type) type {
             return .{ .context = self };
         }
 
-        pub fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
+        pub fn writev(self: *Self, iov: []std.io.WriteBuffers) Error!usize {
             var written: usize = 0;
             for (iov) |v| written += v.len;
             inline for (self.streams) |stream| {

@@ -1285,7 +1285,7 @@ const ElfFileHelper = struct {
         for (consolidated.items) |cmd| {
             switch (cmd) {
                 .write_data => |data| {
-                    var iovec = [_]std.posix.iovec_const{.{ .ptr = data.data.ptr, .len = data.data.len }};
+                    var iovec = [_]std.io.WriteBuffers{.{ .ptr = data.data.ptr, .len = data.data.len }};
                     try out_file.pwritevAll(&iovec, data.out_offset);
                 },
                 .copy_range => |range| {

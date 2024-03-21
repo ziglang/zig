@@ -1,8 +1,8 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
+const iovec = std.io.ReadBuffers;
+const iovec_const = std.io.WriteBuffers;
 
 context: *const anyopaque,
 readvFn: *const fn (context: *const anyopaque, iov: []iovec) anyerror!usize,

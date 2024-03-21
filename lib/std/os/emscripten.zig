@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const wasi = std.os.wasi;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
+const iovec = std.io.ReadBuffers;
+const iovec_const = std.io.WriteBuffers;
 const c = std.c;
 
 pub const FILE = c.FILE;

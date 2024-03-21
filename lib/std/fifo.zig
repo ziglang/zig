@@ -232,7 +232,7 @@ pub fn LinearFifo(
 
         /// Same as `read` except it returns an error union
         /// The purpose of this function existing is to match `std.io.Reader` API.
-        fn readvFn(self: *Self, iov: []std.posix.iovec) error{}!usize {
+        fn readvFn(self: *Self, iov: []std.io.ReadBuffers) error{}!usize {
             var n_read: usize = 0;
             for (iov) |v| {
                 const n = self.read(v.ptr[0..v.len]);
@@ -328,7 +328,7 @@ pub fn LinearFifo(
 
         /// Same as `write` except it returns the number of bytes written, which is always the same
         /// as `bytes.len`. The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWritev(self: *Self, iov: []std.posix.iovec_const) error{OutOfMemory}!usize {
+        fn appendWritev(self: *Self, iov: []std.io.WriteBuffers) error{OutOfMemory}!usize {
             var written: usize = 0;
             for (iov) |v| {
                 try self.write(v.ptr[0..v.len]);

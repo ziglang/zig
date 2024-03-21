@@ -231,7 +231,7 @@ pub const Connection = struct {
         }
     }
 
-    pub fn readvDirect(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
+    pub fn readvDirect(conn: *Connection, buffers: []std.io.ReadBuffers) ReadError!usize {
         return conn.any().reader().readv(buffers) catch |err| {
             // https://github.com/ziglang/zig/issues/2473
             if (mem.startsWith(u8, @errorName(err), "TlsAlert")) return error.TlsAlert;
@@ -249,7 +249,7 @@ pub const Connection = struct {
     pub fn fill(conn: *Connection) ReadError!void {
         if (conn.read_end != conn.read_start) return;
 
-        var iovecs = [1]std.posix.iovec{
+        var iovecs = [1]std.io.ReadBuffers{
             .{ .ptr = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
@@ -285,7 +285,7 @@ pub const Connection = struct {
             return available_read;
         }
 
-        var iovecs = [2]std.posix.iovec{
+        var iovecs = [2]std.io.ReadBuffers{
             .{ .ptr = buffer.ptr, .len = buffer.len },
             .{ .ptr = &conn.read_buf, .len = conn.read_buf.len },
         };
@@ -300,7 +300,7 @@ pub const Connection = struct {
         return nread;
     }
 
-    pub fn readv(conn: *Connection, iov: []std.posix.iovec) ReadError!usize {
+    pub fn readv(conn: *Connection, iov: []std.io.ReadBuffers) ReadError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
         const buffer = first.ptr[0..first.len];
@@ -336,7 +336,7 @@ pub const Connection = struct {
         return buffer.len;
     }
 
-    pub fn writev(conn: *Connection, iov: []std.posix.iovec_const) WriteError!usize {
+    pub fn writev(conn: *Connection, iov: []std.io.WriteBuffers) WriteError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
         const buffer = first.ptr[0..first.len];
@@ -911,7 +911,7 @@ pub const Request = struct {
         return .{ .context = req };
     }
 
-    fn transferReadv(req: *Request, iov: []std.posix.iovec) TransferReadError!usize {
+    fn transferReadv(req: *Request, iov: []std.io.ReadBuffers) TransferReadError!usize {
         if (req.response.parser.done) return 0;
         if (iov.len == 0) return 0;
         const first = iov[0];
@@ -1022,7 +1022,7 @@ pub const Request = struct {
                 req.response.skip = true;
                 // we're skipping, no buffer is necessary
                 var buf: [0]u8 = undefined;
-                var iovecs = [_]std.posix.iovec{.{ .ptr = &buf, .len = 0 }};
+                var iovecs = [_]std.io.ReadBuffers{.{ .ptr = &buf, .len = 0 }};
                 const n_read = try req.transferReadv(&iovecs);
                 assert(n_read == 0);
 
@@ -1115,7 +1115,7 @@ pub const Request = struct {
     }
 
     /// Reads data from the response body. Must be called after `wait`.
-    pub fn readv(req: *Request, iov: []std.posix.iovec) ReadError!usize {
+    pub fn readv(req: *Request, iov: []std.io.ReadBuffers) ReadError!usize {
         const out_index = switch (req.response.compression) {
             .deflate => |*deflate| deflate.readv(iov) catch return error.DecompressionFailure,
             .gzip => |*gzip| gzip.readv(iov) catch return error.DecompressionFailure,
@@ -1145,7 +1145,7 @@ pub const Request = struct {
 
     /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
     /// Must be called after `send` and before `finish`.
-    pub fn writev(req: *Request, iov: []std.posix.iovec_const) WriteError!usize {
+    pub fn writev(req: *Request, iov: []std.io.WriteBuffers) WriteError!usize {
         var len: usize = 0;
         for (iov) |v| len += v.len;
 

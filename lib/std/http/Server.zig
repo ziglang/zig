@@ -438,7 +438,7 @@ pub const Request = struct {
         }
 
         var chunk_header_buffer: [18]u8 = undefined;
-        var iovecs: [max_extra_headers * 4 + 3]std.posix.iovec_const = undefined;
+        var iovecs: [max_extra_headers * 4 + 3]std.io.WriteBuffers = undefined;
         var iovecs_len: usize = 0;
 
         iovecs[iovecs_len] = .{
@@ -624,7 +624,7 @@ pub const Request = struct {
         HttpHeadersOversize,
     };
 
-    fn read_cl(context: *const anyopaque, iov: []std.posix.iovec) ReadError!usize {
+    fn read_cl(context: *const anyopaque, iov: []std.io.ReadBuffers) ReadError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
         const buffer = first.ptr[0..first.len];
@@ -655,7 +655,7 @@ pub const Request = struct {
         return s.read_buffer[head_end..s.read_buffer_len];
     }
 
-    fn readv_chunked(context: *const anyopaque, iov: []std.posix.iovec) ReadError!usize {
+    fn readv_chunked(context: *const anyopaque, iov: []std.io.ReadBuffers) ReadError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
         const buffer = first.ptr[0..first.len];
@@ -887,7 +887,7 @@ pub const Response = struct {
         r.* = undefined;
     }
 
-    fn write_cl(context: *const anyopaque, iov: []std.posix.iovec_const) !usize {
+    fn write_cl(context: *const anyopaque, iov: []std.io.WriteBuffers) !usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
 
         if (iov.len == 0) return 0;
@@ -907,7 +907,7 @@ pub const Response = struct {
 
         if (bytes.len + r.send_buffer_end > r.send_buffer.len) {
             const send_buffer_len = r.send_buffer_end - r.send_buffer_start;
-            var iovecs: [2]std.posix.iovec_const = .{
+            var iovecs: [2]std.io.WriteBuffers = .{
                 .{
                     .ptr = r.send_buffer.ptr + r.send_buffer_start,
                     .len = send_buffer_len,
@@ -941,7 +941,7 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    fn write_chunked(context: *const anyopaque, iov: []std.posix.iovec_const) !usize {
+    fn write_chunked(context: *const anyopaque, iov: []std.io.WriteBuffers) !usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
         assert(r.transfer_encoding == .chunked);
 
@@ -958,7 +958,7 @@ pub const Response = struct {
             var header_buf: [18]u8 = undefined;
             const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{chunk_len}) catch unreachable;
 
-            var iovecs: [5]std.posix.iovec_const = .{
+            var iovecs: [5]std.io.WriteBuffers = .{
                 .{
                     .ptr = r.send_buffer.ptr + r.send_buffer_start,
                     .len = send_buffer_len - r.chunk_len,
@@ -1030,7 +1030,7 @@ pub const Response = struct {
         var header_buf: [18]u8 = undefined;
         const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{r.chunk_len}) catch unreachable;
 
-        var iovecs: [max_trailers * 4 + 5]std.posix.iovec_const = undefined;
+        var iovecs: [max_trailers * 4 + 5]std.io.WriteBuffers = undefined;
         var iovecs_len: usize = 0;
 
         iovecs[iovecs_len] = .{

@@ -2118,7 +2118,7 @@ fn pwriteDbgLineNops(
 
     const page_of_nops = [1]u8{DW.LNS.negate_stmt} ** 4096;
     const three_byte_nop = [3]u8{ DW.LNS.advance_pc, 0b1000_0000, 0 };
-    var vecs: [512]std.posix.iovec_const = undefined;
+    var vecs: [512]std.io.WriteBuffers = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;
@@ -2235,7 +2235,7 @@ fn pwriteDbgInfoNops(
     defer tracy.end();
 
     const page_of_nops = [1]u8{@intFromEnum(AbbrevCode.padding)} ** 4096;
-    var vecs: [32]std.posix.iovec_const = undefined;
+    var vecs: [32]std.io.WriteBuffers = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;

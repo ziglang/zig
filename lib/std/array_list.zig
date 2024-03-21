@@ -354,7 +354,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Same as `append` except it returns the number of bytes written, which is always the same
         /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
         /// Invalidates element pointers if additional memory is needed.
-        fn appendWritev(self: *Self, iov: []std.posix.iovec_const) Allocator.Error!usize {
+        fn appendWritev(self: *Self, iov: []std.io.WriteBuffers) Allocator.Error!usize {
             var written: usize = 0;
             for (iov) |v| {
                 try self.appendSlice(v.ptr[0..v.len]);
@@ -945,7 +945,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// which is always the same as `m.len`. The purpose of this function
         /// existing is to match `std.io.Writer` API.
         /// Invalidates element pointers if additional memory is needed.
-        fn appendWritev(context: WriterContext, iov: []std.posix.iovec_const) Allocator.Error!usize {
+        fn appendWritev(context: WriterContext, iov: []std.io.WriteBuffers) Allocator.Error!usize {
             var written: usize = 0;
             for (iov) |v| {
                 try context.self.appendSlice(context.allocator, v.ptr[0..v.len]);
@@ -963,7 +963,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWritevFixed(self: *Self, iov: []std.posix.iovec_const) error{OutOfMemory}!usize {
+        fn appendWritevFixed(self: *Self, iov: []std.io.WriteBuffers) error{OutOfMemory}!usize {
             var written: usize = 0;
             for (iov) |v| {
                 const m = v.ptr[0..v.len];

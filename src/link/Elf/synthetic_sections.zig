@@ -317,11 +317,11 @@ pub const ZigGotSection = struct {
                 if (elf_file.base.child_pid) |pid| {
                     switch (builtin.os.tag) {
                         .linux => {
-                            var local_vec: [1]std.posix.iovec_const = .{.{
+                            var local_vec: [1]std.io.WriteBuffers = .{.{
                                 .ptr = &buf,
                                 .len = buf.len,
                             }};
-                            var remote_vec: [1]std.posix.iovec_const = .{.{
+                            var remote_vec: [1]std.io.WriteBuffers = .{.{
                                 .ptr = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
                                 .len = buf.len,
                             }};

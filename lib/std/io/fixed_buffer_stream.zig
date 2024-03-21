@@ -44,7 +44,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
-        pub fn readv(self: *Self, iov: []std.posix.iovec) ReadError!usize {
+        pub fn readv(self: *Self, iov: []std.io.ReadBuffers) ReadError!usize {
             var read: usize = 0;
             for (iov) |v| {
                 const size = @min(v.len, self.buffer.len - self.pos);
@@ -62,7 +62,7 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         /// buffer is full. Returns `error.NoSpaceLeft` when no bytes would be written.
         /// Note: `error.NoSpaceLeft` matches the corresponding error from
         /// `std.fs.File.WriteError`.
-        pub fn writev(self: *Self, iov: []std.posix.iovec_const) WriteError!usize {
+        pub fn writev(self: *Self, iov: []std.io.WriteBuffers) WriteError!usize {
             var written: usize = 0;
             for (iov) |v| {
                 if (v.len == 0) continue;

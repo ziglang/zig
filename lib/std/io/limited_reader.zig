@@ -13,7 +13,7 @@ pub fn LimitedReader(comptime ReaderType: type) type {
 
         const Self = @This();
 
-        pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
+        pub fn readv(self: *Self, iov: []std.io.ReadBuffers) Error!usize {
             for (iov) |*v| {
                 v.len = @min(self.bytes_left, v.len);
                 self.bytes_left -= v.len;

@@ -1,19 +1,19 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
-const iovec_const = std.posix.iovec_const;
+const WriteBuffers = std.io.WriteBuffers;
 
 context: *const anyopaque,
-writevFn: *const fn (context: *const anyopaque, iov: []iovec_const) anyerror!usize,
+writevFn: *const fn (context: *const anyopaque, iov: []WriteBuffers) anyerror!usize,
 
 const Self = @This();
 pub const Error = anyerror;
 
-pub fn writev(self: Self, iov: []iovec_const) anyerror!usize {
+pub fn writev(self: Self, iov: []WriteBuffers) anyerror!usize {
     return self.writevFn(self.context, iov);
 }
 
-pub fn writevAll(self: Self, iovecs: []iovec_const) anyerror!void {
+pub fn writevAll(self: Self, iovecs: []WriteBuffers) anyerror!void {
     if (iovecs.len == 0) return;
 
     var i: usize = 0;
@@ -30,12 +30,12 @@ pub fn writevAll(self: Self, iovecs: []iovec_const) anyerror!void {
 }
 
 pub fn write(self: Self, bytes: []const u8) anyerror!usize {
-    var iov = [_]iovec_const{.{ .ptr = bytes.ptr, .len = bytes.len }};
+    var iov = [_]WriteBuffers{.{ .ptr = bytes.ptr, .len = bytes.len }};
     return self.writev(&iov);
 }
 
 pub fn writeAll(self: Self, bytes: []const u8) anyerror!void {
-    var iov = [_]iovec_const{.{ .ptr = bytes.ptr, .len = bytes.len }};
+    var iov = [_]WriteBuffers{.{ .ptr = bytes.ptr, .len = bytes.len }};
     return self.writevAll(&iov);
 }
 

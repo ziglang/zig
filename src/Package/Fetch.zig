@@ -811,7 +811,7 @@ const Resource = union(enum) {
         };
     }
 
-    fn readv(context: *const anyopaque, iov: []std.posix.iovec) anyerror!usize {
+    fn readv(context: *const anyopaque, iov: []std.io.ReadBuffers) anyerror!usize {
         const resource: *Resource = @constCast(@ptrCast(@alignCast(context)));
         switch (resource.*) {
             .file => |*f| return f.readv(iov),
