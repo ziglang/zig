@@ -915,7 +915,21 @@ const mingwex_arm64_src = [_][]const u8{
 };
 
 pub const always_link_libs = [_][]const u8{
-    "ucrtbase",
+    "api-ms-win-crt-conio-l1-1-0",
+    "api-ms-win-crt-convert-l1-1-0",
+    "api-ms-win-crt-environment-l1-1-0",
+    "api-ms-win-crt-filesystem-l1-1-0",
+    "api-ms-win-crt-heap-l1-1-0",
+    "api-ms-win-crt-locale-l1-1-0",
+    "api-ms-win-crt-math-l1-1-0",
+    "api-ms-win-crt-multibyte-l1-1-0",
+    "api-ms-win-crt-private-l1-1-0",
+    "api-ms-win-crt-process-l1-1-0",
+    "api-ms-win-crt-runtime-l1-1-0",
+    "api-ms-win-crt-stdio-l1-1-0",
+    "api-ms-win-crt-string-l1-1-0",
+    "api-ms-win-crt-time-l1-1-0",
+    "api-ms-win-crt-utility-l1-1-0",
     "advapi32",
     "kernel32",
     "ntdll",
