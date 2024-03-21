@@ -1187,6 +1187,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
 
     var i: usize = start_index;
     if (backend_supports_vectors and
+        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
