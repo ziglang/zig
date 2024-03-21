@@ -377,9 +377,9 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     return self;
 }
 
-pub fn installHeader(cs: *Compile, src_path: []const u8, dest_rel_path: []const u8) void {
+pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
-    const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
+    const install_file = b.addInstallHeaderFile(source, dest_rel_path);
     b.getInstallStep().dependOn(&install_file.step);
     cs.installed_headers.append(&install_file.step) catch @panic("OOM");
 }
