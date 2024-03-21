@@ -872,6 +872,14 @@ pub const TestOptions = struct {
     zig_lib_dir: ?LazyPath = null,
 };
 
+/// Creates an executable containing unit tests.
+///
+/// Equivalent to running the command `zig test --test-no-exec ...`.
+///
+/// **This step does not run the unit tests**. Typically, the result of this
+/// function will be passed to `addRunArtifact`, creating a `Step.Run`. These
+/// two steps are separated because they are independently configured and
+/// cached.
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
     return Step.Compile.create(b, .{
         .name = options.name,
