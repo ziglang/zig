@@ -1766,8 +1766,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
         if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result .none;
 
         const field_off: u32 = switch (struct_ty.containerLayout(mod)) {
-            .Auto, .Extern => @intCast(struct_ty.structFieldOffset(index, mod) * 8),
-            .Packed => if (mod.typeToStruct(struct_ty)) |struct_type|
+            .auto, .@"extern" => @intCast(struct_ty.structFieldOffset(index, mod) * 8),
+            .@"packed" => if (mod.typeToStruct(struct_ty)) |struct_type|
                 mod.structPackedFieldBitOffset(struct_type, index)
             else
                 0,
