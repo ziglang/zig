@@ -6759,7 +6759,7 @@ const usage_fetch =
     \\  --debug-hash                  Print verbose hash information to stdout
     \\  --save                        Add the fetched package to build.zig.zon
     \\  --save=[name]                 Add the fetched package to build.zig.zon as name
-    \\  --resolve-commit              Before saving, replace the name of a Git branch/tag with its commit SHA
+    \\  --preserve-url                Store a verbatim copy of the URL in build.zig.zon
     \\
 ;
 
@@ -6775,7 +6775,7 @@ fn cmdFetch(
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
     var save: union(enum) { no, yes, name: []const u8 } = .no;
-    var resolve_commit: bool = false;
+    var preserve_url: bool = false;
 
     {
         var i: usize = 0;
@@ -6796,8 +6796,8 @@ fn cmdFetch(
                     save = .yes;
                 } else if (mem.startsWith(u8, arg, "--save=")) {
                     save = .{ .name = arg["--save=".len..] };
-                } else if (mem.eql(u8, arg, "--resolve-commit")) {
-                    resolve_commit = true;
+                } else if (mem.startsWith(u8, arg, "--preserve-url")) {
+                    preserve_url = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -6809,8 +6809,7 @@ fn cmdFetch(
         }
     }
 
-    if (resolve_commit and save == .no)
-        warn("'--resolve-commit' has no effect unless used with '--save'", .{});
+    if (preserve_url and save == .no) fatal("use of '--preserve-url' requires '--save'", .{});
 
     const path_or_url = opt_path_or_url orelse fatal("missing url or path parameter", .{});
 
@@ -6860,7 +6859,7 @@ fn cmdFetch(
         .job_queue = &job_queue,
         .omit_missing_hash_error = true,
         .allow_missing_paths_field = false,
-        .use_latest_commit = resolve_commit,
+        .use_latest_commit = true,
 
         .package_root = undefined,
         .error_bundle = undefined,
@@ -6926,14 +6925,35 @@ fn cmdFetch(
     var fixups: Ast.Fixups = .{};
     defer fixups.deinit(gpa);
 
-    const saved_path_or_url = if (resolve_commit) blk: {
-        // replace the refspec with the latest commit SHA
+    var saved_path_or_url = path_or_url;
+
+    if (fetch.latest_commit) |*latest_commit| {
         var uri = try std.Uri.parse(path_or_url);
-        uri.fragment = try std.fmt.allocPrint(arena, "{}", .{
-            std.fmt.fmtSliceHexLower(&fetch.latest_commit.?),
-        });
-        break :blk try std.fmt.allocPrint(arena, "{}", .{uri});
-    } else path_or_url;
+        const target_ref = uri.fragment orelse "";
+        if (!std.mem.eql(u8, target_ref, latest_commit)) {
+            std.log.info("resolved ref '{s}' to commit {s}", .{
+                target_ref,
+                std.fmt.fmtSliceHexLower(latest_commit),
+            });
+
+            if (!preserve_url) {
+                if (target_ref.len != 0) {
+                    // include the target ref in a query parameter
+                    var query = try std.ArrayList(u8).initCapacity(arena, 4 + target_ref.len);
+                    try std.Uri.writeEscapedQuery(query.writer(), "ref=");
+                    try std.Uri.writeEscapedQuery(query.writer(), target_ref);
+                    uri.query = try query.toOwnedSlice();
+                }
+
+                // replace the refspec with the resolved commit SHA
+                uri.fragment = try std.fmt.allocPrint(arena, "{}", .{
+                    std.fmt.fmtSliceHexLower(latest_commit),
+                });
+
+                saved_path_or_url = try std.fmt.allocPrint(arena, "{}", .{uri});
+            }
+        }
+    }
 
     const new_node_init = try std.fmt.allocPrint(arena,
         \\.{{
@@ -6961,7 +6981,7 @@ fn cmdFetch(
         if (dep.hash) |h| {
             switch (dep.location) {
                 .url => |u| {
-                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, path_or_url)) {
+                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, saved_path_or_url)) {
                         std.log.info("existing dependency named '{s}' is up-to-date", .{name});
                         process.exit(0);
                     }
