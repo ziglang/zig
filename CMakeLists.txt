@@ -235,7 +235,7 @@ set(ZIG_STAGE2_SOURCES
     "${CMAKE_SOURCE_DIR}/lib/std/elf.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fifo.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fmt.zig"
-    "${CMAKE_SOURCE_DIR}/lib/std/fmt/ryu128.zig"
+    "${CMAKE_SOURCE_DIR}/lib/std/fmt/format_float.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fmt/parse_float.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs.zig"
     "${CMAKE_SOURCE_DIR}/lib/std/fs/AtomicFile.zig"
