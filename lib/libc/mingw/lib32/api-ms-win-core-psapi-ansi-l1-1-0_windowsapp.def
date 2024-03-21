@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-psapi-ansi-l1-1-0
+
+EXPORTS
+
+K32GetModuleBaseNameA@16
+K32GetModuleFileNameExA@16
+QueryFullProcessImageNameA@16

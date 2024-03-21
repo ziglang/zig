@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-net-isolation-l1-1-0
+
+EXPORTS
+
+NetworkIsolationDiagnoseConnectFailureAndGetInfo@8
+NetworkIsolationEnumAppContainers@12
+NetworkIsolationFreeAppContainers@4
+NetworkIsolationGetAppContainerConfig@8
+NetworkIsolationRegisterForAppContainerChanges@16
+NetworkIsolationSetAppContainerConfig@8
+NetworkIsolationSetupAppContainerBinaries@28
+NetworkIsolationUnregisterForAppContainerChanges@4

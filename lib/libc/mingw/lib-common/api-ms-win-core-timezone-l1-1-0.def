@@ -1,0 +1,17 @@
+LIBRARY api-ms-win-core-timezone-l1-1-0
+
+EXPORTS
+
+EnumDynamicTimeZoneInformation
+FileTimeToSystemTime
+GetDynamicTimeZoneInformation
+GetDynamicTimeZoneInformationEffectiveYears
+GetTimeZoneInformation
+GetTimeZoneInformationForYear
+SetDynamicTimeZoneInformation
+SetTimeZoneInformation
+SystemTimeToFileTime
+SystemTimeToTzSpecificLocalTime
+SystemTimeToTzSpecificLocalTimeEx
+TzSpecificLocalTimeToSystemTime
+TzSpecificLocalTimeToSystemTimeEx

@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-file-l2-1-3
+
+EXPORTS
+
+ReadDirectoryChangesExW@36

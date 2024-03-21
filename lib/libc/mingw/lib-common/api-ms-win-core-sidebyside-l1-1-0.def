@@ -1,0 +1,15 @@
+LIBRARY api-ms-win-core-sidebyside-l1-1-0
+
+EXPORTS
+
+ActivateActCtx
+AddRefActCtx
+CreateActCtxW
+DeactivateActCtx
+FindActCtxSectionGuid
+FindActCtxSectionStringW
+GetCurrentActCtx
+QueryActCtxSettingsW
+QueryActCtxW
+ReleaseActCtx
+ZombifyActCtx

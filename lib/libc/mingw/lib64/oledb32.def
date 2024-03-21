@@ -6,7 +6,6 @@
 ;
 LIBRARY OLEDB32.dll
 EXPORTS
-DllMain
 OpenDSLFile
 DllCanUnloadNow
 DllGetClassObject

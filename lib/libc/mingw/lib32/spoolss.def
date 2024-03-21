@@ -73,7 +73,6 @@ DllCanUnloadNow@0
 DllFreeSplMem@4
 DllFreeSplStr@4
 DllGetClassObject@12
-DllMain@12
 DllReallocSplMem@12
 DllReallocSplStr@8
 DllRegisterServer@0

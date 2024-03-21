@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-security-base-l1-2-2
+
+EXPORTS
+
+DeriveCapabilitySidsFromName

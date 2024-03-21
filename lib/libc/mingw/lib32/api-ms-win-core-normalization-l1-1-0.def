@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-normalization-l1-1-0
+
+EXPORTS
+
+GetStringScripts@20
+IdnToNameprepUnicode@20
+IsNormalizedString@12
+NormalizeString@20
+VerifyScripts@20

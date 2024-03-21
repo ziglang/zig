@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-enclave-l1-1-0
+
+EXPORTS
+
+CreateEnclave
+InitializeEnclave
+IsEnclaveTypeSupported
+LoadEnclaveData

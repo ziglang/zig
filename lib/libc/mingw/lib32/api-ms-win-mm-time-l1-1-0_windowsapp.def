@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-mm-time-l1-1-0
+
+EXPORTS
+
+timeBeginPeriod@4
+timeEndPeriod@4
+timeGetDevCaps@8
+timeGetTime@0

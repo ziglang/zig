@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-eventing-consumer-l1-1-1
+
+EXPORTS
+
+QueryTraceProcessingHandle@32

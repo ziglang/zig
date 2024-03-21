@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-core-job-l2-1-0
+
+EXPORTS
+
+AssignProcessToJobObject@8
+CreateJobObjectW@8
+OpenJobObjectW@12
+QueryInformationJobObject@20
+SetInformationJobObject@16
+TerminateJobObject@8

@@ -7,7 +7,6 @@ LIBRARY "msoledbsql.dll"
 EXPORTS
 DllCanUnloadNow
 DllGetClassObject
-DllMain
 DllRegisterServer
 DllUnregisterServer
 OpenSqlFilestream

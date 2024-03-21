@@ -28,4 +28,3 @@ ThreadPoolInitialize
 ThreadPoolPostCompletion
 ThreadPoolSetInfo
 ThreadPoolTerminate
-DllMain

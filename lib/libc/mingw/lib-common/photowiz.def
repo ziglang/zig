@@ -10,6 +10,5 @@ UsePPWForPrintTo
 DllCanUnloadNow
 DllGetClassObject
 DllInstall
-DllMain
 DllRegisterServer
 DllUnregisterServer

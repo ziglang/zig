@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-gaming-expandedresources-l1-1-0
+
+EXPORTS
+
+GetExpandedResourceExclusiveCpuCount
+HasExpandedResources
+ReleaseExclusiveCpuSets

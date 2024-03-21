@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-xstate-l1-1-3
+
+EXPORTS
+
+RtlGetExtendedContextLength2@16
+RtlInitializeExtendedContext2@20

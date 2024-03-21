@@ -6,7 +6,6 @@
 ;
 LIBRARY LOG.dll
 EXPORTS
-DllMain
 LogA
 LogBegin
 LogDeleteOnNextInit

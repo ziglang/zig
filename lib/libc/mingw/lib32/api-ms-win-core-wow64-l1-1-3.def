@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-wow64-l1-1-3
+
+EXPORTS
+
+Wow64GetThreadContext@8
+Wow64SetThreadContext@8
+Wow64SuspendThread@4

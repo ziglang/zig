@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-localization-l1-2-2
+
+EXPORTS
+
+GetSystemDefaultLocaleName
+LCIDToLocaleName

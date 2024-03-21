@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-fibers-l2-1-1
+
+EXPORTS
+
+ConvertThreadToFiberEx
+CreateFiberEx

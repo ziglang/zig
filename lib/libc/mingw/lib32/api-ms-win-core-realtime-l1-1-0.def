@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-realtime-l1-1-0
+
+EXPORTS
+
+QueryIdleProcessorCycleTime@8
+QueryIdleProcessorCycleTimeEx@12
+QueryProcessCycleTime@8
+QueryThreadCycleTime@8
+QueryUnbiasedInterruptTime@4
