@@ -9,7 +9,6 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
 const meta = std.meta;
-const ryu128 = @import("fmt/ryu128.zig");
 const lossyCast = std.math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 
@@ -757,21 +756,25 @@ pub fn formatIntValue(
     return formatInt(int_value, base, case, options, writer);
 }
 
+pub const format_float = @import("fmt/format_float.zig");
+pub const formatFloat = format_float.formatFloat;
+pub const FormatFloatError = format_float.FormatError;
+
 fn formatFloatValue(
     value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    var buf: [ryu128.bufferSize(.decimal, f64)]u8 = undefined;
+    var buf: [format_float.bufferSize(.decimal, f64)]u8 = undefined;
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        const s = ryu128.format(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
         return formatBuf(s, options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        const s = ryu128.format(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
         return formatBuf(s, options, writer);
@@ -787,7 +790,7 @@ fn formatFloatValue(
 }
 
 test {
-    _ = &ryu128;
+    _ = &format_float;
 }
 
 pub const Case = enum { lower, upper };
@@ -890,7 +893,7 @@ fn formatSizeImpl(comptime base: comptime_int) type {
                 return formatBuf("0B", options, writer);
             }
             // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
-            var buf: [ryu128.min_buffer_size + 3]u8 = undefined;
+            var buf: [format_float.min_buffer_size + 3]u8 = undefined;
 
             const mags_si = " kMGTPEZY";
             const mags_iec = " KMGTPEZY";
@@ -908,7 +911,7 @@ fn formatSizeImpl(comptime base: comptime_int) type {
                 else => unreachable,
             };
 
-            const s = ryu128.format(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+            const s = formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
                 error.BufferTooSmall => unreachable,
             };
 

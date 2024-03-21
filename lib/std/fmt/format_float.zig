@@ -27,7 +27,7 @@ pub fn bufferSize(comptime mode: Format, comptime T: type) comptime_int {
     };
 }
 
-pub const RyuError = error{
+pub const FormatError = error{
     BufferTooSmall,
 };
 
@@ -52,7 +52,7 @@ pub const FormatOptions = struct {
 ///
 /// When printing full precision decimals, use `bufferSize` to get the required space. It is
 /// recommended to bound decimal output with a fixed precision to reduce the required buffer size.
-pub fn format(buf: []u8, v_: anytype, options: FormatOptions) RyuError![]const u8 {
+pub fn formatFloat(buf: []u8, v_: anytype, options: FormatOptions) FormatError![]const u8 {
     const v = switch (@TypeOf(v_)) {
         // comptime_float internally is a f128; this preserves precision.
         comptime_float => @as(f128, v_),
@@ -182,7 +182,7 @@ fn round(f: FloatDecimal128, mode: RoundMode, precision: usize) FloatDecimal128 
 /// will not fit.
 ///
 /// It is recommended to bound decimal formatting with an exact precision.
-pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
+pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) FormatError![]const u8 {
     std.debug.assert(buf.len >= min_buffer_size);
     var f = f_;
 
@@ -253,7 +253,7 @@ pub fn formatScientific(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuEr
 /// The buffer provided must be greater than `min_buffer_size` bytes in length. If no precision is
 /// specified, this may still return an error. If precision is specified, `2 + precision` bytes will
 /// always be written.
-pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) RyuError![]const u8 {
+pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) FormatError![]const u8 {
     std.debug.assert(buf.len >= min_buffer_size);
     var f = f_;
 
@@ -964,7 +964,7 @@ fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
 
     var buf: [6000]u8 = undefined;
     const value_bits: I = @bitCast(value);
-    const s = try format(&buf, value, .{});
+    const s = try formatFloat(&buf, value, .{});
     try std.testing.expectEqualStrings(expected, s);
 
     if (@bitSizeOf(T) != 80) {
