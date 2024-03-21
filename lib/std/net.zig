@@ -237,9 +237,9 @@ pub const Address = extern union {
         const sockfd = try posix.socket(address.any.family, sock_flags, proto);
         var s: Server = .{
             .listen_address = undefined,
-            .stream = .{ .handle = sockfd },
+            .socket = .{ .handle = sockfd },
         };
-        errdefer s.stream.close();
+        errdefer s.socket.close();
 
         if (options.reuse_address or options.reuse_port) {
             try posix.setsockopt(
@@ -1828,7 +1828,7 @@ pub const Socket = struct {
 
 pub const Server = struct {
     listen_address: Address,
-    stream: Socket,
+    socket: Socket,
 
     pub const Connection = struct {
         address: Address,
@@ -1840,7 +1840,7 @@ pub const Server = struct {
     };
 
     pub fn deinit(s: *Server) void {
-        s.stream.close();
+        s.socket.close();
         s.* = undefined;
     }
 
@@ -1852,7 +1852,7 @@ pub const Server = struct {
     pub fn accept(s: *Server) AcceptError!Connection {
         var accepted_addr: Address = undefined;
         var addr_len: posix.socklen_t = @sizeOf(Address);
-        const fd = try posix.accept(s.stream.handle, &accepted_addr.any, &addr_len, posix.SOCK.CLOEXEC);
+        const fd = try posix.accept(s.socket.handle, &accepted_addr.any, &addr_len, posix.SOCK.CLOEXEC);
         const socket = Socket{ .handle = fd };
         return .{
             .address = accepted_addr,
