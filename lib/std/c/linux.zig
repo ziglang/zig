@@ -3,8 +3,8 @@ const builtin = @import("builtin");
 const native_abi = builtin.abi;
 const native_arch = builtin.cpu.arch;
 const linux = std.os.linux;
-const iovec = std.io.ReadBuffers;
-const iovec_const = std.io.WriteBuffers;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 const FILE = std.c.FILE;
 
 pub const AF = linux.AF;

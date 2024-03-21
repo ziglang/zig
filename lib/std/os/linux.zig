@@ -18,7 +18,7 @@ const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPPC();
 const is_ppc64 = native_arch.isPPC64();
 const is_sparc = native_arch.isSPARC();
-const iovec = std.io.ReadBuffers;
+const iovec = std.posix.iovec;
 const iovec_const = std.io.WriteBuffers;
 const ACCMODE = std.posix.ACCMODE;
 

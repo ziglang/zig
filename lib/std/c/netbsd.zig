@@ -2,8 +2,8 @@ const std = @import("../std.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const maxInt = std.math.maxInt;
-const iovec = std.io.ReadBuffers;
-const iovec_const = std.io.WriteBuffers;
+const iovec = std.posix.iovec;
+const iovec_const = std.posix.iovec_const;
 const timezone = std.c.timezone;
 const rusage = std.c.rusage;
 

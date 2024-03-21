@@ -23,7 +23,7 @@ pub fn readv(self: Self, iov: []ReadBuffers) anyerror!usize {
 /// If the number of bytes read is 0, it means end of stream.
 /// End of stream is not an error condition.
 pub fn read(self: Self, buffer: []u8) anyerror!usize {
-    var iov = [_]ReadBuffers{ .{ .ptr = buffer.ptr, .len = buffer.len }};
+    var iov = [_]ReadBuffers{.{ .ptr = buffer.ptr, .len = buffer.len }};
     return self.readv(&iov);
 }
 

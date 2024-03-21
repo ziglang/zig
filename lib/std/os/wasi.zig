@@ -17,7 +17,7 @@ comptime {
     // assert(@alignOf(u64) == 8);
 }
 
-pub const iovec_t = std.io.ReadBuffers;
+pub const iovec_t = std.posix.iovec;
 pub const ciovec_t = std.io.WriteBuffers;
 
 pub extern "wasi_snapshot_preview1" fn args_get(argv: [*][*:0]u8, argv_buf: [*]u8) errno_t;

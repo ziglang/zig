@@ -101,7 +101,7 @@ pub const io_uring_sqe = extern struct {
     pub fn prep_readv(
         sqe: *linux.io_uring_sqe,
         fd: linux.fd_t,
-        iovecs: []const std.io.ReadBuffers,
+        iovecs: []const std.posix.iovec,
         offset: u64,
     ) void {
         sqe.prep_rw(.READV, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
@@ -110,18 +110,18 @@ pub const io_uring_sqe = extern struct {
     pub fn prep_writev(
         sqe: *linux.io_uring_sqe,
         fd: linux.fd_t,
-        iovecs: []const std.io.WriteBuffers,
+        iovecs: []const std.posix.iovec_const,
         offset: u64,
     ) void {
         sqe.prep_rw(.WRITEV, fd, @intFromPtr(iovecs.ptr), iovecs.len, offset);
     }
 
-    pub fn prep_read_fixed(sqe: *linux.io_uring_sqe, fd: linux.fd_t, buffer: *std.io.ReadBuffers, offset: u64, buffer_index: u16) void {
+    pub fn prep_read_fixed(sqe: *linux.io_uring_sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
         sqe.prep_rw(.READ_FIXED, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
         sqe.buf_index = buffer_index;
     }
 
-    pub fn prep_write_fixed(sqe: *linux.io_uring_sqe, fd: linux.fd_t, buffer: *std.io.ReadBuffers, offset: u64, buffer_index: u16) void {
+    pub fn prep_write_fixed(sqe: *linux.io_uring_sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
         sqe.prep_rw(.WRITE_FIXED, fd, @intFromPtr(buffer.ptr), buffer.len, offset);
         sqe.buf_index = buffer_index;
     }

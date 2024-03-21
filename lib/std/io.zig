@@ -19,7 +19,6 @@ const Allocator = std.mem.Allocator;
 pub const ReadBuffers = std.posix.iovec;
 pub const WriteBuffers = std.posix.iovec_const;
 
-
 fn getStdOutHandle() posix.fd_t {
     if (is_windows) {
         if (builtin.zig_backend == .stage2_aarch64) {
