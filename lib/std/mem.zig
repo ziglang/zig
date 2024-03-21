@@ -1038,6 +1038,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
     var i: usize = 0;
 
     if (backend_supports_vectors and
+        !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .Int or @typeInfo(T) == .Float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
     {
