@@ -2858,6 +2858,16 @@ pub const SafetyLock = struct {
     }
 };
 
+/// Detect whether the program is being executed in the Valgrind virtual machine.
+///
+/// When Valgrind integrations are disabled, this returns comptime-known false.
+/// Otherwise, the result is runtime-known.
+pub inline fn inValgrind() bool {
+    if (@inComptime()) return false;
+    if (!builtin.valgrind_support) return false;
+    return std.valgrind.runningOnValgrind() > 0;
+}
+
 test {
     _ = &dump_hex;
 }
