@@ -400,20 +400,24 @@ pub fn innerParse(
                                 @memcpy(r[i..][0..slice.len], slice);
                                 i += slice.len;
                             },
-                            inline .partial_string_escaped_1,
-                            .partial_string_escaped_2,
-                            .partial_string_escaped_3,
-                            .partial_string_escaped_4,
-                            => |arr| {
+                            .partial_string_escaped_1 => |arr| {
                                 if (i + arr.len > r.len) return error.LengthMismatch;
-
-                                // Implementing https://github.com/ziglang/zig/issues/3806
-                                // would make this no longer needed because the
-                                // above condition would become compile-time
-                                // known.
-                                if (arr.len > r.len) unreachable;
-
-                                @memcpy(r[i..][0..arr.len], &arr);
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
+                                i += arr.len;
+                            },
+                            .partial_string_escaped_2 => |arr| {
+                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
+                                i += arr.len;
+                            },
+                            .partial_string_escaped_3 => |arr| {
+                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
+                                i += arr.len;
+                            },
+                            .partial_string_escaped_4 => |arr| {
+                                if (i + arr.len > r.len) return error.LengthMismatch;
+                                @memcpy(r[i..][0..arr.len], arr[0..]);
                                 i += arr.len;
                             },
                             else => unreachable,

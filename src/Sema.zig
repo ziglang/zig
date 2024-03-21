@@ -33285,34 +33285,15 @@ fn analyzeSlice(
                 }
 
                 bounds_check: {
-                    const actual_len = l: {
-                        if (array_ty.zigTypeTag(mod) == .Array) {
-                            const len = array_ty.arrayLenIncludingSentinel(mod);
-                            // If the end is comptime-known, we can emit a
-                            // compile error if it would be out-of-bounds even
-                            // with a start value of 0.
-                            if (uncasted_end_opt != .none) {
-                                if (try sema.resolveDefinedValue(block, end_src, uncasted_end_opt)) |end_val| {
-                                    const end_int = end_val.getUnsignedInt(mod).?;
-                                    if (end_int > len) return sema.fail(
-                                        block,
-                                        end_src,
-                                        "slice end index {d} exceeds array length of type '{}'",
-                                        .{ end_int, array_ty.fmt(mod) },
-                                    );
-                                }
-                            }
-                            break :l try mod.intRef(Type.usize, len);
-                        }
-                        if (slice_ty.isSlice(mod)) {
-                            const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
-                            break :l if (slice_ty.sentinel(mod) == null)
-                                slice_len_inst
-                            else
-                                try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src, true);
-                        }
-                        break :bounds_check;
-                    };
+                    const actual_len = if (array_ty.zigTypeTag(mod) == .Array)
+                        try mod.intRef(Type.usize, array_ty.arrayLenIncludingSentinel(mod))
+                    else if (slice_ty.isSlice(mod)) l: {
+                        const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
+                        break :l if (slice_ty.sentinel(mod) == null)
+                            slice_len_inst
+                        else
+                            try sema.analyzeArithmetic(block, .add, slice_len_inst, .one, src, end_src, end_src, true);
+                    } else break :bounds_check;
 
                     const actual_end = if (slice_sentinel != null)
                         try sema.analyzeArithmetic(block, .add, end, .one, src, end_src, end_src, true)
