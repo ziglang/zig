@@ -19,23 +19,23 @@ pub fn writevAll(self: Self, iovecs: []iovec_const) anyerror!void {
     var i: usize = 0;
     while (true) {
         var amt = try self.writev(iovecs[i..]);
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return;
         }
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].ptr += amt;
+        iovecs[i].len -= amt;
     }
 }
 
 pub fn write(self: Self, bytes: []const u8) anyerror!usize {
-    var iov = [_]iovec_const{.{ .iov_base = bytes.ptr, .iov_len = bytes.len }};
+    var iov = [_]iovec_const{.{ .ptr = bytes.ptr, .len = bytes.len }};
     return self.writev(&iov);
 }
 
 pub fn writeAll(self: Self, bytes: []const u8) anyerror!void {
-    var iov = [_]iovec_const{.{ .iov_base = bytes.ptr, .iov_len = bytes.len }};
+    var iov = [_]iovec_const{.{ .ptr = bytes.ptr, .len = bytes.len }};
     return self.writevAll(&iov);
 }
 

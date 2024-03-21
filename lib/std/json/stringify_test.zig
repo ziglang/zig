@@ -317,7 +317,7 @@ fn testStringify(expected: []const u8, value: anytype, options: StringifyOptions
         fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
             if (iov.len == 0) return 0;
             const first = iov[0];
-            const bytes = first.iov_base[0..first.iov_len];
+            const bytes = first.ptr[0..first.len];
             if (self.expected_remaining.len < bytes.len) {
                 std.debug.print(
                     \\====== expected this output: =========

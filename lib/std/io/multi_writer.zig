@@ -23,10 +23,10 @@ pub fn MultiWriter(comptime Writers: type) type {
 
         pub fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
             var written: usize = 0;
-            for (iov) |v| written += v.iov_len;
+            for (iov) |v| written += v.len;
             inline for (self.streams) |stream| {
                 for (iov) |v| {
-                    const bytes = v.iov_base[0..v.iov_len];
+                    const bytes = v.ptr[0..v.len];
                     try stream.writeAll(bytes);
                 }
             }

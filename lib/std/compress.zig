@@ -25,9 +25,9 @@ pub fn HashedReader(
             const n_read = try self.child_reader.readv(iov);
             var hashed_amt: usize = 0;
             for (iov) |v| {
-                const to_hash = @min(n_read - hashed_amt, v.iov_len);
+                const to_hash = @min(n_read - hashed_amt, v.len);
                 if (to_hash == 0) break;
-                self.hasher.update(v.iov_base[0..to_hash]);
+                self.hasher.update(v.ptr[0..to_hash]);
                 hashed_amt += to_hash;
             }
             return n_read;
@@ -61,9 +61,9 @@ pub fn HashedWriter(
             const n_written = try self.child_writer.writev(iov);
             var hashed_amt: usize = 0;
             for (iov) |v| {
-                const to_hash = @min(n_written - hashed_amt, v.iov_len);
+                const to_hash = @min(n_written - hashed_amt, v.len);
                 if (to_hash == 0) break;
-                self.hasher.update(v.iov_base[0..to_hash]);
+                self.hasher.update(v.ptr[0..to_hash]);
                 hashed_amt += to_hash;
             }
             return n_written;

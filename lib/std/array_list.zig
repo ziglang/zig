@@ -357,8 +357,8 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         fn appendWritev(self: *Self, iov: []std.posix.iovec_const) Allocator.Error!usize {
             var written: usize = 0;
             for (iov) |v| {
-                try self.appendSlice(v.iov_base[0..v.iov_len]);
-                written += v.iov_len;
+                try self.appendSlice(v.ptr[0..v.len]);
+                written += v.len;
             }
             return written;
         }
@@ -948,8 +948,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         fn appendWritev(context: WriterContext, iov: []std.posix.iovec_const) Allocator.Error!usize {
             var written: usize = 0;
             for (iov) |v| {
-                try context.self.appendSlice(context.allocator, v.iov_base[0..v.iov_len]);
-                written += v.iov_len;
+                try context.self.appendSlice(context.allocator, v.ptr[0..v.len]);
+                written += v.len;
             }
             return written;
         }
@@ -966,7 +966,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         fn appendWritevFixed(self: *Self, iov: []std.posix.iovec_const) error{OutOfMemory}!usize {
             var written: usize = 0;
             for (iov) |v| {
-                const m = v.iov_base[0..v.iov_len];
+                const m = v.ptr[0..v.len];
                 const available_capacity = self.capacity - self.items.len;
                 if (m.len > available_capacity)
                     return error.OutOfMemory;

@@ -7531,7 +7531,7 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
         pub fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
             var written: usize = 0;
             for (iov) |v| {
-                const bytes = v.iov_base[0..v.iov_len];
+                const bytes = v.ptr[0..v.len];
                 const current_indent = self.indent_count * Self.indent_delta;
                 if (self.current_line_empty and current_indent > 0) {
                     try self.underlying_writer.writeByteNTimes(' ', current_indent);

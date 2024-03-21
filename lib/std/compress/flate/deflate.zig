@@ -362,7 +362,7 @@ fn Deflate(comptime container: Container, comptime WriterType: type, comptime Bl
         pub fn writev(self: *Self, iov: []std.posix.iovec_const) !usize {
             var written: usize = 0;
             for (iov) |v| {
-                const input = v.iov_base[0..v.iov_len];
+                const input = v.ptr[0..v.len];
                 var fbs = io.fixedBufferStream(input);
                 try self.compress(fbs.reader());
                 written += input.len;

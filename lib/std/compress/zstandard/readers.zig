@@ -20,7 +20,7 @@ pub const ReversedByteReader = struct {
     fn readvFn(ctx: *ReversedByteReader, iov: []std.posix.iovec) !usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const buffer = first.iov_base[0..first.iov_len];
+        const buffer = first.ptr[0..first.len];
         std.debug.assert(buffer.len > 0);
         if (ctx.remaining_bytes == 0) return 0;
         const byte_index = ctx.remaining_bytes - 1;

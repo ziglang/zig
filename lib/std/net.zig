@@ -1801,10 +1801,10 @@ pub const Socket = struct {
             // TODO improve this to use ReadFileScatter
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
-            return windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null);
+            return windows.ReadFile(s.handle, first.ptr[0..first.len], null);
         }
         var len: usize = 0;
-        for (iovecs) |v| len += v.iov_len;
+        for (iovecs) |v| len += v.len;
         return posix.readv(s.handle, iovecs);
     }
 

@@ -250,7 +250,7 @@ pub const Connection = struct {
         if (conn.read_end != conn.read_start) return;
 
         var iovecs = [1]std.posix.iovec{
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .ptr = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
         if (nread == 0) return error.EndOfStream;
@@ -286,8 +286,8 @@ pub const Connection = struct {
         }
 
         var iovecs = [2]std.posix.iovec{
-            .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .ptr = buffer.ptr, .len = buffer.len },
+            .{ .ptr = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
 
@@ -303,7 +303,7 @@ pub const Connection = struct {
     pub fn readv(conn: *Connection, iov: []std.posix.iovec) ReadError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const buffer = first.iov_base[0..first.iov_len];
+        const buffer = first.ptr[0..first.len];
         return try conn.read(buffer);
     }
 
@@ -339,7 +339,7 @@ pub const Connection = struct {
     pub fn writev(conn: *Connection, iov: []std.posix.iovec_const) WriteError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const buffer = first.iov_base[0..first.iov_len];
+        const buffer = first.ptr[0..first.len];
         return try conn.write(buffer);
     }
 
@@ -915,7 +915,7 @@ pub const Request = struct {
         if (req.response.parser.done) return 0;
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const buf = first.iov_base[0..first.iov_len];
+        const buf = first.ptr[0..first.len];
 
         var index: usize = 0;
         while (index == 0) {
@@ -1022,7 +1022,7 @@ pub const Request = struct {
                 req.response.skip = true;
                 // we're skipping, no buffer is necessary
                 var buf: [0]u8 = undefined;
-                var iovecs = [_]std.posix.iovec{.{ .iov_base = &buf, .iov_len = 0 }};
+                var iovecs = [_]std.posix.iovec{.{ .ptr = &buf, .len = 0 }};
                 const n_read = try req.transferReadv(&iovecs);
                 assert(n_read == 0);
 
@@ -1146,28 +1146,28 @@ pub const Request = struct {
     /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
     /// Must be called after `send` and before `finish`.
     pub fn writev(req: *Request, iov: []std.posix.iovec_const) WriteError!usize {
-        var iov_len: usize = 0;
-        for (iov) |v| iov_len += v.iov_len;
+        var len: usize = 0;
+        for (iov) |v| len += v.len;
 
         switch (req.transfer_encoding) {
             .chunked => {
                 var w = req.connection.?.stream().writer();
 
-                if (iov_len > 0) {
-                    try w.print("{x}\r\n", .{iov_len});
+                if (len > 0) {
+                    try w.print("{x}\r\n", .{len});
                     try w.writevAll(iov);
                     try w.writeAll("\r\n");
                 }
 
-                return iov_len;
+                return len;
             },
-            .content_length => |*len| {
+            .content_length => |*l| {
                 const cwriter = req.connection.?.stream().writer();
 
-                if (len.* < iov_len) return error.MessageTooLong;
+                if (l.* < len) return error.MessageTooLong;
 
                 const amt = try cwriter.writev(iov);
-                len.* -= amt;
+                l.* -= amt;
                 return amt;
             },
             .none => return error.NotWriteable,

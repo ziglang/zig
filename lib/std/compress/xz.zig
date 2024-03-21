@@ -74,7 +74,7 @@ pub fn Decompress(comptime ReaderType: type) type {
         pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
             if (iov.len == 0) return 0;
             const first = iov[0];
-            const buffer = first.iov_base[0..first.iov_len];
+            const buffer = first.ptr[0..first.len];
             if (buffer.len == 0)
                 return 0;
 

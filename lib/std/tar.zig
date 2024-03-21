@@ -304,7 +304,7 @@ pub fn Iterator(comptime ReaderType: type) type {
             pub fn readv(self: File, iov: []std.posix.iovec) ReaderType.Error!usize {
                 var n_read: usize = 0;
                 for (iov) |v| {
-                    const dest = v.iov_base[0..v.iov_len];
+                    const dest = v.ptr[0..v.len];
                     const buf = dest[0..@min(dest.len, self.unread_bytes.*)];
                     const n = try self.parent_reader.read(buf);
                     self.unread_bytes.* -= n;

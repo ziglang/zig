@@ -235,7 +235,7 @@ pub fn LinearFifo(
         fn readvFn(self: *Self, iov: []std.posix.iovec) error{}!usize {
             var n_read: usize = 0;
             for (iov) |v| {
-                const n = self.read(v.iov_base[0..v.iov_len]);
+                const n = self.read(v.ptr[0..v.len]);
                 if (n == 0) return n_read;
 
                 n_read += n;
@@ -331,8 +331,8 @@ pub fn LinearFifo(
         fn appendWritev(self: *Self, iov: []std.posix.iovec_const) error{OutOfMemory}!usize {
             var written: usize = 0;
             for (iov) |v| {
-                try self.write(v.iov_base[0..v.iov_len]);
-                written += v.iov_len;
+                try self.write(v.ptr[0..v.len]);
+                written += v.len;
             }
             return written;
         }

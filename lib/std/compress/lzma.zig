@@ -67,7 +67,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             const writer = self.to_read.writer(self.allocator);
             var n_read: usize = 0;
             for (iov) |v| {
-                const output = v.iov_base[0..v.iov_len];
+                const output = v.ptr[0..v.len];
                 while (self.to_read.items.len < output.len) {
                     switch (try self.state.process(self.allocator, self.in_reader, writer, &self.buffer, &self.decoder)) {
                         .continue_ => {},

@@ -15,8 +15,8 @@ pub fn LimitedReader(comptime ReaderType: type) type {
 
         pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
             for (iov) |*v| {
-                v.iov_len = @min(self.bytes_left, v.iov_len);
-                self.bytes_left -= v.iov_len;
+                v.len = @min(self.bytes_left, v.len);
+                self.bytes_left -= v.len;
             }
             return try self.inner_reader.readv(iov);
         }

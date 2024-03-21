@@ -397,8 +397,8 @@ fn Sha2x32(comptime params: Sha2Params32) type {
         fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
             var written: usize = 0;
             for (iov) |v| {
-                self.update(v.iov_base[0..v.iov_len]);
-                written += v.iov_len;
+                self.update(v.ptr[0..v.len]);
+                written += v.len;
             }
             return written;
         }

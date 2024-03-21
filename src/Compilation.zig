@@ -2812,8 +2812,8 @@ fn addBuf(bufs_list: []std.posix.iovec_const, bufs_len: *usize, buf: []const u8)
     const i = bufs_len.*;
     bufs_len.* = i + 1;
     bufs_list[i] = .{
-        .iov_base = buf.ptr,
-        .iov_len = buf.len,
+        .ptr = buf.ptr,
+        .len = buf.len,
     };
 }
 
@@ -3792,8 +3792,8 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
         };
 
         var header_and_trailer: [2]std.posix.iovec_const = .{
-            .{ .iov_base = header_bytes.ptr, .iov_len = header_bytes.len },
-            .{ .iov_base = padding.ptr, .iov_len = padding.len },
+            .{ .ptr = header_bytes.ptr, .len = header_bytes.len },
+            .{ .ptr = padding.ptr, .len = padding.len },
         };
 
         try tar_file.writeFileAll(file, .{

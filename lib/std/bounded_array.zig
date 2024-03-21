@@ -283,7 +283,7 @@ pub fn BoundedArrayAligned(
         fn appendWritev(self: *Self, iov: []std.posix.iovec_const) error{Overflow}!usize {
             var written: usize = 0;
             for (iov) |v| {
-                const m = v.iov_base[0..v.iov_len];
+                const m = v.ptr[0..v.len];
                 try self.appendSlice(m);
                 written += m.len;
             }

@@ -485,7 +485,7 @@ const NullWriter = Writer(void, error{}, dummyWritev);
 fn dummyWritev(context: void, iov: []std.posix.iovec_const) error{}!usize {
     _ = context;
     var written: usize = 0;
-    for (iov) |v| written += v.iov_len;
+    for (iov) |v| written += v.len;
     return written;
 }
 

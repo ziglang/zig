@@ -348,7 +348,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
         pub fn readv(self: *Self, iovecs: []std.posix.iovec) Error!usize {
             if (iovecs.len == 0) return 0;
             const first = iovecs[0];
-            const buffer = first.iov_base[0..first.iov_len];
+            const buffer = first.ptr[0..first.len];
             const out = try self.get(buffer.len);
             @memcpy(buffer[0..out.len], out);
             return out.len;

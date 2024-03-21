@@ -442,42 +442,42 @@ pub const Request = struct {
         var iovecs_len: usize = 0;
 
         iovecs[iovecs_len] = .{
-            .iov_base = h.items.ptr,
-            .iov_len = h.items.len,
+            .ptr = h.items.ptr,
+            .len = h.items.len,
         };
         iovecs_len += 1;
 
         for (options.extra_headers) |header| {
             iovecs[iovecs_len] = .{
-                .iov_base = header.name.ptr,
-                .iov_len = header.name.len,
+                .ptr = header.name.ptr,
+                .len = header.name.len,
             };
             iovecs_len += 1;
 
             iovecs[iovecs_len] = .{
-                .iov_base = ": ",
-                .iov_len = 2,
+                .ptr = ": ",
+                .len = 2,
             };
             iovecs_len += 1;
 
             if (header.value.len != 0) {
                 iovecs[iovecs_len] = .{
-                    .iov_base = header.value.ptr,
-                    .iov_len = header.value.len,
+                    .ptr = header.value.ptr,
+                    .len = header.value.len,
                 };
                 iovecs_len += 1;
             }
 
             iovecs[iovecs_len] = .{
-                .iov_base = "\r\n",
-                .iov_len = 2,
+                .ptr = "\r\n",
+                .len = 2,
             };
             iovecs_len += 1;
         }
 
         iovecs[iovecs_len] = .{
-            .iov_base = "\r\n",
-            .iov_len = 2,
+            .ptr = "\r\n",
+            .len = 2,
         };
         iovecs_len += 1;
 
@@ -492,33 +492,33 @@ pub const Request = struct {
                     ) catch unreachable;
 
                     iovecs[iovecs_len] = .{
-                        .iov_base = chunk_header.ptr,
-                        .iov_len = chunk_header.len,
+                        .ptr = chunk_header.ptr,
+                        .len = chunk_header.len,
                     };
                     iovecs_len += 1;
 
                     iovecs[iovecs_len] = .{
-                        .iov_base = content.ptr,
-                        .iov_len = content.len,
+                        .ptr = content.ptr,
+                        .len = content.len,
                     };
                     iovecs_len += 1;
 
                     iovecs[iovecs_len] = .{
-                        .iov_base = "\r\n",
-                        .iov_len = 2,
+                        .ptr = "\r\n",
+                        .len = 2,
                     };
                     iovecs_len += 1;
                 }
 
                 iovecs[iovecs_len] = .{
-                    .iov_base = "0\r\n\r\n",
-                    .iov_len = 5,
+                    .ptr = "0\r\n\r\n",
+                    .len = 5,
                 };
                 iovecs_len += 1;
             } else if (content.len > 0) {
                 iovecs[iovecs_len] = .{
-                    .iov_base = content.ptr,
-                    .iov_len = content.len,
+                    .ptr = content.ptr,
+                    .len = content.len,
                 };
                 iovecs_len += 1;
             }
@@ -627,7 +627,7 @@ pub const Request = struct {
     fn read_cl(context: *const anyopaque, iov: []std.posix.iovec) ReadError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const buffer = first.iov_base[0..first.iov_len];
+        const buffer = first.ptr[0..first.len];
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
         const s = request.server;
 
@@ -658,7 +658,7 @@ pub const Request = struct {
     fn readv_chunked(context: *const anyopaque, iov: []std.posix.iovec) ReadError!usize {
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const buffer = first.iov_base[0..first.iov_len];
+        const buffer = first.ptr[0..first.len];
         const request: *Request = @constCast(@alignCast(@ptrCast(context)));
         const s = request.server;
 
@@ -892,7 +892,7 @@ pub const Response = struct {
 
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const bytes = first.iov_base[0..first.iov_len];
+        const bytes = first.ptr[0..first.len];
 
         var trash: u64 = std.math.maxInt(u64);
         const len = switch (r.transfer_encoding) {
@@ -909,12 +909,12 @@ pub const Response = struct {
             const send_buffer_len = r.send_buffer_end - r.send_buffer_start;
             var iovecs: [2]std.posix.iovec_const = .{
                 .{
-                    .iov_base = r.send_buffer.ptr + r.send_buffer_start,
-                    .iov_len = send_buffer_len,
+                    .ptr = r.send_buffer.ptr + r.send_buffer_start,
+                    .len = send_buffer_len,
                 },
                 .{
-                    .iov_base = bytes.ptr,
-                    .iov_len = bytes.len,
+                    .ptr = bytes.ptr,
+                    .len = bytes.len,
                 },
             };
             const n = try r.stream.writer().writev(&iovecs);
@@ -947,7 +947,7 @@ pub const Response = struct {
 
         if (iov.len == 0) return 0;
         const first = iov[0];
-        const bytes = first.iov_base[0..first.iov_len];
+        const bytes = first.ptr[0..first.len];
 
         if (r.elide_body)
             return bytes.len;
@@ -960,24 +960,24 @@ pub const Response = struct {
 
             var iovecs: [5]std.posix.iovec_const = .{
                 .{
-                    .iov_base = r.send_buffer.ptr + r.send_buffer_start,
-                    .iov_len = send_buffer_len - r.chunk_len,
+                    .ptr = r.send_buffer.ptr + r.send_buffer_start,
+                    .len = send_buffer_len - r.chunk_len,
                 },
                 .{
-                    .iov_base = chunk_header.ptr,
-                    .iov_len = chunk_header.len,
+                    .ptr = chunk_header.ptr,
+                    .len = chunk_header.len,
                 },
                 .{
-                    .iov_base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                    .iov_len = r.chunk_len,
+                    .ptr = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
+                    .len = r.chunk_len,
                 },
                 .{
-                    .iov_base = bytes.ptr,
-                    .iov_len = bytes.len,
+                    .ptr = bytes.ptr,
+                    .len = bytes.len,
                 },
                 .{
-                    .iov_base = "\r\n",
-                    .iov_len = 2,
+                    .ptr = "\r\n",
+                    .len = 2,
                 },
             };
             // TODO make this writev instead of writevAll, which involves
@@ -1034,69 +1034,69 @@ pub const Response = struct {
         var iovecs_len: usize = 0;
 
         iovecs[iovecs_len] = .{
-            .iov_base = http_headers.ptr,
-            .iov_len = http_headers.len,
+            .ptr = http_headers.ptr,
+            .len = http_headers.len,
         };
         iovecs_len += 1;
 
         if (r.chunk_len > 0) {
             iovecs[iovecs_len] = .{
-                .iov_base = chunk_header.ptr,
-                .iov_len = chunk_header.len,
+                .ptr = chunk_header.ptr,
+                .len = chunk_header.len,
             };
             iovecs_len += 1;
 
             iovecs[iovecs_len] = .{
-                .iov_base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                .iov_len = r.chunk_len,
+                .ptr = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
+                .len = r.chunk_len,
             };
             iovecs_len += 1;
 
             iovecs[iovecs_len] = .{
-                .iov_base = "\r\n",
-                .iov_len = 2,
+                .ptr = "\r\n",
+                .len = 2,
             };
             iovecs_len += 1;
         }
 
         if (end_trailers) |trailers| {
             iovecs[iovecs_len] = .{
-                .iov_base = "0\r\n",
-                .iov_len = 3,
+                .ptr = "0\r\n",
+                .len = 3,
             };
             iovecs_len += 1;
 
             for (trailers) |trailer| {
                 iovecs[iovecs_len] = .{
-                    .iov_base = trailer.name.ptr,
-                    .iov_len = trailer.name.len,
+                    .ptr = trailer.name.ptr,
+                    .len = trailer.name.len,
                 };
                 iovecs_len += 1;
 
                 iovecs[iovecs_len] = .{
-                    .iov_base = ": ",
-                    .iov_len = 2,
+                    .ptr = ": ",
+                    .len = 2,
                 };
                 iovecs_len += 1;
 
                 if (trailer.value.len != 0) {
                     iovecs[iovecs_len] = .{
-                        .iov_base = trailer.value.ptr,
-                        .iov_len = trailer.value.len,
+                        .ptr = trailer.value.ptr,
+                        .len = trailer.value.len,
                     };
                     iovecs_len += 1;
                 }
 
                 iovecs[iovecs_len] = .{
-                    .iov_base = "\r\n",
-                    .iov_len = 2,
+                    .ptr = "\r\n",
+                    .len = 2,
                 };
                 iovecs_len += 1;
             }
 
             iovecs[iovecs_len] = .{
-                .iov_base = "\r\n",
-                .iov_len = 2,
+                .ptr = "\r\n",
+                .len = 2,
             };
             iovecs_len += 1;
         }

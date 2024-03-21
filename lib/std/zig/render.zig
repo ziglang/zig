@@ -3358,10 +3358,10 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         pub fn writev(self: *Self, iov: []std.posix.iovec_const) WriteError!usize {
             var n_written: usize = 0;
             for (iov) |v| {
-                if (v.iov_len == 0) return n_written;
+                if (v.len == 0) return n_written;
 
                 try self.applyIndent();
-                n_written += try self.writeNoIndent(v.iov_base[0..v.iov_len]);
+                n_written += try self.writeNoIndent(v.ptr[0..v.len]);
             }
             return n_written;
         }

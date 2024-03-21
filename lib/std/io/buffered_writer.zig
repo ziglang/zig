@@ -26,7 +26,7 @@ pub fn BufferedWriter(comptime buffer_size: usize, comptime WriterType: type) ty
         pub fn writev(self: *Self, iov: []std.posix.iovec_const) Error!usize {
             var written: usize = 0;
             for (iov) |v| {
-                const bytes = v.iov_base[0..v.iov_len];
+                const bytes = v.ptr[0..v.len];
                 if (self.end + bytes.len > self.buf.len) {
                     try self.flush();
                     if (bytes.len > self.buf.len)

@@ -47,10 +47,10 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub fn readv(self: *Self, iov: []std.posix.iovec) ReadError!usize {
             var read: usize = 0;
             for (iov) |v| {
-                const size = @min(v.iov_len, self.buffer.len - self.pos);
+                const size = @min(v.len, self.buffer.len - self.pos);
                 const end = self.pos + size;
 
-                @memcpy(v.iov_base[0..size], self.buffer[self.pos..end]);
+                @memcpy(v.ptr[0..size], self.buffer[self.pos..end]);
                 self.pos = end;
                 read += size;
             }
@@ -65,11 +65,11 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub fn writev(self: *Self, iov: []std.posix.iovec_const) WriteError!usize {
             var written: usize = 0;
             for (iov) |v| {
-                if (v.iov_len == 0) continue;
+                if (v.len == 0) continue;
                 if (self.pos >= self.buffer.len) return error.NoSpaceLeft;
 
-                const n = @min(self.buffer.len - self.pos, v.iov_len);
-                @memcpy(self.buffer[self.pos..][0..n], v.iov_base[0..n]);
+                const n = @min(self.buffer.len - self.pos, v.len);
+                @memcpy(self.buffer[self.pos..][0..n], v.ptr[0..n]);
                 self.pos += n;
 
                 if (n == 0) return error.NoSpaceLeft;
