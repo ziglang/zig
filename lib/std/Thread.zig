@@ -819,7 +819,7 @@ const WasiThreadImpl = struct {
                 \\ memory.atomic.wait32 0
                 \\ local.set %[ret]
                 : [ret] "=r" (-> u32),
-                : [ptr] "r" (&self.thread.tid.value),
+                : [ptr] "r" (&self.thread.tid.raw),
                   [expected] "r" (tid),
             );
             switch (result) {
@@ -831,15 +831,42 @@ const WasiThreadImpl = struct {
         }
     }
 
-    fn spawn(config: std.Thread.SpawnConfig, comptime f: anytype, args: anytype) !WasiThreadImpl {
-        if (config.allocator == null) return error.OutOfMemory; // an allocator is required to spawn a WASI-thread
+    fn spawn(config: std.Thread.SpawnConfig, comptime f: anytype, args: anytype) SpawnError!WasiThreadImpl {
+        if (config.allocator == null) {
+            @panic("an allocator is required to spawn a WASI thread");
+        }
 
         // Wrapping struct required to hold the user-provided function arguments.
         const Wrapper = struct {
             args: @TypeOf(args),
             fn entry(ptr: usize) void {
                 const w: *@This() = @ptrFromInt(ptr);
-                @call(.auto, f, w.args);
+                const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
+                switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
+                    .NoReturn, .Void => {
+                        @call(.auto, w, args);
+                    },
+                    .Int => |info| {
+                        if (info.bits != 8) {
+                            @compileError(bad_fn_ret);
+                        }
+                        _ = @call(.auto, w, args); // WASI threads don't support exit status, ignore value
+                    },
+                    .ErrorUnion => |info| {
+                        if (info.payload != void) {
+                            @compileError(bad_fn_ret);
+                        }
+                        @call(.auto, f, args) catch |err| {
+                            std.debug.print("error: {s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    },
+                    else => {
+                        @compileError(bad_fn_ret);
+                    },
+                }
             }
         };
 
@@ -927,7 +954,7 @@ const WasiThreadImpl = struct {
                     \\ i32.const 0
                     \\ i32.atomic.store 0
                     :
-                    : [ptr] "r" (&arg.thread.tid.value),
+                    : [ptr] "r" (&arg.thread.tid.raw),
                 );
 
                 // Wake the main thread listening to this thread
@@ -937,7 +964,7 @@ const WasiThreadImpl = struct {
                     \\ memory.atomic.notify 0
                     \\ drop # no need to know the waiters
                     :
-                    : [ptr] "r" (&arg.thread.tid.value),
+                    : [ptr] "r" (&arg.thread.tid.raw),
                 );
             },
             .completed => unreachable,
