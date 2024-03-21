@@ -378,7 +378,7 @@ pub fn init(inner_stream: Stream, ca_bundle: Certificate.Bundle, host: []const u
                             break :nonce @as(V, p.server_handshake_iv) ^ operand;
                         };
                         read_seq += 1;
-                        writer.print("", .{}) catch {};
+                        std.debug.print("", .{});
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
                         break :c cleartext;
@@ -684,7 +684,6 @@ fn prepareCiphertextRecord(
     /// How many bytes are taken up by overhead per record.
     overhead_len: usize,
 } {
-    // std.debug.print("prepareCiphertextRecord {}\n", .{ @as(*const std.net.Socket, @ptrCast(@alignCast(c.inner_stream.context))) });
     // Due to the trailing inner content type byte in the ciphertext, we need
     // an additional buffer for storing the cleartext into before encrypting.
     var cleartext_buf: [max_ciphertext_len]u8 = undefined;

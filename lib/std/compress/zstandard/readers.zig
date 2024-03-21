@@ -21,9 +21,9 @@ pub const ReversedByteReader = struct {
         if (iov.len == 0) return 0;
         const first = iov[0];
         const buffer = first.ptr[0..first.len];
-        std.debug.assert(buffer.len > 0);
         if (ctx.remaining_bytes == 0) return 0;
         const byte_index = ctx.remaining_bytes - 1;
+        std.debug.assert(buffer.len > 0);
         buffer[0] = ctx.bytes[byte_index];
         // buffer[0] = @bitReverse(ctx.bytes[byte_index]);
         ctx.remaining_bytes = byte_index;

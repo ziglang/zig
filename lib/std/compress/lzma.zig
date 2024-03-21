@@ -63,29 +63,27 @@ pub fn Decompress(comptime ReaderType: type) type {
             self.* = undefined;
         }
 
-        pub fn readv(self: *Self, iov: []std.posix.iovec) Error!usize {
+        pub fn readv(self: *Self, iovecs: []std.posix.iovec) Error!usize {
+            if (iovecs.len == 0) return 0;
+            const first = iovecs[0];
+            const output = first[0..first.len];
+
             const writer = self.to_read.writer(self.allocator);
-            var n_read: usize = 0;
-            for (iov) |v| {
-                const output = v.ptr[0..v.len];
-                while (self.to_read.items.len < output.len) {
-                    switch (try self.state.process(self.allocator, self.in_reader, writer, &self.buffer, &self.decoder)) {
-                        .continue_ => {},
-                        .finished => {
-                            try self.buffer.finish(writer);
-                            break;
-                        },
-                    }
+            while (self.to_read.items.len < output.len) {
+                switch (try self.state.process(self.allocator, self.in_reader, writer, &self.buffer, &self.decoder)) {
+                    .continue_ => {},
+                    .finished => {
+                        try self.buffer.finish(writer);
+                        break;
+                    },
                 }
-                const input = self.to_read.items;
-                const n = @min(input.len, output.len);
-                if (n == 0) break;
-                @memcpy(output[0..n], input[0..n]);
-                @memcpy(input[0 .. input.len - n], input[n..]);
-                self.to_read.shrinkRetainingCapacity(input.len - n);
-                n_read += n;
             }
-            return n_read;
+            const input = self.to_read.items;
+            const n = @min(input.len, output.len);
+            @memcpy(output[0..n], input[0..n]);
+            @memcpy(input[0 .. input.len - n], input[n..]);
+            self.to_read.shrinkRetainingCapacity(input.len - n);
+            return n;
         }
     };
 }
