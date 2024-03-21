@@ -856,6 +856,8 @@ test "general client/server API coverage" {
             req.response.parser.done = true;
             req.connection.?.closing = false;
             requests[i] = req;
+
+            if (i == total_connections - 1) global.handle_new_requests = false;
         }
 
         for (0..total_connections) |i| {
@@ -867,13 +869,6 @@ test "general client/server API coverage" {
     }
 
     client.deinit();
-
-    {
-        global.handle_new_requests = false;
-
-        const conn = try std.net.tcpConnectToAddress(test_server.net_server.listen_address);
-        conn.close();
-    }
 }
 
 test "Server streams both reading and writing" {
