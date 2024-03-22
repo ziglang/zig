@@ -175,6 +175,8 @@ pub const Subsystem = enum(u16) {
 
     /// Windows boot application
     WINDOWS_BOOT_APPLICATION = 16,
+
+    _,
 };
 
 pub const OptionalHeader = extern struct {
@@ -300,6 +302,8 @@ pub const DirectoryEntry = enum(u16) {
 
     /// COM Runtime descriptor
     COM_DESCRIPTOR = 14,
+
+    _,
 };
 
 pub const ImageDataDirectory = extern struct {
@@ -383,6 +387,8 @@ pub const BaseRelocationType = enum(u4) {
 
     /// The base relocation applies the difference to the 64-bit field at offset.
     DIR64 = 10,
+
+    _,
 };
 
 pub const DebugDirectoryEntry = extern struct {
@@ -414,6 +420,8 @@ pub const DebugType = enum(u32) {
     MPX = 15,
     REPRO = 16,
     EX_DLLCHARACTERISTICS = 20,
+
+    _,
 };
 
 pub const ImportDirectoryEntry = extern struct {
@@ -736,6 +744,8 @@ pub const BaseType = enum(u8) {
 
     /// An unsigned 4-byte integer
     DWORD = 15,
+
+    _,
 };
 
 pub const ComplexType = enum(u8) {
@@ -750,6 +760,8 @@ pub const ComplexType = enum(u8) {
 
     /// The symbol is an array of base type.
     ARRAY = 48,
+
+    _,
 };
 
 pub const StorageClass = enum(u8) {
@@ -843,6 +855,8 @@ pub const StorageClass = enum(u8) {
     /// A CLR token symbol. The name is an ASCII string that consists of the hexadecimal value of the token.
     /// For more information, see CLR Token Definition (Object Only).
     CLR_TOKEN = 107,
+
+    _,
 };
 
 pub const FunctionDefinition = struct {
@@ -915,6 +929,7 @@ pub const WeakExternalFlag = enum(u32) {
     SEARCH_LIBRARY = 2,
     SEARCH_ALIAS = 3,
     ANTI_DEPENDENCY = 4,
+    _,
 };
 
 pub const ComdatSelection = enum(u8) {
@@ -947,6 +962,8 @@ pub const ComdatSelection = enum(u8) {
     /// The linker chooses the largest definition from among all of the definitions for this symbol.
     /// If multiple definitions have this size, the choice between them is arbitrary.
     LARGEST = 6,
+
+    _,
 };
 
 pub const DebugInfoDefinition = struct {
@@ -1015,6 +1032,8 @@ pub const MachineType = enum(u16) {
     Thumb = 0x1c2,
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
+
+    _,
 
     pub fn fromTargetCpuArch(arch: std.Target.Cpu.Arch) MachineType {
         return switch (arch) {
