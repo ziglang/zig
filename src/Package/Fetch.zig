@@ -440,32 +440,35 @@ fn runResource(
     const s = fs.path.sep_str;
     const cache_root = f.job_queue.global_cache;
     const rand_int = std.crypto.random.int(u64);
+    // temporary directory for unpacking; sub path of cache_root
     const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
+    // sub path of cache_root, inside temporary directory, if null package root
+    // is tmp_dir_sub_path
+    var package_sub_path: ?[]const u8 = null;
 
     {
-        const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
-        var tmp_directory: Cache.Directory = .{
-            .path = tmp_directory_path,
-            .handle = handle: {
-                const dir = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
-                    .iterate = true,
-                }) catch |err| {
-                    try eb.addRootErrorMessage(.{
-                        .msg = try eb.printString("unable to create temporary directory '{s}': {s}", .{
-                            tmp_directory_path, @errorName(err),
-                        }),
-                    });
-                    return error.FetchFailed;
-                };
-                break :handle dir;
-            },
-        };
+        var tmp_directory = try f.makeOpenCacheDirectory(tmp_dir_sub_path);
         defer tmp_directory.handle.close();
 
         // Fetch and unpack a URL into a temporary directory.
         var unpack = Unpack.init(gpa, tmp_directory.handle);
         try unpackResource(f, resource, &unpack, uri_path);
         defer unpack.deinit();
+
+        // Position tmp_directory to sub_path if package root is deeper inside
+        // temporary directory.
+        if (unpack.package_sub_path) |sub_path| {
+            package_sub_path = try fs.path.join(arena, &.{ tmp_dir_sub_path, sub_path });
+            tmp_directory.handle.close();
+            tmp_directory = try f.makeOpenCacheDirectory(package_sub_path.?);
+        } else {
+            // btrfs workaround; reopen tmp_directory
+            if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
+                // https://github.com/ziglang/zig/issues/17095
+                tmp_directory.handle.close();
+                tmp_directory = try f.makeOpenCacheDirectory(tmp_dir_sub_path);
+            }
+        }
 
         // Load, parse, and validate the unpacked build.zig.zon file. It is allowed
         // for the file to be missing, in which case this fetched package is
@@ -488,15 +491,6 @@ fn runResource(
         // It will also apply the manifest's inclusion rules to the temporary
         // directory by deleting excluded files.
         // Empty directories have already been omitted by `unpackResource`.
-
-        if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
-            // https://github.com/ziglang/zig/issues/17095
-            tmp_directory.handle.close();
-            tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
-                .iterate = true,
-            }) catch @panic("btrfs workaround failed");
-        }
-
         f.actual_hash = try computeHash(f, tmp_directory, filter);
     }
 
@@ -510,7 +504,11 @@ fn runResource(
         .root_dir = cache_root,
         .sub_path = try arena.dupe(u8, "p" ++ s ++ Manifest.hexDigest(f.actual_hash)),
     };
-    renameTmpIntoCache(cache_root.handle, tmp_dir_sub_path, f.package_root.sub_path) catch |err| {
+    renameTmpIntoCache(
+        cache_root.handle,
+        if (package_sub_path) |p| p else tmp_dir_sub_path,
+        f.package_root.sub_path,
+    ) catch |err| {
         const src = try cache_root.join(arena, &.{tmp_dir_sub_path});
         const dest = try cache_root.join(arena, &.{f.package_root.sub_path});
         try eb.addRootErrorMessage(.{ .msg = try eb.printString(
@@ -519,6 +517,9 @@ fn runResource(
         ) });
         return error.FetchFailed;
     };
+    if (package_sub_path) |_| {
+        cache_root.handle.deleteTree(tmp_dir_sub_path) catch {};
+    }
 
     // Validate the computed hash against the expected hash. If invalid, this
     // job is done.
@@ -549,6 +550,21 @@ fn runResource(
     // a mutex and a hash map so that redundant jobs do not get queued up.
     if (!f.job_queue.recursive) return;
     return queueJobsForDeps(f);
+}
+
+fn makeOpenCacheDirectory(f: *Fetch, sub_path: []const u8) RunError!Cache.Directory {
+    const arena = f.arena.allocator();
+    const cache_root = f.job_queue.global_cache;
+
+    const path = try cache_root.join(arena, &.{sub_path});
+    return .{
+        .path = path,
+        .handle = cache_root.handle.makeOpenPath(sub_path, .{ .iterate = true }) catch |err| {
+            return f.failMsg(err, "unable to create temporary directory '{s}': {s}", .{
+                path, @errorName(err),
+            });
+        },
+    };
 }
 
 /// `computeHash` gets a free check for the existence of `build.zig`, but when

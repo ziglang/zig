@@ -5,6 +5,7 @@ const Filter = @import("Fetch.zig").Filter;
 
 allocator: std.mem.Allocator,
 root: fs.Dir,
+package_sub_path: ?[]const u8 = null,
 errors: Errors,
 
 pub const Error = union(enum) {
@@ -69,7 +70,7 @@ pub const Errors = struct {
         } });
     }
 
-    pub fn filterWith(self: *Errors, filter: Filter) !void {
+    fn filterWith(self: *Errors, filter: Filter) !void {
         var i = self.list.items.len;
         while (i > 0) {
             i -= 1;
@@ -79,6 +80,25 @@ pub const Errors = struct {
                 self.free(item);
             }
         }
+    }
+
+    fn stripRoot(self: *Errors) !void {
+        if (self.count() == 0) return;
+
+        var old_list = self.list;
+        self.list = .{};
+        for (old_list.items) |item| {
+            switch (item) {
+                .unable_to_create_sym_link => |info| {
+                    try self.symLink("", stripComponents(info.target_path, 1), info.sym_link_path, info.code);
+                },
+                .unable_to_create_file => |info| {
+                    try self.createFile("", stripComponents(info.file_name, 1), info.code);
+                },
+            }
+            self.free(item);
+        }
+        old_list.deinit(self.allocator);
     }
 };
 
@@ -92,13 +112,14 @@ pub fn init(allocator: std.mem.Allocator, root: fs.Dir) Self {
 
 pub fn deinit(self: *Self) void {
     self.errors.deinit();
+    if (self.package_sub_path) |package_sub_path| {
+        self.allocator.free(package_sub_path);
+    }
 }
 
 const Self = @This();
 
 pub fn tarball(self: *Self, reader: anytype) !void {
-    const strip_components = 1;
-
     var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     var iter = std.tar.iterator(reader, .{
@@ -114,22 +135,59 @@ pub fn tarball(self: *Self, reader: anytype) !void {
                 .directory => {}, // skip empty
                 .file => {
                     if (entry.size == 0 and entry.name.len == 0) continue;
-                    const file_name = stripComponents(entry.name, strip_components);
-                    if (file_name.len == 0) return error.BadFileName;
-                    if (try self.createFile("", file_name)) |file| {
+                    if (try self.createFile("", entry.name)) |file| {
                         defer file.close();
                         try entry.writeAll(file);
                     }
                 },
                 .sym_link => {
-                    const file_name = stripComponents(entry.name, strip_components);
-                    if (file_name.len == 0) return error.BadFileName;
-                    const link_name = entry.link_name;
-                    try self.symLink("", link_name, file_name);
+                    try self.symLink("", entry.link_name, entry.name);
                 },
             }
         } else break;
     }
+    try self.findPackageSubPath();
+}
+
+fn findPackageSubPath(self: *Self) !void {
+    var iter = self.root.iterate();
+    if (try iter.next()) |entry| {
+        if (try iter.next() != null) return;
+        if (entry.kind == .directory) { // single directory below root
+            self.package_sub_path = try self.allocator.dupe(u8, entry.name);
+            try self.errors.stripRoot();
+        }
+    }
+}
+
+test findPackageSubPath {
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
+
+    // folder1
+    //     ├── folder2
+    //     ├── file1
+    //
+    try tmp.dir.makePath("folder1/folder2");
+    (try tmp.dir.createFile("folder1/file1", .{})).close();
+
+    var unpack = init(testing.allocator, tmp.dir);
+    try unpack.findPackageSubPath();
+    // start at root returns folder1 as package root
+    try testing.expectEqualStrings("folder1", unpack.package_sub_path.?);
+    unpack.deinit();
+
+    // start at folder1 returns null
+    unpack = init(testing.allocator, try tmp.dir.openDir("folder1", .{ .iterate = true }));
+    try unpack.findPackageSubPath();
+    try testing.expect(unpack.package_sub_path == null);
+    unpack.deinit();
+
+    // start at folder1/folder2 returns null
+    unpack = init(testing.allocator, try tmp.dir.openDir("folder1/folder2", .{ .iterate = true }));
+    try unpack.findPackageSubPath();
+    try testing.expect(unpack.package_sub_path == null);
+    unpack.deinit();
 }
 
 pub fn gitPack(self: *Self, commit_oid: git.Oid, reader: anytype) !void {
@@ -322,22 +380,36 @@ test tarball {
     };
     var buf: [paths.len * @sizeOf(TarHeader)]u8 = undefined;
 
-    // create tarball
-    try createTarball(paths, &buf);
-
-    var tmp = testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    // unpack tarball to tmp dir, will strip root dir
+    // tarball with leading root folder
     {
+        try createTarball("package_root", paths, &buf);
+        var tmp = testing.tmpDir(.{ .iterate = true });
+        defer tmp.cleanup();
+
         var fbs = std.io.fixedBufferStream(&buf);
 
         var unpack = Unpack.init(testing.allocator, tmp.dir);
         defer unpack.deinit();
         try unpack.tarball(fbs.reader());
-    }
+        try testing.expectEqualStrings("package_root", unpack.package_sub_path.?);
 
-    try expectDirFiles(tmp.dir, paths);
+        try expectDirFiles(try tmp.dir.openDir("package_root", .{ .iterate = true }), paths);
+    }
+    // tarball without root
+    {
+        try createTarball("", paths, &buf);
+        var tmp = testing.tmpDir(.{ .iterate = true });
+        defer tmp.cleanup();
+
+        var fbs = std.io.fixedBufferStream(&buf);
+
+        var unpack = Unpack.init(testing.allocator, tmp.dir);
+        defer unpack.deinit();
+        try unpack.tarball(fbs.reader());
+        try testing.expect(unpack.package_sub_path == null);
+
+        try expectDirFiles(tmp.dir, paths);
+    }
 }
 
 test directory {
@@ -357,14 +429,14 @@ test directory {
         f.close();
     }
 
-    var dest = testing.tmpDir(.{ .iterate = true });
-    defer dest.cleanup();
+    var tmp = testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
 
-    var unpack = Unpack.init(testing.allocator, dest.dir);
+    var unpack = Unpack.init(testing.allocator, tmp.dir);
     defer unpack.deinit();
     try unpack.directory(source.dir);
 
-    try expectDirFiles(dest.dir, paths);
+    try expectDirFiles(tmp.dir, paths);
 }
 
 test "collect/filter errors" {
@@ -378,7 +450,7 @@ test "collect/filter errors" {
         "dir1/file1",
     };
     var buf: [paths.len * @sizeOf(TarHeader)]u8 = undefined;
-    try createTarball(paths, &buf);
+    try createTarball("package_root", paths, &buf);
 
     var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
@@ -388,12 +460,12 @@ test "collect/filter errors" {
     defer unpack.deinit();
     try unpack.tarball(fbs.reader());
     try testing.expect(unpack.hasErrors());
-
-    try expectDirFiles(tmp.dir, paths[0..2]);
+    try testing.expectEqualStrings("package_root", unpack.package_sub_path.?);
+    try expectDirFiles(try tmp.dir.openDir("package_root", .{ .iterate = true }), paths[0..2]);
 
     try testing.expectEqual(2, unpack.errors.count());
-    try testing.expectEqualStrings(paths[2], unpack.errors.list.items[0].unable_to_create_file.file_name);
-    try testing.expectEqualStrings(paths[3], unpack.errors.list.items[1].unable_to_create_file.file_name);
+    try testing.expectEqualStrings("dir/file", unpack.errors.list.items[0].unable_to_create_file.file_name);
+    try testing.expectEqualStrings("dir1/file1", unpack.errors.list.items[1].unable_to_create_file.file_name);
 
     {
         var filter: Filter = .{};
@@ -420,13 +492,17 @@ test "collect/filter errors" {
     }
 }
 
-fn createTarball(paths: []const []const u8, buf: []u8) !void {
+fn createTarball(prefix: []const u8, paths: []const []const u8, buf: []u8) !void {
     var fbs = std.io.fixedBufferStream(buf);
     const writer = fbs.writer();
     for (paths) |path| {
         var hdr = TarHeader.init();
         hdr.typeflag = .regular;
-        try hdr.setPath("stripped_root", path);
+        if (prefix.len > 0) {
+            try hdr.setPath(prefix, path);
+        } else {
+            hdr.setName(path);
+        }
         try hdr.updateChecksum();
         try writer.writeAll(std.mem.asBytes(&hdr));
     }
