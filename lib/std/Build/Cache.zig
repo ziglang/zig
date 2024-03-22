@@ -122,7 +122,7 @@ pub const HexDigest = [hex_digest_len]u8;
 
 /// This is currently just an arbitrary non-empty string that can't match another manifest line.
 const manifest_header = "0";
-const manifest_file_size_max = 50 * 1024 * 1024;
+const manifest_file_size_max = 100 * 1024 * 1024;
 
 /// The type used for hashing file contents. Currently, this is SipHash128(1, 3), because it
 /// provides enough collision resistance for the Manifest use cases, while being one of our
