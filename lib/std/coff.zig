@@ -992,6 +992,8 @@ pub const MachineType = enum(u16) {
     ARM = 0x1c0,
     /// ARM64 little endian
     ARM64 = 0xaa64,
+    /// ARM64EC
+    ARM64EC = 0xa641,
     /// ARM Thumb-2 little endian
     ARMNT = 0x1c4,
     /// EFI byte code
