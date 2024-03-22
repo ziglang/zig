@@ -9,23 +9,26 @@ const Wyhash = std.hash.Wyhash;
 const Allocator = mem.Allocator;
 const hash_map = @This();
 
-/// An ArrayHashMap with default hash and equal functions.
-/// See AutoContext for a description of the hash and equal implementations.
+/// An `ArrayHashMap` with default hash and equal functions.
+///
+/// See `AutoContext` for a description of the hash and equal implementations.
 pub fn AutoArrayHashMap(comptime K: type, comptime V: type) type {
     return ArrayHashMap(K, V, AutoContext(K), !autoEqlIsCheap(K));
 }
 
-/// An ArrayHashMapUnmanaged with default hash and equal functions.
-/// See AutoContext for a description of the hash and equal implementations.
+/// An `ArrayHashMapUnmanaged` with default hash and equal functions.
+///
+/// See `AutoContext` for a description of the hash and equal implementations.
 pub fn AutoArrayHashMapUnmanaged(comptime K: type, comptime V: type) type {
     return ArrayHashMapUnmanaged(K, V, AutoContext(K), !autoEqlIsCheap(K));
 }
 
-/// Builtin hashmap for strings as keys.
+/// An `ArrayHashMap` with strings as keys.
 pub fn StringArrayHashMap(comptime V: type) type {
     return ArrayHashMap([]const u8, V, StringContext, true);
 }
 
+/// An `ArrayHashMapUnmanaged` with strings as keys.
 pub fn StringArrayHashMapUnmanaged(comptime V: type) type {
     return ArrayHashMapUnmanaged([]const u8, V, StringContext, true);
 }
@@ -50,29 +53,33 @@ pub fn hashString(s: []const u8) u32 {
     return @as(u32, @truncate(std.hash.Wyhash.hash(0, s)));
 }
 
-/// Insertion order is preserved.
-/// Deletions perform a "swap removal" on the entries list.
+/// A hash table of keys and values, each stored sequentially.
+///
+/// Insertion order is preserved. In general, this data structure supports the same
+/// operations as `std.ArrayList`.
+///
+/// Deletion operations:
+/// * `swapRemove` - O(1)
+/// * `orderedRemove` - O(N)
+///
 /// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
-/// For a hash map that can be initialized directly that does not store an Allocator
-/// field, see `ArrayHashMapUnmanaged`.
-/// When `store_hash` is `false`, this data structure is biased towards cheap `eql`
-/// functions. It does not store each item's hash in the table. Setting `store_hash`
-/// to `true` incurs slightly more memory cost by storing each key's hash in the table
-/// but only has to call `eql` for hash collisions.
-/// If typical operations (except iteration over entries) need to be faster, prefer
-/// the alternative `std.HashMap`.
-/// Context must be a struct type with two member functions:
-///   hash(self, K) u32
-///   eql(self, K, K, usize) bool
-/// Adapted variants of many functions are provided.  These variants
-/// take a pseudo key instead of a key.  Their context must have the functions:
-///   hash(self, PseudoKey) u32
-///   eql(self, PseudoKey, K, usize) bool
+///
+/// See `ArrayHashMapUnmanaged` for a variant of this data structure that accepts an
+/// `Allocator` as a parameter when needed rather than storing it.
 pub fn ArrayHashMap(
     comptime K: type,
     comptime V: type,
+    /// A namespace that provides these two functions:
+    /// * `pub fn hash(self, K) u32`
+    /// * `pub fn eql(self, K, K) bool`
+    ///
     comptime Context: type,
+    /// When `false`, this data structure is biased towards cheap `eql`
+    /// functions and avoids storing each key's hash in the table. Setting
+    /// `store_hash` to `true` incurs more memory cost but limits `eql` to
+    /// being called only once per insertion/deletion (provided there are no
+    /// hash collisions).
     comptime store_hash: bool,
 ) type {
     return struct {
@@ -472,34 +479,40 @@ pub fn ArrayHashMap(
     };
 }
 
-/// General purpose hash table.
-/// Insertion order is preserved.
-/// Deletions perform a "swap removal" on the entries list.
+/// A hash table of keys and values, each stored sequentially.
+///
+/// Insertion order is preserved. In general, this data structure supports the same
+/// operations as `std.ArrayListUnmanaged`.
+///
+/// Deletion operations:
+/// * `swapRemove` - O(1)
+/// * `orderedRemove` - O(N)
+///
 /// Modifying the hash map while iterating is allowed, however, one must understand
 /// the (well defined) behavior when mixing insertions and deletions with iteration.
-/// This type does not store an Allocator field - the Allocator must be passed in
+///
+/// This type does not store an `Allocator` field - the `Allocator` must be passed in
 /// with each function call that requires it. See `ArrayHashMap` for a type that stores
-/// an Allocator field for convenience.
+/// an `Allocator` field for convenience.
+///
 /// Can be initialized directly using the default field values.
+///
 /// This type is designed to have low overhead for small numbers of entries. When
 /// `store_hash` is `false` and the number of entries in the map is less than 9,
 /// the overhead cost of using `ArrayHashMapUnmanaged` rather than `std.ArrayList` is
 /// only a single pointer-sized integer.
-/// When `store_hash` is `false`, this data structure is biased towards cheap `eql`
-/// functions. It does not store each item's hash in the table. Setting `store_hash`
-/// to `true` incurs slightly more memory cost by storing each key's hash in the table
-/// but guarantees only one call to `eql` per insertion/deletion.
-/// Context must be a struct type with two member functions:
-///   hash(self, K) u32
-///   eql(self, K, K) bool
-/// Adapted variants of many functions are provided.  These variants
-/// take a pseudo key instead of a key.  Their context must have the functions:
-///   hash(self, PseudoKey) u32
-///   eql(self, PseudoKey, K) bool
 pub fn ArrayHashMapUnmanaged(
     comptime K: type,
     comptime V: type,
+    /// A namespace that provides these two functions:
+    /// * `pub fn hash(self, K) u32`
+    /// * `pub fn eql(self, K, K) bool`
     comptime Context: type,
+    /// When `false`, this data structure is biased towards cheap `eql`
+    /// functions and avoids storing each key's hash in the table. Setting
+    /// `store_hash` to `true` incurs more memory cost but limits `eql` to
+    /// being called only once per insertion/deletion (provided there are no
+    /// hash collisions).
     comptime store_hash: bool,
 ) type {
     return struct {
