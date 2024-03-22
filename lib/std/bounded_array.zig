@@ -287,7 +287,7 @@ pub fn BoundedArrayAligned(
     };
 }
 
-test "BoundedArray" {
+test BoundedArray {
     var a = try BoundedArray(u8, 64).init(32);
 
     try testing.expectEqual(a.capacity(), 64);

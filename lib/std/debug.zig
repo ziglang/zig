@@ -905,7 +905,7 @@ fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const Mach
     return null;
 }
 
-test "machoSearchSymbols" {
+test machoSearchSymbols {
     const symbols = [_]MachoSymbol{
         .{ .addr = 100, .strx = undefined, .size = undefined, .ofile = undefined },
         .{ .addr = 200, .strx = undefined, .size = undefined, .ofile = undefined },
@@ -1504,7 +1504,7 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: LineInfo) !void {
     }
 }
 
-test "printLineFromFileAnyOs" {
+test printLineFromFileAnyOs {
     var output = std.ArrayList(u8).init(std.testing.allocator);
     defer output.deinit();
     const output_stream = output.writer();
@@ -2857,6 +2857,16 @@ pub const SafetyLock = struct {
         assert(l.state == .unlocked);
     }
 };
+
+/// Detect whether the program is being executed in the Valgrind virtual machine.
+///
+/// When Valgrind integrations are disabled, this returns comptime-known false.
+/// Otherwise, the result is runtime-known.
+pub inline fn inValgrind() bool {
+    if (@inComptime()) return false;
+    if (!builtin.valgrind_support) return false;
+    return std.valgrind.runningOnValgrind() > 0;
+}
 
 test {
     _ = &dump_hex;

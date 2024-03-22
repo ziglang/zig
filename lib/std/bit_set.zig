@@ -1648,7 +1648,7 @@ fn testStaticBitSet(comptime Set: type) !void {
     try testPureBitSet(Set);
 }
 
-test "IntegerBitSet" {
+test IntegerBitSet {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     try testStaticBitSet(IntegerBitSet(0));
@@ -1661,7 +1661,7 @@ test "IntegerBitSet" {
     try testStaticBitSet(IntegerBitSet(127));
 }
 
-test "ArrayBitSet" {
+test ArrayBitSet {
     inline for (.{ 0, 1, 2, 31, 32, 33, 63, 64, 65, 254, 500, 3000 }) |size| {
         try testStaticBitSet(ArrayBitSet(u8, size));
         try testStaticBitSet(ArrayBitSet(u16, size));
@@ -1671,7 +1671,7 @@ test "ArrayBitSet" {
     }
 }
 
-test "DynamicBitSetUnmanaged" {
+test DynamicBitSetUnmanaged {
     const allocator = std.testing.allocator;
     var a = try DynamicBitSetUnmanaged.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
@@ -1724,7 +1724,7 @@ test "DynamicBitSetUnmanaged" {
     }
 }
 
-test "DynamicBitSet" {
+test DynamicBitSet {
     const allocator = std.testing.allocator;
     var a = try DynamicBitSet.initEmpty(allocator, 300);
     try testing.expectEqual(@as(usize, 0), a.count());
@@ -1765,7 +1765,7 @@ test "DynamicBitSet" {
     }
 }
 
-test "StaticBitSet" {
+test StaticBitSet {
     try testing.expectEqual(IntegerBitSet(0), StaticBitSet(0));
     try testing.expectEqual(IntegerBitSet(5), StaticBitSet(5));
     try testing.expectEqual(IntegerBitSet(@bitSizeOf(usize)), StaticBitSet(@bitSizeOf(usize)));

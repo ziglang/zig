@@ -907,7 +907,7 @@ pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter(formatUtf8) {
     return .{ .data = utf8 };
 }
 
-test "fmtUtf8" {
+test fmtUtf8 {
     const expectFmt = testing.expectFmt;
     try expectFmt("", "{}", .{fmtUtf8("")});
     try expectFmt("foo", "{}", .{fmtUtf8("foo")});
@@ -1249,7 +1249,7 @@ pub fn utf8ToUtf16LeImpl(utf16le: []u16, utf8: []const u8, comptime surrogates: 
     return dest_index;
 }
 
-test "utf8ToUtf16Le" {
+test utf8ToUtf16Le {
     var utf16le: [128]u16 = undefined;
     {
         const length = try utf8ToUtf16Le(utf16le[0..], "𐐷");
@@ -1430,7 +1430,7 @@ pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter(formatUtf16Le) {
     return .{ .data = utf16le };
 }
 
-test "fmtUtf16Le" {
+test fmtUtf16Le {
     const expectFmt = testing.expectFmt;
     try expectFmt("", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral(""))});
     try expectFmt("foo", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral("foo"))});
@@ -1443,7 +1443,7 @@ test "fmtUtf16Le" {
     try expectFmt("", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xe0", native_endian)})});
 }
 
-test "utf8ToUtf16LeStringLiteral" {
+test utf8ToUtf16LeStringLiteral {
     {
         const bytes = [_:0]u16{
             mem.nativeToLittle(u16, 0x41),
