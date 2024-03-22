@@ -374,6 +374,11 @@ test "comptime @bitCast packed struct to int and back" {
 }
 
 test "comptime bitcast with fields following f80" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/19387
+        return error.SkipZigTest;
+    }
+
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
