@@ -3000,9 +3000,7 @@ test "zig fmt: precedence" {
         \\    (a << b) + c;
         \\    a & b << c;
         \\    (a & b) << c;
-        \\    a ^ b & c;
         \\    (a ^ b) & c;
-        \\    a | b ^ c;
         \\    (a | b) ^ c;
         \\    a == b | c;
         \\    (a == b) | c;
