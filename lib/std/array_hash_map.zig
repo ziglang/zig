@@ -529,10 +529,6 @@ pub fn ArrayHashMapUnmanaged(
         /// Used to detect memory safety violations.
         pointer_stability: std.debug.SafetyLock = .{},
 
-        comptime {
-            std.hash_map.verifyContext(Context, K, K, u32, true);
-        }
-
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.
         /// Entry pointers become invalid whenever this ArrayHashMap is modified,
@@ -1847,27 +1843,16 @@ pub fn ArrayHashMapUnmanaged(
             }
         }
 
-        inline fn checkedHash(ctx: anytype, key: anytype) u32 {
-            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(key), K, u32, true);
+        fn checkedHash(ctx: anytype, key: anytype) u32 {
             // If you get a compile error on the next line, it means that your
             // generic hash function doesn't accept your key.
-            const hash = ctx.hash(key);
-            if (@TypeOf(hash) != u32) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type!\n" ++
-                    @typeName(u32) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
-            return hash;
+            return ctx.hash(key);
         }
-        inline fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
-            comptime std.hash_map.verifyContext(@TypeOf(ctx), @TypeOf(a), K, u32, true);
+
+        fn checkedEql(ctx: anytype, a: anytype, b: K, b_index: usize) bool {
             // If you get a compile error on the next line, it means that your
             // generic eql function doesn't accept (self, adapt key, K, index).
-            const eql = ctx.eql(a, b, b_index);
-            if (@TypeOf(eql) != bool) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type!\n" ++
-                    @typeName(bool) ++ " was expected, but found " ++ @typeName(@TypeOf(eql)));
-            }
-            return eql;
+            return ctx.eql(a, b, b_index);
         }
 
         fn dumpState(self: Self, comptime keyFmt: []const u8, comptime valueFmt: []const u8) void {
