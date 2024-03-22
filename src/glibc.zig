@@ -713,7 +713,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: *std.Progress.Node) !vo
     };
     defer o_directory.handle.close();
 
-    const abilists_contents = man.files.items[abilists_index].contents.?;
+    const abilists_contents = man.files.keys()[abilists_index].contents.?;
     const metadata = try loadMetaData(comp.gpa, abilists_contents);
     defer metadata.destroy(comp.gpa);
 
