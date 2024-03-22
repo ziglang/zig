@@ -1999,7 +1999,7 @@ pub fn update(comp: *Compilation, main_progress_node: *std.Progress.Node) !void 
 
             const is_hit = man.hit() catch |err| {
                 const i = man.failed_file_index orelse return err;
-                const pp = man.files.items[i].prefixed_path orelse return err;
+                const pp = man.files.keys()[i].prefixed_path;
                 const prefix = man.cache.prefixes()[pp.prefix];
                 return comp.setMiscFailure(
                     .check_whole_cache,
@@ -4147,7 +4147,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
     const prev_hash_state = man.hash.peekBin();
     const actual_hit = hit: {
         _ = try man.hit();
-        if (man.files.items.len == 0) {
+        if (man.files.entries.len == 0) {
             man.unhit(prev_hash_state, 0);
             break :hit false;
         }
