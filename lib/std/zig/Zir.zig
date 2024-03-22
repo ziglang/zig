@@ -3058,20 +3058,23 @@ pub const Inst = struct {
 
     /// Represents a single value being captured in a type declaration's closure.
     pub const Capture = packed struct(u32) {
-        tag: enum(u2) {
+        tag: enum(u3) {
             /// `data` is a `u16` index into the parent closure.
             nested,
             /// `data` is a `Zir.Inst.Index` to an instruction whose value is being captured.
             instruction,
+            /// `data` is a `Zir.Inst.Index` to an instruction representing an alloc whose contents is being captured.
+            instruction_load,
             /// `data` is a `NullTerminatedString` to a decl name.
             decl_val,
             /// `data` is a `NullTerminatedString` to a decl name.
             decl_ref,
         },
-        data: u30,
+        data: u29,
         pub const Unwrapped = union(enum) {
             nested: u16,
             instruction: Zir.Inst.Index,
+            instruction_load: Zir.Inst.Index,
             decl_val: NullTerminatedString,
             decl_ref: NullTerminatedString,
         };
@@ -3083,6 +3086,10 @@ pub const Inst = struct {
                 },
                 .instruction => |inst| .{
                     .tag = .instruction,
+                    .data = @intCast(@intFromEnum(inst)),
+                },
+                .instruction_load => |inst| .{
+                    .tag = .instruction_load,
                     .data = @intCast(@intFromEnum(inst)),
                 },
                 .decl_val => |str| .{
@@ -3099,6 +3106,7 @@ pub const Inst = struct {
             return switch (cap.tag) {
                 .nested => .{ .nested = @intCast(cap.data) },
                 .instruction => .{ .instruction = @enumFromInt(cap.data) },
+                .instruction_load => .{ .instruction_load = @enumFromInt(cap.data) },
                 .decl_val => .{ .decl_val = @enumFromInt(cap.data) },
                 .decl_ref => .{ .decl_ref = @enumFromInt(cap.data) },
             };

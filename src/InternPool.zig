@@ -389,6 +389,8 @@ pub const RuntimeIndex = enum(u32) {
     }
 };
 
+pub const ComptimeAllocIndex = enum(u32) { _ };
+
 pub const DeclIndex = std.zig.DeclIndex;
 pub const OptionalDeclIndex = std.zig.OptionalDeclIndex;
 
@@ -979,7 +981,7 @@ pub const Key = union(enum) {
             const Tag = @typeInfo(Addr).Union.tag_type.?;
 
             decl: DeclIndex,
-            mut_decl: MutDecl,
+            comptime_alloc: ComptimeAllocIndex,
             anon_decl: AnonDecl,
             comptime_field: Index,
             int: Index,
@@ -1172,20 +1174,14 @@ pub const Key = union(enum) {
                 const seed2 = seed + @intFromEnum(addr);
                 const common = asBytes(&ptr.ty);
                 return switch (ptr.addr) {
-                    .decl => |x| Hash.hash(seed2, common ++ asBytes(&x)),
-
-                    .mut_decl => |x| Hash.hash(
-                        seed2,
-                        common ++ asBytes(&x.decl) ++ asBytes(&x.runtime_index),
-                    ),
-
-                    .anon_decl => |x| Hash.hash(seed2, common ++ asBytes(&x)),
-
+                    inline .decl,
+                    .comptime_alloc,
+                    .anon_decl,
                     .int,
                     .eu_payload,
                     .opt_payload,
                     .comptime_field,
-                    => |int| Hash.hash(seed2, common ++ asBytes(&int)),
+                    => |x| Hash.hash(seed2, common ++ asBytes(&x)),
 
                     .elem, .field => |x| Hash.hash(
                         seed2,
@@ -1452,7 +1448,7 @@ pub const Key = union(enum) {
 
                 return switch (a_info.addr) {
                     .decl => |a_decl| a_decl == b_info.addr.decl,
-                    .mut_decl => |a_mut_decl| std.meta.eql(a_mut_decl, b_info.addr.mut_decl),
+                    .comptime_alloc => |a_alloc| a_alloc == b_info.addr.comptime_alloc,
                     .anon_decl => |ad| ad.val == b_info.addr.anon_decl.val and
                         ad.orig_ty == b_info.addr.anon_decl.orig_ty,
                     .int => |a_int| a_int == b_info.addr.int,
@@ -2787,7 +2783,7 @@ pub const Index = enum(u32) {
         undef: DataIsIndex,
         simple_value: struct { data: SimpleValue },
         ptr_decl: struct { data: *PtrDecl },
-        ptr_mut_decl: struct { data: *PtrMutDecl },
+        ptr_comptime_alloc: struct { data: *PtrComptimeAlloc },
         ptr_anon_decl: struct { data: *PtrAnonDecl },
         ptr_anon_decl_aligned: struct { data: *PtrAnonDeclAligned },
         ptr_comptime_field: struct { data: *PtrComptimeField },
@@ -3243,8 +3239,8 @@ pub const Tag = enum(u8) {
     /// data is extra index of `PtrDecl`, which contains the type and address.
     ptr_decl,
     /// A pointer to a decl that can be mutated at comptime.
-    /// data is extra index of `PtrMutDecl`, which contains the type and address.
-    ptr_mut_decl,
+    /// data is extra index of `PtrComptimeAlloc`, which contains the type and address.
+    ptr_comptime_alloc,
     /// A pointer to an anonymous decl.
     /// data is extra index of `PtrAnonDecl`, which contains the pointer type and decl value.
     /// The alignment of the anonymous decl is communicated via the pointer type.
@@ -3448,7 +3444,7 @@ pub const Tag = enum(u8) {
             .undef => unreachable,
             .simple_value => unreachable,
             .ptr_decl => PtrDecl,
-            .ptr_mut_decl => PtrMutDecl,
+            .ptr_comptime_alloc => PtrComptimeAlloc,
             .ptr_anon_decl => PtrAnonDecl,
             .ptr_anon_decl_aligned => PtrAnonDeclAligned,
             .ptr_comptime_field => PtrComptimeField,
@@ -4129,10 +4125,9 @@ pub const PtrAnonDeclAligned = struct {
     orig_ty: Index,
 };
 
-pub const PtrMutDecl = struct {
+pub const PtrComptimeAlloc = struct {
     ty: Index,
-    decl: DeclIndex,
-    runtime_index: RuntimeIndex,
+    index: ComptimeAllocIndex,
 };
 
 pub const PtrComptimeField = struct {
@@ -4537,14 +4532,11 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .addr = .{ .decl = info.decl },
             } };
         },
-        .ptr_mut_decl => {
-            const info = ip.extraData(PtrMutDecl, data);
+        .ptr_comptime_alloc => {
+            const info = ip.extraData(PtrComptimeAlloc, data);
             return .{ .ptr = .{
                 .ty = info.ty,
-                .addr = .{ .mut_decl = .{
-                    .decl = info.decl,
-                    .runtime_index = info.runtime_index,
-                } },
+                .addr = .{ .comptime_alloc = info.index },
             } };
         },
         .ptr_anon_decl => {
@@ -5186,12 +5178,11 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         .decl = decl,
                     }),
                 }),
-                .mut_decl => |mut_decl| ip.items.appendAssumeCapacity(.{
-                    .tag = .ptr_mut_decl,
-                    .data = try ip.addExtra(gpa, PtrMutDecl{
+                .comptime_alloc => |alloc_index| ip.items.appendAssumeCapacity(.{
+                    .tag = .ptr_comptime_alloc,
+                    .data = try ip.addExtra(gpa, PtrComptimeAlloc{
                         .ty = ptr.ty,
-                        .decl = mut_decl.decl,
-                        .runtime_index = mut_decl.runtime_index,
+                        .index = alloc_index,
                     }),
                 }),
                 .anon_decl => |anon_decl| ip.items.appendAssumeCapacity(
@@ -7265,6 +7256,7 @@ fn addExtraAssumeCapacity(ip: *InternPool, extra: anytype) u32 {
             Tag.TypePointer.VectorIndex,
             TrackedInst.Index,
             TrackedInst.Index.Optional,
+            ComptimeAllocIndex,
             => @intFromEnum(@field(extra, field.name)),
 
             u32,
@@ -7342,6 +7334,7 @@ fn extraDataTrail(ip: *const InternPool, comptime T: type, index: usize) struct 
             Tag.TypePointer.VectorIndex,
             TrackedInst.Index,
             TrackedInst.Index.Optional,
+            ComptimeAllocIndex,
             => @enumFromInt(int32),
 
             u32,
@@ -8144,7 +8137,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
             .simple_type => 0,
             .simple_value => 0,
             .ptr_decl => @sizeOf(PtrDecl),
-            .ptr_mut_decl => @sizeOf(PtrMutDecl),
+            .ptr_comptime_alloc => @sizeOf(PtrComptimeAlloc),
             .ptr_anon_decl => @sizeOf(PtrAnonDecl),
             .ptr_anon_decl_aligned => @sizeOf(PtrAnonDeclAligned),
             .ptr_comptime_field => @sizeOf(PtrComptimeField),
@@ -8275,7 +8268,7 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             .type_function,
             .undef,
             .ptr_decl,
-            .ptr_mut_decl,
+            .ptr_comptime_alloc,
             .ptr_anon_decl,
             .ptr_anon_decl_aligned,
             .ptr_comptime_field,
@@ -8690,7 +8683,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
             .simple_value => unreachable, // handled via Index above
 
             inline .ptr_decl,
-            .ptr_mut_decl,
+            .ptr_comptime_alloc,
             .ptr_anon_decl,
             .ptr_anon_decl_aligned,
             .ptr_comptime_field,
@@ -8822,10 +8815,8 @@ pub fn getBackingDecl(ip: *const InternPool, val: Index) OptionalDeclIndex {
     var base = @intFromEnum(val);
     while (true) {
         switch (ip.items.items(.tag)[base]) {
-            inline .ptr_decl,
-            .ptr_mut_decl,
-            => |tag| return @enumFromInt(ip.extra.items[
-                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "decl").?
+            .ptr_decl => return @enumFromInt(ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(PtrDecl, "decl").?
             ]),
             inline .ptr_eu_payload,
             .ptr_opt_payload,
@@ -8834,8 +8825,8 @@ pub fn getBackingDecl(ip: *const InternPool, val: Index) OptionalDeclIndex {
             => |tag| base = ip.extra.items[
                 ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "base").?
             ],
-            inline .ptr_slice => |tag| base = ip.extra.items[
-                ip.items.items(.data)[base] + std.meta.fieldIndex(tag.Payload(), "ptr").?
+            .ptr_slice => base = ip.extra.items[
+                ip.items.items(.data)[base] + std.meta.fieldIndex(PtrSlice, "ptr").?
             ],
             else => return .none,
         }
@@ -8847,7 +8838,7 @@ pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.Addr.Tag {
     while (true) {
         switch (ip.items.items(.tag)[base]) {
             .ptr_decl => return .decl,
-            .ptr_mut_decl => return .mut_decl,
+            .ptr_comptime_alloc => return .comptime_alloc,
             .ptr_anon_decl, .ptr_anon_decl_aligned => return .anon_decl,
             .ptr_comptime_field => return .comptime_field,
             .ptr_int => return .int,
@@ -9023,7 +9014,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
             .undef,
             .simple_value,
             .ptr_decl,
-            .ptr_mut_decl,
+            .ptr_comptime_alloc,
             .ptr_anon_decl,
             .ptr_anon_decl_aligned,
             .ptr_comptime_field,

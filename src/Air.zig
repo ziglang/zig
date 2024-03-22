@@ -1084,9 +1084,11 @@ pub const Inst = struct {
         inferred_alloc: InferredAlloc,
 
         pub const InferredAllocComptime = struct {
-            decl_index: InternPool.DeclIndex,
             alignment: InternPool.Alignment,
             is_const: bool,
+            /// This is `undefined` until we encounter a `store_to_inferred_alloc`,
+            /// at which point the pointer is created and stored here.
+            ptr: InternPool.Index,
         };
 
         pub const InferredAlloc = struct {

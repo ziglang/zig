@@ -91,14 +91,6 @@ no_partial_func_ty: bool = false,
 /// here so the values can be dropped without any cleanup.
 unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
 
-/// Indices of comptime-mutable decls created by this Sema. These decls' values
-/// should be interned after analysis completes, as they may refer to memory in
-/// the Sema arena.
-/// TODO: this is a workaround for memory bugs triggered by the removal of
-/// Decl.value_arena. A better solution needs to be found. Probably this will
-/// involve transitioning comptime-mutable memory away from using Decls at all.
-comptime_mutable_decls: *std.ArrayList(InternPool.DeclIndex),
-
 /// This is populated when `@setAlignStack` occurs so that if there is a duplicate
 /// one encountered, the conflicting source location can be shown.
 prev_stack_alignment_src: ?LazySrcLoc = null,
@@ -123,18 +115,56 @@ base_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, Air.Inst.Index) = .{},
 /// Backed by gpa.
 maybe_comptime_allocs: std.AutoHashMapUnmanaged(Air.Inst.Index, MaybeComptimeAlloc) = .{},
 
+/// Comptime-mutable allocs, and any comptime allocs which reference it, are
+/// stored as elements of this array.
+/// Pointers to such memory are represented via an index into this array.
+/// Backed by gpa.
+comptime_allocs: std.ArrayListUnmanaged(ComptimeAlloc) = .{},
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
     runtime_index: Value.RuntimeIndex,
     /// Backed by sema.arena. Tracks all comptime-known stores to this `alloc`. Due to
     /// RLS, a single comptime-known allocation may have arbitrarily many stores.
     /// This may also contain `set_union_tag` instructions.
-    stores: std.ArrayListUnmanaged(Air.Inst.Index) = .{},
+    stores: std.MultiArrayList(struct {
+        inst: Air.Inst.Index,
+        src_decl: InternPool.DeclIndex,
+        src: LazySrcLoc,
+    }) = .{},
     /// Backed by sema.arena. Contains instructions such as `optional_payload_ptr_set`
     /// which have side effects so will not be elided by Liveness: we must rewrite these
     /// instructions to be nops instead of relying on Liveness.
     non_elideable_pointers: std.ArrayListUnmanaged(Air.Inst.Index) = .{},
 };
+
+const ComptimeAlloc = struct {
+    ty: Type,
+    val: Value,
+    is_const: bool,
+    /// `.none` indicates that the alignment is the natural alignment of `val`.
+    alignment: Alignment,
+    /// This is the `runtime_index` at the point of this allocation. If an store
+    /// to this alloc ever occurs with a runtime index greater than this one, it
+    /// is behind a runtime condition, so a compile error will be emitted.
+    runtime_index: Value.RuntimeIndex,
+};
+
+fn newComptimeAlloc(sema: *Sema, block: *Block, ty: Type, alignment: Alignment) !ComptimeAllocIndex {
+    const idx = sema.comptime_allocs.items.len;
+    try sema.comptime_allocs.append(sema.gpa, .{
+        .ty = ty,
+        .val = Value.fromInterned(try sema.mod.intern(.{ .undef = ty.toIntern() })),
+        .is_const = false,
+        .alignment = alignment,
+        .runtime_index = block.runtime_index,
+    });
+    return @enumFromInt(idx);
+}
+
+pub fn getComptimeAlloc(sema: *Sema, idx: ComptimeAllocIndex) *ComptimeAlloc {
+    return &sema.comptime_allocs.items[@intFromEnum(idx)];
+}
 
 const std = @import("std");
 const math = std.math;
@@ -164,6 +194,7 @@ const build_options = @import("build_options");
 const Compilation = @import("Compilation.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
+const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
@@ -787,40 +818,6 @@ pub const Block = struct {
         const zcu = block.sema.mod;
         return zcu.namespacePtr(block.namespace).file_scope.mod;
     }
-
-    pub fn startAnonDecl(block: *Block) !WipAnonDecl {
-        return WipAnonDecl{
-            .block = block,
-            .finished = false,
-        };
-    }
-
-    pub const WipAnonDecl = struct {
-        block: *Block,
-        finished: bool,
-
-        pub fn deinit(wad: *WipAnonDecl) void {
-            wad.* = undefined;
-        }
-
-        /// `alignment` value of 0 means to use ABI alignment.
-        pub fn finish(wad: *WipAnonDecl, ty: Type, val: Value, alignment: Alignment) !InternPool.DeclIndex {
-            const sema = wad.block.sema;
-            // Do this ahead of time because `createAnonymousDecl` depends on calling
-            // `type.hasRuntimeBits()`.
-            _ = try sema.typeHasRuntimeBits(ty);
-            const new_decl_index = try sema.mod.createAnonymousDecl(wad.block, .{
-                .ty = ty,
-                .val = val,
-            });
-            const new_decl = sema.mod.declPtr(new_decl_index);
-            new_decl.alignment = alignment;
-            errdefer sema.mod.abortAnonDecl(new_decl_index);
-            wad.finished = true;
-            try sema.mod.finalizeAnonDecl(new_decl_index);
-            return new_decl_index;
-        }
-    };
 };
 
 const LabeledBlock = struct {
@@ -869,6 +866,7 @@ pub fn deinit(sema: *Sema) void {
     sema.unresolved_inferred_allocs.deinit(gpa);
     sema.base_allocs.deinit(gpa);
     sema.maybe_comptime_allocs.deinit(gpa);
+    sema.comptime_allocs.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -1901,7 +1899,7 @@ pub fn resolveConstStringIntern(
     const wanted_type = Type.slice_const_u8;
     const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
     const val = try sema.resolveConstDefinedValue(block, src, coerced_inst, reason);
-    return val.toIpString(wanted_type, sema.mod);
+    return sema.sliceToIpString(block, src, val, reason);
 }
 
 pub fn resolveType(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) !Type {
@@ -2140,7 +2138,7 @@ fn resolveValueResolveLazy(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value 
 fn resolveValueIntable(sema: *Sema, inst: Air.Inst.Ref) CompileError!?Value {
     const val = (try sema.resolveValue(inst)) orelse return null;
     if (sema.mod.intern_pool.getBackingAddrTag(val.toIntern())) |addr| switch (addr) {
-        .decl, .anon_decl, .mut_decl, .comptime_field => return null,
+        .decl, .anon_decl, .comptime_alloc, .comptime_field => return null,
         .int => {},
         .eu_payload, .opt_payload, .elem, .field => unreachable,
     };
@@ -2192,17 +2190,21 @@ fn resolveInstConst(
 }
 
 /// Value Tag may be `undef` or `variable`.
-pub fn resolveConstValueAllowVariables(
+pub fn resolveFinalDeclValue(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
-    reason: NeededComptimeReason,
 ) CompileError!TypedValue {
     const val = try sema.resolveValueAllowVariables(air_ref) orelse {
-        return sema.failWithNeededComptime(block, src, reason);
+        return sema.failWithNeededComptime(block, src, .{
+            .needed_comptime_reason = "global variable initializer must be comptime-known",
+        });
     };
     if (val.isGenericPoison()) return error.GenericPoison;
+    if (val.canMutateComptimeVarState(sema.mod)) {
+        return sema.fail(block, src, "global variable contains reference to comptime var", .{});
+    }
     return .{
         .ty = sema.typeOf(air_ref),
         .val = val,
@@ -2671,7 +2673,7 @@ fn analyzeAsInt(
 
 /// Given a ZIR extra index which points to a list of `Zir.Inst.Capture`,
 /// resolves this into a list of `InternPool.CaptureValue` allocated by `arena`.
-fn getCaptures(sema: *Sema, block: *Block, extra_index: usize, captures_len: u32) ![]InternPool.CaptureValue {
+fn getCaptures(sema: *Sema, block: *Block, type_src: LazySrcLoc, extra_index: usize, captures_len: u32) ![]InternPool.CaptureValue {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
     const parent_captures: InternPool.CaptureValue.Slice = zcu.namespacePtr(block.namespace).getType(zcu).getCaptures(zcu);
@@ -2682,9 +2684,29 @@ fn getCaptures(sema: *Sema, block: *Block, extra_index: usize, captures_len: u32
         const zir_capture: Zir.Inst.Capture = @bitCast(raw);
         capture.* = switch (zir_capture.unwrap()) {
             .nested => |parent_idx| parent_captures.get(ip)[parent_idx],
+            .instruction_load => |ptr_inst| InternPool.CaptureValue.wrap(capture: {
+                const ptr_ref = try sema.resolveInst(ptr_inst.toRef());
+                const ptr_val = try sema.resolveValue(ptr_ref) orelse {
+                    break :capture .{ .runtime = sema.typeOf(ptr_ref).childType(zcu).toIntern() };
+                };
+                // TODO: better source location
+                const unresolved_loaded_val = try sema.pointerDeref(block, type_src, ptr_val, sema.typeOf(ptr_ref)) orelse {
+                    break :capture .{ .runtime = sema.typeOf(ptr_ref).childType(zcu).toIntern() };
+                };
+                const loaded_val = try sema.resolveLazyValue(unresolved_loaded_val);
+                if (loaded_val.canMutateComptimeVarState(zcu)) {
+                    // TODO: source location of captured value
+                    return sema.fail(block, type_src, "type capture contains reference to comptime var", .{});
+                }
+                break :capture .{ .@"comptime" = loaded_val.toIntern() };
+            }),
             .instruction => |inst| InternPool.CaptureValue.wrap(capture: {
                 const air_ref = try sema.resolveInst(inst.toRef());
                 if (try sema.resolveValueResolveLazy(air_ref)) |val| {
+                    if (val.canMutateComptimeVarState(zcu)) {
+                        // TODO: source location of captured value
+                        return sema.fail(block, type_src, "type capture contains reference to comptime var", .{});
+                    }
                     break :capture .{ .@"comptime" = val.toIntern() };
                 }
                 break :capture .{ .runtime = sema.typeOf(air_ref).toIntern() };
@@ -2766,7 +2788,7 @@ fn zirStructDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, src, extra_index, captures_len);
     extra_index += captures_len;
 
     if (small.has_backing_int) {
@@ -2981,7 +3003,7 @@ fn zirEnumDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, src, extra_index, captures_len);
     extra_index += captures_len;
 
     const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -3254,7 +3276,7 @@ fn zirUnionDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, src, extra_index, captures_len);
     extra_index += captures_len;
 
     const union_init: InternPool.UnionTypeInit = .{
@@ -3358,7 +3380,7 @@ fn zirOpaqueDecl(
         break :blk decls_len;
     } else 0;
 
-    const captures = try sema.getCaptures(block, extra_index, captures_len);
+    const captures = try sema.getCaptures(block, src, extra_index, captures_len);
     extra_index += captures_len;
 
     const opaque_init: InternPool.OpaqueTypeInit = .{
@@ -3653,9 +3675,9 @@ fn zirAllocExtended(
             try sema.air_instructions.append(gpa, .{
                 .tag = .inferred_alloc_comptime,
                 .data = .{ .inferred_alloc_comptime = .{
-                    .decl_index = undefined,
                     .alignment = alignment,
                     .is_const = small.is_const,
+                    .ptr = undefined,
                 } },
             });
             return @as(Air.Inst.Index, @enumFromInt(sema.air_instructions.len - 1)).toRef();
@@ -3717,36 +3739,51 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     const ptr_info = alloc_ty.ptrInfo(mod);
     const elem_ty = Type.fromInterned(ptr_info.child);
 
-    if (try sema.resolveComptimeKnownAllocValue(block, alloc, null)) |val| {
-        const new_mut_ptr = Air.internedToRef((try mod.intern(.{ .ptr = .{
-            .ty = alloc_ty.toIntern(),
-            .addr = .{ .anon_decl = .{
-                .val = val,
-                .orig_ty = alloc_ty.toIntern(),
-            } },
-        } })));
-        return sema.makePtrConst(block, new_mut_ptr);
+    // If the alloc was created in a comptime scope, we already created a comptime alloc for it.
+    // However, if the final constructed value does not reference comptime-mutable memory, we wish
+    // to promote it to an anon decl.
+    already_ct: {
+        const ptr_val = try sema.resolveValue(alloc) orelse break :already_ct;
+
+        // If this was a comptime inferred alloc, then `storeToInferredAllocComptime`
+        // might have already done our job and created an anon decl ref.
+        switch (mod.intern_pool.indexToKey(ptr_val.toIntern())) {
+            .ptr => |ptr| switch (ptr.addr) {
+                .anon_decl => {
+                    // The comptime-ification was already done for us.
+                    // Just make sure the pointer is const.
+                    return sema.makePtrConst(block, alloc);
+                },
+                else => {},
+            },
+            else => {},
+        }
+
+        if (!sema.isComptimeMutablePtr(ptr_val)) break :already_ct;
+        const alloc_index = mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr.comptime_alloc;
+        const ct_alloc = sema.getComptimeAlloc(alloc_index);
+        const interned = try ct_alloc.val.intern(ct_alloc.ty, mod);
+        if (Value.fromInterned(interned).canMutateComptimeVarState(mod)) {
+            // Preserve the comptime alloc, just make the pointer const.
+            ct_alloc.val = Value.fromInterned(interned);
+            ct_alloc.is_const = true;
+            return sema.makePtrConst(block, alloc);
+        } else {
+            // Promote the constant to an anon decl.
+            const new_mut_ptr = Air.internedToRef(try mod.intern(.{ .ptr = .{
+                .ty = alloc_ty.toIntern(),
+                .addr = .{ .anon_decl = .{
+                    .val = interned,
+                    .orig_ty = alloc_ty.toIntern(),
+                } },
+            } }));
+            return sema.makePtrConst(block, new_mut_ptr);
+        }
     }
 
-    // If this is already a comptime-known allocation, we don't want to emit an error - the stores
-    // were already performed at comptime! Just make the pointer constant as normal.
-    implicit_ct: {
-        const ptr_val = try sema.resolveValue(alloc) orelse break :implicit_ct;
-        if (!ptr_val.isComptimeMutablePtr(mod)) {
-            // It could still be a constant pointer to a decl.
-            switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
-                .anon_decl => |anon_decl| {
-                    if (mod.intern_pool.isVariable(anon_decl.val))
-                        break :implicit_ct;
-                },
-                else => {
-                    const decl_index = ptr_val.pointerDecl(mod) orelse break :implicit_ct;
-                    const decl_val = mod.declPtr(decl_index).val.toIntern();
-                    if (mod.intern_pool.isVariable(decl_val)) break :implicit_ct;
-                },
-            }
-        }
-        return sema.makePtrConst(block, alloc);
+    // Otherwise, check if the alloc is comptime-known despite being in a runtime scope.
+    if (try sema.resolveComptimeKnownAllocPtr(block, alloc, null)) |ptr_val| {
+        return sema.makePtrConst(block, Air.internedToRef(ptr_val));
     }
 
     if (try sema.typeRequiresComptime(elem_ty)) {
@@ -3762,7 +3799,7 @@ fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
 
 /// If `alloc` is an inferred allocation, `resolved_inferred_ty` is taken to be its resolved
 /// type. Otherwise, it may be `null`, and the type will be inferred from `alloc`.
-fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Ref, resolved_alloc_ty: ?Type) CompileError!?InternPool.Index {
+fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref, resolved_alloc_ty: ?Type) CompileError!?InternPool.Index {
     const mod = sema.mod;
 
     const alloc_ty = resolved_alloc_ty orelse sema.typeOf(alloc);
@@ -3771,7 +3808,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
 
     const alloc_inst = alloc.toIndex() orelse return null;
     const comptime_info = sema.maybe_comptime_allocs.fetchRemove(alloc_inst) orelse return null;
-    const stores = comptime_info.value.stores.items;
+    const stores = comptime_info.value.stores.items(.inst);
 
     // Since the entry existed in `maybe_comptime_allocs`, the allocation is comptime-known.
     // We will resolve and return its value.
@@ -3779,7 +3816,7 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
     // We expect to have emitted at least one store, unless the elem type is OPV.
     if (stores.len == 0) {
         const val = (try sema.typeHasOnePossibleValue(elem_ty)).?.toIntern();
-        return sema.finishResolveComptimeKnownAllocValue(val, alloc_inst, comptime_info.value);
+        return sema.finishResolveComptimeKnownAllocPtr(block, alloc_ty, val, null, alloc_inst, comptime_info.value);
     }
 
     // In general, we want to create a comptime alloc of the correct type and
@@ -3794,28 +3831,23 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
 
         const val = store_data.rhs.toInterned().?;
         assert(mod.intern_pool.typeOf(val) == elem_ty.toIntern());
-        return sema.finishResolveComptimeKnownAllocValue(val, alloc_inst, comptime_info.value);
+        return sema.finishResolveComptimeKnownAllocPtr(block, alloc_ty, val, null, alloc_inst, comptime_info.value);
     }
 
     // The simple strategy failed: we must create a mutable comptime alloc and
     // perform all of the runtime store operations at comptime.
 
-    var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
-    defer anon_decl.deinit();
-    const decl_index = try anon_decl.finish(elem_ty, try mod.undefValue(elem_ty), ptr_info.flags.alignment);
+    const ct_alloc = try sema.newComptimeAlloc(block, elem_ty, ptr_info.flags.alignment);
 
-    const decl_ptr = try mod.intern(.{ .ptr = .{
+    const alloc_ptr = try mod.intern(.{ .ptr = .{
         .ty = alloc_ty.toIntern(),
-        .addr = .{ .mut_decl = .{
-            .decl = decl_index,
-            .runtime_index = block.runtime_index,
-        } },
+        .addr = .{ .comptime_alloc = ct_alloc },
     } });
 
-    // Maps from pointers into the runtime allocs, to comptime-mutable pointers into the mut decl.
+    // Maps from pointers into the runtime allocs, to comptime-mutable pointers into the comptime alloc
     var ptr_mapping = std.AutoHashMap(Air.Inst.Index, InternPool.Index).init(sema.arena);
     try ptr_mapping.ensureTotalCapacity(@intCast(stores.len));
-    ptr_mapping.putAssumeCapacity(alloc_inst, decl_ptr);
+    ptr_mapping.putAssumeCapacity(alloc_inst, alloc_ptr);
 
     var to_map = try std.ArrayList(Air.Inst.Index).initCapacity(sema.arena, stores.len);
     for (stores) |store_inst| {
@@ -3953,14 +3985,27 @@ fn resolveComptimeKnownAllocValue(sema: *Sema, block: *Block, alloc: Air.Inst.Re
     }
 
     // The value is finalized - load it!
-    const val = (try sema.pointerDeref(block, .unneeded, Value.fromInterned(decl_ptr), alloc_ty)).?.toIntern();
-    return sema.finishResolveComptimeKnownAllocValue(val, alloc_inst, comptime_info.value);
+    const val = (try sema.pointerDeref(block, .unneeded, Value.fromInterned(alloc_ptr), alloc_ty)).?.toIntern();
+    return sema.finishResolveComptimeKnownAllocPtr(block, alloc_ty, val, ct_alloc, alloc_inst, comptime_info.value);
 }
 
 /// Given the resolved comptime-known value, rewrites the dead AIR to not
-/// create a runtime stack allocation.
-/// Same return type as `resolveComptimeKnownAllocValue` so we can tail call.
-fn finishResolveComptimeKnownAllocValue(sema: *Sema, result_val: InternPool.Index, alloc_inst: Air.Inst.Index, comptime_info: MaybeComptimeAlloc) CompileError!?InternPool.Index {
+/// create a runtime stack allocation. Also places the resulting value into
+/// either an anon decl ref or a comptime alloc depending on whether it
+/// references comptime-mutable memory. If `existing_comptime_alloc` is
+/// passed, it is a scratch allocation which already contains `result_val`.
+/// Same return type as `resolveComptimeKnownAllocPtr` so we can tail call.
+fn finishResolveComptimeKnownAllocPtr(
+    sema: *Sema,
+    block: *Block,
+    alloc_ty: Type,
+    result_val: InternPool.Index,
+    existing_comptime_alloc: ?ComptimeAllocIndex,
+    alloc_inst: Air.Inst.Index,
+    comptime_info: MaybeComptimeAlloc,
+) CompileError!?InternPool.Index {
+    const zcu = sema.mod;
+
     // We're almost done - we have the resolved comptime value. We just need to
     // eliminate the now-dead runtime instructions.
 
@@ -3974,14 +4019,34 @@ fn finishResolveComptimeKnownAllocValue(sema: *Sema, result_val: InternPool.Inde
     const nop_inst: Air.Inst = .{ .tag = .bitcast, .data = .{ .ty_op = .{ .ty = .u8_type, .operand = .zero_u8 } } };
 
     sema.air_instructions.set(@intFromEnum(alloc_inst), nop_inst);
-    for (comptime_info.stores.items) |store_inst| {
+    for (comptime_info.stores.items(.inst)) |store_inst| {
         sema.air_instructions.set(@intFromEnum(store_inst), nop_inst);
     }
     for (comptime_info.non_elideable_pointers.items) |ptr_inst| {
         sema.air_instructions.set(@intFromEnum(ptr_inst), nop_inst);
     }
 
-    return result_val;
+    if (Value.fromInterned(result_val).canMutateComptimeVarState(zcu)) {
+        const alloc_index = existing_comptime_alloc orelse a: {
+            const idx = try sema.newComptimeAlloc(block, alloc_ty.childType(zcu), alloc_ty.ptrAlignment(zcu));
+            const alloc = sema.getComptimeAlloc(idx);
+            alloc.val = Value.fromInterned(result_val);
+            break :a idx;
+        };
+        sema.getComptimeAlloc(alloc_index).is_const = true;
+        return try zcu.intern(.{ .ptr = .{
+            .ty = alloc_ty.toIntern(),
+            .addr = .{ .comptime_alloc = alloc_index },
+        } });
+    } else {
+        return try zcu.intern(.{ .ptr = .{
+            .ty = alloc_ty.toIntern(),
+            .addr = .{ .anon_decl = .{
+                .orig_ty = alloc_ty.toIntern(),
+                .val = result_val,
+            } },
+        } });
+    }
 }
 
 fn makePtrTyConst(sema: *Sema, ptr_ty: Type) CompileError!Type {
@@ -4011,9 +4076,9 @@ fn zirAllocInferredComptime(
     try sema.air_instructions.append(gpa, .{
         .tag = .inferred_alloc_comptime,
         .data = .{ .inferred_alloc_comptime = .{
-            .decl_index = undefined,
             .alignment = .none,
             .is_const = is_const,
+            .ptr = undefined,
         } },
     });
     return @as(Air.Inst.Index, @enumFromInt(sema.air_instructions.len - 1)).toRef();
@@ -4076,9 +4141,9 @@ fn zirAllocInferred(
         try sema.air_instructions.append(gpa, .{
             .tag = .inferred_alloc_comptime,
             .data = .{ .inferred_alloc_comptime = .{
-                .decl_index = undefined,
                 .alignment = .none,
                 .is_const = is_const,
+                .ptr = undefined,
             } },
         });
         return @as(Air.Inst.Index, @enumFromInt(sema.air_instructions.len - 1)).toRef();
@@ -4092,8 +4157,10 @@ fn zirAllocInferred(
         } },
     });
     try sema.unresolved_inferred_allocs.putNoClobber(gpa, result_index, .{});
-    try sema.maybe_comptime_allocs.put(gpa, result_index, .{ .runtime_index = block.runtime_index });
-    try sema.base_allocs.put(sema.gpa, result_index, result_index);
+    if (is_const) {
+        try sema.maybe_comptime_allocs.put(gpa, result_index, .{ .runtime_index = block.runtime_index });
+        try sema.base_allocs.put(sema.gpa, result_index, result_index);
+    }
     return result_index.toRef();
 }
 
@@ -4112,38 +4179,33 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
     switch (sema.air_instructions.items(.tag)[@intFromEnum(ptr_inst)]) {
         .inferred_alloc_comptime => {
+            // The work was already done for us by `Sema.storeToInferredAllocComptime`.
+            // All we need to do is remap the pointer.
             const iac = sema.air_instructions.items(.data)[@intFromEnum(ptr_inst)].inferred_alloc_comptime;
-            const decl_index = iac.decl_index;
-
-            const decl = mod.declPtr(decl_index);
-            if (iac.is_const) _ = try decl.internValue(mod);
-            const final_elem_ty = decl.ty;
-            const final_ptr_ty = try sema.ptrType(.{
-                .child = final_elem_ty.toIntern(),
-                .flags = .{
-                    .is_const = false,
-                    .alignment = iac.alignment,
-                    .address_space = target_util.defaultAddressSpace(target, .local),
-                },
-            });
+            const resolved_ptr = iac.ptr;
 
             if (std.debug.runtime_safety) {
                 // The inferred_alloc_comptime should never be referenced again
                 sema.air_instructions.set(@intFromEnum(ptr_inst), .{ .tag = undefined, .data = undefined });
             }
 
-            try sema.maybeQueueFuncBodyAnalysis(decl_index);
-
-            const interned = try mod.intern(.{ .ptr = .{
-                .ty = final_ptr_ty.toIntern(),
-                .addr = if (!iac.is_const) .{ .mut_decl = .{
-                    .decl = decl_index,
-                    .runtime_index = block.runtime_index,
-                } } else .{ .decl = decl_index },
-            } });
+            const val = switch (mod.intern_pool.indexToKey(resolved_ptr).ptr.addr) {
+                .anon_decl => |a| a.val,
+                .comptime_alloc => |i| val: {
+                    const alloc = sema.getComptimeAlloc(i);
+                    break :val try alloc.val.intern(alloc.ty, mod);
+                },
+                else => unreachable,
+            };
+            if (mod.intern_pool.isFuncBody(val)) {
+                const ty = Type.fromInterned(mod.intern_pool.typeOf(val));
+                if (try sema.fnHasRuntimeBits(ty)) {
+                    try mod.ensureFuncBodyAnalysisQueued(val);
+                }
+            }
 
             // Remap the ZIR operand to the resolved pointer value
-            sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(interned));
+            sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(resolved_ptr));
         },
         .inferred_alloc => {
             const ia1 = sema.air_instructions.items(.data)[@intFromEnum(ptr_inst)].inferred_alloc;
@@ -4166,18 +4228,12 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
 
             if (!ia1.is_const) {
                 try sema.validateVarType(block, ty_src, final_elem_ty, false);
-            } else if (try sema.resolveComptimeKnownAllocValue(block, ptr, final_ptr_ty)) |val| {
-                const const_ptr_ty = (try sema.makePtrTyConst(final_ptr_ty)).toIntern();
-                const new_const_ptr = try mod.intern(.{ .ptr = .{
-                    .ty = const_ptr_ty,
-                    .addr = .{ .anon_decl = .{
-                        .val = val,
-                        .orig_ty = const_ptr_ty,
-                    } },
-                } });
+            } else if (try sema.resolveComptimeKnownAllocPtr(block, ptr, final_ptr_ty)) |ptr_val| {
+                const const_ptr_ty = try sema.makePtrTyConst(final_ptr_ty);
+                const new_const_ptr = try mod.getCoerced(Value.fromInterned(ptr_val), const_ptr_ty);
 
                 // Remap the ZIR oeprand to the resolved pointer value
-                sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(new_const_ptr));
+                sema.inst_map.putAssumeCapacity(inst_data.operand.toIndex().?, Air.internedToRef(new_const_ptr.toIntern()));
 
                 // Unless the block is comptime, `alloc_inferred` always produces
                 // a runtime constant. The final inferred type needs to be
@@ -4387,7 +4443,7 @@ fn optEuBasePtrInit(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, src: LazySrcL
         .Optional => base_ptr = try sema.analyzeOptionalPayloadPtr(block, src, base_ptr, false, true),
         else => break,
     };
-    try sema.checkKnownAllocPtr(ptr, base_ptr);
+    try sema.checkKnownAllocPtr(block, ptr, base_ptr);
     return base_ptr;
 }
 
@@ -4703,6 +4759,7 @@ fn validateUnionInit(
     var first_block_index = block.instructions.items.len;
     var block_index = block.instructions.items.len - 1;
     var init_val: ?Value = null;
+    var init_ref: ?Air.Inst.Ref = null;
     while (block_index > 0) : (block_index -= 1) {
         const store_inst = block.instructions.items[block_index];
         if (store_inst.toRef() == field_ptr_ref) {
@@ -4727,6 +4784,7 @@ fn validateUnionInit(
             ).?
         else
             block_index, first_block_index);
+        init_ref = bin_op.rhs;
         init_val = try sema.resolveValue(bin_op.rhs);
         break;
     }
@@ -4779,10 +4837,11 @@ fn validateUnionInit(
             .needed_comptime_reason = "initializer of comptime only union must be comptime-known",
         });
     }
+    if (init_ref) |v| try sema.validateRuntimeValue(block, field_ptr_data.src(), v);
 
     const new_tag = Air.internedToRef(tag_val.toIntern());
     const set_tag_inst = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
-    try sema.checkComptimeKnownStore(block, set_tag_inst);
+    try sema.checkComptimeKnownStore(block, set_tag_inst, init_src);
 }
 
 fn validateStructInit(
@@ -4887,6 +4946,8 @@ fn validateStructInit(
         return;
     }
 
+    var fields_allow_runtime = true;
+
     var struct_is_comptime = true;
     var first_block_index = block.instructions.items.len;
 
@@ -4957,6 +5018,7 @@ fn validateStructInit(
                     ).?
                 else
                     block_index, first_block_index);
+                if (!sema.checkRuntimeValue(bin_op.rhs)) fields_allow_runtime = false;
                 if (try sema.resolveValue(bin_op.rhs)) |val| {
                     field_values[i] = val.toIntern();
                 } else if (require_comptime) {
@@ -4994,6 +5056,11 @@ fn validateStructInit(
             continue;
         }
         field_values[i] = default_val.toIntern();
+    }
+
+    if (!struct_is_comptime and !fields_allow_runtime and root_msg == null) {
+        root_msg = try sema.errMsg(block, init_src, "runtime value contains reference to comptime var", .{});
+        try sema.errNote(block, init_src, root_msg.?, "comptime var pointers are not available at runtime", .{});
     }
 
     if (root_msg) |msg| {
@@ -5067,7 +5134,7 @@ fn validateStructInit(
             try sema.tupleFieldPtr(block, init_src, struct_ptr, field_src, @intCast(i), true)
         else
             try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(i), field_src, struct_ty, true);
-        try sema.checkKnownAllocPtr(struct_ptr, default_field_ptr);
+        try sema.checkKnownAllocPtr(block, struct_ptr, default_field_ptr);
         const init = Air.internedToRef(field_values[i]);
         try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
     }
@@ -5474,7 +5541,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
         },
         .inferred_alloc => {
             const ia = sema.unresolved_inferred_allocs.getPtr(ptr_inst).?;
-            return sema.storeToInferredAlloc(block, ptr, operand, ia);
+            return sema.storeToInferredAlloc(block, src, ptr, operand, ia);
         },
         else => unreachable,
     }
@@ -5483,6 +5550,7 @@ fn zirStoreToInferredPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
 fn storeToInferredAlloc(
     sema: *Sema,
     block: *Block,
+    src: LazySrcLoc,
     ptr: Air.Inst.Ref,
     operand: Air.Inst.Ref,
     inferred_alloc: *InferredAlloc,
@@ -5490,7 +5558,7 @@ fn storeToInferredAlloc(
     // Create a store instruction as a placeholder.  This will be replaced by a
     // proper store sequence once we know the stored type.
     const dummy_store = try block.addBinOp(.store, ptr, operand);
-    try sema.checkComptimeKnownStore(block, dummy_store);
+    try sema.checkComptimeKnownStore(block, dummy_store, src);
     // Add the stored instruction to the set we will use to resolve peer types
     // for the inferred allocation.
     try inferred_alloc.prongs.append(sema.arena, dummy_store.toIndex().?);
@@ -5503,20 +5571,38 @@ fn storeToInferredAllocComptime(
     operand: Air.Inst.Ref,
     iac: *Air.Inst.Data.InferredAllocComptime,
 ) CompileError!void {
+    const zcu = sema.mod;
     const operand_ty = sema.typeOf(operand);
     // There will be only one store_to_inferred_ptr because we are running at comptime.
-    // The alloc will turn into a Decl.
-    if (try sema.resolveValue(operand)) |operand_val| {
-        var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
-        defer anon_decl.deinit();
-        iac.decl_index = try anon_decl.finish(operand_ty, operand_val, iac.alignment);
-        try sema.comptime_mutable_decls.append(iac.decl_index);
-        return;
-    }
-
-    return sema.failWithNeededComptime(block, src, .{
-        .needed_comptime_reason = "value being stored to a comptime variable must be comptime-known",
+    // The alloc will turn into a Decl or a ComptimeAlloc.
+    const operand_val = try sema.resolveValue(operand) orelse {
+        return sema.failWithNeededComptime(block, src, .{
+            .needed_comptime_reason = "value being stored to a comptime variable must be comptime-known",
+        });
+    };
+    const alloc_ty = try sema.ptrType(.{
+        .child = operand_ty.toIntern(),
+        .flags = .{
+            .alignment = iac.alignment,
+            .is_const = iac.is_const,
+        },
     });
+    if (iac.is_const and !operand_val.canMutateComptimeVarState(zcu)) {
+        iac.ptr = try zcu.intern(.{ .ptr = .{
+            .ty = alloc_ty.toIntern(),
+            .addr = .{ .anon_decl = .{
+                .val = operand_val.toIntern(),
+                .orig_ty = alloc_ty.toIntern(),
+            } },
+        } });
+    } else {
+        const alloc_index = try sema.newComptimeAlloc(block, operand_ty, iac.alignment);
+        sema.getComptimeAlloc(alloc_index).val = operand_val;
+        iac.ptr = try zcu.intern(.{ .ptr = .{
+            .ty = alloc_ty.toIntern(),
+            .addr = .{ .comptime_alloc = alloc_index },
+        } });
+    }
 }
 
 fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -6178,6 +6264,9 @@ fn resolveAnalyzedBlock(
         };
         return sema.failWithOwnedErrorMsg(child_block, msg);
     }
+    for (merges.results.items, merges.src_locs.items) |merge_inst, merge_src| {
+        try sema.validateRuntimeValue(child_block, merge_src orelse src, merge_inst);
+    }
     const ty_inst = Air.internedToRef(resolved_ty.toIntern());
     switch (block_tag) {
         .block => {
@@ -6579,6 +6668,9 @@ fn addDbgVar(
     };
     if (try sema.typeRequiresComptime(val_ty)) return;
     if (!(try sema.typeHasRuntimeBits(val_ty))) return;
+    if (try sema.resolveValue(operand)) |operand_val| {
+        if (operand_val.canMutateComptimeVarState(mod)) return;
+    }
 
     // To ensure the lexical scoping is known to backends, this alloc must be
     // within a real runtime block. We set a flag which communicates information
@@ -7741,20 +7833,24 @@ fn analyzeCall(
                 break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, need_debug_scope);
             };
 
-            if (should_memoize and is_comptime_call) {
+            if (is_comptime_call) {
                 const result_val = try sema.resolveConstValue(block, .unneeded, result, undefined);
                 const result_interned = try result_val.intern2(sema.fn_ret_ty, mod);
 
                 // Transform ad-hoc inferred error set types into concrete error sets.
                 const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
 
+                // If the result can mutate comptime vars, we must not memoize it, as it contains
+                // a reference to `comptime_allocs` so is not stable across instances of `Sema`.
                 // TODO: check whether any external comptime memory was mutated by the
                 // comptime function call. If so, then do not memoize the call here.
-                _ = try mod.intern(.{ .memoized_call = .{
-                    .func = module_fn_index,
-                    .arg_values = memoized_arg_values,
-                    .result = result_transformed,
-                } });
+                if (should_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(mod)) {
+                    _ = try mod.intern(.{ .memoized_call = .{
+                        .func = module_fn_index,
+                        .arg_values = memoized_arg_values,
+                        .result = result_transformed,
+                    } });
+                }
 
                 break :res2 Air.internedToRef(result_transformed);
             }
@@ -7787,6 +7883,7 @@ fn analyzeCall(
             } else Type.fromInterned(InternPool.Index.var_args_param_type);
             assert(!param_ty.isGenericPoison());
             arg_out.* = try args_info.analyzeArg(sema, block, arg_idx, param_ty, func_ty_info, func);
+            try sema.validateRuntimeValue(block, args_info.argSrc(block, arg_idx), arg_out.*);
             if (sema.typeOf(arg_out.*).zigTypeTag(mod) == .NoReturn) {
                 return arg_out.*;
             }
@@ -8082,7 +8179,6 @@ fn instantiateGenericCall(
         .generic_call_decl = block.src_decl.toOptional(),
         .branch_quota = sema.branch_quota,
         .branch_count = sema.branch_count,
-        .comptime_mutable_decls = sema.comptime_mutable_decls,
         .comptime_err_ret_trace = sema.comptime_err_ret_trace,
     };
     defer child_sema.deinit();
@@ -8147,6 +8243,7 @@ fn instantiateGenericCall(
             },
         };
         const arg_ref = try args_info.analyzeArg(sema, block, arg_index, param_ty, generic_owner_ty_info, func);
+        try sema.validateRuntimeValue(block, args_info.argSrc(block, arg_index), arg_ref);
         const arg_ty = sema.typeOf(arg_ref);
         if (arg_ty.zigTypeTag(mod) == .NoReturn) {
             // This terminates argument analysis.
@@ -8859,12 +8956,12 @@ fn analyzeOptionalPayloadPtr(
 
     if (try sema.resolveDefinedValue(block, src, optional_ptr)) |ptr_val| {
         if (initializing) {
-            if (!ptr_val.isComptimeMutablePtr(mod)) {
+            if (!sema.isComptimeMutablePtr(ptr_val)) {
                 // If the pointer resulting from this function was stored at comptime,
                 // the optional non-null bit would be set that way. But in this case,
                 // we need to emit a runtime instruction to do it.
                 const opt_payload_ptr = try block.addTyOp(.optional_payload_ptr_set, child_pointer, optional_ptr);
-                try sema.checkKnownAllocPtr(optional_ptr, opt_payload_ptr);
+                try sema.checkKnownAllocPtr(block, optional_ptr, opt_payload_ptr);
             }
             return Air.internedToRef((try mod.intern(.{ .ptr = .{
                 .ty = child_pointer.toIntern(),
@@ -8891,7 +8988,7 @@ fn analyzeOptionalPayloadPtr(
 
     if (initializing) {
         const opt_payload_ptr = try block.addTyOp(.optional_payload_ptr_set, child_pointer, optional_ptr);
-        try sema.checkKnownAllocPtr(optional_ptr, opt_payload_ptr);
+        try sema.checkKnownAllocPtr(block, optional_ptr, opt_payload_ptr);
         return opt_payload_ptr;
     } else {
         return block.addTyOp(.optional_payload_ptr, child_pointer, optional_ptr);
@@ -9050,13 +9147,13 @@ fn analyzeErrUnionPayloadPtr(
 
     if (try sema.resolveDefinedValue(block, src, operand)) |ptr_val| {
         if (initializing) {
-            if (!ptr_val.isComptimeMutablePtr(mod)) {
+            if (!sema.isComptimeMutablePtr(ptr_val)) {
                 // If the pointer resulting from this function was stored at comptime,
                 // the error union error code would be set that way. But in this case,
                 // we need to emit a runtime instruction to do it.
                 try sema.requireRuntimeBlock(block, src, null);
                 const eu_payload_ptr = try block.addTyOp(.errunion_payload_ptr_set, operand_pointer_ty, operand);
-                try sema.checkKnownAllocPtr(operand, eu_payload_ptr);
+                try sema.checkKnownAllocPtr(block, operand, eu_payload_ptr);
             }
             return Air.internedToRef((try mod.intern(.{ .ptr = .{
                 .ty = operand_pointer_ty.toIntern(),
@@ -9085,7 +9182,7 @@ fn analyzeErrUnionPayloadPtr(
 
     if (initializing) {
         const eu_payload_ptr = try block.addTyOp(.errunion_payload_ptr_set, operand_pointer_ty, operand);
-        try sema.checkKnownAllocPtr(operand, eu_payload_ptr);
+        try sema.checkKnownAllocPtr(block, operand, eu_payload_ptr);
         return eu_payload_ptr;
     } else {
         return block.addTyOp(.unwrap_errunion_payload_ptr, operand_pointer_ty, operand);
@@ -10089,6 +10186,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         } }));
     }
     try sema.requireRuntimeBlock(block, inst_data.src(), ptr_src);
+    try sema.validateRuntimeValue(block, ptr_src, operand);
     if (!is_vector) {
         return block.addUnOp(.int_from_ptr, operand);
     }
@@ -14743,7 +14841,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // Optimization for the common pattern of a single element repeated N times, such
             // as zero-filling a byte array.
             if (lhs_len == 1 and lhs_info.sentinel == null) {
-                const elem_val = try lhs_sub_val.elemValue(mod, 0);
+                const elem_val = (try lhs_sub_val.maybeElemValueFull(sema, mod, 0)).?;
                 break :v try mod.intern(.{ .aggregate = .{
                     .ty = result_ty.toIntern(),
                     .storage = .{ .repeated_elem = elem_val.toIntern() },
@@ -14755,7 +14853,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             while (elem_i < result_len) {
                 var lhs_i: usize = 0;
                 while (lhs_i < lhs_len) : (lhs_i += 1) {
-                    const elem_val = try lhs_sub_val.elemValue(mod, lhs_i);
+                    const elem_val = (try lhs_sub_val.maybeElemValueFull(sema, mod, lhs_i)).?;
                     element_vals[elem_i] = elem_val.toIntern();
                     elem_i += 1;
                 }
@@ -19585,6 +19683,8 @@ fn analyzeRet(
 
     try sema.resolveTypeLayout(sema.fn_ret_ty);
 
+    try sema.validateRuntimeValue(block, operand_src, operand);
+
     const air_tag: Air.Inst.Tag = if (block.wantSafety()) .ret_safe else .ret;
     if (sema.wantErrorReturnTracing(sema.fn_ret_ty)) {
         // Avoid adding a frame to the error return trace in case the value is comptime-known
@@ -20013,6 +20113,8 @@ fn zirStructInit(
             });
         }
 
+        try sema.validateRuntimeValue(block, field_src, init_inst);
+
         if (is_ref) {
             const target = mod.getTarget();
             const alloc_ty = try sema.ptrType(.{
@@ -20185,6 +20287,10 @@ fn finishStructInit(
         return sema.failWithNeededComptime(block, field_src, .{
             .needed_comptime_reason = "initializer of comptime only struct must be comptime-known",
         });
+    }
+
+    for (field_inits) |field_init| {
+        try sema.validateRuntimeValue(block, dest_src, field_init);
     }
 
     if (is_ref) {
@@ -21023,7 +21129,7 @@ fn zirReify(
         .needed_comptime_reason = "operand to @Type must be comptime-known",
     });
     const union_val = ip.indexToKey(val.toIntern()).un;
-    if (try Value.fromInterned(union_val.val).anyUndef(mod)) return sema.failWithUseOfUndef(block, src);
+    if (try sema.anyUndef(Value.fromInterned(union_val.val))) return sema.failWithUseOfUndef(block, src);
     const tag_index = type_info_ty.unionTagFieldIndex(Value.fromInterned(union_val.tag), mod).?;
     switch (@as(std.builtin.TypeId, @enumFromInt(tag_index))) {
         .Type => return .type_type,
@@ -21268,14 +21374,16 @@ fn zirReify(
             var names: InferredErrorSet.NameMap = .{};
             try names.ensureUnusedCapacity(sema.arena, len);
             for (0..len) |i| {
-                const elem_val = try payload_val.elemValue(mod, i);
+                const elem_val = (try payload_val.maybeElemValueFull(sema, mod, i)).?;
                 const elem_struct_type = ip.loadStructType(ip.typeOf(elem_val.toIntern()));
                 const name_val = try elem_val.fieldValue(mod, elem_struct_type.nameIndex(
                     ip,
                     try ip.getOrPutString(gpa, "name"),
                 ).?);
 
-                const name = try name_val.toIpString(Type.slice_const_u8, mod);
+                const name = try sema.sliceToIpString(block, src, name_val, .{
+                    .needed_comptime_reason = "error set contents must be comptime-known",
+                });
                 _ = try mod.getErrorValue(name);
                 const gop = names.getOrPutAssumeCapacity(name);
                 if (gop.found_existing) {
@@ -21451,7 +21559,7 @@ fn zirReify(
 
             var noalias_bits: u32 = 0;
             for (param_types, 0..) |*param_type, i| {
-                const elem_val = try params_val.elemValue(mod, i);
+                const elem_val = (try params_val.maybeElemValueFull(sema, mod, i)).?;
                 const elem_struct_type = ip.loadStructType(ip.typeOf(elem_val.toIntern()));
                 const param_is_generic_val = try elem_val.fieldValue(mod, elem_struct_type.nameIndex(
                     ip,
@@ -21526,12 +21634,14 @@ fn reifyEnum(
     std.hash.autoHash(&hasher, fields_len);
 
     for (0..fields_len) |field_idx| {
-        const field_info = try fields_val.elemValue(mod, field_idx);
+        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_value_val = try sema.resolveLazyValue(try field_info.fieldValue(mod, 1));
 
-        const field_name = try field_name_val.toIpString(Type.slice_const_u8, mod);
+        const field_name = try sema.sliceToIpString(block, src, field_name_val, .{
+            .needed_comptime_reason = "enum field name must be comptime-known",
+        });
 
         std.hash.autoHash(&hasher, .{
             field_name,
@@ -21569,12 +21679,13 @@ fn reifyEnum(
     wip_ty.setTagTy(ip, tag_ty.toIntern());
 
     for (0..fields_len) |field_idx| {
-        const field_info = try fields_val.elemValue(mod, field_idx);
+        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_value_val = try sema.resolveLazyValue(try field_info.fieldValue(mod, 1));
 
-        const field_name = try field_name_val.toIpString(Type.slice_const_u8, mod);
+        // Don't pass a reason; first loop acts as an assertion that this is valid.
+        const field_name = try sema.sliceToIpString(block, src, field_name_val, undefined);
 
         if (!try sema.intFitsInType(field_value_val, tag_ty, null)) {
             // TODO: better source location
@@ -21646,13 +21757,15 @@ fn reifyUnion(
     var any_aligns = false;
 
     for (0..fields_len) |field_idx| {
-        const field_info = try fields_val.elemValue(mod, field_idx);
+        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_type_val = try field_info.fieldValue(mod, 1);
         const field_align_val = try sema.resolveLazyValue(try field_info.fieldValue(mod, 2));
 
-        const field_name = try field_name_val.toIpString(Type.slice_const_u8, mod);
+        const field_name = try sema.sliceToIpString(block, src, field_name_val, .{
+            .needed_comptime_reason = "union field name must be comptime-known",
+        });
 
         std.hash.autoHash(&hasher, .{
             field_name,
@@ -21720,12 +21833,13 @@ fn reifyUnion(
         var seen_tags = try std.DynamicBitSetUnmanaged.initEmpty(sema.arena, tag_ty_fields_len);
 
         for (field_types, 0..) |*field_ty, field_idx| {
-            const field_info = try fields_val.elemValue(mod, field_idx);
+            const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
 
             const field_name_val = try field_info.fieldValue(mod, 0);
             const field_type_val = try field_info.fieldValue(mod, 1);
 
-            const field_name = try field_name_val.toIpString(Type.slice_const_u8, mod);
+            // Don't pass a reason; first loop acts as an assertion that this is valid.
+            const field_name = try sema.sliceToIpString(block, src, field_name_val, undefined);
 
             const enum_index = enum_tag_ty.enumFieldIndex(field_name, mod) orelse {
                 // TODO: better source location
@@ -21771,12 +21885,13 @@ fn reifyUnion(
         try field_names.ensureTotalCapacity(sema.arena, fields_len);
 
         for (field_types, 0..) |*field_ty, field_idx| {
-            const field_info = try fields_val.elemValue(mod, field_idx);
+            const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
 
             const field_name_val = try field_info.fieldValue(mod, 0);
             const field_type_val = try field_info.fieldValue(mod, 1);
 
-            const field_name = try field_name_val.toIpString(Type.slice_const_u8, mod);
+            // Don't pass a reason; first loop acts as an assertion that this is valid.
+            const field_name = try sema.sliceToIpString(block, src, field_name_val, undefined);
             const gop = field_names.getOrPutAssumeCapacity(field_name);
             if (gop.found_existing) {
                 // TODO: better source location
@@ -21883,7 +21998,7 @@ fn reifyStruct(
     var any_aligned_fields = false;
 
     for (0..fields_len) |field_idx| {
-        const field_info = try fields_val.elemValue(mod, field_idx);
+        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_type_val = try field_info.fieldValue(mod, 1);
@@ -21891,7 +22006,9 @@ fn reifyStruct(
         const field_is_comptime_val = try field_info.fieldValue(mod, 3);
         const field_alignment_val = try sema.resolveLazyValue(try field_info.fieldValue(mod, 4));
 
-        const field_name = try field_name_val.toIpString(Type.slice_const_u8, mod);
+        const field_name = try sema.sliceToIpString(block, src, field_name_val, .{
+            .needed_comptime_reason = "struct field name must be comptime-known",
+        });
         const field_is_comptime = field_is_comptime_val.toBool();
         const field_default_value: InternPool.Index = if (field_default_value_val.optionalValue(mod)) |ptr_val| d: {
             const ptr_ty = try mod.singleConstPtrType(field_type_val.toType());
@@ -21959,7 +22076,7 @@ fn reifyStruct(
     const struct_type = ip.loadStructType(wip_ty.index);
 
     for (0..fields_len) |field_idx| {
-        const field_info = try fields_val.elemValue(mod, field_idx);
+        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_type_val = try field_info.fieldValue(mod, 1);
@@ -21968,7 +22085,8 @@ fn reifyStruct(
         const field_alignment_val = try field_info.fieldValue(mod, 4);
 
         const field_ty = field_type_val.toType();
-        const field_name = try field_name_val.toIpString(Type.slice_const_u8, mod);
+        // Don't pass a reason; first loop acts as an assertion that this is valid.
+        const field_name = try sema.sliceToIpString(block, src, field_name_val, undefined);
         if (is_tuple) {
             const field_name_index = field_name.toUnsigned(ip) orelse return sema.fail(
                 block,
@@ -22914,6 +23032,7 @@ fn ptrCastFull(
     }
 
     try sema.requireRuntimeBlock(block, src, null);
+    try sema.validateRuntimeValue(block, operand_src, ptr);
 
     if (block.wantSafety() and operand_ty.ptrAllowsZero(mod) and !dest_ty.ptrAllowsZero(mod) and
         (try sema.typeHasRuntimeBits(Type.fromInterned(dest_info.child)) or Type.fromInterned(dest_info.child).zigTypeTag(mod) == .Fn))
@@ -22986,7 +23105,7 @@ fn ptrCastFull(
         });
     } else {
         assert(dest_ptr_ty.eql(dest_ty, mod));
-        try sema.checkKnownAllocPtr(operand, result_ptr);
+        try sema.checkKnownAllocPtr(block, operand, result_ptr);
         return result_ptr;
     }
 }
@@ -23022,7 +23141,7 @@ fn zirPtrCastNoDest(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
 
     try sema.requireRuntimeBlock(block, src, null);
     const new_ptr = try block.addBitCast(dest_ty, operand);
-    try sema.checkKnownAllocPtr(operand, new_ptr);
+    try sema.checkKnownAllocPtr(block, operand, new_ptr);
     return new_ptr;
 }
 
@@ -23568,7 +23687,7 @@ fn checkPtrIsNotComptimeMutable(
     operand_src: LazySrcLoc,
 ) CompileError!void {
     _ = operand_src;
-    if (ptr_val.isComptimeMutablePtr(sema.mod)) {
+    if (sema.isComptimeMutablePtr(ptr_val)) {
         return sema.fail(block, ptr_src, "cannot store runtime value in compile time variable", .{});
     }
 }
@@ -23577,9 +23696,10 @@ fn checkComptimeVarStore(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    decl_ref_mut: InternPool.Key.Ptr.Addr.MutDecl,
+    alloc_index: ComptimeAllocIndex,
 ) CompileError!void {
-    if (@intFromEnum(decl_ref_mut.runtime_index) < @intFromEnum(block.runtime_index)) {
+    const runtime_index = sema.getComptimeAlloc(alloc_index).runtime_index;
+    if (@intFromEnum(runtime_index) < @intFromEnum(block.runtime_index)) {
         if (block.runtime_cond) |cond_src| {
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "store to comptime variable depends on runtime condition", .{});
@@ -24433,7 +24553,7 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             try sema.checkPtrIsNotComptimeMutable(block, ptr_val, ptr_src, operand_src);
             break :rs operand_src;
         };
-        if (ptr_val.isComptimeMutablePtr(mod)) {
+        if (sema.isComptimeMutablePtr(ptr_val)) {
             const ptr_ty = sema.typeOf(ptr);
             const stored_val = (try sema.pointerDeref(block, ptr_src, ptr_val, ptr_ty)) orelse break :rs ptr_src;
             const new_val = switch (op) {
@@ -25149,7 +25269,7 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     }
 
     const runtime_src = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |dest_ptr_val| rs: {
-        if (!dest_ptr_val.isComptimeMutablePtr(mod)) break :rs dest_src;
+        if (!sema.isComptimeMutablePtr(dest_ptr_val)) break :rs dest_src;
         if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |_| {
             const len_u64 = (try len_val.?.getUnsignedIntAdvanced(mod, sema)).?;
             const len = try sema.usizeCast(block, dest_src, len_u64);
@@ -25342,7 +25462,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             return;
         }
 
-        if (!ptr_val.isComptimeMutablePtr(mod)) break :rs dest_src;
+        if (!sema.isComptimeMutablePtr(ptr_val)) break :rs dest_src;
         const elem_val = try sema.resolveValue(elem) orelse break :rs value_src;
         const array_ty = try mod.arrayType(.{
             .child = dest_elem_ty.toIntern(),
@@ -25588,7 +25708,9 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         if (val.isGenericPoison()) {
             break :blk .generic;
         }
-        break :blk .{ .explicit = try val.toIpString(ty, mod) };
+        break :blk .{ .explicit = try sema.sliceToIpString(block, section_src, val, .{
+            .needed_comptime_reason = "linksection must be comptime-known",
+        }) };
     } else if (extra.data.bits.has_section_ref) blk: {
         const section_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
@@ -27115,7 +27237,7 @@ fn fieldPtr(
                 try sema.requireRuntimeBlock(block, src, null);
 
                 const field_ptr = try block.addTyOp(.ptr_slice_ptr_ptr, result_ty, inner_ptr);
-                try sema.checkKnownAllocPtr(inner_ptr, field_ptr);
+                try sema.checkKnownAllocPtr(block, inner_ptr, field_ptr);
                 return field_ptr;
             } else if (ip.stringEqlSlice(field_name, "len")) {
                 const result_ty = try sema.ptrType(.{
@@ -27139,7 +27261,7 @@ fn fieldPtr(
                 try sema.requireRuntimeBlock(block, src, null);
 
                 const field_ptr = try block.addTyOp(.ptr_slice_len_ptr, result_ty, inner_ptr);
-                try sema.checkKnownAllocPtr(inner_ptr, field_ptr);
+                try sema.checkKnownAllocPtr(block, inner_ptr, field_ptr);
                 return field_ptr;
             } else {
                 return sema.fail(
@@ -27238,7 +27360,7 @@ fn fieldPtr(
             else
                 object_ptr;
             const field_ptr = try sema.structFieldPtr(block, src, inner_ptr, field_name, field_name_src, inner_ty, initializing);
-            try sema.checkKnownAllocPtr(inner_ptr, field_ptr);
+            try sema.checkKnownAllocPtr(block, inner_ptr, field_ptr);
             return field_ptr;
         },
         .Union => {
@@ -27247,7 +27369,7 @@ fn fieldPtr(
             else
                 object_ptr;
             const field_ptr = try sema.unionFieldPtr(block, src, inner_ptr, field_name, field_name_src, inner_ty, initializing);
-            try sema.checkKnownAllocPtr(inner_ptr, field_ptr);
+            try sema.checkKnownAllocPtr(block, inner_ptr, field_ptr);
             return field_ptr;
         },
         else => {},
@@ -28030,7 +28152,7 @@ fn elemPtr(
         },
     };
 
-    try sema.checkKnownAllocPtr(indexable_ptr, elem_ptr);
+    try sema.checkKnownAllocPtr(block, indexable_ptr, elem_ptr);
     return elem_ptr;
 }
 
@@ -28083,7 +28205,7 @@ fn elemPtrOneLayerOnly(
                 },
                 else => unreachable, // Guaranteed by checkIndexable
             };
-            try sema.checkKnownAllocPtr(indexable, elem_ptr);
+            try sema.checkKnownAllocPtr(block, indexable, elem_ptr);
             return elem_ptr;
         },
     }
@@ -28617,7 +28739,7 @@ fn coerceExtra(
         try sema.requireRuntimeBlock(block, inst_src, null);
         try sema.queueFullTypeResolution(dest_ty);
         const new_val = try block.addBitCast(dest_ty, inst);
-        try sema.checkKnownAllocPtr(inst, new_val);
+        try sema.checkKnownAllocPtr(block, inst, new_val);
         return new_val;
     }
 
@@ -30349,7 +30471,7 @@ fn storePtr2(
             try sema.checkPtrIsNotComptimeMutable(block, ptr_val, ptr_src, operand_src);
             break :rs operand_src;
         };
-        if (ptr_val.isComptimeMutablePtr(mod)) {
+        if (sema.isComptimeMutablePtr(ptr_val)) {
             try sema.storePtrVal(block, src, ptr_val, operand_val, elem_ty);
             return;
         } else break :rs ptr_src;
@@ -30392,7 +30514,7 @@ fn storePtr2(
     else
         try block.addBinOp(air_tag, ptr, operand);
 
-    try sema.checkComptimeKnownStore(block, store_inst);
+    try sema.checkComptimeKnownStore(block, store_inst, operand_src);
 
     return;
 }
@@ -30400,29 +30522,39 @@ fn storePtr2(
 /// Given an AIR store instruction, checks whether we are performing a
 /// comptime-known store to a local alloc, and updates `maybe_comptime_allocs`
 /// accordingly.
-fn checkComptimeKnownStore(sema: *Sema, block: *Block, store_inst_ref: Air.Inst.Ref) !void {
+/// Handles calling `validateRuntimeValue` if the store is runtime for any reason.
+fn checkComptimeKnownStore(sema: *Sema, block: *Block, store_inst_ref: Air.Inst.Ref, store_src: LazySrcLoc) !void {
     const store_inst = store_inst_ref.toIndex().?;
     const inst_data = sema.air_instructions.items(.data)[@intFromEnum(store_inst)].bin_op;
     const ptr = inst_data.lhs.toIndex() orelse return;
     const operand = inst_data.rhs;
 
-    const maybe_base_alloc = sema.base_allocs.get(ptr) orelse return;
-    const maybe_comptime_alloc = sema.maybe_comptime_allocs.getPtr(maybe_base_alloc) orelse return;
+    known: {
+        const maybe_base_alloc = sema.base_allocs.get(ptr) orelse break :known;
+        const maybe_comptime_alloc = sema.maybe_comptime_allocs.getPtr(maybe_base_alloc) orelse break :known;
 
-    ct: {
-        if (null == try sema.resolveValue(operand)) break :ct;
-        if (maybe_comptime_alloc.runtime_index != block.runtime_index) break :ct;
-        return maybe_comptime_alloc.stores.append(sema.arena, store_inst);
+        if ((try sema.resolveValue(operand)) != null and
+            block.runtime_index == maybe_comptime_alloc.runtime_index)
+        {
+            try maybe_comptime_alloc.stores.append(sema.arena, .{
+                .inst = store_inst,
+                .src_decl = block.src_decl,
+                .src = store_src,
+            });
+            return;
+        }
+
+        // We're newly discovering that this alloc is runtime-known.
+        try sema.markMaybeComptimeAllocRuntime(block, maybe_base_alloc);
     }
 
-    // Store is runtime-known
-    _ = sema.maybe_comptime_allocs.remove(maybe_base_alloc);
+    try sema.validateRuntimeValue(block, store_src, operand);
 }
 
 /// Given an AIR instruction transforming a pointer (struct_field_ptr,
 /// ptr_elem_ptr, bitcast, etc), checks whether the base pointer refers to a
 /// local alloc, and updates `base_allocs` accordingly.
-fn checkKnownAllocPtr(sema: *Sema, base_ptr: Air.Inst.Ref, new_ptr: Air.Inst.Ref) !void {
+fn checkKnownAllocPtr(sema: *Sema, block: *Block, base_ptr: Air.Inst.Ref, new_ptr: Air.Inst.Ref) !void {
     const base_ptr_inst = base_ptr.toIndex() orelse return;
     const new_ptr_inst = new_ptr.toIndex() orelse return;
     const alloc_inst = sema.base_allocs.get(base_ptr_inst) orelse return;
@@ -30442,10 +30574,31 @@ fn checkKnownAllocPtr(sema: *Sema, base_ptr: Air.Inst.Ref, new_ptr: Air.Inst.Ref
             // If the index value is runtime-known, this pointer is also runtime-known, so
             // we must in turn make the alloc value runtime-known.
             if (null == try sema.resolveValue(index_ref)) {
-                _ = sema.maybe_comptime_allocs.remove(alloc_inst);
+                try sema.markMaybeComptimeAllocRuntime(block, alloc_inst);
             }
         },
         else => {},
+    }
+}
+
+fn markMaybeComptimeAllocRuntime(sema: *Sema, block: *Block, alloc_inst: Air.Inst.Index) CompileError!void {
+    const maybe_comptime_alloc = (sema.maybe_comptime_allocs.fetchRemove(alloc_inst) orelse return).value;
+    // Since the alloc has been determined to be runtime, we must check that
+    // all other stores to it are permitted to be runtime values.
+    const mod = sema.mod;
+    const slice = maybe_comptime_alloc.stores.slice();
+    for (slice.items(.inst), slice.items(.src_decl), slice.items(.src)) |other_inst, other_src_decl, other_src| {
+        const other_data = sema.air_instructions.items(.data)[@intFromEnum(other_inst)].bin_op;
+        const other_operand = other_data.rhs;
+        if (!sema.checkRuntimeValue(other_operand)) {
+            return sema.failWithOwnedErrorMsg(block, msg: {
+                const other_src_resolved = mod.declPtr(other_src_decl).toSrcLoc(other_src, mod);
+                const msg = try Module.ErrorMsg.create(sema.gpa, other_src_resolved, "runtime value contains reference to comptime var", .{});
+                errdefer msg.destroy(sema.gpa);
+                try mod.errNoteNonLazy(other_src_resolved, msg, "comptime var pointers are not available at runtime", .{});
+                break :msg msg;
+            });
+        }
     }
 }
 
@@ -30491,13 +30644,16 @@ fn storePtrVal(
 ) !void {
     const mod = sema.mod;
     var mut_kit = try sema.beginComptimePtrMutation(block, src, ptr_val, operand_ty);
-    try sema.checkComptimeVarStore(block, src, mut_kit.mut_decl);
+    switch (mut_kit.root) {
+        .alloc => |a| try sema.checkComptimeVarStore(block, src, a),
+        .comptime_field => {},
+    }
 
     try sema.resolveTypeLayout(operand_ty);
     switch (mut_kit.pointee) {
         .opv => {},
         .direct => |val_ptr| {
-            if (mut_kit.mut_decl.runtime_index == .comptime_field_ptr) {
+            if (mut_kit.root == .comptime_field) {
                 val_ptr.* = Value.fromInterned((try val_ptr.intern(operand_ty, mod)));
                 if (!operand_val.eql(val_ptr.*, operand_ty, mod)) {
                     // TODO use failWithInvalidComptimeFieldStore
@@ -30552,7 +30708,11 @@ fn storePtrVal(
 }
 
 const ComptimePtrMutationKit = struct {
-    mut_decl: InternPool.Key.Ptr.Addr.MutDecl,
+    const Root = union(enum) {
+        alloc: ComptimeAllocIndex,
+        comptime_field,
+    };
+    root: Root,
     pointee: union(enum) {
         opv,
         /// The pointer type matches the actual comptime Value so a direct
@@ -30591,17 +30751,21 @@ fn beginComptimePtrMutation(
     const ptr = mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr;
     switch (ptr.addr) {
         .decl, .anon_decl, .int => unreachable, // isComptimeMutablePtr has been checked already
-        .mut_decl => |mut_decl| {
-            const decl = mod.declPtr(mut_decl.decl);
-            return sema.beginComptimePtrMutationInner(block, src, decl.ty, &decl.val, ptr_elem_ty, mut_decl);
+        .comptime_alloc => |alloc_index| {
+            const alloc = sema.getComptimeAlloc(alloc_index);
+            return sema.beginComptimePtrMutationInner(block, src, alloc.ty, &alloc.val, ptr_elem_ty, .{ .alloc = alloc_index });
         },
         .comptime_field => |comptime_field| {
             const duped = try sema.arena.create(Value);
             duped.* = Value.fromInterned(comptime_field);
-            return sema.beginComptimePtrMutationInner(block, src, Type.fromInterned(mod.intern_pool.typeOf(comptime_field)), duped, ptr_elem_ty, .{
-                .decl = undefined,
-                .runtime_index = .comptime_field_ptr,
-            });
+            return sema.beginComptimePtrMutationInner(
+                block,
+                src,
+                Type.fromInterned(mod.intern_pool.typeOf(comptime_field)),
+                duped,
+                ptr_elem_ty,
+                .comptime_field,
+            );
         },
         .eu_payload => |eu_ptr| {
             const eu_ty = Type.fromInterned(mod.intern_pool.typeOf(eu_ptr)).childType(mod);
@@ -30612,7 +30776,7 @@ fn beginComptimePtrMutation(
                     const payload_ty = parent.ty.errorUnionPayload(mod);
                     if (val_ptr.ip_index == .none and val_ptr.tag() == .eu_payload) {
                         return ComptimePtrMutationKit{
-                            .mut_decl = parent.mut_decl,
+                            .root = parent.root,
                             .pointee = .{ .direct = &val_ptr.castTag(.eu_payload).?.data },
                             .ty = payload_ty,
                         };
@@ -30630,7 +30794,7 @@ fn beginComptimePtrMutation(
                         val_ptr.* = Value.initPayload(&payload.base);
 
                         return ComptimePtrMutationKit{
-                            .mut_decl = parent.mut_decl,
+                            .root = parent.root,
                             .pointee = .{ .direct = &payload.data },
                             .ty = payload_ty,
                         };
@@ -30640,7 +30804,7 @@ fn beginComptimePtrMutation(
                 // Even though the parent value type has well-defined memory layout, our
                 // pointer type does not.
                 .reinterpret => return ComptimePtrMutationKit{
-                    .mut_decl = parent.mut_decl,
+                    .root = parent.root,
                     .pointee = .bad_ptr_ty,
                     .ty = eu_ty,
                 },
@@ -30655,7 +30819,7 @@ fn beginComptimePtrMutation(
                     const payload_ty = parent.ty.optionalChild(mod);
                     switch (val_ptr.ip_index) {
                         .none => return ComptimePtrMutationKit{
-                            .mut_decl = parent.mut_decl,
+                            .root = parent.root,
                             .pointee = .{ .direct = &val_ptr.castTag(.opt_payload).?.data },
                             .ty = payload_ty,
                         },
@@ -30682,7 +30846,7 @@ fn beginComptimePtrMutation(
                             val_ptr.* = Value.initPayload(&payload.base);
 
                             return ComptimePtrMutationKit{
-                                .mut_decl = parent.mut_decl,
+                                .root = parent.root,
                                 .pointee = .{ .direct = &payload.data },
                                 .ty = payload_ty,
                             };
@@ -30693,7 +30857,7 @@ fn beginComptimePtrMutation(
                 // Even though the parent value type has well-defined memory layout, our
                 // pointer type does not.
                 .reinterpret => return ComptimePtrMutationKit{
-                    .mut_decl = parent.mut_decl,
+                    .root = parent.root,
                     .pointee = .bad_ptr_ty,
                     .ty = opt_ty,
                 },
@@ -30717,7 +30881,7 @@ fn beginComptimePtrMutation(
                                 });
                             }
                             return .{
-                                .mut_decl = parent.mut_decl,
+                                .root = parent.root,
                                 .pointee = .opv,
                                 .ty = elem_ty,
                             };
@@ -30742,7 +30906,7 @@ fn beginComptimePtrMutation(
                             const elem_abi_size = try sema.usizeCast(block, src, elem_abi_size_u64);
                             const elem_idx = try sema.usizeCast(block, src, elem_ptr.index);
                             return .{
-                                .mut_decl = parent.mut_decl,
+                                .root = parent.root,
                                 .pointee = .{ .reinterpret = .{
                                     .val_ptr = val_ptr,
                                     .byte_offset = elem_abi_size * elem_idx,
@@ -30759,7 +30923,7 @@ fn beginComptimePtrMutation(
                                     // If we wanted to avoid this, there would need to be special detection
                                     // elsewhere to identify when writing a value to an array element that is stored
                                     // using the `bytes` tag, and handle it without making a call to this function.
-                                    const arena = mod.tmp_hack_arena.allocator();
+                                    const arena = sema.arena;
 
                                     const bytes = val_ptr.castTag(.bytes).?.data;
                                     const dest_len = parent.ty.arrayLenIncludingSentinel(mod);
@@ -30780,7 +30944,7 @@ fn beginComptimePtrMutation(
                                         elem_ty,
                                         &elems[@intCast(elem_ptr.index)],
                                         ptr_elem_ty,
-                                        parent.mut_decl,
+                                        parent.root,
                                     );
                                 },
                                 .repeated => {
@@ -30791,7 +30955,7 @@ fn beginComptimePtrMutation(
                                     // need to be special detection elsewhere to identify when writing a value to an
                                     // array element that is stored using the `repeated` tag, and handle it
                                     // without making a call to this function.
-                                    const arena = mod.tmp_hack_arena.allocator();
+                                    const arena = sema.arena;
 
                                     const repeated_val = try val_ptr.castTag(.repeated).?.data.intern(parent.ty.childType(mod), mod);
                                     const array_len_including_sentinel =
@@ -30808,7 +30972,7 @@ fn beginComptimePtrMutation(
                                         elem_ty,
                                         &elems[@intCast(elem_ptr.index)],
                                         ptr_elem_ty,
-                                        parent.mut_decl,
+                                        parent.root,
                                     );
                                 },
 
@@ -30819,7 +30983,7 @@ fn beginComptimePtrMutation(
                                     elem_ty,
                                     &val_ptr.castTag(.aggregate).?.data[@intCast(elem_ptr.index)],
                                     ptr_elem_ty,
-                                    parent.mut_decl,
+                                    parent.root,
                                 ),
 
                                 else => unreachable,
@@ -30829,7 +30993,7 @@ fn beginComptimePtrMutation(
                                     // An array has been initialized to undefined at comptime and now we
                                     // are for the first time setting an element. We must change the representation
                                     // of the array from `undef` to `array`.
-                                    const arena = mod.tmp_hack_arena.allocator();
+                                    const arena = sema.arena;
 
                                     const array_len_including_sentinel =
                                         try sema.usizeCast(block, src, parent.ty.arrayLenIncludingSentinel(mod));
@@ -30845,7 +31009,7 @@ fn beginComptimePtrMutation(
                                         elem_ty,
                                         &elems[@intCast(elem_ptr.index)],
                                         ptr_elem_ty,
-                                        parent.mut_decl,
+                                        parent.root,
                                     );
                                 },
                                 else => unreachable,
@@ -30866,7 +31030,7 @@ fn beginComptimePtrMutation(
                             parent.ty,
                             val_ptr,
                             ptr_elem_ty,
-                            parent.mut_decl,
+                            parent.root,
                         );
                     },
                 },
@@ -30875,7 +31039,7 @@ fn beginComptimePtrMutation(
                         // Even though the parent value type has well-defined memory layout, our
                         // pointer type does not.
                         return ComptimePtrMutationKit{
-                            .mut_decl = parent.mut_decl,
+                            .root = parent.root,
                             .pointee = .bad_ptr_ty,
                             .ty = base_elem_ty,
                         };
@@ -30885,7 +31049,7 @@ fn beginComptimePtrMutation(
                     const elem_abi_size = try sema.usizeCast(block, src, elem_abi_size_u64);
                     const elem_idx = try sema.usizeCast(block, src, elem_ptr.index);
                     return ComptimePtrMutationKit{
-                        .mut_decl = parent.mut_decl,
+                        .root = parent.root,
                         .pointee = .{ .reinterpret = .{
                             .val_ptr = reinterpret.val_ptr,
                             .byte_offset = reinterpret.byte_offset + elem_abi_size * elem_idx,
@@ -30914,7 +31078,7 @@ fn beginComptimePtrMutation(
                             parent.ty.structFieldType(field_index, mod),
                             duped,
                             ptr_elem_ty,
-                            parent.mut_decl,
+                            parent.root,
                         );
                     },
                     .none => switch (val_ptr.tag()) {
@@ -30925,10 +31089,10 @@ fn beginComptimePtrMutation(
                             parent.ty.structFieldType(field_index, mod),
                             &val_ptr.castTag(.aggregate).?.data[field_index],
                             ptr_elem_ty,
-                            parent.mut_decl,
+                            parent.root,
                         ),
                         .repeated => {
-                            const arena = mod.tmp_hack_arena.allocator();
+                            const arena = sema.arena;
 
                             const elems = try arena.alloc(Value, parent.ty.structFieldCount(mod));
                             @memset(elems, val_ptr.castTag(.repeated).?.data);
@@ -30941,7 +31105,7 @@ fn beginComptimePtrMutation(
                                 parent.ty.structFieldType(field_index, mod),
                                 &elems[field_index],
                                 ptr_elem_ty,
-                                parent.mut_decl,
+                                parent.root,
                             );
                         },
                         .@"union" => {
@@ -30962,7 +31126,7 @@ fn beginComptimePtrMutation(
                                     field_ty,
                                     &payload.val,
                                     ptr_elem_ty,
-                                    parent.mut_decl,
+                                    parent.root,
                                 );
                             } else {
                                 // Writing to a different field (a different or unknown tag is active) requires reinterpreting
@@ -30973,7 +31137,7 @@ fn beginComptimePtrMutation(
                                 // The reinterpretation will read it back out as .none.
                                 payload.val = try payload.val.unintern(sema.arena, mod);
                                 return ComptimePtrMutationKit{
-                                    .mut_decl = parent.mut_decl,
+                                    .root = parent.root,
                                     .pointee = .{ .reinterpret = .{
                                         .val_ptr = val_ptr,
                                         .byte_offset = 0,
@@ -30991,7 +31155,7 @@ fn beginComptimePtrMutation(
                                 parent.ty.slicePtrFieldType(mod),
                                 &val_ptr.castTag(.slice).?.data.ptr,
                                 ptr_elem_ty,
-                                parent.mut_decl,
+                                parent.root,
                             ),
 
                             Value.slice_len_index => return beginComptimePtrMutationInner(
@@ -31001,7 +31165,7 @@ fn beginComptimePtrMutation(
                                 Type.usize,
                                 &val_ptr.castTag(.slice).?.data.len,
                                 ptr_elem_ty,
-                                parent.mut_decl,
+                                parent.root,
                             ),
 
                             else => unreachable,
@@ -31013,7 +31177,7 @@ fn beginComptimePtrMutation(
                             // A struct or union has been initialized to undefined at comptime and now we
                             // are for the first time setting a field. We must change the representation
                             // of the struct/union from `undef` to `struct`/`union`.
-                            const arena = mod.tmp_hack_arena.allocator();
+                            const arena = sema.arena;
 
                             switch (parent.ty.zigTypeTag(mod)) {
                                 .Struct => {
@@ -31031,7 +31195,7 @@ fn beginComptimePtrMutation(
                                         parent.ty.structFieldType(field_index, mod),
                                         &fields[field_index],
                                         ptr_elem_ty,
-                                        parent.mut_decl,
+                                        parent.root,
                                     );
                                 },
                                 .Union => {
@@ -31052,7 +31216,7 @@ fn beginComptimePtrMutation(
                                         payload_ty,
                                         &payload.data.val,
                                         ptr_elem_ty,
-                                        parent.mut_decl,
+                                        parent.root,
                                     );
                                 },
                                 .Pointer => {
@@ -31071,7 +31235,7 @@ fn beginComptimePtrMutation(
                                             ptr_ty,
                                             &val_ptr.castTag(.slice).?.data.ptr,
                                             ptr_elem_ty,
-                                            parent.mut_decl,
+                                            parent.root,
                                         ),
                                         Value.slice_len_index => return beginComptimePtrMutationInner(
                                             sema,
@@ -31080,7 +31244,7 @@ fn beginComptimePtrMutation(
                                             Type.usize,
                                             &val_ptr.castTag(.slice).?.data.len,
                                             ptr_elem_ty,
-                                            parent.mut_decl,
+                                            parent.root,
                                         ),
 
                                         else => unreachable,
@@ -31096,7 +31260,7 @@ fn beginComptimePtrMutation(
                     const field_offset_u64 = base_child_ty.structFieldOffset(field_index, mod);
                     const field_offset = try sema.usizeCast(block, src, field_offset_u64);
                     return ComptimePtrMutationKit{
-                        .mut_decl = parent.mut_decl,
+                        .root = parent.root,
                         .pointee = .{ .reinterpret = .{
                             .val_ptr = reinterpret.val_ptr,
                             .byte_offset = reinterpret.byte_offset + field_offset,
@@ -31117,7 +31281,7 @@ fn beginComptimePtrMutationInner(
     decl_ty: Type,
     decl_val: *Value,
     ptr_elem_ty: Type,
-    mut_decl: InternPool.Key.Ptr.Addr.MutDecl,
+    root: ComptimePtrMutationKit.Root,
 ) CompileError!ComptimePtrMutationKit {
     const mod = sema.mod;
     const target = mod.getTarget();
@@ -31127,7 +31291,7 @@ fn beginComptimePtrMutationInner(
 
     if (coerce_ok) {
         return ComptimePtrMutationKit{
-            .mut_decl = mut_decl,
+            .root = root,
             .pointee = .{ .direct = decl_val },
             .ty = decl_ty,
         };
@@ -31138,7 +31302,7 @@ fn beginComptimePtrMutationInner(
         const decl_elem_ty = decl_ty.childType(mod);
         if ((try sema.coerceInMemoryAllowed(block, ptr_elem_ty, decl_elem_ty, true, target, src, src)) == .ok) {
             return ComptimePtrMutationKit{
-                .mut_decl = mut_decl,
+                .root = root,
                 .pointee = .{ .direct = decl_val },
                 .ty = decl_ty,
             };
@@ -31147,20 +31311,20 @@ fn beginComptimePtrMutationInner(
 
     if (!decl_ty.hasWellDefinedLayout(mod)) {
         return ComptimePtrMutationKit{
-            .mut_decl = mut_decl,
+            .root = root,
             .pointee = .bad_decl_ty,
             .ty = decl_ty,
         };
     }
     if (!ptr_elem_ty.hasWellDefinedLayout(mod)) {
         return ComptimePtrMutationKit{
-            .mut_decl = mut_decl,
+            .root = root,
             .pointee = .bad_ptr_ty,
             .ty = ptr_elem_ty,
         };
     }
     return ComptimePtrMutationKit{
-        .mut_decl = mut_decl,
+        .root = root,
         .pointee = .{ .reinterpret = .{
             .val_ptr = decl_val,
             .byte_offset = 0,
@@ -31208,13 +31372,7 @@ fn beginComptimePtrLoad(
 
     var deref: ComptimePtrLoadKit = switch (ip.indexToKey(ptr_val.toIntern())) {
         .ptr => |ptr| switch (ptr.addr) {
-            .decl, .mut_decl => blk: {
-                const decl_index = switch (ptr.addr) {
-                    .decl => |decl| decl,
-                    .mut_decl => |mut_decl| mut_decl.decl,
-                    else => unreachable,
-                };
-                const is_mutable = ptr.addr == .mut_decl;
+            .decl => |decl_index| blk: {
                 const decl = mod.declPtr(decl_index);
                 const decl_tv = try decl.typedValue();
                 try sema.declareDependency(.{ .decl_val = decl_index });
@@ -31224,8 +31382,22 @@ fn beginComptimePtrLoad(
                 break :blk ComptimePtrLoadKit{
                     .parent = if (layout_defined) .{ .tv = decl_tv, .byte_offset = 0 } else null,
                     .pointee = decl_tv,
-                    .is_mutable = is_mutable,
+                    .is_mutable = false,
                     .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
+                };
+            },
+            .comptime_alloc => |alloc_index| kit: {
+                const alloc = sema.getComptimeAlloc(alloc_index);
+                const alloc_tv: TypedValue = .{
+                    .ty = alloc.ty,
+                    .val = alloc.val,
+                };
+                const layout_defined = alloc.ty.hasWellDefinedLayout(mod);
+                break :kit .{
+                    .parent = if (layout_defined) .{ .tv = alloc_tv, .byte_offset = 0 } else null,
+                    .pointee = alloc_tv,
+                    .is_mutable = true,
+                    .ty_without_well_defined_layout = if (!layout_defined) alloc.ty else null,
                 };
             },
             .anon_decl => |anon_decl| blk: {
@@ -31352,7 +31524,7 @@ fn beginComptimePtrLoad(
                                 .len = len,
                                 .child = elem_ty.toIntern(),
                             }),
-                            .val = try array_tv.val.sliceArray(mod, sema.arena, elem_idx, elem_idx + len),
+                            .val = try array_tv.val.sliceArray(sema, elem_idx, elem_idx + len),
                         } else null;
                         break :blk deref;
                     }
@@ -31481,6 +31653,7 @@ fn bitCast(
         }
     }
     try sema.requireRuntimeBlock(block, inst_src, operand_src);
+    try sema.validateRuntimeValue(block, inst_src, inst);
     return block.addBitCast(dest_ty, inst);
 }
 
@@ -31693,7 +31866,7 @@ fn coerceCompatiblePtrs(
         try sema.addSafetyCheck(block, inst_src, ok, .cast_to_null);
     }
     const new_ptr = try sema.bitCast(block, dest_ty, inst, inst_src, null);
-    try sema.checkKnownAllocPtr(inst, new_ptr);
+    try sema.checkKnownAllocPtr(block, inst, new_ptr);
     return new_ptr;
 }
 
@@ -35448,7 +35621,7 @@ fn resolveLazyValue(sema: *Sema, val: Value) CompileError!Value {
         },
         .ptr => |ptr| {
             switch (ptr.addr) {
-                .decl, .mut_decl, .anon_decl => return val,
+                .decl, .comptime_alloc, .anon_decl => return val,
                 .comptime_field => |field_val| {
                     const resolved_field_val =
                         (try sema.resolveLazyValue(Value.fromInterned(field_val))).toIntern();
@@ -35803,9 +35976,6 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
     var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
@@ -35821,7 +35991,6 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
@@ -35886,11 +36055,6 @@ fn semaBackingIntType(mod: *Module, struct_type: InternPool.LoadedStructType) Co
         }
         const backing_int_ty = try mod.intType(.unsigned, @intCast(fields_bit_sum));
         struct_type.backingIntType(ip).* = backing_int_ty.toIntern();
-    }
-
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
     }
 }
 
@@ -36640,9 +36804,6 @@ fn semaStructFields(
         },
     };
 
-    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
     var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
@@ -36658,7 +36819,6 @@ fn semaStructFields(
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
@@ -36872,11 +37032,6 @@ fn semaStructFields(
 
     struct_type.clearTypesWip(ip);
     if (!any_inits) struct_type.setHaveFieldInits(ip);
-
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
-    }
 }
 
 // This logic must be kept in sync with `semaStructFields`
@@ -36897,9 +37052,6 @@ fn semaStructFieldInits(
     const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
-    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
     var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
@@ -36915,7 +37067,6 @@ fn semaStructFieldInits(
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
@@ -37024,13 +37175,15 @@ fn semaStructFieldInits(
             };
 
             const field_init = try default_val.intern(field_ty, mod);
+            if (Value.fromInterned(field_init).canMutateComptimeVarState(mod)) {
+                const init_src = mod.fieldSrcLoc(decl_index, .{
+                    .index = field_i,
+                    .range = .value,
+                }).lazy;
+                return sema.fail(&block_scope, init_src, "field default value contains reference to comptime-mutable memory", .{});
+            }
             struct_type.field_inits.get(ip)[field_i] = field_init;
         }
-    }
-
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
     }
 }
 
@@ -37088,9 +37241,6 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
 
     const decl = mod.declPtr(decl_index);
 
-    var comptime_mutable_decls = std.ArrayList(InternPool.DeclIndex).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
     var comptime_err_ret_trace = std.ArrayList(Module.SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
@@ -37106,7 +37256,6 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
@@ -37124,11 +37273,6 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
 
     if (body.len != 0) {
         _ = try sema.analyzeInlineBody(&block_scope, body, zir_index);
-    }
-
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
     }
 
     var int_tag_ty: Type = undefined;
@@ -37734,7 +37878,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .ptr_decl,
             .ptr_anon_decl,
             .ptr_anon_decl_aligned,
-            .ptr_mut_decl,
+            .ptr_comptime_alloc,
             .ptr_comptime_field,
             .ptr_int,
             .ptr_eu_payload,
@@ -38017,27 +38161,11 @@ fn analyzeComptimeAlloc(
         },
     });
 
-    var anon_decl = try block.startAnonDecl(); // TODO: comptime value mutation without Decl
-    defer anon_decl.deinit();
+    const alloc = try sema.newComptimeAlloc(block, var_type, alignment);
 
-    const decl_index = try anon_decl.finish(
-        var_type,
-        // There will be stores before the first load, but they may be to sub-elements or
-        // sub-fields. So we need to initialize with undef to allow the mechanism to expand
-        // into fields/elements and have those overridden with stored values.
-        Value.fromInterned((try mod.intern(.{ .undef = var_type.toIntern() }))),
-        alignment,
-    );
-    const decl = mod.declPtr(decl_index);
-    decl.alignment = alignment;
-
-    try sema.comptime_mutable_decls.append(decl_index);
     return Air.internedToRef((try mod.intern(.{ .ptr = .{
         .ty = ptr_type.toIntern(),
-        .addr = .{ .mut_decl = .{
-            .decl = decl_index,
-            .runtime_index = block.runtime_index,
-        } },
+        .addr = .{ .comptime_alloc = alloc },
     } })));
 }
 
@@ -39072,4 +39200,131 @@ pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
             .{ .decl = sema.owner_decl_index },
     );
     try sema.mod.intern_pool.addDependency(sema.gpa, depender, dependee);
+}
+
+fn isComptimeMutablePtr(sema: *Sema, val: Value) bool {
+    return switch (sema.mod.intern_pool.indexToKey(val.toIntern())) {
+        .slice => |slice| sema.isComptimeMutablePtr(Value.fromInterned(slice.ptr)),
+        .ptr => |ptr| switch (ptr.addr) {
+            .anon_decl, .decl, .int => false,
+            .comptime_field => true,
+            .comptime_alloc => |alloc_index| !sema.getComptimeAlloc(alloc_index).is_const,
+            .eu_payload, .opt_payload => |base| sema.isComptimeMutablePtr(Value.fromInterned(base)),
+            .elem, .field => |bi| sema.isComptimeMutablePtr(Value.fromInterned(bi.base)),
+        },
+        else => false,
+    };
+}
+
+fn checkRuntimeValue(sema: *Sema, ptr: Air.Inst.Ref) bool {
+    const val = ptr.toInterned() orelse return true;
+    return !Value.fromInterned(val).canMutateComptimeVarState(sema.mod);
+}
+
+fn validateRuntimeValue(sema: *Sema, block: *Block, val_src: LazySrcLoc, val: Air.Inst.Ref) CompileError!void {
+    if (sema.checkRuntimeValue(val)) return;
+    return sema.failWithOwnedErrorMsg(block, msg: {
+        const msg = try sema.errMsg(block, val_src, "runtime value contains reference to comptime var", .{});
+        errdefer msg.destroy(sema.gpa);
+        try sema.errNote(block, val_src, msg, "comptime var pointers are not available at runtime", .{});
+        break :msg msg;
+    });
+}
+
+/// Returns true if any value contained in `val` is undefined.
+fn anyUndef(sema: *Sema, val: Value) !bool {
+    const mod = sema.mod;
+    if (val.ip_index == .none) return switch (val.tag()) {
+        .eu_payload => try sema.anyUndef(val.castTag(.eu_payload).?.data),
+        .opt_payload => try sema.anyUndef(val.castTag(.opt_payload).?.data),
+        .repeated => try sema.anyUndef(val.castTag(.repeated).?.data),
+        .slice => {
+            const slice = val.castTag(.slice).?.data;
+            for (0..@intCast(slice.len.toUnsignedInt(mod))) |idx| {
+                if (try sema.anyUndef((try slice.ptr.maybeElemValueFull(sema, mod, idx)).?)) return true;
+            }
+            return false;
+        },
+        .bytes => false,
+        .aggregate => for (val.castTag(.aggregate).?.data) |elem| {
+            if (try sema.anyUndef(elem)) break true;
+        } else false,
+        .@"union" => {
+            const un = val.castTag(.@"union").?.data;
+            if (un.tag) |t| {
+                if (try sema.anyUndef(t)) return true;
+            }
+            return sema.anyUndef(un.val);
+        },
+    };
+    return switch (val.toIntern()) {
+        .undef => true,
+        else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
+            .undef => true,
+            .simple_value => |v| v == .undefined,
+            .slice => |slice| for (0..@intCast(Value.fromInterned(slice.len).toUnsignedInt(mod))) |idx| {
+                if (try sema.anyUndef((try val.maybeElemValueFull(sema, mod, idx)).?)) break true;
+            } else false,
+            .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
+                const elem = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.values()[i];
+                if (try sema.anyUndef(Value.fromInterned(elem))) break true;
+            } else false,
+            else => false,
+        },
+    };
+}
+
+/// Asserts that `slice_val` is a slice of `u8`.
+fn sliceToIpString(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    slice_val: Value,
+    reason: NeededComptimeReason,
+) CompileError!InternPool.NullTerminatedString {
+    const zcu = sema.mod;
+    const ip = &zcu.intern_pool;
+    const slice_ty = Type.fromInterned(ip.typeOf(slice_val.toIntern()));
+    assert(slice_ty.isSlice(zcu));
+    assert(slice_ty.childType(zcu).toIntern() == .u8_type);
+    const array_val = try sema.derefSliceAsArray(block, src, slice_val, reason);
+    const array_ty = Type.fromInterned(ip.typeOf(array_val.toIntern()));
+    return array_val.toIpString(array_ty, zcu);
+}
+
+/// Given a slice value, attempts to dereference it into a comptime-known array.
+/// Emits a compile error if the contents of the slice are not comptime-known.
+/// Asserts that `slice_val` is a slice.
+fn derefSliceAsArray(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    slice_val: Value,
+    reason: NeededComptimeReason,
+) CompileError!Value {
+    const zcu = sema.mod;
+    const ip = &zcu.intern_pool;
+    assert(Type.fromInterned(ip.typeOf(slice_val.toIntern())).isSlice(zcu));
+    const slice = switch (ip.indexToKey(slice_val.toIntern())) {
+        .undef => return sema.failWithUseOfUndef(block, src),
+        .slice => |slice| slice,
+        else => unreachable,
+    };
+    const elem_ty = Type.fromInterned(slice.ty).childType(zcu);
+    const len = try Value.fromInterned(slice.len).toUnsignedIntAdvanced(sema);
+    const array_ty = try zcu.arrayType(.{
+        .child = elem_ty.toIntern(),
+        .len = len,
+    });
+    const ptr_ty = try sema.ptrType(p: {
+        var p = Type.fromInterned(slice.ty).ptrInfo(zcu);
+        p.flags.size = .One;
+        p.child = array_ty.toIntern();
+        p.sentinel = .none;
+        break :p p;
+    });
+    const casted_ptr = try zcu.getCoerced(Value.fromInterned(slice.ptr), ptr_ty);
+    return try sema.pointerDeref(block, src, casted_ptr, ptr_ty) orelse {
+        return sema.failWithNeededComptime(block, src, reason);
+    };
 }

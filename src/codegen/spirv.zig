@@ -1105,7 +1105,6 @@ const DeclGen = struct {
         const mod = self.module;
         switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
             .decl => |decl| return try self.constantDeclRef(ptr_ty, decl),
-            .mut_decl => |decl_mut| return try self.constantDeclRef(ptr_ty, decl_mut.decl),
             .anon_decl => |anon_decl| return try self.constantAnonDeclRef(ptr_ty, anon_decl),
             .int => |int| {
                 const ptr_id = self.spv.allocId();
@@ -1121,7 +1120,7 @@ const DeclGen = struct {
             },
             .eu_payload => unreachable, // TODO
             .opt_payload => unreachable, // TODO
-            .comptime_field => unreachable,
+            .comptime_field, .comptime_alloc => unreachable,
             .elem => |elem_ptr| {
                 const parent_ptr_ty = Type.fromInterned(mod.intern_pool.typeOf(elem_ptr.base));
                 const parent_ptr_id = try self.constantPtr(parent_ptr_ty, Value.fromInterned(elem_ptr.base));

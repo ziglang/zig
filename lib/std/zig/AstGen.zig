@@ -8296,22 +8296,27 @@ fn localVarRef(
                     });
                 }
 
-                const ptr_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
-                    gz,
-                    ident,
-                    num_namespaces_out,
-                    .{ .ref = local_ptr.ptr },
-                    .{ .token = local_ptr.token_src },
-                ) else local_ptr.ptr;
-
                 switch (ri.rl) {
                     .ref, .ref_coerced_ty => {
+                        const ptr_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
+                            gz,
+                            ident,
+                            num_namespaces_out,
+                            .{ .ref = local_ptr.ptr },
+                            .{ .token = local_ptr.token_src },
+                        ) else local_ptr.ptr;
                         local_ptr.used_as_lvalue = true;
                         return ptr_inst;
                     },
                     else => {
-                        const loaded = try gz.addUnNode(.load, ptr_inst, ident);
-                        return rvalueNoCoercePreRef(gz, ri, loaded, ident);
+                        const val_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
+                            gz,
+                            ident,
+                            num_namespaces_out,
+                            .{ .ref_load = local_ptr.ptr },
+                            .{ .token = local_ptr.token_src },
+                        ) else try gz.addUnNode(.load, local_ptr.ptr, ident);
+                        return rvalueNoCoercePreRef(gz, ri, val_inst, ident);
                     },
                 }
             }
@@ -8390,6 +8395,7 @@ fn tunnelThroughClosure(
     /// The value being captured.
     value: union(enum) {
         ref: Zir.Inst.Ref,
+        ref_load: Zir.Inst.Ref,
         decl_val: Zir.NullTerminatedString,
         decl_ref: Zir.NullTerminatedString,
     },
@@ -8400,7 +8406,8 @@ fn tunnelThroughClosure(
     },
 ) !Zir.Inst.Ref {
     switch (value) {
-        .ref => |v| if (v.toIndex() == null) return v, // trivia value; do not need tunnel
+        .ref => |v| if (v.toIndex() == null) return v, // trivial value; do not need tunnel
+        .ref_load => |v| assert(v.toIndex() != null), // there are no constant pointer refs
         .decl_val, .decl_ref => {},
     }
 
@@ -8433,6 +8440,7 @@ fn tunnelThroughClosure(
     // captures as required, starting with the outermost namespace.
     const root_capture = Zir.Inst.Capture.wrap(switch (value) {
         .ref => |v| .{ .instruction = v.toIndex().? },
+        .ref_load => |v| .{ .instruction_load = v.toIndex().? },
         .decl_val => |str| .{ .decl_val = str },
         .decl_ref => |str| .{ .decl_ref = str },
     });

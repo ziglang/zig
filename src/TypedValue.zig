@@ -329,13 +329,9 @@ pub fn print(
                             .val = Value.fromInterned(decl_val),
                         }, writer, level - 1, mod);
                     },
-                    .mut_decl => |mut_decl| {
-                        const decl = mod.declPtr(mut_decl.decl);
-                        if (level == 0) return writer.print("(mut decl '{}')", .{decl.name.fmt(ip)});
-                        return print(.{
-                            .ty = decl.ty,
-                            .val = decl.val,
-                        }, writer, level - 1, mod);
+                    .comptime_alloc => {
+                        // TODO: we need a Sema to print this!
+                        return writer.writeAll("(comptime alloc)");
                     },
                     .comptime_field => |field_val_ip| {
                         return print(.{
