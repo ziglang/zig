@@ -442,6 +442,7 @@ fn isStore(tag: Mir.Inst.Tag) bool {
         .sh => true,
         .sw => true,
         .sd => true,
+        .addi => true, // needed for ptr_stack_offset stores
         else => false,
     };
 }

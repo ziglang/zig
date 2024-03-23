@@ -1666,28 +1666,6 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
     return true;
 }
 
-fn load(self: *Self, dst_mcv: MCValue, src_ptr: MCValue, ptr_ty: Type) InnerError!void {
-    const mod = self.bin_file.comp.module.?;
-    const elem_ty = ptr_ty.childType(mod);
-
-    switch (src_ptr) {
-        .none => unreachable,
-        .undef => unreachable,
-        .unreach => unreachable,
-        .dead => unreachable,
-        .immediate => |imm| try self.setValue(elem_ty, dst_mcv, .{ .memory = imm }),
-        .ptr_stack_offset => |off| try self.setValue(elem_ty, dst_mcv, .{ .stack_offset = off }),
-        .stack_offset,
-        .register,
-        => try self.setValue(elem_ty, dst_mcv, src_ptr),
-        .memory => return self.fail("TODO: load memory", .{}),
-        .load_symbol => {
-            const reg = try self.copyToTmpRegister(ptr_ty, src_ptr);
-            try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
-        },
-    }
-}
-
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -1706,8 +1684,7 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
                 // The MCValue that holds the pointer can be re-used as the value.
                 break :blk ptr;
             } else {
-                // TODO: set this to true, will need to implement register version of arrays and structs
-                break :blk try self.allocRegOrMem(inst, false);
+                break :blk try self.allocRegOrMem(inst, true);
             }
         };
         try self.load(dst_mcv, ptr, self.typeOf(ty_op.operand));
@@ -1716,18 +1693,27 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn store(self: *Self, dst_ptr: MCValue, src_val: MCValue, ptr_ty: Type, value_ty: Type) !void {
-    _ = ptr_ty;
+fn load(self: *Self, dst_mcv: MCValue, src_ptr: MCValue, ptr_ty: Type) InnerError!void {
+    const mod = self.bin_file.comp.module.?;
+    const elem_ty = ptr_ty.childType(mod);
 
-    log.debug("storing {s}", .{@tagName(dst_ptr)});
-
-    switch (dst_ptr) {
+    switch (src_ptr) {
         .none => unreachable,
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .ptr_stack_offset => |off| try self.genSetStack(value_ty, off, src_val),
-        else => return self.fail("TODO implement storing to MCValue.{s}", .{@tagName(dst_ptr)}),
+        .immediate => |imm| try self.setValue(elem_ty, dst_mcv, .{ .memory = imm }),
+        .ptr_stack_offset => |off| try self.setValue(elem_ty, dst_mcv, .{ .stack_offset = off }),
+
+        .stack_offset,
+        .register,
+        .memory,
+        => try self.setValue(elem_ty, dst_mcv, src_ptr),
+
+        .load_symbol => {
+            const reg = try self.copyToTmpRegister(ptr_ty, src_ptr);
+            try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
+        },
     }
 }
 
@@ -1746,6 +1732,50 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     try self.store(ptr, value, ptr_ty, value_ty);
 
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+/// Loads `value` into the "payload" of `pointer`.
+fn store(self: *Self, pointer: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) !void {
+    _ = ptr_ty;
+    const mod = self.bin_file.comp.module.?;
+    const value_size = value_ty.abiSize(mod);
+
+    log.debug("storing {s}", .{@tagName(pointer)});
+
+    switch (pointer) {
+        .none => unreachable,
+        .undef => unreachable,
+        .unreach => unreachable,
+        .dead => unreachable,
+        .ptr_stack_offset => |off| try self.genSetStack(value_ty, off, value),
+
+        .register => |reg| {
+            const value_reg = try self.copyToTmpRegister(value_ty, value);
+
+            switch (value_size) {
+                1, 2, 4, 8 => {
+                    const tag: Mir.Inst.Tag = switch (value_size) {
+                        1 => .sb,
+                        2 => .sh,
+                        4 => .sw,
+                        8 => .sd,
+                        else => unreachable,
+                    };
+
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .data = .{ .i_type = .{
+                            .rd = value_reg,
+                            .rs1 = reg,
+                            .imm12 = 0,
+                        } },
+                    });
+                },
+                else => return self.fail("TODO: genSetStack for size={d}", .{value_size}),
+            }
+        },
+        else => return self.fail("TODO implement storing to MCValue.{s}", .{@tagName(pointer)}),
+    }
 }
 
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -2693,10 +2723,14 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) Inner
             if (!self.wantSafety()) return;
             try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
         },
-        .immediate => {
+        .immediate,
+        .ptr_stack_offset,
+        => {
+            // TODO: remove this lock in favor of a copyToTmpRegister when we load 64 bit immediates with
+            // a register allocation.
             const reg = try self.register_manager.allocReg(null, gp);
-            const reg_lock = self.register_manager.lockReg(reg);
-            defer if (reg_lock) |lock| self.register_manager.unlockReg(lock);
+            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
+            defer self.register_manager.unlockReg(reg_lock);
 
             try self.genSetReg(ty, reg, src_val);
 
@@ -2849,7 +2883,18 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_val: MCValue) InnerError!
 
     switch (src_val) {
         .dead => unreachable,
-        .ptr_stack_offset => |off| try self.genSetReg(ty, reg, .{ .stack_offset = off }),
+        .ptr_stack_offset => |off| {
+            _ = try self.addInst(.{
+                .tag = .addi,
+                .data = .{ .i_type = .{
+                    .rd = reg,
+                    .rs1 = .s0,
+                    .imm12 = math.cast(i12, off) orelse {
+                        return self.fail("TODO: bigger stack sizes", .{});
+                    },
+                } },
+            });
+        },
         .unreach, .none => return, // Nothing to do.
         .undef => {
             if (!self.wantSafety())
@@ -3166,6 +3211,8 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPrefetch(self: *Self, inst: Air.Inst.Index) !void {
     const prefetch = self.air.instructions.items(.data)[@intFromEnum(inst)].prefetch;
+    // TODO: RISC-V does have prefetch instruction variants.
+    // see here: https://raw.githubusercontent.com/riscv/riscv-CMOs/master/specifications/cmobase-v1.0.1.pdf
     return self.finishAir(inst, MCValue.dead, .{ prefetch.ptr, .none, .none });
 }
 
@@ -3205,12 +3252,13 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
 
 fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
     const mod = self.bin_file.comp.module.?;
-    const mcv: MCValue = switch (try codegen.genTypedValue(
+    const result = try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
         val,
         mod.funcOwnerDeclIndex(self.func_index),
-    )) {
+    );
+    const mcv: MCValue = switch (result) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,

@@ -72,9 +72,9 @@ pub const Inst = struct {
         /// allocate a register for temporary use.
         cmp_imm_gte,
 
-        /// Branch if equal Uses b_type
+        /// Branch if equal, Uses b_type
         beq,
-        /// Branch if not eql Uses b_type
+        /// Branch if not equal, Uses b_type
         bne,
 
         nop,
