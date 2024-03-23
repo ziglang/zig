@@ -1858,6 +1858,7 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.comp.module.?;
     var arg_index = self.arg_index;
 
     // we skip over args that have no bits
@@ -1867,10 +1868,21 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
         const src_mcv = self.args[arg_index];
 
+        // we want to move every arg onto the stack.
+        // while it might no tbe the best solution right now, it simplifies
+        // the spilling of args with multiple arg levels.
         const dst_mcv = switch (src_mcv) {
             .register => |src_reg| dst: {
-                try self.register_manager.getReg(src_reg, inst);
-                break :dst src_mcv;
+                // TODO: get the true type of the arg, and fit the spill to size.
+                const arg_size = Type.usize.abiSize(mod);
+                const arg_align = Type.usize.abiAlignment(mod);
+                const offset = try self.allocMem(inst, @intCast(arg_size), arg_align);
+                try self.genSetStack(Type.usize, offset, .{ .register = src_reg });
+
+                // can go on to be reused in next function call
+                self.register_manager.freeReg(src_reg);
+
+                break :dst .{ .stack_offset = offset };
             },
             else => return self.fail("TODO: airArg {s}", .{@tagName(src_mcv)}),
         };
@@ -3258,17 +3270,26 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
                 return self.fail("TODO: support more than 8 function args", .{});
             }
 
+            const locks = try self.gpa.alloc(RegisterLock, result.args.len);
+            defer self.gpa.free(locks);
+
             for (0..result.args.len) |i| {
                 const arg_reg = try self.register_manager.allocReg(null, fa);
+                const lock = self.register_manager.lockRegAssumeUnused(arg_reg);
+                locks[i] = lock;
                 result.args[i] = .{ .register = arg_reg };
             }
 
+            // we can just free the locks now, as this should be the only place where the fa
+            // arg set is used.
+            for (locks) |lock| {
+                self.register_manager.unlockReg(lock);
+            }
+
             // stack_offset = num s registers spilled + local var space
-            var stack_offset: u32 = 0;
-            _ = &stack_offset;
             // TODO: spill used s registers here
 
-            result.stack_byte_count = stack_offset;
+            result.stack_byte_count = 0;
             result.stack_align = .@"16";
         },
         else => return self.fail("TODO implement function parameters for {} on riscv64", .{cc}),
