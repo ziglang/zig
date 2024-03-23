@@ -59,6 +59,7 @@ pub fn emitMir(
 
             .cmp_eq => try emit.mirRType(inst),
             .cmp_gt => try emit.mirRType(inst),
+            .cmp_imm_gte => try emit.mirRType(inst),
 
             .beq => try emit.mirBType(inst),
             .bne => try emit.mirBType(inst),
@@ -185,14 +186,27 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .add => try emit.writeInstruction(Instruction.add(rd, rs1, rs2)),
         .sub => try emit.writeInstruction(Instruction.sub(rd, rs1, rs2)),
-        .cmp_gt => try emit.writeInstruction(Instruction.slt(rd, rs1, rs2)),
+        .cmp_gt => {
+            // rs1 > rs2
+            try emit.writeInstruction(Instruction.slt(rd, rs1, rs2));
+        },
         .cmp_eq => {
+            // rs1 == rs2
+
+            // if equal, write 0 to rd
             try emit.writeInstruction(Instruction.xor(rd, rs1, rs2));
+            // if rd == 0, set rd to 1
             try emit.writeInstruction(Instruction.sltiu(rd, rd, 1));
         },
         .sllw => try emit.writeInstruction(Instruction.sllw(rd, rs1, rs2)),
         .srlw => try emit.writeInstruction(Instruction.srlw(rd, rs1, rs2)),
         .@"or" => try emit.writeInstruction(Instruction.@"or"(rd, rs1, rs2)),
+        .cmp_imm_gte => {
+            // rd = rs1 >= imm12
+            // see the docstring for cmp_imm_gte to see why we use r_type here
+            try emit.writeInstruction(Instruction.slt(rd, rs1, rs2));
+            try emit.writeInstruction(Instruction.xori(rd, rd, 1));
+        },
         else => unreachable,
     }
 }
@@ -220,30 +234,34 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const i_type = emit.mir.instructions.items(.data)[inst].i_type;
 
+    const rd = i_type.rd;
+    const rs1 = i_type.rs1;
+    const imm12 = i_type.imm12;
+
     switch (tag) {
-        .addi => try emit.writeInstruction(Instruction.addi(i_type.rd, i_type.rs1, i_type.imm12)),
-        .jalr => try emit.writeInstruction(Instruction.jalr(i_type.rd, i_type.imm12, i_type.rs1)),
+        .addi => try emit.writeInstruction(Instruction.addi(rd, rs1, imm12)),
+        .jalr => try emit.writeInstruction(Instruction.jalr(rd, imm12, rs1)),
 
-        .ld => try emit.writeInstruction(Instruction.ld(i_type.rd, i_type.imm12, i_type.rs1)),
-        .lw => try emit.writeInstruction(Instruction.lw(i_type.rd, i_type.imm12, i_type.rs1)),
-        .lh => try emit.writeInstruction(Instruction.lh(i_type.rd, i_type.imm12, i_type.rs1)),
-        .lb => try emit.writeInstruction(Instruction.lb(i_type.rd, i_type.imm12, i_type.rs1)),
+        .ld => try emit.writeInstruction(Instruction.ld(rd, imm12, rs1)),
+        .lw => try emit.writeInstruction(Instruction.lw(rd, imm12, rs1)),
+        .lh => try emit.writeInstruction(Instruction.lh(rd, imm12, rs1)),
+        .lb => try emit.writeInstruction(Instruction.lb(rd, imm12, rs1)),
 
-        .sd => try emit.writeInstruction(Instruction.sd(i_type.rd, i_type.imm12, i_type.rs1)),
-        .sw => try emit.writeInstruction(Instruction.sw(i_type.rd, i_type.imm12, i_type.rs1)),
-        .sh => try emit.writeInstruction(Instruction.sh(i_type.rd, i_type.imm12, i_type.rs1)),
-        .sb => try emit.writeInstruction(Instruction.sb(i_type.rd, i_type.imm12, i_type.rs1)),
+        .sd => try emit.writeInstruction(Instruction.sd(rd, imm12, rs1)),
+        .sw => try emit.writeInstruction(Instruction.sw(rd, imm12, rs1)),
+        .sh => try emit.writeInstruction(Instruction.sh(rd, imm12, rs1)),
+        .sb => try emit.writeInstruction(Instruction.sb(rd, imm12, rs1)),
 
-        .ldr_ptr_stack => try emit.writeInstruction(Instruction.add(i_type.rd, i_type.rs1, .sp)),
+        .ldr_ptr_stack => try emit.writeInstruction(Instruction.add(rd, rs1, .sp)),
 
         .abs => {
-            try emit.writeInstruction(Instruction.sraiw(i_type.rd, i_type.rs1, @intCast(i_type.imm12)));
-            try emit.writeInstruction(Instruction.xor(i_type.rs1, i_type.rs1, i_type.rd));
-            try emit.writeInstruction(Instruction.subw(i_type.rs1, i_type.rs1, i_type.rd));
+            try emit.writeInstruction(Instruction.sraiw(rd, rs1, @intCast(imm12)));
+            try emit.writeInstruction(Instruction.xor(rs1, rs1, rd));
+            try emit.writeInstruction(Instruction.subw(rs1, rs1, rd));
         },
 
-        .srli => try emit.writeInstruction(Instruction.srli(i_type.rd, i_type.rs1, @intCast(i_type.imm12))),
-        .slli => try emit.writeInstruction(Instruction.slli(i_type.rd, i_type.rs1, @intCast(i_type.imm12))),
+        .srli => try emit.writeInstruction(Instruction.srli(rd, rs1, @intCast(imm12))),
+        .slli => try emit.writeInstruction(Instruction.slli(rd, rs1, @intCast(imm12))),
 
         else => unreachable,
     }
@@ -471,12 +489,13 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .dbg_prologue_end,
         => 0,
 
-        .psuedo_epilogue => 12, // 3 * 4
-        .psuedo_prologue => 16, // 4 * 4
+        .psuedo_epilogue => 12,
+        .psuedo_prologue => 16,
 
-        .abs => 12, // 3 * 4
+        .abs => 12,
 
         .cmp_eq => 8,
+        .cmp_imm_gte => 8,
 
         else => 4,
     };

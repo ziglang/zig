@@ -57,11 +57,20 @@ pub const Inst = struct {
         /// Jumps. Uses `inst` payload.
         j,
 
-        // TODO: Maybe create a special data for compares that includes the ops
-        /// Compare equal, uses r_type
+        // NOTE: Maybe create a special data for compares that includes the ops
+        /// Register `==`, uses r_type
         cmp_eq,
-        /// Compare greater than, uses r_type
+        /// Register `>`, uses r_type
         cmp_gt,
+
+        /// Immediate `>=`, uses r_type
+        ///
+        /// Note: this uses r_type because RISC-V does not provide a good way
+        /// to do `>=` comparisons on immediates. Usually we would just subtract
+        /// 1 from the immediate and do a `>` comparison, however there is no `>`
+        /// register to immedate comparison in RISC-V. This leads us to need to
+        /// allocate a register for temporary use.
+        cmp_imm_gte,
 
         /// Branch if equal Uses b_type
         beq,
