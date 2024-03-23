@@ -54,7 +54,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the subtraction of two complex numbers.
+        /// Returns the difference of two complex numbers.
         pub fn sub(self: Self, other: anytype) Self {
             return if (isComplex(@TypeOf(other))) .{
                 .re = self.re - other.re,
