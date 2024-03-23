@@ -2237,8 +2237,19 @@ fn failWithModRemNegative(sema: *Sema, block: *Block, src: LazySrcLoc, lhs_ty: T
     });
 }
 
-fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, optional_ty: Type) CompileError {
-    return sema.fail(block, src, "expected optional type, found '{}'", .{optional_ty.fmt(sema.mod)});
+fn failWithExpectedOptionalType(sema: *Sema, block: *Block, src: LazySrcLoc, non_optional_ty: Type) CompileError {
+    const mod = sema.mod;
+    const msg = msg: {
+        const msg = try sema.errMsg(block, src, "expected optional type, found '{}'", .{
+            non_optional_ty.fmt(mod),
+        });
+        errdefer msg.destroy(sema.gpa);
+        if (non_optional_ty.zigTypeTag(mod) == .ErrorUnion) {
+            try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
+        }
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 fn failWithArrayInitNotSupported(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) CompileError {
@@ -3509,9 +3520,10 @@ fn ensureResultUsed(
     const mod = sema.mod;
     switch (ty.zigTypeTag(mod)) {
         .Void, .NoReturn => return,
-        .ErrorSet, .ErrorUnion => {
+        .ErrorSet => return sema.fail(block, src, "error set is ignored", .{}),
+        .ErrorUnion => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "error is ignored", .{});
+                const msg = try sema.errMsg(block, src, "error union is ignored", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
@@ -3523,7 +3535,7 @@ fn ensureResultUsed(
                 const msg = try sema.errMsg(block, src, "value of type '{}' ignored", .{ty.fmt(sema.mod)});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "all non-void values must be used", .{});
-                try sema.errNote(block, src, msg, "this error can be suppressed by assigning the value to '_'", .{});
+                try sema.errNote(block, src, msg, "to discard the value, assign it to '_'", .{});
                 break :msg msg;
             };
             return sema.failWithOwnedErrorMsg(block, msg);
@@ -3541,9 +3553,10 @@ fn zirEnsureResultNonError(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     const src = inst_data.src();
     const operand_ty = sema.typeOf(operand);
     switch (operand_ty.zigTypeTag(mod)) {
-        .ErrorSet, .ErrorUnion => {
+        .ErrorSet => return sema.fail(block, src, "error set is discarded", .{}),
+        .ErrorUnion => {
             const msg = msg: {
-                const msg = try sema.errMsg(block, src, "error is discarded", .{});
+                const msg = try sema.errMsg(block, src, "error union is discarded", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
                 break :msg msg;
@@ -8845,7 +8858,7 @@ fn analyzeOptionalPayloadPtr(
 
     const opt_type = optional_ptr_ty.childType(mod);
     if (opt_type.zigTypeTag(mod) != .Optional) {
-        return sema.fail(block, src, "expected optional type, found '{}'", .{opt_type.fmt(mod)});
+        return sema.failWithExpectedOptionalType(block, src, opt_type);
     }
 
     const child_type = opt_type.optionalChild(mod);
@@ -9337,7 +9350,7 @@ fn handleExternLibName(
             return sema.fail(
                 block,
                 src_loc,
-                "dependency on dynamic library '{s}' requires enabling Position Independent Code. Fixed by '-l{s}' or '-fPIC'.",
+                "dependency on dynamic library '{s}' requires enabling Position Independent Code; fixed by '-l{s}' or '-fPIC'",
                 .{ lib_name, lib_name },
             );
         }
@@ -27413,6 +27426,9 @@ fn fieldCallBind(
             const decl = mod.declPtr(decl_idx);
             try mod.errNoteNonLazy(decl.srcLoc(mod), msg, "'{}' is not a member function", .{field_name.fmt(ip)});
         }
+        if (concrete_ty.zigTypeTag(mod) == .ErrorUnion) {
+            try sema.errNote(block, src, msg, "consider using 'try', 'catch', or 'if'", .{});
+        }
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
@@ -33202,7 +33218,7 @@ fn analyzeSlice(
                     .needed_well_defined => |ty| return sema.fail(
                         block,
                         src,
-                        "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
+                        "comptime dereference requires '{}' to have a well-defined layout, but it does not",
                         .{ty.fmt(mod)},
                     ),
                     .out_of_bounds => |ty| return sema.fail(
@@ -38135,7 +38151,7 @@ fn pointerDeref(sema: *Sema, block: *Block, src: LazySrcLoc, ptr_val: Value, ptr
         .needed_well_defined => |ty| return sema.fail(
             block,
             src,
-            "comptime dereference requires '{}' to have a well-defined layout, but it does not.",
+            "comptime dereference requires '{}' to have a well-defined layout, but it does not",
             .{ty.fmt(sema.mod)},
         ),
         .out_of_bounds => |ty| return sema.fail(
