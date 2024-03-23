@@ -187,7 +187,7 @@ pub const siginfo_t = c_long;
 // TODO plan9 doesn't have sigaction_fn. Sigaction is not a union, but we incude it here to be compatible.
 pub const Sigaction = extern struct {
     pub const handler_fn = *const fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,

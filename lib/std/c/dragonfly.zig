@@ -668,7 +668,7 @@ pub const siginfo_t = extern struct {
     pid: c_int,
     uid: uid_t,
     status: c_int,
-    addr: ?*anyopaque,
+    addr: *allowzero anyopaque,
     value: sigval,
     band: c_long,
     __spare__: [7]c_int,
@@ -691,7 +691,7 @@ pub const sig_atomic_t = c_int;
 
 pub const Sigaction = extern struct {
     pub const handler_fn = *align(1) const fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
