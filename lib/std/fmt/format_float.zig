@@ -270,9 +270,9 @@ pub fn formatDecimal(buf: []u8, f_: FloatDecimal128, precision: ?usize) FormatEr
 
     // fixed bound: leading_digit(1) + point(1)
     const req_bytes = if (f.exponent >= 0)
-        2 + @abs(f.exponent) + olength + (precision orelse 0)
+        @as(usize, 2) + @abs(f.exponent) + olength + (precision orelse 0)
     else
-        2 + @max(@abs(f.exponent) + olength, precision orelse 0);
+        @as(usize, 2) + @max(@abs(f.exponent) + olength, precision orelse 0);
     if (buf.len < req_bytes) {
         return error.BufferTooSmall;
     }

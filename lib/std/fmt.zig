@@ -1839,6 +1839,8 @@ test comptimePrint {
     try std.testing.expectEqualSlices(u8, "100", comptimePrint("{}", .{100}));
     try std.testing.expectEqualStrings("30", comptimePrint("{d}", .{30.0}));
     try std.testing.expectEqualStrings("30.0", comptimePrint("{d:3.1}", .{30.0}));
+    try std.testing.expectEqualStrings("0.05", comptimePrint("{d}", .{0.05}));
+    try std.testing.expectEqualStrings("5e-2", comptimePrint("{e}", .{0.05}));
 }
 
 test "parse u64 digit too big" {
