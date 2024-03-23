@@ -447,7 +447,7 @@ extern __inline __m128d
     _mm_cmpeq_sd(__m128d __A, __m128d __B) {
   __v2df __a, __b, __c;
   /* PowerISA VSX does not allow partial (for just lower double)
-     results. So to insure we don't generate spurious exceptions
+     results. So to ensure we don't generate spurious exceptions
      (from the upper double values) we splat the lower double
      before we do the operation. */
   __a = vec_splats(__A[0]);

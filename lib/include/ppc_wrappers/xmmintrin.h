@@ -226,7 +226,7 @@ extern __inline __m128
   __m128 __a, __b, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower double)
-     results. So to insure we don't generate spurious exceptions
+     results. So to ensure we don't generate spurious exceptions
      (from the upper double values) we splat the lower double
      before we to the operation.  */
   __a = vec_splat(__A, 0);
@@ -248,7 +248,7 @@ extern __inline __m128
   __m128 __a, __b, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower double)
-     results. So to insure we don't generate spurious exceptions
+     results. So to ensure we don't generate spurious exceptions
      (from the upper double values) we splat the lower double
      before we to the operation.  */
   __a = vec_splat(__A, 0);
@@ -270,7 +270,7 @@ extern __inline __m128
   __m128 __a, __b, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower double)
-     results. So to insure we don't generate spurious exceptions
+     results. So to ensure we don't generate spurious exceptions
      (from the upper double values) we splat the lower double
      before we to the operation.  */
   __a = vec_splat(__A, 0);
@@ -292,7 +292,7 @@ extern __inline __m128
   __m128 __a, __b, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower double)
-     results. So to insure we don't generate spurious exceptions
+     results. So to ensure we don't generate spurious exceptions
      (from the upper double values) we splat the lower double
      before we to the operation.  */
   __a = vec_splat(__A, 0);
@@ -313,7 +313,7 @@ extern __inline __m128
   __m128 __a, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower double)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper double values) we splat the lower double
    * before we to the operation. */
   __a = vec_splat(__A, 0);
@@ -372,7 +372,7 @@ extern __inline __m128
   __m128 __a, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower double)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper double values) we splat the lower double
    * before we to the operation. */
   __a = vec_splat(__A, 0);
@@ -388,7 +388,7 @@ extern __inline __m128
   __m128 __a, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower double)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper double values) we splat the lower double
    * before we to the operation. */
   __a = vec_splat(__A, 0);
@@ -404,7 +404,7 @@ extern __inline __m128
   __v4sf __a, __b, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower float)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper float values) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -421,7 +421,7 @@ extern __inline __m128
   __v4sf __a, __b, __c;
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   /* PowerISA VSX does not allow partial (for just lower float)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper float values) we splat the lower float
    * before we to the operation. */
   __a = vec_splat(__A, 0);
@@ -575,7 +575,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -592,7 +592,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -609,7 +609,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -626,7 +626,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -643,7 +643,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -660,7 +660,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -678,7 +678,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -695,7 +695,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -712,7 +712,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we to the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -729,7 +729,7 @@ extern __inline __m128
   static const __vector unsigned int __mask = {0xffffffff, 0, 0, 0};
   __v4sf __a, __b, __c;
   /* PowerISA VMX does not allow partial (for just element 0)
-   * results. So to insure we don't generate spurious exceptions
+   * results. So to ensure we don't generate spurious exceptions
    * (from the upper elements) we splat the lower float
    * before we do the operation. */
   __a = vec_splat((__v4sf)__A, 0);
@@ -1775,7 +1775,7 @@ extern __inline void
      what PPI this thread is running at we: 1) save the current PRI
      from the PPR SPR into a local GRP, 2) set the PRI to "very low*
      via the special or 31,31,31 encoding. 3) issue an "isync" to
-     insure the PRI change takes effect before we execute any more
+     ensure the PRI change takes effect before we execute any more
      instructions.
      Now we can execute a lwsync (release barrier) while we execute
      this thread at "very low" PRI.  Finally we restore the original
