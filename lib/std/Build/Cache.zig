@@ -526,7 +526,7 @@ pub const Manifest = struct {
                         break :f file;
                     }
                     const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-                    errdefer assert(self.files.popOrNull() != null);
+                    errdefer _ = self.files.pop();
                     if (!gop.found_existing) {
                         gop.key_ptr.* = .{
                             .prefixed_path = .{
@@ -633,10 +633,10 @@ pub const Manifest = struct {
         self.hash.hasher.update(&bin_digest);
 
         // Remove files not in the initial hash.
-        for (self.files.keys()[input_file_count..]) |*file| {
-            file.deinit(self.cache.gpa);
+        while (self.files.count() != input_file_count) {
+            var file = self.files.pop();
+            file.key.deinit(self.cache.gpa);
         }
-        self.files.shrinkRetainingCapacity(input_file_count);
 
         for (self.files.keys()) |file| {
             self.hash.hasher.update(&file.bin_digest);
@@ -736,19 +736,27 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
-        const new_ch_file = try self.files.addOne(gpa);
-        new_ch_file.* = .{
+        const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
+        errdefer _ = self.files.pop();
+
+        if (gop.found_existing) {
+            gpa.free(prefixed_path.sub_path);
+            return gop.key_ptr.contents.?;
+        }
+
+        gop.key_ptr.* = .{
             .prefixed_path = prefixed_path,
             .max_file_size = max_file_size,
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
         };
-        errdefer self.files.shrinkRetainingCapacity(self.files.entries.len - 1);
 
-        try self.populateFileHash(new_ch_file);
+        self.files.lockPointers();
+        defer self.files.unlockPointers();
 
-        return new_ch_file.contents.?;
+        try self.populateFileHash(gop.key_ptr);
+        return gop.key_ptr.contents.?;
     }
 
     /// Add a file as a dependency of process being cached, after the initial hash has been
@@ -765,7 +773,7 @@ pub const Manifest = struct {
         errdefer gpa.free(prefixed_path.sub_path);
 
         const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-        errdefer assert(self.files.popOrNull() != null);
+        errdefer _ = self.files.pop();
 
         if (gop.found_existing) {
             gpa.free(prefixed_path.sub_path);
@@ -801,7 +809,7 @@ pub const Manifest = struct {
         errdefer gpa.free(prefixed_path.sub_path);
 
         const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-        errdefer assert(self.files.popOrNull() != null);
+        errdefer _ = self.files.pop();
 
         if (gop.found_existing) {
             gpa.free(prefixed_path.sub_path);
