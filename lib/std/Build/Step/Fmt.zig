@@ -29,8 +29,8 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
             .owner = owner,
             .makeFn = make,
         }),
-        .paths = options.paths,
-        .exclude_paths = options.exclude_paths,
+        .paths = owner.dupeStrings(options.paths),
+        .exclude_paths = owner.dupeStrings(options.exclude_paths),
         .check = options.check,
     };
     return self;
