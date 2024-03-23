@@ -402,16 +402,8 @@ pub const Ip6Address = extern struct {
             if (scope_id) {
                 if (c >= '0' and c <= '9') {
                     const digit = c - '0';
-                    {
-                        const ov = @mulWithOverflow(result.sa.scope_id, 10);
-                        if (ov[1] != 0) return error.Overflow;
-                        result.sa.scope_id = ov[0];
-                    }
-                    {
-                        const ov = @addWithOverflow(result.sa.scope_id, digit);
-                        if (ov[1] != 0) return error.Overflow;
-                        result.sa.scope_id = ov[0];
-                    }
+                    result.sa.scope_id = try std.math.mul(u32, result.sa.scope_id, 10);
+                    result.sa.scope_id = try std.math.add(u32, result.sa.scope_id, digit);
                 } else {
                     return error.InvalidCharacter;
                 }
@@ -462,16 +454,8 @@ pub const Ip6Address = extern struct {
                 return result;
             } else {
                 const digit = try std.fmt.charToDigit(c, 16);
-                {
-                    const ov = @mulWithOverflow(x, 16);
-                    if (ov[1] != 0) return error.Overflow;
-                    x = ov[0];
-                }
-                {
-                    const ov = @addWithOverflow(x, digit);
-                    if (ov[1] != 0) return error.Overflow;
-                    x = ov[0];
-                }
+                x = try std.math.mul(u16, x, 16);
+                x = try std.math.add(u16, x, digit);
                 saw_any_digits = true;
             }
         }
@@ -584,16 +568,8 @@ pub const Ip6Address = extern struct {
                 return result;
             } else {
                 const digit = try std.fmt.charToDigit(c, 16);
-                {
-                    const ov = @mulWithOverflow(x, 16);
-                    if (ov[1] != 0) return error.Overflow;
-                    x = ov[0];
-                }
-                {
-                    const ov = @addWithOverflow(x, digit);
-                    if (ov[1] != 0) return error.Overflow;
-                    x = ov[0];
-                }
+                x = try std.math.mul(u16, x, 16);
+                x = try std.math.add(u16, x, digit);
                 saw_any_digits = true;
             }
         }
