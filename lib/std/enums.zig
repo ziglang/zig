@@ -240,7 +240,7 @@ test nameCast {
 }
 
 /// A set of enum elements, backed by a bitfield.  If the enum
-/// is not dense, a mapping will be constructed from enum values
+/// is exhaustive but not dense, a mapping will be constructed from enum values
 /// to dense indices.  This type does no dynamic allocation and
 /// can be copied by value.
 pub fn EnumSet(comptime E: type) type {
@@ -263,11 +263,21 @@ pub fn EnumSet(comptime E: type) type {
         pub fn init(init_values: EnumFieldStruct(E, bool, false)) Self {
             @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
             var result: Self = .{};
-            inline for (0..Self.len) |i| {
-                const key = comptime Indexer.keyForIndex(i);
-                const tag = @tagName(key);
-                if (@field(init_values, tag)) {
-                    result.bits.set(i);
+            if (@typeInfo(E).Enum.is_exhaustive) {
+                inline for (0..Self.len) |i| {
+                    const key = comptime Indexer.keyForIndex(i);
+                    const tag = @tagName(key);
+                    if (@field(init_values, tag)) {
+                        result.bits.set(i);
+                    }
+                }
+            } else {
+                inline for (std.meta.fields(E)) |field| {
+                    const key = @field(E, field.name);
+                    if (@field(init_values, field.name)) {
+                        const i = comptime Indexer.indexOf(key);
+                        result.bits.set(i);
+                    }
                 }
             }
             return result;
@@ -416,7 +426,7 @@ pub fn EnumSet(comptime E: type) type {
 }
 
 /// A map keyed by an enum, backed by a bitfield and a dense array.
-/// If the enum is not dense, a mapping will be constructed from
+/// If the enum is exhaustive but not dense, a mapping will be constructed from
 /// enum values to dense indices.  This type does no dynamic
 /// allocation and can be copied by value.
 pub fn EnumMap(comptime E: type, comptime V: type) type {
@@ -444,12 +454,23 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         pub fn init(init_values: EnumFieldStruct(E, ?Value, null)) Self {
             @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
             var result: Self = .{};
-            inline for (0..Self.len) |i| {
-                const key = comptime Indexer.keyForIndex(i);
-                const tag = @tagName(key);
-                if (@field(init_values, tag)) |*v| {
-                    result.bits.set(i);
-                    result.values[i] = v.*;
+            if (@typeInfo(E).Enum.is_exhaustive) {
+                inline for (0..Self.len) |i| {
+                    const key = comptime Indexer.keyForIndex(i);
+                    const tag = @tagName(key);
+                    if (@field(init_values, tag)) |*v| {
+                        result.bits.set(i);
+                        result.values[i] = v.*;
+                    }
+                }
+            } else {
+                inline for (std.meta.fields(E)) |field| {
+                    const key = @field(E, field.name);
+                    if (@field(init_values, field.name)) |*v| {
+                        const i = comptime Indexer.indexOf(key);
+                        result.bits.set(i);
+                        result.values[i] = v.*;
+                    }
                 }
             }
             return result;
@@ -1220,6 +1241,23 @@ test "EnumSet const iterator" {
     }
 
     try testing.expect(result.eql(diag_move));
+}
+
+test "EnumSet non-exhaustive" {
+    const BitIndices = enum(u4) {
+        a = 0,
+        b = 1,
+        c = 4,
+        _,
+    };
+    const BitField = EnumSet(BitIndices);
+
+    var flags = BitField.init(.{ .a = true, .b = true });
+    flags.insert(.c);
+    flags.remove(.a);
+    try testing.expect(!flags.contains(.a));
+    try testing.expect(flags.contains(.b));
+    try testing.expect(flags.contains(.c));
 }
 
 pub fn EnumIndexer(comptime E: type) type {
