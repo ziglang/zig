@@ -69,6 +69,7 @@ pub const simple_cases = [_]SimpleCase{
     .{ .src_path = "tools/update_cpu_features.zig" },
     .{ .src_path = "tools/update_glibc.zig" },
     .{ .src_path = "tools/update_spirv_features.zig" },
+    .{ .src_path = "tools/update_x86_cpu_model_enums.zig" },
 };
 
 pub const build_cases = [_]BuildCase{
@@ -261,6 +262,10 @@ pub const build_cases = [_]BuildCase{
     .{
         .build_root = "test/standalone/depend_on_main_mod",
         .import = @import("standalone/depend_on_main_mod/build.zig"),
+    },
+    .{
+        .build_root = "test/standalone/x86_cpu_model",
+        .import = @import("standalone/x86_cpu_model/build.zig"),
     },
 };
 
