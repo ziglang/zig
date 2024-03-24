@@ -194,7 +194,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     var index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, Type.bool, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.ensureUnusedCapacity(6);
@@ -206,7 +206,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     const offset = abi_size - payload_ty.abiSize(mod);
@@ -235,7 +235,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     var index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     const ptr_ty = ty.slicePtrFieldType(mod);
                     try self.addTypeRelocGlobal(atom_index, ptr_ty, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
@@ -248,7 +248,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.ensureUnusedCapacity(2);
@@ -260,7 +260,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.ptr_type));
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, ty.childType(mod), @intCast(index));
                 }
             },
@@ -271,13 +271,13 @@ pub const DeclState = struct {
                 try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(mod)});
                 // DW.AT.type, DW.FORM.ref4
                 var index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
+                try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                 try self.addTypeRelocGlobal(atom_index, ty.childType(mod), @intCast(index));
                 // DW.AT.subrange_type
                 try dbg_info_buffer.append(@intFromEnum(AbbrevCode.array_dim));
                 // DW.AT.type, DW.FORM.ref4
                 index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.resize(index + 4);
+                try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                 try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(index));
                 // DW.AT.count, DW.FORM.udata
                 const len = ty.arrayLenIncludingSentinel(mod);
@@ -304,7 +304,7 @@ pub const DeclState = struct {
                                 try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                 // DW.AT.type, DW.FORM.ref4
                                 const index = dbg_info_buffer.items.len;
-                                try dbg_info_buffer.resize(index + 4);
+                                try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                                 try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                 // DW.AT.data_member_location, DW.FORM.udata
                                 const field_off = ty.structFieldOffset(field_index, mod);
@@ -331,7 +331,7 @@ pub const DeclState = struct {
                                     try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
                                     // DW.AT.type, DW.FORM.ref4
                                     const index = dbg_info_buffer.items.len;
-                                    try dbg_info_buffer.resize(index + 4);
+                                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                                     try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
                                     try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
@@ -352,7 +352,7 @@ pub const DeclState = struct {
                                     dbg_info_buffer.appendAssumeCapacity(0);
                                     // DW.AT.type, DW.FORM.ref4
                                     const index = dbg_info_buffer.items.len;
-                                    try dbg_info_buffer.resize(index + 4);
+                                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                                     try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                                     // DW.AT.data_member_location, DW.FORM.udata
                                     try leb128.writeULEB128(dbg_info_buffer.writer(), field_off);
@@ -425,7 +425,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     const inner_union_index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(inner_union_index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocLocal(atom_index, @intCast(inner_union_index), 5);
                     // DW.AT.data_member_location, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), payload_offset);
@@ -452,7 +452,7 @@ pub const DeclState = struct {
                     try dbg_info_buffer.append(0);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try dbg_info_buffer.append(0);
@@ -469,7 +469,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, Type.fromInterned(union_obj.enum_tag_ty), @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), tag_offset);
@@ -505,7 +505,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), payload_off);
@@ -520,7 +520,7 @@ pub const DeclState = struct {
                     dbg_info_buffer.appendAssumeCapacity(0);
                     // DW.AT.type, DW.FORM.ref4
                     const index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.resize(index + 4);
+                    try dbg_info_buffer.writer().writeByteNTimes(0, 4);
                     try self.addTypeRelocGlobal(atom_index, error_ty, @intCast(index));
                     // DW.AT.data_member_location, DW.FORM.udata
                     try leb128.writeULEB128(dbg_info_buffer.writer(), error_off);
@@ -661,7 +661,7 @@ pub const DeclState = struct {
 
         try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
         const index = dbg_info.items.len;
-        try dbg_info.resize(index + 4); // dw.at.type, dw.form.ref4
+        try dbg_info.writer().writeByteNTimes(0, 4);
         try self.addTypeRelocGlobal(atom_index, ty, @intCast(index)); // DW.AT.type, DW.FORM.ref4
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
@@ -877,7 +877,7 @@ pub const DeclState = struct {
 
         try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
         const index = dbg_info.items.len;
-        try dbg_info.resize(index + 4); // dw.at.type, dw.form.ref4
+        try dbg_info.writer().writeByteNTimes(0, 4); // dw.at.type, dw.form.ref4
         try self.addTypeRelocGlobal(atom_index, child_ty, @intCast(index));
         dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
     }
