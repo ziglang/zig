@@ -263,11 +263,21 @@ pub fn EnumSet(comptime E: type) type {
         pub fn init(init_values: EnumFieldStruct(E, bool, false)) Self {
             @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
             var result: Self = .{};
-            inline for (std.meta.fields(E)) |field| {
-                const key = @field(E, field.name);
-                if (@field(init_values, field.name)) {
-                    const i = comptime Indexer.indexOf(key);
-                    result.bits.set(i);
+            if (@typeInfo(E).Enum.is_exhaustive) {
+                inline for (0..Self.len) |i| {
+                    const key = comptime Indexer.keyForIndex(i);
+                    const tag = @tagName(key);
+                    if (@field(init_values, tag)) {
+                        result.bits.set(i);
+                    }
+                }
+            } else {
+                inline for (std.meta.fields(E)) |field| {
+                    const key = @field(E, field.name);
+                    if (@field(init_values, field.name)) {
+                        const i = comptime Indexer.indexOf(key);
+                        result.bits.set(i);
+                    }
                 }
             }
             return result;
@@ -444,12 +454,23 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         pub fn init(init_values: EnumFieldStruct(E, ?Value, null)) Self {
             @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
             var result: Self = .{};
-            inline for (std.meta.fields(E)) |field| {
-                const key = @field(E, field.name);
-                if (@field(init_values, field.name)) |*v| {
-                    const i = comptime Indexer.indexOf(key);
-                    result.bits.set(i);
-                    result.values[i] = v.*;
+            if (@typeInfo(E).Enum.is_exhaustive) {
+                inline for (0..Self.len) |i| {
+                    const key = comptime Indexer.keyForIndex(i);
+                    const tag = @tagName(key);
+                    if (@field(init_values, tag)) |*v| {
+                        result.bits.set(i);
+                        result.values[i] = v.*;
+                    }
+                }
+            } else {
+                inline for (std.meta.fields(E)) |field| {
+                    const key = @field(E, field.name);
+                    if (@field(init_values, field.name)) |*v| {
+                        const i = comptime Indexer.indexOf(key);
+                        result.bits.set(i);
+                        result.values[i] = v.*;
+                    }
                 }
             }
             return result;
