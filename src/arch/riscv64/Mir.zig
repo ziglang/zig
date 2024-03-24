@@ -62,6 +62,10 @@ pub const Inst = struct {
         cmp_eq,
         /// Register `>`, uses r_type
         cmp_gt,
+        /// Register `<`, uses r_type
+        cmp_lt,
+        /// Register `>=`, uses r_type
+        cmp_gte,
 
         /// Immediate `>=`, uses r_type
         ///
@@ -71,6 +75,9 @@ pub const Inst = struct {
         /// register to immedate comparison in RISC-V. This leads us to need to
         /// allocate a register for temporary use.
         cmp_imm_gte,
+
+        /// Immediate `==`, uses i_type
+        cmp_imm_eq,
 
         /// Branch if equal, Uses b_type
         beq,

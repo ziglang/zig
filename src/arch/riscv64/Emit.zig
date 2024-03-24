@@ -59,7 +59,10 @@ pub fn emitMir(
 
             .cmp_eq => try emit.mirRType(inst),
             .cmp_gt => try emit.mirRType(inst),
+            .cmp_gte => try emit.mirRType(inst),
+            .cmp_lt => try emit.mirRType(inst),
             .cmp_imm_gte => try emit.mirRType(inst),
+            .cmp_imm_eq => try emit.mirIType(inst),
 
             .beq => try emit.mirBType(inst),
             .bne => try emit.mirBType(inst),
@@ -188,7 +191,12 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .sub => try emit.writeInstruction(Instruction.sub(rd, rs1, rs2)),
         .cmp_gt => {
             // rs1 > rs2
-            try emit.writeInstruction(Instruction.slt(rd, rs1, rs2));
+            try emit.writeInstruction(Instruction.sltu(rd, rs2, rs1));
+        },
+        .cmp_gte => {
+            // rs1 >= rs2
+            try emit.writeInstruction(Instruction.sltu(rd, rs1, rs2));
+            try emit.writeInstruction(Instruction.xori(rd, rd, 1));
         },
         .cmp_eq => {
             // rs1 == rs2
@@ -198,14 +206,19 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
             // if rd == 0, set rd to 1
             try emit.writeInstruction(Instruction.sltiu(rd, rd, 1));
         },
+        .cmp_lt => {
+            // rd = 1 if rs1 < rs2
+            try emit.writeInstruction(Instruction.slt(rd, rs1, rs2));
+        },
         .sllw => try emit.writeInstruction(Instruction.sllw(rd, rs1, rs2)),
         .srlw => try emit.writeInstruction(Instruction.srlw(rd, rs1, rs2)),
         .@"or" => try emit.writeInstruction(Instruction.@"or"(rd, rs1, rs2)),
         .cmp_imm_gte => {
-            // rd = rs1 >= imm12
-            // see the docstring for cmp_imm_gte to see why we use r_type here
-            try emit.writeInstruction(Instruction.slt(rd, rs1, rs2));
-            try emit.writeInstruction(Instruction.xori(rd, rd, 1));
+            // rd = 1 if rs1 >= imm12
+            // see the docstring of cmp_imm_gte to see why we use r_type here
+
+            // (rs1 >= imm12) == !(imm12 > rs1)
+            try emit.writeInstruction(Instruction.sltu(rd, rs1, rs2));
         },
         else => unreachable,
     }
@@ -263,6 +276,10 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .srli => try emit.writeInstruction(Instruction.srli(rd, rs1, @intCast(imm12))),
         .slli => try emit.writeInstruction(Instruction.slli(rd, rs1, @intCast(imm12))),
 
+        .cmp_imm_eq => {
+            try emit.writeInstruction(Instruction.xori(rd, rs1, imm12));
+            try emit.writeInstruction(Instruction.sltiu(rd, rd, 1));
+        },
         else => unreachable,
     }
 }
@@ -490,13 +507,17 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .dbg_prologue_end,
         => 0,
 
-        .psuedo_epilogue => 12,
-        .psuedo_prologue => 16,
+        .psuedo_prologue,
+        => 16,
 
-        .abs => 12,
+        .psuedo_epilogue,
+        .abs,
+        => 12,
 
-        .cmp_eq => 8,
-        .cmp_imm_gte => 8,
+        .cmp_eq,
+        .cmp_imm_eq,
+        .cmp_gte,
+        => 8,
 
         else => 4,
     };
