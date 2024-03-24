@@ -1109,8 +1109,8 @@ const Poly = struct {
     // Set p to Decompress_q(m, d).
     fn decompress(comptime d: u8, in: *const [compressedSize(d)]u8) Poly {
         @setEvalBranchQuota(10000);
-        const inLen = comptime @divTrunc(N * d, 8);
-        comptime assert(inLen * 8 == d * N);
+        const in_len = comptime @divTrunc(N * d, 8);
+        comptime assert(in_len * 8 == d * N);
         var ret: Poly = undefined;
         var in_off: usize = 0;
         var out_off: usize = 0;

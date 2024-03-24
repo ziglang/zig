@@ -38,8 +38,6 @@ fn staticWhileLoop2() i32 {
 }
 
 test "while with continue expression" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
-
     var sum: i32 = 0;
     {
         var i: i32 = 0;

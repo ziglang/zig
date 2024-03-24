@@ -30,6 +30,8 @@ const SpvAssembler = @import("spirv/Assembler.zig");
 
 const InstMap = std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef);
 
+pub const zig_call_abi_ver = 3;
+
 /// We want to store some extra facts about types as mapped from Zig to SPIR-V.
 /// This structure is used to keep that extra information, as well as
 /// the cached reference to the type.
@@ -252,15 +254,18 @@ pub const Object = struct {
     /// Note: Function does not actually generate the decl, it just allocates an index.
     pub fn resolveDecl(self: *Object, mod: *Module, decl_index: InternPool.DeclIndex) !SpvModule.Decl.Index {
         const decl = mod.declPtr(decl_index);
+        assert(decl.has_tv); // TODO: Do we need to handle a situation where this is false?
         try mod.markDeclAlive(decl);
 
         const entry = try self.decl_link.getOrPut(self.gpa, decl_index);
         if (!entry.found_existing) {
             // TODO: Extern fn?
-            const kind: SpvModule.DeclKind = if (decl.val.isFuncBody(mod))
+            const kind: SpvModule.Decl.Kind = if (decl.val.isFuncBody(mod))
                 .func
-            else
-                .global;
+            else switch (decl.@"addrspace") {
+                .generic => .invocation_global,
+                else => .global,
+            };
 
             entry.value_ptr.* = try self.spv.allocDecl(kind);
         }
@@ -443,87 +448,90 @@ const DeclGen = struct {
         return self.inst_results.get(index).?; // Assertion means instruction does not dominate usage.
     }
 
-    fn resolveAnonDecl(self: *DeclGen, val: InternPool.Index, storage_class: StorageClass) !IdRef {
+    fn resolveAnonDecl(self: *DeclGen, val: InternPool.Index) !IdRef {
         // TODO: This cannot be a function at this point, but it should probably be handled anyway.
+
+        const mod = self.module;
+        const ty = Type.fromInterned(mod.intern_pool.typeOf(val));
+        const decl_ptr_ty_ref = try self.ptrType(ty, .Generic);
+
         const spv_decl_index = blk: {
-            const entry = try self.object.anon_decl_link.getOrPut(self.object.gpa, .{ val, storage_class });
+            const entry = try self.object.anon_decl_link.getOrPut(self.object.gpa, .{ val, .Function });
             if (entry.found_existing) {
-                try self.addFunctionDep(entry.value_ptr.*, storage_class);
-                return self.spv.declPtr(entry.value_ptr.*).result_id;
+                try self.addFunctionDep(entry.value_ptr.*, .Function);
+
+                const result_id = self.spv.declPtr(entry.value_ptr.*).result_id;
+                return try self.castToGeneric(self.typeId(decl_ptr_ty_ref), result_id);
             }
 
-            const spv_decl_index = try self.spv.allocDecl(.global);
-            try self.addFunctionDep(spv_decl_index, storage_class);
+            const spv_decl_index = try self.spv.allocDecl(.invocation_global);
+            try self.addFunctionDep(spv_decl_index, .Function);
             entry.value_ptr.* = spv_decl_index;
             break :blk spv_decl_index;
         };
 
-        const mod = self.module;
-        const ty = Type.fromInterned(mod.intern_pool.typeOf(val));
-        const ptr_ty_ref = try self.ptrType(ty, storage_class);
-
-        const var_id = self.spv.declPtr(spv_decl_index).result_id;
-
-        const section = &self.spv.sections.types_globals_constants;
-        try section.emit(self.spv.gpa, .OpVariable, .{
-            .id_result_type = self.typeId(ptr_ty_ref),
-            .id_result = var_id,
-            .storage_class = storage_class,
-        });
-
         // TODO: At some point we will be able to generate this all constant here, but then all of
         //   constant() will need to be implemented such that it doesn't generate any at-runtime code.
         // NOTE: Because this is a global, we really only want to initialize it once. Therefore the
-        //   constant lowering of this value will need to be deferred to some other function, which
-        //   is then added to the list of initializers using endGlobal().
+        //   constant lowering of this value will need to be deferred to an initializer similar to
+        //   other globals.
 
-        // Save the current state so that we can temporarily generate into a different function.
-        // TODO: This should probably be made a little more robust.
-        const func = self.func;
-        defer self.func = func;
-        const block_label = self.current_block_label;
-        defer self.current_block_label = block_label;
+        const result_id = self.spv.declPtr(spv_decl_index).result_id;
 
-        self.func = .{};
-        defer self.func.deinit(self.gpa);
+        {
+            // Save the current state so that we can temporarily generate into a different function.
+            // TODO: This should probably be made a little more robust.
+            const func = self.func;
+            defer self.func = func;
+            const block_label = self.current_block_label;
+            defer self.current_block_label = block_label;
 
-        // TODO: Merge this with genDecl?
-        const begin = self.spv.beginGlobal();
+            self.func = .{};
+            defer self.func.deinit(self.gpa);
 
-        const void_ty_ref = try self.resolveType(Type.void, .direct);
-        const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
-            .return_type = void_ty_ref,
-            .parameters = &.{},
-        } });
+            const void_ty_ref = try self.resolveType(Type.void, .direct);
+            const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
+                .return_type = void_ty_ref,
+                .parameters = &.{},
+            } });
 
-        const initializer_id = self.spv.allocId();
-        try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
-            .id_result_type = self.typeId(void_ty_ref),
-            .id_result = initializer_id,
-            .function_control = .{},
-            .function_type = self.typeId(initializer_proto_ty_ref),
-        });
-        const root_block_id = self.spv.allocId();
-        try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
-            .id_result = root_block_id,
-        });
-        self.current_block_label = root_block_id;
+            const initializer_id = self.spv.allocId();
 
-        const val_id = try self.constant(ty, Value.fromInterned(val), .indirect);
-        try self.func.body.emit(self.spv.gpa, .OpStore, .{
-            .pointer = var_id,
-            .object = val_id,
-        });
+            try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+                .id_result_type = self.typeId(void_ty_ref),
+                .id_result = initializer_id,
+                .function_control = .{},
+                .function_type = self.typeId(initializer_proto_ty_ref),
+            });
+            const root_block_id = self.spv.allocId();
+            try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+                .id_result = root_block_id,
+            });
+            self.current_block_label = root_block_id;
 
-        self.spv.endGlobal(spv_decl_index, begin, var_id, initializer_id);
-        try self.func.body.emit(self.spv.gpa, .OpReturn, {});
-        try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
-        try self.spv.addFunction(spv_decl_index, self.func);
+            const val_id = try self.constant(ty, Value.fromInterned(val), .indirect);
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = result_id,
+                .object = val_id,
+            });
 
-        try self.spv.debugNameFmt(var_id, "__anon_{d}", .{@intFromEnum(val)});
-        try self.spv.debugNameFmt(initializer_id, "initializer of __anon_{d}", .{@intFromEnum(val)});
+            try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+            try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+            try self.spv.addFunction(spv_decl_index, self.func);
 
-        return var_id;
+            try self.spv.debugNameFmt(initializer_id, "initializer of __anon_{d}", .{@intFromEnum(val)});
+
+            const fn_decl_ptr_ty_ref = try self.ptrType(ty, .Function);
+            try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
+                .id_result_type = self.typeId(fn_decl_ptr_ty_ref),
+                .id_result = result_id,
+                .set = try self.spv.importInstructionSet(.zig),
+                .instruction = .{ .inst = 0 }, // TODO: Put this definition somewhere...
+                .id_ref_4 = &.{initializer_id},
+            });
+        }
+
+        return try self.castToGeneric(self.typeId(decl_ptr_ty_ref), result_id);
     }
 
     fn addFunctionDep(self: *DeclGen, decl_index: SpvModule.Decl.Index, storage_class: StorageClass) !void {
@@ -768,18 +776,75 @@ const DeclGen = struct {
         };
     }
 
-    /// Construct a composite value at runtime. If the parameters are in direct
-    /// representation, then the result is also in direct representation. Otherwise,
-    /// if the parameters are in indirect representation, then the result is too.
-    fn constructComposite(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
-        const constituents_id = self.spv.allocId();
-        const type_id = try self.resolveType(ty, .direct);
-        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-            .id_result_type = self.typeId(type_id),
-            .id_result = constituents_id,
-            .constituents = constituents,
-        });
-        return constituents_id;
+    /// Construct a struct at runtime.
+    /// ty must be a struct type.
+    /// Constituents should be in `indirect` representation (as the elements of a struct should be).
+    /// Result is in `direct` representation.
+    fn constructStruct(self: *DeclGen, ty: Type, types: []const Type, constituents: []const IdRef) !IdRef {
+        assert(types.len == constituents.len);
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
+        for (constituents, types, 0..) |constitent_id, member_ty, index| {
+            const ptr_member_ty_ref = try self.ptrType(member_ty, .Function);
+            const ptr_id = try self.accessChain(ptr_member_ty_ref, ptr_composite_id, &.{@as(u32, @intCast(index))});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+        return try self.load(ty, ptr_composite_id, .{});
+    }
+
+    /// Construct a vector at runtime.
+    /// ty must be an vector type.
+    /// Constituents should be in `indirect` representation (as the elements of an vector should be).
+    /// Result is in `direct` representation.
+    fn constructVector(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const mod = self.module;
+        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
+        const ptr_elem_ty_ref = try self.ptrType(ty.elemType2(mod), .Function);
+        for (constituents, 0..) |constitent_id, index| {
+            const ptr_id = try self.accessChain(ptr_elem_ty_ref, ptr_composite_id, &.{@as(u32, @intCast(index))});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+
+        return try self.load(ty, ptr_composite_id, .{});
+    }
+
+    /// Construct an array at runtime.
+    /// ty must be an array type.
+    /// Constituents should be in `indirect` representation (as the elements of an array should be).
+    /// Result is in `direct` representation.
+    fn constructArray(self: *DeclGen, ty: Type, constituents: []const IdRef) !IdRef {
+        // The Khronos LLVM-SPIRV translator crashes because it cannot construct structs which'
+        // operands are not constant.
+        // See https://github.com/KhronosGroup/SPIRV-LLVM-Translator/issues/1349
+        // For now, just initialize the struct by setting the fields manually...
+        // TODO: Make this OpCompositeConstruct when we can
+        const mod = self.module;
+        const ptr_composite_id = try self.alloc(ty, .{ .storage_class = .Function });
+        const ptr_elem_ty_ref = try self.ptrType(ty.elemType2(mod), .Function);
+        for (constituents, 0..) |constitent_id, index| {
+            const ptr_id = try self.accessChain(ptr_elem_ty_ref, ptr_composite_id, &.{@as(u32, @intCast(index))});
+            try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                .pointer = ptr_id,
+                .object = constitent_id,
+            });
+        }
+
+        return try self.load(ty, ptr_composite_id, .{});
     }
 
     /// This function generates a load for a constant in direct (ie, non-memory) representation.
@@ -887,15 +952,18 @@ const DeclGen = struct {
                 });
 
                 var constituents: [2]IdRef = undefined;
+                var types: [2]Type = undefined;
                 if (eu_layout.error_first) {
                     constituents[0] = try self.constant(err_ty, err_val, .indirect);
                     constituents[1] = try self.constant(payload_ty, payload_val, .indirect);
+                    types = .{ err_ty, payload_ty };
                 } else {
                     constituents[0] = try self.constant(payload_ty, payload_val, .indirect);
                     constituents[1] = try self.constant(err_ty, err_val, .indirect);
+                    types = .{ payload_ty, err_ty };
                 }
 
-                return try self.constructComposite(ty, &constituents);
+                return try self.constructStruct(ty, &types, &constituents);
             },
             .enum_tag => {
                 const int_val = try val.intFromEnum(ty, mod);
@@ -907,7 +975,11 @@ const DeclGen = struct {
                 const ptr_ty = ty.slicePtrFieldType(mod);
                 const ptr_id = try self.constantPtr(ptr_ty, Value.fromInterned(slice.ptr));
                 const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
-                return self.constructComposite(ty, &.{ ptr_id, len_id });
+                return self.constructStruct(
+                    ty,
+                    &.{ ptr_ty, Type.usize },
+                    &.{ ptr_id, len_id },
+                );
             },
             .opt => {
                 const payload_ty = ty.optionalChild(mod);
@@ -934,7 +1006,11 @@ const DeclGen = struct {
                 else
                     try self.spv.constUndef(try self.resolveType(payload_ty, .indirect));
 
-                return try self.constructComposite(ty, &.{ payload_id, has_pl_id });
+                return try self.constructStruct(
+                    ty,
+                    &.{ payload_ty, Type.bool },
+                    &.{ payload_id, has_pl_id },
+                );
             },
             .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
                 inline .array_type, .vector_type => |array_type, tag| {
@@ -971,9 +1047,9 @@ const DeclGen = struct {
                                 const sentinel = Value.fromInterned(array_type.sentinel);
                                 constituents[constituents.len - 1] = try self.constant(elem_ty, sentinel, .indirect);
                             }
-                            return self.constructComposite(ty, constituents);
+                            return self.constructArray(ty, constituents);
                         },
-                        inline .vector_type => return self.constructComposite(ty, constituents),
+                        inline .vector_type => return self.constructVector(ty, constituents),
                         else => unreachable,
                     }
                 },
@@ -982,6 +1058,9 @@ const DeclGen = struct {
                     if (struct_type.layout == .@"packed") {
                         return self.todo("packed struct constants", .{});
                     }
+
+                    var types = std.ArrayList(Type).init(self.gpa);
+                    defer types.deinit();
 
                     var constituents = std.ArrayList(IdRef).init(self.gpa);
                     defer constituents.deinit();
@@ -998,10 +1077,11 @@ const DeclGen = struct {
                         const field_val = try val.fieldValue(mod, field_index);
                         const field_id = try self.constant(field_ty, field_val, .indirect);
 
+                        try types.append(field_ty);
                         try constituents.append(field_id);
                     }
 
-                    return try self.constructComposite(ty, constituents.items);
+                    return try self.constructStruct(ty, types.items, constituents.items);
                 },
                 .anon_struct_type => unreachable, // TODO
                 else => unreachable,
@@ -1107,19 +1187,10 @@ const DeclGen = struct {
             unreachable; // TODO
         }
 
-        const final_storage_class = self.spvStorageClass(ty.ptrAddressSpace(mod));
-        const actual_storage_class = switch (final_storage_class) {
-            .Generic => .CrossWorkgroup,
-            else => |other| other,
-        };
-
-        const decl_id = try self.resolveAnonDecl(decl_val, actual_storage_class);
-        const decl_ptr_ty_ref = try self.ptrType(decl_ty, final_storage_class);
-
-        const ptr_id = switch (final_storage_class) {
-            .Generic => try self.castToGeneric(self.typeId(decl_ptr_ty_ref), decl_id),
-            else => decl_id,
-        };
+        // Anon decl refs are always generic.
+        assert(ty.ptrAddressSpace(mod) == .generic);
+        const decl_ptr_ty_ref = try self.ptrType(decl_ty, .Generic);
+        const ptr_id = try self.resolveAnonDecl(decl_val);
 
         if (decl_ptr_ty_ref != ty_ref) {
             // Differing pointer types, insert a cast.
@@ -1157,8 +1228,13 @@ const DeclGen = struct {
         }
 
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
+        const spv_decl = self.spv.declPtr(spv_decl_index);
 
-        const decl_id = self.spv.declPtr(spv_decl_index).result_id;
+        const decl_id = switch (spv_decl.kind) {
+            .func => unreachable, // TODO: Is this possible?
+            .global, .invocation_global => spv_decl.result_id,
+        };
+
         const final_storage_class = self.spvStorageClass(decl.@"addrspace");
         try self.addFunctionDep(spv_decl_index, final_storage_class);
 
@@ -1437,6 +1513,13 @@ const DeclGen = struct {
                     if (self.type_map.get(ty.toIntern())) |info| return info.ty_ref;
 
                     const fn_info = mod.typeToFunc(ty).?;
+
+                    comptime assert(zig_call_abi_ver == 3);
+                    switch (fn_info.cc) {
+                        .Unspecified, .Kernel, .Fragment, .Vertex, .C => {},
+                        else => unreachable, // TODO
+                    }
+
                     // TODO: Put this somewhere in Sema.zig
                     if (fn_info.is_var_args)
                         return self.fail("VarArgs functions are unsupported for SPIR-V", .{});
@@ -1841,7 +1924,7 @@ const DeclGen = struct {
                 for (wip.results) |*result| {
                     result.* = try wip.dg.convertToIndirect(wip.ty, result.*);
                 }
-                return try wip.dg.constructComposite(wip.result_ty, wip.results);
+                return try wip.dg.constructArray(wip.result_ty, wip.results);
             } else {
                 return wip.results[0];
             }
@@ -1884,13 +1967,15 @@ const DeclGen = struct {
     /// (anyerror!void has the same layout as anyerror).
     /// Each test declaration generates a function like.
     ///   %anyerror = OpTypeInt 0 16
+    ///   %p_invocation_globals_struct_ty = ...
     ///   %p_anyerror = OpTypePointer CrossWorkgroup %anyerror
-    ///   %K = OpTypeFunction %void %p_anyerror
+    ///   %K = OpTypeFunction %void %p_invocation_globals_struct_ty %p_anyerror
     ///
     ///   %test = OpFunction %void %K
+    ///   %p_invocation_globals = OpFunctionParameter p_invocation_globals_struct_ty
     ///   %p_err = OpFunctionParameter %p_anyerror
     ///   %lbl = OpLabel
-    ///   %result = OpFunctionCall %anyerror %func
+    ///   %result = OpFunctionCall %anyerror %func %p_invocation_globals
     ///   OpStore %p_err %result
     ///   OpFunctionEnd
     /// TODO is to also write out the error as a function call parameter, and to somehow fetch
@@ -1900,10 +1985,12 @@ const DeclGen = struct {
         const ptr_anyerror_ty_ref = try self.ptrType(Type.anyerror, .CrossWorkgroup);
         const void_ty_ref = try self.resolveType(Type.void, .direct);
 
-        const kernel_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
-            .return_type = void_ty_ref,
-            .parameters = &.{ptr_anyerror_ty_ref},
-        } });
+        const kernel_proto_ty_ref = try self.spv.resolve(.{
+            .function_type = .{
+                .return_type = void_ty_ref,
+                .parameters = &.{ptr_anyerror_ty_ref},
+            },
+        });
 
         const test_id = self.spv.declPtr(spv_test_decl_index).result_id;
 
@@ -1954,147 +2041,164 @@ const DeclGen = struct {
         const ip = &mod.intern_pool;
         const decl = mod.declPtr(self.decl_index);
         const spv_decl_index = try self.object.resolveDecl(mod, self.decl_index);
-        const target = self.getTarget();
+        const result_id = self.spv.declPtr(spv_decl_index).result_id;
 
-        const decl_id = self.spv.declPtr(spv_decl_index).result_id;
+        switch (self.spv.declPtr(spv_decl_index).kind) {
+            .func => {
+                assert(decl.ty.zigTypeTag(mod) == .Fn);
+                const fn_info = mod.typeToFunc(decl.ty).?;
+                const return_ty_ref = try self.resolveFnReturnType(Type.fromInterned(fn_info.return_type));
 
-        if (decl.val.getFunction(mod)) |_| {
-            assert(decl.ty.zigTypeTag(mod) == .Fn);
-            const fn_info = mod.typeToFunc(decl.ty).?;
-            const return_ty_ref = try self.resolveFnReturnType(Type.fromInterned(fn_info.return_type));
-
-            const prototype_id = try self.resolveTypeId(decl.ty);
-            try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
-                .id_result_type = self.typeId(return_ty_ref),
-                .id_result = decl_id,
-                .function_control = switch (fn_info.cc) {
-                    .Inline => .{ .Inline = true },
-                    else => .{},
-                },
-                .function_type = prototype_id,
-            });
-
-            try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
-            for (fn_info.param_types.get(ip)) |param_ty_index| {
-                const param_ty = Type.fromInterned(param_ty_index);
-                if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
-
-                const param_type_id = try self.resolveTypeId(param_ty);
-                const arg_result_id = self.spv.allocId();
-                try self.func.prologue.emit(self.spv.gpa, .OpFunctionParameter, .{
-                    .id_result_type = param_type_id,
-                    .id_result = arg_result_id,
-                });
-                self.args.appendAssumeCapacity(arg_result_id);
-            }
-
-            // TODO: This could probably be done in a better way...
-            const root_block_id = self.spv.allocId();
-
-            // The root block of a function declaration should appear before OpVariable instructions,
-            // so it is generated into the function's prologue.
-            try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
-                .id_result = root_block_id,
-            });
-            self.current_block_label = root_block_id;
-
-            const main_body = self.air.getMainBody();
-            switch (self.control_flow) {
-                .structured => {
-                    _ = try self.genStructuredBody(.selection, main_body);
-                    // We always expect paths to here to end, but we still need the block
-                    // to act as a dummy merge block.
-                    try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
-                },
-                .unstructured => {
-                    try self.genBody(main_body);
-                },
-            }
-            try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
-            // Append the actual code into the functions section.
-            try self.spv.addFunction(spv_decl_index, self.func);
-
-            const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-            try self.spv.debugName(decl_id, fqn);
-
-            // Temporarily generate a test kernel declaration if this is a test function.
-            if (self.module.test_functions.contains(self.decl_index)) {
-                try self.generateTestEntryPoint(fqn, spv_decl_index);
-            }
-        } else {
-            const opt_init_val: ?Value = blk: {
-                if (decl.val.getVariable(mod)) |payload| {
-                    if (payload.is_extern) break :blk null;
-                    break :blk Value.fromInterned(payload.init);
-                }
-                break :blk decl.val;
-            };
-
-            // Generate the actual variable for the global...
-            const final_storage_class = self.spvStorageClass(decl.@"addrspace");
-            const actual_storage_class = blk: {
-                if (target.os.tag != .vulkan) {
-                    break :blk switch (final_storage_class) {
-                        .Generic => .CrossWorkgroup,
-                        else => final_storage_class,
-                    };
-                }
-                break :blk final_storage_class;
-            };
-
-            const ptr_ty_ref = try self.ptrType(decl.ty, actual_storage_class);
-
-            const begin = self.spv.beginGlobal();
-            try self.spv.globals.section.emit(self.spv.gpa, .OpVariable, .{
-                .id_result_type = self.typeId(ptr_ty_ref),
-                .id_result = decl_id,
-                .storage_class = actual_storage_class,
-            });
-            const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-            try self.spv.debugName(decl_id, fqn);
-
-            if (opt_init_val) |init_val| {
-                // Currently, initializers for CrossWorkgroup variables is not implemented
-                // in Mesa. Therefore we generate an initialization kernel instead.
-                const void_ty_ref = try self.resolveType(Type.void, .direct);
-
-                const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
-                    .return_type = void_ty_ref,
-                    .parameters = &.{},
-                } });
-
-                // Now emit the instructions that initialize the variable.
-                const initializer_id = self.spv.allocId();
+                const prototype_ty_ref = try self.resolveType(decl.ty, .direct);
                 try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
-                    .id_result_type = self.typeId(void_ty_ref),
-                    .id_result = initializer_id,
-                    .function_control = .{},
-                    .function_type = self.typeId(initializer_proto_ty_ref),
+                    .id_result_type = self.typeId(return_ty_ref),
+                    .id_result = result_id,
+                    .function_control = switch (fn_info.cc) {
+                        .Inline => .{ .Inline = true },
+                        else => .{},
+                    },
+                    .function_type = self.typeId(prototype_ty_ref),
                 });
+
+                comptime assert(zig_call_abi_ver == 3);
+                try self.args.ensureUnusedCapacity(self.gpa, fn_info.param_types.len);
+                for (fn_info.param_types.get(ip)) |param_ty_index| {
+                    const param_ty = Type.fromInterned(param_ty_index);
+                    if (!param_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+
+                    const param_type_id = try self.resolveTypeId(param_ty);
+                    const arg_result_id = self.spv.allocId();
+                    try self.func.prologue.emit(self.spv.gpa, .OpFunctionParameter, .{
+                        .id_result_type = param_type_id,
+                        .id_result = arg_result_id,
+                    });
+                    self.args.appendAssumeCapacity(arg_result_id);
+                }
+
+                // TODO: This could probably be done in a better way...
                 const root_block_id = self.spv.allocId();
+
+                // The root block of a function declaration should appear before OpVariable instructions,
+                // so it is generated into the function's prologue.
                 try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
                     .id_result = root_block_id,
                 });
                 self.current_block_label = root_block_id;
 
-                const val_id = try self.constant(decl.ty, init_val, .indirect);
-                try self.func.body.emit(self.spv.gpa, .OpStore, .{
-                    .pointer = decl_id,
-                    .object = val_id,
-                });
-
-                // TODO: We should be able to get rid of this by now...
-                self.spv.endGlobal(spv_decl_index, begin, decl_id, initializer_id);
-
-                try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+                const main_body = self.air.getMainBody();
+                switch (self.control_flow) {
+                    .structured => {
+                        _ = try self.genStructuredBody(.selection, main_body);
+                        // We always expect paths to here to end, but we still need the block
+                        // to act as a dummy merge block.
+                        try self.func.body.emit(self.spv.gpa, .OpUnreachable, {});
+                    },
+                    .unstructured => {
+                        try self.genBody(main_body);
+                    },
+                }
                 try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+                // Append the actual code into the functions section.
                 try self.spv.addFunction(spv_decl_index, self.func);
 
-                try self.spv.debugNameFmt(initializer_id, "initializer of {s}", .{fqn});
-            } else {
-                self.spv.endGlobal(spv_decl_index, begin, decl_id, null);
+                const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
+                try self.spv.debugName(result_id, fqn);
+
+                // Temporarily generate a test kernel declaration if this is a test function.
+                if (self.module.test_functions.contains(self.decl_index)) {
+                    try self.generateTestEntryPoint(fqn, spv_decl_index);
+                }
+            },
+            .global => {
+                const maybe_init_val: ?Value = blk: {
+                    if (decl.val.getVariable(mod)) |payload| {
+                        if (payload.is_extern) break :blk null;
+                        break :blk Value.fromInterned(payload.init);
+                    }
+                    break :blk decl.val;
+                };
+                assert(maybe_init_val == null); // TODO
+
+                const final_storage_class = self.spvStorageClass(decl.@"addrspace");
+                assert(final_storage_class != .Generic); // These should be instance globals
+
+                const ptr_ty_ref = try self.ptrType(decl.ty, final_storage_class);
+
+                try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpVariable, .{
+                    .id_result_type = self.typeId(ptr_ty_ref),
+                    .id_result = result_id,
+                    .storage_class = final_storage_class,
+                });
+
+                const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
+                try self.spv.debugName(result_id, fqn);
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
-            }
+            },
+            .invocation_global => {
+                const maybe_init_val: ?Value = blk: {
+                    if (decl.val.getVariable(mod)) |payload| {
+                        if (payload.is_extern) break :blk null;
+                        break :blk Value.fromInterned(payload.init);
+                    }
+                    break :blk decl.val;
+                };
+
+                try self.spv.declareDeclDeps(spv_decl_index, &.{});
+
+                const ptr_ty_ref = try self.ptrType(decl.ty, .Function);
+
+                if (maybe_init_val) |init_val| {
+                    // TODO: Combine with resolveAnonDecl?
+                    const void_ty_ref = try self.resolveType(Type.void, .direct);
+                    const initializer_proto_ty_ref = try self.spv.resolve(.{ .function_type = .{
+                        .return_type = void_ty_ref,
+                        .parameters = &.{},
+                    } });
+
+                    const initializer_id = self.spv.allocId();
+                    try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
+                        .id_result_type = self.typeId(void_ty_ref),
+                        .id_result = initializer_id,
+                        .function_control = .{},
+                        .function_type = self.typeId(initializer_proto_ty_ref),
+                    });
+
+                    const root_block_id = self.spv.allocId();
+                    try self.func.prologue.emit(self.spv.gpa, .OpLabel, .{
+                        .id_result = root_block_id,
+                    });
+                    self.current_block_label = root_block_id;
+
+                    const val_id = try self.constant(decl.ty, init_val, .indirect);
+                    try self.func.body.emit(self.spv.gpa, .OpStore, .{
+                        .pointer = result_id,
+                        .object = val_id,
+                    });
+
+                    try self.func.body.emit(self.spv.gpa, .OpReturn, {});
+                    try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
+                    try self.spv.addFunction(spv_decl_index, self.func);
+
+                    const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
+                    try self.spv.debugNameFmt(initializer_id, "initializer of {s}", .{fqn});
+
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
+                        .id_result_type = self.typeId(ptr_ty_ref),
+                        .id_result = result_id,
+                        .set = try self.spv.importInstructionSet(.zig),
+                        .instruction = .{ .inst = 0 }, // TODO: Put this definition somewhere...
+                        .id_ref_4 = &.{initializer_id},
+                    });
+                } else {
+                    try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
+                        .id_result_type = self.typeId(ptr_ty_ref),
+                        .id_result = result_id,
+                        .set = try self.spv.importInstructionSet(.zig),
+                        .instruction = .{ .inst = 0 }, // TODO: Put this definition somewhere...
+                        .id_ref_4 = &.{},
+                    });
+                }
+            },
         }
     }
 
@@ -2487,8 +2591,8 @@ const DeclGen = struct {
                     else => unreachable,
                 };
                 const set_id = switch (target.os.tag) {
-                    .opencl => try self.spv.importInstructionSet(.opencl),
-                    .vulkan => try self.spv.importInstructionSet(.glsl),
+                    .opencl => try self.spv.importInstructionSet(.@"OpenCL.std"),
+                    .vulkan => try self.spv.importInstructionSet(.@"GLSL.std.450"),
                     else => unreachable,
                 };
 
@@ -2662,8 +2766,8 @@ const DeclGen = struct {
                 else => unreachable,
             };
             const set_id = switch (target.os.tag) {
-                .opencl => try self.spv.importInstructionSet(.opencl),
-                .vulkan => try self.spv.importInstructionSet(.glsl),
+                .opencl => try self.spv.importInstructionSet(.@"OpenCL.std"),
+                .vulkan => try self.spv.importInstructionSet(.@"GLSL.std.450"),
                 else => unreachable,
             };
 
@@ -2792,8 +2896,9 @@ const DeclGen = struct {
             ov_id.* = try self.intFromBool(wip_ov.ty_ref, overflowed_id);
         }
 
-        return try self.constructComposite(
+        return try self.constructStruct(
             result_ty,
+            &.{ operand_ty, ov_ty },
             &.{ try wip_result.finalize(), try wip_ov.finalize() },
         );
     }
@@ -2885,8 +2990,9 @@ const DeclGen = struct {
             ov_id.* = try self.intFromBool(wip_ov.ty_ref, overflowed_id);
         }
 
-        return try self.constructComposite(
+        return try self.constructStruct(
             result_ty,
+            &.{ operand_ty, ov_ty },
             &.{ try wip_result.finalize(), try wip_ov.finalize() },
         );
     }
@@ -3201,35 +3307,76 @@ const DeclGen = struct {
                 else
                     try self.convertToDirect(Type.bool, rhs_id);
 
-                const valid_cmp_id = try self.cmp(op, Type.bool, Type.bool, lhs_valid_id, rhs_valid_id);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                    return valid_cmp_id;
+                    return try self.cmp(op, Type.bool, Type.bool, lhs_valid_id, rhs_valid_id);
                 }
 
-                // TODO: Should we short circuit here? It shouldn't affect correctness, but
-                // perhaps it will generate more efficient code.
+                // a = lhs_valid
+                // b = rhs_valid
+                // c = lhs_pl == rhs_pl
+                //
+                // For op == .eq we have:
+                //   a == b && a -> c
+                // = a == b && (!a || c)
+                //
+                // For op == .neq we have
+                //   a == b && a -> c
+                // = !(a == b && a -> c)
+                // = a != b || !(a -> c
+                // = a != b || !(!a || c)
+                // = a != b || a && !c
 
                 const lhs_pl_id = try self.extractField(payload_ty, lhs_id, 0);
                 const rhs_pl_id = try self.extractField(payload_ty, rhs_id, 0);
 
-                const pl_cmp_id = try self.cmp(op, Type.bool, payload_ty, lhs_pl_id, rhs_pl_id);
-
-                // op == .eq  => lhs_valid == rhs_valid && lhs_pl == rhs_pl
-                // op == .neq => lhs_valid != rhs_valid || lhs_pl != rhs_pl
-
-                const result_id = self.spv.allocId();
-                const args = .{
-                    .id_result_type = self.typeId(bool_ty_ref),
-                    .id_result = result_id,
-                    .operand_1 = valid_cmp_id,
-                    .operand_2 = pl_cmp_id,
-                };
                 switch (op) {
-                    .eq => try self.func.body.emit(self.spv.gpa, .OpLogicalAnd, args),
-                    .neq => try self.func.body.emit(self.spv.gpa, .OpLogicalOr, args),
+                    .eq => {
+                        const valid_eq_id = try self.cmp(.eq, Type.bool, Type.bool, lhs_valid_id, rhs_valid_id);
+                        const pl_eq_id = try self.cmp(op, Type.bool, payload_ty, lhs_pl_id, rhs_pl_id);
+                        const lhs_not_valid_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpLogicalNot, .{
+                            .id_result_type = self.typeId(bool_ty_ref),
+                            .id_result = lhs_not_valid_id,
+                            .operand = lhs_valid_id,
+                        });
+                        const impl_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpLogicalOr, .{
+                            .id_result_type = self.typeId(bool_ty_ref),
+                            .id_result = impl_id,
+                            .operand_1 = lhs_not_valid_id,
+                            .operand_2 = pl_eq_id,
+                        });
+                        const result_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpLogicalAnd, .{
+                            .id_result_type = self.typeId(bool_ty_ref),
+                            .id_result = result_id,
+                            .operand_1 = valid_eq_id,
+                            .operand_2 = impl_id,
+                        });
+                        return result_id;
+                    },
+                    .neq => {
+                        const valid_neq_id = try self.cmp(.neq, Type.bool, Type.bool, lhs_valid_id, rhs_valid_id);
+                        const pl_neq_id = try self.cmp(op, Type.bool, payload_ty, lhs_pl_id, rhs_pl_id);
+
+                        const impl_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpLogicalAnd, .{
+                            .id_result_type = self.typeId(bool_ty_ref),
+                            .id_result = impl_id,
+                            .operand_1 = lhs_valid_id,
+                            .operand_2 = pl_neq_id,
+                        });
+                        const result_id = self.spv.allocId();
+                        try self.func.body.emit(self.spv.gpa, .OpLogicalOr, .{
+                            .id_result_type = self.typeId(bool_ty_ref),
+                            .id_result = result_id,
+                            .operand_1 = valid_neq_id,
+                            .operand_2 = impl_id,
+                        });
+                        return result_id;
+                    },
                     else => unreachable,
                 }
-                return result_id;
             },
             .Vector => {
                 var wip = try self.elementWise(result_ty, true);
@@ -3588,7 +3735,11 @@ const DeclGen = struct {
             // Convert the pointer-to-array to a pointer to the first element.
             try self.accessChain(elem_ptr_ty_ref, array_ptr_id, &.{0});
 
-        return try self.constructComposite(slice_ty, &.{ elem_ptr_id, len_id });
+        return try self.constructStruct(
+            slice_ty,
+            &.{ elem_ptr_ty, Type.usize },
+            &.{ elem_ptr_id, len_id },
+        );
     }
 
     fn airSlice(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -3596,11 +3747,16 @@ const DeclGen = struct {
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr_id = try self.resolve(bin_op.lhs);
         const len_id = try self.resolve(bin_op.rhs);
+        const ptr_ty = self.typeOf(bin_op.lhs);
         const slice_ty = self.typeOfIndex(inst);
 
         // Note: Types should not need to be converted to direct, these types
         // dont need to be converted.
-        return try self.constructComposite(slice_ty, &.{ ptr_id, len_id });
+        return try self.constructStruct(
+            slice_ty,
+            &.{ ptr_ty, Type.usize },
+            &.{ ptr_id, len_id },
+        );
     }
 
     fn airAggregateInit(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -3618,6 +3774,8 @@ const DeclGen = struct {
                     unreachable; // TODO
                 }
 
+                const types = try self.gpa.alloc(Type, elements.len);
+                defer self.gpa.free(types);
                 const constituents = try self.gpa.alloc(IdRef, elements.len);
                 defer self.gpa.free(constituents);
                 var index: usize = 0;
@@ -3629,6 +3787,7 @@ const DeclGen = struct {
                             assert(Type.fromInterned(field_ty).hasRuntimeBits(mod));
 
                             const id = try self.resolve(element);
+                            types[index] = Type.fromInterned(field_ty);
                             constituents[index] = try self.convertToIndirect(Type.fromInterned(field_ty), id);
                             index += 1;
                         }
@@ -3643,6 +3802,7 @@ const DeclGen = struct {
                             assert(field_ty.hasRuntimeBitsIgnoreComptime(mod));
 
                             const id = try self.resolve(element);
+                            types[index] = field_ty;
                             constituents[index] = try self.convertToIndirect(field_ty, id);
                             index += 1;
                         }
@@ -3650,7 +3810,11 @@ const DeclGen = struct {
                     else => unreachable,
                 }
 
-                return try self.constructComposite(result_ty, constituents[0..index]);
+                return try self.constructStruct(
+                    result_ty,
+                    types[0..index],
+                    constituents[0..index],
+                );
             },
             .Vector => {
                 const n_elems = result_ty.vectorLen(mod);
@@ -3662,7 +3826,7 @@ const DeclGen = struct {
                     elem_ids[i] = try self.convertToIndirect(result_ty.childType(mod), id);
                 }
 
-                return try self.constructComposite(result_ty, elem_ids);
+                return try self.constructVector(result_ty, elem_ids);
             },
             .Array => {
                 const array_info = result_ty.arrayInfo(mod);
@@ -3679,7 +3843,7 @@ const DeclGen = struct {
                     elem_ids[n_elems - 1] = try self.constant(array_info.elem_type, sentinel_val, .indirect);
                 }
 
-                return try self.constructComposite(result_ty, elem_ids);
+                return try self.constructArray(result_ty, elem_ids);
             },
             else => unreachable,
         }
@@ -4792,7 +4956,11 @@ const DeclGen = struct {
         members[eu_layout.errorFieldIndex()] = operand_id;
         members[eu_layout.payloadFieldIndex()] = try self.spv.constUndef(payload_ty_ref);
 
-        return try self.constructComposite(err_union_ty, &members);
+        var types: [2]Type = undefined;
+        types[eu_layout.errorFieldIndex()] = Type.anyerror;
+        types[eu_layout.payloadFieldIndex()] = payload_ty;
+
+        return try self.constructStruct(err_union_ty, &types, &members);
     }
 
     fn airWrapErrUnionPayload(self: *DeclGen, inst: Air.Inst.Index) !?IdRef {
@@ -4811,7 +4979,11 @@ const DeclGen = struct {
         members[eu_layout.errorFieldIndex()] = try self.constInt(err_ty_ref, 0);
         members[eu_layout.payloadFieldIndex()] = try self.convertToIndirect(payload_ty, operand_id);
 
-        return try self.constructComposite(err_union_ty, &members);
+        var types: [2]Type = undefined;
+        types[eu_layout.errorFieldIndex()] = Type.anyerror;
+        types[eu_layout.payloadFieldIndex()] = payload_ty;
+
+        return try self.constructStruct(err_union_ty, &types, &members);
     }
 
     fn airIsNull(self: *DeclGen, inst: Air.Inst.Index, is_pointer: bool, pred: enum { is_null, is_non_null }) !?IdRef {
@@ -4978,7 +5150,8 @@ const DeclGen = struct {
 
         const payload_id = try self.convertToIndirect(payload_ty, operand_id);
         const members = [_]IdRef{ payload_id, try self.constBool(true, .indirect) };
-        return try self.constructComposite(optional_ty, &members);
+        const types = [_]Type{ payload_ty, Type.bool };
+        return try self.constructStruct(optional_ty, &types, &members);
     }
 
     fn airSwitchBr(self: *DeclGen, inst: Air.Inst.Index) !void {
@@ -5058,7 +5231,7 @@ const DeclGen = struct {
                 const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
 
-                const label = IdRef{ .id = @intCast(first_case_label.id + case_i) };
+                const label: IdRef = @enumFromInt(@intFromEnum(first_case_label) + case_i);
 
                 for (items) |item| {
                     const value = (try self.air.value(item, mod)) orelse unreachable;
@@ -5072,7 +5245,7 @@ const DeclGen = struct {
                         else => unreachable,
                     };
                     const int_lit: spec.LiteralContextDependentNumber = switch (cond_words) {
-                        1 => .{ .uint32 = @as(u32, @intCast(int_val)) },
+                        1 => .{ .uint32 = @intCast(int_val) },
                         2 => .{ .uint64 = int_val },
                         else => unreachable,
                     };
@@ -5097,7 +5270,7 @@ const DeclGen = struct {
             const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
             extra_index = case.end + case.data.items_len + case_body.len;
 
-            const label = IdResult{ .id = @intCast(first_case_label.id + case_i) };
+            const label: IdResult = @enumFromInt(@intFromEnum(first_case_label) + case_i);
 
             try self.beginSpvBlock(label);
 
@@ -5327,9 +5500,9 @@ const DeclGen = struct {
         const result_id = self.spv.allocId();
         const callee_id = try self.resolve(pl_op.operand);
 
+        comptime assert(zig_call_abi_ver == 3);
         const params = try self.gpa.alloc(spec.IdRef, args.len);
         defer self.gpa.free(params);
-
         var n_params: usize = 0;
         for (args) |arg| {
             // Note: resolve() might emit instructions, so we need to call it

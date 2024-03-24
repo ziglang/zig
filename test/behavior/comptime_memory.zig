@@ -400,6 +400,10 @@ test "accessing reinterpreted memory of parent object" {
 }
 
 test "bitcast packed union to integer" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/19384
+        return error.SkipZigTest;
+    }
     const U = packed union {
         x: u1,
         y: u2,

@@ -127,7 +127,6 @@ test "cmp f16" {
 test "cmp f32/f64" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testCmp(f32);
     try comptime testCmp(f32);
@@ -979,7 +978,6 @@ test "@abs f32/f64" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testFabs(f32);
     try comptime testFabs(f32);
@@ -1635,4 +1633,25 @@ test "runtime isNan(inf * 0)" {
     try std.testing.expect(std.math.isNan(inf_times_zero));
     const zero_times_inf = 0 * std.math.inf(f64);
     try std.testing.expect(std.math.isNan(zero_times_inf));
+}
+
+test "optimized float mode" {
+    if (builtin.mode == .Debug) return error.SkipZigTest;
+
+    const big = 0x1p40;
+    const small = 0.001;
+    const tiny = 0x1p-10;
+
+    const S = struct {
+        fn strict(x: f64) f64 {
+            @setFloatMode(.strict);
+            return x + big - big;
+        }
+        fn optimized(x: f64) f64 {
+            @setFloatMode(.optimized);
+            return x + big - big;
+        }
+    };
+    try expect(S.optimized(small) == small);
+    try expect(S.strict(small) == tiny);
 }

@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-file-l2-1-1
+
+EXPORTS
+
+OpenFileById@24

@@ -372,7 +372,6 @@ test "load vector elements via comptime index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -394,7 +393,6 @@ test "store vector elements via comptime index" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -717,19 +715,14 @@ test "vector shift operators" {
     };
 
     switch (builtin.target.cpu.arch) {
-        .x86,
-        .aarch64,
         .aarch64_be,
         .aarch64_32,
-        .arm,
         .armeb,
         .thumb,
         .thumbeb,
         .mips,
-        .mipsel,
         .mips64,
         .mips64el,
-        .riscv64,
         .sparc64,
         => {
             // LLVM miscompiles on this architecture

@@ -1,0 +1,11 @@
+LIBRARY api-ms-win-core-toolhelp-l1-1-0
+
+EXPORTS
+
+CreateToolhelp32Snapshot@8
+Module32FirstW@8
+Module32NextW@8
+Process32FirstW@8
+Process32NextW@8
+Thread32First@8
+Thread32Next@8

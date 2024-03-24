@@ -6839,7 +6839,7 @@ pub const FastMath = packed struct(u8) {
         .arcp = true,
         .contract = true,
         .afn = true,
-        .realloc = true,
+        .reassoc = true,
     };
 };
 
@@ -14721,13 +14721,13 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try function_block.writeAbbrevAdapted(FunctionBlock.CallFast{
                                 .attributes = extra.data.attributes,
                                 .call_type = switch (kind) {
-                                    .call => .{ .call_conv = call_conv },
-                                    .@"tail call" => .{ .tail = true, .call_conv = call_conv },
-                                    .@"musttail call" => .{ .must_tail = true, .call_conv = call_conv },
-                                    .@"notail call" => .{ .no_tail = true, .call_conv = call_conv },
+                                    .@"call fast" => .{ .call_conv = call_conv },
+                                    .@"tail call fast" => .{ .tail = true, .call_conv = call_conv },
+                                    .@"musttail call fast" => .{ .must_tail = true, .call_conv = call_conv },
+                                    .@"notail call fast" => .{ .no_tail = true, .call_conv = call_conv },
                                     else => unreachable,
                                 },
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                                 .type_id = extra.data.ty,
                                 .callee = extra.data.callee,
                                 .args = args,
@@ -14786,7 +14786,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                             });
                         },
                         .alloca,
@@ -14884,7 +14884,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
                                 .pred = kind.toCmpPredicate(),
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                             });
                         },
                         .fneg => try function_block.writeAbbrev(FunctionBlock.FNeg{
@@ -14892,7 +14892,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         }),
                         .@"fneg fast" => try function_block.writeAbbrev(FunctionBlock.FNegFast{
                             .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
-                            .fast_math = .{},
+                            .fast_math = FastMath.fast,
                         }),
                         .extractvalue => {
                             var extra = func.extraDataTrail(Function.Instruction.ExtractValue, datas[instr_index]);
@@ -14940,7 +14940,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
                                 .cond = adapter.getOffsetValueIndex(extra.cond),
-                                .fast_math = .{},
+                                .fast_math = FastMath.fast,
                             });
                         },
                         .shufflevector => {

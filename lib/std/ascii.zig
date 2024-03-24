@@ -147,7 +147,7 @@ pub fn isWhitespace(c: u8) bool {
 /// See also: `isWhitespace`
 pub const whitespace = [_]u8{ ' ', '\t', '\n', '\r', control_code.vt, control_code.ff };
 
-test "whitespace" {
+test whitespace {
     for (whitespace) |char| try std.testing.expect(isWhitespace(char));
 
     var i: u8 = 0;
@@ -278,7 +278,7 @@ pub fn lowerString(output: []u8, ascii_string: []const u8) []u8 {
     return output[0..ascii_string.len];
 }
 
-test "lowerString" {
+test lowerString {
     var buf: [1024]u8 = undefined;
     const result = lowerString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
@@ -291,7 +291,7 @@ pub fn allocLowerString(allocator: std.mem.Allocator, ascii_string: []const u8) 
     return lowerString(result, ascii_string);
 }
 
-test "allocLowerString" {
+test allocLowerString {
     const result = try allocLowerString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     defer std.testing.allocator.free(result);
     try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
@@ -307,7 +307,7 @@ pub fn upperString(output: []u8, ascii_string: []const u8) []u8 {
     return output[0..ascii_string.len];
 }
 
-test "upperString" {
+test upperString {
     var buf: [1024]u8 = undefined;
     const result = upperString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
@@ -320,7 +320,7 @@ pub fn allocUpperString(allocator: std.mem.Allocator, ascii_string: []const u8) 
     return upperString(result, ascii_string);
 }
 
-test "allocUpperString" {
+test allocUpperString {
     const result = try allocUpperString(std.testing.allocator, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     defer std.testing.allocator.free(result);
     try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
@@ -335,7 +335,7 @@ pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     return true;
 }
 
-test "eqlIgnoreCase" {
+test eqlIgnoreCase {
     try std.testing.expect(eqlIgnoreCase("HEl💩Lo!", "hel💩lo!"));
     try std.testing.expect(!eqlIgnoreCase("hElLo!", "hello! "));
     try std.testing.expect(!eqlIgnoreCase("hElLo!", "helro!"));
@@ -345,7 +345,7 @@ pub fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[0..needle.len], needle);
 }
 
-test "startsWithIgnoreCase" {
+test startsWithIgnoreCase {
     try std.testing.expect(startsWithIgnoreCase("boB", "Bo"));
     try std.testing.expect(!startsWithIgnoreCase("Needle in hAyStAcK", "haystack"));
 }
@@ -354,7 +354,7 @@ pub fn endsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return if (needle.len > haystack.len) false else eqlIgnoreCase(haystack[haystack.len - needle.len ..], needle);
 }
 
-test "endsWithIgnoreCase" {
+test endsWithIgnoreCase {
     try std.testing.expect(endsWithIgnoreCase("Needle in HaYsTaCk", "haystack"));
     try std.testing.expect(!endsWithIgnoreCase("BoB", "Bo"));
 }
@@ -409,7 +409,7 @@ fn boyerMooreHorspoolPreprocessIgnoreCase(pattern: []const u8, table: *[256]usiz
     }
 }
 
-test "indexOfIgnoreCase" {
+test indexOfIgnoreCase {
     try std.testing.expect(indexOfIgnoreCase("one Two Three Four", "foUr").? == 14);
     try std.testing.expect(indexOfIgnoreCase("one two three FouR", "gOur") == null);
     try std.testing.expect(indexOfIgnoreCase("foO", "Foo").? == 0);

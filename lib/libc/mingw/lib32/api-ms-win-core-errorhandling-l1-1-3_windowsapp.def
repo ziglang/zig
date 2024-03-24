@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-errorhandling-l1-1-3
+
+EXPORTS
+
+FatalAppExitA@8
+FatalAppExitW@8
+GetThreadErrorMode@0
+SetThreadErrorMode@8

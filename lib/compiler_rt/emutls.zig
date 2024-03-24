@@ -7,7 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const common = @import("common.zig");
 
-const abort = std.os.abort;
+const abort = std.posix.abort;
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 
@@ -145,7 +145,7 @@ const ObjectArray = struct {
     }
 };
 
-// Global stucture for Thread Storage.
+// Global structure for Thread Storage.
 // It provides thread-safety for on-demand storage of Thread Objects.
 const current_thread_storage = struct {
     var key: std.c.pthread_key_t = undefined;
@@ -246,7 +246,7 @@ const emutls_control = extern struct {
         // Two threads could race against the same emutls_control.
 
         // Use atomic for reading coherent value lockless.
-        const index_lockless = @atomicLoad(usize, &self.object.index, .Acquire);
+        const index_lockless = @atomicLoad(usize, &self.object.index, .acquire);
 
         if (index_lockless != 0) {
             // index is already initialized, return it.
@@ -264,7 +264,7 @@ const emutls_control = extern struct {
         }
 
         // Store a new index atomically (for having coherent index_lockless reading).
-        @atomicStore(usize, &self.object.index, emutls_control.next_index, .Release);
+        @atomicStore(usize, &self.object.index, emutls_control.next_index, .release);
 
         // Increment the next available index
         emutls_control.next_index += 1;
@@ -358,7 +358,7 @@ test "__emutls_get_address with default_value" {
     try expect(y.* == 9012); // the modified storage persists
 }
 
-test "test default_value with differents sizes" {
+test "test default_value with different sizes" {
     if (!builtin.link_libc or builtin.os.tag != .openbsd) return error.SkipZigTest;
 
     const testType = struct {

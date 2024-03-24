@@ -57,10 +57,9 @@ test stringToEnum {
 }
 
 /// Returns the alignment of type T.
-/// Note that if T is a pointer or function type the result is different than
-/// the one returned by @alignOf(T).
+/// Note that if T is a pointer type the result is different than the one
+/// returned by @alignOf(T).
 /// If T is a pointer type the alignment of the type it points to is returned.
-/// If T is a function type the alignment a target-dependent value is returned.
 pub fn alignment(comptime T: type) comptime_int {
     return switch (@typeInfo(T)) {
         .Optional => |info| switch (@typeInfo(info.child)) {
@@ -68,7 +67,6 @@ pub fn alignment(comptime T: type) comptime_int {
             else => @alignOf(T),
         },
         .Pointer => |info| info.alignment,
-        .Fn => |info| info.alignment,
         else => @alignOf(T),
     };
 }
@@ -80,7 +78,8 @@ test alignment {
     try testing.expect(alignment([]align(1) u8) == 1);
     try testing.expect(alignment([]align(2) u8) == 2);
     try testing.expect(alignment(fn () void) > 0);
-    try testing.expect(alignment(fn () align(128) void) == 128);
+    try testing.expect(alignment(*const fn () void) > 0);
+    try testing.expect(alignment(*align(128) const fn () void) == 128);
 }
 
 /// Given a parameterized type (array, vector, pointer, optional), returns the "child type".

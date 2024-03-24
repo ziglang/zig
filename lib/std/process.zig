@@ -1,6 +1,5 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const os = std.os;
 const fs = std.fs;
 const mem = std.mem;
 const math = std.math;
@@ -8,19 +7,26 @@ const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
 const child_process = @import("child_process.zig");
+const native_os = builtin.os.tag;
+const posix = std.posix;
+const windows = std.os.windows;
 
 pub const Child = child_process.ChildProcess;
-pub const abort = os.abort;
-pub const exit = os.exit;
-pub const changeCurDir = os.chdir;
-pub const changeCurDirC = os.chdirC;
+pub const abort = posix.abort;
+pub const exit = posix.exit;
+pub const changeCurDir = posix.chdir;
+pub const changeCurDirC = posix.chdirC;
+
+pub const GetCwdError = posix.GetCwdError;
 
 /// The result is a slice of `out_buffer`, from index `0`.
 /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn getCwd(out_buffer: []u8) ![]u8 {
-    return os.getcwd(out_buffer);
+    return posix.getcwd(out_buffer);
 }
+
+pub const GetCwdAllocError = Allocator.Error || posix.GetCwdError;
 
 /// Caller must free the returned memory.
 /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
@@ -34,7 +40,7 @@ pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
 
     var current_buf: []u8 = &stack_buf;
     while (true) {
-        if (os.getcwd(current_buf)) |slice| {
+        if (posix.getcwd(current_buf)) |slice| {
             return allocator.dupe(u8, slice);
         } else |err| switch (err) {
             error.NameTooLong => {
@@ -51,7 +57,7 @@ pub fn getCwdAlloc(allocator: Allocator) ![]u8 {
 }
 
 test getCwdAlloc {
-    if (builtin.os.tag == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi) return error.SkipZigTest;
 
     const cwd = try getCwdAlloc(testing.allocator);
     testing.allocator.free(cwd);
@@ -72,13 +78,13 @@ pub const EnvMap = struct {
     pub const EnvNameHashContext = struct {
         fn upcase(c: u21) u21 {
             if (c <= std.math.maxInt(u16))
-                return std.os.windows.ntdll.RtlUpcaseUnicodeChar(@as(u16, @intCast(c)));
+                return windows.ntdll.RtlUpcaseUnicodeChar(@as(u16, @intCast(c)));
             return c;
         }
 
         pub fn hash(self: @This(), s: []const u8) u64 {
             _ = self;
-            if (builtin.os.tag == .windows) {
+            if (native_os == .windows) {
                 var h = std.hash.Wyhash.init(0);
                 var it = std.unicode.Wtf8View.initUnchecked(s).iterator();
                 while (it.nextCodepoint()) |cp| {
@@ -96,7 +102,7 @@ pub const EnvMap = struct {
 
         pub fn eql(self: @This(), a: []const u8, b: []const u8) bool {
             _ = self;
-            if (builtin.os.tag == .windows) {
+            if (native_os == .windows) {
                 var it_a = std.unicode.Wtf8View.initUnchecked(a).iterator();
                 var it_b = std.unicode.Wtf8View.initUnchecked(b).iterator();
                 while (true) {
@@ -209,7 +215,7 @@ pub const EnvMap = struct {
     }
 };
 
-test "EnvMap" {
+test EnvMap {
     var env = EnvMap.init(testing.allocator);
     defer env.deinit();
 
@@ -228,7 +234,7 @@ test "EnvMap" {
     try testing.expectEqual(@as(EnvMap.Size, 2), env.count());
 
     // case insensitivity on Windows only
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         try testing.expectEqualStrings("1", env.get("something_New_aNd_LONGER").?);
     } else {
         try testing.expect(null == env.get("something_New_aNd_LONGER"));
@@ -248,7 +254,7 @@ test "EnvMap" {
 
     try testing.expectEqual(@as(EnvMap.Size, 1), env.count());
 
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         // test Unicode case-insensitivity on Windows
         try env.put("КИРиллИЦА", "something else");
         try testing.expectEqualStrings("something else", env.get("кириллица").?);
@@ -279,8 +285,8 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
     var result = EnvMap.init(allocator);
     errdefer result.deinit();
 
-    if (builtin.os.tag == .windows) {
-        const ptr = os.windows.peb().ProcessParameters.Environment;
+    if (native_os == .windows) {
+        const ptr = windows.peb().ProcessParameters.Environment;
 
         var i: usize = 0;
         while (ptr[i] != 0) {
@@ -310,13 +316,13 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
             try result.putMove(key, value);
         }
         return result;
-    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc) {
         var environ_count: usize = undefined;
         var environ_buf_size: usize = undefined;
 
-        const environ_sizes_get_ret = os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
+        const environ_sizes_get_ret = std.os.wasi.environ_sizes_get(&environ_count, &environ_buf_size);
         if (environ_sizes_get_ret != .SUCCESS) {
-            return os.unexpectedErrno(environ_sizes_get_ret);
+            return posix.unexpectedErrno(environ_sizes_get_ret);
         }
 
         if (environ_count == 0) {
@@ -328,9 +334,9 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
         const environ_buf = try allocator.alloc(u8, environ_buf_size);
         defer allocator.free(environ_buf);
 
-        const environ_get_ret = os.wasi.environ_get(environ.ptr, environ_buf.ptr);
+        const environ_get_ret = std.os.wasi.environ_get(environ.ptr, environ_buf.ptr);
         if (environ_get_ret != .SUCCESS) {
-            return os.unexpectedErrno(environ_get_ret);
+            return posix.unexpectedErrno(environ_get_ret);
         }
 
         for (environ) |env| {
@@ -356,7 +362,7 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
         }
         return result;
     } else {
-        for (os.environ) |line| {
+        for (std.os.environ) |line| {
             var line_i: usize = 0;
             while (line[line_i] != 0 and line[line_i] != '=') : (line_i += 1) {}
             const key = line[0..line_i];
@@ -371,7 +377,7 @@ pub fn getEnvMap(allocator: Allocator) GetEnvMapError!EnvMap {
     }
 }
 
-test "getEnvMap" {
+test getEnvMap {
     var env = try getEnvMap(testing.allocator);
     defer env.deinit();
 }
@@ -391,37 +397,37 @@ pub const GetEnvVarOwnedError = error{
 /// On Windows, the value is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On other platforms, the value is an opaque sequence of bytes with no particular encoding.
 pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError![]u8 {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         const result_w = blk: {
             var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
             const stack_allocator = stack_alloc.get();
             const key_w = try std.unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
             defer stack_allocator.free(key_w);
 
-            break :blk std.os.getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
+            break :blk getenvW(key_w) orelse return error.EnvironmentVariableNotFound;
         };
         // wtf16LeToWtf8Alloc can only fail with OutOfMemory
         return std.unicode.wtf16LeToWtf8Alloc(allocator, result_w);
-    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc) {
         var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
         defer envmap.deinit();
         const val = envmap.get(key) orelse return error.EnvironmentVariableNotFound;
         return allocator.dupe(u8, val);
     } else {
-        const result = os.getenv(key) orelse return error.EnvironmentVariableNotFound;
+        const result = posix.getenv(key) orelse return error.EnvironmentVariableNotFound;
         return allocator.dupe(u8, result);
     }
 }
 
 /// On Windows, `key` must be valid UTF-8.
 pub fn hasEnvVarConstant(comptime key: []const u8) bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         const key_w = comptime std.unicode.utf8ToUtf16LeStringLiteral(key);
-        return std.os.getenvW(key_w) != null;
-    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        return getenvW(key_w) != null;
+    } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("hasEnvVarConstant is not supported for WASI without libc");
     } else {
-        return os.getenv(key) != null;
+        return posix.getenv(key) != null;
     }
 }
 
@@ -436,19 +442,63 @@ pub const HasEnvVarError = error{
 /// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
 /// then `error.InvalidWtf8` is returned.
 pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
-    if (builtin.os.tag == .windows) {
+    if (native_os == .windows) {
         var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
         const stack_allocator = stack_alloc.get();
         const key_w = try std.unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
         defer stack_allocator.free(key_w);
-        return std.os.getenvW(key_w) != null;
-    } else if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        return getenvW(key_w) != null;
+    } else if (native_os == .wasi and !builtin.link_libc) {
         var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
         defer envmap.deinit();
         return envmap.getPtr(key) != null;
     } else {
-        return os.getenv(key) != null;
+        return posix.getenv(key) != null;
     }
+}
+
+/// Windows-only. Get an environment variable with a null-terminated, WTF-16 encoded name.
+///
+/// This function performs a Unicode-aware case-insensitive lookup using RtlEqualUnicodeString.
+///
+/// See also:
+/// * `std.posix.getenv`
+/// * `getEnvMap`
+/// * `getEnvVarOwned`
+/// * `hasEnvVarConstant`
+/// * `hasEnvVar`
+pub fn getenvW(key: [*:0]const u16) ?[:0]const u16 {
+    if (native_os != .windows) {
+        @compileError("Windows-only");
+    }
+    const key_slice = mem.sliceTo(key, 0);
+    const ptr = windows.peb().ProcessParameters.Environment;
+    var i: usize = 0;
+    while (ptr[i] != 0) {
+        const key_start = i;
+
+        // There are some special environment variables that start with =,
+        // so we need a special case to not treat = as a key/value separator
+        // if it's the first character.
+        // https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
+        if (ptr[key_start] == '=') i += 1;
+
+        while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
+        const this_key = ptr[key_start..i];
+
+        if (ptr[i] == '=') i += 1;
+
+        const value_start = i;
+        while (ptr[i] != 0) : (i += 1) {}
+        const this_value = ptr[value_start..i :0];
+
+        if (windows.eqlIgnoreCaseWTF16(key_slice, this_key)) {
+            return this_value;
+        }
+
+        i += 1; // skip over null byte
+    }
+    return null;
 }
 
 test getEnvVarOwned {
@@ -459,7 +509,7 @@ test getEnvVarOwned {
 }
 
 test hasEnvVarConstant {
-    if (builtin.os.tag == .wasi and !builtin.link_libc) return error.SkipZigTest;
+    if (native_os == .wasi and !builtin.link_libc) return error.SkipZigTest;
 
     try testing.expect(!hasEnvVarConstant("BADENV"));
 }
@@ -478,14 +528,14 @@ pub const ArgIteratorPosix = struct {
     pub fn init() ArgIteratorPosix {
         return ArgIteratorPosix{
             .index = 0,
-            .count = os.argv.len,
+            .count = std.os.argv.len,
         };
     }
 
     pub fn next(self: *ArgIteratorPosix) ?[:0]const u8 {
         if (self.index == self.count) return null;
 
-        const s = os.argv[self.index];
+        const s = std.os.argv[self.index];
         self.index += 1;
         return mem.sliceTo(s, 0);
     }
@@ -503,7 +553,7 @@ pub const ArgIteratorWasi = struct {
     index: usize,
     args: [][:0]u8,
 
-    pub const InitError = error{OutOfMemory} || os.UnexpectedError;
+    pub const InitError = error{OutOfMemory} || posix.UnexpectedError;
 
     /// You must call deinit to free the internal buffer of the
     /// iterator after you are done.
@@ -517,13 +567,12 @@ pub const ArgIteratorWasi = struct {
     }
 
     fn internalInit(allocator: Allocator) InitError![][:0]u8 {
-        const w = os.wasi;
         var count: usize = undefined;
         var buf_size: usize = undefined;
 
-        switch (w.args_sizes_get(&count, &buf_size)) {
+        switch (std.os.wasi.args_sizes_get(&count, &buf_size)) {
             .SUCCESS => {},
-            else => |err| return os.unexpectedErrno(err),
+            else => |err| return posix.unexpectedErrno(err),
         }
 
         if (count == 0) {
@@ -535,9 +584,9 @@ pub const ArgIteratorWasi = struct {
 
         const argv_buf = try allocator.alloc(u8, buf_size);
 
-        switch (w.args_get(argv.ptr, argv_buf.ptr)) {
+        switch (std.os.wasi.args_get(argv.ptr, argv_buf.ptr)) {
             .SUCCESS => {},
-            else => |err| return os.unexpectedErrno(err),
+            else => |err| return posix.unexpectedErrno(err),
         }
 
         var result_args = try allocator.alloc([:0]u8, count);
@@ -1007,7 +1056,7 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
 
 /// Cross-platform command line argument iterator.
 pub const ArgIterator = struct {
-    const InnerType = switch (builtin.os.tag) {
+    const InnerType = switch (native_os) {
         .windows => ArgIteratorWindows,
         .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
         else => ArgIteratorPosix,
@@ -1018,10 +1067,10 @@ pub const ArgIterator = struct {
     /// Initialize the args iterator. Consider using initWithAllocator() instead
     /// for cross-platform compatibility.
     pub fn init() ArgIterator {
-        if (builtin.os.tag == .wasi) {
+        if (native_os == .wasi) {
             @compileError("In WASI, use initWithAllocator instead.");
         }
-        if (builtin.os.tag == .windows) {
+        if (native_os == .windows) {
             @compileError("In Windows, use initWithAllocator instead.");
         }
 
@@ -1032,11 +1081,11 @@ pub const ArgIterator = struct {
 
     /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
     pub fn initWithAllocator(allocator: Allocator) InitError!ArgIterator {
-        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        if (native_os == .wasi and !builtin.link_libc) {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
-        if (builtin.os.tag == .windows) {
-            const cmd_line_w = os.windows.kernel32.GetCommandLineW();
+        if (native_os == .windows) {
+            const cmd_line_w = windows.kernel32.GetCommandLineW();
             return ArgIterator{ .inner = try InnerType.init(allocator, cmd_line_w) };
         }
 
@@ -1061,11 +1110,11 @@ pub const ArgIterator = struct {
     /// was created with `initWithAllocator` function.
     pub fn deinit(self: *ArgIterator) void {
         // Unless we're targeting WASI or Windows, this is a no-op.
-        if (builtin.os.tag == .wasi and !builtin.link_libc) {
+        if (native_os == .wasi and !builtin.link_libc) {
             self.inner.deinit();
         }
 
-        if (builtin.os.tag == .windows) {
+        if (native_os == .windows) {
             self.inner.deinit();
         }
     }
@@ -1132,7 +1181,7 @@ pub fn argsFree(allocator: Allocator, args_alloc: []const [:0]u8) void {
     return allocator.free(aligned_allocated_buf);
 }
 
-test "ArgIteratorWindows" {
+test ArgIteratorWindows {
     const t = testArgIteratorWindows;
 
     try t(
@@ -1334,13 +1383,13 @@ fn testResponseFileCmdLine(input_cmd_line: []const u8, expected_args: []const []
 }
 
 pub const UserInfo = struct {
-    uid: os.uid_t,
-    gid: os.gid_t,
+    uid: posix.uid_t,
+    gid: posix.gid_t,
 };
 
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) !UserInfo {
-    return switch (builtin.os.tag) {
+    return switch (native_os) {
         .linux,
         .macos,
         .watchos,
@@ -1376,8 +1425,8 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     var buf: [std.mem.page_size]u8 = undefined;
     var name_index: usize = 0;
     var state = State.Start;
-    var uid: os.uid_t = 0;
-    var gid: os.gid_t = 0;
+    var uid: posix.uid_t = 0;
+    var gid: posix.gid_t = 0;
 
     while (true) {
         const amt_read = try reader.read(buf[0..]);
@@ -1462,36 +1511,36 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
 }
 
 pub fn getBaseAddress() usize {
-    switch (builtin.os.tag) {
+    switch (native_os) {
         .linux => {
-            const base = os.system.getauxval(std.elf.AT_BASE);
+            const base = std.os.linux.getauxval(std.elf.AT_BASE);
             if (base != 0) {
                 return base;
             }
-            const phdr = os.system.getauxval(std.elf.AT_PHDR);
+            const phdr = std.os.linux.getauxval(std.elf.AT_PHDR);
             return phdr - @sizeOf(std.elf.Ehdr);
         },
         .macos, .freebsd, .netbsd => {
             return @intFromPtr(&std.c._mh_execute_header);
         },
-        .windows => return @intFromPtr(os.windows.kernel32.GetModuleHandleW(null)),
+        .windows => return @intFromPtr(windows.kernel32.GetModuleHandleW(null)),
         else => @compileError("Unsupported OS"),
     }
 }
 
 /// Tells whether calling the `execv` or `execve` functions will be a compile error.
-pub const can_execv = switch (builtin.os.tag) {
+pub const can_execv = switch (native_os) {
     .windows, .haiku, .wasi => false,
     else => true,
 };
 
 /// Tells whether spawning child processes is supported (e.g. via ChildProcess)
-pub const can_spawn = switch (builtin.os.tag) {
+pub const can_spawn = switch (native_os) {
     .wasi, .watchos, .tvos => false,
     else => true,
 };
 
-pub const ExecvError = std.os.ExecveError || error{OutOfMemory};
+pub const ExecvError = std.posix.ExecveError || error{OutOfMemory};
 
 /// Replaces the current process image with the executed process.
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
@@ -1500,7 +1549,7 @@ pub const ExecvError = std.os.ExecveError || error{OutOfMemory};
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// Due to the heap-allocation, it is illegal to call this function in a fork() child.
-/// For that use case, use the `std.os` functions directly.
+/// For that use case, use the `std.posix` functions directly.
 pub fn execv(allocator: Allocator, argv: []const []const u8) ExecvError {
     return execve(allocator, argv, null);
 }
@@ -1512,7 +1561,7 @@ pub fn execv(allocator: Allocator, argv: []const []const u8) ExecvError {
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 /// Due to the heap-allocation, it is illegal to call this function in a fork() child.
-/// For that use case, use the `std.os` functions directly.
+/// For that use case, use the `std.posix` functions directly.
 pub fn execve(
     allocator: Allocator,
     argv: []const []const u8,
@@ -1536,14 +1585,14 @@ pub fn execve(
         } else if (builtin.output_mode == .Exe) {
             // Then we have Zig start code and this works.
             // TODO type-safety for null-termination of `os.environ`.
-            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(os.environ.ptr));
+            break :m @as([*:null]const ?[*:0]const u8, @ptrCast(std.os.environ.ptr));
         } else {
             // TODO come up with a solution for this.
             @compileError("missing std lib enhancement: std.process.execv implementation has no way to collect the environment variables to forward to the child process");
         }
     };
 
-    return os.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp);
+    return posix.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp);
 }
 
 pub const TotalSystemMemoryError = error{
@@ -1555,14 +1604,14 @@ pub const TotalSystemMemoryError = error{
 /// and Linux's /proc/meminfo reporting more memory when
 /// using QEMU user mode emulation.
 pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
-    switch (builtin.os.tag) {
+    switch (native_os) {
         .linux => {
             return totalSystemMemoryLinux() catch return error.UnknownTotalSystemMemory;
         },
         .freebsd => {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
-            os.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
+            posix.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
                 error.NameTooLong, error.UnknownName => unreachable,
                 else => return error.UnknownTotalSystemMemory,
             };
@@ -1570,12 +1619,12 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
         },
         .openbsd => {
             const mib: [2]c_int = [_]c_int{
-                std.os.CTL.HW,
-                std.os.HW.PHYSMEM64,
+                posix.CTL.HW,
+                posix.HW.PHYSMEM64,
             };
             var physmem: i64 = undefined;
             var len: usize = @sizeOf(@TypeOf(physmem));
-            std.os.sysctl(&mib, &physmem, &len, null, 0) catch |err| switch (err) {
+            posix.sysctl(&mib, &physmem, &len, null, 0) catch |err| switch (err) {
                 error.NameTooLong => unreachable, // constant, known good value
                 error.PermissionDenied => unreachable, // only when setting values,
                 error.SystemResources => unreachable, // memory already on the stack
@@ -1586,11 +1635,11 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             return @as(u64, @bitCast(physmem));
         },
         .windows => {
-            var sbi: std.os.windows.SYSTEM_BASIC_INFORMATION = undefined;
-            const rc = std.os.windows.ntdll.NtQuerySystemInformation(
+            var sbi: windows.SYSTEM_BASIC_INFORMATION = undefined;
+            const rc = windows.ntdll.NtQuerySystemInformation(
                 .SystemBasicInformation,
                 &sbi,
-                @sizeOf(std.os.windows.SYSTEM_BASIC_INFORMATION),
+                @sizeOf(windows.SYSTEM_BASIC_INFORMATION),
                 null,
             );
             if (rc != .SUCCESS) {

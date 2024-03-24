@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-libraryloader-l1-2-1
+
+EXPORTS
+
+FindResourceW@12
+LoadLibraryA@4
+LoadLibraryW@4

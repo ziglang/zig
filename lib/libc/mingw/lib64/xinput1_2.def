@@ -5,7 +5,6 @@
 ;
 LIBRARY "XINPUT1_2.dll"
 EXPORTS
-DllMain
 XInputEnable
 XInputGetCapabilities
 XInputGetDSoundAudioDeviceGuids

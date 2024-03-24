@@ -6,6 +6,5 @@
 ;
 LIBRARY FXSST.dll
 EXPORTS
-DllMain
 FaxMonitorShutdown
 IsFaxMessage

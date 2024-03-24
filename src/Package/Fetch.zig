@@ -33,7 +33,7 @@ location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.TokenIndex,
 name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
-parent_package_root: Package.Path,
+parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: *std.Progress.Node,
 job_queue: *JobQueue,
@@ -50,7 +50,7 @@ allow_missing_paths_field: bool,
 
 /// This will either be relative to `global_cache`, or to the build root of
 /// the root package.
-package_root: Package.Path,
+package_root: Cache.Path,
 error_bundle: ErrorBundle.Wip,
 manifest: ?Manifest,
 manifest_ast: std.zig.Ast,
@@ -263,7 +263,7 @@ pub const JobQueue = struct {
 pub const Location = union(enum) {
     remote: Remote,
     /// A directory found inside the parent package.
-    relative_path: Package.Path,
+    relative_path: Cache.Path,
     /// Recursive Fetch tasks will never use this Location, but it may be
     /// passed in by the CLI. Indicates the file contents here should be copied
     /// into the global package cache. It may be a file relative to the cwd or
@@ -482,7 +482,7 @@ fn runResource(
         // Compute the package hash based on the remaining files in the temporary
         // directory.
 
-        if (builtin.os.tag == .linux and f.job_queue.work_around_btrfs_bug) {
+        if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
             // https://github.com/ziglang/zig/issues/17095
             tmp_directory.handle.close();
             tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
@@ -564,7 +564,7 @@ fn checkBuildFileExistence(f: *Fetch) RunError!void {
 }
 
 /// This function populates `f.manifest` or leaves it `null`.
-fn loadManifest(f: *Fetch, pkg_root: Package.Path) RunError!void {
+fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const manifest_bytes = pkg_root.root_dir.handle.readFileAllocOptions(
@@ -722,7 +722,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
 }
 
 pub fn relativePathDigest(
-    pkg_root: Package.Path,
+    pkg_root: Cache.Path,
     cache_root: Cache.Directory,
 ) Manifest.MultiHashHexDigest {
     var hasher = Manifest.Hash.init(.{});
@@ -1153,11 +1153,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
         .strip_components = 1,
-        // TODO: we would like to set this to executable_bit_only, but two
-        // things need to happen before that:
-        // 1. the tar implementation needs to support it
-        // 2. the hashing algorithm here needs to support detecting the is_executable
-        //    bit on Windows from the ACLs (see the isExecutable function).
+        // https://github.com/ziglang/zig/issues/17463
         .mode_mode = .ignore,
         .exclude_empty_directories = true,
     }) catch |err| return f.fail(f.location_tok, try eb.printString(
@@ -1542,6 +1538,8 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
         .file => {
             var file = try dir.openFile(hashed_file.fs_path, .{});
             defer file.close();
+            // When implementing https://github.com/ziglang/zig/issues/17463
+            // this will change to hard-coded `false`.
             hasher.update(&.{ 0, @intFromBool(try isExecutable(file)) });
             while (true) {
                 const bytes_read = try file.read(&buf);
@@ -1568,15 +1566,17 @@ fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error
 }
 
 fn isExecutable(file: fs.File) !bool {
-    if (builtin.os.tag == .windows) {
-        // TODO check the ACL on Windows.
+    // When implementing https://github.com/ziglang/zig/issues/17463
+    // this function will not check the mode but instead check if the file is an ELF
+    // file or has a shebang line.
+    if (native_os == .windows) {
         // Until this is implemented, this could be a false negative on
         // Windows, which is why we do not yet set executable_bit_only above
         // when unpacking the tarball.
         return false;
     } else {
         const stat = try file.stat();
-        return (stat.mode & std.os.S.IXUSR) != 0;
+        return (stat.mode & std.posix.S.IXUSR) != 0;
     }
 }
 
@@ -1658,7 +1658,7 @@ const Filter = struct {
 };
 
 pub fn depDigest(
-    pkg_root: Package.Path,
+    pkg_root: Cache.Path,
     cache_root: Cache.Directory,
     dep: Manifest.Dependency,
 ) ?Manifest.MultiHashHexDigest {
@@ -1694,6 +1694,7 @@ const git = @import("Fetch/git.zig");
 const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
+const native_os = builtin.os.tag;
 
 test {
     _ = Filter;

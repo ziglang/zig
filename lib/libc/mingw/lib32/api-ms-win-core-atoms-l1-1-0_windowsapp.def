@@ -1,0 +1,11 @@
+LIBRARY api-ms-win-core-atoms-l1-1-0
+
+EXPORTS
+
+AddAtomA@4
+AddAtomW@4
+DeleteAtom@4
+FindAtomA@4
+FindAtomW@4
+GetAtomNameA@12
+GetAtomNameW@12

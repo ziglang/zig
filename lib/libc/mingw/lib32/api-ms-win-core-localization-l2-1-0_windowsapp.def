@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-core-localization-l2-1-0
+
+EXPORTS
+
+EnumCalendarInfoExEx@24
+EnumCalendarInfoW@16
+EnumDateFormatsExEx@16
+EnumSystemCodePagesW@8
+EnumTimeFormatsEx@16
+GetCurrencyFormatEx@24
+GetCurrencyFormatW@24
+GetNumberFormatEx@24

@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-core-wow64-l1-1-1
+
+EXPORTS
+
+GetSystemWow64Directory2A
+GetSystemWow64Directory2W
+GetSystemWow64DirectoryA
+GetSystemWow64DirectoryW
+IsWow64Process2
+Wow64SetThreadDefaultGuestMachine

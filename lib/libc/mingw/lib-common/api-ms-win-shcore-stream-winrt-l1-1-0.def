@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-shcore-stream-winrt-l1-1-0
+
+EXPORTS
+
+CreateRandomAccessStreamOnFile
+CreateRandomAccessStreamOverStream
+CreateStreamOverRandomAccessStream

@@ -2118,7 +2118,7 @@ fn pwriteDbgLineNops(
 
     const page_of_nops = [1]u8{DW.LNS.negate_stmt} ** 4096;
     const three_byte_nop = [3]u8{ DW.LNS.advance_pc, 0b1000_0000, 0 };
-    var vecs: [512]std.os.iovec_const = undefined;
+    var vecs: [512]std.posix.iovec_const = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;
@@ -2235,7 +2235,7 @@ fn pwriteDbgInfoNops(
     defer tracy.end();
 
     const page_of_nops = [1]u8{@intFromEnum(AbbrevCode.padding)} ** 4096;
-    var vecs: [32]std.os.iovec_const = undefined;
+    var vecs: [32]std.posix.iovec_const = undefined;
     var vec_index: usize = 0;
     {
         var padding_left = prev_padding_size;
@@ -2807,10 +2807,10 @@ fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
         const full_path = try dif.mod.root.joinString(arena, dif.sub_file_path);
         const dir_path = std.fs.path.dirname(full_path) orelse ".";
         const sub_file_path = std.fs.path.basename(full_path);
-        // TODO re-investigate if realpath is needed here
+        // https://github.com/ziglang/zig/issues/19353
         var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
         const resolved = if (!std.fs.path.isAbsolute(dir_path))
-            std.os.realpath(dir_path, &buffer) catch dir_path
+            std.posix.realpath(dir_path, &buffer) catch dir_path
         else
             dir_path;
 

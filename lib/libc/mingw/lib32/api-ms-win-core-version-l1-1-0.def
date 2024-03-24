@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-version-l1-1-0
+
+EXPORTS
+
+GetFileVersionInfoExW@20
+GetFileVersionInfoSizeExW@12
+VerFindFileW@32
+VerQueryValueW@16

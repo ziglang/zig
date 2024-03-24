@@ -422,7 +422,7 @@ pub fn createEmpty(
             const index: File.Index = @intCast(try self.files.addOne(gpa));
             self.files.set(index, .{ .zig_object = .{
                 .index = index,
-                .path = try std.fmt.allocPrint(arena, "{s}.o", .{std.fs.path.stem(
+                .path = try std.fmt.allocPrint(arena, "{s}.o", .{fs.path.stem(
                     zcu.main_mod.root_src_path,
                 )}),
             } });
@@ -1673,7 +1673,7 @@ pub const ParseError = error{
     NotSupported,
     InvalidCharacter,
     UnknownFileType,
-} || LdScript.Error || std.os.AccessError || std.os.SeekError || std.fs.File.OpenError || std.fs.File.ReadError;
+} || LdScript.Error || fs.Dir.AccessError || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError;
 
 pub fn parsePositional(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     const tracy = trace(@src());
@@ -1703,7 +1703,7 @@ fn parseObject(self: *Elf, path: []const u8) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(path, .{});
+    const handle = try fs.cwd().openFile(path, .{});
     const fh = try self.addFileHandle(handle);
 
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -1723,7 +1723,7 @@ fn parseArchive(self: *Elf, path: []const u8, must_link: bool) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(path, .{});
+    const handle = try fs.cwd().openFile(path, .{});
     const fh = try self.addFileHandle(handle);
 
     var archive = Archive{};
@@ -1749,7 +1749,7 @@ fn parseSharedObject(self: *Elf, lib: SystemLib) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const handle = try std.fs.cwd().openFile(lib.path, .{});
+    const handle = try fs.cwd().openFile(lib.path, .{});
     defer handle.close();
 
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -1770,7 +1770,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const in_file = try std.fs.cwd().openFile(lib.path, .{});
+    const in_file = try fs.cwd().openFile(lib.path, .{});
     defer in_file.close();
     const data = try in_file.readToEndAlloc(gpa, std.math.maxInt(u32));
     defer gpa.free(data);
@@ -4565,6 +4565,22 @@ fn writeAtoms(self: *Elf) !void {
         try self.base.file.?.pwriteAll(buffer, sh_offset);
     }
 
+    if (self.requiresThunks()) {
+        var buffer = std.ArrayList(u8).init(gpa);
+        defer buffer.deinit();
+
+        for (self.thunks.items) |th| {
+            const thunk_size = th.size(self);
+            try buffer.ensureUnusedCapacity(thunk_size);
+            const shdr = self.shdrs.items[th.output_section_index];
+            const offset = th.value + shdr.sh_offset;
+            try th.write(self, buffer.writer());
+            assert(buffer.items.len == thunk_size);
+            try self.base.file.?.pwriteAll(buffer.items, offset);
+            buffer.clearRetainingCapacity();
+        }
+    }
+
     try self.reportUndefinedSymbols(&undefs);
 
     if (has_reloc_errors) return error.FlushFailure;
@@ -4593,12 +4609,12 @@ pub fn updateSymtabSize(self: *Elf) !void {
         nlocals += 1;
     }
 
-    for (self.thunks.items) |*th| {
+    if (self.requiresThunks()) for (self.thunks.items) |*th| {
         th.output_symtab_ctx.ilocal = nlocals + 1;
         th.calcSymtabSize(self);
         nlocals += th.output_symtab_ctx.nlocals;
         strsize += th.output_symtab_ctx.strsize;
-    }
+    };
 
     for (files.items) |index| {
         const file_ptr = self.file(index).?;
@@ -4830,9 +4846,9 @@ pub fn writeSymtab(self: *Elf) !void {
 
     self.writeSectionSymbols();
 
-    for (self.thunks.items) |th| {
+    if (self.requiresThunks()) for (self.thunks.items) |th| {
         th.writeSymtab(self);
-    }
+    };
 
     if (self.zigObjectPtr()) |zig_object| {
         zig_object.asFile().writeSymtab(self);
@@ -5452,7 +5468,7 @@ pub fn file(self: *Elf, index: File.Index) ?File {
     };
 }
 
-pub fn addFileHandle(self: *Elf, handle: std.fs.File) !File.HandleIndex {
+pub fn addFileHandle(self: *Elf, handle: fs.File) !File.HandleIndex {
     const gpa = self.base.comp.gpa;
     const index: File.HandleIndex = @intCast(self.file_handles.items.len);
     const fh = try self.file_handles.addOne(gpa);
@@ -5997,10 +6013,14 @@ fn fmtDumpState(
         try writer.print("linker_defined({d}) : (linker defined)\n", .{index});
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
-    try writer.writeAll("thunks\n");
-    for (self.thunks.items, 0..) |th, index| {
-        try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+
+    if (self.requiresThunks()) {
+        try writer.writeAll("thunks\n");
+        for (self.thunks.items, 0..) |th, index| {
+            try writer.print("thunk({d}) : {}\n", .{ index, th.fmt(self) });
+        }
     }
+
     try writer.print("{}\n", .{self.zig_got.fmt(self)});
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
@@ -6025,7 +6045,7 @@ fn fmtDumpState(
 }
 
 /// Caller owns the memory.
-pub fn preadAllAlloc(allocator: Allocator, handle: std.fs.File, offset: u64, size: u64) ![]u8 {
+pub fn preadAllAlloc(allocator: Allocator, handle: fs.File, offset: u64, size: u64) ![]u8 {
     const buffer = try allocator.alloc(u8, math.cast(usize, size) orelse return error.Overflow);
     errdefer allocator.free(buffer);
     const amt = try handle.preadAll(buffer, offset);

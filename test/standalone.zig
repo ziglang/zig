@@ -49,6 +49,7 @@ pub const simple_cases = [_]SimpleCase{
     .{ .src_path = "test/standalone/main_return_error/error_u8_non_zero.zig" },
     .{ .src_path = "test/standalone/noreturn_call/inline.zig" },
     .{ .src_path = "test/standalone/noreturn_call/as_arg.zig" },
+    .{ .src_path = "test/standalone/std_enums_big_enums.zig" },
 
     .{
         .src_path = "test/standalone/issue_9402/main.zig",

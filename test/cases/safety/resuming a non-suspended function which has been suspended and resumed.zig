@@ -11,21 +11,21 @@ fn foo() void {
     }
     var f = async bar(@frame());
     _ = &f;
-    std.os.exit(1);
+    std.process.exit(1);
 }
 
 fn bar(frame: anyframe) void {
     suspend {
         resume frame;
     }
-    std.os.exit(1);
+    std.process.exit(1);
 }
 
 var global_frame: anyframe = undefined;
 pub fn main() !void {
     _ = async foo();
     resume global_frame;
-    std.os.exit(1);
+    std.process.exit(1);
 }
 // run
 // backend=stage1

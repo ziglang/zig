@@ -356,16 +356,38 @@ test "type info: function type info" {
 }
 
 fn testFunction() !void {
-    const fn_info = @typeInfo(@TypeOf(typeInfoFoo));
-    try expect(fn_info == .Fn);
-    try expect(fn_info.Fn.alignment > 0);
-    try expect(fn_info.Fn.calling_convention == .C);
-    try expect(!fn_info.Fn.is_generic);
-    try expect(fn_info.Fn.params.len == 2);
-    try expect(fn_info.Fn.is_var_args);
-    try expect(fn_info.Fn.return_type.? == usize);
-    const fn_aligned_info = @typeInfo(@TypeOf(typeInfoFooAligned));
-    try expect(fn_aligned_info.Fn.alignment == 4);
+    const foo_fn_type = @TypeOf(typeInfoFoo);
+    const foo_fn_info = @typeInfo(foo_fn_type);
+    try expect(foo_fn_info.Fn.calling_convention == .C);
+    try expect(!foo_fn_info.Fn.is_generic);
+    try expect(foo_fn_info.Fn.params.len == 2);
+    try expect(foo_fn_info.Fn.is_var_args);
+    try expect(foo_fn_info.Fn.return_type.? == usize);
+    const foo_ptr_fn_info = @typeInfo(@TypeOf(&typeInfoFoo));
+    try expect(foo_ptr_fn_info.Pointer.size == .One);
+    try expect(foo_ptr_fn_info.Pointer.is_const);
+    try expect(!foo_ptr_fn_info.Pointer.is_volatile);
+    try expect(foo_ptr_fn_info.Pointer.address_space == .generic);
+    try expect(foo_ptr_fn_info.Pointer.child == foo_fn_type);
+    try expect(!foo_ptr_fn_info.Pointer.is_allowzero);
+    try expect(foo_ptr_fn_info.Pointer.sentinel == null);
+
+    const aligned_foo_fn_type = @TypeOf(typeInfoFooAligned);
+    const aligned_foo_fn_info = @typeInfo(aligned_foo_fn_type);
+    try expect(aligned_foo_fn_info.Fn.calling_convention == .C);
+    try expect(!aligned_foo_fn_info.Fn.is_generic);
+    try expect(aligned_foo_fn_info.Fn.params.len == 2);
+    try expect(aligned_foo_fn_info.Fn.is_var_args);
+    try expect(aligned_foo_fn_info.Fn.return_type.? == usize);
+    const aligned_foo_ptr_fn_info = @typeInfo(@TypeOf(&typeInfoFooAligned));
+    try expect(aligned_foo_ptr_fn_info.Pointer.size == .One);
+    try expect(aligned_foo_ptr_fn_info.Pointer.is_const);
+    try expect(!aligned_foo_ptr_fn_info.Pointer.is_volatile);
+    try expect(aligned_foo_ptr_fn_info.Pointer.alignment == 4);
+    try expect(aligned_foo_ptr_fn_info.Pointer.address_space == .generic);
+    try expect(aligned_foo_ptr_fn_info.Pointer.child == aligned_foo_fn_type);
+    try expect(!aligned_foo_ptr_fn_info.Pointer.is_allowzero);
+    try expect(aligned_foo_ptr_fn_info.Pointer.sentinel == null);
 }
 
 extern fn typeInfoFoo(a: usize, b: bool, ...) callconv(.C) usize;

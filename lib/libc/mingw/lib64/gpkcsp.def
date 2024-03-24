@@ -29,6 +29,5 @@ CPSetKeyParam
 CPSetProvParam
 CPSignHash
 CPVerifySignature
-DllMain
 DllRegisterServer
 DllUnregisterServer

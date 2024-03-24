@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-com-l1-1-1
+
+EXPORTS
+
+RoGetAgileReference

@@ -1746,6 +1746,10 @@ fn littleToNativeEndian(comptime T: type, v: T) T {
 }
 
 test "reinterpret extern union" {
+    if (true) {
+        // https://github.com/ziglang/zig/issues/19389
+        return error.SkipZigTest;
+    }
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = extern union {

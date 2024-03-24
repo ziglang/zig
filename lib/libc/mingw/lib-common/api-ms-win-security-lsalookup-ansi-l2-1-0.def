@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-security-lsalookup-ansi-l2-1-0
+
+EXPORTS
+
+LookupAccountNameA
+LookupAccountSidA
+LookupPrivilegeDisplayNameA
+LookupPrivilegeNameA
+LookupPrivilegeValueA

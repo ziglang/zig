@@ -2,7 +2,6 @@ const std = @import("std.zig");
 const io = std.io;
 const math = std.math;
 const mem = std.mem;
-const os = std.os;
 const coff = std.coff;
 const fs = std.fs;
 const File = std.fs.File;

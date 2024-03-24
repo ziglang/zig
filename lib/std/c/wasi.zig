@@ -8,6 +8,8 @@ pub fn _errno() *c_int {
     return &errno;
 }
 
+pub const PATH_MAX = 4096;
+
 pub const mode_t = u32;
 pub const time_t = i64;
 

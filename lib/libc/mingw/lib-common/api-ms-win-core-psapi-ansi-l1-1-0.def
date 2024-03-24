@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-core-psapi-ansi-l1-1-0
+
+EXPORTS
+
+K32EnumPageFilesA
+K32GetDeviceDriverBaseNameA
+K32GetDeviceDriverFileNameA
+K32GetMappedFileNameA
+K32GetModuleBaseNameA
+K32GetModuleFileNameExA
+K32GetProcessImageFileNameA
+QueryFullProcessImageNameA

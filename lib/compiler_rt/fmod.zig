@@ -58,7 +58,7 @@ pub fn __fmodx(a: f80, b: f80) callconv(.C) f80 {
     //   - fmodx(val, NaN)
     //   - fmodx(inf, val)
     // The sign on checked values does not matter.
-    // Doing (a * b) / (a * b) procudes undefined results
+    // Doing (a * b) / (a * b) produces undefined results
     // because the three cases always produce undefined calculations:
     //   - 0 / 0
     //   - val * NaN
@@ -163,7 +163,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     //   - fmodq(val, NaN)
     //   - fmodq(inf, val)
     // The sign on checked values does not matter.
-    // Doing (a * b) / (a * b) procudes undefined results
+    // Doing (a * b) / (a * b) produces undefined results
     // because the three cases always produce undefined calculations:
     //   - 0 / 0
     //   - val * NaN
@@ -239,7 +239,7 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     aPtr_u64[high_index] = highA;
     aPtr_u64[low_index] = lowA;
 
-    // Combine the exponent with the sign, normalize if happend to be denormalized
+    // Combine the exponent with the sign, normalize if happened to be denormalized
     if (expA <= 0) {
         aPtr_u16[exp_and_sign_index] = @as(u16, @truncate(@as(u32, @bitCast((expA +% 120))))) | signA;
         amod *= 0x1p-120;

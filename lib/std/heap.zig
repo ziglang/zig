@@ -4,9 +4,9 @@ const root = @import("root");
 const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
-const os = std.os;
 const c = std.c;
 const Allocator = std.mem.Allocator;
+const windows = std.os.windows;
 
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
@@ -263,7 +263,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
     .windows => struct {
         heap_handle: ?HeapHandle,
 
-        const HeapHandle = os.windows.HANDLE;
+        const HeapHandle = windows.HANDLE;
 
         pub fn init() HeapAllocator {
             return HeapAllocator{
@@ -284,7 +284,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
 
         pub fn deinit(self: *HeapAllocator) void {
             if (self.heap_handle) |heap_handle| {
-                os.windows.HeapDestroy(heap_handle);
+                windows.HeapDestroy(heap_handle);
             }
         }
 
@@ -305,13 +305,13 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             const amt = n + ptr_align - 1 + @sizeOf(usize);
             const optional_heap_handle = @atomicLoad(?HeapHandle, &self.heap_handle, .seq_cst);
             const heap_handle = optional_heap_handle orelse blk: {
-                const options = if (builtin.single_threaded) os.windows.HEAP_NO_SERIALIZE else 0;
-                const hh = os.windows.kernel32.HeapCreate(options, amt, 0) orelse return null;
+                const options = if (builtin.single_threaded) windows.HEAP_NO_SERIALIZE else 0;
+                const hh = windows.kernel32.HeapCreate(options, amt, 0) orelse return null;
                 const other_hh = @cmpxchgStrong(?HeapHandle, &self.heap_handle, null, hh, .seq_cst, .seq_cst) orelse break :blk hh;
-                os.windows.HeapDestroy(hh);
+                windows.HeapDestroy(hh);
                 break :blk other_hh.?; // can't be null because of the cmpxchg
             };
-            const ptr = os.windows.kernel32.HeapAlloc(heap_handle, 0, amt) orelse return null;
+            const ptr = windows.kernel32.HeapAlloc(heap_handle, 0, amt) orelse return null;
             const root_addr = @intFromPtr(ptr);
             const aligned_addr = mem.alignForward(usize, root_addr, ptr_align);
             const buf = @as([*]u8, @ptrFromInt(aligned_addr))[0..n];
@@ -333,9 +333,9 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             const root_addr = getRecordPtr(buf).*;
             const align_offset = @intFromPtr(buf.ptr) - root_addr;
             const amt = align_offset + new_size + @sizeOf(usize);
-            const new_ptr = os.windows.kernel32.HeapReAlloc(
+            const new_ptr = windows.kernel32.HeapReAlloc(
                 self.heap_handle.?,
-                os.windows.HEAP_REALLOC_IN_PLACE_ONLY,
+                windows.HEAP_REALLOC_IN_PLACE_ONLY,
                 @as(*anyopaque, @ptrFromInt(root_addr)),
                 amt,
             ) orelse return false;
@@ -353,7 +353,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             _ = log2_buf_align;
             _ = return_address;
             const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
-            os.windows.HeapFree(self.heap_handle.?, 0, @as(*anyopaque, @ptrFromInt(getRecordPtr(buf).*)));
+            windows.HeapFree(self.heap_handle.?, 0, @as(*anyopaque, @ptrFromInt(getRecordPtr(buf).*)));
         }
     },
     else => @compileError("Unsupported OS"),

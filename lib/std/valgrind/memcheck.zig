@@ -137,7 +137,7 @@ pub fn countLeaks() CountResult {
     return res;
 }
 
-test "countLeaks" {
+test countLeaks {
     try testing.expectEqual(
         @as(CountResult, .{
             .leaked = 0,
@@ -167,7 +167,7 @@ pub fn countLeakBlocks() CountResult {
     return res;
 }
 
-test "countLeakBlocks" {
+test countLeakBlocks {
     try testing.expectEqual(
         @as(CountResult, .{
             .leaked = 0,
