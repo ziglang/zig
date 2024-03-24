@@ -2039,20 +2039,6 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     return bt.finishAir(result);
 }
 
-fn ret(self: *Self, mcv: MCValue) !void {
-    const mod = self.bin_file.comp.module.?;
-    const ret_ty = self.fn_type.fnReturnType(mod);
-    try self.setValue(ret_ty, self.ret_mcv, mcv);
-
-    // Just add space for an instruction, patch this later
-    const index = try self.addInst(.{
-        .tag = .ret,
-        .data = .{ .nop = {} },
-    });
-
-    try self.exitlude_jump_relocs.append(self.gpa, index);
-}
-
 fn airRet(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     if (safety) {
         // safe
@@ -2068,14 +2054,29 @@ fn airRet(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
         .data = .{ .nop = {} },
     });
 
+    try self.ret(operand);
+
+    return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+}
+
+fn ret(self: *Self, mcv: MCValue) !void {
+    const mod = self.bin_file.comp.module.?;
+
+    const ret_ty = self.fn_type.fnReturnType(mod);
+    try self.setValue(ret_ty, self.ret_mcv, mcv);
+
     _ = try self.addInst(.{
         .tag = .psuedo_epilogue,
         .data = .{ .nop = {} },
     });
 
-    try self.ret(operand);
+    // Just add space for an instruction, patch this later
+    const index = try self.addInst(.{
+        .tag = .ret,
+        .data = .{ .nop = {} },
+    });
 
-    return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+    try self.exitlude_jump_relocs.append(self.gpa, index);
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
@@ -3354,7 +3355,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             if (ret_ty_size <= 8) {
                 result.return_value = .{ .register = .a0 };
             } else if (ret_ty_size <= 16) {
-                return self.fail("TODO support MCValue 2 registers", .{});
+                return self.fail("TODO support returning with a0 + a1", .{});
             } else {
                 return self.fail("TODO support return by reference", .{});
             }
