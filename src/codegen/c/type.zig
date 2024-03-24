@@ -416,7 +416,7 @@ pub const CType = extern union {
                     .{ .store = &self.set },
                 );
                 if (!gop.found_existing) {
-                    errdefer _ = self.set.map.pop();
+                    errdefer _ = self.set.map.pop().?;
                     gop.key_ptr.* = try createFromConvert(self, ty, lookup.getModule(), kind, convert);
                 }
                 if (std.debug.runtime_safety) {

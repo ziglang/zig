@@ -361,7 +361,7 @@ pub const Function = struct {
             .cty_idx = try f.typeToIndex(ty, .complete),
             .alignas = CType.AlignAs.init(alignment, ty.abiAlignment(mod)),
         })) |locals_list| {
-            if (locals_list.popOrNull()) |local_entry| {
+            if (locals_list.pop()) |local_entry| {
                 return .{ .new_local = local_entry.key };
             }
         }
@@ -471,7 +471,7 @@ pub const Function = struct {
         const gpa = f.object.dg.gpa;
         const gop = try f.lazy_fns.getOrPut(gpa, key);
         if (!gop.found_existing) {
-            errdefer _ = f.lazy_fns.pop();
+            errdefer _ = f.lazy_fns.pop().?;
 
             var promoted = f.object.dg.ctypes.promote(gpa);
             defer f.object.dg.ctypes.demote(promoted);

@@ -609,7 +609,7 @@ fn flushCTypes(
             @as(codegen.CType.Index, @intCast(codegen.CType.Tag.no_payload_count + gop.index));
         f.ctypes_map.appendAssumeCapacity(global_idx);
         if (!gop.found_existing) {
-            errdefer _ = global_ctypes.set.map.pop();
+            errdefer _ = global_ctypes.set.map.pop().?;
             gop.key_ptr.* = try decl_cty.copyContext(ctx);
         }
         if (std.debug.runtime_safety) {

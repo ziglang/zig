@@ -1043,7 +1043,7 @@ fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void
     // Now, `step_stack` has the subtree that we want to print, in reverse order.
     try ttyconf.setColor(stderr, .dim);
     var indent: usize = 0;
-    while (step_stack.popOrNull()) |s| : (indent += 1) {
+    while (step_stack.pop()) |s| : (indent += 1) {
         if (indent > 0) {
             try stderr.writer().writeByteNTimes(' ', (indent - 1) * 3);
             try printChildNodePrefix(stderr, ttyconf);
