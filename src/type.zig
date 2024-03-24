@@ -262,10 +262,7 @@ pub const Type = struct {
                 return;
             },
             .inferred_error_set_type => |func_index| {
-                try writer.writeAll("@typeInfo(@typeInfo(@TypeOf(");
-                const owner_decl = mod.funcOwnerDeclPtr(func_index);
-                try owner_decl.renderFullyQualifiedName(mod, writer);
-                try writer.writeAll(")).Fn.return_type.?).ErrorUnion.error_set");
+                _ = func_index;
             },
             .error_set_type => |error_set_type| {
                 const names = error_set_type.names;
