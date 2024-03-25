@@ -797,23 +797,57 @@ fn airFpext(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    if (self.liveness.isUnused(inst))
-        return self.finishAir(inst, .dead, .{ ty_op.operand, .none, .none });
-
     const mod = self.bin_file.comp.module.?;
-    const operand_ty = self.typeOf(ty_op.operand);
-    const operand = try self.resolveInst(ty_op.operand);
-    const info_a = operand_ty.intInfo(mod);
-    const info_b = self.typeOfIndex(inst).intInfo(mod);
-    if (info_a.signedness != info_b.signedness)
-        return self.fail("TODO gen intcast sign safety in semantic analysis", .{});
+    const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+    const src_ty = self.typeOf(ty_op.operand);
+    const dst_ty = self.typeOfIndex(inst);
 
-    if (info_a.bits == info_b.bits)
-        return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+    const result: MCValue = result: {
+        const dst_abi_size: u32 = @intCast(dst_ty.abiSize(mod));
 
-    return self.fail("TODO implement intCast for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+        const src_int_info = src_ty.intInfo(mod);
+        const dst_int_info = dst_ty.intInfo(mod);
+        const extend = switch (src_int_info.signedness) {
+            .signed => dst_int_info,
+            .unsigned => src_int_info,
+        }.signedness;
+
+        _ = dst_abi_size;
+        _ = extend;
+
+        const min_ty = if (dst_int_info.bits < src_int_info.bits) dst_ty else src_ty;
+
+        const src_mcv = try self.resolveInst(ty_op.operand);
+
+        const src_storage_bits: u16 = switch (src_mcv) {
+            .register => 64,
+            .stack_offset => src_int_info.bits,
+            else => return self.fail("airIntCast from {s}", .{@tagName(src_mcv)}),
+        };
+
+        const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
+            math.divCeil(u16, dst_int_info.bits, 64) catch unreachable ==
+            math.divCeil(u32, src_storage_bits, 64) catch unreachable and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
+            const dst_mcv = try self.allocRegOrMem(inst, true);
+            try self.setValue(min_ty, dst_mcv, src_mcv);
+            break :dst dst_mcv;
+        };
+
+        if (dst_int_info.bits <= src_int_info.bits) {
+            break :result dst_mcv;
+        }
+
+        if (dst_int_info.bits > 64 or src_int_info.bits > 64) {
+            break :result null; // TODO
+        }
+
+        break :result dst_mcv;
+    } orelse return self.fail("TODO implement airIntCast from {} to {}", .{
+        src_ty.fmt(mod), dst_ty.fmt(mod),
+    });
+
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
@@ -1080,7 +1114,9 @@ fn binOpImm(
         .shr => .srli,
         .cmp_gte => .cmp_imm_gte,
         .cmp_eq => .cmp_imm_eq,
+        .cmp_lte => .cmp_imm_lte,
         .add => .addi,
+        .sub => .addiw,
         else => return self.fail("TODO: binOpImm {s}", .{@tagName(tag)}),
     };
 
@@ -1090,6 +1126,7 @@ fn binOpImm(
         .srli,
         .addi,
         .cmp_imm_eq,
+        .cmp_imm_lte,
         => {
             _ = try self.addInst(.{
                 .tag = mir_tag,
@@ -1099,6 +1136,18 @@ fn binOpImm(
                     .imm12 = math.cast(i12, rhs.immediate) orelse {
                         return self.fail("TODO: binOpImm larger than i12 i_type payload", .{});
                     },
+                } },
+            });
+        },
+        .addiw => {
+            _ = try self.addInst(.{
+                .tag = mir_tag,
+                .data = .{ .i_type = .{
+                    .rd = dest_reg,
+                    .rs1 = lhs_reg,
+                    .imm12 = -(math.cast(i12, rhs.immediate) orelse {
+                        return self.fail("TODO: binOpImm larger than i12 i_type payload", .{});
+                    }),
                 } },
             });
         },
@@ -1146,7 +1195,16 @@ fn airAddSat(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSubWrap(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement subwrap for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        // RISCV arthemtic instructions already wrap, so this is simply a sub binOp with
+        // no overflow checks.
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        const rhs_ty = self.typeOf(bin_op.rhs);
+
+        break :result try self.binOp(.sub, inst, lhs, rhs, lhs_ty, rhs_ty);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3440,4 +3498,8 @@ fn typeOf(self: *Self, inst: Air.Inst.Ref) Type {
 fn typeOfIndex(self: *Self, inst: Air.Inst.Index) Type {
     const mod = self.bin_file.comp.module.?;
     return self.air.typeOfIndex(inst, &mod.intern_pool);
+}
+
+fn hasFeature(self: *Self, feature: Target.riscv.Feature) bool {
+    return Target.riscv.featureSetHas(self.target.cpu.features, feature);
 }

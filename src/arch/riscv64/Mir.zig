@@ -25,6 +25,7 @@ pub const Inst = struct {
 
     pub const Tag = enum(u16) {
         addi,
+        addiw,
         jalr,
         lui,
         mv,
@@ -83,6 +84,8 @@ pub const Inst = struct {
 
         /// Immediate `==`, uses i_type
         cmp_imm_eq,
+        /// Immediate `<=`, uses i_typei
+        cmp_imm_lte,
 
         /// Branch if equal, Uses b_type
         beq,

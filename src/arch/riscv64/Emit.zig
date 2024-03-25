@@ -64,11 +64,13 @@ pub fn emitMir(
             .cmp_lt => try emit.mirRType(inst),
             .cmp_imm_gte => try emit.mirRType(inst),
             .cmp_imm_eq => try emit.mirIType(inst),
+            .cmp_imm_lte => try emit.mirIType(inst),
 
             .beq => try emit.mirBType(inst),
             .bne => try emit.mirBType(inst),
 
             .addi => try emit.mirIType(inst),
+            .addiw => try emit.mirIType(inst),
             .andi => try emit.mirIType(inst),
             .jalr => try emit.mirIType(inst),
             .abs => try emit.mirIType(inst),
@@ -259,6 +261,7 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .addi => try emit.writeInstruction(Instruction.addi(rd, rs1, imm12)),
+        .addiw => try emit.writeInstruction(Instruction.addiw(rd, rs1, imm12)),
         .jalr => try emit.writeInstruction(Instruction.jalr(rd, imm12, rs1)),
 
         .andi => try emit.writeInstruction(Instruction.andi(rd, rs1, imm12)),
@@ -288,6 +291,11 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
             try emit.writeInstruction(Instruction.xori(rd, rs1, imm12));
             try emit.writeInstruction(Instruction.sltiu(rd, rd, 1));
         },
+
+        .cmp_imm_lte => {
+            try emit.writeInstruction(Instruction.sltiu(rd, rs1, @bitCast(imm12)));
+        },
+
         else => unreachable,
     }
 }
