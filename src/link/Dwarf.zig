@@ -1133,7 +1133,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             });
             // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
             assert(dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
-            dbg_line_buffer.items.len += ptr_width_bytes;
+            dbg_line_buffer.writer().writeByteNTimes(0, ptr_width_bytes) catch unreachable;
 
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.advance_line);
             // This is the "relocatable" relative line offset from the previous function's end curly
@@ -1171,12 +1171,12 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             // "relocations" and have to be in this fixed place so that functions can be
             // moved in virtual address space.
             assert(dbg_info_low_pc_reloc_index == dbg_info_buffer.items.len);
-            dbg_info_buffer.items.len += ptr_width_bytes; // DW.AT.low_pc, DW.FORM.addr
+            dbg_info_buffer.writer().writeByteNTimes(0, ptr_width_bytes) catch unreachable; // DW.AT.low_pc, DW.FORM.addr
             assert(self.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
-            dbg_info_buffer.items.len += 4; // DW.AT.high_pc, DW.FORM.data4
+            dbg_info_buffer.writer().writeByteNTimes(0, 4) catch unreachable; // DW.AT.high_pc, DW.FORM.data4
             if (fn_ret_has_bits) {
                 try decl_state.addTypeRelocGlobal(di_atom_index, fn_ret_type, @intCast(dbg_info_buffer.items.len));
-                dbg_info_buffer.items.len += 4; // DW.AT.type, DW.FORM.ref4
+                dbg_info_buffer.writer().writeByteNTimes(0, 4) catch unreachable; // DW.AT.type, DW.FORM.ref4
             }
             dbg_info_buffer.appendSliceAssumeCapacity(
                 decl_name_slice[0 .. decl_name_slice.len + 1],
