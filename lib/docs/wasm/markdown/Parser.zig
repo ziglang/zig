@@ -985,8 +985,12 @@ const InlineParser = struct {
                     ip.pos += 1;
                 },
                 ']' => try ip.parseLink(),
+                '<' => try ip.parseAutolink(),
                 '*', '_' => try ip.parseEmphasis(),
                 '`' => try ip.parseCodeSpan(),
+                'h' => if (ip.pos == 0 or isPreTextAutolink(ip.content[ip.pos - 1])) {
+                    try ip.parseTextAutolink();
+                },
                 else => {},
             }
         }
@@ -1074,6 +1078,161 @@ const InlineParser = struct {
         }
         try ip.parent.string_bytes.append(ip.parent.allocator, 0);
         return @enumFromInt(string_top);
+    }
+
+    /// Parses an autolink, starting at the opening `<`. `ip.pos` is left at the
+    /// closing `>`, or remains unchanged at the opening `<` if there is none.
+    fn parseAutolink(ip: *InlineParser) !void {
+        const start = ip.pos;
+        ip.pos += 1;
+        var state: enum {
+            start,
+            scheme,
+            target,
+        } = .start;
+        while (ip.pos < ip.content.len) : (ip.pos += 1) {
+            switch (state) {
+                .start => switch (ip.content[ip.pos]) {
+                    'A'...'Z', 'a'...'z' => state = .scheme,
+                    else => break,
+                },
+                .scheme => switch (ip.content[ip.pos]) {
+                    'A'...'Z', 'a'...'z', '0'...'9', '+', '.', '-' => {},
+                    ':' => state = .target,
+                    else => break,
+                },
+                .target => switch (ip.content[ip.pos]) {
+                    '<', ' ', '\t', '\n' => break, // Not allowed in autolinks
+                    '>' => {
+                        // Backslash escapes are not recognized in autolink targets.
+                        const target = try ip.parent.addString(ip.content[start + 1 .. ip.pos]);
+                        const node = try ip.parent.addNode(.{
+                            .tag = .autolink,
+                            .data = .{ .text = .{
+                                .content = target,
+                            } },
+                        });
+                        try ip.completed_inlines.append(ip.parent.allocator, .{
+                            .node = node,
+                            .start = start,
+                            .len = ip.pos - start + 1,
+                        });
+                        return;
+                    },
+                    else => {},
+                },
+            }
+        }
+        ip.pos = start;
+    }
+
+    /// Parses a plain text autolink (not delimited by `<>`), starting at the
+    /// first character in the link (an `h`). `ip.pos` is left at the last
+    /// character of the link, or remains unchanged if there is no valid link.
+    fn parseTextAutolink(ip: *InlineParser) !void {
+        const start = ip.pos;
+        var state: union(enum) {
+            /// Inside `http`. Contains the rest of the text to be matched.
+            http: []const u8,
+            after_http,
+            after_https,
+            /// Inside `://`. Contains the rest of the text to be matched.
+            authority: []const u8,
+            /// Inside link content.
+            content: struct {
+                start: usize,
+                paren_nesting: usize,
+            },
+        } = .{ .http = "http" };
+
+        while (ip.pos < ip.content.len) : (ip.pos += 1) {
+            switch (state) {
+                .http => |rest| {
+                    if (ip.content[ip.pos] != rest[0]) break;
+                    if (rest.len > 1) {
+                        state = .{ .http = rest[1..] };
+                    } else {
+                        state = .after_http;
+                    }
+                },
+                .after_http => switch (ip.content[ip.pos]) {
+                    's' => state = .after_https,
+                    ':' => state = .{ .authority = "//" },
+                    else => break,
+                },
+                .after_https => switch (ip.content[ip.pos]) {
+                    ':' => state = .{ .authority = "//" },
+                    else => break,
+                },
+                .authority => |rest| {
+                    if (ip.content[ip.pos] != rest[0]) break;
+                    if (rest.len > 1) {
+                        state = .{ .authority = rest[1..] };
+                    } else {
+                        state = .{ .content = .{
+                            .start = ip.pos + 1,
+                            .paren_nesting = 0,
+                        } };
+                    }
+                },
+                .content => |*content| switch (ip.content[ip.pos]) {
+                    ' ', '\t', '\n' => break,
+                    '(' => content.paren_nesting += 1,
+                    ')' => if (content.paren_nesting == 0) {
+                        break;
+                    } else {
+                        content.paren_nesting -= 1;
+                    },
+                    else => {},
+                },
+            }
+        }
+
+        switch (state) {
+            .http, .after_http, .after_https, .authority => {
+                ip.pos = start;
+            },
+            .content => |content| {
+                while (ip.pos > content.start and isPostTextAutolink(ip.content[ip.pos - 1])) {
+                    ip.pos -= 1;
+                }
+                if (ip.pos == content.start) {
+                    ip.pos = start;
+                    return;
+                }
+
+                const target = try ip.parent.addString(ip.content[start..ip.pos]);
+                const node = try ip.parent.addNode(.{
+                    .tag = .autolink,
+                    .data = .{ .text = .{
+                        .content = target,
+                    } },
+                });
+                try ip.completed_inlines.append(ip.parent.allocator, .{
+                    .node = node,
+                    .start = start,
+                    .len = ip.pos - start,
+                });
+                ip.pos -= 1;
+            },
+        }
+    }
+
+    /// Returns whether `c` may appear before a text autolink is recognized.
+    fn isPreTextAutolink(c: u8) bool {
+        return switch (c) {
+            ' ', '\t', '\n', '*', '_', '(' => true,
+            else => false,
+        };
+    }
+
+    /// Returns whether `c` is punctuation that may appear after a text autolink
+    /// and not be considered part of it.
+    fn isPostTextAutolink(c: u8) bool {
+        return switch (c) {
+            '?', '!', '.', ',', ':', '*', '_' => true,
+            else => false,
+        };
     }
 
     /// Parses emphasis, starting at the beginning of a run of `*` or `_`

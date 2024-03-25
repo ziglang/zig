@@ -75,6 +75,17 @@
 //!   content. `target` may contain `\`-escaped characters and balanced
 //!   parentheses.
 //!
+//! - **Autolink** - an abbreviated link, of the format `<target>`, where
+//!   `target` serves as both the link target and text. `target` may not
+//!   contain spaces or `<`, and any `\` in it are interpreted literally (not as
+//!   escapes). `target` is expected to be an absolute URI: an autolink will not
+//!   be recognized unless `target` starts with a URI scheme followed by a `:`.
+//!
+//!   For convenience, autolinks may also be recognized in plain text without
+//!   any `<>` delimiters. Such autolinks are restricted to start with `http://`
+//!   or `https://` followed by at least one other character, not including any
+//!   trailing punctuation after the link.
+//!
 //! - **Image** - a link directly preceded by a `!`. The link text is
 //!   interpreted as the alt text of the image.
 //!
@@ -706,6 +717,50 @@ test "links" {
         \\<a href="https://example.com/)escaped(">Escaped parens</a>
         \\<a href="test\
         \\target">Line break in target</a></p>
+        \\
+    );
+}
+
+test "autolinks" {
+    try testRender(
+        \\<https://example.com>
+        \\**This is important: <https://example.com/strong>**
+        \\<https://example.com?query=abc.123#page(parens)>
+        \\<placeholder>
+        \\<data:>
+        \\1 < 2
+        \\4 > 3
+        \\Unclosed: <
+        \\
+    ,
+        \\<p><a href="https://example.com">https://example.com</a>
+        \\<strong>This is important: <a href="https://example.com/strong">https://example.com/strong</a></strong>
+        \\<a href="https://example.com?query=abc.123#page(parens)">https://example.com?query=abc.123#page(parens)</a>
+        \\&lt;placeholder&gt;
+        \\<a href="data:">data:</a>
+        \\1 &lt; 2
+        \\4 &gt; 3
+        \\Unclosed: &lt;</p>
+        \\
+    );
+}
+
+test "text autolinks" {
+    try testRender(
+        \\Text autolinks must start with http:// or https://.
+        \\This doesn't count: ftp://example.com.
+        \\Example: https://ziglang.org.
+        \\Here is an important link: **http://example.com**
+        \\(Links may be in parentheses: https://example.com/?q=(parens))
+        \\Escaping a link so it's plain text: https\://example.com
+        \\
+    ,
+        \\<p>Text autolinks must start with http:// or https://.
+        \\This doesn't count: ftp://example.com.
+        \\Example: <a href="https://ziglang.org">https://ziglang.org</a>.
+        \\Here is an important link: <strong><a href="http://example.com">http://example.com</a></strong>
+        \\(Links may be in parentheses: <a href="https://example.com/?q=(parens)">https://example.com/?q=(parens)</a>)
+        \\Escaping a link so it's plain text: https://example.com</p>
         \\
     );
 }
