@@ -3598,7 +3598,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     const old_has_tv = decl.has_tv;
     // The following values are ignored if `!old_has_tv`
-    const old_ty = decl.typeOf(mod);
+    const old_ty = if (old_has_tv) decl.typeOf(mod) else undefined;
     const old_val = decl.val;
     const old_align = decl.alignment;
     const old_linksection = decl.@"linksection";

@@ -1627,7 +1627,9 @@ pub fn maybeElemValueFull(val: Value, sema: ?*Sema, mod: *Module, index: usize) 
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| mod.declPtr(decl).val.maybeElemValueFull(sema, mod, index),
                 .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).maybeElemValueFull(sema, mod, index),
-                .comptime_alloc => |idx| if (sema) |s| s.getComptimeAlloc(idx).val.maybeElemValueFull(sema, mod, index) else null,
+                .comptime_alloc => |idx| if (sema) |s| Value.fromInterned(
+                    try s.getComptimeAlloc(idx).val.intern(mod, s.arena),
+                ).maybeElemValueFull(sema, mod, index) else null,
                 .int, .eu_payload => null,
                 .opt_payload => |base| Value.fromInterned(base).maybeElemValueFull(sema, mod, index),
                 .comptime_field => |field_val| Value.fromInterned(field_val).maybeElemValueFull(sema, mod, index),
@@ -1697,7 +1699,9 @@ pub fn sliceArray(
         else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |decl| try mod.declPtr(decl).val.sliceArray(sema, start, end),
-                .comptime_alloc => |idx| sema.getComptimeAlloc(idx).val.sliceArray(sema, start, end),
+                .comptime_alloc => |idx| try Value.fromInterned(
+                    try sema.getComptimeAlloc(idx).val.intern(mod, sema.arena),
+                ).sliceArray(sema, start, end),
                 .comptime_field => |comptime_field| Value.fromInterned(comptime_field)
                     .sliceArray(sema, start, end),
                 .elem => |elem| Value.fromInterned(elem.base)
