@@ -5202,6 +5202,16 @@ pub const FuncGen = struct {
             self.prev_dbg_line,
             self.prev_dbg_column,
         );
+
+        switch (self.wip.debug_location) {
+            .location => |*l| l.scope = self.scope,
+            .no_location => {},
+        }
+        defer switch (self.wip.debug_location) {
+            .location => |*l| l.scope = old_scope,
+            .no_location => {},
+        };
+
         try self.genBody(body);
     }
 
