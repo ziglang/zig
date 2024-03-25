@@ -1184,28 +1184,36 @@ fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const lhs_ty = self.typeOf(extra.lhs);
         const rhs_ty = self.typeOf(extra.rhs);
 
-        const partial_mcv = try self.binOp(.add, null, lhs, rhs, lhs_ty, rhs_ty);
+        const add_result_mcv = try self.binOp(.add, null, lhs, rhs, lhs_ty, rhs_ty);
 
         const tuple_ty = self.typeOfIndex(inst);
+        const int_info = lhs_ty.intInfo(mod);
 
         // TODO: optimization, set this to true. needs the other struct access stuff to support
         // accessing registers.
         const result_mcv = try self.allocRegOrMem(inst, false);
         const offset = result_mcv.stack_offset;
 
-        const overflow_offset = tuple_ty.structFieldOffset(1, mod) + offset;
         const result_offset = tuple_ty.structFieldOffset(0, mod) + offset;
 
-        const overflow_mcv = try self.binOp(.cmp_lt, null, partial_mcv, lhs, lhs_ty, lhs_ty);
+        // set the result first as we don't have a lock on the add_result_mcv register and it will
+        // get clobbered in the next binOp.
+        try self.genSetStack(lhs_ty, @intCast(result_offset), add_result_mcv);
 
-        const overflow_reg, const overflow_lock = try self.allocReg();
-        defer self.register_manager.unlockReg(overflow_lock);
+        if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
+            if (int_info.signedness == .unsigned) {
+                const overflow_offset = tuple_ty.structFieldOffset(1, mod) + offset;
 
-        try self.genSetReg(lhs_ty, overflow_reg, overflow_mcv);
+                const overflow_mcv = try self.binOp(.cmp_lt, null, add_result_mcv, lhs, lhs_ty, lhs_ty);
+                try self.genSetStack(Type.u1, @intCast(overflow_offset), overflow_mcv);
 
-        try self.genSetStack(Type.u1, @intCast(overflow_offset), overflow_mcv);
-        try self.genSetStack(lhs_ty, @intCast(result_offset), partial_mcv);
-        break :result result_mcv;
+                break :result result_mcv;
+            } else {
+                return self.fail("TODO: airAddWithOverFlow calculate carry for signed addition", .{});
+            }
+        } else {
+            return self.fail("TODO: airAddWithOverflow with < 8 bits or non-pow of 2", .{});
+        }
     };
 
     return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
@@ -1716,9 +1724,8 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
 
 /// Loads `value` into the "payload" of `pointer`.
 fn store(self: *Self, pointer: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) !void {
-    _ = ptr_ty;
     const mod = self.bin_file.comp.module.?;
-    const value_size = value_ty.abiSize(mod);
+    const value_abi_size = value_ty.abiSize(mod);
 
     log.debug("storing {s}", .{@tagName(pointer)});
 
@@ -1741,9 +1748,9 @@ fn store(self: *Self, pointer: MCValue, value: MCValue, ptr_ty: Type, value_ty: 
         .register => |reg| {
             const value_reg = try self.copyToTmpRegister(value_ty, value);
 
-            switch (value_size) {
+            switch (value_abi_size) {
                 1, 2, 4, 8 => {
-                    const tag: Mir.Inst.Tag = switch (value_size) {
+                    const tag: Mir.Inst.Tag = switch (value_abi_size) {
                         1 => .sb,
                         2 => .sh,
                         4 => .sw,
@@ -1760,7 +1767,7 @@ fn store(self: *Self, pointer: MCValue, value: MCValue, ptr_ty: Type, value_ty: 
                         } },
                     });
                 },
-                else => return self.fail("TODO: genSetStack for size={d}", .{value_size}),
+                else => return self.fail("TODO: genSetStack for size={d}", .{value_abi_size}),
             }
         },
         else => return self.fail("TODO implement storing to MCValue.{s}", .{@tagName(pointer)}),
@@ -1842,7 +1849,9 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
                 break :result if (field_off == 0) dst_mcv else try self.copyToNewRegister(inst, dst_mcv);
             },
             .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off + field_off };
+                log.debug("airStructFieldVal off: {}", .{field_off});
+                const field_byte_off: u32 = @divExact(field_off, 8);
+                break :result MCValue{ .stack_offset = off + field_byte_off };
             },
             else => return self.fail("TODO: airStructField {s}", .{@tagName(src_mcv)}),
         }
