@@ -9,7 +9,7 @@ extern "c" fn _errnop() *c_int;
 
 pub const _errno = _errnop;
 
-pub extern "c" fn find_directory(which: c_int, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
+pub extern "c" fn find_directory(which: directory_which, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
 
 pub extern "c" fn find_thread(thread_name: ?*anyopaque) i32;
 
@@ -427,23 +427,18 @@ pub const W = struct {
     }
 };
 
-pub const SA = struct {
-    pub const ONSTACK = 0x20;
-    pub const RESTART = 0x10;
-    pub const RESETHAND = 0x04;
-    pub const NOCLDSTOP = 0x01;
-    pub const NODEFER = 0x08;
-    pub const NOCLDWAIT = 0x02;
-    pub const SIGINFO = 0x40;
-    pub const NOMASK = NODEFER;
-    pub const STACK = ONSTACK;
-    pub const ONESHOT = RESETHAND;
-};
+// posix/signal.h
+
+pub const sigset_t = u64;
+pub const empty_sigset: sigset_t = 0;
+pub const filled_sigset = ~@as(sigset_t, 0);
 
 pub const SIG = struct {
-    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
     pub const DFL: ?Sigaction.handler_fn = @ptrFromInt(0);
     pub const IGN: ?Sigaction.handler_fn = @ptrFromInt(1);
+    pub const ERR: ?Sigaction.handler_fn = @ptrFromInt(maxInt(usize));
+
+    pub const HOLD: ?Sigaction.handler_fn = @ptrFromInt(3);
 
     pub const HUP = 1;
     pub const INT = 2;
@@ -482,6 +477,340 @@ pub const SIG = struct {
     pub const BLOCK = 1;
     pub const UNBLOCK = 2;
     pub const SETMASK = 3;
+};
+
+pub const siginfo_t = extern struct {
+    signo: c_int,
+    code: c_int,
+    errno: c_int,
+
+    pid: pid_t,
+    uid: uid_t,
+    addr: *allowzero anyopaque,
+};
+
+/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
+pub const Sigaction = extern struct {
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *allowzero anyopaque, ?*anyopaque) callconv(.C) void;
+
+    /// signal handler
+    handler: extern union {
+        handler: handler_fn,
+        sigaction: sigaction_fn,
+    },
+
+    /// signal mask to apply
+    mask: sigset_t,
+
+    /// see signal options
+    flags: c_int,
+
+    /// will be passed to the signal handler, BeOS extension
+    userdata: *allowzero anyopaque = undefined,
+};
+
+pub const SA = struct {
+    pub const NOCLDSTOP = 0x01;
+    pub const NOCLDWAIT = 0x02;
+    pub const RESETHAND = 0x04;
+    pub const NODEFER = 0x08;
+    pub const RESTART = 0x10;
+    pub const ONSTACK = 0x20;
+    pub const SIGINFO = 0x40;
+    pub const NOMASK = NODEFER;
+    pub const STACK = ONSTACK;
+    pub const ONESHOT = RESETHAND;
+};
+
+pub const SS = struct {
+    pub const ONSTACK = 0x1;
+    pub const DISABLE = 0x2;
+};
+
+pub const MINSIGSTKSZ = 8192;
+pub const SIGSTKSZ = 16384;
+
+pub const stack_t = extern struct {
+    sp: [*]u8,
+    size: isize,
+    flags: i32,
+};
+
+pub const NSIG = 65;
+
+pub const mcontext_t = vregs;
+
+pub const ucontext_t = extern struct {
+    link: ?*ucontext_t,
+    sigmask: sigset_t,
+    stack: stack_t,
+    mcontext: mcontext_t,
+};
+
+// arch/*/signal.h
+
+pub const vregs = switch (builtin.cpu.arch) {
+    .arm, .thumb => extern struct {
+        r0: u32,
+        r1: u32,
+        r2: u32,
+        r3: u32,
+        r4: u32,
+        r5: u32,
+        r6: u32,
+        r7: u32,
+        r8: u32,
+        r9: u32,
+        r10: u32,
+        r11: u32,
+        r12: u32,
+        r13: u32,
+        r14: u32,
+        r15: u32,
+        cpsr: u32,
+    },
+    .aarch64 => extern struct {
+        x: [10]u64,
+        lr: u64,
+        sp: u64,
+        elr: u64,
+        spsr: u64,
+        fp_q: [32]u128,
+        fpsr: u32,
+        fpcr: u32,
+    },
+    .m68k => extern struct {
+        pc: u32,
+        d0: u32,
+        d1: u32,
+        d2: u32,
+        d3: u32,
+        d4: u32,
+        d5: u32,
+        d6: u32,
+        d7: u32,
+        a0: u32,
+        a1: u32,
+        a2: u32,
+        a3: u32,
+        a4: u32,
+        a5: u32,
+        a6: u32,
+        a7: u32,
+        ccr: u8,
+        f0: f64,
+        f1: f64,
+        f2: f64,
+        f3: f64,
+        f4: f64,
+        f5: f64,
+        f6: f64,
+        f7: f64,
+        f8: f64,
+        f9: f64,
+        f10: f64,
+        f11: f64,
+        f12: f64,
+        f13: f64,
+    },
+    .mipsel => extern struct {
+        r0: u32,
+    },
+    .powerpc => extern struct {
+        pc: u32,
+        r0: u32,
+        r1: u32,
+        r2: u32,
+        r3: u32,
+        r4: u32,
+        r5: u32,
+        r6: u32,
+        r7: u32,
+        r8: u32,
+        r9: u32,
+        r10: u32,
+        r11: u32,
+        r12: u32,
+        f0: f64,
+        f1: f64,
+        f2: f64,
+        f3: f64,
+        f4: f64,
+        f5: f64,
+        f6: f64,
+        f7: f64,
+        f8: f64,
+        f9: f64,
+        f10: f64,
+        f11: f64,
+        f12: f64,
+        f13: f64,
+        reserved: u32,
+        fpscr: u32,
+        ctr: u32,
+        xer: u32,
+        cr: u32,
+        msr: u32,
+        lr: u32,
+    },
+    .riscv64 => extern struct {
+        x: [31]u64,
+        pc: u64,
+        f: [32]f64,
+        fcsr: u64,
+    },
+    .sparc64 => extern struct {
+        g1: u64,
+        g2: u64,
+        g3: u64,
+        g4: u64,
+        g5: u64,
+        g6: u64,
+        g7: u64,
+        o0: u64,
+        o1: u64,
+        o2: u64,
+        o3: u64,
+        o4: u64,
+        o5: u64,
+        sp: u64,
+        o7: u64,
+        l0: u64,
+        l1: u64,
+        l2: u64,
+        l3: u64,
+        l4: u64,
+        l5: u64,
+        l6: u64,
+        l7: u64,
+        i0: u64,
+        i1: u64,
+        i2: u64,
+        i3: u64,
+        i4: u64,
+        i5: u64,
+        fp: u64,
+        i7: u64,
+    },
+    .x86 => extern struct {
+        pub const old_extended_regs = extern struct {
+            control: u16,
+            reserved1: u16,
+            status: u16,
+            reserved2: u16,
+            tag: u16,
+            reserved3: u16,
+            eip: u32,
+            cs: u16,
+            opcode: u16,
+            datap: u32,
+            ds: u16,
+            reserved4: u16,
+            fp_mmx: [8][10]u8,
+        };
+
+        pub const fp_register = extern struct { value: [10]u8, reserved: [6]u8 };
+
+        pub const xmm_register = extern struct { value: [16]u8 };
+
+        pub const new_extended_regs = extern struct {
+            control: u16,
+            status: u16,
+            tag: u16,
+            opcode: u16,
+            eip: u32,
+            cs: u16,
+            reserved1: u16,
+            datap: u32,
+            ds: u16,
+            reserved2: u16,
+            mxcsr: u32,
+            reserved3: u32,
+            fp_mmx: [8]fp_register,
+            xmmx: [8]xmm_register,
+            reserved4: [224]u8,
+        };
+
+        pub const extended_regs = extern struct {
+            state: extern union {
+                old_format: old_extended_regs,
+                new_format: new_extended_regs,
+            },
+            format: u32,
+        };
+
+        eip: u32,
+        eflags: u32,
+        eax: u32,
+        ecx: u32,
+        edx: u32,
+        esp: u32,
+        ebp: u32,
+        reserved: u32,
+        xregs: extended_regs,
+        edi: u32,
+        esi: u32,
+        ebx: u32,
+    },
+    .x86_64 => extern struct {
+        pub const fp_register = extern struct {
+            value: [10]u8,
+            reserved: [6]u8,
+        };
+
+        pub const xmm_register = extern struct {
+            value: [16]u8,
+        };
+
+        pub const fpu_state = extern struct {
+            control: u16,
+            status: u16,
+            tag: u16,
+            opcode: u16,
+            rip: u64,
+            rdp: u64,
+            mxcsr: u32,
+            mscsr_mask: u32,
+
+            fp_mmx: [8]fp_register,
+            xmm: [16]xmm_register,
+            reserved: [96]u8,
+        };
+
+        pub const xstate_hdr = extern struct {
+            bv: u64,
+            xcomp_bv: u64,
+            reserved: [48]u8,
+        };
+
+        pub const savefpu = extern struct {
+            fxsave: fpu_state,
+            xstate: xstate_hdr,
+            ymm: [16]xmm_register,
+        };
+
+        rax: u64,
+        rbx: u64,
+        rcx: u64,
+        rdx: u64,
+        rdi: u64,
+        rsi: u64,
+        rbp: u64,
+        r8: u64,
+        r9: u64,
+        r10: u64,
+        r11: u64,
+        r12: u64,
+        r13: u64,
+        r14: u64,
+        r15: u64,
+        rsp: u64,
+        rip: u64,
+        rflags: u64,
+        fpu: savefpu,
+    },
+    else => void,
 };
 
 // access function
@@ -527,6 +856,15 @@ pub const SOCK = struct {
     pub const DGRAM = 2;
     pub const RAW = 3;
     pub const SEQPACKET = 5;
+
+    /// WARNING: this flag is not supported by windows socket functions directly,
+    ///          it is only supported by std.os.socket. Be sure that this value does
+    ///          not share any bits with any of the `SOCK` values.
+    pub const CLOEXEC = 0x10000;
+    /// WARNING: this flag is not supported by windows socket functions directly,
+    ///          it is only supported by std.os.socket. Be sure that this value does
+    ///          not share any bits with any of the `SOCK` values.
+    pub const NONBLOCK = 0x20000;
 };
 
 pub const SO = struct {
@@ -686,28 +1024,6 @@ pub const winsize = extern struct {
     ws_ypixel: u16,
 };
 
-const NSIG = 32;
-
-/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
-pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-
-    /// signal handler
-    __sigaction_u: extern union {
-        __sa_handler: handler_fn,
-    },
-
-    /// see signal options
-    sa_flags: u32,
-
-    /// signal mask to apply
-    sa_mask: sigset_t,
-};
-
-pub const sigset_t = extern struct {
-    __bits: [SIG.WORDS]u32,
-};
-
 const B_POSIX_ERROR_BASE = -2147454976;
 
 pub const E = enum(i32) {
@@ -800,18 +1116,6 @@ pub const E = enum(i32) {
     LOOP = -2147459060, // Too many levels of symbolic links
     SUCCESS = 0,
     _,
-};
-
-pub const MINSIGSTKSZ = 8192;
-pub const SIGSTKSZ = 16384;
-
-pub const SS_ONSTACK = 0x1;
-pub const SS_DISABLE = 0x2;
-
-pub const stack_t = extern struct {
-    sp: [*]u8,
-    size: isize,
-    flags: i32,
 };
 
 pub const S = struct {

@@ -610,7 +610,10 @@ pub fn Poller(comptime StreamEnum: type) type {
             // allocate grows exponentially.
             const bump_amt = 512;
 
-            const err_mask = posix.POLL.ERR | posix.POLL.NVAL | posix.POLL.HUP;
+            const err_mask = switch (builtin.target.os.tag) {
+                .haiku => posix.POLL.ERR | posix.POLL.HUP,
+                else => posix.POLL.ERR | posix.POLL.NVAL | posix.POLL.HUP,
+            };
 
             const events_len = try posix.poll(&self.poll_fds, if (nanoseconds) |ns|
                 std.math.cast(i32, ns / std.time.ns_per_ms) orelse std.math.maxInt(i32)

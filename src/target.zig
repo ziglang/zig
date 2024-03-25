@@ -301,6 +301,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
             "-lroot",
             "-lpthread",
             "-lc",
+            "-lnetwork",
         },
         else => switch (target.abi) {
             .android => &[_][]const u8{

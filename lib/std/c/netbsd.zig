@@ -865,7 +865,7 @@ pub const SIG = struct {
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = *align(1) const fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     /// signal handler
     handler: extern union {
@@ -908,7 +908,7 @@ pub const _ksiginfo = extern struct {
             stime: clock_t,
         },
         fault: extern struct {
-            addr: ?*anyopaque,
+            addr: *allowzero anyopaque,
             trap: i32,
             trap2: i32,
             trap3: i32,

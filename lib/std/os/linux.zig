@@ -1609,18 +1609,18 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
     return syscall3(.socket, domain, socket_type, protocol);
 }
 
-pub fn setsockopt(fd: i32, level: u32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
+pub fn setsockopt(fd: i32, level: i32, optname: u32, optval: [*]const u8, optlen: socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.setsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @as(usize, @intCast(optlen)) });
+        return socketcall(SC.setsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)) });
     }
-    return syscall5(.setsockopt, @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @as(usize, @intCast(optlen)));
+    return syscall5(.setsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @as(usize, @intCast(optlen)));
 }
 
-pub fn getsockopt(fd: i32, level: u32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
+pub fn getsockopt(fd: i32, level: i32, optname: u32, noalias optval: [*]u8, noalias optlen: *socklen_t) usize {
     if (native_arch == .x86) {
-        return socketcall(SC.getsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @intFromPtr(optlen) });
+        return socketcall(SC.getsockopt, &[5]usize{ @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen) });
     }
-    return syscall5(.getsockopt, @as(usize, @bitCast(@as(isize, fd))), level, optname, @intFromPtr(optval), @intFromPtr(optlen));
+    return syscall5(.getsockopt, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, level))), optname, @intFromPtr(optval), @intFromPtr(optlen));
 }
 
 pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
@@ -4329,7 +4329,7 @@ pub const k_sigaction = switch (native_arch) {
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
     pub const handler_fn = *align(1) const fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*const anyopaque) callconv(.C) void;
+    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -4690,7 +4690,7 @@ const siginfo_fields_union = extern union {
         },
     },
     sigfault: extern struct {
-        addr: *anyopaque,
+        addr: *allowzero anyopaque,
         addr_lsb: i16,
         first: extern union {
             addr_bnd: extern struct {

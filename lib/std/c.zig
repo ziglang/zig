@@ -1687,8 +1687,8 @@ pub extern "c" fn getpeername(sockfd: c.fd_t, noalias addr: *c.sockaddr, noalias
 pub extern "c" fn connect(sockfd: c.fd_t, sock_addr: *const c.sockaddr, addrlen: c.socklen_t) c_int;
 pub extern "c" fn accept(sockfd: c.fd_t, noalias addr: ?*c.sockaddr, noalias addrlen: ?*c.socklen_t) c_int;
 pub extern "c" fn accept4(sockfd: c.fd_t, noalias addr: ?*c.sockaddr, noalias addrlen: ?*c.socklen_t, flags: c_uint) c_int;
-pub extern "c" fn getsockopt(sockfd: c.fd_t, level: u32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *c.socklen_t) c_int;
-pub extern "c" fn setsockopt(sockfd: c.fd_t, level: u32, optname: u32, optval: ?*const anyopaque, optlen: c.socklen_t) c_int;
+pub extern "c" fn getsockopt(sockfd: c.fd_t, level: i32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *c.socklen_t) c_int;
+pub extern "c" fn setsockopt(sockfd: c.fd_t, level: i32, optname: u32, optval: ?*const anyopaque, optlen: c.socklen_t) c_int;
 pub extern "c" fn send(sockfd: c.fd_t, buf: *const anyopaque, len: usize, flags: u32) isize;
 pub extern "c" fn sendto(
     sockfd: c.fd_t,
