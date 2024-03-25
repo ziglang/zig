@@ -209,7 +209,7 @@ pub fn updateFunc(
                 .module = module,
                 .error_msg = null,
                 .pass = .{ .decl = decl_index },
-                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
+                .is_naked_fn = decl.typeOf(module).fnCallingConvention(module) == .Naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
                 .anon_decl_deps = self.anon_decls,

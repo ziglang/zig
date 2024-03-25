@@ -330,9 +330,6 @@ const ValueArena = struct {
 
 pub const Decl = struct {
     name: InternPool.NullTerminatedString,
-    /// The most recent Type of the Decl after a successful semantic analysis.
-    /// Populated when `has_tv`.
-    ty: Type,
     /// The most recent Value of the Decl after a successful semantic analysis.
     /// Populated when `has_tv`.
     val: Value,
@@ -487,20 +484,28 @@ pub const Decl = struct {
             zcu.namespacePtr(decl.src_namespace).fullyQualifiedName(zcu, decl.name);
     }
 
-    pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
+    pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
+        assert(decl.has_tv);
+        return Type.fromInterned(zcu.intern_pool.typeOf(decl.val.toIntern()));
+    }
+
+    pub fn typedValue(decl: Decl, zcu: *const Zcu) error{AnalysisFail}!TypedValue {
         if (!decl.has_tv) return error.AnalysisFail;
-        return TypedValue{ .ty = decl.ty, .val = decl.val };
+        return .{
+            .ty = decl.typeOf(zcu),
+            .val = decl.val,
+        };
     }
 
     pub fn internValue(decl: *Decl, zcu: *Zcu) Allocator.Error!InternPool.Index {
         assert(decl.has_tv);
-        const ip_index = try decl.val.intern(decl.ty, zcu);
+        const ip_index = try decl.val.intern(decl.typeOf(zcu), zcu);
         decl.val = Value.fromInterned(ip_index);
         return ip_index;
     }
 
     pub fn isFunction(decl: Decl, zcu: *const Zcu) !bool {
-        const tv = try decl.typedValue();
+        const tv = try decl.typedValue(zcu);
         return tv.ty.zigTypeTag(zcu) == .Fn;
     }
 
@@ -590,7 +595,7 @@ pub const Decl = struct {
             @tagName(decl.analysis),
         });
         if (decl.has_tv) {
-            std.debug.print(" ty={} val={}", .{ decl.ty, decl.val });
+            std.debug.print(" val={}", .{decl.val});
         }
         std.debug.print("\n", .{});
     }
@@ -615,7 +620,7 @@ pub const Decl = struct {
     pub fn getAlignment(decl: Decl, zcu: *Zcu) Alignment {
         assert(decl.has_tv);
         if (decl.alignment != .none) return decl.alignment;
-        return decl.ty.abiAlignment(zcu);
+        return decl.typeOf(zcu).abiAlignment(zcu);
     }
 
     /// Upgrade a `LazySrcLoc` to a `SrcLoc` based on the `Decl` provided.
@@ -3525,7 +3530,6 @@ fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.src_line = 0;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
-    new_decl.ty = Type.type;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
@@ -3594,7 +3598,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     const old_has_tv = decl.has_tv;
     // The following values are ignored if `!old_has_tv`
-    const old_ty = decl.ty;
+    const old_ty = decl.typeOf(mod);
     const old_val = decl.val;
     const old_align = decl.alignment;
     const old_linksection = decl.@"linksection";
@@ -3716,7 +3720,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
-        decl.ty = Type.fromInterned(InternPool.Index.type_type);
         decl.val = ty.toValue();
         decl.alignment = .none;
         decl.@"linksection" = .none;
@@ -3760,7 +3763,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         },
     }
 
-    decl.ty = decl_tv.ty;
     decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
     // Function linksection, align, and addrspace were already set by Sema
     if (!is_func) {
@@ -3806,10 +3808,10 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     decl.analysis = .complete;
 
     const result: SemaDeclResult = if (old_has_tv) .{
-        .invalidate_decl_val = !decl.ty.eql(old_ty, mod) or
-            !decl.val.eql(old_val, decl.ty, mod) or
+        .invalidate_decl_val = !decl_tv.ty.eql(old_ty, mod) or
+            !decl.val.eql(old_val, decl_tv.ty, mod) or
             is_inline != old_is_inline,
-        .invalidate_decl_ref = !decl.ty.eql(old_ty, mod) or
+        .invalidate_decl_ref = !decl_tv.ty.eql(old_ty, mod) or
             decl.alignment != old_align or
             decl.@"linksection" != old_linksection or
             decl.@"addrspace" != old_addrspace or
@@ -3819,11 +3821,11 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .invalidate_decl_ref = true,
     };
 
-    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl.ty));
+    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl_tv.ty));
     if (has_runtime_bits) {
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
-        try sema.resolveTypeFully(decl.ty);
+        try sema.resolveTypeFully(decl_tv.ty);
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
@@ -3850,7 +3852,7 @@ fn semaAnonOwnerDecl(zcu: *Zcu, decl_index: Decl.Index) !SemaDeclResult {
 
     log.debug("semaAnonOwnerDecl '{d}'", .{@intFromEnum(decl_index)});
 
-    switch (decl.ty.zigTypeTag(zcu)) {
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
         .Fn => @panic("TODO: update fn instance"),
         .Type => {},
         else => unreachable,
@@ -4479,7 +4481,7 @@ pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!vo
     // if the Decl is referenced by an instruction or another constant. Otherwise,
     // the Decl will be garbage collected by the `codegen_decl` task instead of sent
     // to the linker.
-    if (mod.declPtr(decl_index).ty.isFnOrHasRuntimeBits(mod)) {
+    if (mod.declPtr(decl_index).typeOf(mod).isFnOrHasRuntimeBits(mod)) {
         try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = decl_index });
     }
 }
@@ -4563,7 +4565,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // the runtime-known parameters only, not to be confused with the
     // generic_owner function type, which potentially has more parameters,
     // including comptime parameters.
-    const fn_ty = decl.ty;
+    const fn_ty = decl.typeOf(mod);
     const fn_ty_info = mod.typeToFunc(fn_ty).?;
 
     var sema: Sema = .{
@@ -4812,7 +4814,6 @@ pub fn allocateNewDecl(
         .src_line = undefined,
         .has_tv = false,
         .owns_tv = false,
-        .ty = undefined,
         .val = undefined,
         .alignment = undefined,
         .@"linksection" = .none,
@@ -4889,7 +4890,6 @@ pub fn initNewAnonDecl(
 
     new_decl.name = name;
     new_decl.src_line = src_line;
-    new_decl.ty = typed_value.ty;
     new_decl.val = typed_value.val;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
@@ -5419,7 +5419,7 @@ pub fn populateTestFunctions(
         try mod.ensureDeclAnalyzed(decl_index);
     }
     const decl = mod.declPtr(decl_index);
-    const test_fn_ty = decl.ty.slicePtrFieldType(mod).childType(mod);
+    const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
     const array_decl_index = d: {
         // Add mod.test_functions to an array decl then make the test_functions
@@ -5463,7 +5463,7 @@ pub fn populateTestFunctions(
                 // func
                 try mod.intern(.{ .ptr = .{
                     .ty = try mod.intern(.{ .ptr_type = .{
-                        .child = test_decl.ty.toIntern(),
+                        .child = test_decl.typeOf(mod).toIntern(),
                         .flags = .{
                             .is_const = true,
                         },
@@ -5515,7 +5515,6 @@ pub fn populateTestFunctions(
 
         // Since we are replacing the Decl's value we must perform cleanup on the
         // previous value.
-        decl.ty = new_ty;
         decl.val = new_val;
         decl.has_tv = true;
     }

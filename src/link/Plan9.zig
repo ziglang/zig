@@ -177,7 +177,7 @@ pub const Atom = struct {
             return if (self.code_ptr) |p| p[0..self.other.code_len] else blk: {
                 const decl_index = self.other.decl_index;
                 const decl = mod.declPtr(decl_index);
-                if (decl.ty.zigTypeTag(mod) == .Fn) {
+                if (decl.typeOf(mod).zigTypeTag(mod) == .Fn) {
                     const table = plan9.fn_decl_table.get(decl.getFileScope(mod)).?.functions;
                     const output = table.get(decl_index).?;
                     break :blk output.code;
@@ -540,7 +540,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
+        .ty = decl.typeOf(mod),
         .val = decl_val,
     }, &code_buffer, .{ .none = {} }, .{
         .parent_atom_index = @as(Atom.Index, @intCast(atom_idx)),
@@ -566,7 +566,7 @@ fn updateFinish(self: *Plan9, decl_index: InternPool.DeclIndex) !void {
     const gpa = self.base.comp.gpa;
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const is_fn = (decl.ty.zigTypeTag(mod) == .Fn);
+    const is_fn = (decl.typeOf(mod).zigTypeTag(mod) == .Fn);
     const sym_t: aout.Sym.Type = if (is_fn) .t else .d;
 
     const atom = self.getAtomPtr(self.decls.get(decl_index).?.index);

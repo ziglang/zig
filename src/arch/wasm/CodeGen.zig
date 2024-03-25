@@ -1243,12 +1243,12 @@ pub fn generate(
 fn genFunc(func: *CodeGen) InnerError!void {
     const mod = func.bin_file.base.comp.module.?;
     const ip = &mod.intern_pool;
-    const fn_info = mod.typeToFunc(func.decl.ty).?;
+    const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
     var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), mod);
     defer func_type.deinit(func.gpa);
     _ = try func.bin_file.storeDeclType(func.decl_index, func_type);
 
-    var cc_result = try func.resolveCallingConventionValues(func.decl.ty);
+    var cc_result = try func.resolveCallingConventionValues(func.decl.typeOf(mod));
     defer cc_result.deinit(func.gpa);
 
     func.args = cc_result.args;
@@ -2087,7 +2087,7 @@ fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.comp.module.?;
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
-    const fn_info = mod.typeToFunc(func.decl.ty).?;
+    const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
     const ret_ty = Type.fromInterned(fn_info.return_type);
 
     // result must be stored in the stack and we return a pointer
@@ -2135,7 +2135,7 @@ fn airRetPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result try func.allocStack(Type.usize); // create pointer to void
         }
 
-        const fn_info = mod.typeToFunc(func.decl.ty).?;
+        const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
         if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), mod)) {
             break :result func.return_value;
         }
@@ -2152,7 +2152,7 @@ fn airRetLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand = try func.resolveInst(un_op);
     const ret_ty = func.typeOf(un_op).childType(mod);
 
-    const fn_info = mod.typeToFunc(func.decl.ty).?;
+    const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
     if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         if (ret_ty.isError(mod)) {
             try func.addImm32(0);
@@ -2193,7 +2193,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
             break :blk function.owner_decl;
         } else if (func_val.getExternFunc(mod)) |extern_func| {
             const ext_decl = mod.declPtr(extern_func.decl);
-            const ext_info = mod.typeToFunc(ext_decl.ty).?;
+            const ext_info = mod.typeToFunc(ext_decl.typeOf(mod)).?;
             var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types.get(ip), Type.fromInterned(ext_info.return_type), mod);
             defer func_type.deinit(func.gpa);
             const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_func.decl);
@@ -2530,7 +2530,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = func.bin_file.base.comp.module.?;
     const arg_index = func.arg_index;
     const arg = func.args[arg_index];
-    const cc = mod.typeToFunc(func.decl.ty).?.cc;
+    const cc = mod.typeToFunc(func.decl.typeOf(mod)).?.cc;
     const arg_ty = func.typeOfIndex(inst);
     if (cc == .C) {
         const arg_classes = abi.classifyType(arg_ty, mod);
@@ -3122,7 +3122,7 @@ fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: InternPool.Dec
     const mod = func.bin_file.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
     try mod.markDeclAlive(decl);
-    const ptr_ty = try mod.singleMutPtrType(decl.ty);
+    const ptr_ty = try mod.singleMutPtrType(decl.typeOf(mod));
     return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index, offset);
 }
 
@@ -3173,7 +3173,8 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.Decl
             return func.lowerDeclRefValue(tv, func_val.decl, offset);
         }
     }
-    if (decl.ty.zigTypeTag(mod) != .Fn and !decl.ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    const decl_ty = decl.typeOf(mod);
+    if (decl_ty.zigTypeTag(mod) != .Fn and !decl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
@@ -3182,7 +3183,7 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.Decl
     const atom = func.bin_file.getAtom(atom_index);
 
     const target_sym_index = @intFromEnum(atom.sym_index);
-    if (decl.ty.zigTypeTag(mod) == .Fn) {
+    if (decl_ty.zigTypeTag(mod) == .Fn) {
         return WValue{ .function_index = target_sym_index };
     } else if (offset == 0) {
         return WValue{ .memory = target_sym_index };

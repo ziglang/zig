@@ -6425,16 +6425,17 @@ pub fn analyzeExport(
 
     try mod.ensureDeclAnalyzed(exported_decl_index);
     const exported_decl = mod.declPtr(exported_decl_index);
+    const export_ty = exported_decl.typeOf(mod);
 
-    if (!try sema.validateExternType(exported_decl.ty, .other)) {
+    if (!try sema.validateExternType(export_ty, .other)) {
         const msg = msg: {
-            const msg = try sema.errMsg(block, src, "unable to export type '{}'", .{exported_decl.ty.fmt(mod)});
+            const msg = try sema.errMsg(block, src, "unable to export type '{}'", .{export_ty.fmt(mod)});
             errdefer msg.destroy(gpa);
 
             const src_decl = mod.declPtr(block.src_decl);
-            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), exported_decl.ty, .other);
+            try sema.explainWhyTypeIsNotExtern(msg, src_decl.toSrcLoc(src, mod), export_ty, .other);
 
-            try sema.addDeclaredHereNote(msg, exported_decl.ty);
+            try sema.addDeclaredHereNote(msg, export_ty);
             break :msg msg;
         };
         return sema.failWithOwnedErrorMsg(block, msg);
@@ -6503,7 +6504,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     }
 
     const fn_owner_decl = mod.funcOwnerDeclPtr(sema.func_index);
-    switch (fn_owner_decl.ty.fnCallingConvention(mod)) {
+    switch (fn_owner_decl.typeOf(mod).fnCallingConvention(mod)) {
         .Naked => return sema.fail(block, src, "@setAlignStack in naked function", .{}),
         .Inline => return sema.fail(block, src, "@setAlignStack in inline function", .{}),
         else => if (block.inlining != null) {
@@ -7692,7 +7693,7 @@ fn analyzeCall(
         // comptime memory is mutated.
         const memoized_arg_values = try sema.arena.alloc(InternPool.Index, func_ty_info.param_types.len);
 
-        const owner_info = mod.typeToFunc(fn_owner_decl.ty).?;
+        const owner_info = mod.typeToFunc(fn_owner_decl.typeOf(mod)).?;
         const new_param_types = try sema.arena.alloc(InternPool.Index, owner_info.param_types.len);
         var new_fn_info: InternPool.GetFuncTypeKey = .{
             .param_types = new_param_types,
@@ -7960,9 +7961,9 @@ fn handleTailCall(sema: *Sema, block: *Block, call_src: LazySrcLoc, func_ty: Typ
         });
     }
     const func_decl = mod.funcOwnerDeclPtr(sema.owner_func_index);
-    if (!func_ty.eql(func_decl.ty, mod)) {
+    if (!func_ty.eql(func_decl.typeOf(mod), mod)) {
         return sema.fail(block, call_src, "unable to perform tail call: type of function being called '{}' does not match type of calling function '{}'", .{
-            func_ty.fmt(mod), func_decl.ty.fmt(mod),
+            func_ty.fmt(mod), func_decl.typeOf(mod).fmt(mod),
         });
     }
     _ = try block.addUnOp(.ret, result);
@@ -26641,7 +26642,7 @@ fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
         // decl_index may be an alias; we must find the decl that actually
         // owns the function.
         try sema.ensureDeclAnalyzed(decl_index);
-        const tv = try mod.declPtr(decl_index).typedValue();
+        const tv = try mod.declPtr(decl_index).typedValue(mod);
         try sema.declareDependency(.{ .decl_val = decl_index });
         assert(tv.ty.zigTypeTag(mod) == .Fn);
         assert(try sema.fnHasRuntimeBits(tv.ty));
@@ -31374,16 +31375,16 @@ fn beginComptimePtrLoad(
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl_index| blk: {
                 const decl = mod.declPtr(decl_index);
-                const decl_tv = try decl.typedValue();
+                const decl_tv = try decl.typedValue(mod);
                 try sema.declareDependency(.{ .decl_val = decl_index });
                 if (decl.val.getVariable(mod) != null) return error.RuntimeLoad;
 
-                const layout_defined = decl.ty.hasWellDefinedLayout(mod);
+                const layout_defined = decl.typeOf(mod).hasWellDefinedLayout(mod);
                 break :blk ComptimePtrLoadKit{
                     .parent = if (layout_defined) .{ .tv = decl_tv, .byte_offset = 0 } else null,
                     .pointee = decl_tv,
                     .is_mutable = false,
-                    .ty_without_well_defined_layout = if (!layout_defined) decl.ty else null,
+                    .ty_without_well_defined_layout = if (!layout_defined) decl.typeOf(mod) else null,
                 };
             },
             .comptime_alloc => |alloc_index| kit: {
@@ -32668,7 +32669,7 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
     const mod = sema.mod;
     try sema.ensureDeclAnalyzed(decl_index);
 
-    const decl_tv = try mod.declPtr(decl_index).typedValue();
+    const decl_tv = try mod.declPtr(decl_index).typedValue(mod);
     const owner_decl = mod.declPtr(switch (mod.intern_pool.indexToKey(decl_tv.val.toIntern())) {
         .variable => |variable| variable.decl,
         .extern_func => |extern_func| extern_func.decl,
@@ -32697,7 +32698,7 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
 fn maybeQueueFuncBodyAnalysis(sema: *Sema, decl_index: InternPool.DeclIndex) !void {
     const mod = sema.mod;
     const decl = mod.declPtr(decl_index);
-    const tv = try decl.typedValue();
+    const tv = try decl.typedValue(mod);
     if (tv.ty.zigTypeTag(mod) != .Fn) return;
     if (!try sema.fnHasRuntimeBits(tv.ty)) return;
     const func_index = tv.val.toIntern();
@@ -36611,7 +36612,7 @@ fn resolveInferredErrorSet(
     // inferred error sets, each call gets an adhoc InferredErrorSet object, which
     // has no corresponding function body.
     const ies_func_owner_decl = mod.declPtr(func.owner_decl);
-    const ies_func_info = mod.typeToFunc(ies_func_owner_decl.ty).?;
+    const ies_func_info = mod.typeToFunc(ies_func_owner_decl.typeOf(mod)).?;
     // if ies declared by a inline function with generic return type, the return_type should be generic_poison,
     // because inline function does not create a new declaration, and the ies has been filled with analyzeCall,
     // so here we can simply skip this case.
@@ -37629,7 +37630,6 @@ fn generateUnionTagTypeNumbered(
         .tag_mode = .explicit,
     });
 
-    new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(enum_ty);
 
     try mod.finalizeAnonDecl(new_decl_index);
@@ -37675,7 +37675,6 @@ fn generateUnionTagTypeSimple(
 
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
-    new_decl.ty = Type.type;
     new_decl.val = Value.fromInterned(enum_ty);
 
     try mod.finalizeAnonDecl(new_decl_index);

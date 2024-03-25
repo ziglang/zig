@@ -1272,7 +1272,7 @@ pub fn updateDecl(
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
+        .ty = decl.typeOf(mod),
         .val = decl_val,
     }, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
@@ -1399,8 +1399,8 @@ pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: InternPool.DeclIndex) !At
 
 fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
     const decl = self.base.comp.module.?.declPtr(decl_index);
-    const ty = decl.ty;
     const mod = self.base.comp.module.?;
+    const ty = decl.typeOf(mod);
     const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const index: u16 = blk: {
@@ -1535,7 +1535,7 @@ pub fn updateExports(
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
-            const decl_cc = exported_decl.ty.fnCallingConvention(mod);
+            const decl_cc = exported_decl.typeOf(mod).fnCallingConvention(mod);
             if (decl_cc == .C and ip.stringEqlSlice(exp.opts.name, "main") and
                 comp.config.link_libc)
             {

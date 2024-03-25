@@ -740,7 +740,7 @@ pub fn updateDecl(
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
     const res =
         try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
+        .ty = decl.typeOf(mod),
         .val = decl_val,
     }, &code_buffer, dio, .{
         .parent_atom_index = sym_index,
@@ -1021,7 +1021,7 @@ fn getDeclOutputSection(
     _ = self;
     const mod = macho_file.base.comp.module.?;
     const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
-    const sect_id: u8 = switch (decl.ty.zigTypeTag(mod)) {
+    const sect_id: u8 = switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => macho_file.zig_text_sect_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {

@@ -1384,7 +1384,7 @@ pub const Object = struct {
         const decl = zcu.declPtr(decl_index);
         const namespace = zcu.namespacePtr(decl.src_namespace);
         const owner_mod = namespace.file_scope.mod;
-        const fn_info = zcu.typeToFunc(decl.ty).?;
+        const fn_info = zcu.typeToFunc(decl.typeOf(zcu)).?;
         const target = zcu.getTarget();
         const ip = &zcu.intern_pool;
 
@@ -1659,7 +1659,7 @@ pub const Object = struct {
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
                 !zcu.decl_exports.contains(decl_index);
-            const debug_decl_type = try o.lowerDebugType(decl.ty);
+            const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu));
 
             const subprogram = try o.builder.debugSubprogram(
                 file,
@@ -2881,7 +2881,7 @@ pub const Object = struct {
         const decl = zcu.declPtr(decl_index);
         const namespace = zcu.namespacePtr(decl.src_namespace);
         const owner_mod = namespace.file_scope.mod;
-        const zig_fn_type = decl.ty;
+        const zig_fn_type = decl.typeOf(zcu);
         const gop = try o.decl_map.getOrPut(gpa, decl_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
 
@@ -3112,7 +3112,7 @@ pub const Object = struct {
             try o.builder.strtabString(mod.intern_pool.stringToSlice(
                 if (is_extern) decl.name else try decl.fullyQualifiedName(mod),
             )),
-            try o.lowerType(decl.ty),
+            try o.lowerType(decl.typeOf(mod)),
             toLlvmGlobalAddressSpace(decl.@"addrspace", mod.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
@@ -4263,7 +4263,7 @@ pub const Object = struct {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
         try mod.markDeclAlive(decl);
-        const ptr_ty = try mod.singleMutPtrType(decl.ty);
+        const ptr_ty = try mod.singleMutPtrType(decl.typeOf(mod));
         return o.lowerDeclRefValue(ptr_ty, decl_index);
     }
 
@@ -4450,9 +4450,10 @@ pub const Object = struct {
             }
         }
 
-        const is_fn_body = decl.ty.zigTypeTag(mod) == .Fn;
-        if ((!is_fn_body and !decl.ty.hasRuntimeBits(mod)) or
-            (is_fn_body and mod.typeToFunc(decl.ty).?.is_generic)) return o.lowerPtrToVoid(ty);
+        const decl_ty = decl.typeOf(mod);
+        const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
+        if ((!is_fn_body and !decl_ty.hasRuntimeBits(mod)) or
+            (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic)) return o.lowerPtrToVoid(ty);
 
         try mod.markDeclAlive(decl);
 
@@ -4740,7 +4741,7 @@ pub const DeclGen = struct {
                 debug_file, // File
                 debug_file, // Scope
                 line_number,
-                try o.lowerDebugType(decl.ty),
+                try o.lowerDebugType(decl.typeOf(zcu)),
                 variable_index,
                 .{ .local = is_internal_linkage },
             );
@@ -5530,7 +5531,7 @@ pub const FuncGen = struct {
         const mod = o.module;
         const msg_decl_index = mod.panic_messages[@intFromEnum(panic_id)].unwrap().?;
         const msg_decl = mod.declPtr(msg_decl_index);
-        const msg_len = msg_decl.ty.childType(mod).arrayLen(mod);
+        const msg_len = msg_decl.typeOf(mod).childType(mod).arrayLen(mod);
         const msg_ptr = try o.lowerValue(try msg_decl.internValue(mod));
         const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = mod.getTarget();
@@ -5544,7 +5545,7 @@ pub const FuncGen = struct {
         // )
         const panic_func = mod.funcInfo(mod.panic_func_index);
         const panic_decl = mod.declPtr(panic_func.owner_decl);
-        const fn_info = mod.typeToFunc(panic_decl.ty).?;
+        const fn_info = mod.typeToFunc(panic_decl.typeOf(mod)).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_decl);
         _ = try fg.wip.call(
             .normal,
@@ -5612,7 +5613,7 @@ pub const FuncGen = struct {
             _ = try self.wip.retVoid();
             return .none;
         }
-        const fn_info = mod.typeToFunc(self.dg.decl.ty).?;
+        const fn_info = mod.typeToFunc(self.dg.decl.typeOf(mod)).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
@@ -5674,7 +5675,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ptr_ty = self.typeOf(un_op);
         const ret_ty = ptr_ty.childType(mod);
-        const fn_info = mod.typeToFunc(self.dg.decl.ty).?;
+        const fn_info = mod.typeToFunc(self.dg.decl.typeOf(mod)).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code

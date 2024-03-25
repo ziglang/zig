@@ -1585,7 +1585,7 @@ pub fn sliceLen(val: Value, mod: *Module) u64 {
     const ip = &mod.intern_pool;
     return switch (ip.indexToKey(val.toIntern())) {
         .ptr => |ptr| switch (ip.indexToKey(switch (ptr.addr) {
-            .decl => |decl| mod.declPtr(decl).ty.toIntern(),
+            .decl => |decl| mod.declPtr(decl).typeOf(mod).toIntern(),
             .comptime_alloc => @panic("TODO"),
             .anon_decl => |anon_decl| ip.typeOf(anon_decl.val),
             .comptime_field => |comptime_field| ip.typeOf(comptime_field),

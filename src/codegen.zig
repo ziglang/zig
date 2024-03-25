@@ -829,8 +829,8 @@ fn lowerDeclRef(
     const target = namespace.file_scope.mod.resolved_target.result;
 
     const ptr_width = target.ptrBitWidth();
-    const is_fn_body = decl.ty.zigTypeTag(zcu) == .Fn;
-    if (!is_fn_body and !decl.ty.hasRuntimeBits(zcu)) {
+    const is_fn_body = decl.typeOf(zcu).zigTypeTag(zcu) == .Fn;
+    if (!is_fn_body and !decl.typeOf(zcu).hasRuntimeBits(zcu)) {
         try code.appendNTimes(0xaa, @divExact(ptr_width, 8));
         return Result.ok;
     }
@@ -932,7 +932,7 @@ fn genDeclRef(
     };
     const decl = zcu.declPtr(decl_index);
 
-    if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
+    if (!decl.typeOf(zcu).isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
         const imm: u64 = switch (ptr_bytes) {
             1 => 0xaa,
             2 => 0xaaaa,

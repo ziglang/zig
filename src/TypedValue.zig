@@ -315,7 +315,7 @@ pub fn print(
                         const decl = mod.declPtr(decl_index);
                         if (level == 0) return writer.print("(decl '{}')", .{decl.name.fmt(ip)});
                         return print(.{
-                            .ty = decl.ty,
+                            .ty = decl.typeOf(mod),
                             .val = decl.val,
                         }, writer, level - 1, mod);
                     },

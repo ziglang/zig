@@ -657,7 +657,7 @@ pub const DeclGen = struct {
         assert(decl.has_tv);
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        if (ty.isPtrAtRuntime(mod) and !decl.ty.isFnOrHasRuntimeBits(mod)) {
+        if (ty.isPtrAtRuntime(mod) and !decl.typeOf(mod).isFnOrHasRuntimeBits(mod)) {
             return dg.writeCValue(writer, .{ .undef = ty });
         }
 
@@ -673,7 +673,7 @@ pub const DeclGen = struct {
         // them).  The analysis until now should ensure that the C function
         // pointers are compatible.  If they are not, then there is a bug
         // somewhere and we should let the C compiler tell us about it.
-        const need_typecast = if (ty.castPtrToFn(mod)) |_| false else !ty.childType(mod).eql(decl.ty, mod);
+        const need_typecast = if (ty.castPtrToFn(mod)) |_| false else !ty.childType(mod).eql(decl.typeOf(mod), mod);
         if (need_typecast) {
             try writer.writeAll("((");
             try dg.renderType(writer, ty);
@@ -1588,9 +1588,10 @@ pub const DeclGen = struct {
         const ip = &mod.intern_pool;
 
         const fn_decl = mod.declPtr(fn_decl_index);
-        const fn_cty_idx = try dg.typeToIndex(fn_decl.ty, kind);
+        const fn_ty = fn_decl.typeOf(mod);
+        const fn_cty_idx = try dg.typeToIndex(fn_ty, kind);
 
-        const fn_info = mod.typeToFunc(fn_decl.ty).?;
+        const fn_info = mod.typeToFunc(fn_ty).?;
         if (fn_info.cc == .Naked) {
             switch (kind) {
                 .forward => try w.writeAll("zig_naked_decl "),
@@ -1971,7 +1972,7 @@ pub const DeclGen = struct {
     ) !void {
         const decl = dg.module.declPtr(decl_index);
         const fwd = dg.fwdDeclWriter();
-        const is_global = variable.is_extern or dg.declIsGlobal(.{ .ty = decl.ty, .val = decl.val });
+        const is_global = variable.is_extern or dg.declIsGlobal(.{ .ty = decl.typeOf(dg.module), .val = decl.val });
         try fwd.writeAll(if (is_global) "zig_extern " else "static ");
         const maybe_exports = dg.module.decl_exports.get(decl_index);
         const export_weak_linkage = if (maybe_exports) |exports|
@@ -1982,7 +1983,7 @@ pub const DeclGen = struct {
         if (variable.is_threadlocal) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
             fwd,
-            decl.ty,
+            decl.typeOf(dg.module),
             .{ .decl = decl_index },
             CQualifiers.init(.{ .@"const" = variable.is_const }),
             decl.alignment,
@@ -2656,7 +2657,7 @@ fn genExports(o: *Object) !void {
         .anon, .flush => return,
     };
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{ .ty = decl.ty, .val = Value.fromInterned((try decl.internValue(mod))) };
+    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = Value.fromInterned((try decl.internValue(mod))) };
     const fwd = o.dg.fwdDeclWriter();
 
     const exports = mod.decl_exports.get(decl_index) orelse return;
@@ -2687,7 +2688,7 @@ fn genExports(o: *Object) !void {
         const export_name = ip.stringToSlice(@"export".opts.name);
         try o.dg.renderTypeAndName(
             fwd,
-            decl.ty,
+            decl.typeOf(mod),
             .{ .identifier = export_name },
             CQualifiers.init(.{ .@"const" = is_variable_const }),
             decl.alignment,
@@ -2769,7 +2770,7 @@ pub fn genLazyFn(o: *Object, lazy_fn: LazyFnMap.Entry) !void {
         },
         .never_tail, .never_inline => |fn_decl_index| {
             const fn_decl = mod.declPtr(fn_decl_index);
-            const fn_cty = try o.dg.typeToCType(fn_decl.ty, .complete);
+            const fn_cty = try o.dg.typeToCType(fn_decl.typeOf(mod), .complete);
             const fn_info = fn_cty.cast(CType.Payload.Function).?.data;
 
             const fwd_decl_writer = o.dg.fwdDeclWriter();
@@ -2806,7 +2807,7 @@ pub fn genFunc(f: *Function) !void {
     const decl_index = o.dg.pass.decl;
     const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{
-        .ty = decl.ty,
+        .ty = decl.typeOf(mod),
         .val = decl.val,
     };
 
@@ -2893,7 +2894,7 @@ pub fn genDecl(o: *Object) !void {
     const mod = o.dg.module;
     const decl_index = o.dg.pass.decl;
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{ .ty = decl.ty, .val = Value.fromInterned((try decl.internValue(mod))) };
+    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = Value.fromInterned((try decl.internValue(mod))) };
 
     if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) return;
     if (tv.val.getExternFunc(mod)) |_| {
@@ -2979,7 +2980,7 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const decl_index = dg.pass.decl;
     const decl = mod.declPtr(decl_index);
     const tv: TypedValue = .{
-        .ty = decl.ty,
+        .ty = decl.typeOf(mod),
         .val = decl.val,
     };
     const writer = dg.fwdDeclWriter();
@@ -7392,7 +7393,7 @@ fn airCVaStart(f: *Function, inst: Air.Inst.Index) !CValue {
     const inst_ty = f.typeOfIndex(inst);
     const decl_index = f.object.dg.pass.decl;
     const decl = mod.declPtr(decl_index);
-    const fn_cty = try f.typeToCType(decl.ty, .complete);
+    const fn_cty = try f.typeToCType(decl.typeOf(mod), .complete);
     const param_len = fn_cty.castTag(.varargs_function).?.data.param_types.len;
 
     const writer = f.object.writer();

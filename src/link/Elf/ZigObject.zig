@@ -846,7 +846,7 @@ fn getDeclShdrIndex(
     _ = self;
     const mod = elf_file.base.comp.module.?;
     const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
-    const shdr_index = switch (decl.ty.zigTypeTag(mod)) {
+    const shdr_index = switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => elf_file.zig_text_section_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
@@ -1158,7 +1158,7 @@ pub fn updateDecl(
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
         try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), .{
-            .ty = decl.ty,
+            .ty = decl.typeOf(mod),
             .val = decl_val,
         }, &code_buffer, .{
             .dwarf = ds,
@@ -1167,7 +1167,7 @@ pub fn updateDecl(
         })
     else
         try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), .{
-            .ty = decl.ty,
+            .ty = decl.typeOf(mod),
             .val = decl_val,
         }, &code_buffer, .none, .{
             .parent_atom_index = sym_index,

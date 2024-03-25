@@ -270,7 +270,7 @@ pub fn updateDecl(
     const res = try codegen.generateSymbol(
         &wasm_file.base,
         decl.srcLoc(mod),
-        .{ .ty = decl.ty, .val = val },
+        .{ .ty = decl.typeOf(mod), .val = val },
         &code_writer,
         .none,
         .{ .parent_atom_index = @intFromEnum(atom.sym_index) },
@@ -346,7 +346,7 @@ fn finishUpdateDecl(
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
 
-    switch (decl.ty.zigTypeTag(mod)) {
+    switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => {
             sym.index = try zig_object.appendFunction(gpa, .{ .type_index = zig_object.atom_types.get(atom_index).? });
             sym.tag = .function;
@@ -764,7 +764,7 @@ pub fn getDeclVAddr(
     const atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;
     const atom = wasm_file.getAtomPtr(atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
-    if (decl.ty.zigTypeTag(mod) == .Fn) {
+    if (decl.typeOf(mod).zigTypeTag(mod) == .Fn) {
         std.debug.assert(reloc_info.addend == 0); // addend not allowed for function relocations
         try atom.relocs.append(gpa, .{
             .index = target_symbol_index,
@@ -964,7 +964,7 @@ pub fn freeDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_index: InternPool
     if (sym.isGlobal()) {
         std.debug.assert(zig_object.global_syms.remove(atom.sym_index));
     }
-    switch (decl.ty.zigTypeTag(mod)) {
+    switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => {
             zig_object.functions_free_list.append(gpa, sym.index) catch {};
             std.debug.assert(zig_object.atom_types.remove(atom_index));

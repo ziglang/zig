@@ -349,7 +349,7 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const fn_owner_decl = zcu.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
-    const fn_type = fn_owner_decl.ty;
+    const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
     const target = &namespace.file_scope.mod.resolved_target.result;
 
