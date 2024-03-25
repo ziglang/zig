@@ -779,17 +779,11 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
             :
             : [number] "{a7}" (64),
               [arg1] "{a0}" (1),
-              [arg2] "{a1}" (@intFromPtr("panicking!\n")),
-              [arg3] "{a2}" ("panicking!\n".len),
+              [arg2] "{a1}" (@intFromPtr(msg.ptr)),
+              [arg3] "{a2}" (msg.len),
             : "rcx", "r11", "memory"
         );
-        asm volatile ("ecall"
-            :
-            : [number] "{a7}" (94),
-              [arg1] "{a0}" (127),
-            : "rcx", "r11", "memory"
-        );
-        unreachable;
+        std.posix.exit(127);
     }
 
     switch (builtin.os.tag) {
