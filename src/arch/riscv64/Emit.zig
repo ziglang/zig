@@ -517,6 +517,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .cmp_eq,
         .cmp_imm_eq,
         .cmp_gte,
+        .load_symbol,
         => 8,
 
         else => 4,
