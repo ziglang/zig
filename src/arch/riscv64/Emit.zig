@@ -536,11 +536,18 @@ fn lowerMir(emit: *Emit) !void {
             const data = mir_datas[inst].i_type;
             // TODO: probably create a psuedo instruction for s0 loads/stores instead of this.
             if (data.rs1 == .s0) {
-                const casted_size = math.cast(i12, emit.stack_size) orelse {
-                    return emit.fail("TODO: support bigger stack sizes lowerMir", .{});
-                };
                 const offset = mir_datas[inst].i_type.imm12;
-                mir_datas[inst].i_type.imm12 = -(casted_size - 12 - offset);
+
+                // sp + 32 (aka s0)
+                // ra -- previous ra spilled
+                // s0 -- previous s0 spilled
+                // --- this is -16(s0)
+
+                // TODO: this "+ 8" is completely arbiratary as the largest possible store
+                // we don't want to actually use it. instead we need to calculate the difference
+                // between the first and second stack store and use it instead.
+
+                mir_datas[inst].i_type.imm12 = -(16 + offset + 8);
             }
         }
 
