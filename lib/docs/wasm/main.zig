@@ -939,7 +939,7 @@ fn file_source_html(
     var cursor: usize = token_starts[start_token];
 
     var indent: usize = 0;
-    if (std.mem.lastIndexOfAny(u8, ast.source[0..cursor], "\r\n")) |newline_index| {
+    if (std.mem.lastIndexOf(u8, ast.source[0..cursor], "\n")) |newline_index| {
         for (ast.source[newline_index + 1 .. cursor]) |c| {
             if (c == ' ') {
                 indent += 1;
@@ -1212,15 +1212,16 @@ fn unindent(s: []const u8, indent: usize) []const u8 {
 }
 
 fn appendUnindented(out: *std.ArrayListUnmanaged(u8), s: []const u8, indent: usize) !void {
-    var it = std.mem.splitAny(u8, s, "\r\n");
+    var it = std.mem.split(u8, s, "\n");
     var is_first_line = true;
     while (it.next()) |line| {
-        if (!is_first_line) {
-            try out.appendSlice(gpa, "\n");
-        } else {
+        if (is_first_line) {
+            try appendEscaped(out, line);
             is_first_line = false;
+        } else {
+            try out.appendSlice(gpa, "\n");
+            try appendEscaped(out, unindent(line, indent));
         }
-        try appendEscaped(out, unindent(line, indent));
     }
 }
 
