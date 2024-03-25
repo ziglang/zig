@@ -101,12 +101,6 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 /// is not yet implemented.
 intern_pool: InternPool = .{},
 
-/// To be eliminated in a future commit by moving more data into InternPool.
-/// Current uses that must be eliminated:
-/// * comptime pointer mutation
-/// This memory lives until the Module is destroyed.
-tmp_hack_arena: std.heap.ArenaAllocator,
-
 /// We optimize memory usage for a compilation with no compile errors by storing the
 /// error messages and mapping outside of `Decl`.
 /// The ErrorMsg memory is owned by the decl, using Module's general purpose allocator.
@@ -2099,7 +2093,6 @@ pub fn deinit(zcu: *Zcu) void {
     }
 
     zcu.intern_pool.deinit(gpa);
-    zcu.tmp_hack_arena.deinit();
 }
 
 pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -3656,9 +3649,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
     var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
@@ -3674,7 +3664,6 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .owner_func_index = .none,
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
         .builtin_type_target_index = builtin_type_target_index,
     };
@@ -3704,18 +3693,12 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     // We'll do some other bits with the Sema. Clear the type target index just
     // in case they analyze any type.
     sema.builtin_type_target_index = .none;
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
-    }
     const align_src: LazySrcLoc = .{ .node_offset_var_decl_align = 0 };
     const section_src: LazySrcLoc = .{ .node_offset_var_decl_section = 0 };
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveConstValueAllowVariables(&block_scope, init_src, result_ref, .{
-        .needed_comptime_reason = "global variable initializer must be comptime-known",
-    });
+    const decl_tv = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
@@ -4572,9 +4555,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
 
-    var comptime_mutable_decls = std.ArrayList(Decl.Index).init(gpa);
-    defer comptime_mutable_decls.deinit();
-
     var comptime_err_ret_trace = std.ArrayList(SrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
@@ -4599,7 +4579,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
         .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
-        .comptime_mutable_decls = &comptime_mutable_decls,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
@@ -4734,11 +4713,6 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
             error.ComptimeBreak => @panic("zig compiler bug: ComptimeBreak"),
             else => |e| return e,
         };
-    }
-
-    for (comptime_mutable_decls.items) |ct_decl_index| {
-        const ct_decl = mod.declPtr(ct_decl_index);
-        _ = try ct_decl.internValue(mod);
     }
 
     // Copy the block into place and mark that as the main block.
@@ -5632,8 +5606,7 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| try mod.markDeclIndexAlive(decl),
             .anon_decl => {},
-            .mut_decl => |mut_decl| try mod.markDeclIndexAlive(mut_decl.decl),
-            .int, .comptime_field => {},
+            .int, .comptime_field, .comptime_alloc => {},
             .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
             .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
         },

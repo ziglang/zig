@@ -41,7 +41,8 @@ pub inline fn valuesFromFields(comptime E: type, comptime fields: []const EnumFi
         for (&result, fields) |*r, f| {
             r.* = @enumFromInt(f.value);
         }
-        return &result;
+        const final = result;
+        return &final;
     }
 }
 

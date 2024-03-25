@@ -465,7 +465,8 @@ pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
         var names: [fieldInfos.len][:0]const u8 = undefined;
         // This concat can be removed with the next zig1 update.
         for (&names, fieldInfos) |*name, field| name.* = field.name ++ "";
-        break :blk &names;
+        const final = names;
+        break :blk &final;
     };
 }
 
@@ -506,7 +507,8 @@ pub fn tags(comptime T: type) *const [fields(T).len]T {
         for (fieldInfos, 0..) |field, i| {
             res[i] = @field(T, field.name);
         }
-        break :blk &res;
+        const final = res;
+        break :blk &final;
     };
 }
 

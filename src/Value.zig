@@ -6,7 +6,8 @@ const BigIntConst = std.math.big.int.Const;
 const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
-const Module = @import("Module.zig");
+const Zcu = @import("Module.zig");
+const Module = Zcu;
 const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
@@ -187,24 +188,21 @@ pub fn fmtValue(val: Value, ty: Type, mod: *Module) std.fmt.Formatter(TypedValue
     } };
 }
 
-/// Asserts that the value is representable as an array of bytes.
-/// Returns the value as a null-terminated string stored in the InternPool.
+/// Converts `val` to a null-terminated string stored in the InternPool.
+/// Asserts `val` is an array of `u8`
 pub fn toIpString(val: Value, ty: Type, mod: *Module) !InternPool.NullTerminatedString {
+    assert(ty.zigTypeTag(mod) == .Array);
+    assert(ty.childType(mod).toIntern() == .u8_type);
     const ip = &mod.intern_pool;
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .enum_literal => |enum_literal| enum_literal,
-        .slice => |slice| try arrayToIpString(val, Value.fromInterned(slice.len).toUnsignedInt(mod), mod),
-        .aggregate => |aggregate| switch (aggregate.storage) {
-            .bytes => |bytes| try ip.getOrPutString(mod.gpa, bytes),
-            .elems => try arrayToIpString(val, ty.arrayLen(mod), mod),
-            .repeated_elem => |elem| {
-                const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
-                const len = @as(usize, @intCast(ty.arrayLen(mod)));
-                try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
-                return ip.getOrPutTrailingString(mod.gpa, len);
-            },
+    return switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
+        .bytes => |bytes| try ip.getOrPutString(mod.gpa, bytes),
+        .elems => try arrayToIpString(val, ty.arrayLen(mod), mod),
+        .repeated_elem => |elem| {
+            const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
+            const len = @as(usize, @intCast(ty.arrayLen(mod)));
+            try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
+            return ip.getOrPutTrailingString(mod.gpa, len);
         },
-        else => unreachable,
     };
 }
 
@@ -606,7 +604,7 @@ fn isDeclRef(val: Value, mod: *Module) bool {
     var check = val;
     while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
         .ptr => |ptr| switch (ptr.addr) {
-            .decl, .mut_decl, .comptime_field, .anon_decl => return true,
+            .decl, .comptime_alloc, .comptime_field, .anon_decl => return true,
             .eu_payload, .opt_payload => |base| check = Value.fromInterned(base),
             .elem, .field => |base_index| check = Value.fromInterned(base_index.base),
             .int => return false,
@@ -1343,7 +1341,7 @@ pub fn orderAgainstZeroAdvanced(
         .bool_true => .gt,
         else => switch (mod.intern_pool.indexToKey(lhs.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
-                .decl, .mut_decl, .comptime_field => .gt,
+                .decl, .comptime_alloc, .comptime_field => .gt,
                 .int => |int| Value.fromInterned(int).orderAgainstZeroAdvanced(mod, opt_sema),
                 .elem => |elem| switch (try Value.fromInterned(elem.base).orderAgainstZeroAdvanced(mod, opt_sema)) {
                     .lt => unreachable,
@@ -1532,42 +1530,31 @@ pub fn eql(a: Value, b: Value, ty: Type, mod: *Module) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn isComptimeMutablePtr(val: Value, mod: *Module) bool {
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .slice => |slice| return Value.fromInterned(slice.ptr).isComptimeMutablePtr(mod),
+pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
+    return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        .error_union => |error_union| switch (error_union.val) {
+            .err_name => false,
+            .payload => |payload| Value.fromInterned(payload).canMutateComptimeVarState(zcu),
+        },
         .ptr => |ptr| switch (ptr.addr) {
-            .mut_decl, .comptime_field => true,
-            .eu_payload, .opt_payload => |base_ptr| Value.fromInterned(base_ptr).isComptimeMutablePtr(mod),
-            .elem, .field => |base_index| Value.fromInterned(base_index.base).isComptimeMutablePtr(mod),
-            else => false,
+            .decl => false, // The value of a Decl can never reference a comptime alloc.
+            .int => false,
+            .comptime_alloc => true, // A comptime alloc is either mutable or references comptime-mutable memory.
+            .comptime_field => true, // Comptime field pointers are comptime-mutable, albeit only to the "correct" value.
+            .eu_payload, .opt_payload => |base| Value.fromInterned(base).canMutateComptimeVarState(zcu),
+            .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).canMutateComptimeVarState(zcu),
+            .elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(zcu),
         },
+        .slice => |slice| return Value.fromInterned(slice.ptr).canMutateComptimeVarState(zcu),
+        .opt => |opt| switch (opt.val) {
+            .none => false,
+            else => |payload| Value.fromInterned(payload).canMutateComptimeVarState(zcu),
+        },
+        .aggregate => |aggregate| for (aggregate.storage.values()) |elem| {
+            if (Value.fromInterned(elem).canMutateComptimeVarState(zcu)) break true;
+        } else false,
+        .un => |un| Value.fromInterned(un.val).canMutateComptimeVarState(zcu),
         else => false,
-    };
-}
-
-pub fn canMutateComptimeVarState(val: Value, mod: *Module) bool {
-    return val.isComptimeMutablePtr(mod) or switch (val.toIntern()) {
-        else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .error_union => |error_union| switch (error_union.val) {
-                .err_name => false,
-                .payload => |payload| Value.fromInterned(payload).canMutateComptimeVarState(mod),
-            },
-            .ptr => |ptr| switch (ptr.addr) {
-                .eu_payload, .opt_payload => |base| Value.fromInterned(base).canMutateComptimeVarState(mod),
-                .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).canMutateComptimeVarState(mod),
-                .elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(mod),
-                else => false,
-            },
-            .opt => |opt| switch (opt.val) {
-                .none => false,
-                else => |payload| Value.fromInterned(payload).canMutateComptimeVarState(mod),
-            },
-            .aggregate => |aggregate| for (aggregate.storage.values()) |elem| {
-                if (Value.fromInterned(elem).canMutateComptimeVarState(mod)) break true;
-            } else false,
-            .un => |un| Value.fromInterned(un.val).canMutateComptimeVarState(mod),
-            else => false,
-        },
     };
 }
 
@@ -1581,7 +1568,6 @@ pub fn pointerDecl(val: Value, mod: *Module) ?InternPool.DeclIndex {
         .func => |func| func.owner_decl,
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| decl,
-            .mut_decl => |mut_decl| mut_decl.decl,
             else => null,
         },
         else => null,
@@ -1600,7 +1586,7 @@ pub fn sliceLen(val: Value, mod: *Module) u64 {
     return switch (ip.indexToKey(val.toIntern())) {
         .ptr => |ptr| switch (ip.indexToKey(switch (ptr.addr) {
             .decl => |decl| mod.declPtr(decl).ty.toIntern(),
-            .mut_decl => |mut_decl| mod.declPtr(mut_decl.decl).ty.toIntern(),
+            .comptime_alloc => @panic("TODO"),
             .anon_decl => |anon_decl| ip.typeOf(anon_decl.val),
             .comptime_field => |comptime_field| ip.typeOf(comptime_field),
             else => unreachable,
@@ -1621,34 +1607,38 @@ pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
 
 /// Like `elemValue`, but returns `null` instead of asserting on failure.
 pub fn maybeElemValue(val: Value, mod: *Module, index: usize) Allocator.Error!?Value {
+    return val.maybeElemValueFull(null, mod, index);
+}
+
+pub fn maybeElemValueFull(val: Value, sema: ?*Sema, mod: *Module, index: usize) Allocator.Error!?Value {
     return switch (val.ip_index) {
         .none => switch (val.tag()) {
             .bytes => try mod.intValue(Type.u8, val.castTag(.bytes).?.data[index]),
             .repeated => val.castTag(.repeated).?.data,
             .aggregate => val.castTag(.aggregate).?.data[index],
-            .slice => val.castTag(.slice).?.data.ptr.maybeElemValue(mod, index),
+            .slice => val.castTag(.slice).?.data.ptr.maybeElemValueFull(sema, mod, index),
             else => null,
         },
         else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .undef => |ty| Value.fromInterned((try mod.intern(.{
                 .undef = Type.fromInterned(ty).elemType2(mod).toIntern(),
             }))),
-            .slice => |slice| return Value.fromInterned(slice.ptr).maybeElemValue(mod, index),
+            .slice => |slice| return Value.fromInterned(slice.ptr).maybeElemValueFull(sema, mod, index),
             .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl| mod.declPtr(decl).val.maybeElemValue(mod, index),
-                .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).maybeElemValue(mod, index),
-                .mut_decl => |mut_decl| Value.fromInterned((try mod.declPtr(mut_decl.decl).internValue(mod))).maybeElemValue(mod, index),
+                .decl => |decl| mod.declPtr(decl).val.maybeElemValueFull(sema, mod, index),
+                .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).maybeElemValueFull(sema, mod, index),
+                .comptime_alloc => |idx| if (sema) |s| s.getComptimeAlloc(idx).val.maybeElemValueFull(sema, mod, index) else null,
                 .int, .eu_payload => null,
-                .opt_payload => |base| Value.fromInterned(base).maybeElemValue(mod, index),
-                .comptime_field => |field_val| Value.fromInterned(field_val).maybeElemValue(mod, index),
-                .elem => |elem| Value.fromInterned(elem.base).maybeElemValue(mod, index + @as(usize, @intCast(elem.index))),
+                .opt_payload => |base| Value.fromInterned(base).maybeElemValueFull(sema, mod, index),
+                .comptime_field => |field_val| Value.fromInterned(field_val).maybeElemValueFull(sema, mod, index),
+                .elem => |elem| Value.fromInterned(elem.base).maybeElemValueFull(sema, mod, index + @as(usize, @intCast(elem.index))),
                 .field => |field| if (Value.fromInterned(field.base).pointerDecl(mod)) |decl_index| {
                     const base_decl = mod.declPtr(decl_index);
                     const field_val = try base_decl.val.fieldValue(mod, @as(usize, @intCast(field.index)));
-                    return field_val.maybeElemValue(mod, index);
+                    return field_val.maybeElemValueFull(sema, mod, index);
                 } else null,
             },
-            .opt => |opt| Value.fromInterned(opt.val).maybeElemValue(mod, index),
+            .opt => |opt| Value.fromInterned(opt.val).maybeElemValueFull(sema, mod, index),
             .aggregate => |aggregate| {
                 const len = mod.intern_pool.aggregateTypeLen(aggregate.ty);
                 if (index < len) return Value.fromInterned(switch (aggregate.storage) {
@@ -1690,29 +1680,28 @@ pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
 // Asserts that the provided start/end are in-bounds.
 pub fn sliceArray(
     val: Value,
-    mod: *Module,
-    arena: Allocator,
+    sema: *Sema,
     start: usize,
     end: usize,
 ) error{OutOfMemory}!Value {
     // TODO: write something like getCoercedInts to avoid needing to dupe
+    const mod = sema.mod;
     return switch (val.ip_index) {
         .none => switch (val.tag()) {
-            .slice => val.castTag(.slice).?.data.ptr.sliceArray(mod, arena, start, end),
-            .bytes => Tag.bytes.create(arena, val.castTag(.bytes).?.data[start..end]),
+            .slice => val.castTag(.slice).?.data.ptr.sliceArray(sema, start, end),
+            .bytes => Tag.bytes.create(sema.arena, val.castTag(.bytes).?.data[start..end]),
             .repeated => val,
-            .aggregate => Tag.aggregate.create(arena, val.castTag(.aggregate).?.data[start..end]),
+            .aggregate => Tag.aggregate.create(sema.arena, val.castTag(.aggregate).?.data[start..end]),
             else => unreachable,
         },
         else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
             .ptr => |ptr| switch (ptr.addr) {
-                .decl => |decl| try mod.declPtr(decl).val.sliceArray(mod, arena, start, end),
-                .mut_decl => |mut_decl| Value.fromInterned((try mod.declPtr(mut_decl.decl).internValue(mod)))
-                    .sliceArray(mod, arena, start, end),
+                .decl => |decl| try mod.declPtr(decl).val.sliceArray(sema, start, end),
+                .comptime_alloc => |idx| sema.getComptimeAlloc(idx).val.sliceArray(sema, start, end),
                 .comptime_field => |comptime_field| Value.fromInterned(comptime_field)
-                    .sliceArray(mod, arena, start, end),
+                    .sliceArray(sema, start, end),
                 .elem => |elem| Value.fromInterned(elem.base)
-                    .sliceArray(mod, arena, start + @as(usize, @intCast(elem.index)), end + @as(usize, @intCast(elem.index))),
+                    .sliceArray(sema, start + @as(usize, @intCast(elem.index)), end + @as(usize, @intCast(elem.index))),
                 else => unreachable,
             },
             .aggregate => |aggregate| Value.fromInterned((try mod.intern(.{ .aggregate = .{
@@ -1729,8 +1718,8 @@ pub fn sliceArray(
                     else => unreachable,
                 }.toIntern(),
                 .storage = switch (aggregate.storage) {
-                    .bytes => .{ .bytes = try arena.dupe(u8, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.bytes[start..end]) },
-                    .elems => .{ .elems = try arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
+                    .bytes => .{ .bytes = try sema.arena.dupe(u8, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.bytes[start..end]) },
+                    .elems => .{ .elems = try sema.arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
                     .repeated_elem => |elem| .{ .repeated_elem = elem },
                 },
             } }))),
@@ -1836,26 +1825,6 @@ pub fn isUndef(val: Value, mod: *Module) bool {
 /// undef, etc.
 pub fn isUndefDeep(val: Value, mod: *Module) bool {
     return val.isUndef(mod);
-}
-
-/// Returns true if any value contained in `self` is undefined.
-pub fn anyUndef(val: Value, mod: *Module) !bool {
-    if (val.ip_index == .none) return false;
-    return switch (val.toIntern()) {
-        .undef => true,
-        else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .undef => true,
-            .simple_value => |v| v == .undefined,
-            .slice => |slice| for (0..@intCast(Value.fromInterned(slice.len).toUnsignedInt(mod))) |idx| {
-                if (try (try val.elemValue(mod, idx)).anyUndef(mod)) break true;
-            } else false,
-            .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
-                const elem = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.values()[i];
-                if (try anyUndef(Value.fromInterned(elem), mod)) break true;
-            } else false,
-            else => false,
-        },
-    };
 }
 
 /// Asserts the value is not undefined and not unreachable.

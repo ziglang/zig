@@ -1358,7 +1358,8 @@ pub fn utf8ToUtf16LeStringLiteral(comptime utf8: []const u8) *const [calcUtf16Le
         var utf16le: [len:0]u16 = [_:0]u16{0} ** len;
         const utf16le_len = utf8ToUtf16Le(&utf16le, utf8[0..]) catch |err| @compileError(err);
         assert(len == utf16le_len);
-        break :blk &utf16le;
+        const final = utf16le;
+        break :blk &final;
     };
 }
 

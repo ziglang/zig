@@ -461,7 +461,7 @@ test "write empty array to end" {
     array[5..5].* = .{};
     array[5..5].* = [0]u8{};
     array[5..5].* = [_]u8{};
-    try testing.expectEqualStrings("hello", &array);
+    comptime std.debug.assert(std.mem.eql(u8, "hello", &array));
 }
 
 fn doublePtrTest() !void {

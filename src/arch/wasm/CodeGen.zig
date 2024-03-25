@@ -3067,14 +3067,10 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
             return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
         },
         .anon_decl => |ad| return func.lowerAnonDeclRef(ad, offset),
-        .mut_decl => |mut_decl| {
-            const decl_index = mut_decl.decl;
-            return func.lowerParentPtrDecl(ptr_val, decl_index, offset);
-        },
         .eu_payload => |tag| return func.fail("TODO: Implement lowerParentPtr for {}", .{tag}),
         .int => |base| return func.lowerConstant(Value.fromInterned(base), Type.usize),
         .opt_payload => |base_ptr| return func.lowerParentPtr(Value.fromInterned(base_ptr), offset),
-        .comptime_field => unreachable,
+        .comptime_field, .comptime_alloc => unreachable,
         .elem => |elem| {
             const index = elem.index;
             const elem_type = Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod);
@@ -3320,20 +3316,19 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             var ptr = ip.indexToKey(slice.ptr).ptr;
             const owner_decl = while (true) switch (ptr.addr) {
                 .decl => |decl| break decl,
-                .mut_decl => |mut_decl| break mut_decl.decl,
                 .int, .anon_decl => return func.fail("Wasm TODO: lower slice where ptr is not owned by decl", .{}),
                 .opt_payload, .eu_payload => |base| ptr = ip.indexToKey(base).ptr,
                 .elem, .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
-                .comptime_field => unreachable,
+                .comptime_field, .comptime_alloc => unreachable,
             };
             return .{ .memory = try func.bin_file.lowerUnnamedConst(.{ .ty = ty, .val = val }, owner_decl) };
         },
         .ptr => |ptr| switch (ptr.addr) {
             .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
-            .mut_decl => |mut_decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, mut_decl.decl, 0),
             .int => |int| return func.lowerConstant(Value.fromInterned(int), Type.fromInterned(ip.typeOf(int))),
             .opt_payload, .elem, .field => return func.lowerParentPtr(val, 0),
             .anon_decl => |ad| return func.lowerAnonDeclRef(ad, 0),
+            .comptime_field, .comptime_alloc => unreachable,
             else => return func.fail("Wasm TODO: lowerConstant for other const addr tag {}", .{ptr.addr}),
         },
         .opt => if (ty.optionalReprIsPayload(mod)) {

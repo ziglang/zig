@@ -698,7 +698,6 @@ pub const DeclGen = struct {
         const ptr = mod.intern_pool.indexToKey(ptr_val).ptr;
         switch (ptr.addr) {
             .decl => |d| try dg.renderDeclValue(writer, ptr_ty, Value.fromInterned(ptr_val), d, location),
-            .mut_decl => |md| try dg.renderDeclValue(writer, ptr_ty, Value.fromInterned(ptr_val), md.decl, location),
             .anon_decl => |anon_decl| try dg.renderAnonDeclValue(writer, ptr_ty, Value.fromInterned(ptr_val), anon_decl, location),
             .int => |int| {
                 try writer.writeByte('(');
@@ -795,7 +794,7 @@ pub const DeclGen = struct {
                     },
                 }
             },
-            .comptime_field => unreachable,
+            .comptime_field, .comptime_alloc => unreachable,
         }
     }
 
@@ -1229,7 +1228,6 @@ pub const DeclGen = struct {
             },
             .ptr => |ptr| switch (ptr.addr) {
                 .decl => |d| try dg.renderDeclValue(writer, ty, val, d, location),
-                .mut_decl => |md| try dg.renderDeclValue(writer, ty, val, md.decl, location),
                 .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, ty, val, decl_val, location),
                 .int => |int| {
                     try writer.writeAll("((");
@@ -1243,7 +1241,7 @@ pub const DeclGen = struct {
                 .elem,
                 .field,
                 => try dg.renderParentPtr(writer, val.ip_index, location),
-                .comptime_field => unreachable,
+                .comptime_field, .comptime_alloc => unreachable,
             },
             .opt => |opt| {
                 const payload_ty = ty.optionalChild(mod);

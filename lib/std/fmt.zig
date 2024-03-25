@@ -1829,7 +1829,8 @@ pub inline fn comptimePrint(comptime fmt: []const u8, args: anytype) *const [cou
         var buf: [count(fmt, args):0]u8 = undefined;
         _ = bufPrint(&buf, fmt, args) catch unreachable;
         buf[buf.len] = 0;
-        return &buf;
+        const final = buf;
+        return &final;
     }
 }
 

@@ -2810,6 +2810,10 @@ const Writer = struct {
         switch (capture.unwrap()) {
             .nested => |i| return stream.print("[{d}]", .{i}),
             .instruction => |inst| return self.writeInstIndex(stream, inst),
+            .instruction_load => |ptr_inst| {
+                try stream.writeAll("load ");
+                try self.writeInstIndex(stream, ptr_inst);
+            },
             .decl_val => |str| try stream.print("decl_val \"{}\"", .{
                 std.zig.fmtEscapes(self.code.nullTerminatedString(str)),
             }),
