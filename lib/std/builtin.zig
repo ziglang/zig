@@ -767,13 +767,31 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         builtin.zig_backend == .stage2_x86 or
         (builtin.zig_backend == .stage2_x86_64 and (builtin.target.ofmt != .elf and builtin.target.ofmt != .macho)) or
         builtin.zig_backend == .stage2_sparc64 or
-        builtin.zig_backend == .stage2_spirv64 or
-        builtin.zig_backend == .stage2_riscv64)
+        builtin.zig_backend == .stage2_spirv64)
     {
         while (true) {
             @breakpoint();
         }
     }
+
+    if (builtin.zig_backend == .stage2_riscv64) {
+        asm volatile ("ecall"
+            :
+            : [number] "{a7}" (64),
+              [arg1] "{a0}" (1),
+              [arg2] "{a1}" (@intFromPtr("panicking!\n")),
+              [arg3] "{a2}" ("panicking!\n".len),
+            : "rcx", "r11", "memory"
+        );
+        asm volatile ("ecall"
+            :
+            : [number] "{a7}" (94),
+              [arg1] "{a0}" (127),
+            : "rcx", "r11", "memory"
+        );
+        unreachable;
+    }
+
     switch (builtin.os.tag) {
         .freestanding => {
             while (true) {

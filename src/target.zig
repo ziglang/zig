@@ -526,7 +526,7 @@ pub fn backendSupportsFeature(
     feature: Feature,
 ) bool {
     return switch (feature) {
-        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,
+        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64 or cpu_arch == .riscv64,
         .panic_unwrap_error => ofmt == .c or use_llvm,
         .safety_check_formatted => ofmt == .c or use_llvm,
         .error_return_trace => use_llvm,
