@@ -57,9 +57,14 @@ pub const Inst = struct {
         /// Jumps. Uses `inst` payload.
         j,
 
+        /// Immediate and, uses i_type payload
+        andi,
+
         // NOTE: Maybe create a special data for compares that includes the ops
         /// Register `==`, uses r_type
         cmp_eq,
+        /// Register `!=`, uses r_type
+        cmp_neq,
         /// Register `>`, uses r_type
         cmp_gt,
         /// Register `<`, uses r_type

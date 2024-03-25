@@ -58,6 +58,7 @@ pub fn emitMir(
             .@"or" => try emit.mirRType(inst),
 
             .cmp_eq => try emit.mirRType(inst),
+            .cmp_neq => try emit.mirRType(inst),
             .cmp_gt => try emit.mirRType(inst),
             .cmp_gte => try emit.mirRType(inst),
             .cmp_lt => try emit.mirRType(inst),
@@ -68,6 +69,7 @@ pub fn emitMir(
             .bne => try emit.mirBType(inst),
 
             .addi => try emit.mirIType(inst),
+            .andi => try emit.mirIType(inst),
             .jalr => try emit.mirIType(inst),
             .abs => try emit.mirIType(inst),
 
@@ -201,10 +203,14 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .cmp_eq => {
             // rs1 == rs2
 
-            // if equal, write 0 to rd
             try emit.writeInstruction(Instruction.xor(rd, rs1, rs2));
-            // if rd == 0, set rd to 1
-            try emit.writeInstruction(Instruction.sltiu(rd, rd, 1));
+            try emit.writeInstruction(Instruction.sltiu(rd, rd, 1)); // seqz
+        },
+        .cmp_neq => {
+            // rs1 != rs2
+
+            try emit.writeInstruction(Instruction.xor(rd, rs1, rs2));
+            try emit.writeInstruction(Instruction.sltu(rd, .x0, rd)); // snez
         },
         .cmp_lt => {
             // rd = 1 if rs1 < rs2
@@ -254,6 +260,8 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .addi => try emit.writeInstruction(Instruction.addi(rd, rs1, imm12)),
         .jalr => try emit.writeInstruction(Instruction.jalr(rd, imm12, rs1)),
+
+        .andi => try emit.writeInstruction(Instruction.andi(rd, rs1, imm12)),
 
         .ld => try emit.writeInstruction(Instruction.ld(rd, imm12, rs1)),
         .lw => try emit.writeInstruction(Instruction.lw(rd, imm12, rs1)),
@@ -515,6 +523,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         => 12,
 
         .cmp_eq,
+        .cmp_neq,
         .cmp_imm_eq,
         .cmp_gte,
         .load_symbol,
