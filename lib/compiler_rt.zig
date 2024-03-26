@@ -9,6 +9,7 @@ comptime {
     _ = @import("compiler_rt/popcount.zig");
     _ = @import("compiler_rt/bswap.zig");
     _ = @import("compiler_rt/cmp.zig");
+    _ = @import("compiler_rt/pdeppext.zig");
 
     _ = @import("compiler_rt/shift.zig");
     _ = @import("compiler_rt/negXi2.zig");
