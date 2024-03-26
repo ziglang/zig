@@ -5724,7 +5724,7 @@ fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     };
 }
 
-fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
+fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     const tok = m.next().?;
     const slice = m.slice();
     switch (tok) {
@@ -5754,7 +5754,7 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
         },
         .identifier, .extended_identifier => {
             if (c.global_scope.blank_macros.contains(slice)) {
-                return parseCPrimaryExprInner(c, m, scope);
+                return parseCPrimaryExpr(c, m, scope);
             }
             const mangled_name = scope.getAlias(slice);
             if (builtin_typedef_map.get(mangled_name)) |ty| return Tag.type.create(c.arena, ty);
@@ -5779,35 +5779,6 @@ fn parseCPrimaryExprInner(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!N
             return error.ParseError;
         },
     }
-}
-
-fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
-    var node = try parseCPrimaryExprInner(c, m, scope);
-    // In C the preprocessor would handle concatting strings while expanding macros.
-    // This should do approximately the same by concatting any strings and identifiers
-    // after a primary expression.
-    while (true) {
-        switch (m.peek().?) {
-            .string_literal,
-            .string_literal_utf_16,
-            .string_literal_utf_8,
-            .string_literal_utf_32,
-            .string_literal_wide,
-            => {},
-            .identifier, .extended_identifier => {
-                const tok = m.list[m.i + 1];
-                const slice = m.source[tok.start..tok.end];
-                if (c.global_scope.blank_macros.contains(slice)) {
-                    m.i += 1;
-                    continue;
-                }
-            },
-            else => break,
-        }
-        const rhs = try parseCPrimaryExprInner(c, m, scope);
-        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
-    }
-    return node;
 }
 
 fn macroIntFromBool(c: *Context, node: Node) !Node {
@@ -6241,6 +6212,35 @@ fn parseCAbstractDeclarator(c: *Context, m: *MacroCtx, node: Node) ParseError!No
 }
 
 fn parseCPostfixExpr(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node) ParseError!Node {
+    var node = try parseCPostfixExprInner(c, m, scope, type_name);
+    // In C the preprocessor would handle concatting strings while expanding macros.
+    // This should do approximately the same by concatting any strings and identifiers
+    // after a primary or postfix expression.
+    while (true) {
+        switch (m.peek().?) {
+            .string_literal,
+            .string_literal_utf_16,
+            .string_literal_utf_8,
+            .string_literal_utf_32,
+            .string_literal_wide,
+            => {},
+            .identifier, .extended_identifier => {
+                const tok = m.list[m.i + 1];
+                const slice = m.source[tok.start..tok.end];
+                if (c.global_scope.blank_macros.contains(slice)) {
+                    m.i += 1;
+                    continue;
+                }
+            },
+            else => break,
+        }
+        const rhs = try parseCPostfixExprInner(c, m, scope, type_name);
+        node = try Tag.array_cat.create(c.arena, .{ .lhs = node, .rhs = rhs });
+    }
+    return node;
+}
+
+fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?Node) ParseError!Node {
     var node = type_name orelse try parseCPrimaryExpr(c, m, scope);
     while (true) {
         switch (m.next().?) {
