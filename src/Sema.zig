@@ -32431,7 +32431,7 @@ fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
     return Value.fromInterned((try mod.intern(.{ .opt = .{
         .ty = (try mod.optionalType(ptr_anyopaque_ty.toIntern())).toIntern(),
         .val = if (opt_val) |val| (try mod.getCoerced(
-            Value.fromInterned((try sema.refValue(val.toIntern()))),
+            Value.fromInterned(try sema.refValue(val.toIntern())),
             ptr_anyopaque_ty,
         )).toIntern() else .none,
     } })));
@@ -36952,7 +36952,7 @@ fn semaStructFieldInits(
                 });
             };
 
-            if (Value.fromInterned(default_val.toIntern()).canMutateComptimeVarState(mod)) {
+            if (default_val.canMutateComptimeVarState(mod)) {
                 const init_src = mod.fieldSrcLoc(decl_index, .{
                     .index = field_i,
                     .range = .value,
@@ -39050,11 +39050,11 @@ fn sliceToIpString(
 ) CompileError!InternPool.NullTerminatedString {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
-    const slice_ty = Type.fromInterned(ip.typeOf(slice_val.toIntern()));
+    const slice_ty = slice_val.typeOf(zcu);
     assert(slice_ty.isSlice(zcu));
     assert(slice_ty.childType(zcu).toIntern() == .u8_type);
     const array_val = try sema.derefSliceAsArray(block, src, slice_val, reason);
-    const array_ty = Type.fromInterned(ip.typeOf(array_val.toIntern()));
+    const array_ty = array_val.typeOf(zcu);
     return array_val.toIpString(array_ty, zcu);
 }
 
@@ -39084,7 +39084,7 @@ fn maybeDerefSliceAsArray(
 ) CompileError!?Value {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
-    assert(Type.fromInterned(ip.typeOf(slice_val.toIntern())).isSlice(zcu));
+    assert(slice_val.typeOf(zcu).isSlice(zcu));
     const slice = switch (ip.indexToKey(slice_val.toIntern())) {
         .undef => return sema.failWithUseOfUndef(block, src),
         .slice => |slice| slice,

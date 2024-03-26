@@ -477,7 +477,7 @@ pub const Decl = struct {
 
     pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
         assert(decl.has_tv);
-        return Type.fromInterned(zcu.intern_pool.typeOf(decl.val.toIntern()));
+        return decl.val.typeOf(zcu);
     }
 
     pub fn typedValue(decl: Decl, zcu: *const Zcu) error{AnalysisFail}!TypedValue {
