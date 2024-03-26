@@ -185,9 +185,7 @@ pub fn generateSymbol(
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: val = {}", .{
-        val.fmtValue(ty, mod),
-    });
+    log.debug("generateSymbol: val = {}", .{val.fmtValue(mod)});
 
     if (val.isUndefDeep(mod)) {
         const abi_size = math.cast(usize, ty.abiSize(mod)) orelse return error.Overflow;
@@ -862,7 +860,7 @@ fn genDeclRef(
 ) CodeGenError!GenResult {
     const zcu = lf.comp.module.?;
     const ty = val.typeOf(zcu);
-    log.debug("genDeclRef: val = {}", .{val.fmtValue(ty, zcu)});
+    log.debug("genDeclRef: val = {}", .{val.fmtValue(zcu)});
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
@@ -976,7 +974,7 @@ fn genUnnamedConst(
 ) CodeGenError!GenResult {
     const zcu = lf.comp.module.?;
     const gpa = lf.comp.gpa;
-    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(val.typeOf(zcu), zcu)});
+    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(zcu)});
 
     const local_sym_index = lf.lowerUnnamedConst(val, owner_decl_index) catch |err| {
         return GenResult.fail(gpa, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
@@ -1016,7 +1014,7 @@ pub fn genTypedValue(
     const zcu = lf.comp.module.?;
     const ty = val.typeOf(zcu);
 
-    log.debug("genTypedValue: val = {}", .{val.fmtValue(ty, zcu)});
+    log.debug("genTypedValue: val = {}", .{val.fmtValue(zcu)});
 
     if (val.isUndef(zcu))
         return GenResult.mcv(.undef);

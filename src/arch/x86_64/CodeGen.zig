@@ -17876,11 +17876,8 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result null;
     }) orelse return self.fail("TODO implement airShuffle from {} and {} to {} with {}", .{
-        lhs_ty.fmt(mod), rhs_ty.fmt(mod), dst_ty.fmt(mod),
-        Value.fromInterned(extra.mask).fmtValue(
-            Type.fromInterned(mod.intern_pool.typeOf(extra.mask)),
-            mod,
-        ),
+        lhs_ty.fmt(mod),                              rhs_ty.fmt(mod), dst_ty.fmt(mod),
+        Value.fromInterned(extra.mask).fmtValue(mod),
     });
     return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }

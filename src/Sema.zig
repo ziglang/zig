@@ -2272,7 +2272,7 @@ fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: 
     if (int_ty.zigTypeTag(mod) == .Vector) {
         const msg = msg: {
             const msg = try sema.errMsg(block, src, "overflow of vector type '{}' with value '{}'", .{
-                int_ty.fmt(sema.mod), val.fmtValue(int_ty, sema.mod),
+                int_ty.fmt(sema.mod), val.fmtValue(sema.mod),
             });
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(block, src, msg, "when computing vector element at index '{d}'", .{vector_index});
@@ -2281,7 +2281,7 @@ fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: 
         return sema.failWithOwnedErrorMsg(block, msg);
     }
     return sema.fail(block, src, "overflow of integer type '{}' with value '{}'", .{
-        int_ty.fmt(sema.mod), val.fmtValue(int_ty, sema.mod),
+        int_ty.fmt(sema.mod), val.fmtValue(sema.mod),
     });
 }
 
@@ -2914,7 +2914,7 @@ fn createAnonymousDeclTypeNamed(
                         return sema.createAnonymousDeclTypeNamed(block, src, val, .anon, anon_prefix, null);
 
                     if (arg_i != 0) try writer.writeByte(',');
-                    try writer.print("{}", .{arg_val.fmtValue(sema.typeOf(arg), sema.mod)});
+                    try writer.print("{}", .{arg_val.fmtValue(sema.mod)});
 
                     arg_i += 1;
                     continue;
@@ -3186,7 +3186,7 @@ fn zirEnumDecl(
                 }).lazy;
                 const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = conflict.prev_field_idx }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(int_tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(block, value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(sema.mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -3206,7 +3206,7 @@ fn zirEnumDecl(
                 const field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = field_i }).lazy;
                 const other_field_src = mod.fieldSrcLoc(new_decl_index, .{ .index = conflict.prev_field_idx }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(int_tag_ty, sema.mod)});
+                    const msg = try sema.errMsg(block, field_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(sema.mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(block, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -3228,7 +3228,7 @@ fn zirEnumDecl(
                 .range = if (has_tag_value) .value else .name,
             }).lazy;
             const msg = try sema.errMsg(block, value_src, "enumeration value '{}' too large for type '{}'", .{
-                last_tag_val.?.fmtValue(int_tag_ty, mod), int_tag_ty.fmt(mod),
+                last_tag_val.?.fmtValue(mod), int_tag_ty.fmt(mod),
             });
             return sema.failWithOwnedErrorMsg(block, msg);
         }
@@ -4381,10 +4381,10 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                             .input_index = len_idx,
                         } };
                         try sema.errNote(block, a_src, msg, "length {} here", .{
-                            v.fmtValue(Type.usize, sema.mod),
+                            v.fmtValue(sema.mod),
                         });
                         try sema.errNote(block, arg_src, msg, "length {} here", .{
-                            arg_val.fmtValue(Type.usize, sema.mod),
+                            arg_val.fmtValue(sema.mod),
                         });
                         break :msg msg;
                     };
@@ -5794,7 +5794,7 @@ fn zirCompileLog(
         const arg_ty = sema.typeOf(arg);
         if (try sema.resolveValueResolveLazy(arg)) |val| {
             try writer.print("@as({}, {})", .{
-                arg_ty.fmt(mod), val.fmtValue(arg_ty, mod),
+                arg_ty.fmt(mod), val.fmtValue(mod),
             });
         } else {
             try writer.print("@as({}, [runtime value])", .{arg_ty.fmt(mod)});
@@ -8880,7 +8880,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 return Air.internedToRef((try mod.getCoerced(int_val, dest_ty)).toIntern());
             }
             return sema.fail(block, src, "int value '{}' out of range of non-exhaustive enum '{}'", .{
-                int_val.fmtValue(sema.typeOf(operand), mod), dest_ty.fmt(mod),
+                int_val.fmtValue(mod), dest_ty.fmt(mod),
             });
         }
         if (int_val.isUndef(mod)) {
@@ -8888,7 +8888,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
         if (!(try sema.enumHasInt(dest_ty, int_val))) {
             return sema.fail(block, src, "enum '{}' has no tag with value '{}'", .{
-                dest_ty.fmt(mod), int_val.fmtValue(sema.typeOf(operand), mod),
+                dest_ty.fmt(mod), int_val.fmtValue(mod),
             });
         }
         return Air.internedToRef((try mod.getCoerced(int_val, dest_ty)).toIntern());
@@ -13934,7 +13934,7 @@ fn zirShl(
                     const rhs_elem = try rhs_val.elemValue(mod, i);
                     if (rhs_elem.compareHetero(.gte, bit_value, mod)) {
                         return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
-                            rhs_elem.fmtValue(scalar_ty, mod),
+                            rhs_elem.fmtValue(mod),
                             i,
                             scalar_ty.fmt(mod),
                         });
@@ -13942,7 +13942,7 @@ fn zirShl(
                 }
             } else if (rhs_val.compareHetero(.gte, bit_value, mod)) {
                 return sema.fail(block, rhs_src, "shift amount '{}' is too large for operand type '{}'", .{
-                    rhs_val.fmtValue(scalar_ty, mod),
+                    rhs_val.fmtValue(mod),
                     scalar_ty.fmt(mod),
                 });
             }
@@ -13953,14 +13953,14 @@ fn zirShl(
                 const rhs_elem = try rhs_val.elemValue(mod, i);
                 if (rhs_elem.compareHetero(.lt, try mod.intValue(scalar_rhs_ty, 0), mod)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
-                        rhs_elem.fmtValue(scalar_ty, mod),
+                        rhs_elem.fmtValue(mod),
                         i,
                     });
                 }
             }
         } else if (rhs_val.compareHetero(.lt, try mod.intValue(rhs_ty, 0), mod)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{}'", .{
-                rhs_val.fmtValue(scalar_ty, mod),
+                rhs_val.fmtValue(mod),
             });
         }
     }
@@ -14099,7 +14099,7 @@ fn zirShr(
                     const rhs_elem = try rhs_val.elemValue(mod, i);
                     if (rhs_elem.compareHetero(.gte, bit_value, mod)) {
                         return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
-                            rhs_elem.fmtValue(scalar_ty, mod),
+                            rhs_elem.fmtValue(mod),
                             i,
                             scalar_ty.fmt(mod),
                         });
@@ -14107,7 +14107,7 @@ fn zirShr(
                 }
             } else if (rhs_val.compareHetero(.gte, bit_value, mod)) {
                 return sema.fail(block, rhs_src, "shift amount '{}' is too large for operand type '{}'", .{
-                    rhs_val.fmtValue(scalar_ty, mod),
+                    rhs_val.fmtValue(mod),
                     scalar_ty.fmt(mod),
                 });
             }
@@ -14118,14 +14118,14 @@ fn zirShr(
                 const rhs_elem = try rhs_val.elemValue(mod, i);
                 if (rhs_elem.compareHetero(.lt, try mod.intValue(rhs_ty.childType(mod), 0), mod)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
-                        rhs_elem.fmtValue(scalar_ty, mod),
+                        rhs_elem.fmtValue(mod),
                         i,
                     });
                 }
             }
         } else if (rhs_val.compareHetero(.lt, try mod.intValue(rhs_ty, 0), mod)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{}'", .{
-                rhs_val.fmtValue(scalar_ty, mod),
+                rhs_val.fmtValue(mod),
             });
         }
         if (maybe_lhs_val) |lhs_val| {
@@ -15046,7 +15046,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
                 block,
                 src,
                 "ambiguous coercion of division operands '{}' and '{}'; non-zero remainder '{}'",
-                .{ lhs_ty.fmt(mod), rhs_ty.fmt(mod), rem.fmtValue(resolved_type, mod) },
+                .{ lhs_ty.fmt(mod), rhs_ty.fmt(mod), rem.fmtValue(mod) },
             );
         }
     }
@@ -21094,7 +21094,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
             const enum_decl = mod.declPtr(enum_decl_index);
             const msg = msg: {
                 const msg = try sema.errMsg(block, src, "no field with value '{}' in enum '{}'", .{
-                    val.fmtValue(enum_ty, sema.mod), enum_decl.name.fmt(ip),
+                    val.fmtValue(sema.mod), enum_decl.name.fmt(ip),
                 });
                 errdefer msg.destroy(sema.gpa);
                 try mod.errNoteNonLazy(enum_decl.srcLoc(mod), msg, "declared here", .{});
@@ -21729,7 +21729,7 @@ fn reifyEnum(
             // TODO: better source location
             return sema.fail(block, src, "field '{}' with enumeration value '{}' is too large for backing int type '{}'", .{
                 field_name.fmt(ip),
-                field_value_val.fmtValue(Type.comptime_int, mod),
+                field_value_val.fmtValue(mod),
                 tag_ty.fmt(mod),
             });
         }
@@ -21745,7 +21745,7 @@ fn reifyEnum(
                     break :msg msg;
                 },
                 .value => msg: {
-                    const msg = try sema.errMsg(block, src, "enum tag value {} already taken", .{field_value_val.fmtValue(Type.comptime_int, mod)});
+                    const msg = try sema.errMsg(block, src, "enum tag value {} already taken", .{field_value_val.fmtValue(mod)});
                     errdefer msg.destroy(gpa);
                     _ = conflict.prev_field_idx; // TODO: this note is incorrect
                     try sema.errNote(block, src, msg, "other enum tag value here", .{});
@@ -22883,12 +22883,12 @@ fn ptrCastFull(
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = if (src_info.sentinel == .none) blk: {
                     break :blk try sema.errMsg(block, src, "destination pointer requires '{}' sentinel", .{
-                        Value.fromInterned(dest_info.sentinel).fmtValue(Type.fromInterned(dest_info.child), mod),
+                        Value.fromInterned(dest_info.sentinel).fmtValue(mod),
                     });
                 } else blk: {
                     break :blk try sema.errMsg(block, src, "pointer sentinel '{}' cannot coerce into pointer sentinel '{}'", .{
-                        Value.fromInterned(src_info.sentinel).fmtValue(Type.fromInterned(src_info.child), mod),
-                        Value.fromInterned(dest_info.sentinel).fmtValue(Type.fromInterned(dest_info.child), mod),
+                        Value.fromInterned(src_info.sentinel).fmtValue(mod),
+                        Value.fromInterned(dest_info.sentinel).fmtValue(mod),
                     });
                 };
                 errdefer msg.destroy(sema.gpa);
@@ -25285,10 +25285,10 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
                         const msg = try sema.errMsg(block, src, "non-matching @memcpy lengths", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(block, dest_src, msg, "length {} here", .{
-                            dest_len_val.fmtValue(Type.usize, sema.mod),
+                            dest_len_val.fmtValue(sema.mod),
                         });
                         try sema.errNote(block, src_src, msg, "length {} here", .{
-                            src_len_val.fmtValue(Type.usize, sema.mod),
+                            src_len_val.fmtValue(sema.mod),
                         });
                         break :msg msg;
                     };
@@ -29162,7 +29162,7 @@ fn coerceExtra(
                     // comptime-known integer to other number
                     if (!(try sema.intFitsInType(val, dest_ty, null))) {
                         if (!opts.report_err) return error.NotCoercible;
-                        return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(mod), val.fmtValue(inst_ty, mod) });
+                        return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(mod), val.fmtValue(mod) });
                     }
                     return switch (mod.intern_pool.indexToKey(val.toIntern())) {
                         .undef => try mod.undefRef(dest_ty),
@@ -29207,7 +29207,7 @@ fn coerceExtra(
                             block,
                             inst_src,
                             "type '{}' cannot represent float value '{}'",
-                            .{ dest_ty.fmt(mod), val.fmtValue(inst_ty, mod) },
+                            .{ dest_ty.fmt(mod), val.fmtValue(mod) },
                         );
                     }
                     return Air.internedToRef(result_val.toIntern());
@@ -29578,11 +29578,11 @@ const InMemoryCoercionResult = union(enum) {
             .array_sentinel => |sentinel| {
                 if (sentinel.actual.toIntern() != .unreachable_value) {
                     try sema.errNote(block, src, msg, "array sentinel '{}' cannot cast into array sentinel '{}'", .{
-                        sentinel.actual.fmtValue(sentinel.ty, mod), sentinel.wanted.fmtValue(sentinel.ty, mod),
+                        sentinel.actual.fmtValue(mod), sentinel.wanted.fmtValue(mod),
                     });
                 } else {
                     try sema.errNote(block, src, msg, "destination array requires '{}' sentinel", .{
-                        sentinel.wanted.fmtValue(sentinel.ty, mod),
+                        sentinel.wanted.fmtValue(mod),
                     });
                 }
                 break;
@@ -29704,11 +29704,11 @@ const InMemoryCoercionResult = union(enum) {
             .ptr_sentinel => |sentinel| {
                 if (sentinel.actual.toIntern() != .unreachable_value) {
                     try sema.errNote(block, src, msg, "pointer sentinel '{}' cannot cast into pointer sentinel '{}'", .{
-                        sentinel.actual.fmtValue(sentinel.ty, mod), sentinel.wanted.fmtValue(sentinel.ty, mod),
+                        sentinel.actual.fmtValue(mod), sentinel.wanted.fmtValue(mod),
                     });
                 } else {
                     try sema.errNote(block, src, msg, "destination pointer requires '{}' sentinel", .{
-                        sentinel.wanted.fmtValue(sentinel.ty, mod),
+                        sentinel.wanted.fmtValue(mod),
                     });
                 }
                 break;
@@ -31708,7 +31708,7 @@ fn coerceEnumToUnion(
     if (try sema.resolveDefinedValue(block, inst_src, enum_tag)) |val| {
         const field_index = union_ty.unionTagFieldIndex(val, sema.mod) orelse {
             return sema.fail(block, inst_src, "union '{}' has no tag with value '{}'", .{
-                union_ty.fmt(sema.mod), val.fmtValue(tag_ty, sema.mod),
+                union_ty.fmt(sema.mod), val.fmtValue(sema.mod),
             });
         };
 
@@ -32928,8 +32928,8 @@ fn analyzeSlice(
                                     msg,
                                     "expected '{}', found '{}'",
                                     .{
-                                        Value.zero_comptime_int.fmtValue(Type.comptime_int, mod),
-                                        start_value.fmtValue(Type.comptime_int, mod),
+                                        Value.zero_comptime_int.fmtValue(mod),
+                                        start_value.fmtValue(mod),
                                     },
                                 );
                                 break :msg msg;
@@ -32945,8 +32945,8 @@ fn analyzeSlice(
                                     msg,
                                     "expected '{}', found '{}'",
                                     .{
-                                        Value.one_comptime_int.fmtValue(Type.comptime_int, mod),
-                                        end_value.fmtValue(Type.comptime_int, mod),
+                                        Value.one_comptime_int.fmtValue(mod),
+                                        end_value.fmtValue(mod),
                                     },
                                 );
                                 break :msg msg;
@@ -32959,7 +32959,7 @@ fn analyzeSlice(
                                 block,
                                 end_src,
                                 "end index {} out of bounds for slice of single-item pointer",
-                                .{end_value.fmtValue(Type.comptime_int, mod)},
+                                .{end_value.fmtValue(mod)},
                             );
                         }
                     }
@@ -33054,8 +33054,8 @@ fn analyzeSlice(
                             end_src,
                             "end index {} out of bounds for array of length {}{s}",
                             .{
-                                end_val.fmtValue(Type.usize, mod),
-                                len_val.fmtValue(Type.usize, mod),
+                                end_val.fmtValue(mod),
+                                len_val.fmtValue(mod),
                                 sentinel_label,
                             },
                         );
@@ -33099,7 +33099,7 @@ fn analyzeSlice(
                                 end_src,
                                 "end index {} out of bounds for slice of length {d}{s}",
                                 .{
-                                    end_val.fmtValue(Type.usize, mod),
+                                    end_val.fmtValue(mod),
                                     try slice_val.sliceLen(sema),
                                     sentinel_label,
                                 },
@@ -33159,8 +33159,8 @@ fn analyzeSlice(
                     start_src,
                     "start index {} is larger than end index {}",
                     .{
-                        start_val.fmtValue(Type.usize, mod),
-                        end_val.fmtValue(Type.usize, mod),
+                        start_val.fmtValue(mod),
+                        end_val.fmtValue(mod),
                     },
                 );
             }
@@ -33198,8 +33198,8 @@ fn analyzeSlice(
                         const msg = try sema.errMsg(block, src, "value in memory does not match slice sentinel", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(block, src, msg, "expected '{}', found '{}'", .{
-                            expected_sentinel.fmtValue(elem_ty, mod),
-                            actual_sentinel.fmtValue(elem_ty, mod),
+                            expected_sentinel.fmtValue(mod),
+                            actual_sentinel.fmtValue(mod),
                         });
 
                         break :msg msg;
@@ -37213,7 +37213,7 @@ fn semaUnionFields(mod: *Module, arena: Allocator, union_type: InternPool.Loaded
                 const field_src = mod.fieldSrcLoc(union_type.decl, .{ .index = field_i }).lazy;
                 const other_field_src = mod.fieldSrcLoc(union_type.decl, .{ .index = gop.index }).lazy;
                 const msg = msg: {
-                    const msg = try sema.errMsg(&block_scope, field_src, "enum tag value {} already taken", .{enum_tag_val.fmtValue(int_tag_ty, mod)});
+                    const msg = try sema.errMsg(&block_scope, field_src, "enum tag value {} already taken", .{enum_tag_val.fmtValue(mod)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(&block_scope, other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -38566,18 +38566,17 @@ fn intFromFloat(
 ) CompileError!Value {
     const mod = sema.mod;
     if (float_ty.zigTypeTag(mod) == .Vector) {
-        const elem_ty = float_ty.scalarType(mod);
         const result_data = try sema.arena.alloc(InternPool.Index, float_ty.vectorLen(mod));
         for (result_data, 0..) |*scalar, i| {
             const elem_val = try val.elemValue(sema.mod, i);
-            scalar.* = (try sema.intFromFloatScalar(block, src, elem_val, elem_ty, int_ty.scalarType(mod), mode)).toIntern();
+            scalar.* = (try sema.intFromFloatScalar(block, src, elem_val, int_ty.scalarType(mod), mode)).toIntern();
         }
         return Value.fromInterned((try mod.intern(.{ .aggregate = .{
             .ty = int_ty.toIntern(),
             .storage = .{ .elems = result_data },
         } })));
     }
-    return sema.intFromFloatScalar(block, src, val, float_ty, int_ty, mode);
+    return sema.intFromFloatScalar(block, src, val, int_ty, mode);
 }
 
 // float is expected to be finite and non-NaN
@@ -38610,7 +38609,6 @@ fn intFromFloatScalar(
     block: *Block,
     src: LazySrcLoc,
     val: Value,
-    float_ty: Type,
     int_ty: Type,
     mode: IntFromFloatMode,
 ) CompileError!Value {
@@ -38622,7 +38620,7 @@ fn intFromFloatScalar(
         block,
         src,
         "fractional component prevents float value '{}' from coercion to type '{}'",
-        .{ val.fmtValue(float_ty, mod), int_ty.fmt(mod) },
+        .{ val.fmtValue(mod), int_ty.fmt(mod) },
     );
 
     const float = val.toFloat(f128, mod);
@@ -38644,7 +38642,7 @@ fn intFromFloatScalar(
 
     if (!(try sema.intFitsInType(cti_result, int_ty, null))) {
         return sema.fail(block, src, "float value '{}' cannot be stored in integer type '{}'", .{
-            val.fmtValue(float_ty, sema.mod), int_ty.fmt(sema.mod),
+            val.fmtValue(sema.mod), int_ty.fmt(sema.mod),
         });
     }
     return mod.getCoerced(cti_result, int_ty);

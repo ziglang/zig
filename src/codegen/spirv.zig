@@ -860,7 +860,7 @@ const DeclGen = struct {
 
         const val = arg_val;
 
-        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(ty, mod) });
+        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(mod) });
         if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_ref);
         }

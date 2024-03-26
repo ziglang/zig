@@ -8,9 +8,9 @@ const Target = std.Target;
 const Allocator = std.mem.Allocator;
 const Zcu = @import("Module.zig");
 const Module = Zcu;
-const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
+const print_value = @import("print_value.zig");
 const Value = @This();
 
 ip_index: InternPool.Index,
@@ -39,9 +39,9 @@ pub fn fmtDebug(val: Value) std.fmt.Formatter(dump) {
     return .{ .data = val };
 }
 
-pub fn fmtValue(val: Value, ty: Type, mod: *Module) std.fmt.Formatter(TypedValue.format) {
+pub fn fmtValue(val: Value, mod: *Module) std.fmt.Formatter(print_value.format) {
     return .{ .data = .{
-        .tv = .{ .ty = ty, .val = val },
+        .val = val,
         .mod = mod,
     } };
 }
