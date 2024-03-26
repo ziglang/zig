@@ -439,10 +439,9 @@ fn runResource(
     const s = fs.path.sep_str;
     const cache_root = f.job_queue.global_cache;
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int); // root of the temporary directory
-    var tmp_package_root_sub_path: ?[]const u8 = null; // package root inside temporary directory
+    const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
 
-    {
+    const package_sub_path = blk: {
         const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
         var tmp_directory: Cache.Directory = .{
             .path = tmp_directory_path,
@@ -462,25 +461,21 @@ fn runResource(
         };
         defer tmp_directory.handle.close();
 
-        try unpackResource(f, resource, uri_path, tmp_directory);
+        const package_dir = try unpackResource(f, resource, uri_path, tmp_directory);
 
-        // Strip leading root directory if needed.
-        if (findPackageRootSubPath(arena, tmp_directory) catch null) |sub_path| {
-            // Position tmp_directory to sub_path.
-            const handle = tmp_directory.handle.openDir(sub_path, .{ .iterate = true }) catch |err| {
+        if (package_dir) |dir_name| {
+            // Position tmp_directory to dir_name inside tmp_dir_sub_path.
+            const path = try cache_root.join(arena, &.{ tmp_dir_sub_path, dir_name });
+            const handle = tmp_directory.handle.openDir(dir_name, .{ .iterate = true }) catch |err| {
                 try eb.addRootErrorMessage(.{
-                    .msg = try eb.printString("fail to open temporary directory '{s}' sub path '{s}': {s}", .{
-                        tmp_directory_path, sub_path, @errorName(err),
+                    .msg = try eb.printString("unable to open temporary directory '{s}': {s}", .{
+                        path, @errorName(err),
                     }),
                 });
                 return error.FetchFailed;
             };
-            tmp_package_root_sub_path = try fs.path.join(arena, &[_][]const u8{ tmp_dir_sub_path, sub_path });
             tmp_directory.handle.close();
-            tmp_directory = .{
-                .path = try cache_root.join(arena, &.{tmp_package_root_sub_path.?}),
-                .handle = handle,
-            };
+            tmp_directory = .{ .path = path, .handle = handle };
         } else {
             // btrfs workaround; reopen tmp_directory
             if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
@@ -511,7 +506,12 @@ fn runResource(
         // Compute the package hash based on the remaining files in the temporary
         // directory.
         f.actual_hash = try computeHash(f, tmp_directory, filter);
-    }
+
+        break :blk if (package_dir) |dir_name|
+            try fs.path.join(arena, &.{ tmp_dir_sub_path, dir_name })
+        else
+            tmp_dir_sub_path;
+    };
 
     // Rename the temporary directory into the global zig package cache
     // directory. If the hash already exists, delete the temporary directory
@@ -523,11 +523,7 @@ fn runResource(
         .root_dir = cache_root,
         .sub_path = try arena.dupe(u8, "p" ++ s ++ Manifest.hexDigest(f.actual_hash)),
     };
-    renameTmpIntoCache(
-        cache_root.handle,
-        if (tmp_package_root_sub_path) |p| p else tmp_dir_sub_path,
-        f.package_root.sub_path,
-    ) catch |err| {
+    renameTmpIntoCache(cache_root.handle, package_sub_path, f.package_root.sub_path) catch |err| {
         const src = try cache_root.join(arena, &.{tmp_dir_sub_path});
         const dest = try cache_root.join(arena, &.{f.package_root.sub_path});
         try eb.addRootErrorMessage(.{ .msg = try eb.printString(
@@ -536,10 +532,8 @@ fn runResource(
         ) });
         return error.FetchFailed;
     };
-    // Remove temporary directory root if that's not already done in rename.
-    if (tmp_package_root_sub_path) |_| {
-        cache_root.handle.deleteTree(tmp_dir_sub_path) catch {};
-    }
+    // Remove temporary directory root.
+    cache_root.handle.deleteTree(tmp_dir_sub_path) catch {};
 
     // Validate the computed hash against the expected hash. If invalid, this
     // job is done.
@@ -636,14 +630,11 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     }
 }
 
-// Finds package root subpath.
-// Skips single root directory, returns null in all other cases.
-fn findPackageRootSubPath(allocator: Allocator, parent: Cache.Directory) !?[]const u8 {
-    var iter = parent.handle.iterate();
+fn archivePackageDir(arena: Allocator, out_dir: fs.Dir) !?[]const u8 {
+    var iter = out_dir.iterate();
     if (try iter.next()) |entry| {
-        if (try iter.next() != null) return null;
-        if (entry.kind == .directory) {
-            return try allocator.dupe(u8, entry.name);
+        if (try iter.next() == null and entry.kind == .directory) {
+            return try arena.dupe(u8, entry.name);
         }
     }
     return null;
@@ -1073,7 +1064,7 @@ fn unpackResource(
     resource: *Resource,
     uri_path: []const u8,
     tmp_directory: Cache.Directory,
-) RunError!void {
+) RunError!?[]const u8 {
     const eb = &f.error_bundle;
     const file_type = switch (resource.*) {
         .file => FileType.fromPath(uri_path) orelse
@@ -1134,21 +1125,24 @@ fn unpackResource(
 
         .git => .git_pack,
 
-        .dir => |dir| return f.recursiveDirectoryCopy(dir, tmp_directory.handle) catch |err| {
-            return f.fail(f.location_tok, try eb.printString(
-                "unable to copy directory '{s}': {s}",
-                .{ uri_path, @errorName(err) },
-            ));
+        .dir => |dir| {
+            f.recursiveDirectoryCopy(dir, tmp_directory.handle) catch |err| {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to copy directory '{s}': {s}",
+                    .{ uri_path, @errorName(err) },
+                ));
+            };
+            return null;
         },
     };
 
     switch (file_type) {
-        .tar => try unpackTarball(f, tmp_directory.handle, resource.reader()),
+        .tar => return try unpackTarball(f, tmp_directory.handle, resource.reader()),
         .@"tar.gz" => {
             const reader = resource.reader();
             var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
             var dcp = std.compress.gzip.decompressor(br.reader());
-            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
@@ -1161,7 +1155,7 @@ fn unpackResource(
                 ));
             };
             defer dcp.deinit();
-            try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
         .@"tar.zst" => {
             const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
@@ -1171,21 +1165,25 @@ fn unpackResource(
             var dcp = std.compress.zstd.decompressor(br.reader(), .{
                 .window_buffer = window_buffer,
             });
-            return unpackTarball(f, tmp_directory.handle, dcp.reader());
+            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .git_pack => unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
-            error.FetchFailed => return error.FetchFailed,
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| return f.fail(f.location_tok, try eb.printString(
-                "unable to unpack git files: {s}",
-                .{@errorName(e)},
-            )),
+        .git_pack => {
+            unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
+                error.FetchFailed => return error.FetchFailed,
+                error.OutOfMemory => return error.OutOfMemory,
+                else => |e| return f.fail(f.location_tok, try eb.printString(
+                    "unable to unpack git files: {s}",
+                    .{@errorName(e)},
+                )),
+            };
+            return null;
         },
     }
 }
 
-fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
+fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!?[]const u8 {
     const eb = &f.error_bundle;
+    const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
 
     var diagnostics: std.tar.Diagnostics = .{ .allocator = gpa };
@@ -1193,7 +1191,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
 
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
-        .strip_components = 1,
+        .strip_components = 0,
         // https://github.com/ziglang/zig/issues/17463
         .mode_mode = .ignore,
         .exclude_empty_directories = true,
@@ -1237,6 +1235,8 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!void {
         }
         return error.FetchFailed;
     }
+
+    return archivePackageDir(arena, out_dir) catch null;
 }
 
 fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void {
@@ -1742,36 +1742,33 @@ test {
     _ = FileType;
 }
 
-test "findPackageRootSubPath" {
+test archivePackageDir {
     const testing = std.testing;
 
-    var root = std.testing.tmpDir(.{ .iterate = true });
-    defer root.cleanup();
+    var tmp = std.testing.tmpDir(.{ .iterate = true });
+    defer tmp.cleanup();
 
     // folder1
     //     ├── folder2
     //     ├── file1
     //
-    try root.dir.makePath("folder1/folder2");
-    (try root.dir.createFile("folder1/file1", .{})).close();
+    try tmp.dir.makePath("folder1/folder2");
+    (try tmp.dir.createFile("folder1/file1", .{})).close();
 
     // start at root returns folder1 as package root
-    const sub_path = (try findPackageRootSubPath(
-        testing.allocator,
-        Cache.Directory{ .path = null, .handle = root.dir },
-    )).?;
+    const sub_path = (try archivePackageDir(testing.allocator, tmp.dir)).?;
     try testing.expectEqualStrings("folder1", sub_path);
     testing.allocator.free(sub_path);
 
     // start at folder1 returns null
-    try testing.expect(null == (try findPackageRootSubPath(
+    try testing.expect(null == (try archivePackageDir(
         testing.allocator,
-        Cache.Directory{ .path = null, .handle = try root.dir.openDir("folder1", .{ .iterate = true }) },
+        try tmp.dir.openDir("folder1", .{ .iterate = true }),
     )));
 
     // start at folder1/folder2 returns null
-    try testing.expect(null == (try findPackageRootSubPath(
+    try testing.expect(null == (try archivePackageDir(
         testing.allocator,
-        Cache.Directory{ .path = null, .handle = try root.dir.openDir("folder1/folder2", .{ .iterate = true }) },
+        try tmp.dir.openDir("folder1/folder2", .{ .iterate = true }),
     )));
 }
