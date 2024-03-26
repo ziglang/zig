@@ -1039,3 +1039,8 @@ test "errorCast to adhoc inferred error set" {
     };
     try std.testing.expect((try S.baz()) == 1234);
 }
+
+test "errorCast from error sets to error unions" {
+    const err_union: Set1!void = @errorCast(error.A);
+    try expectError(error.A, err_union);
+}
