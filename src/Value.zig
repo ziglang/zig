@@ -305,16 +305,16 @@ pub fn toBool(val: Value) bool {
     };
 }
 
-fn isDeclRef(val: Value, mod: *Module) bool {
+fn ptrHasIntAddr(val: Value, mod: *Module) bool {
     var check = val;
     while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
         .ptr => |ptr| switch (ptr.addr) {
-            .decl, .comptime_alloc, .comptime_field, .anon_decl => return true,
+            .decl, .comptime_alloc, .comptime_field, .anon_decl => return false,
+            .int => return true,
             .eu_payload, .opt_payload => |base| check = Value.fromInterned(base),
             .elem, .field => |base_index| check = Value.fromInterned(base_index.base),
-            .int => return false,
         },
-        else => return false,
+        else => unreachable,
     };
 }
 
@@ -439,7 +439,7 @@ pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
         },
         .Pointer => {
             if (ty.isSlice(mod)) return error.IllDefinedMemoryLayout;
-            if (val.isDeclRef(mod)) return error.ReinterpretDeclRef;
+            if (!val.ptrHasIntAddr(mod)) return error.ReinterpretDeclRef;
             return val.writeToMemory(Type.usize, mod, buffer);
         },
         .Optional => {
@@ -566,7 +566,7 @@ pub fn writeToPackedMemory(
         },
         .Pointer => {
             assert(!ty.isSlice(mod)); // No well defined layout.
-            if (val.isDeclRef(mod)) return error.ReinterpretDeclRef;
+            if (!val.ptrHasIntAddr(mod)) return error.ReinterpretDeclRef;
             return val.writeToPackedMemory(Type.usize, mod, buffer, bit_offset);
         },
         .Optional => {
@@ -1261,62 +1261,23 @@ pub fn slicePtr(val: Value, mod: *Module) Value {
     return Value.fromInterned(mod.intern_pool.slicePtr(val.toIntern()));
 }
 
-pub fn sliceLen(val: Value, mod: *Module) u64 {
-    const ip = &mod.intern_pool;
-    return switch (ip.indexToKey(val.toIntern())) {
-        .ptr => |ptr| switch (ip.indexToKey(switch (ptr.addr) {
-            .decl => |decl| mod.declPtr(decl).typeOf(mod).toIntern(),
-            .comptime_alloc => @panic("TODO"),
-            .anon_decl => |anon_decl| ip.typeOf(anon_decl.val),
-            .comptime_field => |comptime_field| ip.typeOf(comptime_field),
-            else => unreachable,
-        })) {
-            .array_type => |array_type| array_type.len,
-            else => 1,
+/// Gets the `len` field of a slice value as a `u64`.
+/// Resolves the length using the provided `Sema` if necessary.
+pub fn sliceLen(val: Value, sema: *Sema) !u64 {
+    return Value.fromInterned(sema.mod.intern_pool.sliceLen(val.toIntern())).toUnsignedIntAdvanced(sema);
+}
+
+/// Asserts the value is an aggregate, and returns the element value at the given index.
+pub fn elemValue(val: Value, zcu: *Zcu, index: usize) Allocator.Error!Value {
+    const ip = &zcu.intern_pool;
+    switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        .undef => |ty| {
+            return Value.fromInterned(try zcu.intern(.{ .undef = Type.fromInterned(ty).childType(zcu).toIntern() }));
         },
-        .slice => |slice| Value.fromInterned(slice.len).toUnsignedInt(mod),
-        else => unreachable,
-    };
-}
-
-/// Asserts the value is a single-item pointer to an array, or an array,
-/// or an unknown-length pointer, and returns the element value at the index.
-pub fn elemValue(val: Value, mod: *Module, index: usize) Allocator.Error!Value {
-    return (try val.maybeElemValue(mod, index)).?;
-}
-
-/// Like `elemValue`, but returns `null` instead of asserting on failure.
-pub fn maybeElemValue(val: Value, mod: *Module, index: usize) Allocator.Error!?Value {
-    return val.maybeElemValueFull(null, mod, index);
-}
-
-pub fn maybeElemValueFull(val: Value, sema: ?*Sema, mod: *Module, index: usize) Allocator.Error!?Value {
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .undef => |ty| Value.fromInterned((try mod.intern(.{
-            .undef = Type.fromInterned(ty).elemType2(mod).toIntern(),
-        }))),
-        .slice => |slice| return Value.fromInterned(slice.ptr).maybeElemValueFull(sema, mod, index),
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| mod.declPtr(decl).val.maybeElemValueFull(sema, mod, index),
-            .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).maybeElemValueFull(sema, mod, index),
-            .comptime_alloc => |idx| if (sema) |s| Value.fromInterned(
-                try s.getComptimeAlloc(idx).val.intern(mod, s.arena),
-            ).maybeElemValueFull(sema, mod, index) else null,
-            .int, .eu_payload => null,
-            .opt_payload => |base| Value.fromInterned(base).maybeElemValueFull(sema, mod, index),
-            .comptime_field => |field_val| Value.fromInterned(field_val).maybeElemValueFull(sema, mod, index),
-            .elem => |elem| Value.fromInterned(elem.base).maybeElemValueFull(sema, mod, index + @as(usize, @intCast(elem.index))),
-            .field => |field| if (Value.fromInterned(field.base).pointerDecl(mod)) |decl_index| {
-                const base_decl = mod.declPtr(decl_index);
-                const field_val = try base_decl.val.fieldValue(mod, @as(usize, @intCast(field.index)));
-                return field_val.maybeElemValueFull(sema, mod, index);
-            } else null,
-        },
-        .opt => |opt| Value.fromInterned(opt.val).maybeElemValueFull(sema, mod, index),
         .aggregate => |aggregate| {
-            const len = mod.intern_pool.aggregateTypeLen(aggregate.ty);
+            const len = ip.aggregateTypeLen(aggregate.ty);
             if (index < len) return Value.fromInterned(switch (aggregate.storage) {
-                .bytes => |bytes| try mod.intern(.{ .int = .{
+                .bytes => |bytes| try zcu.intern(.{ .int = .{
                     .ty = .u8_type,
                     .storage = .{ .u64 = bytes[index] },
                 } }),
@@ -1324,10 +1285,10 @@ pub fn maybeElemValueFull(val: Value, sema: ?*Sema, mod: *Module, index: usize) 
                 .repeated_elem => |elem| elem,
             });
             assert(index == len);
-            return Value.fromInterned(mod.intern_pool.indexToKey(aggregate.ty).array_type.sentinel);
+            return Type.fromInterned(aggregate.ty).sentinel(zcu).?;
         },
-        else => null,
-    };
+        else => unreachable,
+    }
 }
 
 pub fn isLazyAlign(val: Value, mod: *Module) bool {
@@ -1359,39 +1320,26 @@ pub fn sliceArray(
 ) error{OutOfMemory}!Value {
     // TODO: write something like getCoercedInts to avoid needing to dupe
     const mod = sema.mod;
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| try mod.declPtr(decl).val.sliceArray(sema, start, end),
-            .comptime_alloc => |idx| try Value.fromInterned(
-                try sema.getComptimeAlloc(idx).val.intern(mod, sema.arena),
-            ).sliceArray(sema, start, end),
-            .comptime_field => |comptime_field| Value.fromInterned(comptime_field)
-                .sliceArray(sema, start, end),
-            .elem => |elem| Value.fromInterned(elem.base)
-                .sliceArray(sema, start + @as(usize, @intCast(elem.index)), end + @as(usize, @intCast(elem.index))),
+    const aggregate = mod.intern_pool.indexToKey(val.toIntern()).aggregate;
+    return Value.fromInterned(try mod.intern(.{ .aggregate = .{
+        .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
+            .array_type => |array_type| try mod.arrayType(.{
+                .len = @as(u32, @intCast(end - start)),
+                .child = array_type.child,
+                .sentinel = if (end == array_type.len) array_type.sentinel else .none,
+            }),
+            .vector_type => |vector_type| try mod.vectorType(.{
+                .len = @as(u32, @intCast(end - start)),
+                .child = vector_type.child,
+            }),
             else => unreachable,
+        }.toIntern(),
+        .storage = switch (aggregate.storage) {
+            .bytes => .{ .bytes = try sema.arena.dupe(u8, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.bytes[start..end]) },
+            .elems => .{ .elems = try sema.arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
+            .repeated_elem => |elem| .{ .repeated_elem = elem },
         },
-        .aggregate => |aggregate| Value.fromInterned((try mod.intern(.{ .aggregate = .{
-            .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
-                .array_type => |array_type| try mod.arrayType(.{
-                    .len = @as(u32, @intCast(end - start)),
-                    .child = array_type.child,
-                    .sentinel = if (end == array_type.len) array_type.sentinel else .none,
-                }),
-                .vector_type => |vector_type| try mod.vectorType(.{
-                    .len = @as(u32, @intCast(end - start)),
-                    .child = vector_type.child,
-                }),
-                else => unreachable,
-            }.toIntern(),
-            .storage = switch (aggregate.storage) {
-                .bytes => .{ .bytes = try sema.arena.dupe(u8, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.bytes[start..end]) },
-                .elems => .{ .elems = try sema.arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
-                .repeated_elem => |elem| .{ .repeated_elem = elem },
-            },
-        } }))),
-        else => unreachable,
-    };
+    } }));
 }
 
 pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
@@ -3584,6 +3532,10 @@ pub fn hasRepeatedByteRepr(val: Value, ty: Type, mod: *Module) !?u8 {
 
 pub fn isGenericPoison(val: Value) bool {
     return val.toIntern() == .generic_poison;
+}
+
+pub fn typeOf(val: Value, zcu: *const Zcu) Type {
+    return Type.fromInterned(zcu.intern_pool.typeOf(val.toIntern()));
 }
 
 /// For an integer (comptime or fixed-width) `val`, returns the comptime-known bounds of the value.

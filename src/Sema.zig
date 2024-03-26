@@ -1881,10 +1881,10 @@ pub fn toConstString(
     air_inst: Air.Inst.Ref,
     reason: NeededComptimeReason,
 ) ![]u8 {
-    const wanted_type = Type.slice_const_u8;
-    const coerced_inst = try sema.coerce(block, wanted_type, air_inst, src);
-    const val = try sema.resolveConstDefinedValue(block, src, coerced_inst, reason);
-    return val.toAllocatedBytes(wanted_type, sema.arena, sema.mod);
+    const coerced_inst = try sema.coerce(block, Type.slice_const_u8, air_inst, src);
+    const slice_val = try sema.resolveConstDefinedValue(block, src, coerced_inst, reason);
+    const arr_val = try sema.derefSliceAsArray(block, src, slice_val, reason);
+    return arr_val.toAllocatedBytes(arr_val.typeOf(sema.mod), sema.arena, sema.mod);
 }
 
 pub fn resolveConstStringIntern(
@@ -14498,12 +14498,16 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             else => unreachable,
         }) |rhs_val| {
             const lhs_sub_val = if (lhs_ty.isSinglePointer(mod))
-                (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).?
+                try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty) orelse break :rs lhs_src
+            else if (lhs_ty.isSlice(mod))
+                try sema.maybeDerefSliceAsArray(block, lhs_src, lhs_val) orelse break :rs lhs_src
             else
                 lhs_val;
 
             const rhs_sub_val = if (rhs_ty.isSinglePointer(mod))
-                (try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty)).?
+                try sema.pointerDeref(block, rhs_src, rhs_val, rhs_ty) orelse break :rs rhs_src
+            else if (rhs_ty.isSlice(mod))
+                try sema.maybeDerefSliceAsArray(block, rhs_src, rhs_val) orelse break :rs rhs_src
             else
                 rhs_val;
 
@@ -14623,10 +14627,7 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
         .Pointer => {
             const ptr_info = operand_ty.ptrInfo(mod);
             switch (ptr_info.flags.size) {
-                // TODO: in the Many case here this should only work if the type
-                // has a sentinel, and this code should compute the length based
-                // on the sentinel value.
-                .Slice, .Many => {
+                .Slice => {
                     const val = try sema.resolveConstDefinedValue(block, src, operand, .{
                         .needed_comptime_reason = "slice value being concatenated must be comptime-known",
                     });
@@ -14636,7 +14637,7 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
                             .none => null,
                             else => Value.fromInterned(ptr_info.sentinel),
                         },
-                        .len = val.sliceLen(mod),
+                        .len = try val.sliceLen(sema),
                     };
                 },
                 .One => {
@@ -14644,7 +14645,7 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
                         return Type.fromInterned(ptr_info.child).arrayInfo(mod);
                     }
                 },
-                .C => {},
+                .C, .Many => {},
             }
         },
         .Struct => {
@@ -14830,9 +14831,11 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const ptr_addrspace = if (lhs_ty.zigTypeTag(mod) == .Pointer) lhs_ty.ptrAddressSpace(mod) else null;
     const lhs_len = try sema.usizeCast(block, lhs_src, lhs_info.len);
 
-    if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+    if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| ct: {
         const lhs_sub_val = if (lhs_ty.isSinglePointer(mod))
-            (try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty)).?
+            try sema.pointerDeref(block, lhs_src, lhs_val, lhs_ty) orelse break :ct
+        else if (lhs_ty.isSlice(mod))
+            try sema.maybeDerefSliceAsArray(block, lhs_src, lhs_val) orelse break :ct
         else
             lhs_val;
 
@@ -14840,7 +14843,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             // Optimization for the common pattern of a single element repeated N times, such
             // as zero-filling a byte array.
             if (lhs_len == 1 and lhs_info.sentinel == null) {
-                const elem_val = (try lhs_sub_val.maybeElemValueFull(sema, mod, 0)).?;
+                const elem_val = try lhs_sub_val.elemValue(mod, 0);
                 break :v try mod.intern(.{ .aggregate = .{
                     .ty = result_ty.toIntern(),
                     .storage = .{ .repeated_elem = elem_val.toIntern() },
@@ -14852,7 +14855,7 @@ fn zirArrayMul(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             while (elem_i < result_len) {
                 var lhs_i: usize = 0;
                 while (lhs_i < lhs_len) : (lhs_i += 1) {
-                    const elem_val = (try lhs_sub_val.maybeElemValueFull(sema, mod, lhs_i)).?;
+                    const elem_val = try lhs_sub_val.elemValue(mod, lhs_i);
                     element_vals[elem_i] = elem_val.toIntern();
                     elem_i += 1;
                 }
@@ -21124,7 +21127,9 @@ fn zirReify(
         .needed_comptime_reason = "operand to @Type must be comptime-known",
     });
     const union_val = ip.indexToKey(val.toIntern()).un;
-    if (try sema.anyUndef(Value.fromInterned(union_val.val))) return sema.failWithUseOfUndef(block, src);
+    if (try sema.anyUndef(block, operand_src, Value.fromInterned(union_val.val))) {
+        return sema.failWithUseOfUndef(block, operand_src);
+    }
     const tag_index = type_info_ty.unionTagFieldIndex(Value.fromInterned(union_val.tag), mod).?;
     switch (@as(std.builtin.TypeId, @enumFromInt(tag_index))) {
         .Type => return .type_type,
@@ -21365,11 +21370,15 @@ fn zirReify(
             const payload_val = Value.fromInterned(union_val.val).optionalValue(mod) orelse
                 return Air.internedToRef(Type.anyerror.toIntern());
 
-            const len = try sema.usizeCast(block, src, payload_val.sliceLen(mod));
+            const names_val = try sema.derefSliceAsArray(block, src, payload_val, .{
+                .needed_comptime_reason = "error set contents must be comptime-known",
+            });
+
+            const len = try sema.usizeCast(block, src, names_val.typeOf(mod).arrayLen(mod));
             var names: InferredErrorSet.NameMap = .{};
             try names.ensureUnusedCapacity(sema.arena, len);
             for (0..len) |i| {
-                const elem_val = (try payload_val.maybeElemValueFull(sema, mod, i)).?;
+                const elem_val = try names_val.elemValue(mod, i);
                 const elem_struct_type = ip.loadStructType(ip.typeOf(elem_val.toIntern()));
                 const name_val = try elem_val.fieldValue(mod, elem_struct_type.nameIndex(
                     ip,
@@ -21417,7 +21426,7 @@ fn zirReify(
             const layout = mod.toEnum(std.builtin.Type.ContainerLayout, layout_val);
 
             // Decls
-            if (decls_val.sliceLen(mod) > 0) {
+            if (try decls_val.sliceLen(sema) > 0) {
                 return sema.fail(block, src, "reified structs must have no decls", .{});
             }
 
@@ -21425,7 +21434,11 @@ fn zirReify(
                 return sema.fail(block, src, "non-packed struct does not support backing integer type", .{});
             }
 
-            return try sema.reifyStruct(block, inst, src, layout, backing_integer_val, fields_val, name_strategy, is_tuple_val.toBool());
+            const fields_arr = try sema.derefSliceAsArray(block, operand_src, fields_val, .{
+                .needed_comptime_reason = "struct fields must be comptime-known",
+            });
+
+            return try sema.reifyStruct(block, inst, src, layout, backing_integer_val, fields_arr, name_strategy, is_tuple_val.toBool());
         },
         .Enum => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21446,11 +21459,15 @@ fn zirReify(
                 try ip.getOrPutString(gpa, "is_exhaustive"),
             ).?);
 
-            if (decls_val.sliceLen(mod) > 0) {
+            if (try decls_val.sliceLen(sema) > 0) {
                 return sema.fail(block, src, "reified enums must have no decls", .{});
             }
 
-            return sema.reifyEnum(block, inst, src, tag_type_val.toType(), is_exhaustive_val.toBool(), fields_val, name_strategy);
+            const fields_arr = try sema.derefSliceAsArray(block, operand_src, fields_val, .{
+                .needed_comptime_reason = "enum fields must be comptime-known",
+            });
+
+            return sema.reifyEnum(block, inst, src, tag_type_val.toType(), is_exhaustive_val.toBool(), fields_arr, name_strategy);
         },
         .Opaque => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21460,7 +21477,7 @@ fn zirReify(
             ).?);
 
             // Decls
-            if (decls_val.sliceLen(mod) > 0) {
+            if (try decls_val.sliceLen(sema) > 0) {
                 return sema.fail(block, src, "reified opaque must have no decls", .{});
             }
 
@@ -21505,12 +21522,16 @@ fn zirReify(
                 try ip.getOrPutString(gpa, "decls"),
             ).?);
 
-            if (decls_val.sliceLen(mod) > 0) {
+            if (try decls_val.sliceLen(sema) > 0) {
                 return sema.fail(block, src, "reified unions must have no decls", .{});
             }
             const layout = mod.toEnum(std.builtin.Type.ContainerLayout, layout_val);
 
-            return sema.reifyUnion(block, inst, src, layout, tag_type_val, fields_val, name_strategy);
+            const fields_arr = try sema.derefSliceAsArray(block, operand_src, fields_val, .{
+                .needed_comptime_reason = "union fields must be comptime-known",
+            });
+
+            return sema.reifyUnion(block, inst, src, layout, tag_type_val, fields_arr, name_strategy);
         },
         .Fn => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21530,7 +21551,7 @@ fn zirReify(
                 ip,
                 try ip.getOrPutString(gpa, "return_type"),
             ).?);
-            const params_val = try Value.fromInterned(union_val.val).fieldValue(mod, struct_type.nameIndex(
+            const params_slice_val = try Value.fromInterned(union_val.val).fieldValue(mod, struct_type.nameIndex(
                 ip,
                 try ip.getOrPutString(gpa, "params"),
             ).?);
@@ -21549,12 +21570,16 @@ fn zirReify(
             const return_type = return_type_val.optionalValue(mod) orelse
                 return sema.fail(block, src, "Type.Fn.return_type must be non-null for @Type", .{});
 
-            const args_len = try sema.usizeCast(block, src, params_val.sliceLen(mod));
+            const params_val = try sema.derefSliceAsArray(block, operand_src, params_slice_val, .{
+                .needed_comptime_reason = "function parameters must be comptime-known",
+            });
+
+            const args_len = try sema.usizeCast(block, src, params_val.typeOf(mod).arrayLen(mod));
             const param_types = try sema.arena.alloc(InternPool.Index, args_len);
 
             var noalias_bits: u32 = 0;
             for (param_types, 0..) |*param_type, i| {
-                const elem_val = (try params_val.maybeElemValueFull(sema, mod, i)).?;
+                const elem_val = try params_val.elemValue(mod, i);
                 const elem_struct_type = ip.loadStructType(ip.typeOf(elem_val.toIntern()));
                 const param_is_generic_val = try elem_val.fieldValue(mod, elem_struct_type.nameIndex(
                     ip,
@@ -21615,7 +21640,7 @@ fn reifyEnum(
 
     // This logic must stay in sync with the structure of `std.builtin.Type.Enum` - search for `fieldValue`.
 
-    const fields_len: u32 = @intCast(fields_val.sliceLen(mod));
+    const fields_len: u32 = @intCast(fields_val.typeOf(mod).arrayLen(mod));
 
     // The validation work here is non-trivial, and it's possible the type already exists.
     // So in this first pass, let's just construct a hash to optimize for this case. If the
@@ -21629,7 +21654,7 @@ fn reifyEnum(
     std.hash.autoHash(&hasher, fields_len);
 
     for (0..fields_len) |field_idx| {
-        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
+        const field_info = try fields_val.elemValue(mod, field_idx);
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_value_val = try sema.resolveLazyValue(try field_info.fieldValue(mod, 1));
@@ -21674,7 +21699,7 @@ fn reifyEnum(
     wip_ty.setTagTy(ip, tag_ty.toIntern());
 
     for (0..fields_len) |field_idx| {
-        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
+        const field_info = try fields_val.elemValue(mod, field_idx);
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_value_val = try sema.resolveLazyValue(try field_info.fieldValue(mod, 1));
@@ -21736,7 +21761,7 @@ fn reifyUnion(
 
     // This logic must stay in sync with the structure of `std.builtin.Type.Union` - search for `fieldValue`.
 
-    const fields_len: u32 = @intCast(fields_val.sliceLen(mod));
+    const fields_len: u32 = @intCast(fields_val.typeOf(mod).arrayLen(mod));
 
     // The validation work here is non-trivial, and it's possible the type already exists.
     // So in this first pass, let's just construct a hash to optimize for this case. If the
@@ -21752,7 +21777,7 @@ fn reifyUnion(
     var any_aligns = false;
 
     for (0..fields_len) |field_idx| {
-        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
+        const field_info = try fields_val.elemValue(mod, field_idx);
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_type_val = try field_info.fieldValue(mod, 1);
@@ -21828,7 +21853,7 @@ fn reifyUnion(
         var seen_tags = try std.DynamicBitSetUnmanaged.initEmpty(sema.arena, tag_ty_fields_len);
 
         for (field_types, 0..) |*field_ty, field_idx| {
-            const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
+            const field_info = try fields_val.elemValue(mod, field_idx);
 
             const field_name_val = try field_info.fieldValue(mod, 0);
             const field_type_val = try field_info.fieldValue(mod, 1);
@@ -21880,7 +21905,7 @@ fn reifyUnion(
         try field_names.ensureTotalCapacity(sema.arena, fields_len);
 
         for (field_types, 0..) |*field_ty, field_idx| {
-            const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
+            const field_info = try fields_val.elemValue(mod, field_idx);
 
             const field_name_val = try field_info.fieldValue(mod, 0);
             const field_type_val = try field_info.fieldValue(mod, 1);
@@ -21974,7 +21999,7 @@ fn reifyStruct(
 
     // This logic must stay in sync with the structure of `std.builtin.Type.Struct` - search for `fieldValue`.
 
-    const fields_len: u32 = @intCast(fields_val.sliceLen(mod));
+    const fields_len: u32 = @intCast(fields_val.typeOf(mod).arrayLen(mod));
 
     // The validation work here is non-trivial, and it's possible the type already exists.
     // So in this first pass, let's just construct a hash to optimize for this case. If the
@@ -21993,7 +22018,7 @@ fn reifyStruct(
     var any_aligned_fields = false;
 
     for (0..fields_len) |field_idx| {
-        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
+        const field_info = try fields_val.elemValue(mod, field_idx);
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_type_val = try field_info.fieldValue(mod, 1);
@@ -22071,7 +22096,7 @@ fn reifyStruct(
     const struct_type = ip.loadStructType(wip_ty.index);
 
     for (0..fields_len) |field_idx| {
-        const field_info = (try fields_val.maybeElemValueFull(sema, mod, field_idx)).?;
+        const field_info = try fields_val.elemValue(mod, field_idx);
 
         const field_name_val = try field_info.fieldValue(mod, 0);
         const field_type_val = try field_info.fieldValue(mod, 1);
@@ -23892,11 +23917,9 @@ fn resolveExportOptions(
     const visibility_src = sema.maybeOptionsSrc(block, src, "visibility");
 
     const name_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "name"), name_src);
-    const name_val = try sema.resolveConstDefinedValue(block, name_src, name_operand, .{
+    const name = try sema.toConstString(block, name_src, name_operand, .{
         .needed_comptime_reason = "name of exported value must be comptime-known",
     });
-    const name_ty = Type.slice_const_u8;
-    const name = try name_val.toAllocatedBytes(name_ty, sema.arena, mod);
 
     const linkage_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "linkage"), linkage_src);
     const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_operand, .{
@@ -23908,9 +23931,10 @@ fn resolveExportOptions(
     const section_opt_val = try sema.resolveConstDefinedValue(block, section_src, section_operand, .{
         .needed_comptime_reason = "linksection of exported value must be comptime-known",
     });
-    const section_ty = Type.slice_const_u8;
     const section = if (section_opt_val.optionalValue(mod)) |section_val|
-        try section_val.toAllocatedBytes(section_ty, sema.arena, mod)
+        try sema.toConstString(block, section_src, Air.internedToRef(section_val.toIntern()), .{
+            .needed_comptime_reason = "linksection of exported value must be comptime-known",
+        })
     else
         null;
 
@@ -26028,10 +26052,9 @@ fn resolveExternOptions(
     const thread_local_src = sema.maybeOptionsSrc(block, src, "thread_local");
 
     const name_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "name"), name_src);
-    const name_val = try sema.resolveConstDefinedValue(block, name_src, name_ref, .{
+    const name = try sema.toConstString(block, name_src, name_ref, .{
         .needed_comptime_reason = "name of the extern symbol must be comptime-known",
     });
-    const name = try name_val.toAllocatedBytes(Type.slice_const_u8, sema.arena, mod);
 
     const library_name_inst = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, "library_name"), library_src);
     const library_name_val = try sema.resolveConstDefinedValue(block, library_src, library_name_inst, .{
@@ -26050,7 +26073,9 @@ fn resolveExternOptions(
     });
 
     const library_name = if (library_name_val.optionalValue(mod)) |library_name_payload| library_name: {
-        const library_name = try library_name_payload.toAllocatedBytes(Type.slice_const_u8, sema.arena, mod);
+        const library_name = try sema.toConstString(block, library_src, Air.internedToRef(library_name_payload.toIntern()), .{
+            .needed_comptime_reason = "library in which extern symbol is must be comptime-known",
+        });
         if (library_name.len == 0) {
             return sema.fail(block, library_src, "library name cannot be empty", .{});
         }
@@ -28564,7 +28589,7 @@ fn elemValSlice(
 
     if (maybe_slice_val) |slice_val| {
         runtime_src = elem_index_src;
-        const slice_len = slice_val.sliceLen(mod);
+        const slice_len = try slice_val.sliceLen(sema);
         const slice_len_s = slice_len + @intFromBool(slice_sent);
         if (slice_len_s == 0) {
             return sema.fail(block, slice_src, "indexing into empty slice is not allowed", .{});
@@ -28589,7 +28614,7 @@ fn elemValSlice(
     try sema.requireRuntimeBlock(block, src, runtime_src);
     if (oob_safety and block.wantSafety()) {
         const len_inst = if (maybe_slice_val) |slice_val|
-            try mod.intRef(Type.usize, slice_val.sliceLen(mod))
+            try mod.intRef(Type.usize, try slice_val.sliceLen(sema))
         else
             try block.addTyOp(.slice_len, Type.usize, slice);
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
@@ -28626,7 +28651,7 @@ fn elemPtrSlice(
         if (slice_val.isUndef(mod)) {
             return mod.undefRef(elem_ptr_ty);
         }
-        const slice_len = slice_val.sliceLen(mod);
+        const slice_len = try slice_val.sliceLen(sema);
         const slice_len_s = slice_len + @intFromBool(slice_sent);
         if (slice_len_s == 0) {
             return sema.fail(block, slice_src, "indexing into empty slice is not allowed", .{});
@@ -28649,7 +28674,7 @@ fn elemPtrSlice(
         const len_inst = len: {
             if (maybe_undef_slice_val) |slice_val|
                 if (!slice_val.isUndef(mod))
-                    break :len try mod.intRef(Type.usize, slice_val.sliceLen(mod));
+                    break :len try mod.intRef(Type.usize, try slice_val.sliceLen(sema));
             break :len try block.addTyOp(.slice_len, Type.usize, slice);
         };
         const cmp_op: Air.Inst.Tag = if (slice_sent) .cmp_lte else .cmp_lt;
@@ -31523,16 +31548,11 @@ fn coerceArrayPtrToSlice(
     if (try sema.resolveValue(inst)) |val| {
         const ptr_array_ty = sema.typeOf(inst);
         const array_ty = ptr_array_ty.childType(mod);
+        const slice_ptr_ty = dest_ty.slicePtrFieldType(mod);
+        const slice_ptr = try mod.getCoerced(val, slice_ptr_ty);
         const slice_val = try mod.intern(.{ .slice = .{
             .ty = dest_ty.toIntern(),
-            .ptr = try mod.intern(.{ .ptr = .{
-                .ty = dest_ty.slicePtrFieldType(mod).toIntern(),
-                .addr = switch (mod.intern_pool.indexToKey(val.toIntern())) {
-                    .undef => .{ .int = try mod.intern(.{ .undef = .usize_type }) },
-                    .ptr => |ptr| ptr.addr,
-                    else => unreachable,
-                },
-            } }),
+            .ptr = slice_ptr.toIntern(),
             .len = (try mod.intValue(Type.usize, array_ty.arrayLen(mod))).toIntern(),
         } });
         return Air.internedToRef(slice_val);
@@ -32602,7 +32622,7 @@ fn analyzeSliceLen(
         if (slice_val.isUndef(mod)) {
             return mod.undefRef(Type.usize);
         }
-        return mod.intRef(Type.usize, slice_val.sliceLen(sema.mod));
+        return mod.intRef(Type.usize, try slice_val.sliceLen(sema));
     }
     try sema.requireRuntimeBlock(block, src, null);
     return block.addTyOp(.slice_len, Type.usize, slice_inst);
@@ -33041,7 +33061,7 @@ fn analyzeSlice(
                             return sema.fail(block, src, "slice of undefined", .{});
                         }
                         const has_sentinel = slice_ty.sentinel(mod) != null;
-                        const slice_len = slice_val.sliceLen(mod);
+                        const slice_len = try slice_val.sliceLen(sema);
                         const len_plus_sent = slice_len + @intFromBool(has_sentinel);
                         const slice_len_val_with_sentinel = try mod.intValue(Type.usize, len_plus_sent);
                         if (!(try sema.compareAll(end_val, .lte, slice_len_val_with_sentinel, Type.usize))) {
@@ -33056,7 +33076,7 @@ fn analyzeSlice(
                                 "end index {} out of bounds for slice of length {d}{s}",
                                 .{
                                     end_val.fmtValue(Type.usize, mod),
-                                    slice_val.sliceLen(mod),
+                                    try slice_val.sliceLen(sema),
                                     sentinel_label,
                                 },
                             );
@@ -33285,7 +33305,7 @@ fn analyzeSlice(
             if (try sema.resolveDefinedValue(block, src, ptr_or_slice)) |slice_val| {
                 // we don't need to add one for sentinels because the
                 // underlying value data includes the sentinel
-                break :blk try mod.intRef(Type.usize, slice_val.sliceLen(mod));
+                break :blk try mod.intRef(Type.usize, try slice_val.sliceLen(sema));
             }
 
             const slice_len_inst = try block.addTyOp(.slice_len, Type.usize, ptr_or_slice);
@@ -39003,22 +39023,22 @@ fn validateRuntimeValue(sema: *Sema, block: *Block, val_src: LazySrcLoc, val: Ai
 }
 
 /// Returns true if any value contained in `val` is undefined.
-fn anyUndef(sema: *Sema, val: Value) !bool {
+fn anyUndef(sema: *Sema, block: *Block, src: LazySrcLoc, val: Value) !bool {
     const mod = sema.mod;
-    return switch (val.toIntern()) {
+    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .undef => true,
-        else => switch (mod.intern_pool.indexToKey(val.toIntern())) {
-            .undef => true,
-            .simple_value => |v| v == .undefined,
-            .slice => |slice| for (0..@intCast(Value.fromInterned(slice.len).toUnsignedInt(mod))) |idx| {
-                if (try sema.anyUndef((try val.maybeElemValueFull(sema, mod, idx)).?)) break true;
-            } else false,
-            .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
-                const elem = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.values()[i];
-                if (try sema.anyUndef(Value.fromInterned(elem))) break true;
-            } else false,
-            else => false,
+        .simple_value => |v| v == .undefined,
+        .slice => {
+            // If the slice contents are runtime-known, reification will fail later on with a
+            // specific error message.
+            const arr = try sema.maybeDerefSliceAsArray(block, src, val) orelse return false;
+            return sema.anyUndef(block, src, arr);
         },
+        .aggregate => |aggregate| for (0..aggregate.storage.values().len) |i| {
+            const elem = mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.values()[i];
+            if (try sema.anyUndef(block, src, Value.fromInterned(elem))) break true;
+        } else false,
+        else => false,
     };
 }
 
@@ -39050,6 +39070,20 @@ fn derefSliceAsArray(
     slice_val: Value,
     reason: NeededComptimeReason,
 ) CompileError!Value {
+    return try sema.maybeDerefSliceAsArray(block, src, slice_val) orelse {
+        return sema.failWithNeededComptime(block, src, reason);
+    };
+}
+
+/// Given a slice value, attempts to dereference it into a comptime-known array.
+/// Returns `null` if the contents of the slice are not comptime-known.
+/// Asserts that `slice_val` is a slice.
+fn maybeDerefSliceAsArray(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    slice_val: Value,
+) CompileError!?Value {
     const zcu = sema.mod;
     const ip = &zcu.intern_pool;
     assert(Type.fromInterned(ip.typeOf(slice_val.toIntern())).isSlice(zcu));
@@ -39072,7 +39106,5 @@ fn derefSliceAsArray(
         break :p p;
     });
     const casted_ptr = try zcu.getCoerced(Value.fromInterned(slice.ptr), ptr_ty);
-    return try sema.pointerDeref(block, src, casted_ptr, ptr_ty) orelse {
-        return sema.failWithNeededComptime(block, src, reason);
-    };
+    return sema.pointerDeref(block, src, casted_ptr, ptr_ty);
 }
