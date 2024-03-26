@@ -110,21 +110,6 @@ pub const socklen_t = u32;
 // Modes and flags for dlopen()
 // include/dlfcn.h
 
-pub const POLL = struct {
-    /// input available
-    pub const IN = 70;
-    /// output available
-    pub const OUT = 71;
-    /// input message available
-    pub const MSG = 72;
-    /// I/O error
-    pub const ERR = 73;
-    /// high priority input available
-    pub const PRI = 74;
-    /// device disconnected
-    pub const HUP = 75;
-};
-
 pub const RTLD = struct {
     /// relocations are performed as needed
     pub const LAZY = 0;
@@ -176,14 +161,6 @@ pub const msghdr = extern struct {
 
 pub const off_t = i64;
 pub const ino_t = u64;
-
-pub const nfds_t = u32;
-
-pub const pollfd = extern struct {
-    fd: i32,
-    events: i16,
-    revents: i16,
-};
 
 pub const Stat = extern struct {
     dev: i32,
@@ -427,7 +404,39 @@ pub const W = struct {
     }
 };
 
-// posix/signal.h
+// /system/develop/headers/posix/poll.h
+
+pub const nfds_t = usize;
+
+pub const pollfd = extern struct {
+    fd: i32,
+    events: i16,
+    revents: i16,
+};
+
+pub const POLL = struct {
+    /// any readable data available
+    pub const IN = 0x0001;
+    /// file descriptor is writeable
+    pub const OUT = 0x0002;
+    pub const RDNORM = IN;
+    pub const WRNORM = OUT;
+    /// priority readable data
+    pub const RDBAND = 0x0008;
+    /// priority data can be written
+    pub const WRBAND = 0x0010;
+    /// high priority readable data
+    pub const PRI = 0x0020;
+
+    /// errors pending
+    pub const ERR = 0x0004;
+    /// disconnected
+    pub const HUP = 0x0080;
+    /// invalid file descriptor
+    pub const NVAL = 0x1000;
+};
+
+// /system/develop/headers/posix/signal.h
 
 pub const sigset_t = u64;
 pub const empty_sigset: sigset_t = 0;
@@ -548,7 +557,7 @@ pub const ucontext_t = extern struct {
     mcontext: mcontext_t,
 };
 
-// arch/*/signal.h
+// /system/develop/headers/posix/arch/*/signal.h
 
 pub const vregs = switch (builtin.cpu.arch) {
     .arm, .thumb => extern struct {
