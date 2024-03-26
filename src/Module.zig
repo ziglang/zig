@@ -425,14 +425,6 @@ pub const Decl = struct {
         return @as(i32, @bitCast(node_index)) - @as(i32, @bitCast(decl.src_node));
     }
 
-    pub fn tokSrcLoc(decl: Decl, token_index: Ast.TokenIndex) LazySrcLoc {
-        return .{ .token_offset = token_index - decl.srcToken() };
-    }
-
-    pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
-        return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
-    }
-
     pub fn srcLoc(decl: Decl, zcu: *Zcu) SrcLoc {
         return decl.nodeOffsetSrcLoc(0, zcu);
     }
@@ -443,16 +435,6 @@ pub const Decl = struct {
             .parent_decl_node = decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
-    }
-
-    pub fn srcToken(decl: Decl, zcu: *Zcu) Ast.TokenIndex {
-        const tree = &decl.getFileScope(zcu).tree;
-        return tree.firstToken(decl.src_node);
-    }
-
-    pub fn srcByteOffset(decl: Decl, zcu: *Zcu) u32 {
-        const tree = &decl.getFileScope(zcu).tree;
-        return tree.tokens.items(.start)[decl.srcToken()];
     }
 
     pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
@@ -484,22 +466,6 @@ pub const Decl = struct {
     pub fn valueOrFail(decl: Decl) error{AnalysisFail}!Value {
         if (!decl.has_tv) return error.AnalysisFail;
         return decl.val;
-    }
-
-    /// If the Decl owns its value and it is a struct, return it,
-    /// otherwise null.
-    pub fn getOwnedStruct(decl: Decl, zcu: *Zcu) ?InternPool.Key.StructType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return zcu.typeToStruct(decl.val.toType());
-    }
-
-    /// If the Decl owns its value and it is a union, return it,
-    /// otherwise null.
-    pub fn getOwnedUnion(decl: Decl, zcu: *Zcu) ?InternPool.LoadedUnionType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return zcu.typeToUnion(decl.val.toType());
     }
 
     pub fn getOwnedFunction(decl: Decl, zcu: *Zcu) ?InternPool.Key.Func {
@@ -4424,22 +4390,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         // TODO Look into detecting when this would be unnecessary by storing enough state
         // in `Decl` to notice that the line number did not change.
         comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
-    }
-}
-
-/// This function is exclusively called for anonymous decls.
-/// All resources referenced by anonymous decls are owned by InternPool
-/// so there is no cleanup to do here.
-pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-
-    ip.destroyDecl(gpa, decl_index);
-
-    if (mod.emit_h) |mod_emit_h| {
-        const decl_emit_h = mod_emit_h.declPtr(decl_index);
-        decl_emit_h.fwd_decl.deinit(gpa);
-        decl_emit_h.* = undefined;
     }
 }
 
