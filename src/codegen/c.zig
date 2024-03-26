@@ -2010,7 +2010,6 @@ pub const DeclGen = struct {
     fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: InternPool.DeclIndex, export_index: u32) !void {
         const mod = dg.module;
         const decl = mod.declPtr(decl_index);
-        try mod.markDeclAlive(decl);
 
         if (mod.decl_exports.get(decl_index)) |exports| {
             try writer.print("{ }", .{

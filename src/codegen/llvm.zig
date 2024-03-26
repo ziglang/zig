@@ -3722,15 +3722,11 @@ pub const Object = struct {
             => unreachable, // non-runtime values
             .extern_func => |extern_func| {
                 const fn_decl_index = extern_func.decl;
-                const fn_decl = mod.declPtr(fn_decl_index);
-                try mod.markDeclAlive(fn_decl);
                 const function_index = try o.resolveLlvmFunction(fn_decl_index);
                 return function_index.ptrConst(&o.builder).global.toConst();
             },
             .func => |func| {
                 const fn_decl_index = func.owner_decl;
-                const fn_decl = mod.declPtr(fn_decl_index);
-                try mod.markDeclAlive(fn_decl);
                 const function_index = try o.resolveLlvmFunction(fn_decl_index);
                 return function_index.ptrConst(&o.builder).global.toConst();
             },
@@ -4262,7 +4258,6 @@ pub const Object = struct {
     fn lowerParentPtrDecl(o: *Object, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
-        try mod.markDeclAlive(decl);
         const ptr_ty = try mod.singleMutPtrType(decl.typeOf(mod));
         return o.lowerDeclRefValue(ptr_ty, decl_index);
     }
@@ -4454,8 +4449,6 @@ pub const Object = struct {
         const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
         if ((!is_fn_body and !decl_ty.hasRuntimeBits(mod)) or
             (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic)) return o.lowerPtrToVoid(ty);
-
-        try mod.markDeclAlive(decl);
 
         const llvm_global = if (is_fn_body)
             (try o.resolveLlvmFunction(decl_index)).ptrConst(&o.builder).global

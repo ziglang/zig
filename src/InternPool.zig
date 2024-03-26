@@ -6740,7 +6740,6 @@ fn finishFuncInstance(
         .zir_decl_index = fn_owner_decl.zir_decl_index,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
-        .alive = true,
         .kind = .anon,
     });
     errdefer ip.destroyDecl(gpa, decl_index);

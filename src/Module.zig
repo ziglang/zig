@@ -394,15 +394,6 @@ pub const Decl = struct {
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
     is_exported: bool,
-    /// Flag used by garbage collection to mark and sweep.
-    /// Decls which correspond to an AST node always have this field set to `true`.
-    /// Anonymous Decls are initialized with this field set to `false` and then it
-    /// is the responsibility of machine code backends to mark it `true` whenever
-    /// a `decl_ref` Value is encountered that points to this Decl.
-    /// When the `codegen_decl` job is encountered in the main work queue, if the
-    /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
-    /// deletes the Decl on the spot.
-    alive: bool,
     /// If true `name` is already fully qualified.
     name_fully_qualified: bool = false,
     /// What kind of a declaration is this.
@@ -3525,7 +3516,6 @@ fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.is_exported = false;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
-    new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
 
     if (file.status != .success_zir) {
@@ -4375,7 +4365,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         const decl = zcu.declPtr(decl_index);
         const was_exported = decl.is_exported;
         assert(decl.kind == kind); // ZIR tracking should preserve this
-        assert(decl.alive);
         decl.name = decl_name;
         decl.src_node = decl_node;
         decl.src_line = line;
@@ -4392,7 +4381,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         new_decl.is_pub = declaration.flags.is_pub;
         new_decl.is_exported = declaration.flags.is_export;
         new_decl.zir_decl_index = tracked_inst.toOptional();
-        new_decl.alive = true; // This Decl corresponds to an AST node and is therefore always alive.
         break :decl_index .{ false, new_decl_index };
     };
 
@@ -4470,12 +4458,8 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
 
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    // The Decl starts off with alive=false and the codegen backend will set alive=true
-    // if the Decl is referenced by an instruction or another constant. Otherwise,
-    // the Decl will be garbage collected by the `codegen_decl` task instead of sent
-    // to the linker.
     if (mod.declPtr(decl_index).typeOf(mod).isFnOrHasRuntimeBits(mod)) {
-        try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = decl_index });
+        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
     }
 }
 
@@ -4815,7 +4799,6 @@ pub fn allocateNewDecl(
         .zir_decl_index = .none,
         .is_pub = false,
         .is_exported = false,
-        .alive = false,
         .kind = .anon,
     });
 
@@ -5580,51 +5563,6 @@ fn reportRetryableFileError(
         }
     }
     gop.value_ptr.* = err_msg;
-}
-
-pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
-    switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .variable => |variable| try mod.markDeclIndexAlive(variable.decl),
-        .extern_func => |extern_func| try mod.markDeclIndexAlive(extern_func.decl),
-        .func => |func| try mod.markDeclIndexAlive(func.owner_decl),
-        .error_union => |error_union| switch (error_union.val) {
-            .err_name => {},
-            .payload => |payload| try mod.markReferencedDeclsAlive(Value.fromInterned(payload)),
-        },
-        .slice => |slice| {
-            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.ptr));
-            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.len));
-        },
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| try mod.markDeclIndexAlive(decl),
-            .anon_decl => {},
-            .int, .comptime_field, .comptime_alloc => {},
-            .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
-            .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
-        },
-        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(opt.val)),
-        .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
-            try mod.markReferencedDeclsAlive(Value.fromInterned(elem)),
-        .un => |un| {
-            if (un.tag != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(un.tag));
-            try mod.markReferencedDeclsAlive(Value.fromInterned(un.val));
-        },
-        else => {},
-    }
-}
-
-pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
-    if (decl.alive) return;
-    decl.alive = true;
-
-    // This is the first time we are marking this Decl alive. We must
-    // therefore recurse into its value and mark any Decl it references
-    // as also alive, so that any Decl referenced does not get garbage collected.
-    try mod.markReferencedDeclsAlive(decl.val);
-}
-
-fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    return mod.markDeclAlive(mod.declPtr(decl_index));
 }
 
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {

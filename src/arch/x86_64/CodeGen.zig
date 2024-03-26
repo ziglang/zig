@@ -12263,7 +12263,6 @@ fn genCall(self: *Self, info: union(enum) {
                 },
             }) {
                 .func => |func| {
-                    try mod.markDeclAlive(mod.declPtr(func.owner_decl));
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                         const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
@@ -12323,7 +12322,6 @@ fn genCall(self: *Self, info: union(enum) {
                 },
                 .extern_func => |extern_func| {
                     const owner_decl = mod.declPtr(extern_func.decl);
-                    try mod.markDeclAlive(owner_decl);
                     const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
                     const decl_name = mod.intern_pool.stringToSlice(owner_decl.name);
                     try self.genExternSymbolRef(.call, lib_name, decl_name);

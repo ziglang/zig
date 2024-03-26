@@ -835,8 +835,6 @@ fn lowerDeclRef(
         return Result.ok;
     }
 
-    try zcu.markDeclAlive(decl);
-
     const vaddr = try lf.getDeclVAddr(decl_index, .{
         .parent_atom_index = reloc_info.parent_atom_index,
         .offset = code.items.len,
@@ -957,8 +955,6 @@ fn genDeclRef(
             return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(zcu).toByteUnitsOptional().? });
         }
     }
-
-    try zcu.markDeclAlive(decl);
 
     const decl_namespace = zcu.namespacePtr(decl.src_namespace);
     const single_threaded = decl_namespace.file_scope.mod.single_threaded;

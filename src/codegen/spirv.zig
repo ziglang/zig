@@ -255,7 +255,6 @@ pub const Object = struct {
     pub fn resolveDecl(self: *Object, mod: *Module, decl_index: InternPool.DeclIndex) !SpvModule.Decl.Index {
         const decl = mod.declPtr(decl_index);
         assert(decl.has_tv); // TODO: Do we need to handle a situation where this is false?
-        try mod.markDeclAlive(decl);
 
         const entry = try self.decl_link.getOrPut(self.gpa, decl_index);
         if (!entry.found_existing) {

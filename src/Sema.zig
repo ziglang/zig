@@ -6445,8 +6445,6 @@ pub fn analyzeExport(
         return sema.fail(block, src, "export target cannot be extern", .{});
     }
 
-    // This decl is alive no matter what, since it's being exported
-    try mod.markDeclAlive(exported_decl);
     try sema.maybeQueueFuncBodyAnalysis(exported_decl_index);
 
     try addExport(mod, .{
