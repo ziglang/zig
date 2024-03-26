@@ -1409,11 +1409,6 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
-            .export_value => {
-                try sema.zirExportValue(block, inst);
-                i += 1;
-                continue;
-            },
             .set_runtime_safety => {
                 try sema.zirSetRuntimeSafety(block, inst);
                 i += 1;
@@ -6358,67 +6353,60 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = sema.mod;
+    const zcu = sema.mod;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.Export, inst_data.payload_index).data;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const src = inst_data.src();
     const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
     const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const decl_name = try mod.intern_pool.getOrPutString(mod.gpa, sema.code.nullTerminatedString(extra.decl_name));
-    const decl_index = if (extra.namespace != .none) index_blk: {
-        const container_ty = try sema.resolveType(block, operand_src, extra.namespace);
-        const container_namespace = container_ty.getNamespaceIndex(mod);
 
-        const maybe_index = try sema.lookupInNamespace(block, operand_src, container_namespace, decl_name, false);
-        break :index_blk maybe_index orelse
-            return sema.failWithBadMemberAccess(block, container_ty, operand_src, decl_name);
-    } else try sema.lookupIdentifier(block, operand_src, decl_name);
-    const options = sema.resolveExportOptions(block, .unneeded, extra.options) catch |err| switch (err) {
-        error.NeededSourceLocation => {
-            _ = try sema.resolveExportOptions(block, options_src, extra.options);
-            unreachable;
+    const operand = try sema.resolveInst(extra.lhs);
+    const ptr_val = try sema.resolveConstDefinedValue(block, operand_src, operand, .{
+        .needed_comptime_reason = "export pointer must be comptime-known",
+    });
+    const ptr_ty = ptr_val.typeOf(zcu);
+
+    switch (ptr_ty.zigTypeTag(zcu)) {
+        .Pointer => if (ptr_ty.isSlice(zcu)) return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, operand_src, "expected pointer, found '{}'", .{ptr_ty.fmt(zcu)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, operand_src, msg, "use 'ptr' field to convert slice to many pointer", .{});
+            break :msg msg;
+        }),
+        else => return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, operand_src, "expected pointer, found '{}'", .{ptr_ty.fmt(zcu)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, operand_src, msg, "take the address of a value to export it", .{});
+            break :msg msg;
+        }),
+    }
+
+    const options = try sema.resolveExportOptions(block, options_src, extra.rhs);
+
+    if (ptr_val.canMutateComptimeVarState(zcu)) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, operand_src, "export pointer contains reference to comptime var", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(block, operand_src, msg, "comptime var pointers are not available at runtime", .{});
+            break :msg msg;
+        });
+    }
+
+    // TODO: support exporting part of Decl, so always use Decl if `ptr_val.pointerDecl(zcu) != .none`
+    const exported: Module.Exported = switch (zcu.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
+        .decl => |decl_index| .{ .decl_index = decl_index },
+        else => e: {
+            const val = try sema.pointerDeref(block, operand_src, ptr_val, ptr_val.typeOf(zcu)) orelse
+                return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(block, operand_src, "export target is not comptime-known", .{});
+                errdefer msg.destroy(sema.gpa);
+                try sema.errNote(block, operand_src, msg, "export must refer to global declaration or comptime-known value", .{});
+                break :msg msg;
+            });
+            break :e .{ .value = val.toIntern() };
         },
-        else => |e| return e,
     };
-    {
-        try mod.ensureDeclAnalyzed(decl_index);
-        const exported_decl = mod.declPtr(decl_index);
-        if (exported_decl.val.getFunction(mod)) |function| {
-            return sema.analyzeExport(block, src, options, function.owner_decl);
-        }
-    }
-    try sema.analyzeExport(block, src, options, decl_index);
-}
-
-fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const mod = sema.mod;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
-    const src = inst_data.src();
-    const operand_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = inst_data.src_node };
-    const options_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = inst_data.src_node };
-    const operand = try sema.resolveInstConst(block, operand_src, extra.operand, .{
-        .needed_comptime_reason = "export target must be comptime-known",
-    });
-    const options = try sema.resolveExportOptions(block, options_src, extra.options);
-    if (options.linkage == .internal)
-        return;
-    if (operand.getFunction(mod)) |function| {
-        const decl_index = function.owner_decl;
-        return sema.analyzeExport(block, src, options, decl_index);
-    }
-
-    try addExport(mod, .{
-        .opts = options,
-        .src = src,
-        .owner_decl = sema.owner_decl_index,
-        .src_decl = block.src_decl,
-        .exported = .{ .value = operand.toIntern() },
-        .status = .in_progress,
-    });
+    try sema.analyzeExport(block, src, options, exported);
 }
 
 pub fn analyzeExport(
@@ -6426,7 +6414,7 @@ pub fn analyzeExport(
     block: *Block,
     src: LazySrcLoc,
     options: Module.Export.Options,
-    exported_decl_index: InternPool.DeclIndex,
+    exported: Module.Exported,
 ) !void {
     const gpa = sema.gpa;
     const mod = sema.mod;
@@ -6434,9 +6422,20 @@ pub fn analyzeExport(
     if (options.linkage == .internal)
         return;
 
-    try mod.ensureDeclAnalyzed(exported_decl_index);
-    const exported_decl = mod.declPtr(exported_decl_index);
-    const export_ty = exported_decl.typeOf(mod);
+    const export_val = switch (exported) {
+        .decl_index => |decl_index| ty: {
+            try mod.ensureDeclAnalyzed(decl_index);
+            const exported_decl = mod.declPtr(decl_index);
+            break :ty exported_decl.val;
+        },
+        .value => |ip_index| Value.fromInterned(ip_index),
+    };
+    if (export_val.getFunction(mod)) |func| {
+        if (exported != .decl_index or exported.decl_index != func.owner_decl) {
+            return sema.analyzeExport(block, src, options, .{ .decl_index = func.owner_decl });
+        }
+    }
+    const export_ty = export_val.typeOf(mod);
 
     if (!try sema.validateExternType(export_ty, .other)) {
         const msg = msg: {
@@ -6452,19 +6451,29 @@ pub fn analyzeExport(
         return sema.failWithOwnedErrorMsg(block, msg);
     }
 
-    // TODO: some backends might support re-exporting extern decls
-    if (exported_decl.isExtern(mod)) {
-        return sema.fail(block, src, "export target cannot be extern", .{});
+    switch (exported) {
+        .decl_index => |decl_index| {
+            const exported_decl = mod.declPtr(decl_index);
+            // TODO: some backends might support re-exporting extern decls
+            if (exported_decl.isExtern(mod)) {
+                return sema.fail(block, src, "export target cannot be extern", .{});
+            }
+        },
+        .value => {},
     }
 
-    try sema.maybeQueueFuncBodyAnalysis(exported_decl_index);
+    if (mod.intern_pool.isFuncBody(export_val.toIntern()) and
+        try sema.fnHasRuntimeBits(export_ty))
+    {
+        try mod.ensureFuncBodyAnalysisQueued(export_val.toIntern());
+    }
 
     try addExport(mod, .{
         .opts = options,
         .src = src,
         .owner_decl = sema.owner_decl_index,
         .src_decl = block.src_decl,
-        .exported = .{ .decl_index = exported_decl_index },
+        .exported = exported,
         .status = .in_progress,
     });
 }
