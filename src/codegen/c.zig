@@ -9,7 +9,6 @@ const Module = @import("../Module.zig");
 const Compilation = @import("../Compilation.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../type.zig").Type;
-const TypedValue = @import("../TypedValue.zig");
 const C = link.File.C;
 const Decl = Module.Decl;
 const trace = @import("../tracy.zig").trace;
@@ -1877,9 +1876,9 @@ pub const DeclGen = struct {
         try renderTypeSuffix(dg.pass, store.*, mod, w, cty_idx, .suffix, .{});
     }
 
-    fn declIsGlobal(dg: *DeclGen, tv: TypedValue) bool {
+    fn declIsGlobal(dg: *DeclGen, val: Value) bool {
         const mod = dg.module;
-        return switch (mod.intern_pool.indexToKey(tv.val.ip_index)) {
+        return switch (mod.intern_pool.indexToKey(val.ip_index)) {
             .variable => |variable| mod.decl_exports.contains(variable.decl),
             .extern_func => true,
             .func => |func| mod.decl_exports.contains(func.owner_decl),
@@ -1972,7 +1971,7 @@ pub const DeclGen = struct {
     ) !void {
         const decl = dg.module.declPtr(decl_index);
         const fwd = dg.fwdDeclWriter();
-        const is_global = variable.is_extern or dg.declIsGlobal(.{ .ty = decl.typeOf(dg.module), .val = decl.val });
+        const is_global = variable.is_extern or dg.declIsGlobal(decl.val);
         try fwd.writeAll(if (is_global) "zig_extern " else "static ");
         const maybe_exports = dg.module.decl_exports.get(decl_index);
         const export_weak_linkage = if (maybe_exports) |exports|
@@ -2656,13 +2655,12 @@ fn genExports(o: *Object) !void {
         .anon, .flush => return,
     };
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = decl.val };
     const fwd = o.dg.fwdDeclWriter();
 
     const exports = mod.decl_exports.get(decl_index) orelse return;
     if (exports.items.len < 2) return;
 
-    const is_variable_const = switch (ip.indexToKey(tv.val.toIntern())) {
+    const is_variable_const = switch (ip.indexToKey(decl.val.toIntern())) {
         .func => return for (exports.items[1..], 1..) |@"export", i| {
             try fwd.writeAll("zig_extern ");
             if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage_fn ");
@@ -2805,15 +2803,11 @@ pub fn genFunc(f: *Function) !void {
     const gpa = o.dg.gpa;
     const decl_index = o.dg.pass.decl;
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{
-        .ty = decl.typeOf(mod),
-        .val = decl.val,
-    };
 
     o.code_header = std.ArrayList(u8).init(gpa);
     defer o.code_header.deinit();
 
-    const is_global = o.dg.declIsGlobal(tv);
+    const is_global = o.dg.declIsGlobal(decl.val);
     const fwd_decl_writer = o.dg.fwdDeclWriter();
     try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
 
@@ -2893,22 +2887,23 @@ pub fn genDecl(o: *Object) !void {
     const mod = o.dg.module;
     const decl_index = o.dg.pass.decl;
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = decl.val };
+    const decl_val = decl.val;
+    const decl_ty = decl_val.typeOf(mod);
 
-    if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) return;
-    if (tv.val.getExternFunc(mod)) |_| {
+    if (!decl_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) return;
+    if (decl_val.getExternFunc(mod)) |_| {
         const fwd_decl_writer = o.dg.fwdDeclWriter();
         try fwd_decl_writer.writeAll("zig_extern ");
         try o.dg.renderFunctionSignature(fwd_decl_writer, decl_index, .forward, .{ .export_index = 0 });
         try fwd_decl_writer.writeAll(";\n");
         try genExports(o);
-    } else if (tv.val.getVariable(mod)) |variable| {
+    } else if (decl_val.getVariable(mod)) |variable| {
         try o.dg.renderFwdDecl(decl_index, variable, .final);
         try genExports(o);
 
         if (variable.is_extern) return;
 
-        const is_global = variable.is_extern or o.dg.declIsGlobal(tv);
+        const is_global = variable.is_extern or o.dg.declIsGlobal(decl_val);
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
@@ -2916,22 +2911,22 @@ pub fn genDecl(o: *Object) !void {
         if (mod.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection(\"{s}\", ", .{s});
         const decl_c_value = .{ .decl = decl_index };
-        try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, .{}, decl.alignment, .complete);
+        try o.dg.renderTypeAndName(w, decl_ty, decl_c_value, .{}, decl.alignment, .complete);
         if (decl.@"linksection" != .none) try w.writeAll(", read, write)");
         try w.writeAll(" = ");
-        try o.dg.renderValue(w, tv.ty, Value.fromInterned(variable.init), .StaticInitializer);
+        try o.dg.renderValue(w, decl_ty, Value.fromInterned(variable.init), .StaticInitializer);
         try w.writeByte(';');
         try o.indent_writer.insertNewline();
     } else {
         const is_global = o.dg.module.decl_exports.contains(decl_index);
         const decl_c_value = .{ .decl = decl_index };
-        try genDeclValue(o, tv, is_global, decl_c_value, decl.alignment, decl.@"linksection");
+        try genDeclValue(o, decl_val, is_global, decl_c_value, decl.alignment, decl.@"linksection");
     }
 }
 
 pub fn genDeclValue(
     o: *Object,
-    tv: TypedValue,
+    val: Value,
     is_global: bool,
     decl_c_value: CValue,
     alignment: Alignment,
@@ -2940,8 +2935,10 @@ pub fn genDeclValue(
     const mod = o.dg.module;
     const fwd_decl_writer = o.dg.fwdDeclWriter();
 
+    const ty = val.typeOf(mod);
+
     try fwd_decl_writer.writeAll(if (is_global) "zig_extern " else "static ");
-    try o.dg.renderTypeAndName(fwd_decl_writer, tv.ty, decl_c_value, Const, alignment, .complete);
+    try o.dg.renderTypeAndName(fwd_decl_writer, ty, decl_c_value, Const, alignment, .complete);
     switch (o.dg.pass) {
         .decl => |decl_index| {
             if (mod.decl_exports.get(decl_index)) |exports| {
@@ -2964,10 +2961,10 @@ pub fn genDeclValue(
 
     if (mod.intern_pool.stringToSliceUnwrap(link_section)) |s|
         try w.print("zig_linksection(\"{s}\", ", .{s});
-    try o.dg.renderTypeAndName(w, tv.ty, decl_c_value, Const, alignment, .complete);
+    try o.dg.renderTypeAndName(w, ty, decl_c_value, Const, alignment, .complete);
     if (link_section != .none) try w.writeAll(", read)");
     try w.writeAll(" = ");
-    try o.dg.renderValue(w, tv.ty, tv.val, .StaticInitializer);
+    try o.dg.renderValue(w, ty, val, .StaticInitializer);
     try w.writeAll(";\n");
 }
 
@@ -2978,14 +2975,10 @@ pub fn genHeader(dg: *DeclGen) error{ AnalysisFail, OutOfMemory }!void {
     const mod = dg.module;
     const decl_index = dg.pass.decl;
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{
-        .ty = decl.typeOf(mod),
-        .val = decl.val,
-    };
     const writer = dg.fwdDeclWriter();
 
-    switch (tv.ty.zigTypeTag(mod)) {
-        .Fn => if (dg.declIsGlobal(tv)) {
+    switch (decl.val.typeOf(mod).zigTypeTag(mod)) {
+        .Fn => if (dg.declIsGlobal(decl.val)) {
             try writer.writeAll("zig_extern ");
             try dg.renderFunctionSignature(writer, dg.pass.decl, .complete, .{ .export_index = 0 });
             try dg.fwd_decl.appendSlice(";\n");
@@ -5304,25 +5297,25 @@ fn airIsNull(
     const err_int_ty = try mod.errorIntType();
 
     const rhs = if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod))
-        TypedValue{ .ty = Type.bool, .val = Value.true }
+        Value.true
     else if (optional_ty.isPtrLikeOptional(mod))
         // operand is a regular pointer, test `operand !=/== NULL`
-        TypedValue{ .ty = optional_ty, .val = try mod.getCoerced(Value.null, optional_ty) }
+        try mod.getCoerced(Value.null, optional_ty)
     else if (payload_ty.zigTypeTag(mod) == .ErrorSet)
-        TypedValue{ .ty = err_int_ty, .val = try mod.intValue(err_int_ty, 0) }
+        try mod.intValue(err_int_ty, 0)
     else if (payload_ty.isSlice(mod) and optional_ty.optionalReprIsPayload(mod)) rhs: {
         try writer.writeAll(".ptr");
         const slice_ptr_ty = payload_ty.slicePtrFieldType(mod);
         const opt_slice_ptr_ty = try mod.optionalType(slice_ptr_ty.toIntern());
-        break :rhs TypedValue{ .ty = opt_slice_ptr_ty, .val = try mod.nullValue(opt_slice_ptr_ty) };
+        break :rhs try mod.nullValue(opt_slice_ptr_ty);
     } else rhs: {
         try writer.writeAll(".is_null");
-        break :rhs TypedValue{ .ty = Type.bool, .val = Value.true };
+        break :rhs Value.true;
     };
     try writer.writeByte(' ');
     try writer.writeAll(operator);
     try writer.writeByte(' ');
-    try f.object.dg.renderValue(writer, rhs.ty, rhs.val, .Other);
+    try f.object.dg.renderValue(writer, rhs.typeOf(mod), rhs, .Other);
     try writer.writeAll(";\n");
     return local;
 }

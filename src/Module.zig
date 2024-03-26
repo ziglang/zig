@@ -3678,20 +3678,21 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
+    const decl_val = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
+    const decl_ty = decl_val.typeOf(mod);
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeLayout(decl_tv.ty);
+    try sema.resolveTypeLayout(decl_ty);
 
     if (decl.kind == .@"usingnamespace") {
-        if (!decl_tv.ty.eql(Type.type, mod)) {
+        if (!decl_ty.eql(Type.type, mod)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
-                decl_tv.ty.fmt(mod),
+                decl_ty.fmt(mod),
             });
         }
-        const ty = decl_tv.val.toType();
+        const ty = decl_val.toType();
         if (ty.getNamespace(mod) == null) {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
@@ -3713,10 +3714,10 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     var queue_linker_work = true;
     var is_func = false;
     var is_inline = false;
-    switch (decl_tv.val.toIntern()) {
+    switch (decl_val.toIntern()) {
         .generic_poison => unreachable,
         .unreachable_value => unreachable,
-        else => switch (ip.indexToKey(decl_tv.val.toIntern())) {
+        else => switch (ip.indexToKey(decl_val.toIntern())) {
             .variable => |variable| {
                 decl.owns_tv = variable.decl == decl_index;
                 queue_linker_work = decl.owns_tv;
@@ -3731,7 +3732,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
             .func => |func| {
                 decl.owns_tv = func.owner_decl == decl_index;
                 queue_linker_work = false;
-                is_inline = decl.owns_tv and decl_tv.ty.fnCallingConvention(mod) == .Inline;
+                is_inline = decl.owns_tv and decl_ty.fnCallingConvention(mod) == .Inline;
                 is_func = decl.owns_tv;
             },
 
@@ -3739,7 +3740,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         },
     }
 
-    decl.val = decl_tv.val;
+    decl.val = decl_val;
     // Function linksection, align, and addrspace were already set by Sema
     if (!is_func) {
         decl.alignment = blk: {
@@ -3762,7 +3763,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
             break :blk section.toOptional();
         };
         decl.@"addrspace" = blk: {
-            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_tv.val.toIntern())) {
+            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
                 .variable => .variable,
                 .extern_func, .func => .function,
                 else => .constant,
@@ -3784,10 +3785,10 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     decl.analysis = .complete;
 
     const result: SemaDeclResult = if (old_has_tv) .{
-        .invalidate_decl_val = !decl_tv.ty.eql(old_ty, mod) or
-            !decl.val.eql(old_val, decl_tv.ty, mod) or
+        .invalidate_decl_val = !decl_ty.eql(old_ty, mod) or
+            !decl.val.eql(old_val, decl_ty, mod) or
             is_inline != old_is_inline,
-        .invalidate_decl_ref = !decl_tv.ty.eql(old_ty, mod) or
+        .invalidate_decl_ref = !decl_ty.eql(old_ty, mod) or
             decl.alignment != old_align or
             decl.@"linksection" != old_linksection or
             decl.@"addrspace" != old_addrspace or
@@ -3797,11 +3798,11 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .invalidate_decl_ref = true,
     };
 
-    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl_tv.ty));
+    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl_ty));
     if (has_runtime_bits) {
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
-        try sema.resolveTypeFully(decl_tv.ty);
+        try sema.resolveTypeFully(decl_ty);
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 

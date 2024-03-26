@@ -249,12 +249,12 @@ pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 
                 .int => |int| Value.fromInterned(int).getUnsignedIntAdvanced(mod, opt_sema),
                 .elem => |elem| {
                     const base_addr = (try Value.fromInterned(elem.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
-                    const elem_ty = Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod);
+                    const elem_ty = Value.fromInterned(elem.base).typeOf(mod).elemType2(mod);
                     return base_addr + elem.index * elem_ty.abiSize(mod);
                 },
                 .field => |field| {
                     const base_addr = (try Value.fromInterned(field.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
-                    const struct_ty = Type.fromInterned(mod.intern_pool.typeOf(field.base)).childType(mod);
+                    const struct_ty = Value.fromInterned(field.base).typeOf(mod).childType(mod);
                     if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
                     return base_addr + struct_ty.structFieldOffset(@as(usize, @intCast(field.index)), mod);
                 },
@@ -1390,7 +1390,7 @@ pub fn elemPtr(
     };
     switch (mod.intern_pool.indexToKey(ptr_val.toIntern())) {
         .ptr => |ptr| switch (ptr.addr) {
-            .elem => |elem| if (Type.fromInterned(mod.intern_pool.typeOf(elem.base)).elemType2(mod).eql(elem_ty, mod))
+            .elem => |elem| if (Value.fromInterned(elem.base).typeOf(mod).elemType2(mod).eql(elem_ty, mod))
                 return Value.fromInterned((try mod.intern(.{ .ptr = .{
                     .ty = elem_ptr_ty.toIntern(),
                     .addr = .{ .elem = .{

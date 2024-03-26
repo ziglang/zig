@@ -1,3 +1,6 @@
+//! This type exists only for legacy purposes, and will be removed in the future.
+//! It is a thin wrapper around a `Value` which also, redundantly, stores its `Type`.
+
 const std = @import("std");
 const Type = @import("type.zig").Type;
 const Value = @import("Value.zig");
@@ -11,42 +14,6 @@ const Target = std.Target;
 
 ty: Type,
 val: Value,
-
-/// Memory management for TypedValue. The main purpose of this type
-/// is to be small and have a deinit() function to free associated resources.
-pub const Managed = struct {
-    /// If the tag value is less than Tag.no_payload_count, then no pointer
-    /// dereference is needed.
-    typed_value: TypedValue,
-    /// If this is `null` then there is no memory management needed.
-    arena: ?*std.heap.ArenaAllocator.State = null,
-
-    pub fn deinit(self: *Managed, allocator: Allocator) void {
-        if (self.arena) |a| a.promote(allocator).deinit();
-        self.* = undefined;
-    }
-};
-
-/// Assumes arena allocation. Does a recursive copy.
-pub fn copy(self: TypedValue, arena: Allocator) error{OutOfMemory}!TypedValue {
-    return TypedValue{
-        .ty = self.ty,
-        .val = try self.val.copy(arena),
-    };
-}
-
-pub fn eql(a: TypedValue, b: TypedValue, mod: *Module) bool {
-    if (a.ty.toIntern() != b.ty.toIntern()) return false;
-    return a.val.eql(b.val, a.ty, mod);
-}
-
-pub fn hash(tv: TypedValue, hasher: *std.hash.Wyhash, mod: *Module) void {
-    return tv.val.hash(tv.ty, hasher, mod);
-}
-
-pub fn intFromEnum(tv: TypedValue, mod: *Module) Allocator.Error!Value {
-    return tv.val.intFromEnum(tv.ty, mod);
-}
 
 const max_aggregate_items = 100;
 const max_string_len = 256;
@@ -72,7 +39,6 @@ pub fn format(
     };
 }
 
-/// Prints the Value according to the Type, not according to the Value Tag.
 pub fn print(
     tv: TypedValue,
     writer: anytype,

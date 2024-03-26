@@ -17,7 +17,7 @@ const Liveness = @import("Liveness.zig");
 const Module = @import("Module.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
+const Value = @import("Value.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 
 /// When adding a new field, remember to update `hashAddSystemLibs`.
@@ -376,14 +376,14 @@ pub const File = struct {
     /// Called from within the CodeGen to lower a local variable instantion as an unnamed
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
-    pub fn lowerUnnamedConst(base: *File, tv: TypedValue, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
+    pub fn lowerUnnamedConst(base: *File, val: Value, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
         if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .spirv => unreachable,
             .c => unreachable,
             .nvptx => unreachable,
             inline else => |t| {
-                return @fieldParentPtr(t.Type(), "base", base).lowerUnnamedConst(tv, decl_index);
+                return @fieldParentPtr(t.Type(), "base", base).lowerUnnamedConst(val, decl_index);
             },
         }
     }

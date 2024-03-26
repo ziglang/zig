@@ -18,7 +18,6 @@ const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
 const LazySrcLoc = std.zig.LazySrcLoc;
 const link = @import("../../link.zig");
-const TypedValue = @import("../../TypedValue.zig");
 const Air = @import("../../Air.zig");
 const Liveness = @import("../../Liveness.zig");
 const target_util = @import("../../target.zig");
@@ -805,7 +804,7 @@ fn resolveInst(func: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     // In the other cases, we will simply lower the constant to a value that fits
     // into a single local (such as a pointer, integer, bool, etc).
     const result = if (isByRef(ty, mod)) blk: {
-        const sym_index = try func.bin_file.lowerUnnamedConst(.{ .ty = ty, .val = val }, func.decl_index);
+        const sym_index = try func.bin_file.lowerUnnamedConst(val, func.decl_index);
         break :blk WValue{ .memory = sym_index };
     } else try func.lowerConstant(val, ty);
 
@@ -3119,10 +3118,7 @@ fn lowerParentPtr(func: *CodeGen, ptr_val: Value, offset: u32) InnerError!WValue
 }
 
 fn lowerParentPtrDecl(func: *CodeGen, ptr_val: Value, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
-    const ptr_ty = try mod.singleMutPtrType(decl.typeOf(mod));
-    return func.lowerDeclRefValue(.{ .ty = ptr_ty, .val = ptr_val }, decl_index, offset);
+    return func.lowerDeclRefValue(ptr_val, decl_index, offset);
 }
 
 fn lowerAnonDeclRef(
@@ -3157,7 +3153,7 @@ fn lowerAnonDeclRef(
     } else return WValue{ .memory_offset = .{ .pointer = target_sym_index, .offset = offset } };
 }
 
-fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
+fn lowerDeclRefValue(func: *CodeGen, val: Value, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
 
     const decl = mod.declPtr(decl_index);
@@ -3165,11 +3161,11 @@ fn lowerDeclRefValue(func: *CodeGen, tv: TypedValue, decl_index: InternPool.Decl
     // want to lower the actual decl, rather than the alias itself.
     if (decl.val.getFunction(mod)) |func_val| {
         if (func_val.owner_decl != decl_index) {
-            return func.lowerDeclRefValue(tv, func_val.owner_decl, offset);
+            return func.lowerDeclRefValue(val, func_val.owner_decl, offset);
         }
     } else if (decl.val.getExternFunc(mod)) |func_val| {
         if (func_val.decl != decl_index) {
-            return func.lowerDeclRefValue(tv, func_val.decl, offset);
+            return func.lowerDeclRefValue(val, func_val.decl, offset);
         }
     }
     const decl_ty = decl.typeOf(mod);
@@ -3280,23 +3276,23 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         },
         .error_union => |error_union| {
             const err_int_ty = try mod.errorIntType();
-            const err_tv: TypedValue = switch (error_union.val) {
+            const err_ty, const err_val = switch (error_union.val) {
                 .err_name => |err_name| .{
-                    .ty = ty.errorUnionSet(mod),
-                    .val = Value.fromInterned((try mod.intern(.{ .err = .{
+                    ty.errorUnionSet(mod),
+                    Value.fromInterned((try mod.intern(.{ .err = .{
                         .ty = ty.errorUnionSet(mod).toIntern(),
                         .name = err_name,
                     } }))),
                 },
                 .payload => .{
-                    .ty = err_int_ty,
-                    .val = try mod.intValue(err_int_ty, 0),
+                    err_int_ty,
+                    try mod.intValue(err_int_ty, 0),
                 },
             };
             const payload_type = ty.errorUnionPayload(mod);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
                 // We use the error type directly as the type.
-                return func.lowerConstant(err_tv.val, err_tv.ty);
+                return func.lowerConstant(err_val, err_ty);
             }
 
             return func.fail("Wasm TODO: lowerConstant error union with non-zero-bit payload type", .{});
@@ -3320,10 +3316,10 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 .elem, .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
                 .comptime_field, .comptime_alloc => unreachable,
             };
-            return .{ .memory = try func.bin_file.lowerUnnamedConst(.{ .ty = ty, .val = val }, owner_decl) };
+            return .{ .memory = try func.bin_file.lowerUnnamedConst(val, owner_decl) };
         },
         .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| return func.lowerDeclRefValue(.{ .ty = ty, .val = val }, decl, 0),
+            .decl => |decl| return func.lowerDeclRefValue(val, decl, 0),
             .int => |int| return func.lowerConstant(Value.fromInterned(int), Type.fromInterned(ip.typeOf(int))),
             .opt_payload, .elem, .field => return func.lowerParentPtr(val, 0),
             .anon_decl => |ad| return func.lowerAnonDeclRef(ad, 0),
@@ -7285,7 +7281,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
             .storage = .{ .bytes = tag_name },
         } });
         const tag_sym_index = try func.bin_file.lowerUnnamedConst(
-            .{ .ty = name_ty, .val = Value.fromInterned(name_val) },
+            Value.fromInterned(name_val),
             enum_decl_index,
         );
 

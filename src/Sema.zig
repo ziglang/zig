@@ -175,7 +175,6 @@ const Sema = @This();
 const Value = @import("Value.zig");
 const MutableValue = @import("mutable_value.zig").MutableValue;
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
 const Air = @import("Air.zig");
 const Zir = std.zig.Zir;
 const Module = @import("Module.zig");
@@ -1708,7 +1707,7 @@ fn analyzeBodyInner(
                     .needed_comptime_reason = "condition in comptime branch must be comptime-known",
                     .block_comptime_reason = block.comptime_reason,
                 });
-                const inline_body = if (cond.val.toBool()) then_body else else_body;
+                const inline_body = if (cond.toBool()) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
 
@@ -1728,7 +1727,7 @@ fn analyzeBodyInner(
                     .needed_comptime_reason = "condition in comptime branch must be comptime-known",
                     .block_comptime_reason = block.comptime_reason,
                 });
-                const inline_body = if (cond.val.toBool()) then_body else else_body;
+                const inline_body = if (cond.toBool()) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
                 const old_runtime_index = block.runtime_index;
@@ -2179,13 +2178,9 @@ fn resolveInstConst(
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
     reason: NeededComptimeReason,
-) CompileError!TypedValue {
+) CompileError!Value {
     const air_ref = try sema.resolveInst(zir_ref);
-    const val = try sema.resolveConstDefinedValue(block, src, air_ref, reason);
-    return .{
-        .ty = sema.typeOf(air_ref),
-        .val = val,
-    };
+    return sema.resolveConstDefinedValue(block, src, air_ref, reason);
 }
 
 /// Value Tag may be `undef` or `variable`.
@@ -2194,7 +2189,7 @@ pub fn resolveFinalDeclValue(
     block: *Block,
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
-) CompileError!TypedValue {
+) CompileError!Value {
     const val = try sema.resolveValueAllowVariables(air_ref) orelse {
         return sema.failWithNeededComptime(block, src, .{
             .needed_comptime_reason = "global variable initializer must be comptime-known",
@@ -2204,10 +2199,7 @@ pub fn resolveFinalDeclValue(
     if (val.canMutateComptimeVarState(sema.mod)) {
         return sema.fail(block, src, "global variable contains reference to comptime var", .{});
     }
-    return .{
-        .ty = sema.typeOf(air_ref),
-        .val = val,
-    };
+    return val;
 }
 
 fn failWithNeededComptime(sema: *Sema, block: *Block, src: LazySrcLoc, reason: NeededComptimeReason) CompileError {
@@ -6414,7 +6406,7 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const options = try sema.resolveExportOptions(block, options_src, extra.options);
     if (options.linkage == .internal)
         return;
-    if (operand.val.getFunction(mod)) |function| {
+    if (operand.getFunction(mod)) |function| {
         const decl_index = function.owner_decl;
         return sema.analyzeExport(block, src, options, decl_index);
     }
@@ -6424,7 +6416,7 @@ fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         .src = src,
         .owner_decl = sema.owner_decl_index,
         .src_decl = block.src_decl,
-        .exported = .{ .value = operand.val.toIntern() },
+        .exported = .{ .value = operand.toIntern() },
         .status = .in_progress,
     });
 }
@@ -25831,7 +25823,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_ret_ty_ref) blk: {
         const ret_ty_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
-        const ret_ty_tv = sema.resolveInstConst(block, ret_src, ret_ty_ref, .{
+        const ret_ty_val = sema.resolveInstConst(block, ret_src, ret_ty_ref, .{
             .needed_comptime_reason = "return type must be comptime-known",
         }) catch |err| switch (err) {
             error.GenericPoison => {
@@ -25839,8 +25831,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
             },
             else => |e| return e,
         };
-        const ty = ret_ty_tv.val.toType();
-        break :blk ty;
+        break :blk ret_ty_val.toType();
     } else Type.void;
 
     const noalias_bits: u32 = if (extra.data.bits.has_any_noalias) blk: {

@@ -32,7 +32,7 @@ const Module = @import("../Module.zig");
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Type = @import("../type.zig").Type;
-const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../Value.zig");
 const ZigObject = @import("Wasm/ZigObject.zig");
 
 pub const Atom = @import("Wasm/Atom.zig");
@@ -1504,8 +1504,8 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Lowers a constant typed value to a local symbol and atom.
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(wasm: *Wasm, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
-    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, tv, decl_index);
+pub fn lowerUnnamedConst(wasm: *Wasm, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, val, decl_index);
 }
 
 /// Returns the symbol index from a symbol of which its flag is set global,

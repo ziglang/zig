@@ -7,7 +7,6 @@ const Module = @import("Module.zig");
 const Zcu = Module;
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
-const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;

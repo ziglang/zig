@@ -18,7 +18,6 @@ const Module = @import("../Module.zig");
 const Zcu = Module;
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
-const TypedValue = @import("../TypedValue.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
@@ -4823,19 +4822,17 @@ pub const FuncGen = struct {
 
         const o = self.dg.object;
         const mod = o.module;
-        const llvm_val = try self.resolveValue(.{
-            .ty = self.typeOf(inst),
-            .val = (try self.air.value(inst, mod)).?,
-        });
+        const llvm_val = try self.resolveValue((try self.air.value(inst, mod)).?);
         gop.value_ptr.* = llvm_val.toValue();
         return llvm_val.toValue();
     }
 
-    fn resolveValue(self: *FuncGen, tv: TypedValue) Error!Builder.Constant {
+    fn resolveValue(self: *FuncGen, val: Value) Error!Builder.Constant {
         const o = self.dg.object;
         const mod = o.module;
-        const llvm_val = try o.lowerValue(tv.val.toIntern());
-        if (!isByRef(tv.ty, mod)) return llvm_val;
+        const ty = val.typeOf(mod);
+        const llvm_val = try o.lowerValue(val.toIntern());
+        if (!isByRef(ty, mod)) return llvm_val;
 
         // We have an LLVM value but we need to create a global constant and
         // set the value as its initializer, and then return a pointer to the global.
@@ -4849,7 +4846,7 @@ pub const FuncGen = struct {
         variable_index.setLinkage(.private, &o.builder);
         variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
-        variable_index.setAlignment(tv.ty.abiAlignment(mod).toLlvm(), &o.builder);
+        variable_index.setAlignment(ty.abiAlignment(mod).toLlvm(), &o.builder);
         return o.builder.convConst(
             .unneeded,
             variable_index.toConst(&o.builder),
@@ -4861,11 +4858,10 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const mod = o.module;
         if (o.null_opt_usize == .no_init) {
-            const ty = try mod.intern(.{ .opt_type = .usize_type });
-            o.null_opt_usize = try self.resolveValue(.{
-                .ty = Type.fromInterned(ty),
-                .val = Value.fromInterned((try mod.intern(.{ .opt = .{ .ty = ty, .val = .none } }))),
-            });
+            o.null_opt_usize = try self.resolveValue(Value.fromInterned(try mod.intern(.{ .opt = .{
+                .ty = try mod.intern(.{ .opt_type = .usize_type }),
+                .val = .none,
+            } })));
         }
         return o.null_opt_usize;
     }
@@ -10061,10 +10057,7 @@ pub const FuncGen = struct {
                     const elem_ptr = try self.wip.gep(.inbounds, llvm_result_ty, alloca_inst, &.{
                         usize_zero, try o.builder.intValue(llvm_usize, array_info.len),
                     }, "");
-                    const llvm_elem = try self.resolveValue(.{
-                        .ty = array_info.elem_type,
-                        .val = sent_val,
-                    });
+                    const llvm_elem = try self.resolveValue(sent_val);
                     try self.store(elem_ptr, elem_ptr_ty, llvm_elem.toValue(), .none);
                 }
 

@@ -12,7 +12,7 @@ const builtin = @import("builtin");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
 const InternPool = @import("../../InternPool.zig");
-const TypedValue = @import("../../TypedValue.zig");
+const Value = @import("../../Value.zig");
 const ErrorMsg = Module.ErrorMsg;
 const codegen = @import("../../codegen.zig");
 const Air = @import("../../Air.zig");
@@ -4118,12 +4118,12 @@ fn genStoreASI(self: *Self, value_reg: Register, addr_reg: Register, off_reg: Re
     }
 }
 
-fn genTypedValue(self: *Self, typed_value: TypedValue) InnerError!MCValue {
+fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
     const mod = self.bin_file.comp.module.?;
     const mcv: MCValue = switch (try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
-        typed_value,
+        val,
         mod.funcOwnerDeclIndex(self.func_index),
     )) {
         .mcv => |mcv| switch (mcv) {
@@ -4546,10 +4546,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
         return self.getResolvedInstValue(inst);
     }
 
-    return self.genTypedValue(.{
-        .ty = ty,
-        .val = (try self.air.value(ref, mod)).?,
-    });
+    return self.genTypedValue((try self.air.value(ref, mod)).?);
 }
 
 fn ret(self: *Self, mcv: MCValue) !void {

@@ -270,7 +270,7 @@ pub fn updateDecl(
     const res = try codegen.generateSymbol(
         &wasm_file.base,
         decl.srcLoc(mod),
-        .{ .ty = decl.typeOf(mod), .val = val },
+        val,
         &code_writer,
         .none,
         .{ .parent_atom_index = @intFromEnum(atom.sym_index) },
@@ -444,15 +444,12 @@ pub fn lowerAnonDecl(
     const gpa = wasm_file.base.comp.gpa;
     const gop = try zig_object.anon_decls.getOrPut(gpa, decl_val);
     if (!gop.found_existing) {
-        const mod = wasm_file.base.comp.module.?;
-        const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
-        const tv: TypedValue = .{ .ty = ty, .val = Value.fromInterned(decl_val) };
         var name_buf: [32]u8 = undefined;
         const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
             @intFromEnum(decl_val),
         }) catch unreachable;
 
-        switch (try zig_object.lowerConst(wasm_file, name, tv, src_loc)) {
+        switch (try zig_object.lowerConst(wasm_file, name, Value.fromInterned(decl_val), src_loc)) {
             .ok => |atom_index| zig_object.anon_decls.values()[gop.index] = atom_index,
             .fail => |em| return .{ .fail = em },
         }
@@ -472,10 +469,10 @@ pub fn lowerAnonDecl(
 /// Lowers a constant typed value to a local symbol and atom.
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
+pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
-    std.debug.assert(tv.ty.zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
+    std.debug.assert(val.typeOf(mod).zigTypeTag(mod) != .Fn); // cannot create local symbols for functions
     const decl = mod.declPtr(decl_index);
 
     const parent_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
@@ -487,7 +484,7 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, tv: TypedValu
     });
     defer gpa.free(name);
 
-    switch (try zig_object.lowerConst(wasm_file, name, tv, decl.srcLoc(mod))) {
+    switch (try zig_object.lowerConst(wasm_file, name, val, decl.srcLoc(mod))) {
         .ok => |atom_index| {
             try wasm_file.getAtomPtr(parent_atom_index).locals.append(gpa, atom_index);
             return @intFromEnum(wasm_file.getAtom(atom_index).sym_index);
@@ -505,9 +502,11 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, tv: TypedValue, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, val: Value, src_loc: Module.SrcLoc) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
     const mod = wasm_file.base.comp.module.?;
+
+    const ty = val.typeOf(mod);
 
     // Create and initialize a new local symbol and atom
     const sym_index = try zig_object.allocateSymbol(gpa);
@@ -517,7 +516,7 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, tv: Ty
 
     const code = code: {
         const atom = wasm_file.getAtomPtr(atom_index);
-        atom.alignment = tv.ty.abiAlignment(mod);
+        atom.alignment = ty.abiAlignment(mod);
         const segment_name = try std.mem.concat(gpa, u8, &.{ ".rodata.", name });
         errdefer gpa.free(segment_name);
         zig_object.symbol(sym_index).* = .{
@@ -527,7 +526,7 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, tv: Ty
             .index = try zig_object.createDataSegment(
                 gpa,
                 segment_name,
-                tv.ty.abiAlignment(mod),
+                ty.abiAlignment(mod),
             ),
             .virtual_address = undefined,
         };
@@ -535,7 +534,7 @@ fn lowerConst(zig_object: *ZigObject, wasm_file: *Wasm, name: []const u8, tv: Ty
         const result = try codegen.generateSymbol(
             &wasm_file.base,
             src_loc,
-            tv,
+            val,
             &value_bytes,
             .none,
             .{
@@ -1242,7 +1241,6 @@ const Module = @import("../../Module.zig");
 const StringTable = @import("../StringTable.zig");
 const Symbol = @import("Symbol.zig");
 const Type = @import("../../type.zig").Type;
-const TypedValue = @import("../../TypedValue.zig");
 const Value = @import("../../Value.zig");
 const Wasm = @import("../Wasm.zig");
 const ZigObject = @This();
