@@ -102,11 +102,10 @@ pub fn print(
         .enum_tag => |enum_tag| {
             const enum_type = ip.loadEnumType(val.typeOf(mod).toIntern());
             if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
-                try writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
-                return;
+                return writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
             }
             if (level == 0) {
-                try writer.writeAll("@enumFromInt(...)");
+                return writer.writeAll("@enumFromInt(...)");
             }
             try writer.writeAll("@enumFromInt(");
             try print(Value.fromInterned(enum_tag.int), writer, level - 1, mod, opt_sema);
@@ -128,7 +127,11 @@ pub fn print(
             }
             try printPtr(slice.ptr, writer, false, false, 0, level, mod, opt_sema);
             try writer.writeAll("[0..");
-            try print(Value.fromInterned(slice.len), writer, level - 1, mod, opt_sema);
+            if (level == 0) {
+                try writer.writeAll("(...)");
+            } else {
+                try print(Value.fromInterned(slice.len), writer, level - 1, mod, opt_sema);
+            }
             try writer.writeAll("]");
         },
         .ptr => {
@@ -147,7 +150,7 @@ pub fn print(
             .none => try writer.writeAll("null"),
             else => |payload| try print(Value.fromInterned(payload), writer, level, mod, opt_sema),
         },
-        .aggregate => |aggregate| try printAggregate(val, aggregate, writer, level, mod, opt_sema),
+        .aggregate => |aggregate| try printAggregate(val, aggregate, writer, level, false, mod, opt_sema),
         .un => |un| {
             if (level == 0) {
                 try writer.writeAll(".{ ... }");
@@ -175,6 +178,7 @@ fn printAggregate(
     aggregate: InternPool.Key.Aggregate,
     writer: anytype,
     level: u8,
+    is_ref: bool,
     zcu: *Zcu,
     opt_sema: ?*Sema,
 ) (@TypeOf(writer).Error || Module.CompileError)!void {
@@ -185,6 +189,7 @@ fn printAggregate(
     const ty = Type.fromInterned(aggregate.ty);
     switch (ty.zigTypeTag(zcu)) {
         .Struct => if (!ty.isTuple(zcu)) {
+            if (is_ref) try writer.writeByte('&');
             if (ty.structFieldCount(zcu) == 0) {
                 return writer.writeAll(".{}");
             }
@@ -199,12 +204,29 @@ fn printAggregate(
             try writer.writeAll(" }");
             return;
         },
-        .Array => if (aggregate.storage == .bytes) {
-            return writer.print("\"{}\".*", .{std.zig.fmtEscapes(aggregate.storage.bytes)});
+        .Array => if (aggregate.storage == .bytes and aggregate.storage.bytes.len > 0) {
+            const skip_terminator = aggregate.storage.bytes[aggregate.storage.bytes.len - 1] == 0;
+            const bytes = if (skip_terminator) b: {
+                break :b aggregate.storage.bytes[0 .. aggregate.storage.bytes.len - 1];
+            } else aggregate.storage.bytes;
+            try writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
+            if (!is_ref) try writer.writeAll(".*");
+            return;
         } else if (ty.arrayLen(zcu) == 0) {
+            if (is_ref) try writer.writeByte('&');
             return writer.writeAll(".{}");
+        } else if (ty.arrayLen(zcu) == 1) one_byte_str: {
+            // The repr isn't `bytes`, but we might still be able to print this as a string
+            if (ty.childType(zcu).toIntern() != .u8_type) break :one_byte_str;
+            const elem_val = Value.fromInterned(aggregate.storage.values()[0]);
+            if (elem_val.isUndef(zcu)) break :one_byte_str;
+            const byte = elem_val.toUnsignedInt(zcu);
+            try writer.print("\"{}\"", .{std.zig.fmtEscapes(&.{@intCast(byte)})});
+            if (!is_ref) try writer.writeAll(".*");
+            return;
         },
         .Vector => if (ty.arrayLen(zcu) == 0) {
+            if (is_ref) try writer.writeByte('&');
             return writer.writeAll(".{}");
         },
         else => unreachable,
@@ -212,6 +234,7 @@ fn printAggregate(
 
     const len = ty.arrayLen(zcu);
 
+    if (is_ref) try writer.writeByte('&');
     try writer.writeAll(".{ ");
 
     const max_len = @min(len, max_aggregate_items);
@@ -246,6 +269,9 @@ fn printPtr(
         .ptr => |ptr| ptr,
         else => unreachable,
     };
+    if (level == 0) {
+        return writer.writeAll("&...");
+    }
     switch (ptr.addr) {
         .int => |int| {
             if (force_addrof) try writer.writeAll("&");
@@ -265,11 +291,22 @@ fn printPtr(
             try zcu.declPtr(index).renderFullyQualifiedName(zcu, writer);
         },
         .comptime_alloc => try writer.writeAll("&(comptime alloc)"),
-        .anon_decl => |anon| {
-            const ty = Type.fromInterned(ip.typeOf(anon.val));
-            try writer.print("&@as({}, ", .{ty.fmt(zcu)});
-            try print(Value.fromInterned(anon.val), writer, level - 1, zcu, opt_sema);
-            try writer.writeAll(")");
+        .anon_decl => |anon| switch (ip.indexToKey(anon.val)) {
+            .aggregate => |aggregate| try printAggregate(
+                Value.fromInterned(anon.val),
+                aggregate,
+                writer,
+                level - 1,
+                true,
+                zcu,
+                opt_sema,
+            ),
+            else => {
+                const ty = Type.fromInterned(ip.typeOf(anon.val));
+                try writer.print("&@as({}, ", .{ty.fmt(zcu)});
+                try print(Value.fromInterned(anon.val), writer, level - 1, zcu, opt_sema);
+                try writer.writeAll(")");
+            },
         },
         .comptime_field => |val| {
             const ty = Type.fromInterned(ip.typeOf(val));
