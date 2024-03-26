@@ -22,7 +22,6 @@ const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
@@ -4827,40 +4826,18 @@ pub fn errorSetBits(mod: *Module) u16 {
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
 }
 
-pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
-    const src_decl = mod.declPtr(block.src_decl);
-    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, typed_value);
-}
-
-pub fn createAnonymousDeclFromDecl(
-    mod: *Module,
-    src_decl: *Decl,
-    namespace: Namespace.Index,
-    tv: TypedValue,
-) !Decl.Index {
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node);
-    errdefer mod.destroyDecl(new_decl_index);
-    const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
-        src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
-    });
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, tv, name);
-    return new_decl_index;
-}
-
 pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
     src_line: u32,
-    typed_value: TypedValue,
+    val: Value,
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
-    assert(typed_value.ty.toIntern() == mod.intern_pool.typeOf(typed_value.val.toIntern()));
-
     const new_decl = mod.declPtr(new_decl_index);
 
     new_decl.name = name;
     new_decl.src_line = src_line;
-    new_decl.val = typed_value.val;
+    new_decl.val = val;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
@@ -5391,7 +5368,7 @@ pub fn populateTestFunctions(
     const decl = mod.declPtr(decl_index);
     const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
-    const array_decl_index = d: {
+    const array_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = array: {
         // Add mod.test_functions to an array decl then make the test_functions
         // decl reference it as a slice.
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
@@ -5401,21 +5378,20 @@ pub fn populateTestFunctions(
             const test_decl = mod.declPtr(test_decl_index);
             const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(try test_decl.fullyQualifiedName(mod)));
             defer gpa.free(test_decl_name);
-            const test_name_decl_index = n: {
-                const test_name_decl_ty = try mod.arrayType(.{
+            const test_name_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = n: {
+                const test_name_ty = try mod.arrayType(.{
                     .len = test_decl_name.len,
                     .child = .u8_type,
                 });
-                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
-                    .ty = test_name_decl_ty,
-                    .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                        .ty = test_name_decl_ty.toIntern(),
-                        .storage = .{ .bytes = test_decl_name },
-                    } }))),
-                });
-                break :n test_name_decl_index;
+                const test_name_val = try mod.intern(.{ .aggregate = .{
+                    .ty = test_name_ty.toIntern(),
+                    .storage = .{ .bytes = test_decl_name },
+                } });
+                break :n .{
+                    .orig_ty = (try mod.singleConstPtrType(test_name_ty)).toIntern(),
+                    .val = test_name_val,
+                };
             };
-            try mod.linkerUpdateDecl(test_name_decl_index);
 
             const test_fn_fields = .{
                 // name
@@ -5423,7 +5399,7 @@ pub fn populateTestFunctions(
                     .ty = .slice_const_u8_type,
                     .ptr = try mod.intern(.{ .ptr = .{
                         .ty = .manyptr_const_u8_type,
-                        .addr = .{ .decl = test_name_decl_index },
+                        .addr = .{ .anon_decl = test_name_anon_decl },
                     } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
@@ -5447,22 +5423,20 @@ pub fn populateTestFunctions(
             } });
         }
 
-        const array_decl_ty = try mod.arrayType(.{
+        const array_ty = try mod.arrayType(.{
             .len = test_fn_vals.len,
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
-            .ty = array_decl_ty,
-            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                .ty = array_decl_ty.toIntern(),
-                .storage = .{ .elems = test_fn_vals },
-            } }))),
-        });
-
-        break :d array_decl_index;
+        const array_val = try mod.intern(.{ .aggregate = .{
+            .ty = array_ty.toIntern(),
+            .storage = .{ .elems = test_fn_vals },
+        } });
+        break :array .{
+            .orig_ty = (try mod.singleConstPtrType(array_ty)).toIntern(),
+            .val = array_val,
+        };
     };
-    try mod.linkerUpdateDecl(array_decl_index);
 
     {
         const new_ty = try mod.ptrType(.{
@@ -5477,7 +5451,7 @@ pub fn populateTestFunctions(
             .ty = new_ty.toIntern(),
             .ptr = try mod.intern(.{ .ptr = .{
                 .ty = new_ty.slicePtrFieldType(mod).toIntern(),
-                .addr = .{ .decl = array_decl_index },
+                .addr = .{ .anon_decl = array_anon_decl },
             } }),
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });

@@ -2825,10 +2825,14 @@ fn zirStructDecl(
     });
     errdefer wip_ty.cancel(ip);
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = Value.fromInterned(wip_ty.index),
-    }, small.name_strategy, "struct", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        Value.fromInterned(wip_ty.index),
+        small.name_strategy,
+        "struct",
+        inst,
+    );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -2861,7 +2865,7 @@ fn createAnonymousDeclTypeNamed(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    typed_value: TypedValue,
+    val: Value,
     name_strategy: Zir.Inst.NameStrategy,
     anon_prefix: []const u8,
     inst: ?Zir.Inst.Index,
@@ -2887,12 +2891,12 @@ fn createAnonymousDeclTypeNamed(
             const name = mod.intern_pool.getOrPutStringFmt(gpa, "{}__{s}_{d}", .{
                 src_decl.name.fmt(&mod.intern_pool), anon_prefix, @intFromEnum(new_decl_index),
             }) catch unreachable;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
+            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .parent => {
             const name = mod.declPtr(block.src_decl).name;
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
+            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .func => {
@@ -2915,7 +2919,7 @@ fn createAnonymousDeclTypeNamed(
                     // function and the name doesn't matter since it will later
                     // result in a compile error.
                     const arg_val = sema.resolveConstValue(block, .unneeded, arg, undefined) catch
-                        return sema.createAnonymousDeclTypeNamed(block, src, typed_value, .anon, anon_prefix, null);
+                        return sema.createAnonymousDeclTypeNamed(block, src, val, .anon, anon_prefix, null);
 
                     if (arg_i != 0) try writer.writeByte(',');
                     try writer.print("{}", .{arg_val.fmtValue(sema.typeOf(arg), sema.mod)});
@@ -2928,7 +2932,7 @@ fn createAnonymousDeclTypeNamed(
 
             try writer.writeByte(')');
             const name = try mod.intern_pool.getOrPutString(gpa, buf.items);
-            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
+            try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2943,12 +2947,12 @@ fn createAnonymousDeclTypeNamed(
                         src_decl.name.fmt(&mod.intern_pool), zir_data[i].str_op.getStr(sema.code),
                     });
 
-                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, typed_value, name);
+                    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, val, name);
                     return new_decl_index;
                 },
                 else => {},
             };
-            return sema.createAnonymousDeclTypeNamed(block, src, typed_value, .anon, anon_prefix, null);
+            return sema.createAnonymousDeclTypeNamed(block, src, val, .anon, anon_prefix, null);
         },
     }
 }
@@ -3048,10 +3052,14 @@ fn zirEnumDecl(
 
     errdefer if (!done) wip_ty.cancel(ip);
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = Value.fromInterned(wip_ty.index),
-    }, small.name_strategy, "enum", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        Value.fromInterned(wip_ty.index),
+        small.name_strategy,
+        "enum",
+        inst,
+    );
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer if (!done) mod.abortAnonDecl(new_decl_index);
@@ -3315,10 +3323,14 @@ fn zirUnionDecl(
     });
     errdefer wip_ty.cancel(ip);
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = Value.fromInterned(wip_ty.index),
-    }, small.name_strategy, "union", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        Value.fromInterned(wip_ty.index),
+        small.name_strategy,
+        "union",
+        inst,
+    );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -3399,10 +3411,14 @@ fn zirOpaqueDecl(
     };
     errdefer wip_ty.cancel(ip);
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = Value.fromInterned(wip_ty.index),
-    }, small.name_strategy, "opaque", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        Value.fromInterned(wip_ty.index),
+        small.name_strategy,
+        "opaque",
+        inst,
+    );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -3462,10 +3478,14 @@ fn zirErrorSetDecl(
 
     const error_set_ty = try mod.errorSetFromUnsortedNames(names.keys());
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = error_set_ty.toValue(),
-    }, name_strategy, "error", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        error_set_ty.toValue(),
+        name_strategy,
+        "error",
+        inst,
+    );
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
@@ -21490,10 +21510,14 @@ fn zirReify(
             };
             errdefer wip_ty.cancel(ip);
 
-            const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-                .ty = Type.type,
-                .val = Value.fromInterned(wip_ty.index),
-            }, name_strategy, "opaque", inst);
+            const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+                block,
+                src,
+                Value.fromInterned(wip_ty.index),
+                name_strategy,
+                "opaque",
+                inst,
+            );
             mod.declPtr(new_decl_index).owns_tv = true;
             errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -21686,10 +21710,14 @@ fn reifyEnum(
         return sema.fail(block, src, "Type.Enum.tag_type must be an integer type", .{});
     }
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = Value.fromInterned(wip_ty.index),
-    }, name_strategy, "enum", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        Value.fromInterned(wip_ty.index),
+        name_strategy,
+        "enum",
+        inst,
+    );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -21829,10 +21857,14 @@ fn reifyUnion(
     };
     errdefer wip_ty.cancel(ip);
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = Value.fromInterned(wip_ty.index),
-    }, name_strategy, "union", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        Value.fromInterned(wip_ty.index),
+        name_strategy,
+        "union",
+        inst,
+    );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -22084,10 +22116,14 @@ fn reifyStruct(
         .auto => {},
     };
 
-    const new_decl_index = try sema.createAnonymousDeclTypeNamed(block, src, .{
-        .ty = Type.type,
-        .val = Value.fromInterned(wip_ty.index),
-    }, name_strategy, "struct", inst);
+    const new_decl_index = try sema.createAnonymousDeclTypeNamed(
+        block,
+        src,
+        Value.fromInterned(wip_ty.index),
+        name_strategy,
+        "struct",
+        inst,
+    );
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer mod.abortAnonDecl(new_decl_index);
 
@@ -26139,9 +26175,10 @@ fn zirBuiltinExtern(
     const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace, sema.owner_decl.src_node);
     errdefer mod.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
-    try mod.initNewAnonDecl(new_decl_index, sema.owner_decl.src_line, .{
-        .ty = Type.fromInterned(ptr_info.child),
-        .val = Value.fromInterned(
+    try mod.initNewAnonDecl(
+        new_decl_index,
+        sema.owner_decl.src_line,
+        Value.fromInterned(
             if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
                 try ip.getExternFunc(sema.gpa, .{
                     .ty = ptr_info.child,
@@ -26160,7 +26197,8 @@ fn zirBuiltinExtern(
                     .is_weak_linkage = options.linkage == .weak,
                 } }),
         ),
-    }, options.name);
+        options.name,
+    );
     new_decl.owns_tv = true;
     // Note that this will queue the anon decl for codegen, so that the backend can
     // correctly handle the extern, including duplicate detection.
@@ -37381,10 +37419,12 @@ fn generateUnionTagTypeNumbered(
     errdefer mod.destroyDecl(new_decl_index);
     const fqn = try union_owner_decl.fullyQualifiedName(mod);
     const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
-        .ty = Type.noreturn,
-        .val = Value.@"unreachable",
-    }, name);
+    try mod.initNewAnonDecl(
+        new_decl_index,
+        src_decl.src_line,
+        Value.@"unreachable",
+        name,
+    );
     errdefer mod.abortAnonDecl(new_decl_index);
 
     const new_decl = mod.declPtr(new_decl_index);
@@ -37425,10 +37465,12 @@ fn generateUnionTagTypeSimple(
         const new_decl_index = try mod.allocateNewDecl(block.namespace, src_decl.src_node);
         errdefer mod.destroyDecl(new_decl_index);
         const name = try ip.getOrPutStringFmt(gpa, "@typeInfo({}).Union.tag_type.?", .{fqn.fmt(ip)});
-        try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, .{
-            .ty = Type.noreturn,
-            .val = Value.@"unreachable",
-        }, name);
+        try mod.initNewAnonDecl(
+            new_decl_index,
+            src_decl.src_line,
+            Value.@"unreachable",
+            name,
+        );
         mod.declPtr(new_decl_index).name_fully_qualified = true;
         break :new_decl_index new_decl_index;
     };
