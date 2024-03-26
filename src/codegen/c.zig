@@ -2657,7 +2657,7 @@ fn genExports(o: *Object) !void {
         .anon, .flush => return,
     };
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = Value.fromInterned((try decl.internValue(mod))) };
+    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = decl.val };
     const fwd = o.dg.fwdDeclWriter();
 
     const exports = mod.decl_exports.get(decl_index) orelse return;
@@ -2894,7 +2894,7 @@ pub fn genDecl(o: *Object) !void {
     const mod = o.dg.module;
     const decl_index = o.dg.pass.decl;
     const decl = mod.declPtr(decl_index);
-    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = Value.fromInterned((try decl.internValue(mod))) };
+    const tv: TypedValue = .{ .ty = decl.typeOf(mod), .val = decl.val };
 
     if (!tv.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) return;
     if (tv.val.getExternFunc(mod)) |_| {

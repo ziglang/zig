@@ -12258,7 +12258,7 @@ fn genCall(self: *Self, info: union(enum) {
             switch (switch (func_key) {
                 else => func_key,
                 .ptr => |ptr| switch (ptr.addr) {
-                    .decl => |decl| mod.intern_pool.indexToKey(try mod.declPtr(decl).internValue(mod)),
+                    .decl => |decl| mod.intern_pool.indexToKey(mod.declPtr(decl).val.toIntern()),
                     else => func_key,
                 },
             }) {

@@ -2481,7 +2481,7 @@ pub const Type = struct {
                         }
                         const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
                         if (try field_ty.onePossibleValue(mod)) |field_opv| {
-                            field_val.* = try field_opv.intern(field_ty, mod);
+                            field_val.* = field_opv.toIntern();
                         } else return null;
                     }
 

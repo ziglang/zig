@@ -497,13 +497,6 @@ pub const Decl = struct {
         };
     }
 
-    pub fn internValue(decl: *Decl, zcu: *Zcu) Allocator.Error!InternPool.Index {
-        assert(decl.has_tv);
-        const ip_index = try decl.val.intern(decl.typeOf(zcu), zcu);
-        decl.val = Value.fromInterned(ip_index);
-        return ip_index;
-    }
-
     pub fn isFunction(decl: Decl, zcu: *const Zcu) !bool {
         const tv = try decl.typedValue(zcu);
         return tv.ty.zigTypeTag(zcu) == .Fn;
@@ -3763,7 +3756,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         },
     }
 
-    decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
+    decl.val = decl_tv.val;
     // Function linksection, align, and addrspace were already set by Sema
     if (!is_func) {
         decl.alignment = blk: {
@@ -5623,8 +5616,6 @@ pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
 pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
     if (decl.alive) return;
     decl.alive = true;
-
-    _ = try decl.internValue(mod);
 
     // This is the first time we are marking this Decl alive. We must
     // therefore recurse into its value and mark any Decl it references

@@ -925,7 +925,7 @@ fn genDeclRef(
     const ptr_bits = target.ptrBitWidth();
     const ptr_bytes: u64 = @divExact(ptr_bits, 8);
 
-    const decl_index = switch (zcu.intern_pool.indexToKey(try ptr_decl.internValue(zcu))) {
+    const decl_index = switch (zcu.intern_pool.indexToKey(ptr_decl.val.toIntern())) {
         .func => |func| func.owner_decl,
         .extern_func => |extern_func| extern_func.decl,
         else => ptr_decl_index,
