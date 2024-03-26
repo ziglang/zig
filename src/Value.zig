@@ -787,12 +787,12 @@ pub fn readFromPackedMemory(
             if (bits == 0) return mod.intValue(ty, 0);
 
             // Fast path for integers <= u64
-            if (bits <= 64) {
-                return mod.intValue(
-                    ty,
-                    std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, int_info.signedness),
-                );
-            }
+            if (bits <= 64) switch (int_info.signedness) {
+                // Use different backing types for unsigned vs signed to avoid the need to go via
+                // a larger type like `i128`.
+                .unsigned => return mod.intValue(ty, std.mem.readVarPackedInt(u64, buffer, bit_offset, bits, endian, .unsigned)),
+                .signed => return mod.intValue(ty, std.mem.readVarPackedInt(i64, buffer, bit_offset, bits, endian, .signed)),
+            };
 
             // Slow path, we have to construct a big-int
             const abi_size = @as(usize, @intCast(ty.abiSize(mod)));
