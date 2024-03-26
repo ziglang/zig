@@ -31,5 +31,5 @@ pub fn main() !void {}
 // :20:5: error: found compile log statement
 //
 // Compile Log Output:
-// @as([]i32, .{ (reinterpreted data) })
-// @as([]i32, .{ (reinterpreted data) })
+// @as([]i32, &(comptime alloc).buf[0..2])
+// @as([]i32, &(comptime alloc).buf[0..2])
