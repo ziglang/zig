@@ -159,6 +159,14 @@
 # define __KERNEL_STRICT_NAMES
 #endif
 
+/* Major and minor version number of the GNU C library package.  Use
+   these macros to test for features in specific releases.  */
+#define	__GLIBC__	2
+/* Zig patch: we pass `-D__GLIBC_MINOR__=XX` depending on the target. */
+
+#define __GLIBC_PREREQ(maj, min) \
+	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
+
 /* Convenience macro to test the version of gcc.
    Use like this:
    #if __GNUC_PREREQ (2,8)
@@ -460,7 +468,10 @@
    instance, with GCC, -std=gnu11 will have C99-compliant scanf with
    or without -D_GNU_SOURCE, but -std=c89 -D_GNU_SOURCE will have the
    old extension.  */
-#if (defined __USE_GNU							\
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ < 7)
+/* support for ISOC99 was added in glibc-2.7 */
+# define __GLIBC_USE_DEPRECATED_SCANF 1
+#elif (defined __USE_GNU							\
      && (defined __cplusplus						\
 	 ? (__cplusplus < 201103L && !defined __GXX_EXPERIMENTAL_CXX0X__) \
 	 : (!defined __STDC_VERSION__ || __STDC_VERSION__ < 199901L)))
@@ -500,14 +511,6 @@
    the sonames of the shared libraries.  */
 #undef  __GNU_LIBRARY__
 #define __GNU_LIBRARY__ 6
-
-/* Major and minor version number of the GNU C library package.  Use
-   these macros to test for features in specific releases.  */
-#define	__GLIBC__	2
-/* Zig patch: we pass `-D__GLIBC_MINOR__=XX` depending on the target. */
-
-#define __GLIBC_PREREQ(maj, min) \
-	((__GLIBC__ << 16) + __GLIBC_MINOR__ >= ((maj) << 16) + (min))
 
 /* This is here only because every header file already includes this one.  */
 #ifndef __ASSEMBLER__
