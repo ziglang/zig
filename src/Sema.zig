@@ -26660,13 +26660,12 @@ fn prepareSimplePanic(sema: *Sema, block: *Block) !void {
         // decl_index may be an alias; we must find the decl that actually
         // owns the function.
         try sema.ensureDeclAnalyzed(decl_index);
-        const tv = try mod.declPtr(decl_index).typedValue(mod);
+        const fn_val = try mod.declPtr(decl_index).valueOrFail();
         try sema.declareDependency(.{ .decl_val = decl_index });
-        assert(tv.ty.zigTypeTag(mod) == .Fn);
-        assert(try sema.fnHasRuntimeBits(tv.ty));
-        const func_index = tv.val.toIntern();
-        try mod.ensureFuncBodyAnalysisQueued(func_index);
-        mod.panic_func_index = func_index;
+        assert(fn_val.typeOf(mod).zigTypeTag(mod) == .Fn);
+        assert(try sema.fnHasRuntimeBits(fn_val.typeOf(mod)));
+        try mod.ensureFuncBodyAnalysisQueued(fn_val.toIntern());
+        mod.panic_func_index = fn_val.toIntern();
     }
 
     if (mod.null_stack_trace == .none) {
@@ -32449,8 +32448,8 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
     const mod = sema.mod;
     try sema.ensureDeclAnalyzed(decl_index);
 
-    const decl_tv = try mod.declPtr(decl_index).typedValue(mod);
-    const owner_decl = mod.declPtr(switch (mod.intern_pool.indexToKey(decl_tv.val.toIntern())) {
+    const decl_val = try mod.declPtr(decl_index).valueOrFail();
+    const owner_decl = mod.declPtr(switch (mod.intern_pool.indexToKey(decl_val.toIntern())) {
         .variable => |variable| variable.decl,
         .extern_func => |extern_func| extern_func.decl,
         .func => |func| func.owner_decl,
@@ -32459,10 +32458,10 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
     // TODO: if this is a `decl_ref` of a non-variable decl, only depend on decl type
     try sema.declareDependency(.{ .decl_val = decl_index });
     const ptr_ty = try sema.ptrType(.{
-        .child = decl_tv.ty.toIntern(),
+        .child = decl_val.typeOf(mod).toIntern(),
         .flags = .{
             .alignment = owner_decl.alignment,
-            .is_const = if (decl_tv.val.getVariable(mod)) |variable| variable.is_const else true,
+            .is_const = if (decl_val.getVariable(mod)) |variable| variable.is_const else true,
             .address_space = owner_decl.@"addrspace",
         },
     });
@@ -32478,12 +32477,10 @@ fn analyzeDeclRefInner(sema: *Sema, decl_index: InternPool.DeclIndex, analyze_fn
 fn maybeQueueFuncBodyAnalysis(sema: *Sema, decl_index: InternPool.DeclIndex) !void {
     const mod = sema.mod;
     const decl = mod.declPtr(decl_index);
-    const tv = try decl.typedValue(mod);
-    if (tv.ty.zigTypeTag(mod) != .Fn) return;
-    if (!try sema.fnHasRuntimeBits(tv.ty)) return;
-    const func_index = tv.val.toIntern();
-    if (!mod.intern_pool.isFuncBody(func_index)) return; // undef or extern function
-    try mod.ensureFuncBodyAnalysisQueued(func_index);
+    const decl_val = try decl.valueOrFail();
+    if (!mod.intern_pool.isFuncBody(decl_val.toIntern())) return;
+    if (!try sema.fnHasRuntimeBits(decl_val.typeOf(mod))) return;
+    try mod.ensureFuncBodyAnalysisQueued(decl_val.toIntern());
 }
 
 fn analyzeRef(
@@ -39049,7 +39046,6 @@ fn sliceToIpString(
     reason: NeededComptimeReason,
 ) CompileError!InternPool.NullTerminatedString {
     const zcu = sema.mod;
-    const ip = &zcu.intern_pool;
     const slice_ty = slice_val.typeOf(zcu);
     assert(slice_ty.isSlice(zcu));
     assert(slice_ty.childType(zcu).toIntern() == .u8_type);

@@ -480,17 +480,11 @@ pub const Decl = struct {
         return decl.val.typeOf(zcu);
     }
 
-    pub fn typedValue(decl: Decl, zcu: *const Zcu) error{AnalysisFail}!TypedValue {
+    /// Small wrapper for Sema to use over direct access to the `val` field.
+    /// If the value is not populated, instead returns `error.AnalysisFail`.
+    pub fn valueOrFail(decl: Decl) error{AnalysisFail}!Value {
         if (!decl.has_tv) return error.AnalysisFail;
-        return .{
-            .ty = decl.typeOf(zcu),
-            .val = decl.val,
-        };
-    }
-
-    pub fn isFunction(decl: Decl, zcu: *const Zcu) !bool {
-        const tv = try decl.typedValue(zcu);
-        return tv.ty.zigTypeTag(zcu) == .Fn;
+        return decl.val;
     }
 
     /// If the Decl owns its value and it is a struct, return it,

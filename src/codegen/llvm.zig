@@ -1762,7 +1762,7 @@ pub const Object = struct {
             const decl_name = decl_name: {
                 const decl_name = mod.intern_pool.stringToSlice(decl.name);
 
-                if (mod.getTarget().isWasm() and try decl.isFunction(mod)) {
+                if (mod.getTarget().isWasm() and decl.val.typeOf(mod).zigTypeTag(mod) == .Fn) {
                     if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                         if (!std.mem.eql(u8, lib_name, "c")) {
                             break :decl_name try self.builder.strtabStringFmt("{s}|{s}", .{ decl_name, lib_name });
