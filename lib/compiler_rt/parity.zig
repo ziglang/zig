@@ -8,9 +8,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__paritysi2, .{ .name = "__paritysi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__paritydi2, .{ .name = "__paritydi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__parityti2, .{ .name = "__parityti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__paritysi2, .{ .name = "__paritysi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__paritydi2, .{ .name = "__paritydi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__parityti2, .{ .name = "__parityti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __paritysi2(a: i32) callconv(.C) i32 {

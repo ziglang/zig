@@ -15,24 +15,24 @@ const arm = @import("arm.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__divmodti4, .{ .name = "__divmodti4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divmodti4, .{ .name = "__divmodti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_aeabi) {
-        @export(__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__divsi3, .{ .name = "__divsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__divsi3, .{ .name = "__divsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__divdi3, .{ .name = "__divdi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__modsi3, .{ .name = "__modsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__moddi3, .{ .name = "__moddi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divdi3, .{ .name = "__divdi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__modsi3, .{ .name = "__modsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__moddi3, .{ .name = "__moddi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __divmodti4(a: i128, b: i128, rem: *i128) callconv(.C) i128 {

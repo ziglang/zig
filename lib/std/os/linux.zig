@@ -394,7 +394,7 @@ const extern_getauxval = switch (builtin.zig_backend) {
 
 comptime {
     if (extern_getauxval) {
-        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+        @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
     }
 }
 

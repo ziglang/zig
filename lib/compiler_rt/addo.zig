@@ -5,9 +5,9 @@ const common = @import("./common.zig");
 pub const panic = @import("common.zig").panic;
 
 comptime {
-    @export(__addosi4, .{ .name = "__addosi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__addodi4, .{ .name = "__addodi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__addoti4, .{ .name = "__addoti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__addosi4, .{ .name = "__addosi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__addodi4, .{ .name = "__addodi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__addoti4, .{ .name = "__addoti4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // addo - add overflow

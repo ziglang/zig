@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__exp2h, .{ .name = "__exp2h", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp2f, .{ .name = "exp2f", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp2, .{ .name = "exp2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__exp2x, .{ .name = "__exp2x", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__exp2h, .{ .name = "__exp2h", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2f, .{ .name = "exp2f", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2, .{ .name = "exp2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__exp2x, .{ .name = "__exp2x", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(exp2q, .{ .name = "exp2f128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&exp2q, .{ .name = "exp2f128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(exp2q, .{ .name = "exp2q", .linkage = common.linkage, .visibility = common.visibility });
-    @export(exp2l, .{ .name = "exp2l", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2q, .{ .name = "exp2q", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&exp2l, .{ .name = "exp2l", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __exp2h(x: f16) callconv(.C) f16 {

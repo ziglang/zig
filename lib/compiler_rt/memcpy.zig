@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 
 comptime {
     if (builtin.object_format != .c) {
-        @export(memcpy, .{ .name = "memcpy", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&memcpy, .{ .name = "memcpy", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

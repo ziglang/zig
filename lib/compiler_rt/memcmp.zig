@@ -2,7 +2,7 @@ const std = @import("std");
 const common = @import("./common.zig");
 
 comptime {
-    @export(memcmp, .{ .name = "memcmp", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&memcmp, .{ .name = "memcmp", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn memcmp(vl: [*]const u8, vr: [*]const u8, n: usize) callconv(.C) c_int {

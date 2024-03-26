@@ -7,11 +7,11 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_dcmpge, .{ .name = "__aeabi_dcmpge", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__aeabi_dcmpgt, .{ .name = "__aeabi_dcmpgt", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_dcmpge, .{ .name = "__aeabi_dcmpge", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_dcmpgt, .{ .name = "__aeabi_dcmpgt", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__gedf2, .{ .name = "__gedf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__gtdf2, .{ .name = "__gtdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__gedf2, .{ .name = "__gedf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__gtdf2, .{ .name = "__gtdf2", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

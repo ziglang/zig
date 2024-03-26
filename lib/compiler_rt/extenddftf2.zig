@@ -5,11 +5,11 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_ppc_abi) {
-        @export(__extenddftf2, .{ .name = "__extenddfkf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__extenddftf2, .{ .name = "__extenddfkf2", .linkage = common.linkage, .visibility = common.visibility });
     } else if (common.want_sparc_abi) {
-        @export(_Qp_dtoq, .{ .name = "_Qp_dtoq", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&_Qp_dtoq, .{ .name = "_Qp_dtoq", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__extenddftf2, .{ .name = "__extenddftf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__extenddftf2, .{ .name = "__extenddftf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __extenddftf2(a: f64) callconv(.C) f128 {

@@ -5,9 +5,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__bswapsi2, .{ .name = "__bswapsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__bswapdi2, .{ .name = "__bswapdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__bswapti2, .{ .name = "__bswapti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bswapsi2, .{ .name = "__bswapsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bswapdi2, .{ .name = "__bswapdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bswapti2, .{ .name = "__bswapti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // bswap - byteswap

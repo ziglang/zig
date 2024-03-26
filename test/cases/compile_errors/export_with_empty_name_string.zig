@@ -1,6 +1,6 @@
 pub export fn entry() void {}
 comptime {
-    @export(entry, .{ .name = "" });
+    @export(&entry, .{ .name = "" });
 }
 
 // error

@@ -10,9 +10,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__subosi4, .{ .name = "__subosi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__subodi4, .{ .name = "__subodi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__suboti4, .{ .name = "__suboti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__subosi4, .{ .name = "__subosi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__subodi4, .{ .name = "__subodi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__suboti4, .{ .name = "__suboti4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __subosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
