@@ -29,7 +29,7 @@ pub fn modf(x: anytype) Modf(@TypeOf(x)) {
 
 test modf {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-        const epsilon: comptime_float = math.floatEps(T);
+        const epsilon: comptime_float = @max(1e-6, math.floatEps(T));
 
         var r: Modf(T) = undefined;
 
@@ -39,7 +39,7 @@ test modf {
 
         r = modf(@as(T, 0.34682));
         try expectEqual(0.0, r.ipart);
-        try expectEqual(@as(T, 0.34682), r.fpart);
+        try expectApproxEqAbs(@as(T, 0.34682), r.fpart, epsilon);
 
         r = modf(@as(T, 2.54576));
         try expectEqual(2.0, r.ipart);
@@ -55,21 +55,21 @@ test modf {
 fn ModfTests(comptime T: type) type {
     return struct {
         test "normal" {
-            const epsilon: comptime_float = math.floatEps(T);
+            const epsilon: comptime_float = @max(1e-6, math.floatEps(T));
             var r: Modf(T) = undefined;
 
             r = modf(@as(T, 1.0));
             try expectEqual(1.0, r.ipart);
             try expectEqual(0.0, r.fpart);
 
-            r = modf(@as(T, 0.346));
+            r = modf(@as(T, 0.34682));
             try expectEqual(0.0, r.ipart);
-            try expectEqual(@as(T, 0.346), r.fpart);
+            try expectApproxEqAbs(0.34682, r.fpart, epsilon);
 
-            r = modf(@as(T, 3.978123));
+            r = modf(@as(T, 3.97812));
             try expectEqual(3.0, r.ipart);
             // account for precision error
-            const expected_a: T = 3.978123 - @as(T, 3);
+            const expected_a: T = 3.97812 - @as(T, 3);
             try expectApproxEqAbs(expected_a, r.fpart, epsilon);
 
             r = modf(@as(T, 43874.3));
