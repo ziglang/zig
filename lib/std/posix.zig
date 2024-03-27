@@ -4684,11 +4684,13 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
 
 pub const MSyncError = error{
     UnmappedMemory,
+    AccessDenied,
 } || UnexpectedError;
 
 pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
+        .EPERM => AccessDenied,
         .NOMEM => return error.UnmappedMemory, // Unsuccessful, provided pointer does not point mapped memory
         .INVAL => unreachable, // Invalid parameters.
         else => unreachable,
