@@ -1702,6 +1702,7 @@ pub const Object = struct {
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
+            .switch_dispatch_tables = .{},
         };
         defer fg.deinit();
         deinit_wip = false;
@@ -4796,6 +4797,19 @@ pub const FuncGen = struct {
 
     sync_scope: Builder.SyncScope,
 
+    switch_dispatch_tables: std.AutoHashMapUnmanaged(
+        Air.Inst.Index,
+        DispatchTable,
+    ),
+
+    const DispatchTable = struct {
+        // Written if there is any indirectbr. Each position corresponds to some case. There can be duplicates.
+        aggrt: ?Builder.Constant = null,
+        addrs: []const Builder.WipFunction.Block.Index,
+        // Used as argument in indirectbr. All values are unique.
+        dests: []const Builder.WipFunction.Block.Index,
+    };
+
     const BreakList = union {
         list: std.MultiArrayList(struct {
             bb: Builder.Function.Block.Index,
@@ -4808,6 +4822,7 @@ pub const FuncGen = struct {
         self.wip.deinit();
         self.func_inst_table.deinit(self.gpa);
         self.blocks.deinit(self.gpa);
+        self.switch_dispatch_tables.deinit(self.gpa);
     }
 
     fn todo(self: *FuncGen, comptime format: []const u8, args: anytype) Error {
@@ -4983,6 +4998,8 @@ pub const FuncGen = struct {
                 .block          => try self.airBlock(inst),
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
+                .switch_directbr => try self.airSwitchDirectBr(inst),
+                .switch_indirectbr => try self.airSwitchIndirectBr(inst),
                 .trap           => try self.airTrap(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
@@ -5984,6 +6001,52 @@ pub const FuncGen = struct {
         return .none;
     }
 
+    fn airSwitchDirectBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        const o = self.dg.object;
+        const data = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
+        const switch_inst = data.block_inst;
+        const operand = Value.fromInterned(data.operand.toInterned().?).toUnsignedInt(o.module);
+        const switch_table = self.switch_dispatch_tables.get(switch_inst).?;
+        const case_block = switch_table.addrs[operand];
+        _ = try self.wip.br(case_block);
+        self.wip.blocks.items[@intFromEnum(case_block)].incoming += 1;
+
+        return .none;
+    }
+
+    fn airSwitchIndirectBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        var b = self.dg.object.builder;
+        const data = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
+        const llvm_item = try self.resolveInst(data.operand);
+        const dispatch = self.switch_dispatch_tables.get(inst).?;
+        const aggrt = dispatch.aggrt.?;
+        const base = aggrt.getBase(&b).toConst().toValue();
+
+        const aggrt_ty = aggrt.typeOf(&b);
+        const item_ty = llvm_item.typeOf(self.wip.function, &b);
+        const loaded_item = try self.wip.load(
+            .normal,
+            item_ty,
+            llvm_item,
+            Builder.Alignment.fromByteUnits(1),
+            "",
+        );
+
+        const sext_item = try self.wip.cast(.sext, loaded_item, .i64, "");
+        const addr = try self.wip.gep(.inbounds, aggrt_ty, base, &.{sext_item}, "");
+        const loaded_addr = try self.wip.load(
+            .normal,
+            try b.intType(std.math.log2_int(usize, dispatch.addrs.len)),
+            addr,
+            Builder.Alignment.fromByteUnits(8),
+            "",
+        );
+
+        _ = try self.wip.indirectBr(loaded_addr, dispatch.dests);
+
+        return .none;
+    }
+
     fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
         const mod = o.module;
@@ -6095,6 +6158,14 @@ pub const FuncGen = struct {
         else
             cond;
 
+        var wip_addrs = std.ArrayList(Builder.WipFunction.Block.Index).init(self.gpa);
+        var wip_dests = std.ArrayList(Builder.WipFunction.Block.Index).init(self.gpa);
+        try wip_dests.ensureTotalCapacity(switch_br.data.cases_len + 1);
+        if (switch_br.data.dispatchMode().hasAnyDispatch()) {
+            try wip_addrs.ensureTotalCapacity(switch_br.data.cardinal());
+            wip_addrs.appendNTimesAssumeCapacity(else_block, switch_br.data.cardinal());
+        }
+
         var extra_index: usize = switch_br.end;
         var case_i: u32 = 0;
         var llvm_cases_len: u32 = 0;
@@ -6105,7 +6176,58 @@ pub const FuncGen = struct {
             const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
             extra_index = case.end + case.data.items_len + case_body.len;
 
+            const case_block = try self.wip.block(@intCast(items.len), "Case");
+            wip_dests.appendAssumeCapacity(case_block);
+
             llvm_cases_len += @intCast(items.len);
+        }
+        wip_dests.appendAssumeCapacity(else_block);
+
+        if (switch_br.data.dispatchMode().hasAnyDispatch()) {
+            extra_index = switch_br.end;
+            case_i = 0;
+            while (case_i < switch_br.data.cases_len) : (case_i += 1) {
+                const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
+                const items: []const Air.Inst.Ref =
+                    @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
+                const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
+                extra_index = case.end + case.data.items_len + case_body.len;
+
+                const case_block = wip_dests.items[case_i];
+
+                for (items) |item| {
+                    const value = Value.fromInterned(item.toInterned().?).toUnsignedInt(o.module);
+                    wip_addrs.items[value] = case_block;
+                }
+            }
+        }
+
+        var aggregate: ?Builder.Constant = null;
+        if (switch_br.data.dispatchMode().hasIndirectDispatches()) {
+            const indices = wip_addrs.items;
+            var blockaddresses = std.ArrayList(Builder.Value).init(self.gpa);
+            defer blockaddresses.deinit();
+            try blockaddresses.ensureTotalCapacity(indices.len);
+            for (indices) |i| {
+                const addr = try o.builder.blockAddrValue(self.wip.function, i);
+                blockaddresses.appendAssumeCapacity(addr);
+            }
+            aggregate = (try self.wip.buildAggregate(
+                try o.builder.arrayType(indices.len, .ptr),
+                blockaddresses.items,
+                "dispatch_table",
+            )).toConst().?;
+            const base = aggregate.?.getBase(&o.builder);
+            base.setUnnamedAddr(.unnamed_addr, &o.builder);
+            base.setLinkage(.internal, &o.builder);
+        }
+        const dispatch_table: DispatchTable = .{
+            .aggrt = aggregate,
+            .addrs = try wip_addrs.toOwnedSlice(),
+            .dests = try wip_dests.toOwnedSlice(),
+        };
+        if (switch_br.data.dispatchMode().hasAnyDispatch()) {
+            try self.switch_dispatch_tables.put(self.gpa, @enumFromInt(switch_br.data.block_inst), dispatch_table);
         }
 
         var wip_switch = try self.wip.@"switch"(cond_int, else_block, llvm_cases_len);
@@ -6120,7 +6242,7 @@ pub const FuncGen = struct {
             const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
             extra_index = case.end + case.data.items_len + case_body.len;
 
-            const case_block = try self.wip.block(@intCast(items.len), "Case");
+            const case_block = dispatch_table.dests[case_i];
 
             for (items) |item| {
                 const llvm_item = (try self.resolveInst(item)).toConst().?;

@@ -417,7 +417,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 try self.verifyInst(inst);
             },
-            .br => {
+            .br, .switch_directbr, .switch_indirectbr => {
                 const br = data[@intFromEnum(inst)].br;
                 const gop = try self.blocks.getOrPut(self.gpa, br.block_inst);
 

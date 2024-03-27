@@ -1138,7 +1138,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .error_set_decl => return errorSetDecl(gz, ri, node),
         .array_access => return arrayAccess(gz, scope, ri, node),
         .@"comptime" => return comptimeExprAst(gz, scope, ri, node),
-        .@"switch", .switch_comma => return switchExpr(gz, scope, ri.br(), node),
+        .@"switch", .switch_comma => return switchExpr(gz, scope, ri.br(), node, tree.fullSwitch(node).?),
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, ri, node),
         .@"suspend" => return suspendExpr(gz, scope, node),
@@ -2226,6 +2226,7 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const break_label = node_datas[node].lhs;
+    const rhs = node_datas[node].rhs;
 
     // Look for the label in the scope.
     var scope = parent_scope;
@@ -2250,6 +2251,17 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                 if (break_label != 0) blk: {
                     if (gen_zir.label) |*label| {
                         if (try astgen.tokenIdentEql(label.token, break_label)) {
+                            const maybe_switch_tag = astgen.instructions.items(.tag)[@intFromEnum(label.block_inst)];
+                            if (rhs != 0) switch (maybe_switch_tag) {
+                                .switch_block, .switch_block_ref => {
+                                    gen_zir.any_dispatch = true;
+                                },
+                                else => return astgen.failNode(node, "cannot continue with operand", .{}),
+                            } else switch (maybe_switch_tag) {
+                                .switch_block, .switch_block_ref => return astgen.failNode(node, "cannot continue switch without operand", .{}),
+                                else => {},
+                            }
+
                             label.used = true;
                             break :blk;
                         }
@@ -2257,6 +2269,17 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                     // found continue but either it has a different label, or no label
                     scope = gen_zir.parent;
                     continue;
+                }
+
+                if (rhs != 0) {
+                    const operand = try reachableExpr(parent_gz, parent_scope, gen_zir.break_result_info, rhs, node);
+
+                    // As our last action before the continue, "pop" the error trace if needed
+                    if (!gen_zir.is_comptime)
+                        _ = try parent_gz.addRestoreErrRetIndex(.{ .block = continue_block }, .always, node);
+
+                    _ = try parent_gz.addBreakWithSrcNode(.switch_continue, continue_block, operand, rhs);
+                    return Zir.Inst.Ref.unreachable_value;
                 }
 
                 const break_tag: Zir.Inst.Tag = if (gen_zir.is_inline)
@@ -2842,6 +2865,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .panic,
             .trap,
             .check_comptime_control_flow,
+            .switch_continue,
             => {
                 noreturn_src_node = statement;
                 break :b true;
@@ -7568,7 +7592,8 @@ fn switchExpr(
     parent_gz: *GenZir,
     scope: *Scope,
     ri: ResultInfo,
-    switch_node: Ast.Node.Index,
+    node: Ast.Node.Index,
+    switch_full: Ast.full.Switch,
 ) InnerError!Zir.Inst.Ref {
     const astgen = parent_gz.astgen;
     const gpa = astgen.gpa;
@@ -7577,14 +7602,14 @@ fn switchExpr(
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
-    const operand_node = node_datas[switch_node].lhs;
-    const extra = tree.extraData(node_datas[switch_node].rhs, Ast.Node.SubRange);
+    const operand_node = node_datas[node].lhs;
+    const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SubRange);
     const case_nodes = tree.extra_data[extra.start..extra.end];
 
-    const need_rl = astgen.nodes_need_rl.contains(switch_node);
+    const need_rl = astgen.nodes_need_rl.contains(node);
     const block_ri: ResultInfo = if (need_rl) ri else .{
         .rl = switch (ri.rl) {
-            .ptr => .{ .ty = (try ri.rl.resultType(parent_gz, switch_node)).? },
+            .ptr => .{ .ty = (try ri.rl.resultType(parent_gz, node)).? },
             .inferred_ptr => .none,
             else => ri.rl,
         },
@@ -7594,6 +7619,10 @@ fn switchExpr(
     // result pointer and aren't forwarding it.
     const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
+
+    if (switch_full.label_token) |label_token| {
+        try astgen.checkLabelRedefinition(scope, label_token);
+    }
 
     // We perform two passes over the AST. This first pass is to collect information
     // for the following variables, make note of the special prong AST node index,
@@ -7636,7 +7665,7 @@ fn switchExpr(
                 );
             } else if (underscore_src) |some_underscore| {
                 return astgen.failNodeNotes(
-                    switch_node,
+                    node,
                     "else and '_' prong in switch expression",
                     .{},
                     &[_]u32{
@@ -7677,7 +7706,7 @@ fn switchExpr(
                 );
             } else if (else_src) |some_else| {
                 return astgen.failNodeNotes(
-                    switch_node,
+                    node,
                     "else and '_' prong in switch expression",
                     .{},
                     &[_]u32{
@@ -7747,7 +7776,15 @@ fn switchExpr(
     try emitDbgStmtForceCurrentIndex(parent_gz, operand_lc);
     // This gets added to the parent block later, after the item expressions.
     const switch_tag: Zir.Inst.Tag = if (any_payload_is_ref) .switch_block_ref else .switch_block;
-    const switch_block = try parent_gz.makeBlockInst(switch_tag, switch_node);
+    const switch_block = try parent_gz.makeBlockInst(switch_tag, node);
+
+    block_scope.continue_block = switch_block.toOptional();
+    if (switch_full.label_token) |label_token| {
+        block_scope.label = .{
+            .token = label_token,
+            .block_inst = switch_block,
+        };
+    }
 
     // We re-use this same scope for all cases, including the special prong, if any.
     var case_scope = parent_gz.makeSubBlock(&block_scope.base);
@@ -7969,6 +8006,7 @@ fn switchExpr(
             .has_under = special_prong == .under,
             .any_has_tag_capture = any_has_tag_capture,
             .scalar_cases_len = @intCast(scalar_cases_len),
+            .any_dispatch = block_scope.any_dispatch,
         },
     });
 
@@ -8004,7 +8042,7 @@ fn switchExpr(
     }
 
     if (need_result_rvalue) {
-        return rvalue(parent_gz, ri, switch_block.toRef(), switch_node);
+        return rvalue(parent_gz, ri, switch_block.toRef(), node);
     } else {
         return switch_block.toRef();
     }
@@ -11872,6 +11910,7 @@ const GenZir = struct {
     cur_defer_node: Ast.Node.Index = 0,
     // Set if this GenZir is a defer or it is inside a defer.
     any_defer_node: Ast.Node.Index = 0,
+    any_dispatch: bool = false,
 
     const unstacked_top = std.math.maxInt(usize);
     /// Call unstack before adding any new instructions to containing GenZir.

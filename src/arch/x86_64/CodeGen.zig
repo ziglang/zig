@@ -2123,6 +2123,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .field_parent_ptr => try self.airFieldParentPtr(inst),
 
             .switch_br       => try self.airSwitchBr(inst),
+            .switch_directbr => return self.fail("TODO: implement switch_directbr", .{}),
+            .switch_indirectbr => return self.fail("TODO: implement switch_indirectbr", .{}),
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
 
