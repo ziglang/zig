@@ -2196,8 +2196,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .work_group_size => unreachable,
             .work_group_id => unreachable,
 
-            .deposit_bits => try self.airDepositBits(inst),
-            .extract_bits => try self.airExtractBits(inst),
+            .deposit_bits,
+            .extract_bits,
+            => |tag| try self.airDepositExtractBits(inst, tag),
             // zig fmt: on
         }
 
@@ -5572,97 +5573,112 @@ fn airPtrSlicePtrPtr(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
-fn airDepositBits(self: *Self, inst: Air.Inst.Index) !void {
+fn airDepositExtractBits(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const mod = self.bin_file.comp.module.?;
 
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const lhs_mcv = try self.resolveInst(bin_op.lhs);
-    const rhs_mcv = try self.resolveInst(bin_op.rhs);
-    const dest_ty = self.typeOfIndex(inst);
 
+    const dest_ty = self.typeOfIndex(inst);
     const abi_size: u32 = @intCast(@max(dest_ty.abiSize(mod), 4));
 
-    if (!self.hasFeature(.bmi2) or abi_size > 8)
-        return self.fail("TODO implement depositBits without bmi2", .{});
+    const result = if (!self.hasFeature(.bmi2) or abi_size > 8)
+        try genDepositExtractBitsEmulated(self, inst, tag, bin_op.lhs, bin_op.rhs, dest_ty, abi_size)
+    else
+        try genDepositExtractBitsNative(self, inst, tag, bin_op.lhs, bin_op.rhs, dest_ty, abi_size);
 
-    var lhs_copied_to_dest = false;
-    const dest_mcv: MCValue = dest: {
-        if (rhs_mcv.isRegister() and self.reuseOperand(inst, bin_op.rhs, 1, rhs_mcv))
-            break :dest rhs_mcv;
-
-        if (lhs_mcv.isRegister() and self.reuseOperand(inst, bin_op.lhs, 0, lhs_mcv))
-            break :dest lhs_mcv;
-
-        lhs_copied_to_dest = true;
-        break :dest try self.copyToRegisterWithInstTracking(inst, dest_ty, lhs_mcv);
-    };
-
-    const lhs_lock: ?RegisterLock = switch (lhs_mcv) {
-        .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
-        else => null,
-    };
-    defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const rhs_lock: ?RegisterLock = switch (rhs_mcv) {
-        .register => |reg| self.register_manager.lockReg(reg),
-        else => null,
-    };
-    defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const dest_lock = self.register_manager.lockReg(dest_mcv.getReg().?);
-    defer if (dest_lock) |lock| self.register_manager.unlockReg(lock);
-
-    const dest_reg = registerAlias(dest_mcv.getReg().?, abi_size);
-    const lhs_reg = if (lhs_copied_to_dest) dest_reg else registerAlias(if (lhs_mcv.getReg()) |reg| reg else try self.copyToTmpRegister(dest_ty, lhs_mcv), abi_size);
-
-    if (rhs_mcv.isMemory()) {
-        try self.asmRegisterRegisterMemory(
-            .{ ._, .pdep },
-            dest_reg,
-            lhs_reg,
-            try rhs_mcv.mem(self, Memory.Size.fromSize(abi_size)),
-        );
-    } else {
-        const rhs_reg = registerAlias(
-            if (rhs_mcv.getReg()) |reg| reg else try self.copyToTmpRegister(dest_ty, rhs_mcv),
-            abi_size,
-        );
-
-        try self.asmRegisterRegisterRegister(
-            .{ ._, .pdep },
-            dest_reg,
-            lhs_reg,
-            rhs_reg,
-        );
-    }
-
-    return self.finishAir(inst, .{ .register = dest_reg }, .{ bin_op.lhs, bin_op.rhs, .none });
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airExtractBits(self: *Self, inst: Air.Inst.Index) !void {
+fn genDepositExtractBitsEmulated(
+    self: *Self,
+    inst: Air.Inst.Index,
+    tag: Air.Inst.Tag,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+    dest_ty: Type,
+    abi_size: u32,
+) !MCValue {
     const mod = self.bin_file.comp.module.?;
 
-    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const lhs_mcv = try self.resolveInst(bin_op.lhs);
-    const rhs_mcv = try self.resolveInst(bin_op.rhs);
-    const dest_ty = self.typeOfIndex(inst);
+    var callee_buf: ["__pdep_bigint".len]u8 = undefined;
+    const callee = std.fmt.bufPrint(&callee_buf, "__{s}_{s}", .{
+        switch (tag) {
+            .deposit_bits => "pdep",
+            .extract_bits => "pext",
+            else => unreachable,
+        },
+        switch (abi_size) {
+            0...4 => "u32",
+            5...8 => "u64",
+            9...16 => "u128",
+            else => "bigint",
+        },
+    }) catch unreachable;
 
-    const abi_size: u32 = @intCast(@max(dest_ty.abiSize(mod), 4));
+    if (abi_size <= 16) return try self.genCall(.{ .lib = .{
+        .return_type = dest_ty.toIntern(),
+        .param_types = &.{ dest_ty.toIntern(), dest_ty.toIntern() },
+        .callee = callee,
+    } }, &.{ dest_ty, dest_ty }, &.{ .{ .air_ref = lhs }, .{ .air_ref = rhs } });
 
-    if (!self.hasFeature(.bmi2) or abi_size > 8)
-        return self.fail("TODO implement extractBits without bmi2", .{});
+    const bit_count = dest_ty.intInfo(mod).bits;
 
-    var lhs_copied_to_dest = false;
-    const dest_mcv: MCValue = dest: {
-        if (rhs_mcv.isRegister() and self.reuseOperand(inst, bin_op.rhs, 1, rhs_mcv))
-            break :dest rhs_mcv;
+    const dest_mcv = try self.allocRegOrMemAdvanced(dest_ty, inst, false);
+    const lhs_mcv = try self.resolveInst(lhs);
+    const rhs_mcv = try self.resolveInst(rhs);
 
-        if (lhs_mcv.isRegister() and self.reuseOperand(inst, bin_op.lhs, 0, lhs_mcv))
-            break :dest lhs_mcv;
+    const manyptr_u32_ty = try mod.ptrType(.{
+        .child = .u32_type,
+        .flags = .{
+            .size = .Many,
+        },
+    });
+    const manyptr_const_u32_ty = try mod.ptrType(.{
+        .child = .u32_type,
+        .flags = .{
+            .size = .Many,
+            .is_const = true,
+        },
+    });
 
-        lhs_copied_to_dest = true;
-        break :dest try self.copyToRegisterWithInstTracking(inst, dest_ty, lhs_mcv);
-    };
+    _ = try self.genCall(.{ .lib = .{
+        .return_type = .void_type,
+        .param_types = &.{
+            manyptr_u32_ty.toIntern(),
+            manyptr_const_u32_ty.toIntern(),
+            manyptr_const_u32_ty.toIntern(),
+            .usize_type,
+        },
+        .callee = callee,
+    } }, &.{
+        manyptr_u32_ty,
+        manyptr_const_u32_ty,
+        manyptr_const_u32_ty,
+        Type.usize,
+    }, &.{
+        dest_mcv.address(),
+        lhs_mcv.address(),
+        rhs_mcv.address(),
+        .{ .immediate = bit_count },
+    });
+
+    return dest_mcv;
+}
+
+fn genDepositExtractBitsNative(
+    self: *Self,
+    inst: Air.Inst.Index,
+    tag: Air.Inst.Tag,
+    lhs: Air.Inst.Ref,
+    rhs: Air.Inst.Ref,
+    dest_ty: Type,
+    abi_size: u32,
+) !MCValue {
+    assert(self.hasFeature(.bmi2)); // BMI2 must be present for PEXT/PDEP instructions
+    assert(abi_size <= 8); // PEXT/PDEP only exist for 64-bit and below
+
+    const lhs_mcv = try self.resolveInst(lhs);
+    const rhs_mcv = try self.resolveInst(rhs);
 
     const lhs_lock: ?RegisterLock = switch (lhs_mcv) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
@@ -5676,34 +5692,47 @@ fn airExtractBits(self: *Self, inst: Air.Inst.Index) !void {
     };
     defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const dest_lock = self.register_manager.lockReg(dest_mcv.getReg().?);
+    const dest_mcv: MCValue, const dest_is_lhs = dest: {
+        if (rhs_mcv.isRegister() and self.reuseOperand(inst, rhs, 1, rhs_mcv))
+            break :dest .{ rhs_mcv, false };
+
+        if (lhs_mcv.isRegister() and self.reuseOperand(inst, lhs, 0, lhs_mcv))
+            break :dest .{ lhs_mcv, false };
+
+        break :dest .{ try self.copyToRegisterWithInstTracking(inst, dest_ty, lhs_mcv), true };
+    };
+
+    const dest_reg = dest_mcv.getReg().?;
+    const dest_lock = self.register_manager.lockReg(dest_reg);
     defer if (dest_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const dest_reg = registerAlias(dest_mcv.getReg().?, abi_size);
-    const lhs_reg = if (lhs_copied_to_dest) dest_reg else registerAlias(if (lhs_mcv.getReg()) |reg| reg else try self.copyToTmpRegister(dest_ty, lhs_mcv), abi_size);
+    const lhs_reg = if (dest_is_lhs) dest_reg else if (lhs_mcv.getReg()) |reg| reg else try self.copyToTmpRegister(dest_ty, lhs_mcv);
+
+    const mir_tag = Mir.Inst.FixedTag{ ._, switch (tag) {
+        .deposit_bits => .pdep,
+        .extract_bits => .pext,
+        else => unreachable,
+    } };
 
     if (rhs_mcv.isMemory()) {
         try self.asmRegisterRegisterMemory(
-            .{ ._, .pext },
-            dest_reg,
-            lhs_reg,
+            mir_tag,
+            registerAlias(dest_reg, abi_size),
+            registerAlias(lhs_reg, abi_size),
             try rhs_mcv.mem(self, Memory.Size.fromSize(abi_size)),
         );
     } else {
-        const rhs_reg = registerAlias(
-            if (rhs_mcv.getReg()) |reg| reg else try self.copyToTmpRegister(dest_ty, rhs_mcv),
-            abi_size,
-        );
+        const rhs_reg = if (rhs_mcv.getReg()) |reg| reg else try self.copyToTmpRegister(dest_ty, rhs_mcv);
 
         try self.asmRegisterRegisterRegister(
-            .{ ._, .pext },
-            dest_reg,
-            lhs_reg,
-            rhs_reg,
+            mir_tag,
+            registerAlias(dest_reg, abi_size),
+            registerAlias(lhs_reg, abi_size),
+            registerAlias(rhs_reg, abi_size),
         );
     }
 
-    return self.finishAir(inst, .{ .register = dest_reg }, .{ bin_op.lhs, bin_op.rhs, .none });
+    return dest_mcv;
 }
 
 fn elemOffset(self: *Self, index_ty: Type, index: MCValue, elem_size: u64) !Register {
