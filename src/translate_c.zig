@@ -7201,7 +7201,7 @@ const GotoContext = struct {
         variable: []const u8,
         inner_stmt: *const clang.Stmt,
         type: union(enum) {
-            simple: void,
+            simple,
 
             break_target: struct {
                 /// zig-label for the `from` statement (initialized late)
@@ -7629,7 +7629,7 @@ fn createGotoContextCombineStmts(
                     try branch_transformations.value_ptr.append(c.arena, GotoContext.Transformation{
                         .variable = variable.value_ptr.*,
                         .inner_stmt = label_branch.items[i],
-                        .type = .{ .simple = {} },
+                        .type = .simple,
                     });
                 }
 
