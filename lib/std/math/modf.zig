@@ -13,7 +13,6 @@ pub fn Modf(comptime T: type) type {
 
 /// Returns the integer and fractional floating-point numbers that sum to x. The sign of each
 /// result is the same as the sign of x.
-/// May be used with vectors of floating-point numbers
 /// In comptime, may be used with comptime_float
 ///
 /// Special Cases:
@@ -85,6 +84,41 @@ fn ModfTests(comptime T: type) type {
             // account for precision error
             const expected_c: T = 1234.340780 - @as(T, 1234);
             try expectApproxEqAbs(expected_c, r.fpart, epsilon);
+        }
+        test "vector" {
+            // Currently, a compiler bug is breaking the usage
+            // of @trunc on @Vector types
+
+            // TODO: Repopulate the below array and
+            // remove the skip statement once this
+            // bug is fixed
+
+            // const widths = [_]comptime_int{ 1, 2, 3, 4, 8, 16 };
+            const widths = [_]comptime_int{};
+
+            if (widths.len == 0)
+                return error.SkipZigTest;
+
+            inline for (widths) |len| {
+                const V: type = @Vector(len, T);
+                var r: Modf(V) = undefined;
+
+                r = modf(@as(V, @splat(1.0)));
+                try expectEqual(@as(V, @splat(1.0)), r.ipart);
+                try expectEqual(@as(V, @splat(0.0)), r.fpart);
+
+                r = modf(@as(V, @splat(2.75)));
+                try expectEqual(@as(V, @splat(2.0)), r.ipart);
+                try expectEqual(@as(V, @splat(0.75)), r.fpart);
+
+                r = modf(@as(V, @splat(0.2)));
+                try expectEqual(@as(V, @splat(0.0)), r.ipart);
+                try expectEqual(@as(V, @splat(0.2)), r.fpart);
+
+                r = modf(std.simd.iota(T, len) + @as(V, @splat(0.5)));
+                try expectEqual(std.simd.iota(T, len), r.ipart);
+                try expectEqual(@as(V, @splat(0.5)), r.fpart);
+            }
         }
         test "inf" {
             var r: Modf(T) = undefined;
