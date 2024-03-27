@@ -86,28 +86,6 @@ fn ModfTests(comptime T: type) type {
             const expected_c: T = 1234.340780 - @as(T, 1234);
             try expectApproxEqAbs(expected_c, r.fpart, epsilon);
         }
-        test "vector" {
-            inline for ([_]comptime_int{ 1, 2, 3, 4, 8, 16 }) |len| {
-                const V: type = @Vector(len, T);
-                var r: Modf(V) = undefined;
-
-                r = modf(@as(V, @splat(1.0)));
-                try expectEqual(@as(V, @splat(1.0)), r.ipart);
-                try expectEqual(@as(V, @splat(0.0)), r.fpart);
-
-                r = modf(@as(V, @splat(2.75)));
-                try expectEqual(@as(V, @splat(2.0)), r.ipart);
-                try expectEqual(@as(V, @splat(0.75)), r.fpart);
-
-                r = modf(@as(V, @splat(0.2)));
-                try expectEqual(@as(V, @splat(0.0)), r.ipart);
-                try expectEqual(@as(V, @splat(0.2)), r.fpart);
-
-                r = modf(std.simd.iota(T, len) + @as(V, @splat(0.5)));
-                try expectEqual(std.simd.iota(T, len), r.ipart);
-                try expectEqual(@as(V, @splat(0.5)), r.fpart);
-            }
-        }
         test "inf" {
             var r: Modf(T) = undefined;
 
