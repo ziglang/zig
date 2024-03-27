@@ -1885,6 +1885,33 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     unreachable; // Bad @dependencies source
 }
 
+pub fn dependencyFromBuildZig(
+    b: *Build,
+    /// The struct that corresponds to the build.zig of the dependency (usually
+    /// obtained by direct `@import` of the build.zig, or `@This` if called from
+    /// a function declared inside the build.zig itself).
+    comptime build_zig: type,
+    args: anytype,
+) *Dependency {
+    const build_runner = @import("root");
+    const deps = build_runner.dependencies;
+
+    find_dep: {
+        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+            const pkg_hash = decl.name;
+            const pkg = @field(deps.packages, pkg_hash);
+            if (@hasDecl(pkg, "build_zig") and pkg.build_zig == build_zig) break .{ pkg, pkg_hash };
+        } else break :find_dep;
+        const dep_name = for (b.available_deps) |dep| {
+            if (mem.eql(u8, dep[1], pkg_hash)) break dep[1];
+        } else break :find_dep;
+        return dependencyInner(b, dep_name, pkg.build_root, pkg.build_zig, pkg.deps, args);
+    }
+
+    const full_path = b.pathFromRoot("build.zig.zon");
+    debug.panic("'{}' is not a struct that corresponds to the build.zig of a dependecy in '{s}'", .{ build_zig, full_path });
+}
+
 pub fn anonymousDependency(
     b: *Build,
     /// The path to the directory containing the dependency's build.zig file,
