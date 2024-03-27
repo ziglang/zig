@@ -56,7 +56,10 @@ pub fn Excluding(comptime BaseErrorSet: type, comptime ToExcludeErrorSet: type) 
             remaining_error_count += 1;
         }
     }
-    return @Type(.{ .ErrorSet = remaining_error_buffer[0..remaining_error_count] });
+    var final_errors: [remaining_error_count]Type.Error = undefined;
+    @memcpy(&final_errors, remaining_error_buffer[0..remaining_error_count]);
+    const errors = final_errors;
+    return @Type(.{ .ErrorSet = &errors });
 }
 test Excluding {
     comptime {
@@ -106,7 +109,10 @@ pub fn Intersect(comptime ErrorSetA: type, comptime ErrorSetB: type) type {
             remaining_error_count += 1;
         }
     }
-    return @Type(.{ .ErrorSet = remaining_error_buffer[0..remaining_error_count] });
+    var final_errors: [remaining_error_count]Type.Error = undefined;
+    @memcpy(&final_errors, remaining_error_buffer[0..remaining_error_count]);
+    const errors = final_errors;
+    return @Type(.{ .ErrorSet = &errors });
 }
 test Intersect {
     comptime {
