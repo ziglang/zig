@@ -15,7 +15,6 @@ const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
-const TypedValue = @import("../TypedValue.zig");
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -177,7 +176,7 @@ pub const Atom = struct {
             return if (self.code_ptr) |p| p[0..self.other.code_len] else blk: {
                 const decl_index = self.other.decl_index;
                 const decl = mod.declPtr(decl_index);
-                if (decl.ty.zigTypeTag(mod) == .Fn) {
+                if (decl.typeOf(mod).zigTypeTag(mod) == .Fn) {
                     const table = plan9.fn_decl_table.get(decl.getFileScope(mod)).?.functions;
                     const output = table.get(decl_index).?;
                     break :blk output.code;
@@ -463,7 +462,7 @@ pub fn updateFunc(self: *Plan9, mod: *Module, func_index: InternPool.Index, air:
     return self.updateFinish(decl_index);
 }
 
-pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
+pub fn lowerUnnamedConst(self: *Plan9, val: Value, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.comp.gpa;
     _ = try self.seeDecl(decl_index);
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -500,7 +499,7 @@ pub fn lowerUnnamedConst(self: *Plan9, tv: TypedValue, decl_index: InternPool.De
     };
     self.syms.items[info.sym_index.?] = sym;
 
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), tv, &code_buffer, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = new_atom_idx,
@@ -539,10 +538,7 @@ pub fn updateDecl(self: *Plan9, mod: *Module, decl_index: InternPool.DeclIndex) 
     defer code_buffer.deinit();
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, .{ .none = {} }, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), decl_val, &code_buffer, .{ .none = {} }, .{
         .parent_atom_index = @as(Atom.Index, @intCast(atom_idx)),
     });
     const code = switch (res) {
@@ -566,7 +562,7 @@ fn updateFinish(self: *Plan9, decl_index: InternPool.DeclIndex) !void {
     const gpa = self.base.comp.gpa;
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
-    const is_fn = (decl.ty.zigTypeTag(mod) == .Fn);
+    const is_fn = (decl.typeOf(mod).zigTypeTag(mod) == .Fn);
     const sym_t: aout.Sym.Type = if (is_fn) .t else .d;
 
     const atom = self.getAtomPtr(self.decls.get(decl_index).?.index);
@@ -1545,11 +1541,8 @@ pub fn lowerAnonDecl(
     // ...
     const gpa = self.base.comp.gpa;
     const gop = try self.anon_decls.getOrPut(gpa, decl_val);
-    const mod = self.base.comp.module.?;
     if (!gop.found_existing) {
-        const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
         const val = Value.fromInterned(decl_val);
-        const tv = TypedValue{ .ty = ty, .val = val };
         const name = try std.fmt.allocPrint(gpa, "__anon_{d}", .{@intFromEnum(decl_val)});
 
         const index = try self.createAtom();
@@ -1557,7 +1550,7 @@ pub fn lowerAnonDecl(
         gop.value_ptr.* = index;
         // we need to free name latex
         var code_buffer = std.ArrayList(u8).init(gpa);
-        const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
+        const res = try codegen.generateSymbol(&self.base, src_loc, val, &code_buffer, .{ .none = {} }, .{ .parent_atom_index = index });
         const code = switch (res) {
             .ok => code_buffer.items,
             .fail => |em| return .{ .fail = em },

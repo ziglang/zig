@@ -102,7 +102,6 @@ link_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
 lld_errors: std.ArrayListUnmanaged(LldError) = .{},
 
 work_queue: std.fifo.LinearFifo(Job, .Dynamic),
-anon_work_queue: std.fifo.LinearFifo(Job, .Dynamic),
 
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
@@ -1417,7 +1416,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
             .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
-            .anon_work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (build_options.only_core_functionality) {} else std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa),
             .astgen_work_queue = std.fifo.LinearFifo(*Module.File, .Dynamic).init(gpa),
@@ -1840,7 +1838,6 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.module) |zcu| zcu.deinit();
     comp.cache_use.deinit();
     comp.work_queue.deinit();
-    comp.anon_work_queue.deinit();
     comp.c_object_work_queue.deinit();
     if (!build_options.only_core_functionality) {
         comp.win32_resource_work_queue.deinit();
@@ -3354,15 +3351,8 @@ pub fn performAllTheWork(
         mod.sema_prog_node = undefined;
     };
 
-    // In this main loop we give priority to non-anonymous Decls in the work queue, so
-    // that they can establish references to anonymous Decls, setting alive=true in the
-    // backend, preventing anonymous Decls from being prematurely destroyed.
     while (true) {
         if (comp.work_queue.readItem()) |work_item| {
-            try processOneJob(comp, work_item, main_progress_node);
-            continue;
-        }
-        if (comp.anon_work_queue.readItem()) |work_item| {
             try processOneJob(comp, work_item, main_progress_node);
             continue;
         }
@@ -3413,14 +3403,7 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                     assert(decl.has_tv);
 
-                    if (decl.alive) {
-                        try module.linkerUpdateDecl(decl_index);
-                        return;
-                    }
-
-                    // Instead of sending this decl to the linker, we actually will delete it
-                    // because we found out that it in fact was never referenced.
-                    module.deleteUnusedDecl(decl_index);
+                    try module.linkerUpdateDecl(decl_index);
                     return;
                 },
             }

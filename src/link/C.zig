@@ -209,7 +209,7 @@ pub fn updateFunc(
                 .module = module,
                 .error_msg = null,
                 .pass = .{ .decl = decl_index },
-                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
+                .is_naked_fn = decl.typeOf(module).fnCallingConvention(module) == .Naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
                 .anon_decl_deps = self.anon_decls,
@@ -283,13 +283,9 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
         code.* = object.code.moveToUnmanaged();
     }
 
-    const tv: @import("../TypedValue.zig") = .{
-        .ty = Type.fromInterned(module.intern_pool.typeOf(anon_decl)),
-        .val = Value.fromInterned(anon_decl),
-    };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
     const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;
-    codegen.genDeclValue(&object, tv, false, c_value, alignment, .none) catch |err| switch (err) {
+    codegen.genDeclValue(&object, Value.fromInterned(anon_decl), false, c_value, alignment, .none) catch |err| switch (err) {
         error.AnalysisFail => {
             @panic("TODO: C backend AnalysisFail on anonymous decl");
             //try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);

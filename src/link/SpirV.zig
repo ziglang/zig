@@ -163,7 +163,7 @@ pub fn updateExports(
     if (decl.val.isFuncBody(mod)) {
         const target = mod.getTarget();
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
-        const execution_model = switch (decl.ty.fnCallingConvention(mod)) {
+        const execution_model = switch (decl.typeOf(mod).fnCallingConvention(mod)) {
             .Vertex => spec.ExecutionModel.Vertex,
             .Fragment => spec.ExecutionModel.Fragment,
             .Kernel => spec.ExecutionModel.Kernel,

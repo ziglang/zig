@@ -1109,7 +1109,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
 
     assert(decl.has_tv);
 
-    switch (decl.ty.zigTypeTag(mod)) {
+    switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => {
             _ = try self.getOrCreateAtomForDecl(.src_fn, decl_index);
 
@@ -1162,7 +1162,7 @@ pub fn initDeclState(self: *Dwarf, mod: *Module, decl_index: InternPool.DeclInde
             try dbg_info_buffer.ensureUnusedCapacity(1 + ptr_width_bytes + 4 + 4 +
                 (decl_name_slice.len + 1) + (decl_linkage_name_slice.len + 1));
 
-            const fn_ret_type = decl.ty.fnReturnType(mod);
+            const fn_ret_type = decl.typeOf(mod).fnReturnType(mod);
             const fn_ret_has_bits = fn_ret_type.hasRuntimeBits(mod);
             dbg_info_buffer.appendAssumeCapacity(@intFromEnum(
                 @as(AbbrevCode, if (fn_ret_has_bits) .subprogram else .subprogram_retvoid),
@@ -1215,7 +1215,7 @@ pub fn commitDeclState(
     var dbg_info_buffer = &decl_state.dbg_info;
 
     assert(decl.has_tv);
-    switch (decl.ty.zigTypeTag(zcu)) {
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
         .Fn => {
             try decl_state.setInlineFunc(decl.val.toIntern());
 

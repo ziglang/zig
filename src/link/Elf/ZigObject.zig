@@ -702,7 +702,6 @@ pub fn lowerAnonDecl(
     }
 
     const val = Value.fromInterned(decl_val);
-    const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
         @intFromEnum(decl_val),
@@ -710,7 +709,7 @@ pub fn lowerAnonDecl(
     const res = self.lowerConst(
         elf_file,
         name,
-        tv,
+        val,
         decl_alignment,
         elf_file.zig_data_rel_ro_section_index.?,
         src_loc,
@@ -846,7 +845,7 @@ fn getDeclShdrIndex(
     _ = self;
     const mod = elf_file.base.comp.module.?;
     const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
-    const shdr_index = switch (decl.ty.zigTypeTag(mod)) {
+    const shdr_index = switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => elf_file.zig_text_section_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
@@ -1157,19 +1156,13 @@ pub fn updateDecl(
     // TODO implement .debug_info for global variables
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const res = if (decl_state) |*ds|
-        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), .{
-            .ty = decl.ty,
-            .val = decl_val,
-        }, &code_buffer, .{
+        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), decl_val, &code_buffer, .{
             .dwarf = ds,
         }, .{
             .parent_atom_index = sym_index,
         })
     else
-        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), .{
-            .ty = decl.ty,
-            .val = decl_val,
-        }, &code_buffer, .none, .{
+        try codegen.generateSymbol(&elf_file.base, decl.srcLoc(mod), decl_val, &code_buffer, .none, .{
             .parent_atom_index = sym_index,
         });
 
@@ -1289,7 +1282,7 @@ fn updateLazySymbol(
 pub fn lowerUnnamedConst(
     self: *ZigObject,
     elf_file: *Elf,
-    typed_value: TypedValue,
+    val: Value,
     decl_index: InternPool.DeclIndex,
 ) !u32 {
     const gpa = elf_file.base.comp.gpa;
@@ -1304,11 +1297,12 @@ pub fn lowerUnnamedConst(
     const index = unnamed_consts.items.len;
     const name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(name);
+    const ty = val.typeOf(mod);
     const sym_index = switch (try self.lowerConst(
         elf_file,
         name,
-        typed_value,
-        typed_value.ty.abiAlignment(mod),
+        val,
+        ty.abiAlignment(mod),
         elf_file.zig_data_rel_ro_section_index.?,
         decl.srcLoc(mod),
     )) {
@@ -1334,7 +1328,7 @@ fn lowerConst(
     self: *ZigObject,
     elf_file: *Elf,
     name: []const u8,
-    tv: TypedValue,
+    val: Value,
     required_alignment: InternPool.Alignment,
     output_section_index: u32,
     src_loc: Module.SrcLoc,
@@ -1346,7 +1340,7 @@ fn lowerConst(
 
     const sym_index = try self.addAtom(elf_file);
 
-    const res = try codegen.generateSymbol(&elf_file.base, src_loc, tv, &code_buffer, .{
+    const res = try codegen.generateSymbol(&elf_file.base, src_loc, val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = sym_index,
@@ -1657,5 +1651,4 @@ const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
-const TypedValue = @import("../../TypedValue.zig");
 const ZigObject = @This();

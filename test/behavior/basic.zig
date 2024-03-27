@@ -693,31 +693,6 @@ test "string concatenation" {
     try expect(b[len] == 0);
 }
 
-fn manyptrConcat(comptime s: [*:0]const u8) [*:0]const u8 {
-    return "very " ++ s;
-}
-
-test "comptime manyptr concatenation" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const s = "epic";
-    const actual = manyptrConcat(s);
-    const expected = "very epic";
-
-    const len = mem.len(actual);
-    const len_with_null = len + 1;
-    {
-        var i: u32 = 0;
-        while (i < len_with_null) : (i += 1) {
-            try expect(actual[i] == expected[i]);
-        }
-    }
-    try expect(actual[len] == 0);
-    try expect(expected[len] == 0);
-}
-
 test "result location is optional inside error union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO

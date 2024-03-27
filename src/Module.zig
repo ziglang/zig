@@ -22,7 +22,6 @@ const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
 const Value = @import("Value.zig");
 const Type = @import("type.zig").Type;
-const TypedValue = @import("TypedValue.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
@@ -330,9 +329,6 @@ const ValueArena = struct {
 
 pub const Decl = struct {
     name: InternPool.NullTerminatedString,
-    /// The most recent Type of the Decl after a successful semantic analysis.
-    /// Populated when `has_tv`.
-    ty: Type,
     /// The most recent Value of the Decl after a successful semantic analysis.
     /// Populated when `has_tv`.
     val: Value,
@@ -397,15 +393,6 @@ pub const Decl = struct {
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
     is_exported: bool,
-    /// Flag used by garbage collection to mark and sweep.
-    /// Decls which correspond to an AST node always have this field set to `true`.
-    /// Anonymous Decls are initialized with this field set to `false` and then it
-    /// is the responsibility of machine code backends to mark it `true` whenever
-    /// a `decl_ref` Value is encountered that points to this Decl.
-    /// When the `codegen_decl` job is encountered in the main work queue, if the
-    /// Decl is marked alive, then it sends the Decl to the linker. Otherwise it
-    /// deletes the Decl on the spot.
-    alive: bool,
     /// If true `name` is already fully qualified.
     name_fully_qualified: bool = false,
     /// What kind of a declaration is this.
@@ -438,14 +425,6 @@ pub const Decl = struct {
         return @as(i32, @bitCast(node_index)) - @as(i32, @bitCast(decl.src_node));
     }
 
-    pub fn tokSrcLoc(decl: Decl, token_index: Ast.TokenIndex) LazySrcLoc {
-        return .{ .token_offset = token_index - decl.srcToken() };
-    }
-
-    pub fn nodeSrcLoc(decl: Decl, node_index: Ast.Node.Index) LazySrcLoc {
-        return LazySrcLoc.nodeOffset(decl.nodeIndexToRelative(node_index));
-    }
-
     pub fn srcLoc(decl: Decl, zcu: *Zcu) SrcLoc {
         return decl.nodeOffsetSrcLoc(0, zcu);
     }
@@ -456,16 +435,6 @@ pub const Decl = struct {
             .parent_decl_node = decl.src_node,
             .lazy = LazySrcLoc.nodeOffset(node_offset),
         };
-    }
-
-    pub fn srcToken(decl: Decl, zcu: *Zcu) Ast.TokenIndex {
-        const tree = &decl.getFileScope(zcu).tree;
-        return tree.firstToken(decl.src_node);
-    }
-
-    pub fn srcByteOffset(decl: Decl, zcu: *Zcu) u32 {
-        const tree = &decl.getFileScope(zcu).tree;
-        return tree.tokens.items(.start)[decl.srcToken()];
     }
 
     pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
@@ -487,37 +456,16 @@ pub const Decl = struct {
             zcu.namespacePtr(decl.src_namespace).fullyQualifiedName(zcu, decl.name);
     }
 
-    pub fn typedValue(decl: Decl) error{AnalysisFail}!TypedValue {
-        if (!decl.has_tv) return error.AnalysisFail;
-        return TypedValue{ .ty = decl.ty, .val = decl.val };
-    }
-
-    pub fn internValue(decl: *Decl, zcu: *Zcu) Allocator.Error!InternPool.Index {
+    pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
         assert(decl.has_tv);
-        const ip_index = try decl.val.intern(decl.ty, zcu);
-        decl.val = Value.fromInterned(ip_index);
-        return ip_index;
+        return decl.val.typeOf(zcu);
     }
 
-    pub fn isFunction(decl: Decl, zcu: *const Zcu) !bool {
-        const tv = try decl.typedValue();
-        return tv.ty.zigTypeTag(zcu) == .Fn;
-    }
-
-    /// If the Decl owns its value and it is a struct, return it,
-    /// otherwise null.
-    pub fn getOwnedStruct(decl: Decl, zcu: *Zcu) ?InternPool.Key.StructType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return zcu.typeToStruct(decl.val.toType());
-    }
-
-    /// If the Decl owns its value and it is a union, return it,
-    /// otherwise null.
-    pub fn getOwnedUnion(decl: Decl, zcu: *Zcu) ?InternPool.LoadedUnionType {
-        if (!decl.owns_tv) return null;
-        if (decl.val.ip_index == .none) return null;
-        return zcu.typeToUnion(decl.val.toType());
+    /// Small wrapper for Sema to use over direct access to the `val` field.
+    /// If the value is not populated, instead returns `error.AnalysisFail`.
+    pub fn valueOrFail(decl: Decl) error{AnalysisFail}!Value {
+        if (!decl.has_tv) return error.AnalysisFail;
+        return decl.val;
     }
 
     pub fn getOwnedFunction(decl: Decl, zcu: *Zcu) ?InternPool.Key.Func {
@@ -590,7 +538,7 @@ pub const Decl = struct {
             @tagName(decl.analysis),
         });
         if (decl.has_tv) {
-            std.debug.print(" ty={} val={}", .{ decl.ty, decl.val });
+            std.debug.print(" val={}", .{decl.val});
         }
         std.debug.print("\n", .{});
     }
@@ -615,7 +563,7 @@ pub const Decl = struct {
     pub fn getAlignment(decl: Decl, zcu: *Zcu) Alignment {
         assert(decl.has_tv);
         if (decl.alignment != .none) return decl.alignment;
-        return decl.ty.abiAlignment(zcu);
+        return decl.typeOf(zcu).abiAlignment(zcu);
     }
 
     /// Upgrade a `LazySrcLoc` to a `SrcLoc` based on the `Decl` provided.
@@ -3525,10 +3473,8 @@ fn semaFile(mod: *Module, file: *File) SemaError!void {
     new_decl.src_line = 0;
     new_decl.is_pub = true;
     new_decl.is_exported = false;
-    new_decl.ty = Type.type;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
-    new_decl.alive = true; // This Decl corresponds to a File and is therefore always alive.
     new_decl.analysis = .in_progress;
 
     if (file.status != .success_zir) {
@@ -3594,7 +3540,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
 
     const old_has_tv = decl.has_tv;
     // The following values are ignored if `!old_has_tv`
-    const old_ty = decl.ty;
+    const old_ty = if (old_has_tv) decl.typeOf(mod) else undefined;
     const old_val = decl.val;
     const old_align = decl.alignment;
     const old_linksection = decl.@"linksection";
@@ -3698,25 +3644,25 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     const address_space_src: LazySrcLoc = .{ .node_offset_var_decl_addrspace = 0 };
     const ty_src: LazySrcLoc = .{ .node_offset_var_decl_ty = 0 };
     const init_src: LazySrcLoc = .{ .node_offset_var_decl_init = 0 };
-    const decl_tv = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
+    const decl_val = try sema.resolveFinalDeclValue(&block_scope, init_src, result_ref);
+    const decl_ty = decl_val.typeOf(mod);
 
     // Note this resolves the type of the Decl, not the value; if this Decl
     // is a struct, for example, this resolves `type` (which needs no resolution),
     // not the struct itself.
-    try sema.resolveTypeLayout(decl_tv.ty);
+    try sema.resolveTypeLayout(decl_ty);
 
     if (decl.kind == .@"usingnamespace") {
-        if (!decl_tv.ty.eql(Type.type, mod)) {
+        if (!decl_ty.eql(Type.type, mod)) {
             return sema.fail(&block_scope, ty_src, "expected type, found {}", .{
-                decl_tv.ty.fmt(mod),
+                decl_ty.fmt(mod),
             });
         }
-        const ty = decl_tv.val.toType();
+        const ty = decl_val.toType();
         if (ty.getNamespace(mod) == null) {
             return sema.fail(&block_scope, ty_src, "type {} has no namespace", .{ty.fmt(mod)});
         }
 
-        decl.ty = Type.fromInterned(InternPool.Index.type_type);
         decl.val = ty.toValue();
         decl.alignment = .none;
         decl.@"linksection" = .none;
@@ -3734,10 +3680,10 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     var queue_linker_work = true;
     var is_func = false;
     var is_inline = false;
-    switch (decl_tv.val.toIntern()) {
+    switch (decl_val.toIntern()) {
         .generic_poison => unreachable,
         .unreachable_value => unreachable,
-        else => switch (ip.indexToKey(decl_tv.val.toIntern())) {
+        else => switch (ip.indexToKey(decl_val.toIntern())) {
             .variable => |variable| {
                 decl.owns_tv = variable.decl == decl_index;
                 queue_linker_work = decl.owns_tv;
@@ -3752,7 +3698,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
             .func => |func| {
                 decl.owns_tv = func.owner_decl == decl_index;
                 queue_linker_work = false;
-                is_inline = decl.owns_tv and decl_tv.ty.fnCallingConvention(mod) == .Inline;
+                is_inline = decl.owns_tv and decl_ty.fnCallingConvention(mod) == .Inline;
                 is_func = decl.owns_tv;
             },
 
@@ -3760,8 +3706,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         },
     }
 
-    decl.ty = decl_tv.ty;
-    decl.val = Value.fromInterned((try decl_tv.val.intern(decl_tv.ty, mod)));
+    decl.val = decl_val;
     // Function linksection, align, and addrspace were already set by Sema
     if (!is_func) {
         decl.alignment = blk: {
@@ -3784,7 +3729,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
             break :blk section.toOptional();
         };
         decl.@"addrspace" = blk: {
-            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_tv.val.toIntern())) {
+            const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
                 .variable => .variable,
                 .extern_func, .func => .function,
                 else => .constant,
@@ -3806,10 +3751,10 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     decl.analysis = .complete;
 
     const result: SemaDeclResult = if (old_has_tv) .{
-        .invalidate_decl_val = !decl.ty.eql(old_ty, mod) or
-            !decl.val.eql(old_val, decl.ty, mod) or
+        .invalidate_decl_val = !decl_ty.eql(old_ty, mod) or
+            !decl.val.eql(old_val, decl_ty, mod) or
             is_inline != old_is_inline,
-        .invalidate_decl_ref = !decl.ty.eql(old_ty, mod) or
+        .invalidate_decl_ref = !decl_ty.eql(old_ty, mod) or
             decl.alignment != old_align or
             decl.@"linksection" != old_linksection or
             decl.@"addrspace" != old_addrspace or
@@ -3819,11 +3764,11 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         .invalidate_decl_ref = true,
     };
 
-    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl.ty));
+    const has_runtime_bits = queue_linker_work and (is_func or try sema.typeHasRuntimeBits(decl_ty));
     if (has_runtime_bits) {
         // Needed for codegen_decl which will call updateDecl and then the
         // codegen backend wants full access to the Decl Type.
-        try sema.resolveTypeFully(decl.ty);
+        try sema.resolveTypeFully(decl_ty);
 
         try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
 
@@ -3850,7 +3795,7 @@ fn semaAnonOwnerDecl(zcu: *Zcu, decl_index: Decl.Index) !SemaDeclResult {
 
     log.debug("semaAnonOwnerDecl '{d}'", .{@intFromEnum(decl_index)});
 
-    switch (decl.ty.zigTypeTag(zcu)) {
+    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
         .Fn => @panic("TODO: update fn instance"),
         .Type => {},
         else => unreachable,
@@ -4380,7 +4325,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         const decl = zcu.declPtr(decl_index);
         const was_exported = decl.is_exported;
         assert(decl.kind == kind); // ZIR tracking should preserve this
-        assert(decl.alive);
         decl.name = decl_name;
         decl.src_node = decl_node;
         decl.src_line = line;
@@ -4397,7 +4341,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         new_decl.is_pub = declaration.flags.is_pub;
         new_decl.is_exported = declaration.flags.is_export;
         new_decl.zir_decl_index = tracked_inst.toOptional();
-        new_decl.alive = true; // This Decl corresponds to an AST node and is therefore always alive.
         break :decl_index .{ false, new_decl_index };
     };
 
@@ -4450,22 +4393,6 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
     }
 }
 
-/// This function is exclusively called for anonymous decls.
-/// All resources referenced by anonymous decls are owned by InternPool
-/// so there is no cleanup to do here.
-pub fn deleteUnusedDecl(mod: *Module, decl_index: Decl.Index) void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-
-    ip.destroyDecl(gpa, decl_index);
-
-    if (mod.emit_h) |mod_emit_h| {
-        const decl_emit_h = mod_emit_h.declPtr(decl_index);
-        decl_emit_h.fwd_decl.deinit(gpa);
-        decl_emit_h.* = undefined;
-    }
-}
-
 /// Cancel the creation of an anon decl and delete any references to it.
 /// If other decls depend on this decl, they must be aborted first.
 pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
@@ -4475,12 +4402,8 @@ pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
 
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    // The Decl starts off with alive=false and the codegen backend will set alive=true
-    // if the Decl is referenced by an instruction or another constant. Otherwise,
-    // the Decl will be garbage collected by the `codegen_decl` task instead of sent
-    // to the linker.
-    if (mod.declPtr(decl_index).ty.isFnOrHasRuntimeBits(mod)) {
-        try mod.comp.anon_work_queue.writeItem(.{ .codegen_decl = decl_index });
+    if (mod.declPtr(decl_index).typeOf(mod).isFnOrHasRuntimeBits(mod)) {
+        try mod.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
     }
 }
 
@@ -4563,7 +4486,7 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     // the runtime-known parameters only, not to be confused with the
     // generic_owner function type, which potentially has more parameters,
     // including comptime parameters.
-    const fn_ty = decl.ty;
+    const fn_ty = decl.typeOf(mod);
     const fn_ty_info = mod.typeToFunc(fn_ty).?;
 
     var sema: Sema = .{
@@ -4812,7 +4735,6 @@ pub fn allocateNewDecl(
         .src_line = undefined,
         .has_tv = false,
         .owns_tv = false,
-        .ty = undefined,
         .val = undefined,
         .alignment = undefined,
         .@"linksection" = .none,
@@ -4821,7 +4743,6 @@ pub fn allocateNewDecl(
         .zir_decl_index = .none,
         .is_pub = false,
         .is_exported = false,
-        .alive = false,
         .kind = .anon,
     });
 
@@ -4856,41 +4777,18 @@ pub fn errorSetBits(mod: *Module) u16 {
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
 }
 
-pub fn createAnonymousDecl(mod: *Module, block: *Sema.Block, typed_value: TypedValue) !Decl.Index {
-    const src_decl = mod.declPtr(block.src_decl);
-    return mod.createAnonymousDeclFromDecl(src_decl, block.namespace, typed_value);
-}
-
-pub fn createAnonymousDeclFromDecl(
-    mod: *Module,
-    src_decl: *Decl,
-    namespace: Namespace.Index,
-    tv: TypedValue,
-) !Decl.Index {
-    const new_decl_index = try mod.allocateNewDecl(namespace, src_decl.src_node);
-    errdefer mod.destroyDecl(new_decl_index);
-    const name = try mod.intern_pool.getOrPutStringFmt(mod.gpa, "{}__anon_{d}", .{
-        src_decl.name.fmt(&mod.intern_pool), @intFromEnum(new_decl_index),
-    });
-    try mod.initNewAnonDecl(new_decl_index, src_decl.src_line, tv, name);
-    return new_decl_index;
-}
-
 pub fn initNewAnonDecl(
     mod: *Module,
     new_decl_index: Decl.Index,
     src_line: u32,
-    typed_value: TypedValue,
+    val: Value,
     name: InternPool.NullTerminatedString,
 ) Allocator.Error!void {
-    assert(typed_value.ty.toIntern() == mod.intern_pool.typeOf(typed_value.val.toIntern()));
-
     const new_decl = mod.declPtr(new_decl_index);
 
     new_decl.name = name;
     new_decl.src_line = src_line;
-    new_decl.ty = typed_value.ty;
-    new_decl.val = typed_value.val;
+    new_decl.val = val;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;
     new_decl.has_tv = true;
@@ -5419,9 +5317,9 @@ pub fn populateTestFunctions(
         try mod.ensureDeclAnalyzed(decl_index);
     }
     const decl = mod.declPtr(decl_index);
-    const test_fn_ty = decl.ty.slicePtrFieldType(mod).childType(mod);
+    const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
-    const array_decl_index = d: {
+    const array_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = array: {
         // Add mod.test_functions to an array decl then make the test_functions
         // decl reference it as a slice.
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
@@ -5431,21 +5329,20 @@ pub fn populateTestFunctions(
             const test_decl = mod.declPtr(test_decl_index);
             const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(try test_decl.fullyQualifiedName(mod)));
             defer gpa.free(test_decl_name);
-            const test_name_decl_index = n: {
-                const test_name_decl_ty = try mod.arrayType(.{
+            const test_name_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = n: {
+                const test_name_ty = try mod.arrayType(.{
                     .len = test_decl_name.len,
                     .child = .u8_type,
                 });
-                const test_name_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
-                    .ty = test_name_decl_ty,
-                    .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                        .ty = test_name_decl_ty.toIntern(),
-                        .storage = .{ .bytes = test_decl_name },
-                    } }))),
-                });
-                break :n test_name_decl_index;
+                const test_name_val = try mod.intern(.{ .aggregate = .{
+                    .ty = test_name_ty.toIntern(),
+                    .storage = .{ .bytes = test_decl_name },
+                } });
+                break :n .{
+                    .orig_ty = (try mod.singleConstPtrType(test_name_ty)).toIntern(),
+                    .val = test_name_val,
+                };
             };
-            try mod.linkerUpdateDecl(test_name_decl_index);
 
             const test_fn_fields = .{
                 // name
@@ -5453,7 +5350,7 @@ pub fn populateTestFunctions(
                     .ty = .slice_const_u8_type,
                     .ptr = try mod.intern(.{ .ptr = .{
                         .ty = .manyptr_const_u8_type,
-                        .addr = .{ .decl = test_name_decl_index },
+                        .addr = .{ .anon_decl = test_name_anon_decl },
                     } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
@@ -5463,7 +5360,7 @@ pub fn populateTestFunctions(
                 // func
                 try mod.intern(.{ .ptr = .{
                     .ty = try mod.intern(.{ .ptr_type = .{
-                        .child = test_decl.ty.toIntern(),
+                        .child = test_decl.typeOf(mod).toIntern(),
                         .flags = .{
                             .is_const = true,
                         },
@@ -5477,22 +5374,20 @@ pub fn populateTestFunctions(
             } });
         }
 
-        const array_decl_ty = try mod.arrayType(.{
+        const array_ty = try mod.arrayType(.{
             .len = test_fn_vals.len,
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_decl_index = try mod.createAnonymousDeclFromDecl(decl, decl.src_namespace, .{
-            .ty = array_decl_ty,
-            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                .ty = array_decl_ty.toIntern(),
-                .storage = .{ .elems = test_fn_vals },
-            } }))),
-        });
-
-        break :d array_decl_index;
+        const array_val = try mod.intern(.{ .aggregate = .{
+            .ty = array_ty.toIntern(),
+            .storage = .{ .elems = test_fn_vals },
+        } });
+        break :array .{
+            .orig_ty = (try mod.singleConstPtrType(array_ty)).toIntern(),
+            .val = array_val,
+        };
     };
-    try mod.linkerUpdateDecl(array_decl_index);
 
     {
         const new_ty = try mod.ptrType(.{
@@ -5507,7 +5402,7 @@ pub fn populateTestFunctions(
             .ty = new_ty.toIntern(),
             .ptr = try mod.intern(.{ .ptr = .{
                 .ty = new_ty.slicePtrFieldType(mod).toIntern(),
-                .addr = .{ .decl = array_decl_index },
+                .addr = .{ .anon_decl = array_anon_decl },
             } }),
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });
@@ -5515,7 +5410,6 @@ pub fn populateTestFunctions(
 
         // Since we are replacing the Decl's value we must perform cleanup on the
         // previous value.
-        decl.ty = new_ty;
         decl.val = new_val;
         decl.has_tv = true;
     }
@@ -5588,53 +5482,6 @@ fn reportRetryableFileError(
         }
     }
     gop.value_ptr.* = err_msg;
-}
-
-pub fn markReferencedDeclsAlive(mod: *Module, val: Value) Allocator.Error!void {
-    switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .variable => |variable| try mod.markDeclIndexAlive(variable.decl),
-        .extern_func => |extern_func| try mod.markDeclIndexAlive(extern_func.decl),
-        .func => |func| try mod.markDeclIndexAlive(func.owner_decl),
-        .error_union => |error_union| switch (error_union.val) {
-            .err_name => {},
-            .payload => |payload| try mod.markReferencedDeclsAlive(Value.fromInterned(payload)),
-        },
-        .slice => |slice| {
-            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.ptr));
-            try mod.markReferencedDeclsAlive(Value.fromInterned(slice.len));
-        },
-        .ptr => |ptr| switch (ptr.addr) {
-            .decl => |decl| try mod.markDeclIndexAlive(decl),
-            .anon_decl => {},
-            .int, .comptime_field, .comptime_alloc => {},
-            .eu_payload, .opt_payload => |parent| try mod.markReferencedDeclsAlive(Value.fromInterned(parent)),
-            .elem, .field => |base_index| try mod.markReferencedDeclsAlive(Value.fromInterned(base_index.base)),
-        },
-        .opt => |opt| if (opt.val != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(opt.val)),
-        .aggregate => |aggregate| for (aggregate.storage.values()) |elem|
-            try mod.markReferencedDeclsAlive(Value.fromInterned(elem)),
-        .un => |un| {
-            if (un.tag != .none) try mod.markReferencedDeclsAlive(Value.fromInterned(un.tag));
-            try mod.markReferencedDeclsAlive(Value.fromInterned(un.val));
-        },
-        else => {},
-    }
-}
-
-pub fn markDeclAlive(mod: *Module, decl: *Decl) Allocator.Error!void {
-    if (decl.alive) return;
-    decl.alive = true;
-
-    _ = try decl.internValue(mod);
-
-    // This is the first time we are marking this Decl alive. We must
-    // therefore recurse into its value and mark any Decl it references
-    // as also alive, so that any Decl referenced does not get garbage collected.
-    try mod.markReferencedDeclsAlive(decl.val);
-}
-
-fn markDeclIndexAlive(mod: *Module, decl_index: Decl.Index) Allocator.Error!void {
-    return mod.markDeclAlive(mod.declPtr(decl_index));
 }
 
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {

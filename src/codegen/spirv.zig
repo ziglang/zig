@@ -255,7 +255,6 @@ pub const Object = struct {
     pub fn resolveDecl(self: *Object, mod: *Module, decl_index: InternPool.DeclIndex) !SpvModule.Decl.Index {
         const decl = mod.declPtr(decl_index);
         assert(decl.has_tv); // TODO: Do we need to handle a situation where this is false?
-        try mod.markDeclAlive(decl);
 
         const entry = try self.decl_link.getOrPut(self.gpa, decl_index);
         if (!entry.found_existing) {
@@ -861,7 +860,7 @@ const DeclGen = struct {
 
         const val = arg_val;
 
-        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(ty, mod) });
+        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(mod) });
         if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_ref);
         }
@@ -1221,7 +1220,7 @@ const DeclGen = struct {
             else => {},
         }
 
-        if (!decl.ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+        if (!decl.typeOf(mod).isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
             // Pointer to nothing - return undefined.
             return self.spv.constUndef(ty_ref);
         }
@@ -1237,7 +1236,7 @@ const DeclGen = struct {
         const final_storage_class = self.spvStorageClass(decl.@"addrspace");
         try self.addFunctionDep(spv_decl_index, final_storage_class);
 
-        const decl_ptr_ty_ref = try self.ptrType(decl.ty, final_storage_class);
+        const decl_ptr_ty_ref = try self.ptrType(decl.typeOf(mod), final_storage_class);
 
         const ptr_id = switch (final_storage_class) {
             .Generic => try self.castToGeneric(self.typeId(decl_ptr_ty_ref), decl_id),
@@ -2044,11 +2043,11 @@ const DeclGen = struct {
 
         switch (self.spv.declPtr(spv_decl_index).kind) {
             .func => {
-                assert(decl.ty.zigTypeTag(mod) == .Fn);
-                const fn_info = mod.typeToFunc(decl.ty).?;
+                assert(decl.typeOf(mod).zigTypeTag(mod) == .Fn);
+                const fn_info = mod.typeToFunc(decl.typeOf(mod)).?;
                 const return_ty_ref = try self.resolveFnReturnType(Type.fromInterned(fn_info.return_type));
 
-                const prototype_ty_ref = try self.resolveType(decl.ty, .direct);
+                const prototype_ty_ref = try self.resolveType(decl.typeOf(mod), .direct);
                 try self.func.prologue.emit(self.spv.gpa, .OpFunction, .{
                     .id_result_type = self.typeId(return_ty_ref),
                     .id_result = result_id,
@@ -2121,7 +2120,7 @@ const DeclGen = struct {
                 const final_storage_class = self.spvStorageClass(decl.@"addrspace");
                 assert(final_storage_class != .Generic); // These should be instance globals
 
-                const ptr_ty_ref = try self.ptrType(decl.ty, final_storage_class);
+                const ptr_ty_ref = try self.ptrType(decl.typeOf(mod), final_storage_class);
 
                 try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpVariable, .{
                     .id_result_type = self.typeId(ptr_ty_ref),
@@ -2144,7 +2143,7 @@ const DeclGen = struct {
 
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
 
-                const ptr_ty_ref = try self.ptrType(decl.ty, .Function);
+                const ptr_ty_ref = try self.ptrType(decl.typeOf(mod), .Function);
 
                 if (maybe_init_val) |init_val| {
                     // TODO: Combine with resolveAnonDecl?
@@ -2168,7 +2167,7 @@ const DeclGen = struct {
                     });
                     self.current_block_label = root_block_id;
 
-                    const val_id = try self.constant(decl.ty, init_val, .indirect);
+                    const val_id = try self.constant(decl.typeOf(mod), init_val, .indirect);
                     try self.func.body.emit(self.spv.gpa, .OpStore, .{
                         .pointer = result_id,
                         .object = val_id,
@@ -4785,7 +4784,7 @@ const DeclGen = struct {
         const mod = self.module;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             const decl = mod.declPtr(self.decl_index);
-            const fn_info = mod.typeToFunc(decl.ty).?;
+            const fn_info = mod.typeToFunc(decl.typeOf(mod)).?;
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
@@ -4810,7 +4809,7 @@ const DeclGen = struct {
 
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             const decl = mod.declPtr(self.decl_index);
-            const fn_info = mod.typeToFunc(decl.ty).?;
+            const fn_info = mod.typeToFunc(decl.typeOf(mod)).?;
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
