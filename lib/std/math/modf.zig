@@ -39,7 +39,7 @@ test modf {
 
         r = modf(@as(T, 0.34682));
         try expectEqual(0.0, r.ipart);
-        try expectApproxEqAbs(0.34682, r.fpart, epsilon);
+        try expectEqual(@as(T, 0.34682), r.fpart);
 
         r = modf(@as(T, 2.54576));
         try expectEqual(2.0, r.ipart);
@@ -64,7 +64,7 @@ fn ModfTests(comptime T: type) type {
 
             r = modf(@as(T, 0.346));
             try expectEqual(0.0, r.ipart);
-            try expectApproxEqAbs(0.346, r.fpart, epsilon);
+            try expectEqual(@as(T, 0.346), r.fpart);
 
             r = modf(@as(T, 3.978123));
             try expectEqual(3.0, r.ipart);
