@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-privateprofile-l1-1-0
+
+EXPORTS
+
+GetPrivateProfileIntA@16
+GetPrivateProfileStringA@24
+GetPrivateProfileStringW@24
+WritePrivateProfileStringA@16
+WritePrivateProfileStringW@16

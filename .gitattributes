@@ -1,8 +1,10 @@
 *.zig text eol=lf
+*.zon text eol=lf
 *.txt text eol=lf
 langref.html.in text eol=lf
 lib/std/compress/testdata/** binary
 lib/std/compress/deflate/testdata/** binary
+lib/std/compress/flate/testdata/** binary
 
 lib/include/** linguist-vendored
 lib/libc/** linguist-vendored
@@ -10,4 +12,4 @@ lib/libcxx/** linguist-vendored
 lib/libcxxabi/** linguist-vendored
 lib/libunwind/** linguist-vendored
 lib/tsan/** linguist-vendored
-deps/** linguist-vendored
+lib/compiler/aro/** linguist-vendored

@@ -21,7 +21,7 @@ fn testDecompressError(expected: anyerror, compressed: []const u8) !void {
     return std.testing.expectError(expected, testDecompress(compressed));
 }
 
-test "LZMA: decompress empty world" {
+test "decompress empty world" {
     try testDecompressEqual(
         "",
         &[_]u8{
@@ -31,7 +31,7 @@ test "LZMA: decompress empty world" {
     );
 }
 
-test "LZMA: decompress hello world" {
+test "decompress hello world" {
     try testDecompressEqual(
         "Hello world\n",
         &[_]u8{
@@ -42,7 +42,7 @@ test "LZMA: decompress hello world" {
     );
 }
 
-test "LZMA: decompress huge dict" {
+test "decompress huge dict" {
     try testDecompressEqual(
         "Hello world\n",
         &[_]u8{
@@ -53,35 +53,35 @@ test "LZMA: decompress huge dict" {
     );
 }
 
-test "LZMA: unknown size with end of payload marker" {
+test "unknown size with end of payload marker" {
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-unknown_size-with_eopm.lzma"),
     );
 }
 
-test "LZMA: known size without end of payload marker" {
+test "known size without end of payload marker" {
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-known_size-without_eopm.lzma"),
     );
 }
 
-test "LZMA: known size with end of payload marker" {
+test "known size with end of payload marker" {
     try testDecompressEqual(
         "Hello\nWorld!\n",
         @embedFile("testdata/good-known_size-with_eopm.lzma"),
     );
 }
 
-test "LZMA: too big uncompressed size in header" {
+test "too big uncompressed size in header" {
     try testDecompressError(
         error.CorruptInput,
         @embedFile("testdata/bad-too_big_size-with_eopm.lzma"),
     );
 }
 
-test "LZMA: too small uncompressed size in header" {
+test "too small uncompressed size in header" {
     try testDecompressError(
         error.CorruptInput,
         @embedFile("testdata/bad-too_small_size-without_eopm-3.lzma"),

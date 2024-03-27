@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-namedpipe-l1-2-1
+
+EXPORTS
+
+GetNamedPipeHandleStateW@28
+GetNamedPipeInfo@20

@@ -3,10 +3,12 @@ index: File.Index,
 sections: std.MultiArrayList(Section) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .{},
 
 objc_methnames: std.ArrayListUnmanaged(u8) = .{},
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
+num_rebase_relocs: u32 = 0,
 output_symtab_ctx: MachO.SymtabCtx = .{},
 
 pub fn deinit(self: *InternalObject, allocator: Allocator) void {
@@ -16,6 +18,7 @@ pub fn deinit(self: *InternalObject, allocator: Allocator) void {
     self.sections.deinit(allocator);
     self.atoms.deinit(allocator);
     self.symbols.deinit(allocator);
+    self.strtab.deinit(allocator);
     self.objc_methnames.deinit(allocator);
 }
 
@@ -26,7 +29,11 @@ pub fn addSymbol(self: *InternalObject, name: [:0]const u8, macho_file: *MachO) 
     const gop = try macho_file.getOrCreateGlobal(off);
     self.symbols.addOneAssumeCapacity().* = gop.index;
     const sym = macho_file.getSymbol(gop.index);
-    sym.* = .{ .name = off, .file = self.index };
+    sym.file = self.index;
+    sym.value = 0;
+    sym.atom = 0;
+    sym.nlist_idx = 0;
+    sym.flags = .{ .global = true };
     return gop.index;
 }
 
@@ -45,7 +52,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     defer gpa.free(name);
     const atom = macho_file.getAtom(atom_index).?;
     atom.atom_index = atom_index;
-    atom.name = try macho_file.strings.insert(gpa, name);
+    atom.name = try self.addString(gpa, name);
     atom.file = self.index;
     atom.size = methname.len + 1;
     atom.alignment = .@"1";
@@ -79,7 +86,7 @@ fn addObjcSelrefsSection(
     defer gpa.free(name);
     const atom = macho_file.getAtom(atom_index).?;
     atom.atom_index = atom_index;
-    atom.name = try macho_file.strings.insert(gpa, name);
+    atom.name = try self.addString(gpa, name);
     atom.file = self.index;
     atom.size = @sizeOf(u64);
     atom.alignment = .@"8";
@@ -109,6 +116,7 @@ fn addObjcSelrefsSection(
         },
     });
     atom.relocs = .{ .pos = 0, .len = 1 };
+    self.num_rebase_relocs += 1;
 
     return atom_index;
 }
@@ -133,15 +141,15 @@ pub fn calcSymtabSize(self: *InternalObject, macho_file: *MachO) !void {
     }
 }
 
-pub fn writeSymtab(self: InternalObject, macho_file: *MachO) void {
+pub fn writeSymtab(self: InternalObject, macho_file: *MachO, ctx: anytype) void {
     for (self.symbols.items) |sym_index| {
         const sym = macho_file.getSymbol(sym_index);
         if (sym.getFile(macho_file)) |file| if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
-        const n_strx = @as(u32, @intCast(macho_file.strtab.items.len));
-        macho_file.strtab.appendSliceAssumeCapacity(sym.getName(macho_file));
-        macho_file.strtab.appendAssumeCapacity(0);
-        const out_sym = &macho_file.symtab.items[idx];
+        const n_strx = @as(u32, @intCast(ctx.strtab.items.len));
+        ctx.strtab.appendSliceAssumeCapacity(sym.getName(macho_file));
+        ctx.strtab.appendAssumeCapacity(0);
+        const out_sym = &ctx.symtab.items[idx];
         out_sym.n_strx = n_strx;
         sym.setOutputSym(macho_file, out_sym);
     }
@@ -158,16 +166,39 @@ fn addSection(self: *InternalObject, allocator: Allocator, segname: []const u8, 
     return n_sect;
 }
 
-pub fn getSectionData(self: *const InternalObject, index: u32) []const u8 {
+pub fn getAtomData(self: *const InternalObject, atom: Atom, buffer: []u8) !void {
+    assert(buffer.len == atom.size);
     const slice = self.sections.slice();
-    assert(index < slice.items(.header).len);
-    const sect = slice.items(.header)[index];
-    const extra = slice.items(.extra)[index];
-    if (extra.is_objc_methname) {
-        return self.objc_methnames.items[sect.offset..][0..sect.size];
-    } else if (extra.is_objc_selref) {
-        return &self.objc_selrefs;
-    } else @panic("ref to non-existent section");
+    const sect = slice.items(.header)[atom.n_sect];
+    const extra = slice.items(.extra)[atom.n_sect];
+    const data = if (extra.is_objc_methname) blk: {
+        const size = std.math.cast(usize, sect.size) orelse return error.Overflow;
+        break :blk self.objc_methnames.items[sect.offset..][0..size];
+    } else if (extra.is_objc_selref)
+        &self.objc_selrefs
+    else
+        @panic("ref to non-existent section");
+    const off = std.math.cast(usize, atom.off) orelse return error.Overflow;
+    const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+    @memcpy(buffer, data[off..][0..size]);
+}
+
+pub fn getAtomRelocs(self: *const InternalObject, atom: Atom) []const Relocation {
+    const relocs = self.sections.items(.relocs)[atom.n_sect];
+    return relocs.items[atom.relocs.pos..][0..atom.relocs.len];
+}
+
+fn addString(self: *InternalObject, allocator: Allocator, name: [:0]const u8) error{OutOfMemory}!u32 {
+    const off: u32 = @intCast(self.strtab.items.len);
+    try self.strtab.ensureUnusedCapacity(allocator, name.len + 1);
+    self.strtab.appendSliceAssumeCapacity(name);
+    self.strtab.appendAssumeCapacity(0);
+    return off;
+}
+
+pub fn getString(self: InternalObject, off: u32) [:0]const u8 {
+    assert(off < self.strtab.items.len);
+    return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
 }
 
 pub fn asFile(self: *InternalObject) File {

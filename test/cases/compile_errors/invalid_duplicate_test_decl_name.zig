@@ -6,5 +6,5 @@ test "thingy" {}
 // target=native
 // is_test=true
 //
-// :1:6: error: duplicate test name: test.thingy
-// :2:6: note: other test here
+// :2:1: error: duplicate test name 'thingy'
+// :1:1: note: other test here

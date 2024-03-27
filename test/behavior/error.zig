@@ -1027,3 +1027,15 @@ test "generic type constructed from inferred error set of unresolved function" {
     };
     _ = std.io.multiWriter(.{S.writer()});
 }
+
+test "errorCast to adhoc inferred error set" {
+    const S = struct {
+        inline fn baz() !i32 {
+            return @errorCast(err());
+        }
+        fn err() anyerror!i32 {
+            return 1234;
+        }
+    };
+    try std.testing.expect((try S.baz()) == 1234);
+}

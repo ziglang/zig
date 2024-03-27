@@ -1,0 +1,16 @@
+LIBRARY api-ms-win-core-windowserrorreporting-l1-1-0
+
+EXPORTS
+
+GetApplicationRecoveryCallback
+GetApplicationRestartSettings
+WerGetFlags
+WerpNotifyLoadStringResource
+WerpNotifyUseStringResource
+WerRegisterFile
+WerRegisterMemoryBlock
+WerRegisterRuntimeExceptionModule
+WerSetFlags
+WerUnregisterFile
+WerUnregisterMemoryBlock
+WerUnregisterRuntimeExceptionModule

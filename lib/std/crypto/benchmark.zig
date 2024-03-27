@@ -10,7 +10,7 @@ const crypto = std.crypto;
 const KiB = 1024;
 const MiB = 1024 * KiB;
 
-var prng = std.rand.DefaultPrng.init(0);
+var prng = std.Random.DefaultPrng.init(0);
 const random = prng.random();
 
 const Crypto = struct {
@@ -463,7 +463,7 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             const seed = try std.fmt.parseUnsigned(u32, args[i], 10);
@@ -472,7 +472,7 @@ pub fn main() !void {
             i += 1;
             if (i == args.len) {
                 usage();
-                std.os.exit(1);
+                std.process.exit(1);
             }
 
             filter = args[i];
@@ -481,7 +481,7 @@ pub fn main() !void {
             return;
         } else {
             usage();
-            std.os.exit(1);
+            std.process.exit(1);
         }
     }
 

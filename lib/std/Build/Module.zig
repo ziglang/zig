@@ -79,9 +79,9 @@ pub const SystemLib = struct {
 };
 
 pub const CSourceFiles = struct {
-    dependency: ?*std.Build.Dependency,
-    /// If `dependency` is not null relative to it,
-    /// else relative to the build root.
+    root: LazyPath,
+    /// `files` is relative to `root`, which is
+    /// the build root by default
     files: []const []const u8,
     flags: []const []const u8,
 };
@@ -414,7 +414,7 @@ pub const LinkSystemLibraryOptions = struct {
     needed: bool = false,
     weak: bool = false,
     use_pkg_config: SystemLib.UsePkgConfig = .yes,
-    preferred_link_mode: std.builtin.LinkMode = .Dynamic,
+    preferred_link_mode: std.builtin.LinkMode = .dynamic,
     search_strategy: SystemLib.SearchStrategy = .paths_first,
 };
 
@@ -453,9 +453,9 @@ pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions
 }
 
 pub const AddCSourceFilesOptions = struct {
-    /// When provided, `files` are relative to `dependency` rather than the
+    /// When provided, `files` are relative to `root` rather than the
     /// package that owns the `Compile` step.
-    dependency: ?*std.Build.Dependency = null,
+    root: LazyPath = .{ .path = "" },
     files: []const []const u8,
     flags: []const []const u8 = &.{},
 };
@@ -464,9 +464,19 @@ pub const AddCSourceFilesOptions = struct {
 pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
     const b = m.owner;
     const allocator = b.allocator;
+
+    for (options.files) |path| {
+        if (std.fs.path.isAbsolute(path)) {
+            std.debug.panic(
+                "file paths added with 'addCSourceFiles' must be relative, found absolute path '{s}'",
+                .{path},
+            );
+        }
+    }
+
     const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
-        .dependency = options.dependency,
+        .root = options.root,
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
     };

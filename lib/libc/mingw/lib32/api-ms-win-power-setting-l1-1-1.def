@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-power-setting-l1-1-1
+
+EXPORTS
+
+PowerRegisterForEffectivePowerModeNotifications@16
+PowerUnregisterFromEffectivePowerModeNotifications@4

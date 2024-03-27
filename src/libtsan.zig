@@ -27,7 +27,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
 
     const root_name = "tsan";
     const output_mode = .Lib;
-    const link_mode = .Static;
+    const link_mode = .static;
     const target = comp.getTarget();
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
@@ -92,6 +92,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         .cc_argv = &common_flags,
         .parent = null,
         .builtin_mod = null,
+        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,

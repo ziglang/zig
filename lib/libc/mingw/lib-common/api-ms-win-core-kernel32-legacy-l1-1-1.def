@@ -1,0 +1,18 @@
+LIBRARY api-ms-win-core-kernel32-legacy-l1-1-1
+
+EXPORTS
+
+FindFirstVolumeMountPointW
+FindNextVolumeMountPointW
+FindVolumeMountPointClose
+GetFileAttributesTransactedW
+GetFirmwareType
+GetNumaAvailableMemoryNodeEx
+GetNumaNodeProcessorMask
+GetNumaProcessorNodeEx
+PowerClearRequest
+PowerCreateRequest
+PowerSetRequest
+SetDllDirectoryW
+SetVolumeMountPointW
+VerifyVersionInfoW

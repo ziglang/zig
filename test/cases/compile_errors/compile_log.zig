@@ -21,7 +21,7 @@ export fn baz() void {
 //
 // Compile Log Output:
 // @as(*const [5:0]u8, "begin")
-// @as(*const [1:0]u8, "a"), @as(i32, 12), @as(*const [1:0]u8, "b"), @as([]const u8, "hi")
+// @as(*const [1:0]u8, "a"), @as(i32, 12), @as(*const [1:0]u8, "b"), @as([]const u8, "hi"[0..2])
 // @as(*const [3:0]u8, "end")
 // @as(comptime_int, 4)
 // @as(*const [5:0]u8, "begin")

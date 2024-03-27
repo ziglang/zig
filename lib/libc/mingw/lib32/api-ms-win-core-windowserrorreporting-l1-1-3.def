@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-windowserrorreporting-l1-1-3
+
+EXPORTS
+
+RegisterApplicationRestart@8
+UnregisterApplicationRestart@0

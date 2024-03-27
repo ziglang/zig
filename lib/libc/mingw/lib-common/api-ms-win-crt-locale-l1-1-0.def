@@ -1,0 +1,25 @@
+LIBRARY api-ms-win-crt-locale-l1-1-0
+
+EXPORTS
+
+___lc_codepage_func
+___lc_collate_cp_func
+___lc_locale_name_func
+___mb_cur_max_func
+___mb_cur_max_l_func
+__initialize_lconv_for_unsigned_char
+__lconv_init == __initialize_lconv_for_unsigned_char
+__pctype_func
+__pwctype_func
+_configthreadlocale
+_create_locale
+_free_locale
+_get_current_locale
+_getmbcp
+_lock_locales
+_setmbcp
+_unlock_locales
+_wcreate_locale
+_wsetlocale
+localeconv
+setlocale

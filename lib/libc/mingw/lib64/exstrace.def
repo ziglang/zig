@@ -9,7 +9,6 @@ EXPORTS
 AsyncBinaryTrace
 AsyncStringTrace
 DebugAssert
-DllMain
 FlushAsyncTrace
 InitAsyncTrace
 SetAsyncTraceParams

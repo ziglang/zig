@@ -8,7 +8,7 @@ const Tag = @Type(.{
 });
 const Tagged = @Type(.{
     .Union = .{
-        .layout = .Auto,
+        .layout = .auto,
         .tag_type = Tag,
         .fields = &.{
             .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },

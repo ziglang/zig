@@ -1,0 +1,25 @@
+LIBRARY api-ms-win-core-com-l2-1-1
+
+EXPORTS
+
+CreateILockBytesOnHGlobal@12
+FmtIdToPropStgName@8
+GetConvertStg@4
+GetHGlobalFromILockBytes@8
+PropStgNameToFmtId@8
+ReadClassStg@8
+ReadClassStm@8
+StgCreateDocfile@16
+StgCreateDocfileOnILockBytes@16
+StgCreatePropSetStg@12
+StgCreatePropStg@24
+StgCreateStorageEx@32
+StgIsStorageFile@4
+StgIsStorageILockBytes@4
+StgOpenPropStg@20
+StgOpenStorage@24
+StgOpenStorageEx@32
+StgOpenStorageOnILockBytes@24
+StgSetTimes@16
+WriteClassStg@8
+WriteClassStm@8

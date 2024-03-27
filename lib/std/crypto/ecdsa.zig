@@ -371,7 +371,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
     };
 }
 
-test "ECDSA - Basic operations over EcdsaP384Sha384" {
+test "Basic operations over EcdsaP384Sha384" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;
@@ -387,9 +387,8 @@ test "ECDSA - Basic operations over EcdsaP384Sha384" {
     try sig2.verify(msg, kp.public_key);
 }
 
-test "ECDSA - Basic operations over Secp256k1" {
+test "Basic operations over Secp256k1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
 
     const Scheme = EcdsaSecp256k1Sha256oSha256;
     const kp = try Scheme.KeyPair.create(null);
@@ -404,7 +403,7 @@ test "ECDSA - Basic operations over Secp256k1" {
     try sig2.verify(msg, kp.public_key);
 }
 
-test "ECDSA - Basic operations over EcdsaP384Sha256" {
+test "Basic operations over EcdsaP384Sha256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha256);
@@ -420,7 +419,7 @@ test "ECDSA - Basic operations over EcdsaP384Sha256" {
     try sig2.verify(msg, kp.public_key);
 }
 
-test "ECDSA - Verifying a existing signature with EcdsaP384Sha256" {
+test "Verifying a existing signature with EcdsaP384Sha256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha256);
@@ -464,7 +463,7 @@ const TestVector = struct {
     result: enum { valid, invalid, acceptable },
 };
 
-test "ECDSA - Test vectors from Project Wycheproof" {
+test "Test vectors from Project Wycheproof" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const vectors = [_]TestVector{
@@ -878,7 +877,7 @@ fn tvTry(vector: TestVector) !void {
     try sig.verify(msg, pk);
 }
 
-test "ECDSA - Sec1 encoding/decoding" {
+test "Sec1 encoding/decoding" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;

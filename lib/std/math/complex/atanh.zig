@@ -14,7 +14,7 @@ pub fn atanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
 
 const epsilon = 0.0001;
 
-test "complex.catanh" {
+test atanh {
     const a = Complex(f32).init(5, 3);
     const c = atanh(a);
 

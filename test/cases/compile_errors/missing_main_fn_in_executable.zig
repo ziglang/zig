@@ -7,4 +7,3 @@
 // : note: struct declared here
 // : note: called from here
 // : note: called from here
-// : note: called from here

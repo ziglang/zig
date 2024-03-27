@@ -55,7 +55,7 @@ pub const AddExecutableOptions = struct {
     version: ?std.SemanticVersion = null,
     target: ?std.Build.ResolvedTarget = null,
     optimize: ?std.builtin.OptimizeMode = null,
-    linkage: ?Step.Compile.Linkage = null,
+    linkage: ?std.builtin.LinkMode = null,
 };
 
 pub fn getOutput(self: *TranslateC) std.Build.LazyPath {
@@ -87,15 +87,9 @@ pub fn addModule(self: *TranslateC, name: []const u8) *std.Build.Module {
 /// current package, but not exposed to other packages depending on this one.
 /// `addModule` can be used instead to create a public module.
 pub fn createModule(self: *TranslateC) *std.Build.Module {
-    const b = self.step.owner;
-    const module = b.allocator.create(std.Build.Module) catch @panic("OOM");
-
-    module.* = .{
-        .builder = b,
+    return self.step.owner.createModule(.{
         .root_source_file = self.getOutput(),
-        .dependencies = std.StringArrayHashMap(*std.Build.Module).init(b.allocator),
-    };
-    return module;
+    });
 }
 
 pub fn addIncludeDir(self: *TranslateC, include_dir: []const u8) void {
@@ -127,7 +121,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const self = @fieldParentPtr(TranslateC, "step", step);
 
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
-    try argv_list.append(b.zig_exe);
+    try argv_list.append(b.graph.zig_exe);
     try argv_list.append("translate-c");
     if (self.link_libc) {
         try argv_list.append("-lc");

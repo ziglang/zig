@@ -23,10 +23,10 @@ pub fn Value(comptime T: type) type {
 
                 const addr: *anyopaque = self;
                 return switch (order) {
-                    .Unordered, .Monotonic => @compileError(@tagName(order) ++ " only applies to atomic loads and stores"),
-                    .Acquire => tsan.__tsan_acquire(addr),
-                    .Release => tsan.__tsan_release(addr),
-                    .AcqRel, .SeqCst => {
+                    .unordered, .monotonic => @compileError(@tagName(order) ++ " only applies to atomic loads and stores"),
+                    .acquire => tsan.__tsan_acquire(addr),
+                    .release => tsan.__tsan_release(addr),
+                    .acq_rel, .seq_cst => {
                         tsan.__tsan_acquire(addr);
                         tsan.__tsan_release(addr);
                     },
@@ -149,20 +149,20 @@ test Value {
 
         fn ref(rc: *RefCount) void {
             // No ordering necessary; just updating a counter.
-            _ = rc.count.fetchAdd(1, .Monotonic);
+            _ = rc.count.fetchAdd(1, .monotonic);
         }
 
         fn unref(rc: *RefCount) void {
             // Release ensures code before unref() happens-before the
             // count is decremented as dropFn could be called by then.
-            if (rc.count.fetchSub(1, .Release) == 1) {
-                // Acquire ensures count decrement and code before
+            if (rc.count.fetchSub(1, .release) == 1) {
+                // acquire ensures count decrement and code before
                 // previous unrefs()s happens-before we call dropFn
                 // below.
-                // Another alternative is to use .AcqRel on the
+                // Another alternative is to use .acq_rel on the
                 // fetchSub count decrement but it's extra barrier in
                 // possibly hot path.
-                rc.count.fence(.Acquire);
+                rc.count.fence(.acquire);
                 (rc.dropFn)(rc);
             }
         }
@@ -182,118 +182,118 @@ test Value {
 
 test "Value.swap" {
     var x = Value(usize).init(5);
-    try testing.expectEqual(@as(usize, 5), x.swap(10, .SeqCst));
-    try testing.expectEqual(@as(usize, 10), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 5), x.swap(10, .seq_cst));
+    try testing.expectEqual(@as(usize, 10), x.load(.seq_cst));
 
     const E = enum(usize) { a, b, c };
     var y = Value(E).init(.c);
-    try testing.expectEqual(E.c, y.swap(.a, .SeqCst));
-    try testing.expectEqual(E.a, y.load(.SeqCst));
+    try testing.expectEqual(E.c, y.swap(.a, .seq_cst));
+    try testing.expectEqual(E.a, y.load(.seq_cst));
 
     var z = Value(f32).init(5.0);
-    try testing.expectEqual(@as(f32, 5.0), z.swap(10.0, .SeqCst));
-    try testing.expectEqual(@as(f32, 10.0), z.load(.SeqCst));
+    try testing.expectEqual(@as(f32, 5.0), z.swap(10.0, .seq_cst));
+    try testing.expectEqual(@as(f32, 10.0), z.load(.seq_cst));
 
     var a = Value(bool).init(false);
-    try testing.expectEqual(false, a.swap(true, .SeqCst));
-    try testing.expectEqual(true, a.load(.SeqCst));
+    try testing.expectEqual(false, a.swap(true, .seq_cst));
+    try testing.expectEqual(true, a.load(.seq_cst));
 
     var b = Value(?*u8).init(null);
-    try testing.expectEqual(@as(?*u8, null), b.swap(@as(?*u8, @ptrFromInt(@alignOf(u8))), .SeqCst));
-    try testing.expectEqual(@as(?*u8, @ptrFromInt(@alignOf(u8))), b.load(.SeqCst));
+    try testing.expectEqual(@as(?*u8, null), b.swap(@as(?*u8, @ptrFromInt(@alignOf(u8))), .seq_cst));
+    try testing.expectEqual(@as(?*u8, @ptrFromInt(@alignOf(u8))), b.load(.seq_cst));
 }
 
 test "Value.store" {
     var x = Value(usize).init(5);
-    x.store(10, .SeqCst);
-    try testing.expectEqual(@as(usize, 10), x.load(.SeqCst));
+    x.store(10, .seq_cst);
+    try testing.expectEqual(@as(usize, 10), x.load(.seq_cst));
 }
 
 test "Value.cmpxchgWeak" {
     var x = Value(usize).init(0);
 
-    try testing.expectEqual(@as(?usize, 0), x.cmpxchgWeak(1, 0, .SeqCst, .SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.load(.SeqCst));
+    try testing.expectEqual(@as(?usize, 0), x.cmpxchgWeak(1, 0, .seq_cst, .seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.load(.seq_cst));
 
-    while (x.cmpxchgWeak(0, 1, .SeqCst, .SeqCst)) |_| {}
-    try testing.expectEqual(@as(usize, 1), x.load(.SeqCst));
+    while (x.cmpxchgWeak(0, 1, .seq_cst, .seq_cst)) |_| {}
+    try testing.expectEqual(@as(usize, 1), x.load(.seq_cst));
 
-    while (x.cmpxchgWeak(1, 0, .SeqCst, .SeqCst)) |_| {}
-    try testing.expectEqual(@as(usize, 0), x.load(.SeqCst));
+    while (x.cmpxchgWeak(1, 0, .seq_cst, .seq_cst)) |_| {}
+    try testing.expectEqual(@as(usize, 0), x.load(.seq_cst));
 }
 
 test "Value.cmpxchgStrong" {
     var x = Value(usize).init(0);
-    try testing.expectEqual(@as(?usize, 0), x.cmpxchgStrong(1, 0, .SeqCst, .SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.load(.SeqCst));
-    try testing.expectEqual(@as(?usize, null), x.cmpxchgStrong(0, 1, .SeqCst, .SeqCst));
-    try testing.expectEqual(@as(usize, 1), x.load(.SeqCst));
-    try testing.expectEqual(@as(?usize, null), x.cmpxchgStrong(1, 0, .SeqCst, .SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.load(.SeqCst));
+    try testing.expectEqual(@as(?usize, 0), x.cmpxchgStrong(1, 0, .seq_cst, .seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.load(.seq_cst));
+    try testing.expectEqual(@as(?usize, null), x.cmpxchgStrong(0, 1, .seq_cst, .seq_cst));
+    try testing.expectEqual(@as(usize, 1), x.load(.seq_cst));
+    try testing.expectEqual(@as(?usize, null), x.cmpxchgStrong(1, 0, .seq_cst, .seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.load(.seq_cst));
 }
 
 test "Value.fetchAdd" {
     var x = Value(usize).init(5);
-    try testing.expectEqual(@as(usize, 5), x.fetchAdd(5, .SeqCst));
-    try testing.expectEqual(@as(usize, 10), x.load(.SeqCst));
-    try testing.expectEqual(@as(usize, 10), x.fetchAdd(std.math.maxInt(usize), .SeqCst));
-    try testing.expectEqual(@as(usize, 9), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 5), x.fetchAdd(5, .seq_cst));
+    try testing.expectEqual(@as(usize, 10), x.load(.seq_cst));
+    try testing.expectEqual(@as(usize, 10), x.fetchAdd(std.math.maxInt(usize), .seq_cst));
+    try testing.expectEqual(@as(usize, 9), x.load(.seq_cst));
 }
 
 test "Value.fetchSub" {
     var x = Value(usize).init(5);
-    try testing.expectEqual(@as(usize, 5), x.fetchSub(5, .SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.load(.SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.fetchSub(1, .SeqCst));
-    try testing.expectEqual(@as(usize, std.math.maxInt(usize)), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 5), x.fetchSub(5, .seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.load(.seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.fetchSub(1, .seq_cst));
+    try testing.expectEqual(@as(usize, std.math.maxInt(usize)), x.load(.seq_cst));
 }
 
 test "Value.fetchMin" {
     var x = Value(usize).init(5);
-    try testing.expectEqual(@as(usize, 5), x.fetchMin(0, .SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.load(.SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.fetchMin(10, .SeqCst));
-    try testing.expectEqual(@as(usize, 0), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 5), x.fetchMin(0, .seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.load(.seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.fetchMin(10, .seq_cst));
+    try testing.expectEqual(@as(usize, 0), x.load(.seq_cst));
 }
 
 test "Value.fetchMax" {
     var x = Value(usize).init(5);
-    try testing.expectEqual(@as(usize, 5), x.fetchMax(10, .SeqCst));
-    try testing.expectEqual(@as(usize, 10), x.load(.SeqCst));
-    try testing.expectEqual(@as(usize, 10), x.fetchMax(5, .SeqCst));
-    try testing.expectEqual(@as(usize, 10), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 5), x.fetchMax(10, .seq_cst));
+    try testing.expectEqual(@as(usize, 10), x.load(.seq_cst));
+    try testing.expectEqual(@as(usize, 10), x.fetchMax(5, .seq_cst));
+    try testing.expectEqual(@as(usize, 10), x.load(.seq_cst));
 }
 
 test "Value.fetchAnd" {
     var x = Value(usize).init(0b11);
-    try testing.expectEqual(@as(usize, 0b11), x.fetchAnd(0b10, .SeqCst));
-    try testing.expectEqual(@as(usize, 0b10), x.load(.SeqCst));
-    try testing.expectEqual(@as(usize, 0b10), x.fetchAnd(0b00, .SeqCst));
-    try testing.expectEqual(@as(usize, 0b00), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 0b11), x.fetchAnd(0b10, .seq_cst));
+    try testing.expectEqual(@as(usize, 0b10), x.load(.seq_cst));
+    try testing.expectEqual(@as(usize, 0b10), x.fetchAnd(0b00, .seq_cst));
+    try testing.expectEqual(@as(usize, 0b00), x.load(.seq_cst));
 }
 
 test "Value.fetchNand" {
     var x = Value(usize).init(0b11);
-    try testing.expectEqual(@as(usize, 0b11), x.fetchNand(0b10, .SeqCst));
-    try testing.expectEqual(~@as(usize, 0b10), x.load(.SeqCst));
-    try testing.expectEqual(~@as(usize, 0b10), x.fetchNand(0b00, .SeqCst));
-    try testing.expectEqual(~@as(usize, 0b00), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 0b11), x.fetchNand(0b10, .seq_cst));
+    try testing.expectEqual(~@as(usize, 0b10), x.load(.seq_cst));
+    try testing.expectEqual(~@as(usize, 0b10), x.fetchNand(0b00, .seq_cst));
+    try testing.expectEqual(~@as(usize, 0b00), x.load(.seq_cst));
 }
 
 test "Value.fetchOr" {
     var x = Value(usize).init(0b11);
-    try testing.expectEqual(@as(usize, 0b11), x.fetchOr(0b100, .SeqCst));
-    try testing.expectEqual(@as(usize, 0b111), x.load(.SeqCst));
-    try testing.expectEqual(@as(usize, 0b111), x.fetchOr(0b010, .SeqCst));
-    try testing.expectEqual(@as(usize, 0b111), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 0b11), x.fetchOr(0b100, .seq_cst));
+    try testing.expectEqual(@as(usize, 0b111), x.load(.seq_cst));
+    try testing.expectEqual(@as(usize, 0b111), x.fetchOr(0b010, .seq_cst));
+    try testing.expectEqual(@as(usize, 0b111), x.load(.seq_cst));
 }
 
 test "Value.fetchXor" {
     var x = Value(usize).init(0b11);
-    try testing.expectEqual(@as(usize, 0b11), x.fetchXor(0b10, .SeqCst));
-    try testing.expectEqual(@as(usize, 0b01), x.load(.SeqCst));
-    try testing.expectEqual(@as(usize, 0b01), x.fetchXor(0b01, .SeqCst));
-    try testing.expectEqual(@as(usize, 0b00), x.load(.SeqCst));
+    try testing.expectEqual(@as(usize, 0b11), x.fetchXor(0b10, .seq_cst));
+    try testing.expectEqual(@as(usize, 0b01), x.load(.seq_cst));
+    try testing.expectEqual(@as(usize, 0b01), x.fetchXor(0b01, .seq_cst));
+    try testing.expectEqual(@as(usize, 0b00), x.load(.seq_cst));
 }
 
 test "Value.bitSet" {
@@ -304,19 +304,19 @@ test "Value.bitSet" {
         const mask = @as(usize, 1) << bit;
 
         // setting the bit should change the bit
-        try testing.expect(x.load(.SeqCst) & mask == 0);
-        try testing.expectEqual(@as(u1, 0), x.bitSet(bit, .SeqCst));
-        try testing.expect(x.load(.SeqCst) & mask != 0);
+        try testing.expect(x.load(.seq_cst) & mask == 0);
+        try testing.expectEqual(@as(u1, 0), x.bitSet(bit, .seq_cst));
+        try testing.expect(x.load(.seq_cst) & mask != 0);
 
         // setting it again shouldn't change the bit
-        try testing.expectEqual(@as(u1, 1), x.bitSet(bit, .SeqCst));
-        try testing.expect(x.load(.SeqCst) & mask != 0);
+        try testing.expectEqual(@as(u1, 1), x.bitSet(bit, .seq_cst));
+        try testing.expect(x.load(.seq_cst) & mask != 0);
 
         // all the previous bits should have not changed (still be set)
         for (0..bit_index) |prev_bit_index| {
             const prev_bit = @as(std.math.Log2Int(usize), @intCast(prev_bit_index));
             const prev_mask = @as(usize, 1) << prev_bit;
-            try testing.expect(x.load(.SeqCst) & prev_mask != 0);
+            try testing.expect(x.load(.seq_cst) & prev_mask != 0);
         }
     }
 }
@@ -330,19 +330,19 @@ test "Value.bitReset" {
         x.raw |= mask;
 
         // unsetting the bit should change the bit
-        try testing.expect(x.load(.SeqCst) & mask != 0);
-        try testing.expectEqual(@as(u1, 1), x.bitReset(bit, .SeqCst));
-        try testing.expect(x.load(.SeqCst) & mask == 0);
+        try testing.expect(x.load(.seq_cst) & mask != 0);
+        try testing.expectEqual(@as(u1, 1), x.bitReset(bit, .seq_cst));
+        try testing.expect(x.load(.seq_cst) & mask == 0);
 
         // unsetting it again shouldn't change the bit
-        try testing.expectEqual(@as(u1, 0), x.bitReset(bit, .SeqCst));
-        try testing.expect(x.load(.SeqCst) & mask == 0);
+        try testing.expectEqual(@as(u1, 0), x.bitReset(bit, .seq_cst));
+        try testing.expect(x.load(.seq_cst) & mask == 0);
 
         // all the previous bits should have not changed (still be reset)
         for (0..bit_index) |prev_bit_index| {
             const prev_bit = @as(std.math.Log2Int(usize), @intCast(prev_bit_index));
             const prev_mask = @as(usize, 1) << prev_bit;
-            try testing.expect(x.load(.SeqCst) & prev_mask == 0);
+            try testing.expect(x.load(.seq_cst) & prev_mask == 0);
         }
     }
 }
@@ -355,19 +355,19 @@ test "Value.bitToggle" {
         const mask = @as(usize, 1) << bit;
 
         // toggling the bit should change the bit
-        try testing.expect(x.load(.SeqCst) & mask == 0);
-        try testing.expectEqual(@as(u1, 0), x.bitToggle(bit, .SeqCst));
-        try testing.expect(x.load(.SeqCst) & mask != 0);
+        try testing.expect(x.load(.seq_cst) & mask == 0);
+        try testing.expectEqual(@as(u1, 0), x.bitToggle(bit, .seq_cst));
+        try testing.expect(x.load(.seq_cst) & mask != 0);
 
         // toggling it again *should* change the bit
-        try testing.expectEqual(@as(u1, 1), x.bitToggle(bit, .SeqCst));
-        try testing.expect(x.load(.SeqCst) & mask == 0);
+        try testing.expectEqual(@as(u1, 1), x.bitToggle(bit, .seq_cst));
+        try testing.expect(x.load(.seq_cst) & mask == 0);
 
         // all the previous bits should have not changed (still be toggled back)
         for (0..bit_index) |prev_bit_index| {
             const prev_bit = @as(std.math.Log2Int(usize), @intCast(prev_bit_index));
             const prev_mask = @as(usize, 1) << prev_bit;
-            try testing.expect(x.load(.SeqCst) & prev_mask == 0);
+            try testing.expect(x.load(.seq_cst) & prev_mask == 0);
         }
     }
 }

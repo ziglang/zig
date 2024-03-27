@@ -243,7 +243,7 @@ fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]c
             if (!std.mem.endsWith(u8, ext_entry.name, ".asciidoc"))
                 continue;
 
-            // Unfortunately, some extension filenames are incorrect, so we need to look for the string in tne 'Name Strings' section.
+            // Unfortunately, some extension filenames are incorrect, so we need to look for the string in the 'Name Strings' section.
             // This has the following format:
             // ```
             // Name Strings

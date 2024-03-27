@@ -17,7 +17,7 @@ pub fn main() anyerror!void {
 
     const tmp_absolute_path = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(tmp_absolute_path);
-    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16LeWithNull(allocator, tmp_absolute_path);
+    const tmp_absolute_path_w = try std.unicode.utf8ToUtf16LeAllocZ(allocator, tmp_absolute_path);
     defer allocator.free(tmp_absolute_path_w);
     const cwd_absolute_path = try std.fs.cwd().realpathAlloc(allocator, ".");
     defer allocator.free(cwd_absolute_path);
@@ -25,13 +25,13 @@ pub fn main() anyerror!void {
     defer allocator.free(tmp_relative_path);
 
     // Clear PATH
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATH"),
         null,
     ) == windows.TRUE);
 
     // Set PATHEXT to something predictable
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATHEXT"),
         utf16Literal(".COM;.EXE;.BAT;.CMD;.JS"),
     ) == windows.TRUE);
@@ -39,7 +39,7 @@ pub fn main() anyerror!void {
     // No PATH, so it should fail to find anything not in the cwd
     try testExecError(error.FileNotFound, allocator, "something_missing");
 
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATH"),
         tmp_absolute_path_w,
     ) == windows.TRUE);
@@ -120,7 +120,7 @@ pub fn main() anyerror!void {
     const something_subdir_abs_path = try std.mem.concatWithSentinel(allocator, u16, &.{ tmp_absolute_path_w, utf16Literal("\\something") }, 0);
     defer allocator.free(something_subdir_abs_path);
 
-    std.debug.assert(std.os.windows.kernel32.SetEnvironmentVariableW(
+    std.debug.assert(windows.kernel32.SetEnvironmentVariableW(
         utf16Literal("PATH"),
         something_subdir_abs_path,
     ) == windows.TRUE);

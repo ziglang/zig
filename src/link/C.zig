@@ -14,7 +14,7 @@ const codegen = @import("../codegen/c.zig");
 const link = @import("../link.zig");
 const trace = @import("../tracy.zig").trace;
 const Type = @import("../type.zig").Type;
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 
@@ -114,7 +114,6 @@ pub fn createEmpty(
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
     const output_mode = comp.config.output_mode;
-    const link_mode = comp.config.link_mode;
 
     // These are caught by `Compilation.Config.resolve`.
     assert(!use_lld);
@@ -123,7 +122,6 @@ pub fn createEmpty(
     const file = try emit.directory.handle.createFile(emit.sub_path, .{
         // Truncation is done on `flush`.
         .truncate = false,
-        .mode = link.File.determineMode(use_lld, output_mode, link_mode),
     });
     errdefer file.close();
 
@@ -211,7 +209,7 @@ pub fn updateFunc(
                 .module = module,
                 .error_msg = null,
                 .pass = .{ .decl = decl_index },
-                .is_naked_fn = decl.ty.fnCallingConvention(module) == .Naked,
+                .is_naked_fn = decl.typeOf(module).fnCallingConvention(module) == .Naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctypes = ctypes.*,
                 .anon_decl_deps = self.anon_decls,
@@ -285,13 +283,9 @@ fn updateAnonDecl(self: *C, module: *Module, i: usize) !void {
         code.* = object.code.moveToUnmanaged();
     }
 
-    const tv: @import("../TypedValue.zig") = .{
-        .ty = Type.fromInterned(module.intern_pool.typeOf(anon_decl)),
-        .val = Value.fromInterned(anon_decl),
-    };
     const c_value: codegen.CValue = .{ .constant = anon_decl };
     const alignment: Alignment = self.aligned_anon_decls.get(anon_decl) orelse .none;
-    codegen.genDeclValue(&object, tv, false, c_value, alignment, .none) catch |err| switch (err) {
+    codegen.genDeclValue(&object, Value.fromInterned(anon_decl), false, c_value, alignment, .none) catch |err| switch (err) {
         error.AnalysisFail => {
             @panic("TODO: C backend AnalysisFail on anonymous decl");
             //try module.failed_decls.put(gpa, decl_index, object.dg.error_msg.?);
@@ -520,7 +514,7 @@ const Flush = struct {
     asm_buf: std.ArrayListUnmanaged(u8) = .{},
 
     /// We collect a list of buffers to write, and write them all at once with pwritev 😎
-    all_buffers: std.ArrayListUnmanaged(std.os.iovec_const) = .{},
+    all_buffers: std.ArrayListUnmanaged(std.posix.iovec_const) = .{},
     /// Keeps track of the total bytes of `all_buffers`.
     file_size: u64 = 0,
 
@@ -754,7 +748,7 @@ pub fn flushEmitH(module: *Module) !void {
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     const num_buffers = emit_h.decl_table.count() + 1;
-    var all_buffers = try std.ArrayList(std.os.iovec_const).initCapacity(module.gpa, num_buffers);
+    var all_buffers = try std.ArrayList(std.posix.iovec_const).initCapacity(module.gpa, num_buffers);
     defer all_buffers.deinit();
 
     var file_size: u64 = zig_h.len;

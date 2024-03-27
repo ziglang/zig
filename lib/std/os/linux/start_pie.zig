@@ -81,7 +81,7 @@ pub fn relocate(phdrs: []elf.Phdr) void {
             break :base @intFromPtr(dynv) - phdr.p_vaddr;
         }
         // This is not supposed to happen for well-formed binaries.
-        std.os.abort();
+        @trap();
     };
 
     var rel_addr: usize = 0;

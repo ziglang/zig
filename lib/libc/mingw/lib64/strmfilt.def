@@ -16,4 +16,3 @@ StreamFilterInitialize
 StreamFilterStart
 StreamFilterStop
 StreamFilterTerminate
-DllMain

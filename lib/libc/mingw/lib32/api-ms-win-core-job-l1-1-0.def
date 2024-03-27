@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-job-l1-1-0
+
+EXPORTS
+
+IsProcessInJob@12

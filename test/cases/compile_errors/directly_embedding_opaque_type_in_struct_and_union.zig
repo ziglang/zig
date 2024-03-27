@@ -34,4 +34,6 @@ export fn d() void {
 // :7:10: error: opaque types have unknown size and therefore cannot be directly embedded in unions
 // :1:11: note: opaque declared here
 // :19:22: error: cannot load opaque type 'tmp.O'
+// :1:11: note: opaque declared here
 // :24:28: error: cannot load opaque type 'tmp.O'
+// :1:11: note: opaque declared here

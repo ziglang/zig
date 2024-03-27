@@ -392,7 +392,10 @@ pub const Os = struct {
 
     /// Checks if system is guaranteed to be at least `version` or older than `version`.
     /// Returns `null` if a runtime check is required.
-    pub inline fn isAtLeast(self: Os, comptime tag: Tag, version: anytype) ?bool {
+    pub inline fn isAtLeast(self: Os, comptime tag: Tag, version: switch (tag) {
+        else => std.SemanticVersion,
+        .windows => WindowsVersion,
+    }) ?bool {
         if (self.tag != tag) return false;
 
         return switch (tag) {
@@ -1221,6 +1224,7 @@ pub const Cpu = struct {
                 .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
                 .global, .constant, .local, .shared => is_gpu,
                 .param => is_nvptx,
+                .input, .output, .uniform => is_spirv,
                 // TODO this should also check how many flash banks the cpu has
                 .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
             };
@@ -1313,7 +1317,8 @@ pub const Cpu = struct {
             for (decls, 0..) |decl, i| {
                 array[i] = &@field(cpus, decl.name);
             }
-            return &array;
+            const finalized = array;
+            return &finalized;
         }
     };
 
@@ -2353,7 +2358,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
             .longdouble => return 128,
         },
 
-        .opencl => switch (c_type) {
+        .opencl, .vulkan => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
@@ -2386,7 +2391,6 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .hermit,
         .hurd,
         .glsl450,
-        .vulkan,
         .driverkit,
         .shadermodel,
         .liteos,
@@ -2753,6 +2757,22 @@ fn eqlIgnoreCase(ignore_case: bool, a: []const u8, b: []const u8) bool {
     } else {
         return std.mem.eql(u8, a, b);
     }
+}
+
+pub fn osArchName(target: std.Target) [:0]const u8 {
+    return switch (target.os.tag) {
+        .linux => switch (target.cpu.arch) {
+            .arm, .armeb, .thumb, .thumbeb => "arm",
+            .aarch64, .aarch64_be, .aarch64_32 => "aarch64",
+            .mips, .mipsel, .mips64, .mips64el => "mips",
+            .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
+            .riscv32, .riscv64 => "riscv",
+            .sparc, .sparcel, .sparc64 => "sparc",
+            .x86, .x86_64 => "x86",
+            else => @tagName(target.cpu.arch),
+        },
+        else => @tagName(target.cpu.arch),
+    };
 }
 
 const Target = @This();

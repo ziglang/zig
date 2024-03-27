@@ -91,6 +91,13 @@ pub const File = union(enum) {
         }
     }
 
+    pub fn scanRelocs(file: File, elf_file: *Elf, undefs: anytype) !void {
+        switch (file) {
+            .linker_defined, .shared_object => unreachable,
+            inline else => |x| try x.scanRelocs(elf_file, undefs),
+        }
+    }
+
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
             .linker_defined, .shared_object => &[0]Atom.Index{},
@@ -162,18 +169,18 @@ pub const File = union(enum) {
         state.name_off = try ar_strtab.insert(allocator, path);
     }
 
-    pub fn updateArSize(file: File) void {
+    pub fn updateArSize(file: File, elf_file: *Elf) !void {
         return switch (file) {
             .zig_object => |x| x.updateArSize(),
-            .object => |x| x.updateArSize(),
+            .object => |x| x.updateArSize(elf_file),
             inline else => unreachable,
         };
     }
 
-    pub fn writeAr(file: File, writer: anytype) !void {
+    pub fn writeAr(file: File, elf_file: *Elf, writer: anytype) !void {
         return switch (file) {
             .zig_object => |x| x.writeAr(writer),
-            .object => |x| x.writeAr(writer),
+            .object => |x| x.writeAr(elf_file, writer),
             inline else => unreachable,
         };
     }
@@ -187,6 +194,9 @@ pub const File = union(enum) {
         object: Object,
         shared_object: SharedObject,
     };
+
+    pub const Handle = std.fs.File;
+    pub const HandleIndex = Index;
 };
 
 const std = @import("std");

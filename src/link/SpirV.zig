@@ -36,11 +36,15 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
-const Value = @import("../value.zig").Value;
+const Value = @import("../Value.zig");
 
 const SpvModule = @import("../codegen/spirv/Module.zig");
+const Section = @import("../codegen/spirv/Section.zig");
 const spec = @import("../codegen/spirv/spec.zig");
 const IdResult = spec.IdResult;
+const Word = spec.Word;
+
+const BinaryModule = @import("SpirV/BinaryModule.zig");
 
 base: link.File,
 
@@ -85,8 +89,6 @@ pub fn createEmpty(
         .opencl, .glsl450, .vulkan => {},
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
-
-    assert(target.abi != .none); // Caught by Compilation.Config.resolve.
 
     return self;
 }
@@ -158,10 +160,28 @@ pub fn updateExports(
         },
     };
     const decl = mod.declPtr(decl_index);
-    if (decl.val.isFuncBody(mod) and decl.ty.fnCallingConvention(mod) == .Kernel) {
+    if (decl.val.isFuncBody(mod)) {
+        const target = mod.getTarget();
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
-        for (exports) |exp| {
-            try self.object.spv.declareEntryPoint(spv_decl_index, mod.intern_pool.stringToSlice(exp.opts.name));
+        const execution_model = switch (decl.typeOf(mod).fnCallingConvention(mod)) {
+            .Vertex => spec.ExecutionModel.Vertex,
+            .Fragment => spec.ExecutionModel.Fragment,
+            .Kernel => spec.ExecutionModel.Kernel,
+            .C => return, // TODO: What to do here?
+            else => unreachable,
+        };
+        const is_vulkan = target.os.tag == .vulkan;
+
+        if ((!is_vulkan and execution_model == .Kernel) or
+            (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
+        {
+            for (exports) |exp| {
+                try self.object.spv.declareEntryPoint(
+                    spv_decl_index,
+                    mod.intern_pool.stringToSlice(exp.opts.name),
+                    execution_model,
+                );
+            }
         }
     }
 
@@ -181,8 +201,6 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
-
-    _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -208,9 +226,9 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors");
-    const module = self.base.comp.module.?;
-    for (module.global_error_set.keys()) |name_nts| {
-        const name = module.intern_pool.stringToSlice(name_nts);
+    const mod = self.base.comp.module.?;
+    for (mod.global_error_set.keys()) |name_nts| {
+        const name = mod.intern_pool.stringToSlice(name_nts);
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
@@ -224,16 +242,43 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
         .extension = error_info.items,
     });
 
-    try spv.flush(self.base.file.?);
+    const module = try spv.finalize(arena, target);
+    errdefer arena.free(module);
+
+    const linked_module = self.linkModule(arena, module) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |other| {
+            log.err("error while linking: {s}\n", .{@errorName(other)});
+            return error.FlushFailure;
+        },
+    };
+
+    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
+}
+
+fn linkModule(self: *SpirV, a: Allocator, module: []Word) ![]Word {
+    _ = self;
+
+    const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
+    const prune_unused = @import("SpirV/prune_unused.zig");
+
+    var parser = try BinaryModule.Parser.init(a);
+    defer parser.deinit();
+    var binary = try parser.parse(module);
+
+    try lower_invocation_globals.run(&parser, &binary);
+    try prune_unused.run(&parser, &binary);
+
+    return binary.finalize(a);
 }
 
 fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     const gpa = spv.gpa;
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .GenericPointer },
+        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
         .glsl450 => &.{.Shader},
-        .vulkan => &.{.Shader},
+        .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
         else => unreachable, // TODO
     };
 
@@ -264,8 +309,7 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
         else => unreachable,
     };
 
-    // TODO: Put this in a proper section.
-    try spv.sections.extensions.emit(gpa, .OpMemoryModel, .{
+    try spv.sections.memory_model.emit(gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = memory_model,
     });

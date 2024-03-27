@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-core-heap-obsolete-l1-1-0
+
+EXPORTS
+
+GlobalFlags@4
+GlobalHandle@4
+GlobalLock@4
+GlobalReAlloc@12
+GlobalSize@4
+GlobalUnlock@4
+LocalFlags@4
+LocalSize@4

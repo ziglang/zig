@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-shcore-obsolete-l1-1-0
+
+EXPORTS
+
+CommandLineToArgvW

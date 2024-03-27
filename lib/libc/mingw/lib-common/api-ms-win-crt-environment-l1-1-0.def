@@ -1,0 +1,24 @@
+LIBRARY api-ms-win-crt-environment-l1-1-0
+
+EXPORTS
+
+__p__environ
+__p__wenviron
+_dupenv_s
+_putenv
+putenv == _putenv
+_putenv_s
+_searchenv
+searchenv == _searchenv
+_searchenv_s
+_wdupenv_s
+_wgetcwd
+_wgetdcwd
+_wgetenv
+_wgetenv_s
+_wputenv
+_wputenv_s
+_wsearchenv
+_wsearchenv_s
+getenv
+getenv_s

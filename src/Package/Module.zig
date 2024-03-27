@@ -3,7 +3,7 @@
 //! to Zcu. https://github.com/ziglang/zig/issues/14307
 
 /// Only files inside this directory can be imported.
-root: Package.Path,
+root: Cache.Path,
 /// Relative to `root`. May contain path separators.
 root_src_path: []const u8,
 /// Name used in compile errors. Looks like "root.foo.bar".
@@ -63,8 +63,13 @@ pub const CreateOptions = struct {
 
     builtin_mod: ?*Package.Module,
 
+    /// Allocated into the given `arena`. Should be shared across all module creations in a Compilation.
+    /// Ignored if `builtin_mod` is passed or if `!have_zcu`.
+    /// Otherwise, may be `null` only if this Compilation consists of a single module.
+    builtin_modules: ?*std.StringHashMapUnmanaged(*Module),
+
     pub const Paths = struct {
-        root: Package.Path,
+        root: Cache.Path,
         /// Relative to `root`. May contain path separators.
         root_src_path: []const u8,
     };
@@ -173,7 +178,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
                 return error.PieRequiresPic;
             break :b true;
         }
-        if (options.global.link_mode == .Dynamic) {
+        if (options.global.link_mode == .dynamic) {
             if (options.inherited.pic == false)
                 return error.DynamicLinkingRequiresPic;
             break :b true;
@@ -349,7 +354,6 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .output_mode = options.global.output_mode,
             .link_mode = options.global.link_mode,
             .is_test = options.global.is_test,
-            .test_evented_io = options.global.test_evented_io,
             .single_threaded = single_threaded,
             .link_libc = options.global.link_libc,
             .link_libcpp = options.global.link_libcpp,
@@ -365,11 +369,37 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .wasi_exec_model = options.global.wasi_exec_model,
         }, arena);
 
+        const new = if (options.builtin_modules) |builtins| new: {
+            const gop = try builtins.getOrPut(arena, generated_builtin_source);
+            if (gop.found_existing) break :b gop.value_ptr.*;
+            errdefer builtins.removeByPtr(gop.key_ptr);
+            const new = try arena.create(Module);
+            gop.value_ptr.* = new;
+            break :new new;
+        } else try arena.create(Module);
+        errdefer if (options.builtin_modules) |builtins| assert(builtins.remove(generated_builtin_source));
+
         const new_file = try arena.create(File);
 
-        const digest = Cache.HashHelper.oneShot(generated_builtin_source);
-        const builtin_sub_path = try arena.dupe(u8, "b" ++ std.fs.path.sep_str ++ digest);
-        const new = try arena.create(Module);
+        const bin_digest, const hex_digest = digest: {
+            var hasher: Cache.Hasher = Cache.hasher_init;
+            hasher.update(generated_builtin_source);
+
+            var bin_digest: Cache.BinDigest = undefined;
+            hasher.final(&bin_digest);
+
+            var hex_digest: Cache.HexDigest = undefined;
+            _ = std.fmt.bufPrint(
+                &hex_digest,
+                "{s}",
+                .{std.fmt.fmtSliceHexLower(&bin_digest)},
+            ) catch unreachable;
+
+            break :digest .{ bin_digest, hex_digest };
+        };
+
+        const builtin_sub_path = try arena.dupe(u8, "b" ++ std.fs.path.sep_str ++ hex_digest);
+
         new.* = .{
             .root = .{
                 .root_dir = options.global_cache_directory,
@@ -416,6 +446,9 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .status = .never_loaded,
             .mod = new,
             .root_decl = .none,
+            // We might as well use this digest for the File `path digest`, since there's a
+            // one-to-one correspondence here between distinct paths and distinct contents.
+            .path_digest = bin_digest,
         };
         break :b new;
     };
@@ -430,7 +463,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
 
 /// All fields correspond to `CreateOptions`.
 pub const LimitedOptions = struct {
-    root: Package.Path,
+    root: Cache.Path,
     root_src_path: []const u8,
     fully_qualified_name: []const u8,
 };

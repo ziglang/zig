@@ -7,7 +7,6 @@
 LIBRARY KEYMGR.dll
 EXPORTS
 CPlApplet
-DllMain
 KRShowKeyMgr
 PRShowRestoreFromMsginaW
 PRShowRestoreWizardExW

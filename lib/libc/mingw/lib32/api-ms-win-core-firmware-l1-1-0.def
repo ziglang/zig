@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-core-firmware-l1-1-0
+
+EXPORTS
+
+GetFirmwareEnvironmentVariableA@16
+GetFirmwareEnvironmentVariableExA@20
+GetFirmwareEnvironmentVariableExW@20
+GetFirmwareEnvironmentVariableW@16
+SetFirmwareEnvironmentVariableA@16
+SetFirmwareEnvironmentVariableExA@20
+SetFirmwareEnvironmentVariableExW@20
+SetFirmwareEnvironmentVariableW@16

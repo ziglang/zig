@@ -154,7 +154,7 @@ fn sinh64(z: Complex(f64)) Complex(f64) {
 
 const epsilon = 0.0001;
 
-test "complex.csinh32" {
+test sinh32 {
     const a = Complex(f32).init(5, 3);
     const c = sinh(a);
 
@@ -162,7 +162,7 @@ test "complex.csinh32" {
     try testing.expect(math.approxEqAbs(f32, c.im, 10.472508, epsilon));
 }
 
-test "complex.csinh64" {
+test sinh64 {
     const a = Complex(f64).init(5, 3);
     const c = sinh(a);
 

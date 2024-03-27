@@ -528,6 +528,10 @@ const known_options = [_]KnownOpt{
         .name = "x",
         .ident = "x",
     },
+    .{
+        .name = "ObjC",
+        .ident = "force_load_objc",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};

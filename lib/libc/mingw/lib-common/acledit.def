@@ -9,7 +9,6 @@ EXPORTS
 EditAuditInfo
 EditOwnerInfo
 EditPermissionInfo
-DllMain
 FMExtensionProcW
 SedDiscretionaryAclEditor
 SedSystemAclEditor

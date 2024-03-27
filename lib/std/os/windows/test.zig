@@ -15,7 +15,7 @@ fn RtlDosPathNameToNtPathName_U(path: [:0]const u16) !windows.PathSpace {
     defer windows.ntdll.RtlFreeUnicodeString(&out);
 
     var path_space: windows.PathSpace = undefined;
-    const out_path = out.Buffer[0 .. out.Length / 2];
+    const out_path = out.Buffer.?[0 .. out.Length / 2];
     @memcpy(path_space.data[0..out_path.len], out_path);
     path_space.len = out.Length / 2;
     path_space.data[path_space.len] = 0;
@@ -30,7 +30,7 @@ fn testToPrefixedFileNoOracle(comptime path: []const u8, comptime expected_path:
     const expected_path_utf16 = std.unicode.utf8ToUtf16LeStringLiteral(expected_path);
     const actual_path = try windows.wToPrefixedFileW(null, path_utf16);
     std.testing.expectEqualSlices(u16, expected_path_utf16, actual_path.span()) catch |e| {
-        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16le(actual_path.span()), std.unicode.fmtUtf16le(expected_path_utf16) });
+        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16Le(actual_path.span()), std.unicode.fmtUtf16le(expected_path_utf16) });
         return e;
     };
 }
@@ -48,7 +48,7 @@ fn testToPrefixedFileOnlyOracle(comptime path: []const u8) !void {
     const zig_result = try windows.wToPrefixedFileW(null, path_utf16);
     const win32_api_result = try RtlDosPathNameToNtPathName_U(path_utf16);
     std.testing.expectEqualSlices(u16, win32_api_result.span(), zig_result.span()) catch |e| {
-        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16le(zig_result.span()), std.unicode.fmtUtf16le(win32_api_result.span()) });
+        std.debug.print("got '{s}', expected '{s}'\n", .{ std.unicode.fmtUtf16Le(zig_result.span()), std.unicode.fmtUtf16le(win32_api_result.span()) });
         return e;
     };
 }
@@ -245,7 +245,7 @@ test "loadWinsockExtensionFunction" {
     const LPFN_CONNECTEX = *const fn (
         Socket: windows.ws2_32.SOCKET,
         SockAddr: *const windows.ws2_32.sockaddr,
-        SockLen: std.os.socklen_t,
+        SockLen: std.posix.socklen_t,
         SendBuf: ?*const anyopaque,
         SendBufLen: windows.DWORD,
         BytesSent: *windows.DWORD,
@@ -254,7 +254,7 @@ test "loadWinsockExtensionFunction" {
 
     _ = windows.loadWinsockExtensionFunction(
         LPFN_CONNECTEX,
-        try std.os.socket(std.os.AF.INET, std.os.SOCK.DGRAM, 0),
+        try std.posix.socket(std.posix.AF.INET, std.posix.SOCK.DGRAM, 0),
         windows.ws2_32.WSAID_CONNECTEX,
     ) catch |err| switch (err) {
         error.OperationNotSupported => unreachable,

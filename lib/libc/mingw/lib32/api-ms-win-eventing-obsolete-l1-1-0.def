@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-eventing-obsolete-l1-1-0
+
+EXPORTS
+
+RegisterTraceGuidsA@32
+RemoveTraceCallback@4
+SetTraceCallback@8
