@@ -4700,6 +4700,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const template_paths = [_][]const u8{
         Package.build_zig_basename,
         Package.Manifest.basename,
+        ".gitignore",
         "src" ++ s ++ "main.zig",
         "src" ++ s ++ "root.zig",
     };
