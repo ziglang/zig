@@ -4684,13 +4684,13 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
 
 pub const MSyncError = error{
     UnmappedMemory,
-    AccessDenied,
+    PermissionDenied,
 } || UnexpectedError;
 
 pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
-        .EPERM => AccessDenied,
+        .EPERM => PermissionDenied,
         .NOMEM => return error.UnmappedMemory, // Unsuccessful, provided pointer does not point mapped memory
         .INVAL => unreachable, // Invalid parameters.
         else => unreachable,
@@ -7066,6 +7066,7 @@ pub const MadviseError = error{
 pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
     switch (errno(system.madvise(ptr, length, advice))) {
         .SUCCESS => return,
+        .EPERM => return error.PermissionDenied,
         .ACCES => return error.AccessDenied,
         .AGAIN => return error.SystemResources,
         .BADF => unreachable, // The map exists, but the area maps something that isn't a file.
