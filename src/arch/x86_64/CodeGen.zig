@@ -32,7 +32,6 @@ const InternPool = @import("../../InternPool.zig");
 const Alignment = InternPool.Alignment;
 const Target = std.Target;
 const Type = @import("../../type.zig").Type;
-const TypedValue = @import("../../TypedValue.zig");
 const Value = @import("../../Value.zig");
 const Instruction = @import("encoder.zig").Instruction;
 
@@ -808,7 +807,7 @@ pub fn generate(
     const func = zcu.funcInfo(func_index);
     const fn_owner_decl = zcu.declPtr(func.owner_decl);
     assert(fn_owner_decl.has_tv);
-    const fn_type = fn_owner_decl.ty;
+    const fn_type = fn_owner_decl.typeOf(zcu);
     const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
     const mod = namespace.file_scope.mod;
 
@@ -2250,7 +2249,7 @@ fn genLazy(self: *Self, lazy_sym: link.File.LazySymbol) InnerError!void {
             for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, tag_index| {
                 const tag_name_len = ip.stringToSlice(tag_names.get(ip)[tag_index]).len;
                 const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
-                const tag_mcv = try self.genTypedValue(.{ .ty = enum_ty, .val = tag_val });
+                const tag_mcv = try self.genTypedValue(tag_val);
                 try self.genBinOpMir(.{ ._, .cmp }, enum_ty, enum_mcv, tag_mcv);
                 const skip_reloc = try self.asmJccReloc(.ne, undefined);
 
@@ -3323,7 +3322,7 @@ fn airTrunc(self: *Self, inst: Air.Inst.Index) !void {
                 .storage = .{ .repeated_elem = mask_val.ip_index },
             } });
 
-            const splat_mcv = try self.genTypedValue(.{ .ty = splat_ty, .val = Value.fromInterned(splat_val) });
+            const splat_mcv = try self.genTypedValue(Value.fromInterned(splat_val));
             const splat_addr_mcv: MCValue = switch (splat_mcv) {
                 .memory, .indirect, .load_frame => splat_mcv.address(),
                 else => .{ .register = try self.copyToTmpRegister(Type.usize, splat_mcv.address()) },
@@ -4992,17 +4991,14 @@ fn airShlShrBinOp(self: *Self, inst: Air.Inst.Index) !void {
                         defer self.register_manager.unlockReg(shift_lock);
 
                         const mask_ty = try mod.vectorType(.{ .len = 16, .child = .u8_type });
-                        const mask_mcv = try self.genTypedValue(.{
-                            .ty = mask_ty,
-                            .val = Value.fromInterned((try mod.intern(.{ .aggregate = .{
-                                .ty = mask_ty.toIntern(),
-                                .storage = .{ .elems = &([1]InternPool.Index{
-                                    (try rhs_ty.childType(mod).maxIntScalar(mod, Type.u8)).toIntern(),
-                                } ++ [1]InternPool.Index{
-                                    (try mod.intValue(Type.u8, 0)).toIntern(),
-                                } ** 15) },
-                            } }))),
-                        });
+                        const mask_mcv = try self.genTypedValue(Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                            .ty = mask_ty.toIntern(),
+                            .storage = .{ .elems = &([1]InternPool.Index{
+                                (try rhs_ty.childType(mod).maxIntScalar(mod, Type.u8)).toIntern(),
+                            } ++ [1]InternPool.Index{
+                                (try mod.intValue(Type.u8, 0)).toIntern(),
+                            } ** 15) },
+                        } })));
                         const mask_addr_reg =
                             try self.copyToTmpRegister(Type.usize, mask_mcv.address());
                         const mask_addr_lock = self.register_manager.lockRegAssumeUnused(mask_addr_reg);
@@ -6860,11 +6856,11 @@ fn floatSign(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, ty: Type)
             .child = (try mod.intType(.signed, scalar_bits)).ip_index,
         });
 
-        const sign_mcv = try self.genTypedValue(.{ .ty = vec_ty, .val = switch (tag) {
+        const sign_mcv = try self.genTypedValue(switch (tag) {
             .neg => try vec_ty.minInt(mod, vec_ty),
             .abs => try vec_ty.maxInt(mod, vec_ty),
             else => unreachable,
-        } });
+        });
         const sign_mem: Memory = if (sign_mcv.isMemory())
             try sign_mcv.mem(self, Memory.Size.fromSize(abi_size))
         else
@@ -11130,10 +11126,7 @@ fn genBinOp(
                     .cmp_neq,
                     => {
                         const unsigned_ty = try lhs_ty.toUnsigned(mod);
-                        const not_mcv = try self.genTypedValue(.{
-                            .ty = lhs_ty,
-                            .val = try unsigned_ty.maxInt(mod, unsigned_ty),
-                        });
+                        const not_mcv = try self.genTypedValue(try unsigned_ty.maxInt(mod, unsigned_ty));
                         const not_mem: Memory = if (not_mcv.isMemory())
                             try not_mcv.mem(self, Memory.Size.fromSize(abi_size))
                         else
@@ -12258,12 +12251,11 @@ fn genCall(self: *Self, info: union(enum) {
             switch (switch (func_key) {
                 else => func_key,
                 .ptr => |ptr| switch (ptr.addr) {
-                    .decl => |decl| mod.intern_pool.indexToKey(try mod.declPtr(decl).internValue(mod)),
+                    .decl => |decl| mod.intern_pool.indexToKey(mod.declPtr(decl).val.toIntern()),
                     else => func_key,
                 },
             }) {
                 .func => |func| {
-                    try mod.markDeclAlive(mod.declPtr(func.owner_decl));
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
                         const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         const sym = elf_file.symbol(sym_index);
@@ -12323,7 +12315,6 @@ fn genCall(self: *Self, info: union(enum) {
                 },
                 .extern_func => |extern_func| {
                     const owner_decl = mod.declPtr(extern_func.decl);
-                    try mod.markDeclAlive(owner_decl);
                     const lib_name = mod.intern_pool.stringToSliceUnwrap(extern_func.lib_name);
                     const decl_name = mod.intern_pool.stringToSlice(owner_decl.name);
                     try self.genExternSymbolRef(.call, lib_name, decl_name);
@@ -14694,10 +14685,7 @@ fn genSetReg(
                 ),
                 else => unreachable,
             },
-            .segment, .x87, .mmx, .sse => try self.genSetReg(dst_reg, ty, try self.genTypedValue(.{
-                .ty = ty,
-                .val = try mod.undefValue(ty),
-            }), opts),
+            .segment, .x87, .mmx, .sse => try self.genSetReg(dst_reg, ty, try self.genTypedValue(try mod.undefValue(ty)), opts),
         },
         .eflags => |cc| try self.asmSetccRegister(cc, dst_reg.to8()),
         .immediate => |imm| {
@@ -16895,13 +16883,10 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
                     .ty = mask_elem_ty.toIntern(),
                     .storage = .{ .u64 = bit / elem_bits },
                 } });
-                const mask_mcv = try self.genTypedValue(.{
-                    .ty = mask_ty,
-                    .val = Value.fromInterned(try mod.intern(.{ .aggregate = .{
-                        .ty = mask_ty.toIntern(),
-                        .storage = .{ .elems = mask_elems[0..vec_len] },
-                    } })),
-                });
+                const mask_mcv = try self.genTypedValue(Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                    .ty = mask_ty.toIntern(),
+                    .storage = .{ .elems = mask_elems[0..vec_len] },
+                } })));
                 const mask_mem: Memory = .{
                     .base = .{ .reg = try self.copyToTmpRegister(Type.usize, mask_mcv.address()) },
                     .mod = .{ .rm = .{ .size = self.memSize(ty) } },
@@ -16923,13 +16908,10 @@ fn airSelect(self: *Self, inst: Air.Inst.Index) !void {
                     .ty = mask_elem_ty.toIntern(),
                     .storage = .{ .u64 = @as(u32, 1) << @intCast(bit & (elem_bits - 1)) },
                 } });
-                const mask_mcv = try self.genTypedValue(.{
-                    .ty = mask_ty,
-                    .val = Value.fromInterned(try mod.intern(.{ .aggregate = .{
-                        .ty = mask_ty.toIntern(),
-                        .storage = .{ .elems = mask_elems[0..vec_len] },
-                    } })),
-                });
+                const mask_mcv = try self.genTypedValue(Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                    .ty = mask_ty.toIntern(),
+                    .storage = .{ .elems = mask_elems[0..vec_len] },
+                } })));
                 const mask_mem: Memory = .{
                     .base = .{ .reg = try self.copyToTmpRegister(Type.usize, mask_mcv.address()) },
                     .mod = .{ .rm = .{ .size = self.memSize(ty) } },
@@ -17660,13 +17642,10 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
                 else
                     try select_mask_elem_ty.minIntScalar(mod, select_mask_elem_ty)).toIntern();
             }
-            const select_mask_mcv = try self.genTypedValue(.{
-                .ty = select_mask_ty,
-                .val = Value.fromInterned(try mod.intern(.{ .aggregate = .{
-                    .ty = select_mask_ty.toIntern(),
-                    .storage = .{ .elems = select_mask_elems[0..mask_elems.len] },
-                } })),
-            });
+            const select_mask_mcv = try self.genTypedValue(Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                .ty = select_mask_ty.toIntern(),
+                .storage = .{ .elems = select_mask_elems[0..mask_elems.len] },
+            } })));
 
             if (self.hasFeature(.sse4_1)) {
                 const mir_tag: Mir.Inst.FixedTag = .{
@@ -17811,13 +17790,10 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
                 } });
             }
             const lhs_mask_ty = try mod.vectorType(.{ .len = max_abi_size, .child = .u8_type });
-            const lhs_mask_mcv = try self.genTypedValue(.{
-                .ty = lhs_mask_ty,
-                .val = Value.fromInterned(try mod.intern(.{ .aggregate = .{
-                    .ty = lhs_mask_ty.toIntern(),
-                    .storage = .{ .elems = lhs_mask_elems[0..max_abi_size] },
-                } })),
-            });
+            const lhs_mask_mcv = try self.genTypedValue(Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                .ty = lhs_mask_ty.toIntern(),
+                .storage = .{ .elems = lhs_mask_elems[0..max_abi_size] },
+            } })));
             const lhs_mask_mem: Memory = .{
                 .base = .{ .reg = try self.copyToTmpRegister(Type.usize, lhs_mask_mcv.address()) },
                 .mod = .{ .rm = .{ .size = Memory.Size.fromSize(@max(max_abi_size, 16)) } },
@@ -17848,13 +17824,10 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
                 } });
             }
             const rhs_mask_ty = try mod.vectorType(.{ .len = max_abi_size, .child = .u8_type });
-            const rhs_mask_mcv = try self.genTypedValue(.{
-                .ty = rhs_mask_ty,
-                .val = Value.fromInterned(try mod.intern(.{ .aggregate = .{
-                    .ty = rhs_mask_ty.toIntern(),
-                    .storage = .{ .elems = rhs_mask_elems[0..max_abi_size] },
-                } })),
-            });
+            const rhs_mask_mcv = try self.genTypedValue(Value.fromInterned(try mod.intern(.{ .aggregate = .{
+                .ty = rhs_mask_ty.toIntern(),
+                .storage = .{ .elems = rhs_mask_elems[0..max_abi_size] },
+            } })));
             const rhs_mask_mem: Memory = .{
                 .base = .{ .reg = try self.copyToTmpRegister(Type.usize, rhs_mask_mcv.address()) },
                 .mod = .{ .rm = .{ .size = Memory.Size.fromSize(@max(max_abi_size, 16)) } },
@@ -17903,11 +17876,8 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result null;
     }) orelse return self.fail("TODO implement airShuffle from {} and {} to {} with {}", .{
-        lhs_ty.fmt(mod), rhs_ty.fmt(mod), dst_ty.fmt(mod),
-        Value.fromInterned(extra.mask).fmtValue(
-            Type.fromInterned(mod.intern_pool.typeOf(extra.mask)),
-            mod,
-        ),
+        lhs_ty.fmt(mod),                              rhs_ty.fmt(mod), dst_ty.fmt(mod),
+        Value.fromInterned(extra.mask).fmtValue(mod),
     });
     return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }
@@ -18140,7 +18110,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                         .{ .frame = frame_index },
                         @intCast(elem_size * elements.len),
                         elem_ty,
-                        try self.genTypedValue(.{ .ty = elem_ty, .val = sentinel }),
+                        try self.genTypedValue(sentinel),
                         .{},
                     );
                     break :result .{ .load_frame = .{ .index = frame_index } };
@@ -18664,7 +18634,7 @@ fn resolveInst(self: *Self, ref: Air.Inst.Ref) InnerError!MCValue {
         const ip_index = ref.toInterned().?;
         const gop = try self.const_tracking.getOrPut(self.gpa, ip_index);
         if (!gop.found_existing) gop.value_ptr.* = InstTracking.init(init: {
-            const const_mcv = try self.genTypedValue(.{ .ty = ty, .val = Value.fromInterned(ip_index) });
+            const const_mcv = try self.genTypedValue(Value.fromInterned(ip_index));
             switch (const_mcv) {
                 .lea_tlv => |tlv_sym| switch (self.bin_file.tag) {
                     .elf, .macho => {
@@ -18729,9 +18699,9 @@ fn limitImmediateType(self: *Self, operand: Air.Inst.Ref, comptime T: type) !MCV
     return mcv;
 }
 
-fn genTypedValue(self: *Self, arg_tv: TypedValue) InnerError!MCValue {
+fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
     const mod = self.bin_file.comp.module.?;
-    return switch (try codegen.genTypedValue(self.bin_file, self.src_loc, arg_tv, self.owner.getDecl(mod))) {
+    return switch (try codegen.genTypedValue(self.bin_file, self.src_loc, val, self.owner.getDecl(mod))) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,

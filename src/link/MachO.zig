@@ -3127,8 +3127,8 @@ pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air:
     return self.getZigObject().?.updateFunc(self, mod, func_index, air, liveness);
 }
 
-pub fn lowerUnnamedConst(self: *MachO, typed_value: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
-    return self.getZigObject().?.lowerUnnamedConst(self, typed_value, decl_index);
+pub fn lowerUnnamedConst(self: *MachO, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    return self.getZigObject().?.lowerUnnamedConst(self, val, decl_index);
 }
 
 pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) !void {
@@ -4689,7 +4689,7 @@ const StubsHelperSection = synthetic.StubsHelperSection;
 const Symbol = @import("MachO/Symbol.zig");
 const Thunk = thunks.Thunk;
 const TlvPtrSection = synthetic.TlvPtrSection;
-const TypedValue = @import("../TypedValue.zig");
+const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
 const WeakBindSection = synthetic.WeakBindSection;
 const ZigGotSection = synthetic.ZigGotSection;

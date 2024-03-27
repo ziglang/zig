@@ -7,7 +7,6 @@ const Module = @import("Module.zig");
 const Zcu = Module;
 const log = std.log.scoped(.Type);
 const target_util = @import("target.zig");
-const TypedValue = @import("TypedValue.zig");
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
@@ -188,8 +187,8 @@ pub const Type = struct {
 
                 if (info.sentinel != .none) switch (info.flags.size) {
                     .One, .C => unreachable,
-                    .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(Type.fromInterned(info.child), mod)}),
-                    .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(Type.fromInterned(info.child), mod)}),
+                    .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(mod)}),
+                    .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(mod)}),
                 } else switch (info.flags.size) {
                     .One => try writer.writeAll("*"),
                     .Many => try writer.writeAll("[*]"),
@@ -235,7 +234,7 @@ pub const Type = struct {
                 } else {
                     try writer.print("[{d}:{}]", .{
                         array_type.len,
-                        Value.fromInterned(array_type.sentinel).fmtValue(Type.fromInterned(array_type.child), mod),
+                        Value.fromInterned(array_type.sentinel).fmtValue(mod),
                     });
                     try print(Type.fromInterned(array_type.child), writer, mod);
                 }
@@ -353,7 +352,7 @@ pub const Type = struct {
                     try print(Type.fromInterned(field_ty), writer, mod);
 
                     if (val != .none) {
-                        try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(Type.fromInterned(field_ty), mod)});
+                        try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(mod)});
                     }
                 }
                 try writer.writeAll("}");
@@ -2481,7 +2480,7 @@ pub const Type = struct {
                         }
                         const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
                         if (try field_ty.onePossibleValue(mod)) |field_opv| {
-                            field_val.* = try field_opv.intern(field_ty, mod);
+                            field_val.* = field_opv.toIntern();
                         } else return null;
                     }
 

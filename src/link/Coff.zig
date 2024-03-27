@@ -1167,7 +1167,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
     return self.updateExports(mod, .{ .decl_index = decl_index }, mod.getDeclExports(decl_index));
 }
 
-pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.DeclIndex) !u32 {
+pub fn lowerUnnamedConst(self: *Coff, val: Value, decl_index: InternPool.DeclIndex) !u32 {
     const gpa = self.base.comp.gpa;
     const mod = self.base.comp.module.?;
     const decl = mod.declPtr(decl_index);
@@ -1180,7 +1180,8 @@ pub fn lowerUnnamedConst(self: *Coff, tv: TypedValue, decl_index: InternPool.Dec
     const index = unnamed_consts.items.len;
     const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{s}_{d}", .{ decl_name, index });
     defer gpa.free(sym_name);
-    const atom_index = switch (try self.lowerConst(sym_name, tv, tv.ty.abiAlignment(mod), self.rdata_section_index.?, decl.srcLoc(mod))) {
+    const ty = val.typeOf(mod);
+    const atom_index = switch (try self.lowerConst(sym_name, val, ty.abiAlignment(mod), self.rdata_section_index.?, decl.srcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1198,7 +1199,7 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
+fn lowerConst(self: *Coff, name: []const u8, val: Value, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.SrcLoc) !LowerConstResult {
     const gpa = self.base.comp.gpa;
 
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1209,7 +1210,7 @@ fn lowerConst(self: *Coff, name: []const u8, tv: TypedValue, required_alignment:
     try self.setSymbolName(sym, name);
     sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_id + 1));
 
-    const res = try codegen.generateSymbol(&self.base, src_loc, tv, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, src_loc, val, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1271,10 +1272,7 @@ pub fn updateDecl(
     defer code_buffer.deinit();
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, decl.srcLoc(mod), decl_val, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1399,8 +1397,8 @@ pub fn getOrCreateAtomForDecl(self: *Coff, decl_index: InternPool.DeclIndex) !At
 
 fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
     const decl = self.base.comp.module.?.declPtr(decl_index);
-    const ty = decl.ty;
     const mod = self.base.comp.module.?;
+    const ty = decl.typeOf(mod);
     const zig_ty = ty.zigTypeTag(mod);
     const val = decl.val;
     const index: u16 = blk: {
@@ -1535,7 +1533,7 @@ pub fn updateExports(
                 .x86 => std.builtin.CallingConvention.Stdcall,
                 else => std.builtin.CallingConvention.C,
             };
-            const decl_cc = exported_decl.ty.fnCallingConvention(mod);
+            const decl_cc = exported_decl.typeOf(mod).fnCallingConvention(mod);
             if (decl_cc == .C and ip.stringEqlSlice(exp.opts.name, "main") and
                 comp.config.link_libc)
             {
@@ -1887,14 +1885,13 @@ pub fn lowerAnonDecl(
     }
 
     const val = Value.fromInterned(decl_val);
-    const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
         @intFromEnum(decl_val),
     }) catch unreachable;
     const res = self.lowerConst(
         name,
-        tv,
+        val,
         decl_alignment,
         self.rdata_section_index.?,
         src_loc,
@@ -2754,7 +2751,6 @@ const TableSection = @import("table_section.zig").TableSection;
 const StringTable = @import("StringTable.zig");
 const Type = @import("../type.zig").Type;
 const Value = @import("../Value.zig");
-const TypedValue = @import("../TypedValue.zig");
 
 pub const base_tag: link.File.Tag = .coff;
 

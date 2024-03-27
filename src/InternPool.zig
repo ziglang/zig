@@ -6581,7 +6581,6 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
         generic_owner,
         func_index,
         func_extra_index,
-        func_ty,
         arg.alignment,
         arg.section,
     );
@@ -6711,7 +6710,6 @@ pub fn getFuncInstanceIes(
         generic_owner,
         func_index,
         func_extra_index,
-        func_ty,
         arg.alignment,
         arg.section,
     );
@@ -6723,7 +6721,6 @@ fn finishFuncInstance(
     generic_owner: Index,
     func_index: Index,
     func_extra_index: u32,
-    func_ty: Index,
     alignment: Alignment,
     section: OptionalNullTerminatedString,
 ) Allocator.Error!Index {
@@ -6735,7 +6732,6 @@ fn finishFuncInstance(
         .src_line = fn_owner_decl.src_line,
         .has_tv = true,
         .owns_tv = true,
-        .ty = @import("type.zig").Type.fromInterned(func_ty),
         .val = @import("Value.zig").fromInterned(func_index),
         .alignment = alignment,
         .@"linksection" = section,
@@ -6744,7 +6740,6 @@ fn finishFuncInstance(
         .zir_decl_index = fn_owner_decl.zir_decl_index,
         .is_pub = fn_owner_decl.is_pub,
         .is_exported = fn_owner_decl.is_exported,
-        .alive = true,
         .kind = .anon,
     });
     errdefer ip.destroyDecl(gpa, decl_index);

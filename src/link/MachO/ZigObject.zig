@@ -567,8 +567,6 @@ pub fn lowerAnonDecl(
             return .ok;
     }
 
-    const val = Value.fromInterned(decl_val);
-    const tv = TypedValue{ .ty = ty, .val = val };
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
         @intFromEnum(decl_val),
@@ -576,7 +574,7 @@ pub fn lowerAnonDecl(
     const res = self.lowerConst(
         macho_file,
         name,
-        tv,
+        Value.fromInterned(decl_val),
         decl_alignment,
         macho_file.zig_const_sect_index.?,
         src_loc,
@@ -738,11 +736,7 @@ pub fn updateDecl(
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
     const dio: codegen.DebugInfoOutput = if (decl_state) |*ds| .{ .dwarf = ds } else .none;
-    const res =
-        try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), .{
-        .ty = decl.ty,
-        .val = decl_val,
-    }, &code_buffer, dio, .{
+    const res = try codegen.generateSymbol(&macho_file.base, decl.srcLoc(mod), decl_val, &code_buffer, dio, .{
         .parent_atom_index = sym_index,
     });
 
@@ -1021,7 +1015,7 @@ fn getDeclOutputSection(
     _ = self;
     const mod = macho_file.base.comp.module.?;
     const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
-    const sect_id: u8 = switch (decl.ty.zigTypeTag(mod)) {
+    const sect_id: u8 = switch (decl.typeOf(mod).zigTypeTag(mod)) {
         .Fn => macho_file.zig_text_sect_index.?,
         else => blk: {
             if (decl.getOwnedVariable(mod)) |variable| {
@@ -1068,7 +1062,7 @@ fn getDeclOutputSection(
 pub fn lowerUnnamedConst(
     self: *ZigObject,
     macho_file: *MachO,
-    typed_value: TypedValue,
+    val: Value,
     decl_index: InternPool.DeclIndex,
 ) !u32 {
     const gpa = macho_file.base.comp.gpa;
@@ -1086,8 +1080,8 @@ pub fn lowerUnnamedConst(
     const sym_index = switch (try self.lowerConst(
         macho_file,
         name,
-        typed_value,
-        typed_value.ty.abiAlignment(mod),
+        val,
+        val.typeOf(mod).abiAlignment(mod),
         macho_file.zig_const_sect_index.?,
         decl.srcLoc(mod),
     )) {
@@ -1113,7 +1107,7 @@ fn lowerConst(
     self: *ZigObject,
     macho_file: *MachO,
     name: []const u8,
-    tv: TypedValue,
+    val: Value,
     required_alignment: Atom.Alignment,
     output_section_index: u8,
     src_loc: Module.SrcLoc,
@@ -1125,7 +1119,7 @@ fn lowerConst(
 
     const sym_index = try self.addAtom(macho_file);
 
-    const res = try codegen.generateSymbol(&macho_file.base, src_loc, tv, &code_buffer, .{
+    const res = try codegen.generateSymbol(&macho_file.base, src_loc, val, &code_buffer, .{
         .none = {},
     }, .{
         .parent_atom_index = sym_index,
@@ -1580,5 +1574,4 @@ const Symbol = @import("Symbol.zig");
 const StringTable = @import("../StringTable.zig");
 const Type = @import("../../type.zig").Type;
 const Value = @import("../../Value.zig");
-const TypedValue = @import("../../TypedValue.zig");
 const ZigObject = @This();

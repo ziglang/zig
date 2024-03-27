@@ -18,7 +18,6 @@ const Module = @import("../Module.zig");
 const Zcu = Module;
 const InternPool = @import("../InternPool.zig");
 const Package = @import("../Package.zig");
-const TypedValue = @import("../TypedValue.zig");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
 const Value = @import("../Value.zig");
@@ -1384,7 +1383,7 @@ pub const Object = struct {
         const decl = zcu.declPtr(decl_index);
         const namespace = zcu.namespacePtr(decl.src_namespace);
         const owner_mod = namespace.file_scope.mod;
-        const fn_info = zcu.typeToFunc(decl.ty).?;
+        const fn_info = zcu.typeToFunc(decl.typeOf(zcu)).?;
         const target = zcu.getTarget();
         const ip = &zcu.intern_pool;
 
@@ -1659,7 +1658,7 @@ pub const Object = struct {
             const line_number = decl.src_line + 1;
             const is_internal_linkage = decl.val.getExternFunc(zcu) == null and
                 !zcu.decl_exports.contains(decl_index);
-            const debug_decl_type = try o.lowerDebugType(decl.ty);
+            const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu));
 
             const subprogram = try o.builder.debugSubprogram(
                 file,
@@ -1762,7 +1761,7 @@ pub const Object = struct {
             const decl_name = decl_name: {
                 const decl_name = mod.intern_pool.stringToSlice(decl.name);
 
-                if (mod.getTarget().isWasm() and try decl.isFunction(mod)) {
+                if (mod.getTarget().isWasm() and decl.val.typeOf(mod).zigTypeTag(mod) == .Fn) {
                     if (mod.intern_pool.stringToSliceUnwrap(decl.getOwnedExternFunc(mod).?.lib_name)) |lib_name| {
                         if (!std.mem.eql(u8, lib_name, "c")) {
                             break :decl_name try self.builder.strtabStringFmt("{s}|{s}", .{ decl_name, lib_name });
@@ -2881,7 +2880,7 @@ pub const Object = struct {
         const decl = zcu.declPtr(decl_index);
         const namespace = zcu.namespacePtr(decl.src_namespace);
         const owner_mod = namespace.file_scope.mod;
-        const zig_fn_type = decl.ty;
+        const zig_fn_type = decl.typeOf(zcu);
         const gop = try o.decl_map.getOrPut(gpa, decl_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
 
@@ -3112,7 +3111,7 @@ pub const Object = struct {
             try o.builder.strtabString(mod.intern_pool.stringToSlice(
                 if (is_extern) decl.name else try decl.fullyQualifiedName(mod),
             )),
-            try o.lowerType(decl.ty),
+            try o.lowerType(decl.typeOf(mod)),
             toLlvmGlobalAddressSpace(decl.@"addrspace", mod.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
@@ -3722,15 +3721,11 @@ pub const Object = struct {
             => unreachable, // non-runtime values
             .extern_func => |extern_func| {
                 const fn_decl_index = extern_func.decl;
-                const fn_decl = mod.declPtr(fn_decl_index);
-                try mod.markDeclAlive(fn_decl);
                 const function_index = try o.resolveLlvmFunction(fn_decl_index);
                 return function_index.ptrConst(&o.builder).global.toConst();
             },
             .func => |func| {
                 const fn_decl_index = func.owner_decl;
-                const fn_decl = mod.declPtr(fn_decl_index);
-                try mod.markDeclAlive(fn_decl);
                 const function_index = try o.resolveLlvmFunction(fn_decl_index);
                 return function_index.ptrConst(&o.builder).global.toConst();
             },
@@ -4262,8 +4257,7 @@ pub const Object = struct {
     fn lowerParentPtrDecl(o: *Object, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
         const mod = o.module;
         const decl = mod.declPtr(decl_index);
-        try mod.markDeclAlive(decl);
-        const ptr_ty = try mod.singleMutPtrType(decl.ty);
+        const ptr_ty = try mod.singleMutPtrType(decl.typeOf(mod));
         return o.lowerDeclRefValue(ptr_ty, decl_index);
     }
 
@@ -4450,11 +4444,10 @@ pub const Object = struct {
             }
         }
 
-        const is_fn_body = decl.ty.zigTypeTag(mod) == .Fn;
-        if ((!is_fn_body and !decl.ty.hasRuntimeBits(mod)) or
-            (is_fn_body and mod.typeToFunc(decl.ty).?.is_generic)) return o.lowerPtrToVoid(ty);
-
-        try mod.markDeclAlive(decl);
+        const decl_ty = decl.typeOf(mod);
+        const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
+        if ((!is_fn_body and !decl_ty.hasRuntimeBits(mod)) or
+            (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic)) return o.lowerPtrToVoid(ty);
 
         const llvm_global = if (is_fn_body)
             (try o.resolveLlvmFunction(decl_index)).ptrConst(&o.builder).global
@@ -4740,7 +4733,7 @@ pub const DeclGen = struct {
                 debug_file, // File
                 debug_file, // Scope
                 line_number,
-                try o.lowerDebugType(decl.ty),
+                try o.lowerDebugType(decl.typeOf(zcu)),
                 variable_index,
                 .{ .local = is_internal_linkage },
             );
@@ -4829,19 +4822,17 @@ pub const FuncGen = struct {
 
         const o = self.dg.object;
         const mod = o.module;
-        const llvm_val = try self.resolveValue(.{
-            .ty = self.typeOf(inst),
-            .val = (try self.air.value(inst, mod)).?,
-        });
+        const llvm_val = try self.resolveValue((try self.air.value(inst, mod)).?);
         gop.value_ptr.* = llvm_val.toValue();
         return llvm_val.toValue();
     }
 
-    fn resolveValue(self: *FuncGen, tv: TypedValue) Error!Builder.Constant {
+    fn resolveValue(self: *FuncGen, val: Value) Error!Builder.Constant {
         const o = self.dg.object;
         const mod = o.module;
-        const llvm_val = try o.lowerValue(tv.val.toIntern());
-        if (!isByRef(tv.ty, mod)) return llvm_val;
+        const ty = val.typeOf(mod);
+        const llvm_val = try o.lowerValue(val.toIntern());
+        if (!isByRef(ty, mod)) return llvm_val;
 
         // We have an LLVM value but we need to create a global constant and
         // set the value as its initializer, and then return a pointer to the global.
@@ -4855,7 +4846,7 @@ pub const FuncGen = struct {
         variable_index.setLinkage(.private, &o.builder);
         variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
-        variable_index.setAlignment(tv.ty.abiAlignment(mod).toLlvm(), &o.builder);
+        variable_index.setAlignment(ty.abiAlignment(mod).toLlvm(), &o.builder);
         return o.builder.convConst(
             .unneeded,
             variable_index.toConst(&o.builder),
@@ -4867,11 +4858,10 @@ pub const FuncGen = struct {
         const o = self.dg.object;
         const mod = o.module;
         if (o.null_opt_usize == .no_init) {
-            const ty = try mod.intern(.{ .opt_type = .usize_type });
-            o.null_opt_usize = try self.resolveValue(.{
-                .ty = Type.fromInterned(ty),
-                .val = Value.fromInterned((try mod.intern(.{ .opt = .{ .ty = ty, .val = .none } }))),
-            });
+            o.null_opt_usize = try self.resolveValue(Value.fromInterned(try mod.intern(.{ .opt = .{
+                .ty = try mod.intern(.{ .opt_type = .usize_type }),
+                .val = .none,
+            } })));
         }
         return o.null_opt_usize;
     }
@@ -5530,8 +5520,8 @@ pub const FuncGen = struct {
         const mod = o.module;
         const msg_decl_index = mod.panic_messages[@intFromEnum(panic_id)].unwrap().?;
         const msg_decl = mod.declPtr(msg_decl_index);
-        const msg_len = msg_decl.ty.childType(mod).arrayLen(mod);
-        const msg_ptr = try o.lowerValue(try msg_decl.internValue(mod));
+        const msg_len = msg_decl.typeOf(mod).childType(mod).arrayLen(mod);
+        const msg_ptr = try o.lowerValue(msg_decl.val.toIntern());
         const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = mod.getTarget();
         const llvm_usize = try o.lowerType(Type.usize);
@@ -5544,7 +5534,7 @@ pub const FuncGen = struct {
         // )
         const panic_func = mod.funcInfo(mod.panic_func_index);
         const panic_decl = mod.declPtr(panic_func.owner_decl);
-        const fn_info = mod.typeToFunc(panic_decl.ty).?;
+        const fn_info = mod.typeToFunc(panic_decl.typeOf(mod)).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_decl);
         _ = try fg.wip.call(
             .normal,
@@ -5612,7 +5602,7 @@ pub const FuncGen = struct {
             _ = try self.wip.retVoid();
             return .none;
         }
-        const fn_info = mod.typeToFunc(self.dg.decl.ty).?;
+        const fn_info = mod.typeToFunc(self.dg.decl.typeOf(mod)).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
@@ -5674,7 +5664,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ptr_ty = self.typeOf(un_op);
         const ret_ty = ptr_ty.childType(mod);
-        const fn_info = mod.typeToFunc(self.dg.decl.ty).?;
+        const fn_info = mod.typeToFunc(self.dg.decl.typeOf(mod)).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
@@ -10067,10 +10057,7 @@ pub const FuncGen = struct {
                     const elem_ptr = try self.wip.gep(.inbounds, llvm_result_ty, alloca_inst, &.{
                         usize_zero, try o.builder.intValue(llvm_usize, array_info.len),
                     }, "");
-                    const llvm_elem = try self.resolveValue(.{
-                        .ty = array_info.elem_type,
-                        .val = sent_val,
-                    });
+                    const llvm_elem = try self.resolveValue(sent_val);
                     try self.store(elem_ptr, elem_ptr_ty, llvm_elem.toValue(), .none);
                 }
 
