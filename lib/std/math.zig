@@ -419,8 +419,7 @@ test {
     _ = frexp;
     _ = Frexp;
     _ = modf;
-    _ = modf32_result;
-    _ = modf64_result;
+    _ = Modf;
     _ = copysign;
     _ = isFinite;
     _ = isInf;
