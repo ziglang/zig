@@ -43,34 +43,53 @@ pub fn Complex(comptime T: type) type {
         }
 
         /// Returns the sum of two complex numbers.
-        pub fn add(self: Self, other: Self) Self {
-            return Self{
-                .re = self.re + other.re,
-                .im = self.im + other.im,
+        pub fn add(self: Self, other: anytype) Self {
+            return switch (@TypeOf(other)) {
+                Self => .{
+                    .re = self.re + other.re,
+                    .im = self.im + other.im,
+                },
+                else => .{
+                    .re = self.re + other,
+                    .im = self.im,
+                },
             };
         }
 
         /// Returns the subtraction of two complex numbers.
-        pub fn sub(self: Self, other: Self) Self {
-            return Self{
-                .re = self.re - other.re,
-                .im = self.im - other.im,
+        pub fn sub(self: Self, other: anytype) Self {
+            return switch (@TypeOf(other)) {
+                Self => .{
+                    .re = self.re - other.re,
+                    .im = self.im - other.im,
+                },
+                else => .{
+                    .re = self.re - other,
+                    .im = self.im,
+                },
             };
         }
 
         /// Returns the product of two complex numbers.
-        pub fn mul(self: Self, other: Self) Self {
-            return Self{
-                .re = self.re * other.re - self.im * other.im,
-                .im = self.im * other.re + self.re * other.im,
+        pub fn mul(self: Self, other: anytype) Self {
+            return switch (@TypeOf(other)) {
+                Self => .{
+                    .re = self.re * other.re - self.im * other.im,
+                    .im = self.im * other.re + self.re * other.im,
+                },
+                else => .{
+                    .re = self.re * other,
+                    .im = self.im * other,
+                },
             };
         }
 
         /// Returns the quotient of two complex numbers.
-        pub fn div(self: Self, other: Self) Self {
-            const re_num = self.re * other.re + self.im * other.im;
-            const im_num = self.im * other.re - self.re * other.im;
-            const den = other.re * other.re + other.im * other.im;
+        pub fn div(self: Self, other: anytype) Self {
+            const same = Self == @TypeOf(other);
+            const re_num = if (same) self.re * other.re + self.im * other.im else self.re;
+            const im_num = if (same) self.im * other.re - self.re * other.im else self.im;
+            const den = if (same) other.re * other.re + other.im * other.im else other;
 
             return Self{
                 .re = re_num / den,
@@ -124,33 +143,38 @@ test "add" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.add(b);
-
+    const d = c.add(1);
     try testing.expect(c.re == 7 and c.im == 10);
+    try testing.expect(d.re == 8 and d.im == 10);
 }
 
 test "sub" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.sub(b);
-
+    const d = c.sub(1);
     try testing.expect(c.re == 3 and c.im == -4);
+    try testing.expect(d.re == 2 and d.im == -4);
 }
 
 test "mul" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.mul(b);
-
+    const d = c.mul(2);
     try testing.expect(c.re == -11 and c.im == 41);
+    try testing.expect(d.re == -22 and d.im == 82);
 }
 
 test "div" {
     const a = Complex(f32).init(5, 3);
     const b = Complex(f32).init(2, 7);
     const c = a.div(b);
-
+    const d = c.div(2);
     try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 31) / 53, epsilon) and
         math.approxEqAbs(f32, c.im, @as(f32, -29) / 53, epsilon));
+    try testing.expect(math.approxEqAbs(f32, d.re, @as(f32, 31) / 106, epsilon) and
+        math.approxEqAbs(f32, d.im, @as(f32, -29) / 106, epsilon));
 }
 
 test "conjugate" {
