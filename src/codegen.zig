@@ -486,7 +486,7 @@ pub fn generateSymbol(
                         const abi_size = math.cast(usize, ty.abiSize(mod)) orelse
                             return error.Overflow;
                         const current_pos = code.items.len;
-                        try code.resize(current_pos + abi_size);
+                        try code.appendNTimes(0, abi_size);
                         var bits: u16 = 0;
 
                         for (struct_type.field_types.get(ip), 0..) |field_ty, index| {
