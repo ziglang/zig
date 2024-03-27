@@ -4690,7 +4690,7 @@ pub const MSyncError = error{
 pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
-        .EPERM => PermissionDenied,
+        .EPERM => return error.PermissionDenied,
         .NOMEM => return error.UnmappedMemory, // Unsuccessful, provided pointer does not point mapped memory
         .INVAL => unreachable, // Invalid parameters.
         else => unreachable,
