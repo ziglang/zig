@@ -425,6 +425,7 @@ test "Complex inputs" {
         const C = Complex(F);
         const o = C.init(0, 0);
         assert(C == @TypeOf(pow(C, o, o)));
+        assert(F == @TypeOf(abs(o)));
         inline for (.{
             cosh,
             sinh,
@@ -438,12 +439,11 @@ test "Complex inputs" {
             sqrt,
             ln,
             exp,
-            abs,
             cos,
             sin,
             tan,
         }) |f| {
-            assert(C == @TypeOf(f(o)));
+            assert(@TypeOf(f(o)) == C);
         }
     }
 }
