@@ -63,6 +63,7 @@ pub const Node = extern union {
         warning,
         @"struct",
         @"union",
+        @"enum",
         @"comptime",
         @"defer",
         array_init,
@@ -362,6 +363,7 @@ pub const Node = extern union {
                 .var_decl => Payload.VarDecl,
                 .func => Payload.Func,
                 .@"struct", .@"union" => Payload.Record,
+                .@"enum" => Payload.Enum,
                 .tuple => Payload.TupleInit,
                 .container_init => Payload.ContainerInit,
                 .container_init_dot => Payload.ContainerInitDot,
@@ -582,6 +584,11 @@ pub const Payload = struct {
             alignment: ?c_uint,
             default_value: ?Node,
         };
+    };
+
+    pub const Enum = struct {
+        base: Payload,
+        data: []const []const u8,
     };
 
     pub const TupleInit = struct {
@@ -1968,6 +1975,40 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return renderFieldAccess(c, lhs, payload.field_name);
         },
         .@"struct", .@"union" => return renderRecord(c, node),
+        .@"enum" => {
+            const payload = node.castTag(.@"enum").?.data;
+
+            const enum_tok = try c.addToken(.keyword_enum, "enum");
+            _ = try c.addToken(.l_brace, "{");
+            const members = try c.gpa.alloc(NodeIndex, payload.len);
+            defer c.gpa.free(members);
+
+            for (payload, members) |field, *member| {
+                const name_tok = try c.addIdentifier(field);
+
+                member.* = try c.addNode(.{
+                    .tag = .container_field_init,
+                    .main_token = name_tok,
+                    .data = .{
+                        .lhs = 0,
+                        .rhs = 0,
+                    },
+                });
+                _ = try c.addToken(.comma, ",");
+            }
+
+            _ = try c.addToken(.r_brace, "}");
+
+            const span = try c.listToSpan(members);
+            return c.addNode(.{
+                .tag = .container_decl_trailing,
+                .main_token = enum_tok,
+                .data = .{
+                    .lhs = span.start,
+                    .rhs = span.end,
+                },
+            });
+        },
         .enum_constant => {
             const payload = node.castTag(.enum_constant).?.data;
 
@@ -2475,6 +2516,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .@"if",
         .@"struct",
         .@"union",
+        .@"enum",
         .array_init,
         .vector_zero_init,
         .tuple,

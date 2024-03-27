@@ -3375,10 +3375,52 @@ fn transSwitch(
         .id = .loop,
     };
 
-    var block_scope = try Scope.Block.init(c, &loop_scope, false);
-    defer block_scope.deinit();
+    var block_scope: ?Scope.Block = null;
+    defer if (block_scope) |*bs| bs.deinit();
 
-    const base_scope = &block_scope.base;
+    // null if no enum is required
+    var required_enum: ?struct {
+        inner_stmt_to_enum_field: std.AutoHashMapUnmanaged(*const clang.Stmt, []const u8) = .{},
+        inner_switch_cases: std.ArrayListUnmanaged(Node) = .{},
+        enum_fields: std.ArrayListUnmanaged([]const u8) = .{},
+    } = null;
+    defer if (required_enum) |*re| {
+        re.inner_stmt_to_enum_field.deinit(c.gpa);
+        re.inner_switch_cases.deinit(c.gpa);
+        re.enum_fields.deinit(c.gpa);
+    };
+
+    const transformations = c.goto.?.transformations.get(@ptrCast(stmt)) orelse &.{};
+
+    for (transformations) |*transformation| {
+        if (transformation.inner_stmt.getStmtClass() != .CaseStmtClass) {
+            if (required_enum == null) {
+                required_enum = .{};
+            }
+
+            const field_name = try required_enum.?.inner_stmt_to_enum_field.getOrPut(c.gpa, transformation.inner_stmt);
+            if (!field_name.found_existing) {
+                field_name.value_ptr.* = try std.fmt.allocPrint(c.arena, "goto_case_{d}", .{required_enum.?.inner_stmt_to_enum_field.count()});
+            }
+        }
+
+        switch (transformation.type) {
+            .simple => {},
+            .break_target => |*bt| {
+                if (block_scope == null) {
+                    block_scope = try Scope.Block.init(c, &loop_scope, true);
+                }
+
+                bt.label.* = block_scope.?.label.?;
+            },
+        }
+    }
+
+    if (block_scope == null) {
+        block_scope = try Scope.Block.init(c, &loop_scope, false);
+    }
+
+    const base_scope = &block_scope.?.base;
 
     var cond_scope = Scope.Condition{
         .base = .{
@@ -3387,7 +3429,7 @@ fn transSwitch(
         },
     };
     defer cond_scope.deinit();
-    const switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used);
+    var switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used);
 
     var cases = std.ArrayList(Node).init(c.gpa);
     defer cases.deinit();
@@ -3405,16 +3447,60 @@ fn transSwitch(
             .CaseStmtClass => {
                 var items = std.ArrayList(Node).init(c.gpa);
                 defer items.deinit();
+
+                // In the case there is at least one case statement, this case statement
+                // is used for the goto transformation instead of a default statement.
+                // Because of this, no check for a goto_case_X enum literal is needed.
+                assert(required_enum == null or !required_enum.?.inner_stmt_to_enum_field.contains(it[0]));
+
+                const case = if (required_enum) |*re| blk: {
+                    const enum_field = try std.fmt.allocPrint(c.arena, "case_{d}", .{re.enum_fields.items.len});
+                    try re.enum_fields.append(c.gpa, enum_field);
+                    break :blk try Tag.enum_literal.create(c.arena, enum_field);
+                } else undefined;
+
                 const sub = try transCaseStmt(c, base_scope, it[0], &items);
                 const res = try transSwitchProngStmt(c, base_scope, sub, it, end_it);
 
                 if (items.items.len == 0) {
                     has_default = true;
-                    const switch_else = try Tag.switch_else.create(c.arena, res);
-                    try cases.append(switch_else);
+
+                    if (required_enum) |*re| {
+                        try re.inner_switch_cases.append(
+                            c.gpa,
+                            try Tag.switch_else.create(
+                                c.arena,
+                                case,
+                            ),
+                        );
+
+                        try cases.append(
+                            try Tag.switch_prong.create(c.arena, .{
+                                .cases = try c.arena.dupe(Node, &.{case}),
+                                .cond = res,
+                            }),
+                        );
+                    } else {
+                        const switch_else = try Tag.switch_else.create(c.arena, res);
+                        try cases.append(switch_else);
+                    }
                 } else {
+                    var values = try c.arena.dupe(Node, items.items);
+
+                    if (required_enum) |*re| {
+                        try re.inner_switch_cases.append(
+                            c.gpa,
+                            try Tag.switch_prong.create(c.arena, .{
+                                .cases = values,
+                                .cond = case,
+                            }),
+                        );
+
+                        values = try c.arena.dupe(Node, &.{case});
+                    }
+
                     const switch_prong = try Tag.switch_prong.create(c.arena, .{
-                        .cases = try c.arena.dupe(Node, items.items),
+                        .cases = values,
                         .cond = res,
                     });
                     try cases.append(switch_prong);
@@ -3432,26 +3518,97 @@ fn transSwitch(
                 };
 
                 const res = try transSwitchProngStmt(c, base_scope, sub, it, end_it);
+                if (required_enum) |*re| {
+                    const field_name = re.inner_stmt_to_enum_field.get(it[0]) orelse "default";
+                    const case = try Tag.enum_literal.create(
+                        c.arena,
+                        field_name,
+                    );
+                    try re.enum_fields.append(c.gpa, field_name);
+                    try re.inner_switch_cases.append(
+                        c.gpa,
+                        try Tag.switch_else.create(c.arena, case),
+                    );
 
-                const switch_else = try Tag.switch_else.create(c.arena, res);
-                try cases.append(switch_else);
+                    try cases.append(
+                        try Tag.switch_prong.create(c.arena, .{
+                            .cases = try c.arena.dupe(Node, &.{case}),
+                            .cond = res,
+                        }),
+                    );
+                } else {
+                    const switch_else = try Tag.switch_else.create(c.arena, res);
+                    try cases.append(switch_else);
+                }
             },
-            else => {}, // collected in transSwitchProngStmt
+            else => {
+                if (required_enum) |*re| {
+                    if (re.inner_stmt_to_enum_field.get(it[0])) |field_name| {
+                        const res = try transSwitchProngStmt(c, base_scope, it[0], it, end_it);
+
+                        const case = try Tag.enum_literal.create(c.arena, field_name);
+                        try re.enum_fields.append(c.gpa, field_name);
+
+                        try cases.append(
+                            try Tag.switch_prong.create(c.arena, .{
+                                .cases = try c.arena.dupe(Node, &.{case}),
+                                .cond = res,
+                            }),
+                        );
+                    }
+                }
+            },
         }
     }
 
     if (!has_default) {
-        const else_prong = try Tag.switch_else.create(c.arena, Tag.empty_block.init());
-        try cases.append(else_prong);
+        const else_prong = try Tag.switch_else.create(c.arena, Tag.@"break".init());
+        if (required_enum) |*re| {
+            try re.inner_switch_cases.append(c.gpa, else_prong);
+        } else {
+            try cases.append(else_prong);
+        }
+    }
+
+    for (transformations) |*transformation| {
+        if (transformation.inner_stmt.getStmtClass() == .CaseStmtClass) {
+            switch_expr = try Tag.@"if".create(c.arena, .{
+                .cond = try Tag.identifier.create(c.arena, transformation.variable),
+                .then = try transExprCoercing(c, base_scope, @as(*const clang.CaseStmt, @ptrCast(transformation.inner_stmt)).getLHS(), .used),
+                .@"else" = switch_expr,
+            });
+        }
+    }
+
+    if (required_enum) |*re| {
+        switch_expr = try Tag.@"switch".create(c.arena, .{
+            .cond = switch_expr,
+            .cases = try c.arena.dupe(Node, re.inner_switch_cases.items),
+        });
+
+        for (transformations) |*transformation| {
+            if (transformation.inner_stmt.getStmtClass() != .CaseStmtClass) {
+                switch_expr = try Tag.@"if".create(c.arena, .{
+                    .cond = try Tag.identifier.create(c.arena, transformation.variable),
+                    .then = try Tag.enum_literal.create(c.arena, re.inner_stmt_to_enum_field.get(transformation.inner_stmt).?),
+                    .@"else" = switch_expr,
+                });
+            }
+        }
+
+        switch_expr = try Tag.as.create(c.arena, .{
+            .lhs = try Tag.@"enum".create(c.arena, try c.arena.dupe([]const u8, re.enum_fields.items)),
+            .rhs = switch_expr,
+        });
     }
 
     const switch_node = try Tag.@"switch".create(c.arena, .{
         .cond = switch_expr,
         .cases = try c.arena.dupe(Node, cases.items),
     });
-    try block_scope.statements.append(switch_node);
-    try block_scope.statements.append(Tag.@"break".init());
-    const while_body = try block_scope.complete(c);
+    try block_scope.?.statements.append(switch_node);
+    try block_scope.?.statements.append(Tag.@"break".init());
+    const while_body = try block_scope.?.complete(c);
 
     return Tag.while_true.create(c.arena, while_body);
 }
@@ -7261,7 +7418,95 @@ fn createGotoContextStmt(
                 goto_branch_count_before,
             );
         },
-        .SwitchStmtClass => {},
+        .SwitchStmtClass => {
+            const body = @as(*const clang.SwitchStmt, @ptrCast(stmt)).getBody();
+            assert(body.getStmtClass() == .CompoundStmtClass);
+            const compound_stmt = @as(*const clang.CompoundStmt, @ptrCast(body));
+            var it = compound_stmt.body_begin();
+            const end_it = compound_stmt.body_end();
+
+            const label_branch_count_before = label_branches.count();
+            const goto_branch_count_before = goto_branches.items.len;
+
+            while (it != end_it) : (it += 1) {
+                switch (it[0].getStmtClass()) {
+                    .CaseStmtClass, .DefaultStmtClass => {
+                        const inner_label_branch_count_before = label_branches.count();
+                        const inner_goto_branch_count_before = goto_branches.items.len;
+
+                        var sub: *const clang.Stmt = it[0];
+
+                        // a case statement if possible, a default statement otherwise
+                        var case_or_default = sub;
+
+                        while (true) switch (sub.getStmtClass()) {
+                            .CaseStmtClass => {
+                                case_or_default = sub;
+                                sub = @as(*const clang.CaseStmt, @ptrCast(sub)).getSubStmt();
+                            },
+                            .DefaultStmtClass => sub = @as(*const clang.DefaultStmt, @ptrCast(sub)).getSubStmt(),
+                            else => break,
+                        };
+
+                        try createGotoContextStmt(
+                            c,
+                            block,
+                            sub,
+                            transformations,
+                            label_variable_names,
+                            goto_targets,
+                            label_branches,
+                            goto_branches,
+                        );
+
+                        // transformations of case/default statements get ignored
+
+                        try createGotoContextAppendStmtToBranches(
+                            c,
+                            case_or_default,
+                            label_branches,
+                            goto_branches,
+                            inner_label_branch_count_before,
+                            inner_goto_branch_count_before,
+                        );
+                    },
+                    else => {
+                        try createGotoContextStmt(
+                            c,
+                            block,
+                            it[0],
+                            transformations,
+                            label_variable_names,
+                            goto_targets,
+                            label_branches,
+                            goto_branches,
+                        );
+                    },
+                }
+            }
+
+            try createGotoContextCombineStmts(
+                c,
+                block,
+                stmt,
+                transformations,
+                label_variable_names,
+                goto_targets,
+                label_branches,
+                goto_branches,
+                label_branch_count_before,
+                goto_branch_count_before,
+            );
+
+            try createGotoContextAppendStmtToBranches(
+                c,
+                stmt,
+                label_branches,
+                goto_branches,
+                label_branch_count_before,
+                goto_branch_count_before,
+            );
+        },
         .GotoStmtClass => {
             var new_goto_branch: *std.ArrayListUnmanaged(*const clang.Stmt) = try goto_branches.addOne(c.gpa);
             new_goto_branch.* = .{};
