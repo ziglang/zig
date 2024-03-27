@@ -421,26 +421,31 @@ test {
 }
 
 test "Complex inputs" {
-    const C = Complex(f32);
-    const o = C.init(0, 0);
-    _ = cosh(o);
-    _ = sinh(o);
-    _ = tanh(o);
-    _ = acos(o);
-    _ = asin(o);
-    _ = atan(o);
-    _ = acosh(o);
-    _ = asinh(o);
-    _ = atanh(o);
-
-    _ = pow(C, o, o);
-    _ = sqrt(o);
-    _ = ln(o);
-    _ = exp(o);
-    _ = abs(o);
-    _ = cos(o);
-    _ = sin(o);
-    _ = tan(o);
+    inline for (.{ f32, f64 }) |F| {
+        const C = Complex(F);
+        const o = C.init(0, 0);
+        assert(C == @TypeOf(pow(C, o, o)));
+        inline for (.{
+            cosh,
+            sinh,
+            tanh,
+            acos,
+            asin,
+            atan,
+            acosh,
+            asinh,
+            atanh,
+            sqrt,
+            ln,
+            exp,
+            abs,
+            cos,
+            sin,
+            tan,
+        }) |f| {
+            assert(C == @TypeOf(f(o)));
+        }
+    }
 }
 
 /// Given two types, returns the smallest one which is capable of holding the
