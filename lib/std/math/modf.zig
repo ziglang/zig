@@ -20,9 +20,11 @@ pub fn Modf(comptime T: type) type {
 ///  - modf(nan)   = nan, nan
 pub fn modf(x: anytype) Modf(@TypeOf(x)) {
     @setFloatMode(.strict);
-    var result = Modf(@TypeOf(x)){
-        .ipart = @trunc(x),
-        .fpart = undefined,
+    const ipart = @trunc(x);
+    return .{
+        .ipart = ipart,
+        .fpart = x - ipart,
+    };
     };
     result.fpart = x - result.ipart;
     return result;
