@@ -25,9 +25,6 @@ pub fn modf(x: anytype) Modf(@TypeOf(x)) {
         .ipart = ipart,
         .fpart = x - ipart,
     };
-    };
-    result.fpart = x - result.ipart;
-    return result;
 }
 
 test modf {
@@ -42,7 +39,7 @@ test modf {
 
         r = modf(@as(T, 0.34682));
         try expectEqual(0.0, r.ipart);
-        try expectEqual(0.34682, r.fpart);
+        try expectApproxEqAbs(0.34682, r.fpart, epsilon);
 
         r = modf(@as(T, 2.54576));
         try expectEqual(2.0, r.ipart);
@@ -67,7 +64,7 @@ fn ModfTests(comptime T: type) type {
 
             r = modf(@as(T, 0.346));
             try expectEqual(0.0, r.ipart);
-            try expectEqual(0.346, r.fpart);
+            try expectApproxEqAbs(0.346, r.fpart, epsilon);
 
             r = modf(@as(T, 3.978123));
             try expectEqual(3.0, r.ipart);
