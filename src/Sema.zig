@@ -4557,14 +4557,20 @@ fn zirValidateArrayInitRefTy(
     };
     const ptr_ty = maybe_wrapped_ptr_ty.optEuBaseType(mod);
     assert(ptr_ty.zigTypeTag(mod) == .Pointer); // validated by a previous instruction
-    if (ptr_ty.isSlice(mod)) {
-        // Use array of correct length
-        const arr_ty = try mod.arrayType(.{
-            .len = extra.elem_count,
-            .child = ptr_ty.childType(mod).toIntern(),
-            .sentinel = if (ptr_ty.sentinel(mod)) |s| s.toIntern() else .none,
-        });
-        return Air.internedToRef(arr_ty.toIntern());
+    switch (mod.intern_pool.indexToKey(ptr_ty.toIntern())) {
+        .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
+            .Slice, .Many => {
+                // Use array of correct length
+                const arr_ty = try mod.arrayType(.{
+                    .len = extra.elem_count,
+                    .child = ptr_ty.childType(mod).toIntern(),
+                    .sentinel = if (ptr_ty.sentinel(mod)) |s| s.toIntern() else .none,
+                });
+                return Air.internedToRef(arr_ty.toIntern());
+            },
+            else => {},
+        },
+        else => {},
     }
     // Otherwise, we just want the pointer child type
     const ret_ty = ptr_ty.childType(mod);
