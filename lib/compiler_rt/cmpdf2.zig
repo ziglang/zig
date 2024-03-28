@@ -7,15 +7,15 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_aeabi) {
-        @export(__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_dcmpeq, .{ .name = "__aeabi_dcmpeq", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_dcmplt, .{ .name = "__aeabi_dcmplt", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_dcmple, .{ .name = "__aeabi_dcmple", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__eqdf2, .{ .name = "__eqdf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__nedf2, .{ .name = "__nedf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__ledf2, .{ .name = "__ledf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__cmpdf2, .{ .name = "__cmpdf2", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__ltdf2, .{ .name = "__ltdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__eqdf2, .{ .name = "__eqdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__nedf2, .{ .name = "__nedf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__ledf2, .{ .name = "__ledf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__cmpdf2, .{ .name = "__cmpdf2", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__ltdf2, .{ .name = "__ltdf2", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

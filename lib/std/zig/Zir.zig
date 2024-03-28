@@ -436,14 +436,10 @@ pub const Inst = struct {
         error_union_type,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
-        /// Implements the `@export` builtin function, based on either an identifier to a Decl,
-        /// or field access of a Decl. The thing being exported is the Decl.
-        /// Uses the `pl_node` union field. Payload is `Export`.
+        /// Implements the `@export` builtin function,
+        /// Uses the `pl_node` union field. Payload is `Bin`.
+        /// `lhs` is pointer to export, `rhs` is options.
         @"export",
-        /// Implements the `@export` builtin function, based on a comptime-known value.
-        /// The thing being exported is the comptime-known value which is the operand.
-        /// Uses the `pl_node` union field. Payload is `ExportValue`.
-        export_value,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
@@ -1103,7 +1099,6 @@ pub const Inst = struct {
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
                 .@"export",
-                .export_value,
                 .field_ptr,
                 .field_val,
                 .field_ptr_named,
@@ -1325,7 +1320,6 @@ pub const Inst = struct {
                 .validate_deref,
                 .validate_destructure,
                 .@"export",
-                .export_value,
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
@@ -1653,7 +1647,6 @@ pub const Inst = struct {
                 .error_union_type = .pl_node,
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
-                .export_value = .pl_node,
                 .field_ptr = .pl_node,
                 .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
@@ -3414,21 +3407,6 @@ pub const Inst = struct {
             is_comptime: bool,
             _: u12 = undefined,
         };
-    };
-
-    pub const Export = struct {
-        /// If present, this is referring to a Decl via field access, e.g. `a.b`.
-        /// If omitted, this is referring to a Decl via identifier, e.g. `a`.
-        namespace: Ref,
-        /// Null-terminated string index.
-        decl_name: NullTerminatedString,
-        options: Ref,
-    };
-
-    pub const ExportValue = struct {
-        /// The comptime value to export.
-        operand: Ref,
-        options: Ref,
     };
 
     /// Trailing: `CompileErrors.Item` for each `items_len`.

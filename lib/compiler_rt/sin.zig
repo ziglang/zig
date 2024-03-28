@@ -19,15 +19,15 @@ const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 pub const panic = common.panic;
 
 comptime {
-    @export(__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinh, .{ .name = "__sinh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinf, .{ .name = "sinf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sin, .{ .name = "sin", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__sinx, .{ .name = "__sinx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&sinq, .{ .name = "sinf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinq, .{ .name = "sinq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&sinl, .{ .name = "sinl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __sinh(x: f16) callconv(.C) f16 {

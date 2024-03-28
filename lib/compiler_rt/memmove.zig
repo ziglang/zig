@@ -2,7 +2,7 @@ const std = @import("std");
 const common = @import("./common.zig");
 
 comptime {
-    @export(memmove, .{ .name = "memmove", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&memmove, .{ .name = "memmove", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8 {

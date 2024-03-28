@@ -3781,7 +3781,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
         const export_src: LazySrcLoc = .{ .token_offset = @intFromBool(decl.is_pub) };
         if (is_inline) return sema.fail(&block_scope, export_src, "export of inline function", .{});
         // The scope needs to have the decl in it.
-        try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, decl_index);
+        try sema.analyzeExport(&block_scope, export_src, .{ .name = decl.name }, .{ .decl_index = decl_index });
     }
 
     return result;
