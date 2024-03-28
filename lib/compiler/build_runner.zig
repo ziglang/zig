@@ -1,4 +1,3 @@
-const root = @import("@build");
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -10,6 +9,7 @@ const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
 
+pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
 
 pub fn main() !void {
