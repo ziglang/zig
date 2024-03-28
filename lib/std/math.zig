@@ -112,6 +112,8 @@ pub const qnan_f80 = @compileError("Deprecated: use `nan(f80)` instead");
 pub const qnan_u128 = @compileError("Deprecated: use `@as(u128, @bitCast(nan(f128)))` instead");
 pub const qnan_f128 = @compileError("Deprecated: use `nan(f128)` instead");
 pub const epsilon = @compileError("Deprecated: use `floatEps` instead");
+pub const modf32_result = @compileError("Deprecated: use `Modf(f32)` instead");
+pub const modf64_result = @compileError("Deprecated: use `Modf(f64)` instead");
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -255,8 +257,7 @@ pub const isSignalNan = @import("math/isnan.zig").isSignalNan;
 pub const frexp = @import("math/frexp.zig").frexp;
 pub const Frexp = @import("math/frexp.zig").Frexp;
 pub const modf = @import("math/modf.zig").modf;
-pub const modf32_result = @import("math/modf.zig").modf32_result;
-pub const modf64_result = @import("math/modf.zig").modf64_result;
+pub const Modf = @import("math/modf.zig").Modf;
 pub const copysign = @import("math/copysign.zig").copysign;
 pub const isFinite = @import("math/isfinite.zig").isFinite;
 pub const isInf = @import("math/isinf.zig").isInf;
@@ -418,8 +419,7 @@ test {
     _ = frexp;
     _ = Frexp;
     _ = modf;
-    _ = modf32_result;
-    _ = modf64_result;
+    _ = Modf;
     _ = copysign;
     _ = isFinite;
     _ = isInf;
