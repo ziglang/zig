@@ -2093,6 +2093,14 @@ pub fn madvise(address: [*]u8, len: usize, advice: u32) usize {
     return syscall3(.madvise, @intFromPtr(address), len, advice);
 }
 
+pub fn mlockall(flags: i32) usize {
+    return syscall1(.mlockall, @as(usize, @bitCast(@as(isize, flags))));
+}
+
+pub fn munlockall() usize {
+    return syscall0(.munlockall);
+}
+
 pub fn pidfd_open(pid: pid_t, flags: u32) usize {
     return syscall2(.pidfd_open, @as(usize, @bitCast(@as(isize, pid))), flags);
 }
@@ -6049,6 +6057,16 @@ pub const MADV = struct {
     pub const PAGEOUT = 21;
     pub const HWPOISON = 100;
     pub const SOFT_OFFLINE = 101;
+};
+
+pub const MCL = if (is_ppc or is_ppc64 or is_sparc) struct {
+    pub const CURRENT = 0x2000;
+    pub const FUTURE = 0x4000;
+    pub const ONFAULT = 0x8000;
+} else struct {
+    pub const CURRENT = 0x01;
+    pub const FUTURE = 0x02;
+    pub const ONFAULT = 0x04;
 };
 
 pub const POSIX_FADV = switch (native_arch) {

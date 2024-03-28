@@ -49,6 +49,26 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
     }
 }
 
+/// This function is intended to be used only in tests. It prints diagnostics to stderr
+/// and then returns a test failure error when actual_error_union is not one of the
+/// errors in expected_errors.
+pub fn expectErrors(expected_errors: []const anyerror, actual_error_union: anytype) !void
+{
+    if (actual_error_union) |actual_payload| {
+        print("expected one of {any}, found {any}\n", .{ expected_errors, actual_payload });
+        return error.TestUnexpectedError;
+    } else |actual_error| {
+        for (expected_errors) |e|
+            if (actual_error == e)
+                return;
+        print("expected one of {any}, found error.{s}\n", .{
+            expected_errors,
+            @errorName(actual_error),
+        });
+        return error.TestExpectedError;
+    }
+}
+
 /// This function is intended to be used only in tests. When the two values are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then returns a test failure error.

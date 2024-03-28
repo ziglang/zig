@@ -25,6 +25,9 @@ pub extern "c" fn getpid() pid_t;
 
 pub extern "c" fn kinfo_getfile(pid: pid_t, cntp: *c_int) ?[*]kinfo_file;
 
+pub extern "c" fn mlockall(flags: c_int) c_int;
+pub extern "c" fn munlockall() c_int;
+
 pub const sf_hdtr = extern struct {
     headers: [*]const iovec_const,
     hdr_cnt: c_int,
@@ -604,6 +607,11 @@ pub const MADV = struct {
     pub const NOCORE = 8;
     pub const CORE = 9;
     pub const PROTECT = 10;
+};
+
+pub const MCL = struct {
+    pub const CURRENT = 0x01;
+    pub const FUTURE = 0x02;
 };
 
 pub const MSF = struct {

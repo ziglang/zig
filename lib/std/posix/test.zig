@@ -1315,3 +1315,22 @@ const CommonOpenFlags = packed struct {
         return result;
     }
 };
+
+test "mlockall/munlockall basic smoke" {
+    // We can't test a "real" mlockall because of various system perms/limits
+    // on locked memory and/or possible adverse effects on the testing
+    // environment itself. What we can do safely, I think, is execute
+    // mlockall() with a very-invalid (across all known platforms) flags value
+    // and expect E.INVAL (or NotImplemented when testing on non-supporting
+    // platforms), so that we at least exercise the code paths here.
+    const ok_errors = [_]anyerror{ error.NotImplemented, error.InvalidArgument };
+    try testing.expectErrors(&ok_errors, posix.mlockall(0b0001111111111000));
+
+    // On Linux, munlockall seems to have no perms or limits issues, so it should
+    // always be successful.  This at least lets us exercise the code in the
+    // posix wrapper on one platform to know it's not horribly broken.  This
+    // could have a real effect on the testing environment if it were already
+    // holding locked memory, but it shouldn't be.
+    if (native_os == .linux)
+        try posix.munlockall();
+}

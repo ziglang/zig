@@ -19,6 +19,9 @@ pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn getdents(fd: c_int, buf_ptr: [*]u8, nbytes: usize) c_int;
 pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 
+pub extern "c" fn mlockall(flags: c_int) c_int;
+pub extern "c" fn munlockall() c_int;
+
 pub const pthread_spinlock_t = extern struct {
     inner: ?*anyopaque = null,
 };
@@ -423,6 +426,11 @@ pub const CLOCK = struct {
     pub const PROCESS_CPUTIME_ID = 2;
     pub const MONOTONIC = 3;
     pub const THREAD_CPUTIME_ID = 4;
+};
+
+pub const MCL = struct {
+    pub const CURRENT = 0x01;
+    pub const FUTURE = 0x02;
 };
 
 pub const MSF = struct {
