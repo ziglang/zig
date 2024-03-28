@@ -404,14 +404,14 @@ pub const Register = enum(u6) {
     t3, t4, t5, t6, // caller saved
     // zig fmt: on
 
-    /// Returns the unique 4-bit ID of this register which is used in
+    /// Returns the unique 5-bit ID of this register which is used in
     /// the machine code
     pub fn id(self: Register) u5 {
         return @as(u5, @truncate(@intFromEnum(self)));
     }
 
     pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, reg.id()) + DW.OP.reg0;
+        return @as(u8, reg.id());
     }
 };
 

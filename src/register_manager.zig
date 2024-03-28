@@ -102,7 +102,7 @@ pub fn RegisterManager(
             }
 
             const OptionalIndex = std.math.IntFittingRange(0, set.len);
-            comptime var map = [1]OptionalIndex{set.len} ** (max_id + 1 - min_id);
+            comptime var map = [1]OptionalIndex{set.len} ** (max_id - min_id + 1);
             inline for (set, 0..) |elem, elem_index| map[comptime elem.id() - min_id] = elem_index;
 
             const id_index = reg.id() -% min_id;

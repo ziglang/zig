@@ -1,19 +1,6 @@
 //! This file contains the functionality for lowering RISCV64 MIR into
 //! machine code
 
-const Emit = @This();
-const std = @import("std");
-const math = std.math;
-const Mir = @import("Mir.zig");
-const bits = @import("bits.zig");
-const link = @import("../../link.zig");
-const Module = @import("../../Module.zig");
-const ErrorMsg = Module.ErrorMsg;
-const assert = std.debug.assert;
-const Instruction = bits.Instruction;
-const Register = bits.Register;
-const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
-
 mir: Mir,
 bin_file: *link.File,
 debug_output: DebugInfoOutput,
@@ -22,12 +9,17 @@ err_msg: ?*ErrorMsg = null,
 src_loc: Module.SrcLoc,
 code: *std.ArrayList(u8),
 
+/// List of registers to save in the prologue.
+save_reg_list: Mir.RegisterList,
+
 prev_di_line: u32,
 prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
+
 /// Function's stack size. Used for backpatching.
 stack_size: u32,
+
 /// For backward branches: stores the code offset of the target
 /// instruction
 ///
@@ -212,7 +204,7 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
             // rs1 != rs2
 
             try emit.writeInstruction(Instruction.xor(rd, rs1, rs2));
-            try emit.writeInstruction(Instruction.sltu(rd, .x0, rd)); // snez
+            try emit.writeInstruction(Instruction.sltu(rd, .zero, rd)); // snez
         },
         .cmp_lt => {
             // rd = 1 if rs1 < rs2
@@ -368,17 +360,20 @@ fn mirPsuedo(emit: *Emit, inst: Mir.Inst.Index) !void {
                 return emit.fail("TODO: mirPsuedo support larger stack sizes", .{});
             };
 
-            // Decrement sp by num s registers + local var space
+            // Decrement sp by (num s registers * 8) + local var space
             try emit.writeInstruction(Instruction.addi(.sp, .sp, -stack_size));
 
             // Spill ra
-            try emit.writeInstruction(Instruction.sd(.ra, stack_size - 8, .sp));
+            try emit.writeInstruction(Instruction.sd(.ra, 0, .sp));
 
-            // Spill s0
-            try emit.writeInstruction(Instruction.sd(.s0, stack_size - 16, .sp));
-
-            // Setup s0
-            try emit.writeInstruction(Instruction.addi(.s0, .sp, stack_size));
+            // Spill callee saved registers.
+            var s_reg_iter = emit.save_reg_list.iterator(.{});
+            var i: i12 = 8;
+            while (s_reg_iter.next()) |reg_i| {
+                const reg = abi.callee_preserved_regs[reg_i];
+                try emit.writeInstruction(Instruction.sd(reg, i, .sp));
+                i += 8;
+            }
         },
         .psuedo_epilogue => {
             const stack_size: i12 = math.cast(i12, emit.stack_size) orelse {
@@ -386,10 +381,16 @@ fn mirPsuedo(emit: *Emit, inst: Mir.Inst.Index) !void {
             };
 
             // Restore ra
-            try emit.writeInstruction(Instruction.ld(.ra, stack_size - 8, .sp));
+            try emit.writeInstruction(Instruction.ld(.ra, 0, .sp));
 
-            // Restore s0
-            try emit.writeInstruction(Instruction.ld(.s0, stack_size - 16, .sp));
+            // Restore spilled callee saved registers
+            var s_reg_iter = emit.save_reg_list.iterator(.{});
+            var i: i12 = 8;
+            while (s_reg_iter.next()) |reg_i| {
+                const reg = abi.callee_preserved_regs[reg_i];
+                try emit.writeInstruction(Instruction.ld(reg, i, .sp));
+                i += 8;
+            }
 
             // Increment sp back to previous value
             try emit.writeInstruction(Instruction.addi(.sp, .sp, stack_size));
@@ -408,8 +409,11 @@ fn mirRR(emit: *Emit, inst: Mir.Inst.Index) !void {
     const tag = emit.mir.instructions.items(.tag)[inst];
     const rr = emit.mir.instructions.items(.data)[inst].rr;
 
+    const rd = rr.rd;
+    const rs = rr.rs;
+
     switch (tag) {
-        .mv => try emit.writeInstruction(Instruction.addi(rr.rd, rr.rs, 0)),
+        .mv => try emit.writeInstruction(Instruction.addi(rd, rs, 0)),
         else => unreachable,
     }
 }
@@ -435,7 +439,6 @@ fn mirNop(emit: *Emit, inst: Mir.Inst.Index) !void {
 }
 
 fn mirLoadSymbol(emit: *Emit, inst: Mir.Inst.Index) !void {
-    // const tag = emit.mir.instructions.items(.tag)[inst];
     const payload = emit.mir.instructions.items(.data)[inst].payload;
     const data = emit.mir.extraData(Mir.LoadSymbolPayload, payload).data;
     const reg = @as(Register, @enumFromInt(data.register));
@@ -523,19 +526,18 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .dbg_prologue_end,
         => 0,
 
-        .psuedo_prologue,
-        => 16,
-
-        .psuedo_epilogue,
-        .abs,
-        => 12,
-
         .cmp_eq,
         .cmp_neq,
         .cmp_imm_eq,
         .cmp_gte,
         .load_symbol,
+        .abs,
         => 8,
+
+        .psuedo_epilogue, .psuedo_prologue => size: {
+            const count = emit.save_reg_list.count() * 4;
+            break :size count + 8;
+        },
 
         else => 4,
     };
@@ -547,25 +549,17 @@ fn lowerMir(emit: *Emit) !void {
     const mir_tags = emit.mir.instructions.items(.tag);
     const mir_datas = emit.mir.instructions.items(.data);
 
+    const proglogue_size: u32 = @intCast(emit.save_reg_list.size());
+    emit.stack_size += proglogue_size;
+
     for (mir_tags, 0..) |tag, index| {
         const inst: u32 = @intCast(index);
 
         if (isStore(tag) or isLoad(tag)) {
             const data = mir_datas[inst].i_type;
-            // TODO: probably create a psuedo instruction for s0 loads/stores instead of this.
-            if (data.rs1 == .s0) {
+            if (data.rs1 == .sp) {
                 const offset = mir_datas[inst].i_type.imm12;
-
-                // sp + 32 (aka s0)
-                // ra -- previous ra spilled
-                // s0 -- previous s0 spilled
-                // --- this is -16(s0)
-
-                // TODO: this "+ 8" is completely arbiratary as the largest possible store
-                // we don't want to actually use it. instead we need to calculate the difference
-                // between the first and second stack store and use it instead.
-
-                mir_datas[inst].i_type.imm12 = -(16 + offset + 8);
+                mir_datas[inst].i_type.imm12 = offset + @as(i12, @intCast(proglogue_size)) + 8;
             }
         }
 
@@ -584,3 +578,17 @@ fn lowerMir(emit: *Emit) !void {
         current_code_offset += emit.instructionSize(inst);
     }
 }
+
+const Emit = @This();
+const std = @import("std");
+const math = std.math;
+const Mir = @import("Mir.zig");
+const bits = @import("bits.zig");
+const abi = @import("abi.zig");
+const link = @import("../../link.zig");
+const Module = @import("../../Module.zig");
+const ErrorMsg = Module.ErrorMsg;
+const assert = std.debug.assert;
+const Instruction = bits.Instruction;
+const Register = bits.Register;
+const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;

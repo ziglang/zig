@@ -6,14 +6,6 @@
 //! The main purpose of MIR is to postpone the assignment of offsets until Isel,
 //! so that, for example, the smaller encodings of jump instructions can be used.
 
-const Mir = @This();
-const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-
-const bits = @import("bits.zig");
-const Register = bits.Register;
-
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
@@ -58,7 +50,7 @@ pub const Inst = struct {
         /// Jumps. Uses `inst` payload.
         j,
 
-        /// Immediate and, uses i_type payload
+        /// Immediate AND, uses i_type payload
         andi,
 
         // NOTE: Maybe create a special data for compares that includes the ops
@@ -219,15 +211,6 @@ pub const Inst = struct {
         },
     };
 
-    const CompareOp = enum {
-        eq,
-        neq,
-        gt,
-        gte,
-        lt,
-        lte,
-    };
-
     // Make sure we don't accidentally make instructions bigger than expected.
     // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
     // comptime {
@@ -268,3 +251,49 @@ pub const LoadSymbolPayload = struct {
     atom_index: u32,
     sym_index: u32,
 };
+
+/// Used in conjunction with payload to transfer a list of used registers in a compact manner.
+pub const RegisterList = struct {
+    bitset: BitSet = BitSet.initEmpty(),
+
+    const BitSet = IntegerBitSet(32);
+    const Self = @This();
+
+    fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
+        for (registers, 0..) |cpreg, i| {
+            if (reg.id() == cpreg.id()) return @intCast(i);
+        }
+        unreachable; // register not in input register list!
+    }
+
+    pub fn push(self: *Self, registers: []const Register, reg: Register) void {
+        const index = getIndexForReg(registers, reg);
+        self.bitset.set(index);
+    }
+
+    pub fn isSet(self: Self, registers: []const Register, reg: Register) bool {
+        const index = getIndexForReg(registers, reg);
+        return self.bitset.isSet(index);
+    }
+
+    pub fn iterator(self: Self, comptime options: std.bit_set.IteratorOptions) BitSet.Iterator(options) {
+        return self.bitset.iterator(options);
+    }
+
+    pub fn count(self: Self) u32 {
+        return @intCast(self.bitset.count());
+    }
+
+    pub fn size(self: Self) u32 {
+        return @intCast(self.bitset.count() * 8);
+    }
+};
+
+const Mir = @This();
+const std = @import("std");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+
+const bits = @import("bits.zig");
+const Register = bits.Register;
+const IntegerBitSet = std.bit_set.IntegerBitSet;
