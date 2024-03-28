@@ -1290,7 +1290,7 @@ fn parseDependentDylibs(self: *MachO) !void {
                     }
                     try umbrella.rpaths.ensureUnusedCapacity(gpa, dep_dylib.rpaths.keys().len);
                     for (dep_dylib.rpaths.keys()) |rpath| {
-                        umbrella.rpaths.putAssumeCapacity(rpath, {});
+                        umbrella.rpaths.putAssumeCapacity(try gpa.dupe(u8, rpath), {});
                     }
                 }
             } else {
