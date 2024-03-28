@@ -451,3 +451,27 @@ pub inline fn getcontext(context: *ucontext_t) usize {
         : "cc", "memory", "rcx", "rdx", "rsi", "r8", "r10", "r11"
     );
 }
+
+pub const SC = struct {
+    pub const socket = 1;
+    pub const bind = 2;
+    pub const connect = 3;
+    pub const listen = 4;
+    pub const accept = 5;
+    pub const getsockname = 6;
+    pub const getpeername = 7;
+    pub const socketpair = 8;
+    pub const send = 9;
+    pub const recv = 10;
+    pub const sendto = 11;
+    pub const recvfrom = 12;
+    pub const shutdown = 13;
+    pub const setsockopt = 14;
+    pub const getsockopt = 15;
+    pub const sendmsg = 16;
+    pub const recvmsg = 17;
+    pub const accept4 = 18;
+    pub const recvmmsg = 19;
+    pub const sendmmsg = 20;
+    pub const PAGESIZE = 30;
+};

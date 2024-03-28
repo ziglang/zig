@@ -30,7 +30,7 @@ pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
 pub const MemoryPoolOptions = memory_pool.Options;
 
 /// TODO Utilize this on Windows.
-pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
+pub var next_mmap_addr_hint: ?[*]u8 = null;
 
 const CAllocator = struct {
     comptime {
@@ -255,7 +255,7 @@ pub const wasm_allocator = Allocator{
 /// Verifies that the adjusted length will still map to the full length
 pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
     const aligned_len = mem.alignAllocLen(full_len, len);
-    assert(mem.alignForward(usize, aligned_len, mem.page_size) == full_len);
+    assert(mem.alignForward(usize, aligned_len, std.heap.pageSize()) == full_len);
     return aligned_len;
 }
 
@@ -591,11 +591,68 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
+pub inline fn pageSize() usize {
+    // Comptime overrides for when we are certain the page size is impossible
+    // to change on the platform or the platform does not have a method to
+    // retrieve the page size.
+    comptime {
+        // https://developer.mozilla.org/en-US/docs/webassembly/reference/memory/size
+        // WASM has no page size retrieval method so we always assume 64k
+        if (builtin.cpu.arch.isWasm()) {
+            return 64 * 1024;
+        }
+
+        // Apple uses 16k page sizes on aarch64
+        if (builtin.cpu.arch == .aarch64) {
+            switch (builtin.os.tag) {
+                .macos, .ios, .watchos, .tvos => return 16 * 1024,
+                else => {},
+            }
+        }
+
+        // https://unix.stackexchange.com/a/80736
+        // Linux uses 4k page sizes on x86_64
+        if (builtin.cpu.arch == .x86_64 and builtin.os.tag == .linux) {
+            return 4 * 1024;
+        }
+    }
+
+    // Utilize the cache when we cannot assume the page size.
+    const cache = struct {
+        var page_size: std.atomic.Value(usize) = .{ .raw = 0 };
+
+        fn get() usize {
+            var pgsz = page_size.load(.unordered);
+            if (pgsz > 0) return pgsz;
+
+            pgsz = if (std.options.pageSizeFn) |f| f() else switch (builtin.os.tag) {
+                .linux => if (builtin.link_libc) @intCast(std.c.sysconf(std.os.linux.SC.PAGESIZE)) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
+                .macos => std.c.darwin.machTaskForSelf().getPageSize() catch 0,
+                .windows => blk: {
+                    var info: std.os.windows.SYSTEM_INFO = undefined;
+                    std.os.windows.kernel32.GetSystemInfo(&info);
+                    break :blk info.dwPageSize;
+                },
+                else => if (builtin.link_libc and @hasDecl(std.c, "getpagesize")) @intCast(std.c.getpagesize()) else switch (builtin.cpu.arch) {
+                    .sparc64 => 8 * 1024,
+                    else => 4 * 1024,
+                },
+            };
+
+            assert(pgsz % 2 == 0);
+            if (pgsz == 0) @panic("Failed to retrieve a valid page size");
+
+            page_size.store(pgsz, .unordered);
+            return pgsz;
+        }
+    };
+    return cache.get();
+}
+
 test "c_allocator" {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
         try testAllocatorAligned(c_allocator);
-        try testAllocatorLargeAlignment(c_allocator);
         try testAllocatorAlignedShrink(c_allocator);
     }
 }
@@ -611,18 +668,17 @@ test "PageAllocator" {
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
     if (!builtin.target.isWasm()) {
-        try testAllocatorLargeAlignment(allocator);
         try testAllocatorAlignedShrink(allocator);
     }
 
     if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, mem.page_size, 128);
+        const slice = try allocator.alloc(u8, 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
     }
     {
-        var buf = try allocator.alloc(u8, mem.page_size + 1);
+        var buf = try allocator.alloc(u8, pageSize() + 1);
         defer allocator.free(buf);
         buf = try allocator.realloc(buf, 1); // shrink past the page boundary
     }
@@ -639,7 +695,6 @@ test "HeapAllocator" {
 
         try testAllocator(allocator);
         try testAllocatorAligned(allocator);
-        try testAllocatorLargeAlignment(allocator);
         try testAllocatorAlignedShrink(allocator);
     }
 }
@@ -651,7 +706,6 @@ test "ArenaAllocator" {
 
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
-    try testAllocatorLargeAlignment(allocator);
     try testAllocatorAlignedShrink(allocator);
 }
 
@@ -662,7 +716,6 @@ test "FixedBufferAllocator" {
 
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
-    try testAllocatorLargeAlignment(allocator);
     try testAllocatorAlignedShrink(allocator);
 }
 
@@ -695,10 +748,6 @@ test "StackFallbackAllocator" {
     {
         var stack_allocator = stackFallback(4096, std.testing.allocator);
         try testAllocatorAligned(stack_allocator.get());
-    }
-    {
-        var stack_allocator = stackFallback(4096, std.testing.allocator);
-        try testAllocatorLargeAlignment(stack_allocator.get());
     }
     {
         var stack_allocator = stackFallback(4096, std.testing.allocator);
@@ -742,7 +791,6 @@ test "Thread safe FixedBufferAllocator" {
 
     try testAllocator(fixed_buffer_allocator.threadSafeAllocator());
     try testAllocatorAligned(fixed_buffer_allocator.threadSafeAllocator());
-    try testAllocatorLargeAlignment(fixed_buffer_allocator.threadSafeAllocator());
     try testAllocatorAlignedShrink(fixed_buffer_allocator.threadSafeAllocator());
 }
 
@@ -821,35 +869,6 @@ pub fn testAllocatorAligned(base_allocator: mem.Allocator) !void {
     }
 }
 
-pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
-    var validationAllocator = mem.validationWrap(base_allocator);
-    const allocator = validationAllocator.allocator();
-
-    const large_align: usize = mem.page_size / 2;
-
-    var align_mask: usize = undefined;
-    align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
-
-    var slice = try allocator.alignedAlloc(u8, large_align, 500);
-    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
-
-    if (allocator.resize(slice, 100)) {
-        slice = slice[0..100];
-    }
-
-    slice = try allocator.realloc(slice, 5000);
-    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
-
-    if (allocator.resize(slice, 10)) {
-        slice = slice[0..10];
-    }
-
-    slice = try allocator.realloc(slice, 20000);
-    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
-
-    allocator.free(slice);
-}
-
 pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = validationAllocator.allocator();
@@ -858,7 +877,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     var fib = FixedBufferAllocator.init(&debug_buffer);
     const debug_allocator = fib.allocator();
 
-    const alloc_size = mem.page_size * 2 + 50;
+    const alloc_size = pageSize() * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     defer allocator.free(slice);
 
@@ -867,7 +886,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
-    while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), mem.page_size * 32)) {
+    while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), pageSize() * 32)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }

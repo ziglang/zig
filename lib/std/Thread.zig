@@ -686,7 +686,7 @@ const PosixThreadImpl = struct {
         // Use the same set of parameters used by the libc-less impl.
         const stack_size = @max(config.stack_size, 16 * 1024);
         assert(c.pthread_attr_setstacksize(&attr, stack_size) == .SUCCESS);
-        assert(c.pthread_attr_setguardsize(&attr, std.mem.page_size) == .SUCCESS);
+        assert(c.pthread_attr_setguardsize(&attr, std.heap.pageSize()) == .SUCCESS);
 
         var handle: c.pthread_t = undefined;
         switch (c.pthread_create(
@@ -1066,7 +1066,7 @@ const LinuxThreadImpl = struct {
         completion: Completion = Completion.init(.running),
         child_tid: std.atomic.Value(i32) = std.atomic.Value(i32).init(1),
         parent_tid: i32 = undefined,
-        mapped: []align(std.mem.page_size) u8,
+        mapped: []u8,
 
         /// Calls `munmap(mapped.ptr, mapped.len)` then `exit(1)` without touching the stack (which lives in `mapped.ptr`).
         /// Ported over from musl libc's pthread detached implementation:
@@ -1210,7 +1210,7 @@ const LinuxThreadImpl = struct {
     };
 
     fn spawn(config: SpawnConfig, comptime f: anytype, args: anytype) !Impl {
-        const page_size = std.mem.page_size;
+        const page_size = std.heap.pageSize();
         const Args = @TypeOf(args);
         const Instance = struct {
             fn_args: Args,
