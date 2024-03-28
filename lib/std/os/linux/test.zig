@@ -121,6 +121,36 @@ test "fadvise" {
     try expectEqual(@as(usize, 0), ret);
 }
 
+test "shm" {
+    const segment = linux.shmget(linux.IPC.PRIVATE, mem.page_size, linux.IPC.CREAT | 0o666);
+    switch (linux.getErrno(segment)) {
+        .SUCCESS => {},
+        else => unreachable,
+    }
+
+    defer {
+        const r = linux.shmctl(@intCast(segment), linux.IPC.RMID, null);
+        switch (linux.getErrno(r)) {
+            .SUCCESS => {},
+            else => unreachable,
+        }
+    }
+
+    const addr = std.os.linux.shmat(@intCast(segment), null, 0);
+    switch (linux.getErrno(addr)) {
+        .SUCCESS => {},
+        else => unreachable,
+    }
+
+    defer {
+        const r = std.os.linux.shmdt(@ptrFromInt(addr));
+        switch (linux.getErrno(r)) {
+            .SUCCESS => {},
+            else => unreachable,
+        }
+    }
+}
+
 test {
     _ = linux.IoUring;
 }

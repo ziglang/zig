@@ -65,6 +65,7 @@ pub const dl_phdr_info = linux.dl_phdr_info;
 pub const empty_sigset = linux.empty_sigset;
 pub const epoll_event = linux.epoll_event;
 pub const fd_t = linux.fd_t;
+pub const key_t = linux.key_t;
 pub const gid_t = linux.gid_t;
 pub const ifreq = linux.ifreq;
 pub const ino_t = linux.ino_t;
@@ -85,6 +86,7 @@ pub const siginfo_t = linux.siginfo_t;
 pub const sigset_t = linux.sigset_t;
 pub const sockaddr = linux.sockaddr;
 pub const socklen_t = linux.socklen_t;
+pub const shmid_ds = linux.shmid_ds;
 pub const stack_t = linux.stack_t;
 pub const time_t = linux.time_t;
 pub const timespec = linux.timespec;
@@ -344,3 +346,8 @@ pub const dirent64 = struct {
     type: u8,
     name: [256]u8,
 };
+
+pub extern "c" fn shmget(key: key_t, size: usize, shmflg: c_int) c_int;
+pub extern "c" fn shmat(shmid: i32, shmaddr: ?[*]align(std.mem.page_size) u8, shmflg: c_int) ?*anyopaque;
+pub extern "c" fn shmctl(shmid: c_int, cmd: c_int, ds: ?*shmid_ds) c_int;
+pub extern "c" fn shmdt(shmaddr: *const anyopaque) c_int;
