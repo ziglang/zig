@@ -161,6 +161,9 @@ dll_export_fns: ?bool = null,
 
 subsystem: ?std.Target.SubSystem = null,
 
+/// (Windows) When targeting the MinGW ABI, use the unicode entry point (wmain/wWinMain)
+mingw_unicode_entry_point: bool = false,
+
 /// How the linker must handle the entry point of the executable.
 entry: Entry = .default,
 
@@ -1581,6 +1584,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             .EfiRom => "efi_rom",
             .EfiRuntimeDriver => "efi_runtime_driver",
         });
+    }
+
+    if (self.mingw_unicode_entry_point) {
+        try zig_args.append("-municode");
     }
 
     if (self.error_limit) |err_limit| try zig_args.appendSlice(&.{

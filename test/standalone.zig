@@ -196,6 +196,10 @@ pub const build_cases = [_]BuildCase{
         .import = @import("standalone/windows_resources/build.zig"),
     },
     .{
+        .build_root = "test/standalone/windows_entry_points",
+        .import = @import("standalone/windows_entry_points/build.zig"),
+    },
+    .{
         .build_root = "test/standalone/windows_spawn",
         .import = @import("standalone/windows_spawn/build.zig"),
     },
