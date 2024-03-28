@@ -20,11 +20,14 @@ pub const Alignment = enum {
     right,
 };
 
+const default_alignment = .right;
+const default_fill_char = ' ';
+
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
-    alignment: Alignment = .right,
-    fill: u21 = ' ',
+    alignment: Alignment = default_alignment,
+    fill: u21 = default_fill_char,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -48,8 +51,9 @@ pub const FormatOptions = struct {
 ///
 /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
 /// all parameters after the separator are omitted.
-/// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
-/// the digits after `:` is interpreted as *width*, not *fill*.
+/// Only exception is the *fill* parameter. If a *fill* character is required at the same time as *width*,
+/// and the fill character is a non-zero digit (1-9) or a dot (.) then one has to specify *alignment* as well,
+/// as otherwise the fill character is interpreted as part of *width*, not as *fill*.
 ///
 /// The *specifier* has several options for types:
 /// - `x` and `X`: output numeric value in hexadecimal notation
@@ -239,29 +243,45 @@ pub const Placeholder = struct {
             }
         }
 
-        // Parse the fill character
-        // The fill parameter requires the alignment parameter to be specified
-        // too
-        const fill = comptime if (parser.peek(1)) |ch|
+        // Parse the fill character, if present.
+        // When the width field is also specified, the fill character must
+        // be followed by an alignment specifier, unless it's '0' (zero)
+        // (in which case it's handled as part of the width specifier)
+        var fill: ?u21 = comptime if (parser.peek(1)) |ch|
             switch (ch) {
-                '<', '^', '>' => parser.char().?,
-                else => ' ',
+                '<', '^', '>' => parser.char(),
+                else => null,
             }
         else
-            ' ';
+            null;
 
         // Parse the alignment parameter
-        const alignment: Alignment = comptime if (parser.peek(0)) |ch| init: {
+        const alignment: ?Alignment = comptime if (parser.peek(0)) |ch| init: {
             switch (ch) {
-                '<', '^', '>' => _ = parser.char(),
-                else => {},
+                '<', '^', '>' => {
+                    // consume the character
+                    break :init switch (parser.char().?) {
+                        '<' => .left,
+                        '^' => .center,
+                        else => .right,
+                    };
+                },
+                else => break :init null,
             }
-            break :init switch (ch) {
-                '<' => .left,
-                '^' => .center,
-                else => .right,
-            };
-        } else .right;
+        } else null;
+
+        // When none of the fill character and the alignment specifier have
+        // been provided, check whether the width starts with a zero.
+        if (fill == null and alignment == null) {
+            fill = comptime if (parser.peek(0)) |ch| init: {
+                switch (ch) {
+                    '1'...'9', '.' => break :init null,
+                    else => {
+                        break :init parser.char().?;
+                    },
+                }
+            } else null;
+        }
 
         // Parse the width parameter
         const width = comptime parser.specifier() catch |err|
@@ -284,8 +304,8 @@ pub const Placeholder = struct {
 
         return Placeholder{
             .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
-            .fill = fill,
-            .alignment = alignment,
+            .fill = fill orelse default_fill_char,
+            .alignment = alignment orelse default_alignment,
             .arg = arg,
             .width = width,
             .precision = precision,
@@ -2635,6 +2655,30 @@ test "sci float padding" {
     try expectFmt("left-pad:   ****3.142e0\n", "left-pad:   {e:*>11.3}\n", .{number});
     try expectFmt("center-pad: **3.142e0**\n", "center-pad: {e:*^11.3}\n", .{number});
     try expectFmt("right-pad:  3.142e0****\n", "right-pad:  {e:*<11.3}\n", .{number});
+}
+
+test "zero padding" {
+    try expectFmt("zero-pad: '0042'", "zero-pad: '{:04}'", .{42});
+    try expectFmt("std-pad-1: '001'", "std-pad-1: '{:0>3}'", .{1});
+    try expectFmt("std-pad-2: '911'", "std-pad-2: '{:1<03}'", .{9});
+    try expectFmt("std-pad-3: '  1'", "std-pad-3: '{:>03}'", .{1});
+    try expectFmt("center-pad: '515'", "center-pad: '{:5^03}'", .{1});
+}
+
+test "padding width, no alignment" {
+    try expectFmt("std-pad: '        42'", "std-pad: '{:10}'", .{42});
+}
+
+test "padding with misc fill chars" {
+    try expectFmt("space-pad: '  1'", "space-pad: '{: 3}'", .{1});
+    try expectFmt("score-pad: '__42'", "score-pad: '{:_04}'", .{42});
+    try expectFmt("lt-pad-1: '42<<'", "lt-pad-1: '{:<<04}'", .{42});
+    try expectFmt("lt-pad-2: '<<42'", "lt-pad-2: '{:<>04}'", .{42});
+    try expectFmt("gt-pad: '>42>'", "gt-pad: '{:>^04}'", .{42});
+    try expectFmt("float-pad-1: '42.123'", "float-pad-1: '{d:.3}'", .{42.1234});
+    try expectFmt("float-pad-2: '42.123'", "float-pad-2: '{d:.>.3}'", .{42.1234});
+    try expectFmt("float-pad-3: '42.123'", "float-pad-3: '{d:.>0.3}'", .{42.1234});
+    try expectFmt("float-pad-4: '...42.1'", "float-pad-4: '{d:.>7.1}'", .{42.1234});
 }
 
 test "null" {
