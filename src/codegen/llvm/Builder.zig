@@ -4120,6 +4120,7 @@ pub const Function = struct {
             @"sub nuw",
             @"sub nuw nsw",
             @"switch",
+            indirectbr,
             @"tail call",
             @"tail call fast",
             trunc,
@@ -4293,6 +4294,7 @@ pub const Function = struct {
                     .ret,
                     .@"ret void",
                     .@"switch",
+                    .indirectbr,
                     .@"unreachable",
                     => true,
                     else => false,
@@ -4309,6 +4311,7 @@ pub const Function = struct {
                     .store,
                     .@"store atomic",
                     .@"switch",
+                    .indirectbr,
                     .@"unreachable",
                     .block,
                     => false,
@@ -4399,6 +4402,7 @@ pub const Function = struct {
                     .store,
                     .@"store atomic",
                     .@"switch",
+                    .indirectbr,
                     .@"unreachable",
                     => .none,
                     .call,
@@ -4585,6 +4589,7 @@ pub const Function = struct {
                     .store,
                     .@"store atomic",
                     .@"switch",
+                    .indirectbr,
                     .@"unreachable",
                     => .none,
                     .call,
@@ -4748,6 +4753,11 @@ pub const Function = struct {
             cases_len: u32,
             //case_vals: [cases_len]Constant,
             //case_blocks: [cases_len]Block.Index,
+        };
+
+        pub const IndirectBr = struct {
+            ptr: Value,
+            blocks_len: u32,
         };
 
         pub const Binary = struct {
@@ -5023,7 +5033,7 @@ pub const WipFunction = struct {
         branches: u32 = 0,
         instructions: std.ArrayListUnmanaged(Instruction.Index),
 
-        const Index = enum(u32) {
+        pub const Index = enum(u32) {
             entry,
             _,
 
@@ -5184,6 +5194,20 @@ pub const WipFunction = struct {
         _ = self.extra.addManyAsSliceAssumeCapacity(cases_len * 2);
         default.ptr(self).branches += 1;
         return .{ .index = 0, .instruction = instruction };
+    }
+
+    pub fn indirectBr(self: *WipFunction, ptr: Builder.Value, blocks: []const WipFunction.Block.Index) Allocator.Error!Instruction.Index {
+        assert(blocks.len > 0);
+        try self.ensureUnusedExtraCapacity(1, Instruction.IndirectBr, blocks.len);
+        const instruction = try self.addInst(null, .{
+            .tag = .indirectbr,
+            .data = self.addExtraAssumeCapacity(Instruction.IndirectBr{
+                .ptr = ptr,
+                .blocks_len = @intCast(blocks.len),
+            }),
+        });
+        self.extra.appendSliceAssumeCapacity(@ptrCast(blocks));
+        return instruction;
     }
 
     pub fn @"unreachable"(self: *WipFunction) Allocator.Error!Instruction.Index {
@@ -6448,6 +6472,13 @@ pub const WipFunction = struct {
                         });
                         wip_extra.appendSlice(case_vals);
                         wip_extra.appendSlice(case_blocks);
+                    },
+                    .indirectbr => {
+                        const extra = self.extraDataTrail(Instruction.IndirectBr, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.IndirectBr{
+                            .ptr = instructions.map(extra.data.ptr),
+                            .blocks_len = extra.data.blocks_len,
+                        });
                     },
                     .va_arg => {
                         const extra = self.extraData(Instruction.VaArg, instruction.data);
@@ -10057,6 +10088,14 @@ pub fn printUnbuffered(
                             },
                         );
                         try writer.writeAll("  ]");
+                    },
+                    .indirectbr => |tag| {
+                        var extra = function.extraDataTrail(Function.Instruction.IndirectBr, instruction.data);
+                        const blocks = extra.trail.next(extra.data.blocks_len, Function.Block.Index, &function);
+                        try writer.print("  {s} {%}, [ ", .{ @tagName(tag), extra.data.ptr.fmt(function_index, self) });
+                        for (blocks[0 .. blocks.len - 1]) |case_block|
+                            try writer.print("{%}, ", .{case_block.toInst(&function).fmt(function_index, self)});
+                        try writer.print("{%} ]", .{blocks[blocks.len - 1].toInst(&function).fmt(function_index, self)});
                     },
                     .va_arg => |tag| {
                         const extra = function.extraData(Function.Instruction.VaArg, instruction.data);
@@ -15037,6 +15076,21 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             const blocks = extra.trail.next(extra.data.cases_len, Function.Block.Index, &func);
                             for (vals, blocks) |val, block| {
                                 record.appendAssumeCapacity(adapter.constant_adapter.getConstantIndex(val));
+                                record.appendAssumeCapacity(@intFromEnum(block));
+                            }
+
+                            try function_block.writeUnabbrev(12, record.items);
+                        },
+                        .indirectbr => {
+                            var extra = func.extraDataTrail(Function.Instruction.IndirectBr, datas[instr_index]);
+
+                            try record.ensureUnusedCapacity(self.gpa, 1 + extra.data.blocks_len);
+
+                            // Address
+                            record.appendAssumeCapacity(adapter.getOffsetValueIndex(extra.data.ptr));
+
+                            const blocks = extra.trail.next(extra.data.blocks_len, Function.Block.Index, &func);
+                            for (blocks) |block| {
                                 record.appendAssumeCapacity(@intFromEnum(block));
                             }
 

@@ -693,7 +693,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             return renderToken(r, datas[node].rhs, space);
         },
 
-        .@"break" => {
+        .@"break", .@"continue" => {
             const main_token = main_tokens[node];
             const label_token = datas[node].lhs;
             const target = datas[node].rhs;
@@ -711,18 +711,6 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, label_token - 1, .none); // colon
                 try renderIdentifier(r, label_token, .space, .eagerly_unquote); // identifier
                 try renderExpression(r, target, space);
-            }
-        },
-
-        .@"continue" => {
-            const main_token = main_tokens[node];
-            const label = datas[node].lhs;
-            if (label != 0) {
-                try renderToken(r, main_token, .space); // continue
-                try renderToken(r, label - 1, .none); // :
-                return renderIdentifier(r, label, space, .eagerly_unquote); // label
-            } else {
-                return renderToken(r, main_token, space); // continue
             }
         },
 
@@ -844,28 +832,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .@"switch",
         .switch_comma,
-        => {
-            const switch_token = main_tokens[node];
-            const condition = datas[node].lhs;
-            const extra = tree.extraData(datas[node].rhs, Ast.Node.SubRange);
-            const cases = tree.extra_data[extra.start..extra.end];
-            const rparen = tree.lastToken(condition) + 1;
-
-            try renderToken(r, switch_token, .space); // switch keyword
-            try renderToken(r, switch_token + 1, .none); // lparen
-            try renderExpression(r, condition, .none); // condition expression
-            try renderToken(r, rparen, .space); // rparen
-
-            ais.pushIndentNextLine();
-            if (cases.len == 0) {
-                try renderToken(r, rparen + 1, .none); // lbrace
-            } else {
-                try renderToken(r, rparen + 1, .newline); // lbrace
-                try renderExpressions(r, cases, .comma);
-            }
-            ais.popIndent();
-            return renderToken(r, tree.lastToken(node), space); // rbrace
-        },
+        => return renderSwitch(r, node, tree.fullSwitch(node).?, space),
 
         .switch_case_one,
         .switch_case_inline_one,
@@ -1864,6 +1831,39 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
         try renderToken(r, maybe_bang, .none); // !
     }
     return renderExpression(r, fn_proto.ast.return_type, space);
+}
+
+fn renderSwitch(
+    r: *Render,
+    switch_node: Ast.Node.Index,
+    switch_full: Ast.full.Switch,
+    space: Space,
+) Error!void {
+    const switch_token = switch_full.ast.switch_token;
+    const condition = switch_full.ast.condition;
+    const extra = r.tree.extraData(switch_full.ast.sub_range, Ast.Node.SubRange);
+    const cases = r.tree.extra_data[extra.start..extra.end];
+    const rparen = r.tree.lastToken(condition) + 1;
+
+    if (switch_full.label_token) |label| {
+        try renderIdentifier(r, label, .none, .eagerly_unquote); // label
+        try renderToken(r, label + 1, .space); // :
+    }
+
+    try renderToken(r, switch_token, .space); // switch keyword
+    try renderToken(r, switch_token + 1, .none); // lparen
+    try renderExpression(r, condition, .none); // condition expression
+    try renderToken(r, rparen, .space); // rparen
+
+    r.ais.pushIndentNextLine();
+    if (cases.len == 0) {
+        try renderToken(r, rparen + 1, .none); // lbrace
+    } else {
+        try renderToken(r, rparen + 1, .newline); // lbrace
+        try renderExpressions(r, cases, .comma);
+    }
+    r.ais.popIndent();
+    return renderToken(r, r.tree.lastToken(switch_node), space); // rbrace
 }
 
 fn renderSwitchCase(

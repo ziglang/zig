@@ -1124,6 +1124,7 @@ pub const FunctionBlock = struct {
         StoreAtomic,
         BrUnconditional,
         BrConditional,
+        IndirectBr,
         VaArg,
         AtomicRmw,
         CmpXchg,
@@ -1520,6 +1521,14 @@ pub const FunctionBlock = struct {
         then_block: u32,
         else_block: u32,
         condition: u32,
+    };
+
+    pub const IndirectBr = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 12 },
+        };
+        address: u32,
+        destinations: []const u32,
     };
 
     pub const VaArg = struct {

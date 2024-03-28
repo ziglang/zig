@@ -317,6 +317,11 @@ pub const Inst = struct {
         /// break instruction in a block, and the target block is the parent.
         /// Uses the `break` union field.
         break_inline,
+        /// Return a value from a block. This instruction is used to branch to a switch
+        /// case referred to by the returned value.
+        /// Uses the `break` union field.
+        /// Uses the source information from previous instruction.
+        switch_continue,
         /// Checks that comptime control flow does not happen inside a runtime block.
         /// Uses the `un_node` union field.
         check_comptime_control_flow,
@@ -1290,6 +1295,7 @@ pub const Inst = struct {
                 .panic,
                 .trap,
                 .check_comptime_control_flow,
+                .switch_continue,
                 => true,
             };
         }
@@ -1533,6 +1539,7 @@ pub const Inst = struct {
                 .break_inline,
                 .condbr,
                 .condbr_inline,
+                .switch_continue,
                 .compile_error,
                 .ret_node,
                 .ret_load,
@@ -1618,6 +1625,7 @@ pub const Inst = struct {
                 .bool_br_or = .pl_node,
                 .@"break" = .@"break",
                 .break_inline = .@"break",
+                .switch_continue = .@"break",
                 .check_comptime_control_flow = .un_node,
                 .for_len = .pl_node,
                 .call = .pl_node,
@@ -2955,9 +2963,10 @@ pub const Inst = struct {
             has_under: bool,
             /// If true, at least one prong has an inline tag capture.
             any_has_tag_capture: bool,
+            any_dispatch: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u28;
+            pub const ScalarCasesLen = u27;
 
             pub fn specialProng(bits: Bits) SpecialProng {
                 const has_else: u2 = @intFromBool(bits.has_else);

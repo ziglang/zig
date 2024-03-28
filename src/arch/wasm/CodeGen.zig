@@ -1974,6 +1974,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .field_parent_ptr => func.airFieldParentPtr(inst),
 
         .switch_br => func.airSwitchBr(inst),
+        .switch_directbr => return func.fail("TODO: implement switch_directbr", .{}),
+        .switch_indirectbr => return func.fail("TODO: implement switch_indirectbr", .{}),
         .trunc => func.airTrunc(inst),
         .unreach => func.airUnreachable(inst),
 
