@@ -1100,5 +1100,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
             _ = try astrl.expr(args[4], block, ResultInfo.type_only);
             return false;
         },
+        .deposit_bits, .extract_bits => {
+            _ = try astrl.expr(args[0], block, ResultInfo.none);
+            _ = try astrl.expr(args[1], block, ResultInfo.none);
+            return false;
+        },
     }
 }

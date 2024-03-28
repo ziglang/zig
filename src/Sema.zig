@@ -1261,6 +1261,8 @@ fn analyzeBodyInner(
                     .work_group_id      => try sema.zirWorkItem(          block, extended, extended.opcode),
                     .in_comptime        => try sema.zirInComptime(        block),
                     .closure_get        => try sema.zirClosureGet(        block, extended),
+                    .deposit_bits          => try sema.zirDepositExtractBits(block, extended, .deposit_bits),
+                    .extract_bits          => try sema.zirDepositExtractBits(block, extended, .extract_bits),
                     // zig fmt: on
 
                     .fence => {
@@ -26249,6 +26251,130 @@ fn zirInComptime(
     return if (block.is_comptime) .bool_true else .bool_false;
 }
 
+fn zirDepositExtractBits(
+    sema: *Sema,
+    block: *Block,
+    extended: Zir.Inst.Extended.InstData,
+    air_tag: Air.Inst.Tag,
+) CompileError!Air.Inst.Ref {
+    const mod = sema.mod;
+
+    const target = sema.mod.getTarget();
+    _ = target;
+    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
+    const src = LazySrcLoc.nodeOffset(extra.node);
+
+    const lhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg0 = extra.node };
+    const rhs_src: LazySrcLoc = .{ .node_offset_builtin_call_arg1 = extra.node };
+
+    const uncasted_lhs = try sema.resolveInst(extra.lhs);
+    const uncasted_rhs = try sema.resolveInst(extra.rhs);
+
+    const lhs_ty = sema.typeOf(uncasted_lhs);
+    const rhs_ty = sema.typeOf(uncasted_rhs);
+
+    if (!lhs_ty.isUnsignedInt(mod) and lhs_ty.zigTypeTag(mod) != .ComptimeInt) {
+        return sema.fail(block, lhs_src, "expected unsigned integer or 'comptime_int', found '{}'", .{lhs_ty.fmt(sema.mod)});
+    }
+
+    if (!rhs_ty.isUnsignedInt(mod) and rhs_ty.zigTypeTag(mod) != .ComptimeInt) {
+        return sema.fail(block, rhs_src, "expected unsigned integer or 'comptime_int', found '{}'", .{rhs_ty.fmt(sema.mod)});
+    }
+
+    const instructions = &[_]Air.Inst.Ref{ uncasted_lhs, uncasted_rhs };
+    const dest_ty = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const builtin_name = switch (air_tag) {
+        .deposit_bits => "@depositBits",
+        .extract_bits => "@extractBits",
+        else => unreachable,
+    };
+
+    // Coercion errors are intercepted to add a note if the caller is attempting to pass a negative comptime_int
+    const lhs = sema.coerce(block, dest_ty, uncasted_lhs, lhs_src) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            const val = (try sema.resolveValue(uncasted_lhs)).?;
+            if (val.orderAgainstZero(mod) == .lt) {
+                try sema.errNote(block, src, msg, "parameters to {s} must be positive", .{builtin_name});
+            }
+            return err;
+        },
+        else => return err,
+    };
+
+    const rhs = sema.coerce(block, dest_ty, uncasted_rhs, rhs_src) catch |err| switch (err) {
+        error.AnalysisFail => {
+            const msg = sema.err orelse return err;
+            const val = (try sema.resolveValue(uncasted_rhs)).?;
+            if (val.orderAgainstZero(mod) == .lt) {
+                try sema.errNote(block, src, msg, "parameters to {s} must be positive", .{builtin_name});
+            }
+            return err;
+        },
+        else => return err,
+    };
+
+    const maybe_lhs_val = try sema.resolveValue(lhs);
+    const maybe_rhs_val = try sema.resolveValue(rhs);
+
+    // We check for negative values here only if the type is a comptime_int, as negative values
+    // would have otherwise been filtered out by coercion and the unsigned type restriction
+    if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
+        if (maybe_lhs_val) |lhs_val| {
+            if (!lhs_val.isUndef(mod) and lhs_val.orderAgainstZero(mod) == .lt) {
+                const err = try sema.errMsg(block, lhs_src, "use of negative value '{}'", .{lhs_val.fmtValue(lhs_ty, sema.mod)});
+                try sema.errNote(block, src, err, "parameters to {s} must be positive", .{builtin_name});
+                return sema.failWithOwnedErrorMsg(block, err);
+            }
+        }
+
+        if (maybe_rhs_val) |rhs_val| {
+            if (!rhs_val.isUndef(mod) and rhs_val.orderAgainstZero(mod) == .lt) {
+                const err = try sema.errMsg(block, rhs_src, "use of negative value '{}'", .{rhs_val.fmtValue(rhs_ty, sema.mod)});
+                try sema.errNote(block, src, err, "parameters to {s} must be positive", .{builtin_name});
+                return sema.failWithOwnedErrorMsg(block, err);
+            }
+        }
+    }
+
+    // If either of the operands are zero, the result is zero
+    // If either of the operands are undefined, the result is undefined
+    if (maybe_lhs_val) |lhs_val| {
+        if (lhs_val.orderAgainstZero(mod) == .eq) return Air.internedToRef((try mod.intValue(dest_ty, 0)).toIntern());
+        if (lhs_val.isUndef(mod)) return try mod.undefRef(dest_ty);
+    }
+    if (maybe_rhs_val) |rhs_val| {
+        if (rhs_val.orderAgainstZero(mod) == .eq) return Air.internedToRef((try mod.intValue(dest_ty, 0)).toIntern());
+        if (rhs_val.isUndef(mod)) return mod.undefRef(dest_ty);
+    }
+
+    if (maybe_lhs_val) |lhs_val| {
+        if (maybe_rhs_val) |rhs_val| {
+            const dest_val = switch (air_tag) {
+                .deposit_bits => try sema.intDepositBits(lhs_val, rhs_val, dest_ty),
+                .extract_bits => try sema.intExtractBits(lhs_val, rhs_val, dest_ty),
+                else => unreachable,
+            };
+
+            return Air.internedToRef(dest_val.toIntern());
+        }
+    }
+
+    const runtime_src = if (maybe_lhs_val == null) lhs_src else rhs_src;
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    return block.addInst(.{
+        .tag = air_tag,
+        .data = .{ .bin_op = .{
+            .lhs = lhs,
+            .rhs = rhs,
+        } },
+    });
+}
+
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
     if (block.is_comptime) {
         const msg = msg: {
@@ -38800,6 +38926,62 @@ fn intAddWithOverflowScalar(
         .overflow_bit = try mod.intValue(Type.u1, @intFromBool(overflowed)),
         .wrapped_result = result,
     };
+}
+
+/// Asserts that the values are positive
+fn intDepositBits(
+    sema: *Sema,
+    lhs: Value,
+    rhs: Value,
+    ty: Type,
+) !Value {
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first. For non-bigints, @intDeposit could be used?
+    const mod = sema.mod;
+    const arena = sema.arena;
+
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const source = lhs.toBigInt(&lhs_space, mod);
+    const mask = rhs.toBigInt(&rhs_space, mod);
+
+    const result_limbs = try arena.alloc(
+        std.math.big.Limb,
+        mask.limbs.len,
+    );
+
+    var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
+
+    result.depositBits(source, mask);
+    return try mod.intValue_big(ty, result.toConst());
+}
+
+/// Asserts that the values are positive
+fn intExtractBits(
+    sema: *Sema,
+    lhs: Value,
+    rhs: Value,
+    ty: Type,
+) !Value {
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first. For non-bigints, @intExtract could be used?
+    const mod = sema.mod;
+    const arena = sema.arena;
+
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const source = lhs.toBigInt(&lhs_space, mod);
+    const mask = rhs.toBigInt(&rhs_space, mod);
+
+    const result_limbs = try arena.alloc(
+        std.math.big.Limb,
+        mask.limbs.len,
+    );
+
+    var result = std.math.big.int.Mutable{ .limbs = result_limbs, .positive = undefined, .len = undefined };
+
+    result.extractBits(source, mask);
+    return try mod.intValue_big(ty, result.toConst());
 }
 
 /// Asserts the values are comparable. Both operands have type `ty`.

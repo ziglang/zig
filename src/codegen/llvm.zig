@@ -5110,6 +5110,9 @@ pub const FuncGen = struct {
                 .work_item_id => try self.airWorkItemId(inst),
                 .work_group_size => try self.airWorkGroupSize(inst),
                 .work_group_id => try self.airWorkGroupId(inst),
+
+                .deposit_bits => try self.airDepositBits(inst),
+                .extract_bits => try self.airExtractBits(inst),
                 // zig fmt: on
             };
             if (val != .none) try self.func_inst_table.putNoClobber(self.gpa, inst.toRef(), val);
@@ -10300,6 +10303,318 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
         return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workgroup.id");
+    }
+
+    fn airDepositBits(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        if (self.liveness.isUnused(inst)) return .none;
+
+        const o = self.dg.object;
+
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.typeOfIndex(inst);
+        const ty = try o.lowerType(inst_ty);
+
+        const target = o.module.getTarget();
+        const params = [2]Builder.Value{ lhs, rhs };
+        switch (target.cpu.arch) {
+            .x86, .x86_64 => |tag| blk: {
+                // Doesn't have pdep
+                if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
+
+                const bits = inst_ty.intInfo(o.module).bits;
+                const supports_64 = tag == .x86_64;
+                // Integer size doesn't match the available instruction(s)
+                if (!(bits <= 32 or (bits <= 64 and supports_64))) break :blk;
+
+                return try self.buildDepositBitsNative(ty, params);
+            },
+            else => {},
+        }
+
+        return try self.buildDepositBitsEmulated(ty, params);
+    }
+
+    fn buildDepositBitsNative(
+        self: *FuncGen,
+        ty: Builder.Type,
+        params: [2]Builder.Value,
+    ) !Builder.Value {
+        const o = self.dg.object;
+        const target = o.module.getTarget();
+
+        assert(target.cpu.arch.isX86());
+        assert(std.Target.x86.featureSetHas(target.cpu.features, .bmi2));
+
+        const bits = ty.scalarBits(&o.builder);
+        const intrinsic: Builder.Intrinsic = switch (bits) {
+            1...32 => .@"x86.bmi.pdep.32",
+            33...64 => .@"x86.bmi.pdep.64",
+            else => unreachable,
+        };
+        const needs_extend = bits != 32 and bits != 64;
+
+        var params_cast = params;
+
+        // Cast to either a 32 or 64-bit integer
+        if (needs_extend) {
+            const extend_ty = try o.builder.intType(if (bits <= 32) 32 else 64);
+            params_cast = .{
+                try self.wip.cast(.zext, params[0], extend_ty, ""),
+                try self.wip.cast(.zext, params[1], extend_ty, ""),
+            };
+        }
+
+        const result = try self.wip.callIntrinsic(
+            .normal,
+            .none,
+            intrinsic,
+            &.{},
+            &params_cast,
+            "",
+        );
+
+        // No cast needed!
+        if (!needs_extend) return result;
+
+        // Cast back to the original integer size
+        return try self.wip.cast(.trunc, result, ty, "");
+    }
+
+    // TODO Move this to compiler-rt (see #14609)
+    //
+    // Implements @depositBits(source, mask) in software
+    // (i.e. without platform-specific instructions)
+    //
+    // var bb = 1;
+    // var result = 0;
+    // do {
+    //     const bit = mask & -mask;
+    //     mask &= ~bit;
+    //     const source_bit = source & bb;
+    //     if (source_bit) result |= bit;
+    //     bb += bb;
+    // } while (mask)
+    //
+    // return result;
+    fn buildDepositBitsEmulated(
+        self: *FuncGen,
+        ty: Builder.Type,
+        params: [2]Builder.Value,
+    ) !Builder.Value {
+        const o = self.dg.object;
+
+        const source = params[0];
+        const start_mask = params[1];
+        const zero = try o.builder.intValue(ty, 0);
+        const one = try o.builder.intValue(ty, 1);
+
+        const prev_block = self.wip.cursor.block;
+        const loop_block = try self.wip.block(2, "Loop");
+        const after_block = try self.wip.block(1, "After");
+
+        _ = try self.wip.br(loop_block);
+        self.wip.cursor = .{ .block = loop_block };
+        const mask_phi = try self.wip.phi(ty, "");
+        const result_phi = try self.wip.phi(ty, "");
+        const bb_phi = try self.wip.phi(ty, "");
+        const minus_mask = try self.wip.neg(mask_phi.toValue(), "");
+        const bit = try self.wip.bin(.@"and", mask_phi.toValue(), minus_mask, "");
+        const not_bit = try self.wip.not(bit, "");
+        const new_mask = try self.wip.bin(.@"and", mask_phi.toValue(), not_bit, "");
+        const source_bit = try self.wip.bin(.@"and", source, bb_phi.toValue(), "");
+        const source_bit_set = try self.wip.icmp(.ne, source_bit, zero, "");
+        const bit_or_zero = try self.wip.select(.normal, source_bit_set, bit, zero, ""); // avoid using control flow
+        const new_result = try self.wip.bin(.@"or", result_phi.toValue(), bit_or_zero, "");
+        const new_bb = try self.wip.bin(.add, bb_phi.toValue(), bb_phi.toValue(), "");
+        const while_cond = try self.wip.icmp(.ne, new_mask, zero, "");
+        _ = try self.wip.brCond(while_cond, loop_block, after_block);
+
+        mask_phi.finish(
+            &.{ start_mask, new_mask },
+            &.{ prev_block, loop_block },
+            &self.wip,
+        );
+
+        result_phi.finish(
+            &.{ zero, new_result },
+            &.{ prev_block, loop_block },
+            &self.wip,
+        );
+
+        bb_phi.finish(
+            &.{ one, new_bb },
+            &.{ prev_block, loop_block },
+            &self.wip,
+        );
+
+        self.wip.cursor = .{ .block = after_block };
+        const final_result = try self.wip.phi(ty, "");
+        final_result.finish(
+            &.{new_result},
+            &.{loop_block},
+            &self.wip,
+        );
+
+        return final_result.toValue();
+    }
+
+    fn airExtractBits(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+        if (self.liveness.isUnused(inst)) return .none;
+
+        const o = self.dg.object;
+
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.typeOfIndex(inst);
+        const ty = try o.lowerType(inst_ty);
+
+        const target = o.module.getTarget();
+        const params = [2]Builder.Value{ lhs, rhs };
+        switch (target.cpu.arch) {
+            .x86, .x86_64 => |tag| blk: {
+                // Doesn't have pext
+                if (!std.Target.x86.featureSetHas(target.cpu.features, .bmi2)) break :blk;
+
+                const bits = inst_ty.intInfo(o.module).bits;
+                const supports_64 = tag == .x86_64;
+                // Integer size doesn't match the available instruction(s)
+                if (!(bits <= 32 or (bits <= 64 and supports_64))) break :blk;
+
+                return self.buildExtractBitsNative(ty, params);
+            },
+            else => {},
+        }
+
+        return self.buildExtractBitsEmulated(ty, params);
+    }
+
+    fn buildExtractBitsNative(
+        self: *FuncGen,
+        ty: Builder.Type,
+        params: [2]Builder.Value,
+    ) !Builder.Value {
+        const o = self.dg.object;
+        const target = o.module.getTarget();
+
+        assert(target.cpu.arch.isX86());
+        assert(std.Target.x86.featureSetHas(target.cpu.features, .bmi2));
+
+        const bits = ty.scalarBits(&o.builder);
+        const intrinsic: Builder.Intrinsic = switch (bits) {
+            1...32 => .@"x86.bmi.pext.32",
+            33...64 => .@"x86.bmi.pext.64",
+            else => unreachable,
+        };
+        const needs_extend = bits != 32 and bits != 64;
+
+        var params_cast = params;
+
+        // Cast to either a 32 or 64-bit integer
+        if (needs_extend) {
+            const extend_ty = try o.builder.intType(if (bits <= 32) 32 else 64);
+            params_cast = .{
+                try self.wip.cast(.zext, params[0], extend_ty, ""),
+                try self.wip.cast(.zext, params[1], extend_ty, ""),
+            };
+        }
+
+        const result = try self.wip.callIntrinsic(
+            .normal,
+            .none,
+            intrinsic,
+            &.{},
+            &params_cast,
+            "",
+        );
+
+        // No cast needed!
+        if (!needs_extend) return result;
+
+        // Cast back to the original integer size
+        return try self.wip.cast(.trunc, result, ty, "");
+    }
+
+    // TODO Move this to compiler-rt (see #14609)
+    //
+    // Implements @extractBits(source, mask) in software
+    // (i.e. without platform-specific instructions)
+    //
+    // var bb = 1;
+    // var result = 0;
+    // do {
+    //     const bit = mask & -mask;
+    //     mask &= ~bit;
+    //     const source_bit = source & bit;
+    //     if (source_bit != 0) result |= bb;
+    //     bb += bb;
+    // } while (mask)
+    //
+    // return result;
+    fn buildExtractBitsEmulated(
+        self: *FuncGen,
+        ty: Builder.Type,
+        params: [2]Builder.Value,
+    ) !Builder.Value {
+        const o = self.dg.object;
+
+        const source = params[0];
+        const start_mask = params[1];
+        const zero = try o.builder.intValue(ty, 0);
+        const one = try o.builder.intValue(ty, 1);
+        const start_result = zero;
+        const start_bb = one;
+
+        const prev_block = self.wip.cursor.block;
+        const loop_block = try self.wip.block(2, "Loop");
+        const after_block = try self.wip.block(1, "After");
+
+        _ = try self.wip.br(loop_block);
+        self.wip.cursor = .{ .block = loop_block };
+        const mask_phi = try self.wip.phi(ty, "");
+        const result_phi = try self.wip.phi(ty, "");
+        const bb_phi = try self.wip.phi(ty, "");
+        const minus_mask = try self.wip.neg(mask_phi.toValue(), "");
+        const bit = try self.wip.bin(.@"and", mask_phi.toValue(), minus_mask, "");
+        const not_bit = try self.wip.not(bit, "");
+        const new_mask = try self.wip.bin(.@"and", mask_phi.toValue(), not_bit, "");
+        const source_bit = try self.wip.bin(.@"and", source, bit, "");
+        const source_bit_set = try self.wip.icmp(.ne, source_bit, zero, "");
+        const bb_or_zero = try self.wip.select(.normal, source_bit_set, bb_phi.toValue(), zero, ""); // avoid using control flow
+        const new_result = try self.wip.bin(.@"or", result_phi.toValue(), bb_or_zero, "");
+        const new_bb = try self.wip.bin(.add, bb_phi.toValue(), bb_phi.toValue(), "");
+        const while_cond = try self.wip.icmp(.ne, new_mask, zero, "");
+        _ = try self.wip.brCond(while_cond, loop_block, after_block);
+
+        mask_phi.finish(
+            &.{ start_mask, new_mask },
+            &.{ prev_block, loop_block },
+            &self.wip,
+        );
+
+        result_phi.finish(
+            &.{ start_result, new_result },
+            &.{ prev_block, loop_block },
+            &self.wip,
+        );
+
+        bb_phi.finish(
+            &.{ start_bb, new_bb },
+            &.{ prev_block, loop_block },
+            &self.wip,
+        );
+
+        self.wip.cursor = .{ .block = after_block };
+        const final_result = try self.wip.phi(ty, "");
+        final_result.finish(
+            &.{new_result},
+            &.{loop_block},
+            &self.wip,
+        );
+
+        return final_result.toValue();
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
