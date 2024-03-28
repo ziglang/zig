@@ -12,7 +12,7 @@ pub fn conj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
 
 test conj {
     const a = Complex(f32).init(5, 3);
-    const c = a.conjugate();
+    const c = conj(a);
 
     try testing.expect(c.re == 5 and c.im == -3);
 }
