@@ -8,21 +8,227 @@ comptime {
     }
 }
 
+const CopyType = if (std.simd.suggestVectorLength(u8)) |vec_size|
+    @Type(.{ .Vector = .{
+        .child = u8,
+        .len = vec_size,
+    } })
+else
+    usize;
+
+const alignment = @alignOf(CopyType);
+const size = @sizeOf(CopyType);
+
+comptime {
+    std.debug.assert(size >= alignment);
+    std.debug.assert(std.math.isPowerOfTwo(size));
+}
+
 pub fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(false);
 
-    if (len != 0) {
-        var d = dest.?;
-        var s = src.?;
-        var n = len;
-        while (true) {
-            d[0] = s[0];
-            n -= 1;
-            if (n == 0) break;
-            d += 1;
-            s += 1;
+    if (len <= 16) {
+        if (len <= 4) {
+            if (len <= 2) {
+                if (len == 0) return dest;
+                memcpy_range2(1, dest.?, src.?, len);
+            } else {
+                memcpy_range2(2, dest.?, src.?, len);
+            }
+        } else if (len <= 8) {
+            memcpy_range2(4, dest.?, src.?, len);
+        } else {
+            memcpy_range2(8, dest.?, src.?, len);
+        }
+        return dest;
+    }
+
+    if (5 < std.math.log2(2 * size)) {
+        inline for (5..std.math.log2(2 * size) + 1) |p| {
+            const limit = 1 << p;
+            if (len <= limit) {
+                memcpy_range2(limit / 2, dest.?, src.?, len);
+                return dest;
+            }
         }
     }
 
+    // we know that `len > 2 * size` and `size >= alignment`
+    // so we can safely align `s` to `alignment`
+    dest.?[0..size].* = src.?[0..size].*;
+    const alignment_offset = alignment - @intFromPtr(src.?) % alignment;
+    const n = len - alignment_offset;
+    const d = dest.? + alignment_offset;
+    const s = src.? + alignment_offset;
+
+    if (@intFromPtr(d) % alignment == 0) {
+        memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n);
+    } else {
+        memcpy_unaligned(@ptrCast(d), @alignCast(@ptrCast(s)), n);
+    }
+
+    dest.?[len - size ..][0..size].* = src.?[len - size ..][0..size].*;
+
     return dest;
+}
+
+// inline is needed to prevent llvm making an infinitely recursive call to memcpy
+inline fn memcpy_aligned(
+    noalias dest: [*]CopyType,
+    noalias src: [*]const CopyType,
+    len: usize,
+) void {
+    memcpy_blocks(dest, src, len);
+}
+
+inline fn memcpy_unaligned(
+    noalias dest: [*]align(1) CopyType,
+    noalias src: [*]const CopyType,
+    len: usize,
+) void {
+    memcpy_blocks(dest, src, len);
+}
+
+inline fn memcpy_blocks(
+    noalias dest: anytype,
+    noalias src: anytype,
+    len: usize,
+) void {
+    @setRuntimeSafety(false);
+
+    var d = dest;
+    var s = src;
+    var loop_count = len / size;
+
+    while (loop_count > 0) : (loop_count -= 1) {
+        d[0] = s[0];
+        d += 1;
+        s += 1;
+    }
+}
+
+inline fn memcpy_remainder(
+    comptime max_end: comptime_int,
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    len: usize,
+) void {
+    @setRuntimeSafety(false);
+    comptime std.debug.assert(std.math.isPowerOfTwo(max_end));
+
+    var d = dest;
+    var s = src;
+    comptime var rem = max_end / 2;
+    inline while (rem > 0) {
+        if (len & rem != 0) {
+            for (d[0..rem], s[0..rem]) |*b, v| {
+                b.* = v;
+            }
+            d += rem;
+            s += rem;
+        }
+        rem /= 2;
+    }
+}
+
+/// behavior is undefined if `len` does not satisfy `min <= len < 4 * min`
+inline fn memcpy_range4(
+    comptime min: comptime_int,
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    len: usize,
+) void {
+    comptime std.debug.assert(std.math.isPowerOfTwo(min));
+    const copy_len = min;
+    const last = len - copy_len;
+    const offset = (len & (2 * min)) / 2;
+    dest[0..copy_len].* = src[0..copy_len].*;
+    dest[offset..][0..copy_len].* = src[offset..][0..copy_len].*;
+    dest[last - offset ..][0..copy_len].* = src[last - offset ..][0..copy_len].*;
+    dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
+}
+
+/// copy blocks of length `copy_len` from `src[0..len] to `dest[0..len]` at the
+/// start and end of those respective slices
+inline fn memcpy_range2(
+    comptime copy_len: comptime_int,
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    len: usize,
+) void {
+    comptime std.debug.assert(std.math.isPowerOfTwo(copy_len));
+    const last = len - copy_len;
+    if (copy_len > size) { // comptime-known
+        // we do these copies 1 CopyType at a time to prevent llvm turning this into a call to memcpy
+        const d: [*]align(1) CopyType = @ptrCast(dest);
+        const s: [*]align(1) const CopyType = @ptrCast(src);
+        const count = @divExact(copy_len, size);
+        inline for (d[0..count], s[0..count]) |*r, v| {
+            r.* = v;
+        }
+        const dl: [*]align(1) CopyType = @ptrCast(dest + last);
+        const sl: [*]align(1) const CopyType = @ptrCast(src + last);
+        inline for (dl[0..count], sl[0..count]) |*r, v| {
+            r.* = v;
+        }
+    } else {
+        dest[0..copy_len].* = src[0..copy_len].*;
+        dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
+    }
+}
+
+test "aligned" {
+    @setEvalBranchQuota(1024);
+    inline for (0..1024) |copy_len| {
+        var buffer: [copy_len]u8 align(alignment) = undefined;
+        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+        for (p, 0..) |*b, i| {
+            b.* = @intCast(i);
+        }
+        var dest: [copy_len]u8 align(alignment) = undefined;
+        _ = memcpy(@ptrCast(&dest), @ptrCast(&buffer), copy_len);
+        try std.testing.expectEqualSlices(u8, &buffer, &dest);
+    }
+}
+
+test "unaligned" {
+    @setEvalBranchQuota(1024);
+    inline for (0..1024) |copy_len| {
+        var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+        for (p, 0..) |*b, i| {
+            b.* = @intCast(i);
+        }
+        var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+        for (1..alignment) |offset| {
+            @memset(&dest, 0);
+            const s = buffer[offset..][0..copy_len];
+            const d = dest[offset..][0..copy_len];
+            _ = memcpy(@ptrCast(d.ptr), @ptrCast(s.ptr), s.len);
+            try std.testing.expectEqualSlices(u8, s, d);
+        }
+    }
+}
+
+test "misaligned" {
+    @setEvalBranchQuota(1024);
+    inline for (0..1024) |copy_len| {
+        var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+        for (p, 0..) |*b, i| {
+            b.* = @intCast(i);
+        }
+        var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+
+        for (0..alignment) |s_offset| {
+            for (0..alignment) |d_offset| {
+                if (s_offset == d_offset) continue;
+                @memset(&dest, 0);
+                const s = buffer[s_offset..][0..copy_len];
+                const d = dest[d_offset..][0..copy_len];
+                _ = memcpy(@ptrCast(d.ptr), @ptrCast(s.ptr), s.len);
+                try std.testing.expectEqualSlices(u8, s, d);
+            }
+        }
+    }
 }
