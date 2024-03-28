@@ -930,6 +930,16 @@ test "optional error set return type" {
     try expect(E.A == S.foo(false).?);
 }
 
+test "optional error set function parameter" {
+    const S = struct {
+        fn doTheTest(a: ?anyerror) !void {
+            try std.testing.expect(a.? == error.OutOfMemory);
+        }
+    };
+    try S.doTheTest(error.OutOfMemory);
+    try comptime S.doTheTest(error.OutOfMemory);
+}
+
 test "returning an error union containing a type with no runtime bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
