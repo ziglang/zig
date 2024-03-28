@@ -730,7 +730,8 @@ const ArgsIterator = struct {
     resp_file: ?ArgIteratorResponseFile = null,
     args: []const []const u8,
     i: usize = 0,
-    fn next(it: *@This()) ?[]const u8 {
+
+    fn next(it: *ArgsIterator) ?[]const u8 {
         if (it.i >= it.args.len) {
             if (it.resp_file) |*resp| return resp.next();
             return null;
@@ -738,7 +739,22 @@ const ArgsIterator = struct {
         defer it.i += 1;
         return it.args[it.i];
     }
-    fn nextOrFatal(it: *@This()) []const u8 {
+
+    fn nextOrFatal(it: *ArgsIterator) []const u8 {
+        if (it.i >= it.args.len) {
+            if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
+            fatal("expected parameter after {s}", .{it.args[it.i - 1]});
+        }
+        const arg = it.args[it.i];
+        if (mem.startsWith(u8, arg, "-")) {
+            fatal("expected parameter after {s}", .{it.args[it.i - 1]});
+        }
+        it.i += 1;
+        return arg;
+    }
+
+    // Only used for the deprecated "--mod" option.
+    fn nextMultiOrFatal(it: *ArgsIterator) []const u8 {
         if (it.i >= it.args.len) {
             if (it.resp_file) |*resp| if (resp.next()) |ret| return ret;
             fatal("expected parameter after {s}", .{it.args[it.i - 1]});
@@ -1062,8 +1078,8 @@ fn buildOutputType(
                         // deprecated, kept around until the next zig1.wasm update
                         try handleModArg(
                             arena,
-                            args_iter.nextOrFatal(),
-                            args_iter.nextOrFatal(),
+                            args_iter.nextMultiOrFatal(),
+                            args_iter.nextMultiOrFatal(),
                             &create_module,
                             &mod_opts,
                             &cc_argv,
@@ -1150,8 +1166,14 @@ fn buildOutputType(
                         try create_module.rpath_list.append(arena, args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--library-directory") or mem.eql(u8, arg, "-L")) {
                         try create_module.lib_dir_args.append(arena, args_iter.nextOrFatal());
+                    } else if (mem.startsWith(u8, arg, "-L")) {
+                        // Short option variant.
+                        try create_module.lib_dir_args.append(arena, arg[2..]);
                     } else if (mem.eql(u8, arg, "-F")) {
                         try create_module.framework_dirs.append(arena, args_iter.nextOrFatal());
+                    } else if (mem.startsWith(u8, arg, "-F")) {
+                        // Short option variant.
+                        try create_module.framework_dirs.append(arena, arg[2..]);
                     } else if (mem.eql(u8, arg, "-framework")) {
                         try create_module.frameworks.put(arena, args_iter.nextOrFatal(), .{});
                     } else if (mem.eql(u8, arg, "-weak_framework")) {
@@ -1205,6 +1227,9 @@ fn buildOutputType(
                         force_load_objc = true;
                     } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                         linker_script = args_iter.nextOrFatal();
+                    } else if (mem.startsWith(u8, arg, "-T")) {
+                        // Short option variant.
+                        linker_script = arg[2..];
                     } else if (mem.eql(u8, arg, "-version-script") or mem.eql(u8, arg, "--version-script")) {
                         version_script = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "--undefined-version")) {
@@ -1220,6 +1245,14 @@ fn buildOutputType(
                         // or libc++ until we resolve the target, so we append
                         // to the list for now.
                         try create_module.system_libs.put(arena, args_iter.nextOrFatal(), .{
+                            .needed = false,
+                            .weak = false,
+                            .preferred_mode = lib_preferred_mode,
+                            .search_strategy = lib_search_strategy,
+                        });
+                    } else if (mem.startsWith(u8, arg, "-l")) {
+                        // Short option variant.
+                        try create_module.system_libs.put(arena, arg["-l".len..], .{
                             .needed = false,
                             .weak = false,
                             .preferred_mode = lib_preferred_mode,
@@ -1245,8 +1278,14 @@ fn buildOutputType(
                         });
                     } else if (mem.eql(u8, arg, "-D")) {
                         try cc_argv.appendSlice(arena, &.{ arg, args_iter.nextOrFatal() });
+                    } else if (mem.startsWith(u8, arg, "-D")) {
+                        // Short option variant.
+                        try cc_argv.append(arena, arg);
                     } else if (mem.eql(u8, arg, "-I")) {
                         try cssan.addIncludePath(arena, &cc_argv, .I, arg, args_iter.nextOrFatal(), false);
+                    } else if (mem.startsWith(u8, arg, "-I")) {
+                        // Short option variant.
+                        try cssan.addIncludePath(arena, &cc_argv, .I, arg, arg[2..], true);
                     } else if (mem.eql(u8, arg, "-isystem")) {
                         try cssan.addIncludePath(arena, &cc_argv, .isystem, arg, args_iter.nextOrFatal(), false);
                     } else if (mem.eql(u8, arg, "-iwithsysroot")) {
@@ -1641,22 +1680,6 @@ fn buildOutputType(
                         verbose_cimport = true;
                     } else if (mem.eql(u8, arg, "--verbose-llvm-cpu-features")) {
                         verbose_llvm_cpu_features = true;
-                    } else if (mem.startsWith(u8, arg, "-T")) {
-                        linker_script = arg[2..];
-                    } else if (mem.startsWith(u8, arg, "-L")) {
-                        try create_module.lib_dir_args.append(arena, arg[2..]);
-                    } else if (mem.startsWith(u8, arg, "-F")) {
-                        try create_module.framework_dirs.append(arena, arg[2..]);
-                    } else if (mem.startsWith(u8, arg, "-l")) {
-                        // We don't know whether this library is part of libc
-                        // or libc++ until we resolve the target, so we append
-                        // to the list for now.
-                        try create_module.system_libs.put(arena, arg["-l".len..], .{
-                            .needed = false,
-                            .weak = false,
-                            .preferred_mode = lib_preferred_mode,
-                            .search_strategy = lib_search_strategy,
-                        });
                     } else if (mem.startsWith(u8, arg, "-needed-l")) {
                         try create_module.system_libs.put(arena, arg["-needed-l".len..], .{
                             .needed = true,
@@ -1671,10 +1694,6 @@ fn buildOutputType(
                             .preferred_mode = lib_preferred_mode,
                             .search_strategy = lib_search_strategy,
                         });
-                    } else if (mem.startsWith(u8, arg, "-D")) {
-                        try cc_argv.append(arena, arg);
-                    } else if (mem.startsWith(u8, arg, "-I")) {
-                        try cssan.addIncludePath(arena, &cc_argv, .I, arg, arg[2..], true);
                     } else if (mem.eql(u8, arg, "-x")) {
                         const lang = args_iter.nextOrFatal();
                         if (mem.eql(u8, lang, "none")) {
