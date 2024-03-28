@@ -450,6 +450,7 @@ const usage_build_generic =
     \\  -fstructured-cfg          (SPIR-V) force SPIR-V kernels to use structured control flow
     \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\  -mexec-model=[value]      (WASI) Execution model
+    \\  -municode                 (Windows) Use wmain/wWinMain as entry point
     \\
     \\Per-Module Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -893,6 +894,7 @@ fn buildOutputType(
     var subsystem: ?std.Target.SubSystem = null;
     var major_subsystem_version: ?u16 = null;
     var minor_subsystem_version: ?u16 = null;
+    var mingw_unicode_entry_point: bool = false;
     var enable_link_snapshots: bool = false;
     var debug_incremental: bool = false;
     var install_name: ?[]const u8 = null;
@@ -1686,6 +1688,8 @@ fn buildOutputType(
                         }
                     } else if (mem.startsWith(u8, arg, "-mexec-model=")) {
                         create_module.opts.wasi_exec_model = parseWasiExecModel(arg["-mexec-model=".len..]);
+                    } else if (mem.eql(u8, arg, "-municode")) {
+                        mingw_unicode_entry_point = true;
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
@@ -2091,6 +2095,7 @@ fn buildOutputType(
                         try force_undefined_symbols.put(arena, it.only_arg, {});
                     },
                     .force_load_objc => force_load_objc = true,
+                    .mingw_unicode_entry_point => mingw_unicode_entry_point = true,
                     .weak_library => try create_module.system_libs.put(arena, it.only_arg, .{
                         .needed = false,
                         .weak = true,
@@ -3229,6 +3234,7 @@ fn buildOutputType(
         .rc_source_files = create_module.rc_source_files.items,
         .manifest_file = manifest_file,
         .rc_includes = rc_includes,
+        .mingw_unicode_entry_point = mingw_unicode_entry_point,
         .link_objects = create_module.link_objects.items,
         .framework_dirs = create_module.framework_dirs.items,
         .frameworks = resolved_frameworks.items,
@@ -5792,6 +5798,7 @@ pub const ClangArgIterator = struct {
         install_name,
         undefined,
         force_load_objc,
+        mingw_unicode_entry_point,
     };
 
     const Args = struct {
