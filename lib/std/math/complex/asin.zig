@@ -1,8 +1,8 @@
 const std = @import("../../std.zig");
+const complex = @import("../complex.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 // Returns the arc-sine of z.
 pub fn asin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
@@ -12,7 +12,7 @@ pub fn asin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
 
     const p = Complex(T).init(1.0 - (x - y) * (x + y), -2.0 * x * y);
     const q = Complex(T).init(-y, x);
-    const r = cmath.log(q.add(cmath.sqrt(p)));
+    const r = complex.log(q.add(complex.sqrt(p)));
 
     return Complex(T).init(r.im, -r.re);
 }

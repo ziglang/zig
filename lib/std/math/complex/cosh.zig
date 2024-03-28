@@ -7,12 +7,11 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 
-/// Returns the hyperbolic arc-cosine of z.
+/// Returns the hyperbolic cosine of z.
 pub fn cosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
     return switch (T) {

@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/acos.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
@@ -14,7 +15,7 @@ const expect = std.testing.expect;
 ///  - acos(x)   = nan if x < -1 or x > 1
 pub fn acos(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.acos(x) else switch (T) {
         f32 => acos32(x),
         f64 => acos64(x),
         else => @compileError("acos not implemented for " ++ @typeName(T)),

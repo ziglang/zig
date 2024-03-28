@@ -10,7 +10,7 @@ const expect = std.testing.expect;
 
 /// Returns the arc-tangent of y/x.
 ///
-///      Special Cases:
+/// Special Cases:
 /// |   y   |   x   | radians |
 /// |-------|-------|---------|
 /// |  fin  |  nan  |   nan   |

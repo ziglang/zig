@@ -7,8 +7,7 @@
 const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 const ldexp_cexp = @import("ldexp.zig").ldexp_cexp;
 

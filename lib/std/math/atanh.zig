@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/atanh.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
@@ -18,7 +19,7 @@ const maxInt = std.math.maxInt;
 ///  - atanh(nan) = nan
 pub fn atanh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.atanh(x) else switch (T) {
         f32 => atanh_32(x),
         f64 => atanh_64(x),
         else => @compileError("atanh not implemented for " ++ @typeName(T)),

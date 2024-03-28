@@ -265,6 +265,9 @@ pub const isNegativeInf = @import("math/isinf.zig").isNegativeInf;
 pub const isPositiveZero = @import("math/iszero.zig").isPositiveZero;
 pub const isNegativeZero = @import("math/iszero.zig").isNegativeZero;
 pub const isNormal = @import("math/isnormal.zig").isNormal;
+pub const arg = @import("math/complex.zig").arg;
+pub const conj = @import("math/complex.zig").conj;
+pub const proj = @import("math/complex.zig").proj;
 pub const nextAfter = @import("math/nextafter.zig").nextAfter;
 pub const signbit = @import("math/signbit.zig").signbit;
 pub const scalbn = @import("math/scalbn.zig").scalbn;
@@ -296,25 +299,32 @@ pub const gcd = @import("math/gcd.zig").gcd;
 pub const gamma = @import("math/gamma.zig").gamma;
 pub const lgamma = @import("math/gamma.zig").lgamma;
 
-/// Sine trigonometric function on a floating point number.
+/// Absolute value function on a real or complex number.
 /// Uses a dedicated hardware instruction when available.
-/// This is the same as calling the builtin @sin
+/// For real numbers, this is the same as calling the builtin @abs
+pub inline fn abs(value: anytype) complex.ScalarType(@TypeOf(value)) {
+    return if (complex.isComplex(@TypeOf(value))) complex.abs(value) else @abs(value);
+}
+
+/// Sine trigonometric function on a real or complex floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// For real numbers, this is the same as calling the builtin @sin
 pub inline fn sin(value: anytype) @TypeOf(value) {
-    return @sin(value);
+    return if (complex.isComplex(@TypeOf(value))) complex.sin(value) else @sin(value);
 }
 
-/// Cosine trigonometric function on a floating point number.
+/// Cosine trigonometric function on a real or complex floating point number.
 /// Uses a dedicated hardware instruction when available.
-/// This is the same as calling the builtin @cos
+/// For real numbers, this is the same as calling the builtin @cos
 pub inline fn cos(value: anytype) @TypeOf(value) {
-    return @cos(value);
+    return if (complex.isComplex(@TypeOf(value))) complex.cos(value) else @cos(value);
 }
 
-/// Tangent trigonometric function on a floating point number.
+/// Tangent trigonometric function on a real or complex floating point number.
 /// Uses a dedicated hardware instruction when available.
-/// This is the same as calling the builtin @tan
+/// For real numbers, this is the same as calling the builtin @tan
 pub inline fn tan(value: anytype) @TypeOf(value) {
-    return @tan(value);
+    return if (complex.isComplex(@TypeOf(value))) complex.tan(value) else @tan(value);
 }
 
 /// Converts an angle in radians to degrees. T must be a float or comptime number or a vector of floats.
@@ -381,11 +391,18 @@ test degreesToRadians {
     try std.testing.expectApproxEqAbs(@as(f32, 2 * pi), result[2], 1e-6);
 }
 
-/// Base-e exponential function on a floating point number.
+/// Base-e exponential function on a real or complex floating point number.
 /// Uses a dedicated hardware instruction when available.
-/// This is the same as calling the builtin @exp
+/// For real numbers, this is the same as calling the builtin @exp
 pub inline fn exp(value: anytype) @TypeOf(value) {
-    return @exp(value);
+    return if (complex.isComplex(@TypeOf(value))) complex.exp(value) else @exp(value);
+}
+
+/// Base-e logarithm function on a real or complex floating point number.
+/// Uses a dedicated hardware instruction when available.
+/// For real numbers, this is the same as calling the builtin @log
+pub inline fn ln(value: anytype) @TypeOf(value) {
+    return if (complex.isComplex(@TypeOf(value))) complex.log(value) else @log(value);
 }
 
 /// Base-2 exponential function on a floating point number.
@@ -395,7 +412,7 @@ pub inline fn exp2(value: anytype) @TypeOf(value) {
     return @exp2(value);
 }
 
-pub const complex = @import("math/complex.zig");
+const complex = @import("math/complex.zig");
 pub const Complex = complex.Complex;
 
 pub const big = @import("math/big.zig");
@@ -441,6 +458,7 @@ test {
     _ = hypot;
     _ = expm1;
     _ = ilogb;
+    _ = ln;
     _ = log;
     _ = log2;
     _ = log10;
@@ -457,10 +475,37 @@ test {
     _ = gamma;
     _ = lgamma;
 
-    _ = complex;
     _ = Complex;
 
     _ = big;
+}
+
+test "Complex inputs" {
+    inline for (.{ f32, f64 }) |F| {
+        const C = Complex(F);
+        const o = C.init(0, 0);
+        assert(C == @TypeOf(pow(C, o, o)));
+        assert(F == @TypeOf(abs(o)));
+        inline for (.{
+            cosh,
+            sinh,
+            tanh,
+            acos,
+            asin,
+            atan,
+            acosh,
+            asinh,
+            atanh,
+            sqrt,
+            ln,
+            exp,
+            cos,
+            sin,
+            tan,
+        }) |f| {
+            assert(@TypeOf(f(o)) == C);
+        }
+    }
 }
 
 /// Given two types, returns the smallest one which is capable of holding the
@@ -486,7 +531,6 @@ pub const min = @compileError("deprecated; use @min instead");
 pub const max = @compileError("deprecated; use @max instead");
 pub const min3 = @compileError("deprecated; use @min instead");
 pub const max3 = @compileError("deprecated; use @max instead");
-pub const ln = @compileError("deprecated; use @log instead");
 
 /// Odd sawtooth function
 /// ```

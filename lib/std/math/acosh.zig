@@ -5,6 +5,7 @@
 // https://git.musl-libc.org/cgit/musl/tree/src/math/acosh.c
 
 const std = @import("../std.zig");
+const complex = @import("complex.zig");
 const math = std.math;
 const expect = std.testing.expect;
 
@@ -15,7 +16,7 @@ const expect = std.testing.expect;
 ///  - acosh(nan) = nan
 pub fn acosh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    return switch (T) {
+    return if (complex.isComplex(T)) complex.acosh(x) else switch (T) {
         f32 => acosh32(x),
         f64 => acosh64(x),
         else => @compileError("acosh not implemented for " ++ @typeName(T)),

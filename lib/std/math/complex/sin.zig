@@ -1,14 +1,14 @@
 const std = @import("../../std.zig");
+const complex = @import("../complex.zig");
 const testing = std.testing;
 const math = std.math;
-const cmath = math.complex;
-const Complex = cmath.Complex;
+const Complex = math.Complex;
 
 /// Returns the sine of z.
 pub fn sin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
     const p = Complex(T).init(-z.im, z.re);
-    const q = cmath.sinh(p);
+    const q = complex.sinh(p);
     return Complex(T).init(q.im, -q.re);
 }
 
