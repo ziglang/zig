@@ -113,7 +113,7 @@ pub fn main() !void {
         };
         defer libc.deinit(gpa);
     } else {
-        if (!target_query.isNative()) {
+        if (!target_query.canDetectLibC()) {
             fatal("unable to detect libc for non-native target", .{});
         }
         var libc = LibCInstallation.findNative(.{
