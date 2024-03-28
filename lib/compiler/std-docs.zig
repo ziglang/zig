@@ -177,6 +177,26 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
         try w.writeFile(file);
         try w.writeByteNTimes(0, padding);
     }
+
+    {
+        // Since this command is JIT compiled, the builtin module available in
+        // this source file corresponds to the user's host system.
+        const builtin_zig = @embedFile("builtin");
+
+        var file_header = std.tar.output.Header.init();
+        file_header.typeflag = .regular;
+        try file_header.setPath("builtin", "builtin.zig");
+        try file_header.setSize(builtin_zig.len);
+        try file_header.updateChecksum();
+        try w.writeAll(std.mem.asBytes(&file_header));
+        try w.writeAll(builtin_zig);
+        const padding = p: {
+            const remainder = builtin_zig.len % 512;
+            break :p if (remainder > 0) 512 - remainder else 0;
+        };
+        try w.writeByteNTimes(0, padding);
+    }
+
     // intentionally omitting the pointless trailer
     //try w.writeByteNTimes(0, 512 * 2);
     try response.end();
