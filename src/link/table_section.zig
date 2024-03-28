@@ -13,7 +13,7 @@ pub fn TableSection(comptime Entry: type) type {
         pub fn allocateEntry(self: *Self, allocator: Allocator, entry: Entry) Allocator.Error!Index {
             try self.entries.ensureUnusedCapacity(allocator, 1);
             const index = blk: {
-                if (self.free_list.popOrNull()) |index| {
+                if (self.free_list.pop()) |index| {
                     log.debug("  (reusing entry index {d})", .{index});
                     break :blk index;
                 } else {

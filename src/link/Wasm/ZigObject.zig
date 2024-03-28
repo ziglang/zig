@@ -227,7 +227,7 @@ pub fn allocateSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator) !Symbol.In
         .index = std.math.maxInt(u32), // will be set during atom parsing
         .virtual_address = std.math.maxInt(u32), // will be set during atom allocation
     };
-    if (zig_object.symbols_free_list.popOrNull()) |index| {
+    if (zig_object.symbols_free_list.pop()) |index| {
         zig_object.symbols.items[@intFromEnum(index)] = sym;
         return index;
     }
@@ -401,7 +401,7 @@ fn createDataSegment(
     name: []const u8,
     alignment: InternPool.Alignment,
 ) !u32 {
-    const segment_index: u32 = if (zig_object.segment_free_list.popOrNull()) |index|
+    const segment_index: u32 = if (zig_object.segment_free_list.pop()) |index|
         index
     else index: {
         const idx: u32 = @intCast(zig_object.segment_info.items.len);
@@ -732,7 +732,7 @@ pub fn getGlobalSymbol(zig_object: *ZigObject, gpa: std.mem.Allocator, name: []c
     sym.setGlobal(true);
     sym.setUndefined(true);
 
-    const sym_index = if (zig_object.symbols_free_list.popOrNull()) |index| index else blk: {
+    const sym_index = if (zig_object.symbols_free_list.pop()) |index| index else blk: {
         const index: Symbol.Index = @enumFromInt(zig_object.symbols.items.len);
         try zig_object.symbols.ensureUnusedCapacity(gpa, 1);
         zig_object.symbols.items.len += 1;
@@ -1206,7 +1206,7 @@ pub fn createFunction(
 
 /// Appends a new `std.wasm.Func` to the list of functions and returns its index.
 fn appendFunction(zig_object: *ZigObject, gpa: std.mem.Allocator, func: std.wasm.Func) !u32 {
-    const index: u32 = if (zig_object.functions_free_list.popOrNull()) |idx|
+    const index: u32 = if (zig_object.functions_free_list.pop()) |idx|
         idx
     else idx: {
         const len: u32 = @intCast(zig_object.functions.items.len);

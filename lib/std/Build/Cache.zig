@@ -526,7 +526,7 @@ pub const Manifest = struct {
                         break :f file;
                     }
                     const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-                    errdefer _ = self.files.pop();
+                    errdefer _ = self.files.pop().?;
                     if (!gop.found_existing) {
                         gop.key_ptr.* = .{
                             .prefixed_path = .{
@@ -634,7 +634,7 @@ pub const Manifest = struct {
 
         // Remove files not in the initial hash.
         while (self.files.count() != input_file_count) {
-            var file = self.files.pop();
+            var file = self.files.pop().?;
             file.key.deinit(self.cache.gpa);
         }
 
@@ -737,7 +737,7 @@ pub const Manifest = struct {
         errdefer gpa.free(prefixed_path.sub_path);
 
         const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-        errdefer _ = self.files.pop();
+        errdefer _ = self.files.pop().?;
 
         if (gop.found_existing) {
             gpa.free(prefixed_path.sub_path);
@@ -773,7 +773,7 @@ pub const Manifest = struct {
         errdefer gpa.free(prefixed_path.sub_path);
 
         const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-        errdefer _ = self.files.pop();
+        errdefer _ = self.files.pop().?;
 
         if (gop.found_existing) {
             gpa.free(prefixed_path.sub_path);
@@ -809,7 +809,7 @@ pub const Manifest = struct {
         errdefer gpa.free(prefixed_path.sub_path);
 
         const gop = try self.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
-        errdefer _ = self.files.pop();
+        errdefer _ = self.files.pop().?;
 
         if (gop.found_existing) {
             gpa.free(prefixed_path.sub_path);

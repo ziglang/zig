@@ -203,8 +203,8 @@ fn printType(self: *Options, out: anytype, comptime T: type, value: T, indent: u
             if (value) |inner| {
                 try printType(self, out, @TypeOf(inner), inner, indent + 4, null);
                 // Pop the '\n' and ',' chars
-                _ = self.contents.pop();
-                _ = self.contents.pop();
+                _ = self.contents.pop().?;
+                _ = self.contents.pop().?;
             } else {
                 try out.writeAll("null");
             }

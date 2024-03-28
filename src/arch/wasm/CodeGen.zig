@@ -1102,23 +1102,23 @@ fn allocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
     const mod = func.bin_file.base.comp.module.?;
     const valtype = typeToValtype(ty, mod);
     switch (valtype) {
-        .i32 => if (func.free_locals_i32.popOrNull()) |index| {
+        .i32 => if (func.free_locals_i32.pop()) |index| {
             log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
-        .i64 => if (func.free_locals_i64.popOrNull()) |index| {
+        .i64 => if (func.free_locals_i64.pop()) |index| {
             log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
-        .f32 => if (func.free_locals_f32.popOrNull()) |index| {
+        .f32 => if (func.free_locals_f32.pop()) |index| {
             log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
-        .f64 => if (func.free_locals_f64.popOrNull()) |index| {
+        .f64 => if (func.free_locals_f64.pop()) |index| {
             log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
-        .v128 => if (func.free_locals_v128.popOrNull()) |index| {
+        .v128 => if (func.free_locals_v128.pop()) |index| {
             log.debug("reusing local ({d}) of type {}", .{ index, valtype });
             return WValue{ .local = .{ .value = index, .references = 1 } };
         },
@@ -1258,7 +1258,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
     try func.branches.append(func.gpa, .{});
     // clean up outer branch
     defer {
-        var outer_branch = func.branches.pop();
+        var outer_branch = func.branches.pop().?;
         outer_branch.deinit(func.gpa);
         assert(func.branches.items.len == 0); // missing branch merge
     }
@@ -3549,7 +3549,7 @@ fn airCondBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         func.branches.appendAssumeCapacity(.{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @as(u32, @intCast(liveness_condbr.else_deaths.len)));
         defer {
-            var else_stack = func.branches.pop();
+            var else_stack = func.branches.pop().?;
             else_stack.deinit(func.gpa);
         }
         try func.genBody(else_body);
@@ -3561,7 +3561,7 @@ fn airCondBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         func.branches.appendAssumeCapacity(.{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, @as(u32, @intCast(liveness_condbr.then_deaths.len)));
         defer {
-            var then_stack = func.branches.pop();
+            var then_stack = func.branches.pop().?;
             then_stack.deinit(func.gpa);
         }
         try func.genBody(then_body);
@@ -4163,7 +4163,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         func.branches.appendAssumeCapacity(.{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[index].len);
         defer {
-            var case_branch = func.branches.pop();
+            var case_branch = func.branches.pop().?;
             case_branch.deinit(func.gpa);
         }
         try func.genBody(case.body);
@@ -4175,7 +4175,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const else_deaths = liveness.deaths.len - 1;
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.deaths[else_deaths].len);
         defer {
-            var else_branch = func.branches.pop();
+            var else_branch = func.branches.pop().?;
             else_branch.deinit(func.gpa);
         }
         try func.genBody(else_body);
@@ -6562,7 +6562,7 @@ fn lowerTry(
         try func.branches.append(func.gpa, .{});
         try func.currentBranch().values.ensureUnusedCapacity(func.gpa, liveness.else_deaths.len + liveness.then_deaths.len);
         defer {
-            var branch = func.branches.pop();
+            var branch = func.branches.pop().?;
             branch.deinit(func.gpa);
         }
         try func.genBody(body);

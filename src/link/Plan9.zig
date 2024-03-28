@@ -587,7 +587,7 @@ fn updateFinish(self: *Plan9, decl_index: InternPool.DeclIndex) !void {
 
 fn allocateSymbolIndex(self: *Plan9) !usize {
     const gpa = self.base.comp.gpa;
-    if (self.syms_index_free_list.popOrNull()) |i| {
+    if (self.syms_index_free_list.pop()) |i| {
         return i;
     } else {
         _ = try self.syms.addOne(gpa);
@@ -596,7 +596,7 @@ fn allocateSymbolIndex(self: *Plan9) !usize {
 }
 
 fn allocateGotIndex(self: *Plan9) usize {
-    if (self.got_index_free_list.popOrNull()) |i| {
+    if (self.got_index_free_list.pop()) |i| {
         return i;
     } else {
         self.got_len += 1;
@@ -1163,7 +1163,7 @@ pub fn updateExports(
 pub fn getOrCreateAtomForLazySymbol(self: *Plan9, sym: File.LazySymbol) !Atom.Index {
     const gpa = self.base.comp.gpa;
     const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(self.base.comp.module.?));
-    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop().?;
 
     if (!gop.found_existing) gop.value_ptr.* = .{};
 

@@ -5490,7 +5490,7 @@ pub fn addSymbol(self: *Elf) !Symbol.Index {
     const gpa = self.base.comp.gpa;
     try self.symbols.ensureUnusedCapacity(gpa, 1);
     const index = blk: {
-        if (self.symbols_free_list.popOrNull()) |index| {
+        if (self.symbols_free_list.pop()) |index| {
             log.debug("  (reusing symbol index {d})", .{index});
             break :blk index;
         } else {

@@ -404,7 +404,7 @@ fn gen(self: *Self) !void {
             // dbg_epilogue_begin) is the last exitlude jump
             // relocation (which would just jump one instruction
             // further), it can be safely removed
-            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop().?);
         }
 
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {

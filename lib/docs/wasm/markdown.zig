@@ -149,7 +149,7 @@ fn mainImpl() !void {
     var line_buf = std.ArrayList(u8).init(gpa);
     defer line_buf.deinit();
     while (stdin_buf.reader().streamUntilDelimiter(line_buf.writer(), '\n', null)) {
-        if (line_buf.getLastOrNull() == '\r') _ = line_buf.pop();
+        if (line_buf.getLastOrNull() == '\r') _ = line_buf.pop().?;
         try parser.feedLine(line_buf.items);
         line_buf.clearRetainingCapacity();
     } else |err| switch (err) {
