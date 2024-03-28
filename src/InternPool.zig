@@ -488,7 +488,7 @@ pub const NullTerminatedString = enum(u32) {
         if (comptime std.mem.eql(u8, specifier, "")) {
             try writer.writeAll(s);
         } else if (comptime std.mem.eql(u8, specifier, "i")) {
-            try writer.print("{}", .{std.zig.fmtId(s)});
+            try writer.print("{p}", .{std.zig.fmtId(s)});
         } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
     }
 
