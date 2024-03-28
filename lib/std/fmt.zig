@@ -25,6 +25,7 @@ pub const FormatOptions = struct {
     width: ?usize = null,
     alignment: Alignment = .right,
     fill: u21 = ' ',
+    signed: bool = false,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -33,7 +34,7 @@ pub const FormatOptions = struct {
 ///
 /// The format string must be comptime-known and may contain placeholders following
 /// this format:
-/// `{[argument][specifier]:[fill][alignment][width].[precision]}`
+/// `{[argument][specifier]:[signed][fill][alignment][width].[precision]}`
 ///
 /// Above, each word including its surrounding [ and ] is a parameter which you have to replace with something:
 ///
@@ -41,6 +42,7 @@ pub const FormatOptions = struct {
 ///   - when using a field name, you are required to enclose the field name (an identifier) in square
 ///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
+/// - *signed* is always '+', when provided, the sign of the number will be explicitly included ('+' or '-' for non-zero numbers)
 /// - *fill* is a single unicode codepoint which is used to pad the formatted text
 /// - *alignment* is one of the three bytes '<', '^', or '>' to make the text left-, center-, or right-aligned, respectively
 /// - *width* is the total width of the field in unicode codepoints
@@ -186,6 +188,7 @@ pub fn format(
             @field(args, fields_info[arg_to_print].name),
             placeholder.specifier_arg,
             FormatOptions{
+                .signed = placeholder.signed,
                 .fill = placeholder.fill,
                 .alignment = placeholder.alignment,
                 .width = width,
@@ -212,6 +215,7 @@ fn cacheString(str: anytype) []const u8 {
 
 pub const Placeholder = struct {
     specifier_arg: []const u8,
+    signed: bool,
     fill: u21,
     alignment: Alignment,
     arg: Specifier,
@@ -238,6 +242,9 @@ pub const Placeholder = struct {
                 @compileError("expected : or }, found '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
             }
         }
+
+        // Parse the signed character
+        const signed = comptime parser.maybe('+');
 
         // Parse the fill character
         // The fill parameter requires the alignment parameter to be specified
@@ -284,6 +291,7 @@ pub const Placeholder = struct {
 
         return Placeholder{
             .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
+            .signed = signed,
             .fill = fill,
             .alignment = alignment,
             .arg = arg,
@@ -766,18 +774,24 @@ fn formatFloatValue(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    var buf: [format_float.bufferSize(.decimal, f64)]u8 = undefined;
+    var buf: [format_float.bufferSize(.decimal, f64) + 1]u8 = undefined;
+
+    var start: usize = 0;
+    if (options.signed and value > 0.0) {
+        buf[0] = '+';
+        start = 1;
+    }
 
     if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        const s = formatFloat(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(buf[start..], value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
-        return formatBuf(s, options, writer);
+        return formatBuf(buf[0 .. start + s.len], options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+        const s = formatFloat(buf[start..], value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
-        return formatBuf(s, options, writer);
+        return formatBuf(buf[0 .. start + s.len], options, writer);
     } else if (comptime std.mem.eql(u8, fmt, "x")) {
         var buf_stream = std.io.fixedBufferStream(&buf);
         formatFloatHexadecimal(value, options, buf_stream.writer()) catch |err| switch (err) {
@@ -1209,10 +1223,8 @@ pub fn formatInt(
             // Negative integer
             index -= 1;
             buf[index] = '-';
-        } else if (options.width == null or options.width.? == 0) {
-            // Positive integer, omit the plus sign
-        } else {
-            // Positive integer
+        } else if (options.signed and value > 0) {
+            // Positive integer, sign explicitly requested
             index -= 1;
             buf[index] = '+';
         }
@@ -1947,10 +1959,11 @@ test "int.padded" {
     try expectFmt("i8: '-1  '", "i8: '{:<4}'", .{@as(i8, -1)});
     try expectFmt("i8: '  -1'", "i8: '{:>4}'", .{@as(i8, -1)});
     try expectFmt("i8: ' -1 '", "i8: '{:^4}'", .{@as(i8, -1)});
+    try expectFmt("i8: ' +1 '", "i8: '{:+^4}'", .{@as(i8, 1)});
     try expectFmt("i16: '-1234'", "i16: '{:4}'", .{@as(i16, -1234)});
-    try expectFmt("i16: '+1234'", "i16: '{:4}'", .{@as(i16, 1234)});
-    try expectFmt("i16: '-12345'", "i16: '{:4}'", .{@as(i16, -12345)});
-    try expectFmt("i16: '+12345'", "i16: '{:4}'", .{@as(i16, 12345)});
+    try expectFmt("i16: '1234'", "i16: '{:4}'", .{@as(i16, 1234)});
+    try expectFmt("i16: '-12345'", "i16: '{:+4}'", .{@as(i16, -12345)});
+    try expectFmt("i16: '+12345'", "i16: '{:+4}'", .{@as(i16, 12345)});
     try expectFmt("u16: '12345'", "u16: '{:4}'", .{@as(u16, 12345)});
 
     try expectFmt("UTF-8: 'ü   '", "UTF-8: '{u:<4}'", .{'ü'});
@@ -2204,6 +2217,7 @@ test "float.scientific.precision" {
     // libc rounds 1.000005e5 to 1.00000e5 but zig does 1.00001e5.
     // In fact, libc doesn't round a lot of 5 cases up when one past the precision point.
     try expectFmt("f64: 1.00001e5", "f64: {e:.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
+    try expectFmt("f64:   +1.00001e5", "f64: {e:+>12.5}", .{@as(f64, @as(f32, @bitCast(@as(u32, 1203982400))))});
 }
 
 test "float.special" {
@@ -2269,13 +2283,18 @@ test "float.hexadecimal.precision" {
     try expectFmt("f64: 0x1.00000p0", "f64: {x:.5}", .{@as(f64, 1.0)});
     try expectFmt("f80: 0x1.00000p0", "f80: {x:.5}", .{@as(f80, 1.0)});
     try expectFmt("f128: 0x1.00000p0", "f128: {x:.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128: +0x1.00000p0", "f128: {x:+.5}", .{@as(f128, 1.0)});
+    try expectFmt("f128:  +0x1.00000p0", "f128: {x:+>12.5}", .{@as(f128, 1.0)});
 }
 
 test "float.decimal" {
     try expectFmt("f64: 152314000000000000000000000000", "f64: {d}", .{@as(f64, 1.52314e29)});
     try expectFmt("f32: 0", "f32: {d}", .{@as(f32, 0.0)});
     try expectFmt("f32: 0", "f32: {d:.0}", .{@as(f32, 0.0)});
+    try expectFmt("f32: 0", "f32: {d:+.0}", .{@as(f32, 0.0)});
     try expectFmt("f32: 1.1", "f32: {d:.1}", .{@as(f32, 1.1234)});
+    try expectFmt("f32: +1.1", "f32: {d:+.1}", .{@as(f32, 1.1234)});
+    try expectFmt("f32:  +1.1", "f32: {d:+>5.1}", .{@as(f32, 1.1234)});
     try expectFmt("f32: 1234.57", "f32: {d:.2}", .{@as(f32, 1234.567)});
     // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
     // -11.12339... is rounded back up to -11.1234
