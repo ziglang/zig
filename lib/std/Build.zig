@@ -1885,25 +1885,6 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     unreachable; // Bad @dependencies source
 }
 
-pub fn anonymousDependency(
-    b: *Build,
-    /// The path to the directory containing the dependency's build.zig file,
-    /// relative to the current package's build.zig.
-    relative_build_root: []const u8,
-    /// A direct `@import` of the build.zig of the dependency.
-    comptime build_zig: type,
-    args: anytype,
-) *Dependency {
-    const arena = b.allocator;
-    const build_root = b.build_root.join(arena, &.{relative_build_root}) catch @panic("OOM");
-    const name = arena.dupe(u8, relative_build_root) catch @panic("OOM");
-    for (name) |*byte| switch (byte.*) {
-        '/', '\\' => byte.* = '.',
-        else => continue,
-    };
-    return dependencyInner(b, name, build_root, build_zig, &.{}, args);
-}
-
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
     switch (lhs) {
         .flag => {},
@@ -1951,7 +1932,7 @@ fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
     return true;
 }
 
-pub fn dependencyInner(
+fn dependencyInner(
     b: *Build,
     name: []const u8,
     build_root_string: []const u8,
