@@ -3370,8 +3370,11 @@ fn transSwitch(
     scope: *Scope,
     stmt: *const clang.SwitchStmt,
 ) TransError!Node {
+    var outer_scope = try Scope.Block.init(c, scope, false);
+    defer outer_scope.deinit();
+
     var loop_scope = Scope{
-        .parent = scope,
+        .parent = &outer_scope.base,
         .id = .loop,
     };
 
@@ -3541,6 +3544,9 @@ fn transSwitch(
                     try cases.append(switch_else);
                 }
             },
+            .DeclStmtClass => {
+                _ = try transDeclStmt(c, &outer_scope.base, @ptrCast(it[0]), true);
+            },
             else => {
                 if (required_enum) |*re| {
                     if (re.inner_stmt_to_enum_field.get(it[0])) |field_name| {
@@ -3610,7 +3616,9 @@ fn transSwitch(
     try block_scope.?.statements.append(Tag.@"break".init());
     const while_body = try block_scope.?.complete(c);
 
-    return Tag.while_true.create(c.arena, while_body);
+    try outer_scope.statements.append(try Tag.while_true.create(c.arena, while_body));
+
+    return outer_scope.complete(c);
 }
 
 /// Collects all items for this case, returns the first statement after the labels.
@@ -3727,6 +3735,9 @@ fn transSwitchProngStmtInline(
                 if (result.isNoreturn(true)) {
                     return;
                 }
+            },
+            .DeclStmtClass => {
+                try transDeclStmtAsAssignments(c, block, @ptrCast(it[0]));
             },
             else => {
                 const result = try transStmt(c, &block.base, it[0], .unused);
@@ -5443,36 +5454,39 @@ fn transLabelStmt(c: *Context, scope: *Scope, stmt: *const clang.LabelStmt) Tran
     }
 }
 
+// fn transDeclStmt(c: *Context, scope: *Scope, stmt: *const clang.DeclStmt, late_init: bool) TransError!Node {
+
+fn transDeclStmtAsAssignments(c: *Context, block: *Scope.Block, stmt: *const clang.DeclStmt) TransError!void {
+    var it = stmt.decl_begin();
+    const end_it = stmt.decl_end();
+    while (it != end_it) : (it += 1) {
+        if (it[0].getKind() == .Var) {
+            const decl: *const clang.VarDecl = @ptrCast(it[0]);
+            const qual_type = decl.getTypeSourceInfo_getType();
+
+            if (decl.getStorageClass() != .Extern and !decl.isStaticLocal()) {
+                if (decl.getInit()) |init| {
+                    const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(decl)).getName_bytes_begin());
+
+                    var rhs_node = try transExprCoercing(c, &block.base, init, .used);
+                    if (!qualTypeIsBoolean(qual_type) and isBoolRes(rhs_node)) {
+                        rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
+                    }
+                    try block.statements.append(
+                        try transCreateNodeInfixOp(c, .assign, try Tag.identifier.create(c.arena, block.base.getAlias(name)), rhs_node, .used),
+                    );
+                }
+            }
+        }
+    }
+}
+
 fn transStmtToScopeAndExeBlock(c: *Context, scope: *Scope, exe_block: *Scope.Block, stmt: *const clang.Stmt) TransError!void {
     if (stmt.getStmtClass() == .DeclStmtClass) {
         const decl_stmt: *const clang.DeclStmt = @ptrCast(stmt);
         _ = try transDeclStmt(c, scope, decl_stmt, true);
 
-        var it = decl_stmt.decl_begin();
-        const end_it = decl_stmt.decl_end();
-        while (it != end_it) : (it += 1) {
-            if (it[0].getKind() == .Var) {
-                const decl: *const clang.VarDecl = @ptrCast(it[0]);
-                const qual_type = decl.getTypeSourceInfo_getType();
-
-                if (decl.getStorageClass() != .Extern and !decl.isStaticLocal()) {
-                    if (decl.getInit()) |init| {
-                        const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(decl)).getName_bytes_begin());
-
-                        var rhs_node = try transExprCoercing(c, &exe_block.base, init, .used);
-                        if (!qualTypeIsBoolean(qual_type) and isBoolRes(rhs_node)) {
-                            rhs_node = try Tag.int_from_bool.create(c.arena, rhs_node);
-                        }
-                        try exe_block.statements.append(
-                            try transCreateNodeInfixOp(c, .assign, try Tag.identifier.create(c.arena, scope.getAlias(name)), rhs_node, .used),
-                        );
-                    }
-                }
-            } else {
-                // the last two args of transDeclStmtOne are not used
-                try transDeclStmtOne(c, scope, it[0], undefined, undefined);
-            }
-        }
+        try transDeclStmtAsAssignments(c, exe_block, @ptrCast(stmt));
     } else {
         const result = try transStmt(c, &exe_block.base, stmt, .unused);
         if (result.tag() != .empty_block) {
