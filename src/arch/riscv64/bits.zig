@@ -250,7 +250,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn srai(rd: Register, r1: Register, shamt: u6) Instruction {
-        return iType(0b0010011, 0b101, rd, r1, (1 << 10) + shamt);
+        return iType(0b0010011, 0b101, rd, r1, (@as(i12, 1) << 10) + shamt);
     }
 
     pub fn slti(rd: Register, r1: Register, imm: i12) Instruction {
@@ -267,16 +267,16 @@ pub const Instruction = union(enum) {
         return iType(0b0011011, 0b000, rd, r1, imm);
     }
 
-    pub fn slliw(rd: Register, r1: Register, shamt: u5) Instruction {
+    pub fn slliw(rd: Register, r1: Register, shamt: u6) Instruction {
         return iType(0b0011011, 0b001, rd, r1, shamt);
     }
 
-    pub fn srliw(rd: Register, r1: Register, shamt: u5) Instruction {
+    pub fn srliw(rd: Register, r1: Register, shamt: u6) Instruction {
         return iType(0b0011011, 0b101, rd, r1, shamt);
     }
 
-    pub fn sraiw(rd: Register, r1: Register, shamt: u5) Instruction {
-        return iType(0b0011011, 0b101, rd, r1, (1 << 10) + shamt);
+    pub fn sraiw(rd: Register, r1: Register, shamt: u6) Instruction {
+        return iType(0b0011011, 0b101, rd, r1, (@as(i12, 1) << 10) + shamt);
     }
 
     // Upper Immediate

@@ -33,9 +33,11 @@ const abi = @import("abi.zig");
 const Register = bits.Register;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
-const Instruction = abi.Instruction;
 const callee_preserved_regs = abi.callee_preserved_regs;
+/// General Purpose
 const gp = abi.RegisterClass.gp;
+/// Function Args
+const fa = abi.RegisterClass.fa;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
@@ -96,6 +98,8 @@ air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
 const air_bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {};
 
+const SymbolOffset = struct { sym: u32, off: i32 = 0 };
+
 const MCValue = union(enum) {
     /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
     /// TODO Look into deleting this tag and using `dead` instead, since every use
@@ -110,6 +114,9 @@ const MCValue = union(enum) {
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
     immediate: u64,
+    /// The value is in memory at an address not-yet-allocated by the linker.
+    /// This traditionally corresponds to a relocation emitted in a relocatable object file.
+    load_symbol: SymbolOffset,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is in memory at a hard-coded address.
@@ -145,6 +152,7 @@ const MCValue = union(enum) {
             .memory,
             .ptr_stack_offset,
             .undef,
+            .load_symbol,
             => false,
 
             .register,
@@ -165,29 +173,17 @@ const Branch = struct {
 
 const StackAllocation = struct {
     inst: Air.Inst.Index,
-    /// TODO do we need size? should be determined by inst.ty.abiSize()
+    /// TODO: make the size inferred from the bits of the inst
     size: u32,
 };
 
 const BlockData = struct {
-    relocs: std.ArrayListUnmanaged(Reloc),
+    relocs: std.ArrayListUnmanaged(Mir.Inst.Index),
     /// The first break instruction encounters `null` here and chooses a
     /// machine code value for the block result, populating this field.
     /// Following break instructions encounter that value and use it for
     /// the location to store their block results.
     mcv: MCValue,
-};
-
-const Reloc = union(enum) {
-    /// The value is an offset into the `Function` `code` from the beginning.
-    /// To perform the reloc, write 32-bit signed little-endian integer
-    /// which is a relative jump, based on the address following the reloc.
-    rel32: usize,
-    /// A branch in the ARM instruction set
-    arm_branch: struct {
-        pos: usize,
-        cond: @import("../arm/bits.zig").Condition,
-    },
 };
 
 const BigTomb = struct {
@@ -272,6 +268,7 @@ pub fn generate(
         },
         else => |e| return e,
     };
+
     defer call_info.deinit(&function);
 
     function.args = call_info.args;
@@ -303,6 +300,8 @@ pub fn generate(
         .prev_di_pc = 0,
         .prev_di_line = func.lbrace_line,
         .prev_di_column = func.lbrace_column,
+        .stack_size = @max(32, function.max_end_stack),
+        .code_offset_mapping = .{},
     };
     defer emit.deinit();
 
@@ -328,6 +327,13 @@ fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     return result_index;
 }
 
+fn addNop(self: *Self) error{OutOfMemory}!Mir.Inst.Index {
+    return try self.addInst(.{
+        .tag = .nop,
+        .data = .{ .nop = {} },
+    });
+}
+
 pub fn addExtra(self: *Self, extra: anytype) Allocator.Error!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
     try self.mir_extra.ensureUnusedCapacity(self.gpa, fields.len);
@@ -348,118 +354,17 @@ pub fn addExtraAssumeCapacity(self: *Self, extra: anytype) u32 {
 }
 
 fn gen(self: *Self) !void {
-    const mod = self.bin_file.comp.module.?;
-    const cc = self.fn_type.fnCallingConvention(mod);
-    if (cc != .Naked) {
-        // TODO Finish function prologue and epilogue for riscv64.
+    _ = try self.addInst(.{
+        .tag = .psuedo_prologue,
+        .data = .{ .nop = {} }, // Backpatched later.
+    });
 
-        // TODO Backpatch stack offset
-        // addi sp, sp, -16
-        _ = try self.addInst(.{
-            .tag = .addi,
-            .data = .{ .i_type = .{
-                .rd = .sp,
-                .rs1 = .sp,
-                .imm12 = -16,
-            } },
-        });
+    _ = try self.addInst(.{
+        .tag = .dbg_prologue_end,
+        .data = .{ .nop = {} },
+    });
 
-        // sd ra, 8(sp)
-        _ = try self.addInst(.{
-            .tag = .sd,
-            .data = .{ .i_type = .{
-                .rd = .ra,
-                .rs1 = .sp,
-                .imm12 = 8,
-            } },
-        });
-
-        // sd s0, 0(sp)
-        _ = try self.addInst(.{
-            .tag = .sd,
-            .data = .{ .i_type = .{
-                .rd = .s0,
-                .rs1 = .sp,
-                .imm12 = 0,
-            } },
-        });
-
-        _ = try self.addInst(.{
-            .tag = .dbg_prologue_end,
-            .data = .{ .nop = {} },
-        });
-
-        try self.genBody(self.air.getMainBody());
-
-        _ = try self.addInst(.{
-            .tag = .dbg_epilogue_begin,
-            .data = .{ .nop = {} },
-        });
-
-        // exitlude jumps
-        if (self.exitlude_jump_relocs.items.len > 0 and
-            self.exitlude_jump_relocs.items[self.exitlude_jump_relocs.items.len - 1] == self.mir_instructions.len - 2)
-        {
-            // If the last Mir instruction (apart from the
-            // dbg_epilogue_begin) is the last exitlude jump
-            // relocation (which would just jump one instruction
-            // further), it can be safely removed
-            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
-        }
-
-        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
-            _ = jmp_reloc;
-            return self.fail("TODO add branches in RISCV64", .{});
-        }
-
-        // ld ra, 8(sp)
-        _ = try self.addInst(.{
-            .tag = .ld,
-            .data = .{ .i_type = .{
-                .rd = .ra,
-                .rs1 = .sp,
-                .imm12 = 8,
-            } },
-        });
-
-        // ld s0, 0(sp)
-        _ = try self.addInst(.{
-            .tag = .ld,
-            .data = .{ .i_type = .{
-                .rd = .s0,
-                .rs1 = .sp,
-                .imm12 = 0,
-            } },
-        });
-
-        // addi sp, sp, 16
-        _ = try self.addInst(.{
-            .tag = .addi,
-            .data = .{ .i_type = .{
-                .rd = .sp,
-                .rs1 = .sp,
-                .imm12 = 16,
-            } },
-        });
-
-        // ret
-        _ = try self.addInst(.{
-            .tag = .ret,
-            .data = .{ .nop = {} },
-        });
-    } else {
-        _ = try self.addInst(.{
-            .tag = .dbg_prologue_end,
-            .data = .{ .nop = {} },
-        });
-
-        try self.genBody(self.air.getMainBody());
-
-        _ = try self.addInst(.{
-            .tag = .dbg_epilogue_begin,
-            .data = .{ .nop = {} },
-        });
-    }
+    try self.genBody(self.air.getMainBody());
 
     // Drop them off at the rbrace.
     _ = try self.addInst(.{
@@ -535,12 +440,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .div_float, .div_trunc, .div_floor, .div_exact => try self.airDiv(inst),
 
-            .cmp_lt  => try self.airCmp(inst, .lt),
-            .cmp_lte => try self.airCmp(inst, .lte),
-            .cmp_eq  => try self.airCmp(inst, .eq),
-            .cmp_gte => try self.airCmp(inst, .gte),
-            .cmp_gt  => try self.airCmp(inst, .gt),
-            .cmp_neq => try self.airCmp(inst, .neq),
+            .cmp_lt  => try self.airCmp(inst),
+            .cmp_lte => try self.airCmp(inst),
+            .cmp_eq  => try self.airCmp(inst),
+            .cmp_gte => try self.airCmp(inst),
+            .cmp_gt  => try self.airCmp(inst),
+            .cmp_neq => try self.airCmp(inst),
 
             .cmp_vector => try self.airCmpVector(inst),
             .cmp_lt_errors_len => try self.airCmpLtErrorsLen(inst),
@@ -565,11 +470,12 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .frame_addr      => try self.airFrameAddress(inst),
             .fence           => try self.airFence(),
             .cond_br         => try self.airCondBr(inst),
+            .dbg_stmt        => try self.airDbgStmt(inst),
             .fptrunc         => try self.airFptrunc(inst),
             .fpext           => try self.airFpext(inst),
             .intcast         => try self.airIntCast(inst),
             .trunc           => try self.airTrunc(inst),
-            .int_from_bool     => try self.airIntFromBool(inst),
+            .int_from_bool   => try self.airIntFromBool(inst),
             .is_non_null     => try self.airIsNonNull(inst),
             .is_non_null_ptr => try self.airIsNonNullPtr(inst),
             .is_null         => try self.airIsNull(inst),
@@ -581,17 +487,17 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .load            => try self.airLoad(inst),
             .loop            => try self.airLoop(inst),
             .not             => try self.airNot(inst),
-            .int_from_ptr        => try self.airIntFromPtr(inst),
-            .ret             => try self.airRet(inst),
-            .ret_safe        => try self.airRet(inst), // TODO
+            .int_from_ptr    => try self.airIntFromPtr(inst),
+            .ret             => try self.airRet(inst, false),
+            .ret_safe        => try self.airRet(inst, true),
             .ret_load        => try self.airRetLoad(inst),
             .store           => try self.airStore(inst, false),
             .store_safe      => try self.airStore(inst, true),
             .struct_field_ptr=> try self.airStructFieldPtr(inst),
             .struct_field_val=> try self.airStructFieldVal(inst),
             .array_to_slice  => try self.airArrayToSlice(inst),
-            .float_from_int    => try self.airFloatFromInt(inst),
-            .int_from_float    => try self.airIntFromFloat(inst),
+            .float_from_int  => try self.airFloatFromInt(inst),
+            .int_from_float  => try self.airIntFromFloat(inst),
             .cmpxchg_strong  => try self.airCmpxchg(inst),
             .cmpxchg_weak    => try self.airCmpxchg(inst),
             .atomic_rmw      => try self.airAtomicRmw(inst),
@@ -617,16 +523,16 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .union_init      => try self.airUnionInit(inst),
             .prefetch        => try self.airPrefetch(inst),
             .mul_add         => try self.airMulAdd(inst),
-            .addrspace_cast  => @panic("TODO"),
+            .addrspace_cast  => return self.fail("TODO: addrspace_cast", .{}),
 
-            .@"try"          => @panic("TODO"),
-            .try_ptr         => @panic("TODO"),
+            .@"try"          =>  return self.fail("TODO: try", .{}),
+            .try_ptr         =>  return self.fail("TODO: try_ptr", .{}),
 
-            .dbg_stmt         => try self.airDbgStmt(inst),
-            .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
             => try self.airDbgVar(inst),
+
+            .dbg_inline_block => try self.airDbgInlineBlock(inst),
 
             .call              => try self.airCall(inst, .auto),
             .call_always_tail  => try self.airCall(inst, .always_tail),
@@ -830,6 +736,15 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     return MCValue{ .stack_offset = stack_offset };
 }
 
+/// Allocates a register from the general purpose set and returns the Register and the Lock.
+///
+/// Up to the user to unlock the register later.
+fn allocReg(self: *Self) !struct { Register, RegisterLock } {
+    const reg = try self.register_manager.allocReg(null, gp);
+    const lock = self.register_manager.lockRegAssumeUnused(reg);
+    return .{ reg, lock };
+}
+
 pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void {
     const stack_mcv = try self.allocRegOrMem(inst, false);
     log.debug("spilling {d} to stack mcv {any}", .{ inst, stack_mcv });
@@ -860,6 +775,7 @@ fn copyToNewRegister(self: *Self, reg_owner: Air.Inst.Index, mcv: MCValue) !MCVa
 
 fn airAlloc(self: *Self, inst: Air.Inst.Index) !void {
     const stack_offset = try self.allocMemPtr(inst);
+    log.debug("airAlloc offset: {}", .{stack_offset});
     return self.finishAir(inst, .{ .ptr_stack_offset = stack_offset }, .{ .none, .none, .none });
 }
 
@@ -943,101 +859,15 @@ fn airSlice(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-/// Don't call this function directly. Use binOp instead.
-///
-/// Calling this function signals an intention to generate a Mir
-/// instruction of the form
-///
-///     op dest, lhs, rhs
-///
-/// Asserts that generating an instruction of that form is possible.
-fn binOpRegister(
-    self: *Self,
-    tag: Air.Inst.Tag,
-    maybe_inst: ?Air.Inst.Index,
-    lhs: MCValue,
-    rhs: MCValue,
-    lhs_ty: Type,
-    rhs_ty: Type,
-) !MCValue {
-    const lhs_is_register = lhs == .register;
-    const rhs_is_register = rhs == .register;
+fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
+    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+    const lhs = try self.resolveInst(bin_op.lhs);
+    const rhs = try self.resolveInst(bin_op.rhs);
+    const lhs_ty = self.typeOf(bin_op.lhs);
+    const rhs_ty = self.typeOf(bin_op.rhs);
 
-    const lhs_lock: ?RegisterLock = if (lhs_is_register)
-        self.register_manager.lockReg(lhs.register)
-    else
-        null;
-    defer if (lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
-
-    const lhs_reg = if (lhs_is_register) lhs.register else blk: {
-        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
-            const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-            break :inst bin_op.lhs.toIndex().?;
-        } else null;
-
-        const reg = try self.register_manager.allocReg(track_inst, gp);
-
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
-
-        break :blk reg;
-    };
-    const new_lhs_lock = self.register_manager.lockReg(lhs_reg);
-    defer if (new_lhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const rhs_reg = if (rhs_is_register) rhs.register else blk: {
-        const track_inst: ?Air.Inst.Index = if (maybe_inst) |inst| inst: {
-            const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-            break :inst bin_op.rhs.toIndex().?;
-        } else null;
-
-        const reg = try self.register_manager.allocReg(track_inst, gp);
-
-        if (track_inst) |inst| branch.inst_table.putAssumeCapacity(inst, .{ .register = reg });
-
-        break :blk reg;
-    };
-    const new_rhs_lock = self.register_manager.lockReg(rhs_reg);
-    defer if (new_rhs_lock) |reg| self.register_manager.unlockReg(reg);
-
-    const dest_reg = if (maybe_inst) |inst| blk: {
-        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
-        if (lhs_is_register and self.reuseOperand(inst, bin_op.lhs, 0, lhs)) {
-            break :blk lhs_reg;
-        } else if (rhs_is_register and self.reuseOperand(inst, bin_op.rhs, 1, rhs)) {
-            break :blk rhs_reg;
-        } else {
-            break :blk try self.register_manager.allocReg(inst, gp);
-        }
-    } else try self.register_manager.allocReg(null, gp);
-
-    if (!lhs_is_register) try self.genSetReg(lhs_ty, lhs_reg, lhs);
-    if (!rhs_is_register) try self.genSetReg(rhs_ty, rhs_reg, rhs);
-
-    const mir_tag: Mir.Inst.Tag = switch (tag) {
-        .add => .add,
-        .sub => .sub,
-        else => unreachable,
-    };
-    const mir_data: Mir.Inst.Data = switch (tag) {
-        .add,
-        .sub,
-        => .{ .r_type = .{
-            .rd = dest_reg,
-            .rs1 = lhs_reg,
-            .rs2 = rhs_reg,
-        } },
-        else => unreachable,
-    };
-
-    _ = try self.addInst(.{
-        .tag = mir_tag,
-        .data = mir_data,
-    });
-
-    return MCValue{ .register = dest_reg };
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.binOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 /// For all your binary operation needs, this function will generate
@@ -1052,6 +882,8 @@ fn binOpRegister(
 /// looks at the lhs and rhs and determines which kind of lowering
 /// would be best suitable and then delegates the lowering to other
 /// functions.
+///
+/// `maybe_inst` **needs** to be a bin_op, make sure of that.
 fn binOp(
     self: *Self,
     tag: Air.Inst.Tag,
@@ -1066,6 +898,12 @@ fn binOp(
         // Arithmetic operations on integers and floats
         .add,
         .sub,
+        .cmp_eq,
+        .cmp_neq,
+        .cmp_gt,
+        .cmp_gte,
+        .cmp_lt,
+        .cmp_lte,
         => {
             switch (lhs_ty.zigTypeTag(mod)) {
                 .Float => return self.fail("TODO binary operations on floats", .{}),
@@ -1074,8 +912,10 @@ fn binOp(
                     assert(lhs_ty.eql(rhs_ty, mod));
                     const int_info = lhs_ty.intInfo(mod);
                     if (int_info.bits <= 64) {
-                        // TODO immediate operands
-                        return try self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        if (rhs == .immediate) {
+                            return self.binOpImm(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
+                        return self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
                     } else {
                         return self.fail("TODO binary operations on int with bits > 64", .{});
                     }
@@ -1110,19 +950,174 @@ fn binOp(
                 else => unreachable,
             }
         },
+
+        // These instructions have unsymteric bit sizes on RHS and LHS.
+        .shr,
+        .shl,
+        => {
+            switch (lhs_ty.zigTypeTag(mod)) {
+                .Float => return self.fail("TODO binary operations on floats", .{}),
+                .Vector => return self.fail("TODO binary operations on vectors", .{}),
+                .Int => {
+                    const int_info = lhs_ty.intInfo(mod);
+                    if (int_info.bits <= 64) {
+                        if (rhs == .immediate) {
+                            return self.binOpImm(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                        }
+                        return self.binOpRegister(tag, maybe_inst, lhs, rhs, lhs_ty, rhs_ty);
+                    } else {
+                        return self.fail("TODO binary operations on int with bits > 64", .{});
+                    }
+                },
+                else => unreachable,
+            }
+        },
         else => unreachable,
     }
 }
+/// Don't call this function directly. Use binOp instead.
+///
+/// Calling this function signals an intention to generate a Mir
+/// instruction of the form
+///
+///     op dest, lhs, rhs
+///
+/// Asserts that generating an instruction of that form is possible.
+fn binOpRegister(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    _ = maybe_inst;
 
-fn airBinOp(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
-    const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const lhs = try self.resolveInst(bin_op.lhs);
-    const rhs = try self.resolveInst(bin_op.rhs);
-    const lhs_ty = self.typeOf(bin_op.lhs);
-    const rhs_ty = self.typeOf(bin_op.rhs);
+    const lhs_reg, const lhs_lock = blk: {
+        if (lhs == .register) break :blk .{ lhs.register, null };
 
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else try self.binOp(tag, inst, lhs, rhs, lhs_ty, rhs_ty);
-    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+        const lhs_reg, const lhs_lock = try self.allocReg();
+        try self.genSetReg(lhs_ty, lhs_reg, lhs);
+        break :blk .{ lhs_reg, lhs_lock };
+    };
+    defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const rhs_reg, const rhs_lock = blk: {
+        if (rhs == .register) break :blk .{ rhs.register, null };
+
+        const rhs_reg, const rhs_lock = try self.allocReg();
+        try self.genSetReg(rhs_ty, rhs_reg, rhs);
+        break :blk .{ rhs_reg, rhs_lock };
+    };
+    defer if (rhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const dest_reg, const dest_lock = try self.allocReg();
+    defer self.register_manager.unlockReg(dest_lock);
+
+    const mir_tag: Mir.Inst.Tag = switch (tag) {
+        .add => .add,
+        .sub => .sub,
+        .cmp_eq => .cmp_eq,
+        .cmp_neq => .cmp_neq,
+        .cmp_gt => .cmp_gt,
+        .cmp_gte => .cmp_gte,
+        .cmp_lt => .cmp_lt,
+        .shl => .sllw,
+        .shr => .srlw,
+        else => return self.fail("TODO: binOpRegister {s}", .{@tagName(tag)}),
+    };
+
+    _ = try self.addInst(.{
+        .tag = mir_tag,
+        .data = .{
+            .r_type = .{
+                .rd = dest_reg,
+                .rs1 = lhs_reg,
+                .rs2 = rhs_reg,
+            },
+        },
+    });
+
+    // generate the struct for OF checks
+
+    return MCValue{ .register = dest_reg };
+}
+
+/// Don't call this function directly. Use binOp instead.
+///
+/// Call this function if rhs is an immediate. Generates I version of binops.
+///
+/// Asserts that rhs is an immediate MCValue
+fn binOpImm(
+    self: *Self,
+    tag: Air.Inst.Tag,
+    maybe_inst: ?Air.Inst.Index,
+    lhs: MCValue,
+    rhs: MCValue,
+    lhs_ty: Type,
+    rhs_ty: Type,
+) !MCValue {
+    assert(rhs == .immediate);
+    _ = maybe_inst;
+
+    // TODO: use `maybe_inst` to track instead of forcing a lock.
+
+    const lhs_reg, const lhs_lock = blk: {
+        if (lhs == .register) break :blk .{ lhs.register, null };
+
+        const lhs_reg, const lhs_lock = try self.allocReg();
+        try self.genSetReg(lhs_ty, lhs_reg, lhs);
+        break :blk .{ lhs_reg, lhs_lock };
+    };
+    defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+    const dest_reg, const dest_lock = try self.allocReg();
+    defer self.register_manager.unlockReg(dest_lock);
+
+    const mir_tag: Mir.Inst.Tag = switch (tag) {
+        .shl => .slli,
+        .shr => .srli,
+        .cmp_gte => .cmp_imm_gte,
+        .cmp_eq => .cmp_imm_eq,
+        .add => .addi,
+        else => return self.fail("TODO: binOpImm {s}", .{@tagName(tag)}),
+    };
+
+    // apply some special operations needed
+    switch (mir_tag) {
+        .slli,
+        .srli,
+        .addi,
+        .cmp_imm_eq,
+        => {
+            _ = try self.addInst(.{
+                .tag = mir_tag,
+                .data = .{ .i_type = .{
+                    .rd = dest_reg,
+                    .rs1 = lhs_reg,
+                    .imm12 = math.cast(i12, rhs.immediate) orelse {
+                        return self.fail("TODO: binOpImm larger than i12 i_type payload", .{});
+                    },
+                } },
+            });
+        },
+        .cmp_imm_gte => {
+            const imm_reg = try self.copyToTmpRegister(rhs_ty, .{ .immediate = rhs.immediate - 1 });
+
+            _ = try self.addInst(.{
+                .tag = mir_tag,
+                .data = .{ .r_type = .{
+                    .rd = dest_reg,
+                    .rs1 = imm_reg,
+                    .rs2 = lhs_reg,
+                } },
+            });
+        },
+        else => unreachable,
+    }
+
+    return MCValue{ .register = dest_reg };
 }
 
 fn airPtrArithmetic(self: *Self, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
@@ -1180,8 +1175,80 @@ fn airMulSat(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAddWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airAddWithOverflow for {}", .{self.target.cpu.arch});
+    const mod = self.bin_file.comp.module.?;
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.Bin, ty_pl.payload).data;
+
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs = try self.resolveInst(extra.lhs);
+        const rhs = try self.resolveInst(extra.rhs);
+        const lhs_ty = self.typeOf(extra.lhs);
+        const rhs_ty = self.typeOf(extra.rhs);
+
+        const add_result_mcv = try self.binOp(.add, null, lhs, rhs, lhs_ty, rhs_ty);
+        const add_result_lock = self.register_manager.lockRegAssumeUnused(add_result_mcv.register);
+        defer self.register_manager.unlockReg(add_result_lock);
+
+        const tuple_ty = self.typeOfIndex(inst);
+        const int_info = lhs_ty.intInfo(mod);
+
+        // TODO: optimization, set this to true. needs the other struct access stuff to support
+        // accessing registers.
+        const result_mcv = try self.allocRegOrMem(inst, false);
+        const offset = result_mcv.stack_offset;
+
+        const result_offset = tuple_ty.structFieldOffset(0, mod) + offset;
+
+        try self.genSetStack(lhs_ty, @intCast(result_offset), add_result_mcv);
+
+        if (int_info.bits >= 8 and math.isPowerOfTwo(int_info.bits)) {
+            if (int_info.signedness == .unsigned) {
+                const overflow_offset = tuple_ty.structFieldOffset(1, mod) + offset;
+
+                const max_val = std.math.pow(u16, 2, int_info.bits) - 1;
+
+                const overflow_reg, const overflow_lock = try self.allocReg();
+                defer self.register_manager.unlockReg(overflow_lock);
+
+                const add_reg, const add_lock = blk: {
+                    if (add_result_mcv == .register) break :blk .{ add_result_mcv.register, null };
+
+                    const add_reg, const add_lock = try self.allocReg();
+                    try self.genSetReg(lhs_ty, add_reg, add_result_mcv);
+                    break :blk .{ add_reg, add_lock };
+                };
+                defer if (add_lock) |lock| self.register_manager.unlockReg(lock);
+
+                _ = try self.addInst(.{
+                    .tag = .andi,
+                    .data = .{ .i_type = .{
+                        .rd = overflow_reg,
+                        .rs1 = add_reg,
+                        .imm12 = @intCast(max_val),
+                    } },
+                });
+
+                const overflow_mcv = try self.binOp(
+                    .cmp_neq,
+                    null,
+                    .{ .register = overflow_reg },
+                    .{ .register = add_reg },
+                    lhs_ty,
+                    lhs_ty,
+                );
+
+                try self.genSetStack(Type.u1, @intCast(overflow_offset), overflow_mcv);
+
+                break :result result_mcv;
+            } else {
+                return self.fail("TODO: airAddWithOverFlow calculate carry for signed addition", .{});
+            }
+        } else {
+            return self.fail("TODO: airAddWithOverflow with < 8 bits or non-pow of 2", .{});
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
 fn airSubWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
@@ -1237,7 +1304,13 @@ fn airXor(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airShl(self: *Self, inst: Air.Inst.Index) !void {
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement shl for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const lhs_ty = self.typeOf(bin_op.lhs);
+        const rhs_ty = self.typeOf(bin_op.rhs);
+        break :result try self.binOp(.shl, inst, lhs, rhs, lhs_ty, rhs_ty);
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1352,13 +1425,30 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_ptr for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mcv = try self.resolveInst(ty_op.operand);
+        break :result try self.slicePtr(mcv);
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+}
+
+fn slicePtr(self: *Self, mcv: MCValue) !MCValue {
+    switch (mcv) {
+        .dead, .unreach, .none => unreachable,
+        .register => unreachable, // a slice doesn't fit in one register
+        .stack_offset => |off| {
+            return MCValue{ .stack_offset = off };
+        },
+        .memory => |addr| {
+            return MCValue{ .memory = addr };
+        },
+        else => return self.fail("TODO slicePtr {s}", .{@tagName(mcv)}),
+    }
 }
 
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement slice_len for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airSliceLen for {}", .{self.target.cpu.arch});
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1389,8 +1479,29 @@ fn airSliceElemPtr(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airArrayElemVal(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.comp.module.?;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement array_elem_val for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const array_ty = self.typeOf(bin_op.lhs);
+        const array_mcv = try self.resolveInst(bin_op.lhs);
+
+        const index_mcv = try self.resolveInst(bin_op.rhs);
+
+        const elem_ty = array_ty.childType(mod);
+        const elem_abi_size = elem_ty.abiSize(mod);
+
+        switch (array_mcv) {
+            // all we need to do is calculate the offset that the elem exits at.
+            .stack_offset => |off| {
+                if (index_mcv == .immediate) {
+                    const true_offset: u32 = @intCast(index_mcv.immediate * elem_abi_size);
+                    break :result MCValue{ .stack_offset = off + true_offset };
+                }
+                return self.fail("TODO: airArrayElemVal with runtime index", .{});
+            },
+            else => return self.fail("TODO: airArrayElemVal {s}", .{@tagName(array_mcv)}),
+        }
+    };
     return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -1440,14 +1551,92 @@ fn airPopcount(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airAbs(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airAbs for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const ty = self.typeOf(ty_op.operand);
+        const scalar_ty = ty.scalarType(mod);
+        const operand = try self.resolveInst(ty_op.operand);
+
+        switch (scalar_ty.zigTypeTag(mod)) {
+            .Int => if (ty.zigTypeTag(mod) == .Vector) {
+                return self.fail("TODO implement airAbs for {}", .{ty.fmt(mod)});
+            } else {
+                const int_bits = ty.intInfo(mod).bits;
+
+                if (int_bits > 32) {
+                    return self.fail("TODO: airAbs for larger than 32 bits", .{});
+                }
+
+                // promote the src into a register
+                const src_mcv = try self.copyToNewRegister(inst, operand);
+                // temp register for shift
+                const temp_reg = try self.register_manager.allocReg(inst, gp);
+
+                _ = try self.addInst(.{
+                    .tag = .abs,
+                    .data = .{
+                        .i_type = .{
+                            .rs1 = src_mcv.register,
+                            .rd = temp_reg,
+                            .imm12 = @intCast(int_bits - 1),
+                        },
+                    },
+                });
+
+                break :result src_mcv;
+            },
+            else => return self.fail("TODO: implement airAbs {}", .{scalar_ty.fmt(mod)}),
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
 fn airByteSwap(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement airByteSwap for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mod = self.bin_file.comp.module.?;
+        const ty = self.typeOf(ty_op.operand);
+        const operand = try self.resolveInst(ty_op.operand);
+
+        const int_bits = ty.intInfo(mod).bits;
+
+        // bytes are no-op
+        if (int_bits == 8 and self.reuseOperand(inst, ty_op.operand, 0, operand)) {
+            return self.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+        }
+
+        const dest_reg = try self.register_manager.allocReg(null, gp);
+        try self.genSetReg(ty, dest_reg, operand);
+
+        const dest_mcv: MCValue = .{ .register = dest_reg };
+
+        switch (int_bits) {
+            16 => {
+                const temp = try self.binOp(.shr, null, dest_mcv, .{ .immediate = 8 }, ty, Type.u8);
+                assert(temp == .register);
+                _ = try self.addInst(.{
+                    .tag = .slli,
+                    .data = .{ .i_type = .{
+                        .imm12 = 8,
+                        .rd = dest_reg,
+                        .rs1 = dest_reg,
+                    } },
+                });
+                _ = try self.addInst(.{
+                    .tag = .@"or",
+                    .data = .{ .r_type = .{
+                        .rd = dest_reg,
+                        .rs1 = dest_reg,
+                        .rs2 = temp.register,
+                    } },
+                });
+            },
+            else => return self.fail("TODO: {d} bits for airByteSwap", .{int_bits}),
+        }
+
+        break :result dest_mcv;
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -1497,32 +1686,6 @@ fn reuseOperand(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, op_ind
     return true;
 }
 
-fn load(self: *Self, dst_mcv: MCValue, ptr: MCValue, ptr_ty: Type) InnerError!void {
-    const mod = self.bin_file.comp.module.?;
-    const elem_ty = ptr_ty.childType(mod);
-    switch (ptr) {
-        .none => unreachable,
-        .undef => unreachable,
-        .unreach => unreachable,
-        .dead => unreachable,
-        .immediate => |imm| try self.setRegOrMem(elem_ty, dst_mcv, .{ .memory = imm }),
-        .ptr_stack_offset => |off| try self.setRegOrMem(elem_ty, dst_mcv, .{ .stack_offset = off }),
-        .register => {
-            return self.fail("TODO implement loading from MCValue.register", .{});
-        },
-        .memory,
-        .stack_offset,
-        => {
-            const reg = try self.register_manager.allocReg(null, gp);
-            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
-            defer self.register_manager.unlockReg(reg_lock);
-
-            try self.genSetReg(ptr_ty, reg, ptr);
-            try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
-        },
-    }
-}
-
 fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     const mod = self.bin_file.comp.module.?;
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -1550,28 +1713,26 @@ fn airLoad(self: *Self, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn store(self: *Self, ptr: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) !void {
-    _ = ptr_ty;
+fn load(self: *Self, dst_mcv: MCValue, src_ptr: MCValue, ptr_ty: Type) InnerError!void {
+    const mod = self.bin_file.comp.module.?;
+    const elem_ty = ptr_ty.childType(mod);
 
-    switch (ptr) {
+    switch (src_ptr) {
         .none => unreachable,
         .undef => unreachable,
         .unreach => unreachable,
         .dead => unreachable,
-        .immediate => |imm| {
-            try self.setRegOrMem(value_ty, .{ .memory = imm }, value);
-        },
-        .ptr_stack_offset => |off| {
-            try self.genSetStack(value_ty, off, value);
-        },
-        .register => {
-            return self.fail("TODO implement storing to MCValue.register", .{});
-        },
-        .memory => {
-            return self.fail("TODO implement storing to MCValue.memory", .{});
-        },
-        .stack_offset => {
-            return self.fail("TODO implement storing to MCValue.stack_offset", .{});
+        .immediate => |imm| try self.setValue(elem_ty, dst_mcv, .{ .memory = imm }),
+        .ptr_stack_offset => |off| try self.setValue(elem_ty, dst_mcv, .{ .stack_offset = off }),
+
+        .stack_offset,
+        .register,
+        .memory,
+        => try self.setValue(elem_ty, dst_mcv, src_ptr),
+
+        .load_symbol => {
+            const reg = try self.copyToTmpRegister(ptr_ty, src_ptr);
+            try self.load(dst_mcv, .{ .register = reg }, ptr_ty);
         },
     }
 }
@@ -1593,30 +1754,142 @@ fn airStore(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
     return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
+/// Loads `value` into the "payload" of `pointer`.
+fn store(self: *Self, pointer: MCValue, value: MCValue, ptr_ty: Type, value_ty: Type) !void {
+    const mod = self.bin_file.comp.module.?;
+    const value_abi_size = value_ty.abiSize(mod);
+
+    log.debug("storing {s}", .{@tagName(pointer)});
+
+    switch (pointer) {
+        .none => unreachable,
+        .undef => unreachable,
+        .unreach => unreachable,
+        .dead => unreachable,
+        .ptr_stack_offset => |off| try self.genSetStack(value_ty, off, value),
+
+        .stack_offset => {
+            const pointer_reg, const lock = try self.allocReg();
+            defer self.register_manager.unlockReg(lock);
+
+            try self.genSetReg(ptr_ty, pointer_reg, pointer);
+
+            return self.store(.{ .register = pointer_reg }, value, ptr_ty, value_ty);
+        },
+
+        .register => |reg| {
+            const value_reg = try self.copyToTmpRegister(value_ty, value);
+
+            switch (value_abi_size) {
+                1, 2, 4, 8 => {
+                    const tag: Mir.Inst.Tag = switch (value_abi_size) {
+                        1 => .sb,
+                        2 => .sh,
+                        4 => .sw,
+                        8 => .sd,
+                        else => unreachable,
+                    };
+
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .data = .{ .i_type = .{
+                            .rd = value_reg,
+                            .rs1 = reg,
+                            .imm12 = 0,
+                        } },
+                    });
+                },
+                else => return self.fail("TODO: genSetStack for size={d}", .{value_abi_size}),
+            }
+        },
+        else => return self.fail("TODO implement storing to MCValue.{s}", .{@tagName(pointer)}),
+    }
+}
+
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    return self.structFieldPtr(extra.struct_operand, ty_pl.ty, extra.field_index);
+    const result = try self.structFieldPtr(inst, extra.struct_operand, ty_pl.ty, extra.field_index);
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    return self.structFieldPtr(ty_op.operand, ty_op.ty, index);
+    const result = try self.structFieldPtr(inst, ty_op.operand, ty_op.ty, index);
+    return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
-fn structFieldPtr(self: *Self, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !void {
+
+fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !MCValue {
+    _ = inst;
     _ = operand;
     _ = ty;
     _ = index;
-    return self.fail("TODO implement codegen struct_field_ptr", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+
+    return self.fail("TODO: structFieldPtr", .{});
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    _ = extra;
-    return self.fail("TODO implement codegen struct_field_val", .{});
-    //return self.finishAir(inst, result, .{ extra.struct_ptr, .none, .none });
+    const operand = extra.struct_operand;
+    const index = extra.field_index;
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mod = self.bin_file.comp.module.?;
+        const src_mcv = try self.resolveInst(operand);
+        const struct_ty = self.typeOf(operand);
+        const field_ty = struct_ty.structFieldType(index, mod);
+        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) break :result .none;
+
+        const field_off: u32 = switch (struct_ty.containerLayout(mod)) {
+            .auto, .@"extern" => @intCast(struct_ty.structFieldOffset(index, mod) * 8),
+            .@"packed" => if (mod.typeToStruct(struct_ty)) |struct_type|
+                mod.structPackedFieldBitOffset(struct_type, index)
+            else
+                0,
+        };
+
+        switch (src_mcv) {
+            .dead, .unreach => unreachable,
+            .register => |src_reg| {
+                const src_reg_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+                defer self.register_manager.unlockReg(src_reg_lock);
+
+                const dst_reg = if (field_off == 0)
+                    (try self.copyToNewRegister(inst, src_mcv)).register
+                else
+                    try self.copyToTmpRegister(Type.usize, .{ .register = src_reg });
+
+                const dst_mcv: MCValue = .{ .register = dst_reg };
+                const dst_lock = self.register_manager.lockReg(dst_reg);
+                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+                if (field_off > 0) {
+                    _ = try self.addInst(.{
+                        .tag = .srli,
+                        .data = .{
+                            .i_type = .{
+                                .imm12 = @intCast(field_off),
+                                .rd = dst_reg,
+                                .rs1 = dst_reg,
+                            },
+                        },
+                    });
+
+                    return self.fail("TODO: airStructFieldVal register with field_off > 0", .{});
+                }
+
+                break :result if (field_off == 0) dst_mcv else try self.copyToNewRegister(inst, dst_mcv);
+            },
+            .stack_offset => |off| {
+                log.debug("airStructFieldVal off: {}", .{field_off});
+                const field_byte_off: u32 = @divExact(field_off, 8);
+                break :result MCValue{ .stack_offset = off + field_byte_off };
+            },
+            else => return self.fail("TODO: airStructField {s}", .{@tagName(src_mcv)}),
+        }
+    };
+
+    return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
@@ -1645,29 +1918,40 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
-    const arg_index = self.arg_index;
-    self.arg_index += 1;
+    const mod = self.bin_file.comp.module.?;
+    var arg_index = self.arg_index;
 
-    const ty = self.typeOfIndex(inst);
-    _ = ty;
+    // we skip over args that have no bits
+    while (self.args[arg_index] == .none) arg_index += 1;
+    self.arg_index = arg_index + 1;
 
-    const result = self.args[arg_index];
-    // TODO support stack-only arguments
-    // TODO Copy registers to the stack
-    const mcv = result;
-    try self.genArgDbgInfo(inst, mcv);
+    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+        const src_mcv = self.args[arg_index];
 
-    if (self.liveness.isUnused(inst))
-        return self.finishAirBookkeeping();
+        // we want to move every arg onto the stack.
+        // while it might no tbe the best solution right now, it simplifies
+        // the spilling of args with multiple arg levels.
+        const dst_mcv = switch (src_mcv) {
+            .register => |src_reg| dst: {
+                // TODO: get the true type of the arg, and fit the spill to size.
+                const arg_size = Type.usize.abiSize(mod);
+                const arg_align = Type.usize.abiAlignment(mod);
+                const offset = try self.allocMem(inst, @intCast(arg_size), arg_align);
+                try self.genSetStack(Type.usize, offset, .{ .register = src_reg });
 
-    switch (mcv) {
-        .register => |reg| {
-            self.register_manager.getRegAssumeFree(reg, inst);
-        },
-        else => {},
-    }
+                // can go on to be reused in next function call
+                self.register_manager.freeReg(src_reg);
 
-    return self.finishAir(inst, mcv, .{ .none, .none, .none });
+                break :dst .{ .stack_offset = offset };
+            },
+            else => return self.fail("TODO: airArg {s}", .{@tagName(src_mcv)}),
+        };
+
+        try self.genArgDbgInfo(inst, src_mcv);
+        break :result dst_mcv;
+    };
+
+    return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
 fn airTrap(self: *Self) !void {
@@ -1720,25 +2004,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
             const arg = args[arg_i];
             const arg_ty = self.typeOf(arg);
             const arg_mcv = try self.resolveInst(args[arg_i]);
-
-            switch (mc_arg) {
-                .none => continue,
-                .undef => unreachable,
-                .immediate => unreachable,
-                .unreach => unreachable,
-                .dead => unreachable,
-                .memory => unreachable,
-                .register => |reg| {
-                    try self.register_manager.getReg(reg, null);
-                    try self.genSetReg(arg_ty, reg, arg_mcv);
-                },
-                .stack_offset => {
-                    return self.fail("TODO implement calling with parameters in memory", .{});
-                },
-                .ptr_stack_offset => {
-                    return self.fail("TODO implement calling with MCValue.ptr_stack_offset arg", .{});
-                },
-            }
+            try self.setValue(arg_ty, mc_arg, arg_mcv);
         }
 
         if (try self.air.value(callee, mod)) |func_value| {
@@ -1747,7 +2013,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
                     const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                     const sym = elf_file.symbol(sym_index);
                     _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                    const got_addr: u32 = @intCast(sym.zigGotAddress(elf_file));
+                    const got_addr = sym.zigGotAddress(elf_file);
                     try self.genSetReg(Type.usize, .ra, .{ .memory = got_addr });
                     _ = try self.addInst(.{
                         .tag = .jalr,
@@ -1803,23 +2069,44 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     return bt.finishAir(result);
 }
 
-fn ret(self: *Self, mcv: MCValue) !void {
-    const mod = self.bin_file.comp.module.?;
-    const ret_ty = self.fn_type.fnReturnType(mod);
-    try self.setRegOrMem(ret_ty, self.ret_mcv, mcv);
-    // Just add space for an instruction, patch this later
-    const index = try self.addInst(.{
-        .tag = .nop,
-        .data = .{ .nop = {} },
-    });
-    try self.exitlude_jump_relocs.append(self.gpa, index);
-}
+fn airRet(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
+    if (safety) {
+        // safe
+    } else {
+        // not safe
+    }
 
-fn airRet(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try self.resolveInst(un_op);
+
+    _ = try self.addInst(.{
+        .tag = .dbg_epilogue_begin,
+        .data = .{ .nop = {} },
+    });
+
     try self.ret(operand);
+
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+}
+
+fn ret(self: *Self, mcv: MCValue) !void {
+    const mod = self.bin_file.comp.module.?;
+
+    const ret_ty = self.fn_type.fnReturnType(mod);
+    try self.setValue(ret_ty, self.ret_mcv, mcv);
+
+    _ = try self.addInst(.{
+        .tag = .psuedo_epilogue,
+        .data = .{ .nop = {} },
+    });
+
+    // Just add space for an instruction, patch this later
+    const index = try self.addInst(.{
+        .tag = .ret,
+        .data = .{ .nop = {} },
+    });
+
+    try self.exitlude_jump_relocs.append(self.gpa, index);
 }
 
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
@@ -1830,7 +2117,8 @@ fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     //return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
-fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
+fn airCmp(self: *Self, inst: Air.Inst.Index) !void {
+    const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     if (self.liveness.isUnused(inst))
         return self.finishAir(inst, .dead, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -1842,12 +2130,12 @@ fn airCmp(self: *Self, inst: Air.Inst.Index, op: math.CompareOperator) !void {
 
     const lhs = try self.resolveInst(bin_op.lhs);
     const rhs = try self.resolveInst(bin_op.rhs);
-    _ = op;
-    _ = lhs;
-    _ = rhs;
+    const lhs_ty = self.typeOf(bin_op.lhs);
+    const rhs_ty = self.typeOf(bin_op.rhs);
 
-    return self.fail("TODO implement cmp for {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+    const result = try self.binOp(tag, null, lhs, rhs, lhs_ty, rhs_ty);
+
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airCmpVector(self: *Self, inst: Air.Inst.Index) !void {
@@ -1878,13 +2166,11 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airDbgInlineBlock(self: *Self, inst: Air.Inst.Index) !void {
-    const mod = self.bin_file.comp.module.?;
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-    const func = mod.funcInfo(extra.data.func);
-    // TODO emit debug info for function change
-    _ = func;
-    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
+    _ = extra;
+    // TODO: emit debug info for this block
+    return self.finishAir(inst, .dead, .{ .none, .none, .none });
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
@@ -1897,10 +2183,163 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
-    _ = inst;
+    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
+    const cond = try self.resolveInst(pl_op.operand);
+    const cond_ty = self.typeOf(pl_op.operand);
+    const extra = self.air.extraData(Air.CondBr, pl_op.payload);
+    const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const liveness_condbr = self.liveness.getCondBr(inst);
 
-    return self.fail("TODO implement condbr {}", .{self.target.cpu.arch});
-    // return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
+    const cond_reg = try self.register_manager.allocReg(inst, gp);
+    const cond_reg_lock = self.register_manager.lockRegAssumeUnused(cond_reg);
+    defer self.register_manager.unlockReg(cond_reg_lock);
+
+    // A branch to the false section. Uses beq. 1 is the default "true" state.
+    const reloc = try self.condBr(cond_ty, cond, cond_reg);
+
+    // If the condition dies here in this condbr instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (self.liveness.operandDies(inst, 0)) {
+        if (pl_op.operand.toIndex()) |op_index| {
+            self.processDeath(op_index);
+        }
+    }
+
+    // Save state
+    const parent_next_stack_offset = self.next_stack_offset;
+    const parent_free_registers = self.register_manager.free_registers;
+    var parent_stack = try self.stack.clone(self.gpa);
+    defer parent_stack.deinit(self.gpa);
+    const parent_registers = self.register_manager.registers;
+
+    try self.branch_stack.append(.{});
+    errdefer {
+        _ = self.branch_stack.pop();
+    }
+
+    try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
+    for (liveness_condbr.then_deaths) |operand| {
+        self.processDeath(operand);
+    }
+    try self.genBody(then_body);
+    // point at the to-be-generated else case
+    try self.performReloc(reloc, @intCast(self.mir_instructions.len));
+
+    // Revert to the previous register and stack allocation state.
+
+    var saved_then_branch = self.branch_stack.pop();
+    defer saved_then_branch.deinit(self.gpa);
+
+    self.register_manager.registers = parent_registers;
+
+    self.stack.deinit(self.gpa);
+    self.stack = parent_stack;
+    parent_stack = .{};
+
+    self.next_stack_offset = parent_next_stack_offset;
+    self.register_manager.free_registers = parent_free_registers;
+
+    const else_branch = self.branch_stack.addOneAssumeCapacity();
+    else_branch.* = .{};
+
+    try self.ensureProcessDeathCapacity(liveness_condbr.else_deaths.len);
+    for (liveness_condbr.else_deaths) |operand| {
+        self.processDeath(operand);
+    }
+    try self.genBody(else_body);
+
+    // At this point, each branch will possibly have conflicting values for where
+    // each instruction is stored. They agree, however, on which instructions are alive/dead.
+    // We use the first ("then") branch as canonical, and here emit
+    // instructions into the second ("else") branch to make it conform.
+    // We continue respect the data structure semantic guarantees of the else_branch so
+    // that we can use all the code emitting abstractions. This is why at the bottom we
+    // assert that parent_branch.free_registers equals the saved_then_branch.free_registers
+    // rather than assigning it.
+    const parent_branch = &self.branch_stack.items[self.branch_stack.items.len - 2];
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, else_branch.inst_table.count());
+    const else_slice = else_branch.inst_table.entries.slice();
+    const else_keys = else_slice.items(.key);
+    const else_values = else_slice.items(.value);
+    for (else_keys, 0..) |else_key, else_idx| {
+        const else_value = else_values[else_idx];
+        const canon_mcv = if (saved_then_branch.inst_table.fetchSwapRemove(else_key)) |then_entry| blk: {
+            // The instruction's MCValue is overridden in both branches.
+            log.debug("condBr put branch table (key = %{d}, value = {})", .{ else_key, then_entry.value });
+            parent_branch.inst_table.putAssumeCapacity(else_key, then_entry.value);
+            if (else_value == .dead) {
+                assert(then_entry.value == .dead);
+                continue;
+            }
+            break :blk then_entry.value;
+        } else blk: {
+            if (else_value == .dead)
+                continue;
+            // The instruction is only overridden in the else branch.
+            var i: usize = self.branch_stack.items.len - 2;
+            while (true) {
+                i -= 1; // If this overflows, the question is: why wasn't the instruction marked dead?
+                if (self.branch_stack.items[i].inst_table.get(else_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating else_entry {d} {}=>{}", .{ else_key, else_value, canon_mcv });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setValue(self.typeOfIndex(else_key), canon_mcv, else_value);
+        // TODO track the new register / stack allocation
+    }
+    try parent_branch.inst_table.ensureUnusedCapacity(self.gpa, saved_then_branch.inst_table.count());
+    const then_slice = saved_then_branch.inst_table.entries.slice();
+    const then_keys = then_slice.items(.key);
+    const then_values = then_slice.items(.value);
+    for (then_keys, 0..) |then_key, then_idx| {
+        const then_value = then_values[then_idx];
+        // We already deleted the items from this table that matched the else_branch.
+        // So these are all instructions that are only overridden in the then branch.
+        parent_branch.inst_table.putAssumeCapacity(then_key, then_value);
+        if (then_value == .dead)
+            continue;
+        const parent_mcv = blk: {
+            var i: usize = self.branch_stack.items.len - 2;
+            while (true) {
+                i -= 1;
+                if (self.branch_stack.items[i].inst_table.get(then_key)) |mcv| {
+                    assert(mcv != .dead);
+                    break :blk mcv;
+                }
+            }
+        };
+        log.debug("consolidating then_entry {d} {}=>{}", .{ then_key, parent_mcv, then_value });
+        // TODO make sure the destination stack offset / register does not already have something
+        // going on there.
+        try self.setValue(self.typeOfIndex(then_key), parent_mcv, then_value);
+        // TODO track the new register / stack allocation
+    }
+
+    {
+        var item = self.branch_stack.pop();
+        item.deinit(self.gpa);
+    }
+}
+
+fn condBr(self: *Self, cond_ty: Type, condition: MCValue, cond_reg: Register) !Mir.Inst.Index {
+    try self.genSetReg(cond_ty, cond_reg, condition);
+
+    return try self.addInst(.{
+        .tag = .beq,
+        .data = .{
+            .b_type = .{
+                .rs1 = cond_reg,
+                .rs2 = .zero,
+                .inst = undefined,
+            },
+        },
+    });
 }
 
 fn isNull(self: *Self, operand: MCValue) !MCValue {
@@ -2044,25 +2483,26 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = self.air.extraData(Air.Block, ty_pl.payload);
     const body: []const Air.Inst.Index = @ptrCast(self.air.extra[loop.end..][0..loop.data.body_len]);
-    const start_index = self.code.items.len;
+
+    const start_index: Mir.Inst.Index = @intCast(self.code.items.len);
+
     try self.genBody(body);
     try self.jump(start_index);
+
     return self.finishAirBookkeeping();
 }
 
 /// Send control flow to the `index` of `self.code`.
-fn jump(self: *Self, index: usize) !void {
-    _ = index;
-    return self.fail("TODO implement jump for {}", .{self.target.cpu.arch});
+fn jump(self: *Self, index: Mir.Inst.Index) !void {
+    _ = try self.addInst(.{
+        .tag = .j,
+        .data = .{
+            .inst = index,
+        },
+    });
 }
 
 fn airBlock(self: *Self, inst: Air.Inst.Index) !void {
-    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = self.air.extraData(Air.Block, ty_pl.payload);
-    try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
-}
-
-fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
     try self.blocks.putNoClobber(self.gpa, inst, .{
         // A block is a setup to be able to jump to the end.
         .relocs = .{},
@@ -2074,10 +2514,22 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
         .mcv = MCValue{ .none = {} },
     });
     defer self.blocks.getPtr(inst).?.relocs.deinit(self.gpa);
+
+    const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
+    const extra = self.air.extraData(Air.Block, ty_pl.payload);
+    const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
     // TODO emit debug info lexical block
     try self.genBody(body);
 
-    for (self.blocks.getPtr(inst).?.relocs.items) |reloc| try self.performReloc(reloc);
+    for (self.blocks.getPtr(inst).?.relocs.items) |reloc| {
+        // here we are relocing to point at the instruction after the block.
+        // [then case]
+        // [jump to end] // this is reloced
+        // [else case]
+        // [jump to end] // this is reloced
+        // [this isn't generated yet] // point to here
+        try self.performReloc(reloc, @intCast(self.mir_instructions.len));
+    }
 
     const result = self.blocks.getPtr(inst).?.mcv;
     return self.finishAir(inst, result, .{ .none, .none, .none });
@@ -2091,11 +2543,16 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
     // return self.finishAir(inst, .dead, .{ condition, .none, .none });
 }
 
-fn performReloc(self: *Self, reloc: Reloc) !void {
-    _ = self;
-    switch (reloc) {
-        .rel32 => unreachable,
-        .arm_branch => unreachable,
+fn performReloc(self: *Self, inst: Mir.Inst.Index, target: Mir.Inst.Index) !void {
+    const tag = self.mir_instructions.items(.tag)[inst];
+
+    switch (tag) {
+        .bne,
+        .beq,
+        => self.mir_instructions.items(.data)[inst].b_type.inst = target,
+        .jal,
+        => self.mir_instructions.items(.data)[inst].j_type.inst = target,
+        else => return self.fail("TODO: performReloc {s}", .{@tagName(tag)}),
     }
 }
 
@@ -2123,7 +2580,7 @@ fn br(self: *Self, block: Air.Inst.Index, operand: Air.Inst.Ref) !void {
         if (block_mcv == .none) {
             block_data.mcv = operand_mcv;
         } else {
-            try self.setRegOrMem(self.typeOfIndex(block), block_mcv, operand_mcv);
+            try self.setValue(self.typeOfIndex(block), block_mcv, operand_mcv);
         }
     }
     return self.brVoid(block);
@@ -2135,7 +2592,15 @@ fn brVoid(self: *Self, block: Air.Inst.Index) !void {
     // Emit a jump with a relocation. It will be patched up after the block ends.
     try block_data.relocs.ensureUnusedCapacity(self.gpa, 1);
 
-    return self.fail("TODO implement brvoid for {}", .{self.target.cpu.arch});
+    block_data.relocs.appendAssumeCapacity(try self.addInst(.{
+        .tag = .jal,
+        .data = .{
+            .j_type = .{
+                .rd = .ra,
+                .inst = undefined,
+            },
+        },
+    }));
 }
 
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
@@ -2260,29 +2725,206 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
 }
 
 /// Sets the value without any modifications to register allocation metadata or stack allocation metadata.
-fn setRegOrMem(self: *Self, ty: Type, loc: MCValue, val: MCValue) !void {
-    switch (loc) {
-        .none => return,
-        .register => |reg| return self.genSetReg(ty, reg, val),
-        .stack_offset => |off| return self.genSetStack(ty, off, val),
-        .memory => {
-            return self.fail("TODO implement setRegOrMem for memory", .{});
-        },
-        else => unreachable,
+fn setValue(self: *Self, ty: Type, dst_val: MCValue, src_val: MCValue) !void {
+    // There isn't anything to store
+    if (dst_val == .none) return;
+
+    if (!dst_val.isMutable()) {
+        // panic so we can see the trace
+        return std.debug.panic("tried to setValue immutable: {s}", .{@tagName(dst_val)});
+    }
+
+    switch (dst_val) {
+        .register => |reg| return self.genSetReg(ty, reg, src_val),
+        .stack_offset => |off| return self.genSetStack(ty, off, src_val),
+        .memory => |addr| return self.genSetMem(ty, addr, src_val),
+        else => return self.fail("TODO: setValue {s}", .{@tagName(dst_val)}),
     }
 }
 
-fn genSetStack(self: *Self, ty: Type, stack_offset: u32, mcv: MCValue) InnerError!void {
-    _ = ty;
-    _ = stack_offset;
-    _ = mcv;
-    return self.fail("TODO implement getSetStack for {}", .{self.target.cpu.arch});
+/// Sets the value of `src_val` into stack memory at `stack_offset`.
+fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_val: MCValue) InnerError!void {
+    const mod = self.bin_file.comp.module.?;
+    const abi_size: u32 = @intCast(ty.abiSize(mod));
+
+    switch (src_val) {
+        .none => return,
+        .dead => unreachable,
+        .undef => {
+            if (!self.wantSafety()) return;
+            try self.genSetStack(ty, stack_offset, .{ .immediate = 0xaaaaaaaaaaaaaaaa });
+        },
+        .immediate,
+        .ptr_stack_offset,
+        => {
+            // TODO: remove this lock in favor of a copyToTmpRegister when we load 64 bit immediates with
+            // a register allocation.
+            const reg, const reg_lock = try self.allocReg();
+            defer self.register_manager.unlockReg(reg_lock);
+
+            try self.genSetReg(ty, reg, src_val);
+
+            return self.genSetStack(ty, stack_offset, .{ .register = reg });
+        },
+        .register => |reg| {
+            switch (abi_size) {
+                1, 2, 4, 8 => {
+                    const tag: Mir.Inst.Tag = switch (abi_size) {
+                        1 => .sb,
+                        2 => .sh,
+                        4 => .sw,
+                        8 => .sd,
+                        else => unreachable,
+                    };
+
+                    _ = try self.addInst(.{
+                        .tag = tag,
+                        .data = .{ .i_type = .{
+                            .rd = reg,
+                            .rs1 = .s0,
+                            .imm12 = math.cast(i12, stack_offset) orelse {
+                                return self.fail("TODO: genSetStack bigger stack values", .{});
+                            },
+                        } },
+                    });
+                },
+                else => return self.fail("TODO: genSetStack for size={d}", .{abi_size}),
+            }
+        },
+        .stack_offset, .load_symbol => {
+            switch (src_val) {
+                .stack_offset => |off| if (off == stack_offset) return,
+                else => {},
+            }
+
+            if (abi_size <= 8) {
+                const reg = try self.copyToTmpRegister(ty, src_val);
+                return self.genSetStack(ty, stack_offset, .{ .register = reg });
+            }
+
+            const ptr_ty = try mod.singleMutPtrType(ty);
+
+            // TODO call extern memcpy
+            const regs = try self.register_manager.allocRegs(5, .{ null, null, null, null, null }, gp);
+            const regs_locks = self.register_manager.lockRegsAssumeUnused(5, regs);
+            defer for (regs_locks) |reg| {
+                self.register_manager.unlockReg(reg);
+            };
+
+            const src_reg = regs[0];
+            const dst_reg = regs[1];
+            const len_reg = regs[2];
+            const count_reg = regs[3];
+            const tmp_reg = regs[4];
+
+            switch (src_val) {
+                .stack_offset => |offset| {
+                    try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = offset });
+                },
+                .load_symbol => |sym_off| {
+                    const atom_index = atom: {
+                        const decl_index = mod.funcOwnerDeclIndex(self.func_index);
+
+                        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+                            const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
+                            break :atom atom_index;
+                        } else return self.fail("TODO genSetStack for {s}", .{@tagName(self.bin_file.tag)});
+                    };
+
+                    // setup the src pointer
+                    _ = try self.addInst(.{
+                        .tag = .load_symbol,
+                        .data = .{
+                            .payload = try self.addExtra(Mir.LoadSymbolPayload{
+                                .register = @intFromEnum(src_reg),
+                                .atom_index = atom_index,
+                                .sym_index = sym_off.sym,
+                            }),
+                        },
+                    });
+                },
+                else => return self.fail("TODO: genSetStack unreachable {s}", .{@tagName(src_val)}),
+            }
+
+            try self.genSetReg(ptr_ty, dst_reg, .{ .ptr_stack_offset = stack_offset });
+            try self.genSetReg(Type.usize, len_reg, .{ .immediate = abi_size });
+
+            // memcpy(src, dst, len)
+            try self.genInlineMemcpy(src_reg, dst_reg, len_reg, count_reg, tmp_reg);
+        },
+        else => return self.fail("TODO: genSetStack {s}", .{@tagName(src_val)}),
+    }
 }
 
-fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void {
-    switch (mcv) {
+fn genSetMem(self: *Self, ty: Type, addr: u64, src_val: MCValue) InnerError!void {
+    const mod = self.bin_file.comp.module.?;
+    const abi_size: u32 = @intCast(ty.abiSize(mod));
+    _ = abi_size;
+    _ = addr;
+    _ = src_val;
+
+    return self.fail("TODO: genSetMem", .{});
+}
+
+fn genInlineMemcpy(
+    self: *Self,
+    src: Register,
+    dst: Register,
+    len: Register,
+    count: Register,
+    tmp: Register,
+) !void {
+    _ = src;
+    _ = dst;
+
+    // store 0 in the count
+    try self.genSetReg(Type.usize, count, .{ .immediate = 0 });
+
+    // compare count to length
+    const compare_inst = try self.addInst(.{
+        .tag = .cmp_eq,
+        .data = .{ .r_type = .{
+            .rd = tmp,
+            .rs1 = count,
+            .rs2 = len,
+        } },
+    });
+
+    // end if true
+    _ = try self.addInst(.{
+        .tag = .bne,
+        .data = .{
+            .b_type = .{
+                .inst = @intCast(self.mir_instructions.len + 0), // points after the last inst
+                .rs1 = .zero,
+                .rs2 = tmp,
+            },
+        },
+    });
+    _ = compare_inst;
+
+    return self.fail("TODO: finish genInlineMemcpy", .{});
+}
+
+/// Sets the value of `src_val` into `reg`. Assumes you have a lock on it.
+fn genSetReg(self: *Self, ty: Type, reg: Register, src_val: MCValue) InnerError!void {
+    const mod = self.bin_file.comp.module.?;
+    const abi_size: u32 = @intCast(ty.abiSize(mod));
+
+    switch (src_val) {
         .dead => unreachable,
-        .ptr_stack_offset => unreachable,
+        .ptr_stack_offset => |off| {
+            _ = try self.addInst(.{
+                .tag = .addi,
+                .data = .{ .i_type = .{
+                    .rd = reg,
+                    .rs1 = .s0,
+                    .imm12 = math.cast(i12, off) orelse {
+                        return self.fail("TODO: bigger stack sizes", .{});
+                    },
+                } },
+            });
+        },
         .unreach, .none => return, // Nothing to do.
         .undef => {
             if (!self.wantSafety())
@@ -2323,9 +2965,36 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     } },
                 });
             } else {
-                // li rd, immediate
-                // "Myriad sequences"
-                return self.fail("TODO genSetReg 33-64 bit immediates for riscv64", .{}); // glhf
+                // TODO: use a more advanced myriad seq to do this without a reg.
+                // see: https://github.com/llvm/llvm-project/blob/081a66ffacfe85a37ff775addafcf3371e967328/llvm/lib/Target/RISCV/MCTargetDesc/RISCVMatInt.cpp#L224
+
+                const temp, const temp_lock = try self.allocReg();
+                defer self.register_manager.unlockReg(temp_lock);
+
+                const lo32: i32 = @truncate(x);
+                const carry: i32 = if (lo32 < 0) 1 else 0;
+                const hi32: i32 = @truncate((x >> 32) +% carry);
+
+                try self.genSetReg(Type.i32, temp, .{ .immediate = @bitCast(@as(i64, lo32)) });
+                try self.genSetReg(Type.i32, reg, .{ .immediate = @bitCast(@as(i64, hi32)) });
+
+                _ = try self.addInst(.{
+                    .tag = .slli,
+                    .data = .{ .i_type = .{
+                        .imm12 = 32,
+                        .rd = reg,
+                        .rs1 = reg,
+                    } },
+                });
+
+                _ = try self.addInst(.{
+                    .tag = .add,
+                    .data = .{ .r_type = .{
+                        .rd = reg,
+                        .rs1 = reg,
+                        .rs2 = temp,
+                    } },
+                });
             }
         },
         .register => |src_reg| {
@@ -2343,8 +3012,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
             });
         },
         .memory => |addr| {
-            // The value is in memory at a hard-coded address.
-            // If the type is a pointer, it means the pointer address is at this memory location.
             try self.genSetReg(ty, reg, .{ .immediate = addr });
 
             _ = try self.addInst(.{
@@ -2355,17 +3022,67 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, mcv: MCValue) InnerError!void
                     .imm12 = 0,
                 } },
             });
-            // LOAD imm=[i12 offset = 0], rs1 =
 
-            // return self.fail("TODO implement genSetReg memory for riscv64");
+            // LOAD imm=[i12 offset = 0], rs1
         },
-        else => return self.fail("TODO implement getSetReg for riscv64 {}", .{mcv}),
+        .stack_offset => |off| {
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .lb,
+                2 => .lh,
+                4 => .lw,
+                8 => .ld,
+                else => return self.fail("TODO: genSetReg for size {d}", .{abi_size}),
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{ .i_type = .{
+                    .rd = reg,
+                    .rs1 = .s0,
+                    .imm12 = math.cast(i12, off) orelse {
+                        return self.fail("TODO: genSetReg support larger stack sizes", .{});
+                    },
+                } },
+            });
+        },
+        .load_symbol => |sym_off| {
+            assert(sym_off.off == 0);
+
+            const decl_index = mod.funcOwnerDeclIndex(self.func_index);
+
+            const atom_index = switch (self.bin_file.tag) {
+                .elf => blk: {
+                    const elf_file = self.bin_file.cast(link.File.Elf).?;
+                    const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
+                    break :blk atom_index;
+                },
+                else => return self.fail("TODO genSetReg load_symbol for {s}", .{@tagName(self.bin_file.tag)}),
+            };
+            _ = try self.addInst(.{
+                .tag = .load_symbol,
+                .data = .{
+                    .payload = try self.addExtra(Mir.LoadSymbolPayload{
+                        .register = @intFromEnum(reg),
+                        .atom_index = atom_index,
+                        .sym_index = sym_off.sym,
+                    }),
+                },
+            });
+        },
     }
 }
 
 fn airIntFromPtr(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result = try self.resolveInst(un_op);
+    const result = result: {
+        const src_mcv = try self.resolveInst(un_op);
+        if (self.reuseOperand(inst, un_op, 0, src_mcv)) break :result src_mcv;
+
+        const dst_mcv = try self.allocRegOrMem(inst, true);
+        const dst_ty = self.typeOfIndex(inst);
+        try self.setValue(dst_ty, dst_mcv, src_mcv);
+        break :result dst_mcv;
+    };
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -2382,7 +3099,7 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
         defer if (operand_lock) |lock| self.register_manager.unlockReg(lock);
 
         const dest = try self.allocRegOrMem(inst, true);
-        try self.setRegOrMem(self.typeOfIndex(inst), dest, operand);
+        try self.setValue(self.typeOfIndex(inst), dest, operand);
         break :result dest;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -2531,6 +3248,8 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airPrefetch(self: *Self, inst: Air.Inst.Index) !void {
     const prefetch = self.air.instructions.items(.data)[@intFromEnum(inst)].prefetch;
+    // TODO: RISC-V does have prefetch instruction variants.
+    // see here: https://raw.githubusercontent.com/riscv/riscv-CMOs/master/specifications/cmobase-v1.0.1.pdf
     return self.finishAir(inst, MCValue.dead, .{ prefetch.ptr, .none, .none });
 }
 
@@ -2551,7 +3270,9 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
     if (!inst_ty.hasRuntimeBits(mod))
         return MCValue{ .none = {} };
 
-    const inst_index = inst.toIndex() orelse return self.genTypedValue((try self.air.value(inst, mod)).?);
+    const inst_index = inst.toIndex() orelse {
+        return self.genTypedValue((try self.air.value(inst, mod)).?);
+    };
 
     return self.getResolvedInstValue(inst_index);
 }
@@ -2570,18 +3291,22 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
 
 fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
     const mod = self.bin_file.comp.module.?;
-    const mcv: MCValue = switch (try codegen.genTypedValue(
+    const result = try codegen.genTypedValue(
         self.bin_file,
         self.src_loc,
         val,
         mod.funcOwnerDeclIndex(self.func_index),
-    )) {
+    );
+    const mcv: MCValue = switch (result) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
+            .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
+            .load_got, .load_direct, .load_tlv => {
+                return self.fail("TODO: genTypedValue {s}", .{@tagName(mcv)});
+            },
         },
         .fail => |msg| {
             self.err_msg = msg;
@@ -2606,7 +3331,6 @@ const CallMCValues = struct {
 /// Caller must call `CallMCValues.deinit`.
 fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
     const mod = self.bin_file.comp.module.?;
-    const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
     var result: CallMCValues = .{
@@ -2629,46 +3353,30 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             return result;
         },
         .Unspecified, .C => {
-            // LP64D ABI
-            //
-            // TODO make this generic with other ABIs, in particular
-            // with different hardware floating-point calling
-            // conventions
-            var next_register: usize = 0;
-            var next_stack_offset: u32 = 0;
-            // TODO: this is never assigned, which is a bug, but I don't know how this code works
-            // well enough to try and fix it. I *think* `next_register += next_stack_offset` is
-            // supposed to be `next_stack_offset += param_size` in every case where it appears.
-            _ = &next_stack_offset;
-
-            const argument_registers = [_]Register{ .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7 };
-
-            for (fn_info.param_types.get(ip), result.args) |ty, *result_arg| {
-                const param_size: u32 = @intCast(Type.fromInterned(ty).abiSize(mod));
-                if (param_size <= 8) {
-                    if (next_register < argument_registers.len) {
-                        result_arg.* = .{ .register = argument_registers[next_register] };
-                        next_register += 1;
-                    } else {
-                        result_arg.* = .{ .stack_offset = next_stack_offset };
-                        next_register += next_stack_offset;
-                    }
-                } else if (param_size <= 16) {
-                    if (next_register < argument_registers.len - 1) {
-                        return self.fail("TODO MCValues with 2 registers", .{});
-                    } else if (next_register < argument_registers.len) {
-                        return self.fail("TODO MCValues split register + stack", .{});
-                    } else {
-                        result_arg.* = .{ .stack_offset = next_stack_offset };
-                        next_register += next_stack_offset;
-                    }
-                } else {
-                    result_arg.* = .{ .stack_offset = next_stack_offset };
-                    next_register += next_stack_offset;
-                }
+            if (result.args.len > 8) {
+                return self.fail("TODO: support more than 8 function args", .{});
             }
 
-            result.stack_byte_count = next_stack_offset;
+            const locks = try self.gpa.alloc(RegisterLock, result.args.len);
+            defer self.gpa.free(locks);
+
+            for (0..result.args.len) |i| {
+                const arg_reg = try self.register_manager.allocReg(null, fa);
+                const lock = self.register_manager.lockRegAssumeUnused(arg_reg);
+                locks[i] = lock;
+                result.args[i] = .{ .register = arg_reg };
+            }
+
+            // we can just free the locks now, as this should be the only place where the fa
+            // arg set is used.
+            for (locks) |lock| {
+                self.register_manager.unlockReg(lock);
+            }
+
+            // stack_offset = num s registers spilled + local var space
+            // TODO: spill used s registers here
+
+            result.stack_byte_count = 0;
             result.stack_align = .@"16";
         },
         else => return self.fail("TODO implement function parameters for {} on riscv64", .{cc}),
@@ -2685,7 +3393,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             if (ret_ty_size <= 8) {
                 result.return_value = .{ .register = .a0 };
             } else if (ret_ty_size <= 16) {
-                return self.fail("TODO support MCValue 2 registers", .{});
+                return self.fail("TODO support returning with a0 + a1", .{});
             } else {
                 return self.fail("TODO support return by reference", .{});
             }

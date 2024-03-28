@@ -92,10 +92,15 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
 }
 
 pub const callee_preserved_regs = [_]Register{
-    .s0, .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
+    // NOTE: we use s0 as a psuedo stack pointer, so it's not included.
+    .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
 };
 
-const allocatable_registers = callee_preserved_regs;
+pub const function_arg_regs = [_]Register{
+    .a0, .a1, .a2, .a3, .a4, .a5, .a6, .a7,
+};
+
+const allocatable_registers = callee_preserved_regs ++ function_arg_regs;
 pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_registers);
 
 // Register classes
@@ -106,6 +111,15 @@ pub const RegisterClass = struct {
         set.setRangeValue(.{
             .start = 0,
             .end = callee_preserved_regs.len,
+        }, true);
+        break :blk set;
+    };
+
+    pub const fa: RegisterBitSet = blk: {
+        var set = RegisterBitSet.initEmpty();
+        set.setRangeValue(.{
+            .start = callee_preserved_regs.len,
+            .end = callee_preserved_regs.len + function_arg_regs.len,
         }, true);
         break :blk set;
     };

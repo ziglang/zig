@@ -1236,15 +1236,7 @@ pub const DwarfInfo = struct {
 
         const opcode_base = try fbr.readByte();
 
-        const standard_opcode_lengths = try allocator.alloc(u8, opcode_base - 1);
-        defer allocator.free(standard_opcode_lengths);
-
-        {
-            var i: usize = 0;
-            while (i < opcode_base - 1) : (i += 1) {
-                standard_opcode_lengths[i] = try fbr.readByte();
-            }
-        }
+        const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
         var include_directories = std.ArrayList(FileEntry).init(allocator);
         defer include_directories.deinit();

@@ -155,7 +155,7 @@ fn exit2(code: usize) noreturn {
                 asm volatile ("ecall"
                     :
                     : [number] "{a7}" (94),
-                      [arg1] "{a0}" (0),
+                      [arg1] "{a0}" (code),
                     : "rcx", "r11", "memory"
                 );
             },
