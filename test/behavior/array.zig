@@ -709,7 +709,7 @@ test "pointer to array has ptr field" {
     try std.testing.expect(arr.ptr[1] == 20);
     try std.testing.expect(arr.ptr[2] == 30);
     try std.testing.expect(arr.ptr[3] == 40);
-    try std.testing.expect(arr.ptr[4] == 50);
+    try std.testing.expect((&arr.ptr).*[4] == 50);
 }
 
 test "discarded array init preserves result location" {
