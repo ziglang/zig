@@ -22636,6 +22636,21 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
     if (dest_tag == .ErrorSet and operand_tag == .ErrorUnion) {
         return sema.fail(block, src, "cannot cast an error union type to error set", .{});
     }
+    if (dest_tag == .ErrorUnion and operand_tag == .ErrorUnion and
+        base_dest_ty.errorUnionPayload(mod).toIntern() != base_operand_ty.errorUnionPayload(mod).toIntern())
+    {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(block, src, "payload types of error unions must match", .{});
+            errdefer msg.destroy(sema.gpa);
+            const dest_ty = base_dest_ty.errorUnionPayload(mod);
+            const operand_ty = base_operand_ty.errorUnionPayload(mod);
+            try sema.errNote(block, src, msg, "destination payload is '{}'", .{dest_ty.fmt(mod)});
+            try sema.errNote(block, src, msg, "operand payload is '{}'", .{operand_ty.fmt(mod)});
+            try addDeclaredHereNote(sema, msg, dest_ty);
+            try addDeclaredHereNote(sema, msg, operand_ty);
+            break :msg msg;
+        });
+    }
     const dest_ty = if (dest_tag == .ErrorUnion) base_dest_ty.errorUnionSet(mod) else base_dest_ty;
     const operand_ty = if (operand_tag == .ErrorUnion) base_operand_ty.errorUnionSet(mod) else base_operand_ty;
 
