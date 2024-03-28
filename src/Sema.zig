@@ -22626,20 +22626,18 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
     const base_operand_ty = sema.typeOf(operand);
     const dest_tag = base_dest_ty.zigTypeTag(mod);
     const operand_tag = base_operand_ty.zigTypeTag(mod);
-    if (dest_tag != operand_tag) {
-        return sema.fail(block, src, "expected source and destination types to match, found '{s}' and '{s}'", .{
-            @tagName(operand_tag), @tagName(dest_tag),
-        });
-    } else if (dest_tag != .ErrorSet and dest_tag != .ErrorUnion) {
+
+    if (dest_tag != .ErrorSet and dest_tag != .ErrorUnion) {
         return sema.fail(block, src, "expected error set or error union type, found '{s}'", .{@tagName(dest_tag)});
     }
-    const dest_ty, const operand_ty = if (dest_tag == .ErrorUnion) .{
-        base_dest_ty.errorUnionSet(mod),
-        base_operand_ty.errorUnionSet(mod),
-    } else .{
-        base_dest_ty,
-        base_operand_ty,
-    };
+    if (operand_tag != .ErrorSet and operand_tag != .ErrorUnion) {
+        return sema.fail(block, src, "expected error set or error union type, found '{s}'", .{@tagName(operand_tag)});
+    }
+    if (dest_tag == .ErrorSet and operand_tag == .ErrorUnion) {
+        return sema.fail(block, src, "cannot cast an error union type to error set", .{});
+    }
+    const dest_ty = if (dest_tag == .ErrorUnion) base_dest_ty.errorUnionSet(mod) else base_dest_ty;
+    const operand_ty = if (operand_tag == .ErrorUnion) base_operand_ty.errorUnionSet(mod) else base_operand_ty;
 
     // operand must be defined since it can be an invalid error value
     const maybe_operand_val = try sema.resolveDefinedValue(block, operand_src, operand);
@@ -22681,7 +22679,7 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
         if (!dest_ty.isAnyError(mod)) check: {
             const operand_val = mod.intern_pool.indexToKey(val.toIntern());
             var error_name: InternPool.NullTerminatedString = undefined;
-            if (dest_tag == .ErrorUnion) {
+            if (operand_tag == .ErrorUnion) {
                 if (operand_val.error_union.val != .err_name) break :check;
                 error_name = operand_val.error_union.val.err_name;
             } else {
