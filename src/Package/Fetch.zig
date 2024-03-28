@@ -461,13 +461,16 @@ fn runResource(
         };
         defer tmp_directory.handle.close();
 
-        // Unpack resource into tmp_directory. A non-null return value means
-        // that the package contents are inside a `pkg_dir` sub-directory.
-        const pkg_dir = try unpackResource(f, resource, uri_path, tmp_directory);
+        var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory);
+        defer unpack_result.deinit();
+        if (unpack_result.hasErrors()) {
+            try unpack_result.bundleErrors(eb, try f.srcLoc(f.location_tok));
+            return error.FetchFailed;
+        }
 
         var pkg_path: Cache.Path = .{
             .root_dir = tmp_directory,
-            .sub_path = if (pkg_dir) |pkg_dir_name| pkg_dir_name else "",
+            .sub_path = if (unpack_result.root_dir) |root_dir| root_dir else "",
         };
 
         // Apply btrfs workaround if needed. Reopen tmp_directory.
@@ -500,8 +503,8 @@ fn runResource(
         // directory.
         f.actual_hash = try computeHash(f, pkg_path, filter);
 
-        break :blk if (pkg_dir) |pkg_dir_name|
-            try fs.path.join(arena, &.{ tmp_dir_sub_path, pkg_dir_name })
+        break :blk if (unpack_result.root_dir) |root_dir|
+            try fs.path.join(arena, &.{ tmp_dir_sub_path, root_dir })
         else
             tmp_dir_sub_path;
     };
@@ -1053,7 +1056,7 @@ fn unpackResource(
     resource: *Resource,
     uri_path: []const u8,
     tmp_directory: Cache.Directory,
-) RunError!?[]const u8 {
+) RunError!UnpackResult {
     const eb = &f.error_bundle;
     const file_type = switch (resource.*) {
         .file => FileType.fromPath(uri_path) orelse
@@ -1121,7 +1124,8 @@ fn unpackResource(
                     .{ uri_path, @errorName(err) },
                 ));
             };
-            return null;
+            const gpa = f.arena.child_allocator;
+            return UnpackResult.init(gpa);
         },
     };
 
@@ -1156,23 +1160,19 @@ fn unpackResource(
             });
             return try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .git_pack => {
-            unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
-                error.FetchFailed => return error.FetchFailed,
-                error.OutOfMemory => return error.OutOfMemory,
-                else => |e| return f.fail(f.location_tok, try eb.printString(
-                    "unable to unpack git files: {s}",
-                    .{@errorName(e)},
-                )),
-            };
-            return null;
+        .git_pack => return unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
+            error.FetchFailed => return error.FetchFailed,
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return f.fail(f.location_tok, try eb.printString(
+                "unable to unpack git files: {s}",
+                .{@errorName(e)},
+            )),
         },
     }
 }
 
-fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!?[]const u8 {
+fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
     const eb = &f.error_bundle;
-    const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
 
     var diagnostics: std.tar.Diagnostics = .{ .allocator = gpa };
@@ -1188,10 +1188,11 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!?[]const 
         .{@errorName(err)},
     ));
 
+    var res = UnpackResult.init(gpa);
+    if (diagnostics.root_dir) |root_dir| {
+        res.root_dir = try gpa.dupe(u8, root_dir);
+    }
     if (diagnostics.errors.items.len > 0) {
-        var res = UnpackResult.init(gpa);
-        defer res.deinit();
-
         for (diagnostics.errors.items) |item| {
             switch (item) {
                 .unable_to_create_file => |i| try res.createFile(i.file_name, i.code),
@@ -1199,21 +1200,17 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!?[]const 
                 .unsupported_file_type => |i| try res.unsupportedFileType(i.file_name, @intFromEnum(i.file_type)),
             }
         }
-        try res.bundleErrors(eb, "unable to unpack tarball", try f.srcLoc(f.location_tok));
-        return error.FetchFailed;
+        try res.rootErrorMessage("unable to unpack tarball");
     }
-
-    return if (diagnostics.root_dir) |root_dir|
-        return try arena.dupe(u8, root_dir)
-    else
-        null;
+    return res;
 }
 
-fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void {
-    const eb = &f.error_bundle;
+fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!UnpackResult {
     const gpa = f.arena.child_allocator;
     const want_oid = resource.git.want_oid;
     const reader = resource.git.fetch_stream.reader();
+
+    var res = UnpackResult.init(gpa);
     // The .git directory is used to store the packfile and associated index, but
     // we do not attempt to replicate the exact structure of a real .git
     // directory, since that isn't relevant for fetching a package.
@@ -1249,7 +1246,6 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void 
             try repository.checkout(out_dir, want_oid, &diagnostics);
 
             if (diagnostics.errors.items.len > 0) {
-                var res = UnpackResult.init(gpa);
                 defer res.deinit();
 
                 for (diagnostics.errors.items) |item| {
@@ -1257,14 +1253,13 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void 
                         .unable_to_create_sym_link => |i| try res.symLink(i.file_name, i.link_name, i.code),
                     }
                 }
-                try res.bundleErrors(eb, "unable to unpack packfile", try f.srcLoc(f.location_tok));
-
-                return error.InvalidGitPack;
+                try res.rootErrorMessage("unable to unpack packfile");
             }
         }
     }
 
     try out_dir.deleteTree(".git");
+    return res;
 }
 
 fn recursiveDirectoryCopy(f: *Fetch, dir: fs.Dir, tmp_dir: fs.Dir) anyerror!void {
@@ -1753,6 +1748,8 @@ test FileHeader {
 const UnpackResult = struct {
     allocator: std.mem.Allocator,
     errors: std.ArrayListUnmanaged(Error) = .{},
+    root_error_message: []const u8 = "",
+    root_dir: ?[]const u8 = null,
 
     const Error = union(enum) {
         unable_to_create_sym_link: struct {
@@ -1802,6 +1799,10 @@ const UnpackResult = struct {
             item.free(self.allocator);
         }
         self.errors.deinit(self.allocator);
+        self.allocator.free(self.root_error_message);
+        if (self.root_dir) |root_dir| {
+            self.allocator.free(root_dir);
+        }
         self.* = undefined;
     }
 
@@ -1843,15 +1844,18 @@ const UnpackResult = struct {
         }
     }
 
+    fn rootErrorMessage(self: *UnpackResult, msg: []const u8) !void {
+        self.root_error_message = try self.allocator.dupe(u8, msg);
+    }
+
     fn bundleErrors(
         self: *UnpackResult,
         eb: *ErrorBundle.Wip,
-        msg: []const u8,
         src_loc: ErrorBundle.SourceLocationIndex,
     ) !void {
         const notes_len: u32 = @intCast(self.errors.items.len);
         try eb.addRootErrorMessage(.{
-            .msg = try eb.addString(msg),
+            .msg = try eb.addString(self.root_error_message),
             .src_loc = src_loc,
             .notes_len = notes_len,
         });
