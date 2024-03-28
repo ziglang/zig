@@ -518,6 +518,17 @@ pub const LazySrcLoc = union(enum) {
     /// to the return type expression.
     /// The Decl is determined contextually.
     node_offset_asm_ret_ty: i32,
+    /// The source location points to the operand of an input of an inline assembly
+    /// expression, found by taking this AST node index offset from the containing
+    /// Decl AST node, which points to inline assembly AST node. Next, navigate
+    /// to the input operand expression.
+    /// The Decl is determined contextually.
+    asm_input_op: struct {
+        /// Points to the asm AST node.
+        asm_node_offset: i32,
+        /// Picks one of the inputs from the asm.
+        input_index: u32,
+    },
     /// The source location points to the condition expression of an if
     /// expression, found by taking this AST node index offset from the containing
     /// Decl AST node, which points to an if expression AST node. Next, navigate

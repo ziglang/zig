@@ -16993,6 +16993,36 @@ fn zirAsm(
             .ComptimeInt => arg.* = try sema.coerce(block, Type.usize, uncasted_arg, src),
             .ComptimeFloat => arg.* = try sema.coerce(block, Type.f64, uncasted_arg, src),
             else => {
+                const input_op_src: LazySrcLoc = .{
+                    .asm_input_op = .{
+                        .asm_node_offset = extra.data.src_node,
+                        .input_index = @intCast(arg_i),
+                    },
+                };
+                if (try sema.typeRequiresComptime(uncasted_arg_ty)) {
+                    return sema.fail(
+                        block,
+                        input_op_src,
+                        "type '{}' is comptime-only and cannot be used for an asm input operand",
+                        .{uncasted_arg_ty.fmt(mod)},
+                    );
+                }
+                if (!uncasted_arg_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                    return sema.fail(
+                        block,
+                        input_op_src,
+                        "type '{}' does not have runtime bits and cannot be used for an asm input operand",
+                        .{uncasted_arg_ty.fmt(mod)},
+                    );
+                }
+                if (!uncasted_arg_ty.hasWellDefinedLayout(mod)) {
+                    return sema.fail(
+                        block,
+                        input_op_src,
+                        "type '{}' does not have a well-defined memory layout and cannot be used for an asm input operand",
+                        .{uncasted_arg_ty.fmt(mod)},
+                    );
+                }
                 arg.* = uncasted_arg;
                 try sema.queueFullTypeResolution(uncasted_arg_ty);
             },

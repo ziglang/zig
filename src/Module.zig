@@ -608,6 +608,7 @@ pub const Decl = struct {
             .node_offset_deref_ptr,
             .node_offset_asm_source,
             .node_offset_asm_ret_ty,
+            .asm_input_op,
             .node_offset_if_cond,
             .node_offset_bin_op,
             .node_offset_bin_lhs,
@@ -1386,6 +1387,14 @@ pub const SrcLoc = struct {
                 const asm_output = full.outputs[0];
                 const node_datas = tree.nodes.items(.data);
                 return tree.nodeToSpan(node_datas[asm_output].lhs);
+            },
+            .asm_input_op => |asm_input_op| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                const node = src_loc.declRelativeToNodeIndex(asm_input_op.asm_node_offset);
+                const full = tree.fullAsm(node).?;
+                const asm_input = full.inputs[asm_input_op.input_index];
+                const node_datas = tree.nodes.items(.data);
+                return tree.nodeToSpan(node_datas[asm_input].lhs);
             },
 
             .node_offset_if_cond => |node_off| {
