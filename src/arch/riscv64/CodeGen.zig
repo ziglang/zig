@@ -2114,23 +2114,39 @@ fn store(self: *Self, pointer: MCValue, value: MCValue, ptr_ty: Type, value_ty: 
 fn airStructFieldPtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.StructField, ty_pl.payload).data;
-    const result = try self.structFieldPtr(inst, extra.struct_operand, ty_pl.ty, extra.field_index);
+    const result = try self.structFieldPtr(inst, extra.struct_operand, extra.field_index);
     return self.finishAir(inst, result, .{ extra.struct_operand, .none, .none });
 }
 
 fn airStructFieldPtrIndex(self: *Self, inst: Air.Inst.Index, index: u8) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result = try self.structFieldPtr(inst, ty_op.operand, ty_op.ty, index);
+    const result = try self.structFieldPtr(inst, ty_op.operand, index);
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
-fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, ty: Air.Inst.Ref, index: u32) !MCValue {
-    _ = inst;
-    _ = operand;
-    _ = ty;
-    _ = index;
+fn structFieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32) !MCValue {
+    const mod = self.bin_file.comp.module.?;
+    const ptr_field_ty = self.typeOfIndex(inst);
+    const ptr_container_ty = self.typeOf(operand);
+    const ptr_container_ty_info = ptr_container_ty.ptrInfo(mod);
+    const container_ty = ptr_container_ty.childType(mod);
 
-    return self.fail("TODO: structFieldPtr", .{});
+    const field_offset: i32 = if (mod.typeToPackedStruct(container_ty)) |struct_obj|
+        if (ptr_field_ty.ptrInfo(mod).packed_offset.host_size == 0)
+            @divExact(mod.structPackedFieldBitOffset(struct_obj, index) +
+                ptr_container_ty_info.packed_offset.bit_offset, 8)
+        else
+            0
+    else
+        @intCast(container_ty.structFieldOffset(index, mod));
+
+    const src_mcv = try self.resolveInst(operand);
+    const dst_mcv = if (switch (src_mcv) {
+        .immediate, .ptr_stack_offset => true,
+        .register, .register_offset => self.reuseOperand(inst, operand, 0, src_mcv),
+        else => false,
+    }) src_mcv else try self.copyToNewRegister(inst, src_mcv);
+    return dst_mcv.offset(field_offset);
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
@@ -2402,6 +2418,8 @@ fn genCall(
 }
 
 fn airRet(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
+    const mod = self.bin_file.comp.module.?;
+
     if (safety) {
         // safe
     } else {
@@ -2416,17 +2434,15 @@ fn airRet(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
         .data = .{ .nop = {} },
     });
 
-    try self.ret(operand);
+    const ret_ty = self.fn_type.fnReturnType(mod);
+    try self.genCopy(ret_ty, self.ret_mcv, operand);
+
+    try self.ret();
 
     return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
-fn ret(self: *Self, mcv: MCValue) !void {
-    const mod = self.bin_file.comp.module.?;
-
-    const ret_ty = self.fn_type.fnReturnType(mod);
-    try self.genCopy(ret_ty, self.ret_mcv, mcv);
-
+fn ret(self: *Self) !void {
     _ = try self.addInst(.{
         .tag = .psuedo_epilogue,
         .data = .{ .nop = {} },
@@ -2444,9 +2460,13 @@ fn ret(self: *Self, mcv: MCValue) !void {
 fn airRetLoad(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const ptr = try self.resolveInst(un_op);
-    _ = ptr;
-    return self.fail("TODO implement airRetLoad for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, .dead, .{ un_op, .none, .none });
+    const ptr_ty = self.typeOf(un_op);
+
+    try self.load(self.ret_mcv, ptr, ptr_ty);
+
+    try self.ret();
+
+    return self.finishAir(inst, .dead, .{ un_op, .none, .none });
 }
 
 fn airCmp(self: *Self, inst: Air.Inst.Index) !void {
@@ -3790,7 +3810,6 @@ fn resolveInst(self: *Self, inst: Air.Inst.Ref) InnerError!MCValue {
         return MCValue{ .none = {} };
 
     const inst_index = inst.toIndex() orelse return self.genTypedValue((try self.air.value(inst, mod)).?);
-
     return self.getResolvedInstValue(inst_index);
 }
 
