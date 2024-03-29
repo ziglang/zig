@@ -1273,7 +1273,7 @@ pub fn formatInt(
     }
 
     if (value_info.signedness == .signed) {
-        if (options.fill == '0') {
+        if (options.fill == '0' and options.alignment == .right) {
             // If the fill character is '0' and the alignment is right, we need to
             // put the sign in front of padding zeros
             var width = options.width;
@@ -1285,8 +1285,8 @@ pub fn formatInt(
                 if (width != null and width.? > 0) width.? -= 1;
             }
             return formatBuf(buf[index..], .{
-                .alignment = options.alignment,
-                .fill = options.fill,
+                .alignment = .right,
+                .fill = '0',
                 .width = width,
             }, writer);
         }
