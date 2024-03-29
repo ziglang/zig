@@ -1272,34 +1272,32 @@ pub fn formatInt(
         }
     }
 
-    if (value_info.signedness == .signed) {
-        if (options.fill == '0' and options.alignment == .right) {
-            // If the fill character is '0' and the alignment is right, we need to
-            // put the sign in front of padding zeros
-            var width = options.width;
-            if (value < 0) {
-                try writer.writeByte('-');
-                if (width != null and width.? > 0) width.? -= 1;
-            } else if (options.signed and value > 0) {
-                try writer.writeByte('+');
-                if (width != null and width.? > 0) width.? -= 1;
-            }
-            return formatBuf(buf[index..], .{
-                .alignment = .right,
-                .fill = '0',
-                .width = width,
-            }, writer);
-        }
-
+    if (options.fill == '0' and options.alignment == .right) {
+        // If the fill character is '0' and the alignment is right, we need to
+        // put the sign in front of padding zeros
+        var width = options.width;
         if (value < 0) {
-            // Negative integer
-            index -= 1;
-            buf[index] = '-';
+            try writer.writeByte('-');
+            if (width != null and width.? > 0) width.? -= 1;
         } else if (options.signed and value > 0) {
-            // Positive integer, sign explicitly requested
-            index -= 1;
-            buf[index] = '+';
+            try writer.writeByte('+');
+            if (width != null and width.? > 0) width.? -= 1;
         }
+        return formatBuf(buf[index..], .{
+            .alignment = .right,
+            .fill = '0',
+            .width = width,
+        }, writer);
+    }
+
+    if (value < 0) {
+        // Negative integer
+        index -= 1;
+        buf[index] = '-';
+    } else if (options.signed and value > 0) {
+        // Positive integer, sign explicitly requested
+        index -= 1;
+        buf[index] = '+';
     }
 
     return formatBuf(buf[index..], options, writer);
@@ -2025,9 +2023,12 @@ test "int.specifier" {
 
 test "int.padded" {
     try expectFmt("u8: '   1'", "u8: '{:4}'", .{@as(u8, 1)});
+    try expectFmt("u8: '  +1'", "u8: '{:+4}'", .{@as(u8, 1)});
     try expectFmt("u8: '1000'", "u8: '{:0<4}'", .{@as(u8, 1)});
     try expectFmt("u8: '0001'", "u8: '{:0>4}'", .{@as(u8, 1)});
     try expectFmt("u8: '0100'", "u8: '{:0^4}'", .{@as(u8, 1)});
+    try expectFmt("u8: '0+10'", "u8: '{:+0^4}'", .{@as(u8, 1)});
+    try expectFmt("u8: '+001'", "u8: '{:+0>4}'", .{@as(u8, 1)});
     try expectFmt("i8: '-1  '", "i8: '{:<4}'", .{@as(i8, -1)});
     try expectFmt("i8: '  -1'", "i8: '{:>4}'", .{@as(i8, -1)});
     try expectFmt("i8: ' -1 '", "i8: '{:^4}'", .{@as(i8, -1)});
