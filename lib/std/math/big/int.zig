@@ -2311,7 +2311,7 @@ pub const Const = struct {
         } else {
             // Non power-of-two: batch divisions per word size.
             // We use a HalfLimb here so the division uses the faster lldiv0p5 over lldiv1 codepath.
-            const digits_per_limb = math.log(HalfLimb, base, maxInt(HalfLimb));
+            const digits_per_limb = math.logb(HalfLimb, base, maxInt(HalfLimb));
             var limb_base: Limb = 1;
             var j: usize = 0;
             while (j < digits_per_limb) : (j += 1) {
