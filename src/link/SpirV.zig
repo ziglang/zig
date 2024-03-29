@@ -261,6 +261,7 @@ fn linkModule(self: *SpirV, a: Allocator, module: []Word) ![]Word {
 
     const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
     const prune_unused = @import("SpirV/prune_unused.zig");
+    const dedup = @import("SpirV/deduplicate.zig");
 
     var parser = try BinaryModule.Parser.init(a);
     defer parser.deinit();
@@ -268,6 +269,7 @@ fn linkModule(self: *SpirV, a: Allocator, module: []Word) ![]Word {
 
     try lower_invocation_globals.run(&parser, &binary);
     try prune_unused.run(&parser, &binary);
+    try dedup.run(&parser, &binary);
 
     return binary.finalize(a);
 }
