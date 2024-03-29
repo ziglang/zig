@@ -398,7 +398,7 @@ fn mirPsuedo(emit: *Emit, inst: Mir.Inst.Index) !void {
 
         .j => {
             const offset = @as(i64, @intCast(emit.code_offset_mapping.get(data.inst).?)) - @as(i64, @intCast(emit.code.items.len));
-            try emit.writeInstruction(Instruction.jal(.s0, @intCast(offset)));
+            try emit.writeInstruction(Instruction.jal(.zero, @intCast(offset)));
         },
 
         else => unreachable,
@@ -443,27 +443,40 @@ fn mirLoadSymbol(emit: *Emit, inst: Mir.Inst.Index) !void {
     const data = emit.mir.extraData(Mir.LoadSymbolPayload, payload).data;
     const reg = @as(Register, @enumFromInt(data.register));
 
-    const end_offset = @as(u32, @intCast(emit.code.items.len));
+    const start_offset = @as(u32, @intCast(emit.code.items.len));
     try emit.writeInstruction(Instruction.lui(reg, 0));
-    try emit.writeInstruction(Instruction.lw(reg, 0, reg));
 
     switch (emit.bin_file.tag) {
         .elf => {
             const elf_file = emit.bin_file.cast(link.File.Elf).?;
             const atom_ptr = elf_file.symbol(data.atom_index).atom(elf_file).?;
+            const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
+            const sym = elf_file.symbol(sym_index);
 
-            const hi_r_type = @intFromEnum(std.elf.R_RISCV.HI20);
+            var hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
+            var lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
+
+            if (sym.flags.needs_zig_got) {
+                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+
+                hi_r_type = Elf.R_ZIG_GOT_HI20;
+                lo_r_type = Elf.R_ZIG_GOT_LO12;
+
+                // we need to deref once if we are getting from zig_got, as itll
+                // reloc an address of the address in the got.
+                try emit.writeInstruction(Instruction.ld(reg, 0, reg));
+            } else {
+                try emit.writeInstruction(Instruction.addi(reg, reg, 0));
+            }
 
             try atom_ptr.addReloc(elf_file, .{
-                .r_offset = end_offset,
+                .r_offset = start_offset,
                 .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | hi_r_type,
                 .r_addend = 0,
             });
 
-            const lo_r_type = @intFromEnum(std.elf.R_RISCV.LO12_I);
-
             try atom_ptr.addReloc(elf_file, .{
-                .r_offset = end_offset + 4,
+                .r_offset = start_offset + 4,
                 .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | lo_r_type,
                 .r_addend = 0,
             });
@@ -587,6 +600,7 @@ const bits = @import("bits.zig");
 const abi = @import("abi.zig");
 const link = @import("../../link.zig");
 const Module = @import("../../Module.zig");
+const Elf = @import("../../link/Elf.zig");
 const ErrorMsg = Module.ErrorMsg;
 const assert = std.debug.assert;
 const Instruction = bits.Instruction;

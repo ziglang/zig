@@ -118,7 +118,9 @@ pub const Inst = struct {
         /// function epilogue
         psuedo_epilogue,
 
-        // TODO: add description
+        /// Loads the address of a value that hasn't yet been allocated in memory.
+        ///
+        /// uses the Mir.LoadSymbolPayload payload.
         load_symbol,
 
         // TODO: add description

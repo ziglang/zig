@@ -122,9 +122,10 @@ const MCValue = union(enum) {
     /// A pointer-sized integer that fits in a register.
     /// If the type is a pointer, this is the pointer address in virtual address space.
     immediate: u64,
-    /// The value is in memory at an address not-yet-allocated by the linker.
-    /// This traditionally corresponds to a relocation emitted in a relocatable object file.
+    /// The value doesn't exist in memory yet.
     load_symbol: SymbolOffset,
+    /// The address of the memory location not-yet-allocated by the linker.
+    addr_symbol: SymbolOffset,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is split across two registers
@@ -169,6 +170,7 @@ const MCValue = union(enum) {
             .indirect,
             .undef,
             .load_symbol,
+            .addr_symbol,
             .air_ref,
             => false,
 
@@ -188,10 +190,14 @@ const MCValue = union(enum) {
             .immediate,
             .ptr_stack_offset,
             .register_offset,
+            .register_pair,
+            .register,
             .undef,
             .air_ref,
+            .addr_symbol,
             => unreachable, // not in memory
 
+            .load_symbol => |sym_off| .{ .addr_symbol = sym_off },
             .memory => |addr| .{ .immediate = addr },
             .stack_offset => |off| .{ .ptr_stack_offset = off },
             .indirect => |reg_off| switch (reg_off.off) {
@@ -219,6 +225,7 @@ const MCValue = union(enum) {
             .ptr_stack_offset => |off| .{ .stack_offset = off },
             .register => |reg| .{ .indirect = .{ .reg = reg } },
             .register_offset => |reg_off| .{ .indirect = reg_off },
+            .addr_symbol => |sym_off| .{ .load_symbol = sym_off },
         };
     }
 
@@ -235,6 +242,7 @@ const MCValue = union(enum) {
             .indirect,
             .stack_offset,
             .load_symbol,
+            .addr_symbol,
             => switch (off) {
                 0 => mcv,
                 else => unreachable, // not offsettable
@@ -799,6 +807,43 @@ fn finishAir(
 fn ensureProcessDeathCapacity(self: *Self, additional_count: usize) !void {
     const table = &self.branch_stack.items[self.branch_stack.items.len - 1].inst_table;
     try table.ensureUnusedCapacity(self.gpa, additional_count);
+}
+
+fn splitType(self: *Self, ty: Type) ![2]Type {
+    const mod = self.bin_file.comp.module.?;
+    const classes = mem.sliceTo(&abi.classifySystemV(ty, mod), .none);
+    var parts: [2]Type = undefined;
+    if (classes.len == 2) for (&parts, classes, 0..) |*part, class, part_i| {
+        part.* = switch (class) {
+            .integer => switch (part_i) {
+                0 => Type.u64,
+                1 => part: {
+                    const elem_size = ty.abiAlignment(mod).minStrict(.@"8").toByteUnitsOptional().?;
+                    const elem_ty = try mod.intType(.unsigned, @intCast(elem_size * 8));
+                    break :part switch (@divExact(ty.abiSize(mod) - 8, elem_size)) {
+                        1 => elem_ty,
+                        else => |len| try mod.arrayType(.{ .len = len, .child = elem_ty.toIntern() }),
+                    };
+                },
+                else => unreachable,
+            },
+            else => break,
+        };
+    } else if (parts[0].abiSize(mod) + parts[1].abiSize(mod) == ty.abiSize(mod)) return parts;
+    return std.debug.panic("TODO implement splitType for {}", .{ty.fmt(mod)});
+}
+
+fn symbolIndex(self: *Self) !u32 {
+    const mod = self.bin_file.comp.module.?;
+    const decl_index = mod.funcOwnerDeclIndex(self.func_index);
+    return switch (self.bin_file.tag) {
+        .elf => blk: {
+            const elf_file = self.bin_file.cast(link.File.Elf).?;
+            const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
+            break :blk atom_index;
+        },
+        else => return self.fail("TODO genSetReg load_symbol for {s}", .{@tagName(self.bin_file.tag)}),
+    };
 }
 
 fn allocMem(self: *Self, inst: Air.Inst.Index, abi_size: u32, abi_align: Alignment) !u32 {
@@ -1610,40 +1655,41 @@ fn airWrapErrUnionErr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airSlicePtr(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const mcv = try self.resolveInst(ty_op.operand);
-        break :result try self.slicePtr(mcv);
+    const result = result: {
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result src_mcv;
+
+        const dst_mcv = try self.allocRegOrMem(inst, true);
+        const dst_ty = self.typeOfIndex(inst);
+        try self.genCopy(dst_ty, dst_mcv, src_mcv);
+        break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn slicePtr(self: *Self, mcv: MCValue) !MCValue {
-    switch (mcv) {
-        .dead, .unreach, .none => unreachable,
-        .register => unreachable, // a slice doesn't fit in one register
-        .stack_offset => |off| {
-            return MCValue{ .stack_offset = off };
-        },
-        .memory => |addr| {
-            return MCValue{ .memory = addr };
-        },
-        else => return self.fail("TODO slicePtr {s}", .{@tagName(mcv)}),
-    }
 }
 
 fn airSliceLen(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
-        const ptr_bits = 64;
-        const ptr_bytes = @divExact(ptr_bits, 8);
-        const mcv = try self.resolveInst(ty_op.operand);
-        switch (mcv) {
-            .dead, .unreach, .none => unreachable,
-            .register => unreachable, // a slice doesn't fit in one register
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        switch (src_mcv) {
             .stack_offset => |off| {
-                break :result MCValue{ .stack_offset = off + ptr_bytes };
+                const len_mcv: MCValue = .{ .stack_offset = off + 8 };
+                if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result len_mcv;
+
+                const dst_mcv = try self.allocRegOrMem(inst, true);
+                try self.genCopy(Type.usize, dst_mcv, len_mcv);
+                break :result dst_mcv;
             },
-            else => return self.fail("TODO airSliceLen for {}", .{mcv}),
+            .register_pair => |pair| {
+                const len_mcv: MCValue = .{ .register = pair[1] };
+
+                if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result len_mcv;
+
+                const dst_mcv = try self.allocRegOrMem(inst, true);
+                try self.genCopy(Type.usize, dst_mcv, len_mcv);
+                break :result dst_mcv;
+            },
+            else => return self.fail("TODO airSliceLen for {}", .{src_mcv}),
         }
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -1978,6 +2024,7 @@ fn load(self: *Self, dst_mcv: MCValue, ptr_mcv: MCValue, ptr_ty: Type) InnerErro
         .register,
         .register_offset,
         .ptr_stack_offset,
+        .addr_symbol,
         => try self.genCopy(dst_ty, dst_mcv, ptr_mcv.deref()),
 
         .memory,
@@ -2018,11 +2065,6 @@ fn store(self: *Self, pointer: MCValue, value: MCValue, ptr_ty: Type, value_ty: 
     const value_abi_size = value_ty.abiSize(mod);
 
     log.debug("storing {}:{} in {}:{}", .{ value, value_ty.fmt(mod), pointer, ptr_ty.fmt(mod) });
-
-    if (value_ty.isSlice(mod)) {
-        // cheat a bit by loading in two parts
-
-    }
 
     switch (pointer) {
         .none => unreachable,
@@ -2192,7 +2234,11 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 
         const dst_mcv = switch (src_mcv) {
             .register => |src_reg| dst: {
-                try self.register_manager.getReg(src_reg, null);
+                self.register_manager.getRegAssumeFree(src_reg, null);
+                break :dst src_mcv;
+            },
+            .register_pair => |pair| dst: {
+                for (pair) |reg| self.register_manager.getRegAssumeFree(reg, null);
                 break :dst src_mcv;
             },
             else => return self.fail("TODO: airArg {s}", .{@tagName(src_mcv)}),
@@ -3056,6 +3102,8 @@ fn iterateBigTomb(self: *Self, inst: Air.Inst.Index, operand_count: usize) !BigT
 
 /// Sets the value without any modifications to register allocation metadata or stack allocation metadata.
 fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
+    const mod = self.bin_file.comp.module.?;
+
     // There isn't anything to store
     if (dst_mcv == .none) return;
 
@@ -3066,7 +3114,6 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
 
     switch (dst_mcv) {
         .register => |reg| return self.genSetReg(ty, reg, src_mcv),
-        .register_pair => |pair| return self.genSetRegPair(ty, pair, src_mcv),
         .register_offset => |dst_reg_off| try self.genSetReg(ty, dst_reg_off.reg, switch (src_mcv) {
             .none,
             .unreach,
@@ -3084,7 +3131,47 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
         }),
         .stack_offset => |off| return self.genSetStack(ty, off, src_mcv),
         .memory => |addr| return self.genSetMem(ty, addr, src_mcv),
-        else => return self.fail("TODO: genCopy {s} with {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
+        .register_pair => |dst_regs| {
+            const src_info: ?struct { addr_reg: Register, addr_lock: RegisterLock } = switch (src_mcv) {
+                .register_pair, .memory, .indirect, .stack_offset => null,
+                .load_symbol => src: {
+                    const src_addr_reg, const src_addr_lock = try self.allocReg();
+                    errdefer self.register_manager.unlockReg(src_addr_lock);
+
+                    try self.genSetReg(Type.usize, src_addr_reg, src_mcv.address());
+                    break :src .{ .addr_reg = src_addr_reg, .addr_lock = src_addr_lock };
+                },
+                .air_ref => |src_ref| return self.genCopy(
+                    ty,
+                    dst_mcv,
+                    try self.resolveInst(src_ref),
+                ),
+                else => return self.fail("TODO implement genCopy for {s} of {}", .{
+                    @tagName(src_mcv), ty.fmt(mod),
+                }),
+            };
+            defer if (src_info) |info| self.register_manager.unlockReg(info.addr_lock);
+
+            switch (ty.zigTypeTag(mod)) {
+                .Optional => return,
+                else => {},
+            }
+
+            var part_disp: i32 = 0;
+            for (dst_regs, try self.splitType(ty), 0..) |dst_reg, dst_ty, part_i| {
+                try self.genSetReg(dst_ty, dst_reg, switch (src_mcv) {
+                    .register_pair => |src_regs| .{ .register = src_regs[part_i] },
+                    .memory, .indirect, .stack_offset => src_mcv.address().offset(part_disp).deref(),
+                    .load_symbol => .{ .indirect = .{
+                        .reg = src_info.?.addr_reg,
+                        .off = part_disp,
+                    } },
+                    else => unreachable,
+                });
+                part_disp += @intCast(dst_ty.abiSize(mod));
+            }
+        },
+        else => return std.debug.panic("TODO: genCopy {s} with {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
     }
 }
 
@@ -3168,14 +3255,7 @@ fn genSetStack(self: *Self, ty: Type, stack_offset: u32, src_mcv: MCValue) Inner
                     try self.genSetReg(ptr_ty, src_reg, .{ .ptr_stack_offset = offset });
                 },
                 .load_symbol => |sym_off| {
-                    const atom_index = atom: {
-                        const decl_index = mod.funcOwnerDeclIndex(self.func_index);
-
-                        if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                            const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
-                            break :atom atom_index;
-                        } else return self.fail("TODO genSetStack for {s}", .{@tagName(self.bin_file.tag)});
-                    };
+                    const atom_index = try self.symbolIndex();
 
                     // setup the src pointer
                     _ = try self.addInst(.{
@@ -3443,16 +3523,8 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         .load_symbol => |sym_off| {
             assert(sym_off.off == 0);
 
-            const decl_index = mod.funcOwnerDeclIndex(self.func_index);
+            const atom_index = try self.symbolIndex();
 
-            const atom_index = switch (self.bin_file.tag) {
-                .elf => blk: {
-                    const elf_file = self.bin_file.cast(link.File.Elf).?;
-                    const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
-                    break :blk atom_index;
-                },
-                else => return self.fail("TODO genSetReg load_symbol for {s}", .{@tagName(self.bin_file.tag)}),
-            };
             _ = try self.addInst(.{
                 .tag = .load_symbol,
                 .data = .{
@@ -3485,27 +3557,23 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 },
             });
         },
-        else => return self.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
-    }
-}
+        .addr_symbol => |sym_off| {
+            assert(sym_off.off == 0);
 
-fn genSetRegPair(self: *Self, ty: Type, pair: [2]Register, src_mcv: MCValue) InnerError!void {
-    const mod = self.bin_file.comp.module.?;
-    const abi_size: u32 = @intCast(ty.abiSize(mod));
+            const atom_index = try self.symbolIndex();
 
-    assert(abi_size > 8 and abi_size <= 16); // must fit only fit into two registers
-
-    switch (src_mcv) {
-        .air_ref => |ref| return self.genSetRegPair(ty, pair, try self.resolveInst(ref)),
-        .load_symbol => |sym_off| {
-            _ = sym_off;
-            // return self.fail("TODO: genSetRegPair load_symbol", .{});
-            // commented out just for testing.
-
-            // plan here is to load the address into a temporary register and
-            // copy into the pair.
+            _ = try self.addInst(.{
+                .tag = .load_symbol,
+                .data = .{
+                    .payload = try self.addExtra(Mir.LoadSymbolPayload{
+                        .register = reg.id(),
+                        .atom_index = atom_index,
+                        .sym_index = sym_off.sym,
+                    }),
+                },
+            });
         },
-        else => return self.fail("TODO: genSetRegPair {s}", .{@tagName(src_mcv)}),
+        else => return self.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
     }
 }
 

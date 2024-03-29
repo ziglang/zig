@@ -5,7 +5,7 @@ const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
 const Type = @import("../../type.zig").Type;
 const Module = @import("../../Module.zig");
 
-pub const Class = enum { memory, byval, integer, double_integer, fields };
+pub const Class = enum { memory, byval, integer, double_integer, fields, none };
 
 pub fn classifyType(ty: Type, mod: *Module) Class {
     const target = mod.getTarget();
@@ -88,6 +88,37 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
         .EnumLiteral,
         .Array,
         => unreachable,
+    }
+}
+
+/// There are a maximum of 8 possible return slots. Returned values are in
+/// the beginning of the array; unused slots are filled with .none.
+pub fn classifySystemV(ty: Type, mod: *Module) [8]Class {
+    const memory_class = [_]Class{
+        .memory, .none, .none, .none,
+        .none,   .none, .none, .none,
+    };
+    var result = [1]Class{.none} ** 8;
+    switch (ty.zigTypeTag(mod)) {
+        .Pointer => switch (ty.ptrSize(mod)) {
+            .Slice => {
+                result[0] = .integer;
+                result[1] = .integer;
+                return result;
+            },
+            else => {
+                result[0] = .integer;
+                return result;
+            },
+        },
+        .Optional => {
+            if (ty.isPtrLikeOptional(mod)) {
+                result[0] = .integer;
+                return result;
+            }
+            return memory_class;
+        },
+        else => return result,
     }
 }
 
