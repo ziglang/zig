@@ -830,7 +830,7 @@ fn splitType(self: *Self, ty: Type) ![2]Type {
             else => break,
         };
     } else if (parts[0].abiSize(mod) + parts[1].abiSize(mod) == ty.abiSize(mod)) return parts;
-    return std.debug.panic("TODO implement splitType for {}", .{ty.fmt(mod)});
+    return self.fail("TODO implement splitType for {}", .{ty.fmt(mod)});
 }
 
 fn symbolIndex(self: *Self) !u32 {
@@ -3152,11 +3152,6 @@ fn genCopy(self: *Self, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             };
             defer if (src_info) |info| self.register_manager.unlockReg(info.addr_lock);
 
-            switch (ty.zigTypeTag(mod)) {
-                .Optional => return,
-                else => {},
-            }
-
             var part_disp: i32 = 0;
             for (dst_regs, try self.splitType(ty), 0..) |dst_reg, dst_ty, part_i| {
                 try self.genSetReg(dst_ty, dst_reg, switch (src_mcv) {
@@ -3554,8 +3549,6 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                     },
                 },
             });
-
-            unreachable;
         },
         .air_ref => |ref| try self.genSetReg(ty, reg, try self.resolveInst(ref)),
         .indirect => |reg_off| {

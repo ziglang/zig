@@ -94,10 +94,6 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystemV(ty: Type, mod: *Module) [8]Class {
-    const memory_class = [_]Class{
-        .memory, .none, .none, .none,
-        .none,   .none, .none, .none,
-    };
     var result = [1]Class{.none} ** 8;
     switch (ty.zigTypeTag(mod)) {
         .Pointer => switch (ty.ptrSize(mod)) {
@@ -113,10 +109,11 @@ pub fn classifySystemV(ty: Type, mod: *Module) [8]Class {
         },
         .Optional => {
             if (ty.isPtrLikeOptional(mod)) {
-                result[0] = .integer;
                 return result;
             }
-            return memory_class;
+            result[0] = .integer;
+            result[1] = .integer;
+            return result;
         },
         else => return result,
     }
