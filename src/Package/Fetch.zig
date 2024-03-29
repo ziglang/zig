@@ -461,6 +461,7 @@ fn runResource(
         };
         defer tmp_directory.handle.close();
 
+        // Fetch and unpack a resource into a temporary directory.
         var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory);
         defer unpack_result.deinit();
 
@@ -487,9 +488,8 @@ fn runResource(
             .include_paths = if (f.manifest) |m| m.paths else .{},
         };
 
-        // If any error occurred for files that were ultimately excluded, those
-        // errors should be ignored, such as failure to create symlinks that
-        // weren't supposed to be included anyway.
+        // Ignore errors that were excluded by manifest, such as failure to
+        // create symlinks that weren't supposed to be included anyway.
         try unpack_result.filterErrors(filter);
         if (unpack_result.hasErrors()) {
             try unpack_result.bundleErrors(eb, try f.srcLoc(f.location_tok));
