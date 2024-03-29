@@ -63,7 +63,7 @@ fn advance(shdr: *elf.Elf64_Shdr, size: u64, alignment: Atom.Alignment) !u64 {
     const offset = alignment.forward(shdr.sh_size);
     const padding = offset - shdr.sh_size;
     shdr.sh_size += padding + size;
-    shdr.sh_addralign = @max(shdr.sh_addralign, alignment.toByteUnits(1));
+    shdr.sh_addralign = @max(shdr.sh_addralign, alignment.toByteUnits() orelse 1);
     return offset;
 }
 

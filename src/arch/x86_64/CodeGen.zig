@@ -18959,7 +18959,7 @@ fn resolveCallingConventionValues(
 
                 const param_size: u31 = @intCast(ty.abiSize(mod));
                 const param_align: u31 =
-                    @intCast(@max(ty.abiAlignment(mod).toByteUnitsOptional().?, 8));
+                    @intCast(@max(ty.abiAlignment(mod).toByteUnits().?, 8));
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -19003,7 +19003,7 @@ fn resolveCallingConventionValues(
                     continue;
                 }
                 const param_size: u31 = @intCast(ty.abiSize(mod));
-                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
+                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnits().?);
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -19096,7 +19096,7 @@ fn splitType(self: *Self, ty: Type) ![2]Type {
             .integer => switch (part_i) {
                 0 => Type.u64,
                 1 => part: {
-                    const elem_size = ty.abiAlignment(mod).minStrict(.@"8").toByteUnitsOptional().?;
+                    const elem_size = ty.abiAlignment(mod).minStrict(.@"8").toByteUnits().?;
                     const elem_ty = try mod.intType(.unsigned, @intCast(elem_size * 8));
                     break :part switch (@divExact(ty.abiSize(mod) - 8, elem_size)) {
                         1 => elem_ty,

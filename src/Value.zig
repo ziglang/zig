@@ -176,7 +176,7 @@ pub fn toBigIntAdvanced(
                     if (opt_sema) |sema| try sema.resolveTypeLayout(Type.fromInterned(ty));
                     const x = switch (int.storage) {
                         else => unreachable,
-                        .lazy_align => Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0),
+                        .lazy_align => Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0,
                         .lazy_size => Type.fromInterned(ty).abiSize(mod),
                     };
                     return BigIntMutable.init(&space.limbs, x).toConst();
@@ -237,9 +237,9 @@ pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 
                 .u64 => |x| x,
                 .i64 => |x| std.math.cast(u64, x),
                 .lazy_align => |ty| if (opt_sema) |sema|
-                    (try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0)
+                    (try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits() orelse 0
                 else
-                    Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0),
+                    Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0,
                 .lazy_size => |ty| if (opt_sema) |sema|
                     (try Type.fromInterned(ty).abiSizeAdvanced(mod, .{ .sema = sema })).scalar
                 else
@@ -289,7 +289,7 @@ pub fn toSignedInt(val: Value, mod: *Module) i64 {
                 .big_int => |big_int| big_int.to(i64) catch unreachable,
                 .i64 => |x| x,
                 .u64 => |x| @intCast(x),
-                .lazy_align => |ty| @intCast(Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0)),
+                .lazy_align => |ty| @intCast(Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0),
                 .lazy_size => |ty| @intCast(Type.fromInterned(ty).abiSize(mod)),
             },
             else => unreachable,
@@ -497,7 +497,7 @@ pub fn writeToPackedMemory(
                 inline .u64, .i64 => |int| std.mem.writeVarPackedInt(buffer, bit_offset, bits, int, endian),
                 .big_int => |bigint| bigint.writePackedTwosComplement(buffer, bit_offset, bits, endian),
                 .lazy_align => |lazy_align| {
-                    const num = Type.fromInterned(lazy_align).abiAlignment(mod).toByteUnits(0);
+                    const num = Type.fromInterned(lazy_align).abiAlignment(mod).toByteUnits() orelse 0;
                     std.mem.writeVarPackedInt(buffer, bit_offset, bits, num, endian);
                 },
                 .lazy_size => |lazy_size| {
@@ -890,7 +890,7 @@ pub fn toFloat(val: Value, comptime T: type, mod: *Module) T {
                 }
                 return @floatFromInt(x);
             },
-            .lazy_align => |ty| @floatFromInt(Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0)),
+            .lazy_align => |ty| @floatFromInt(Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0),
             .lazy_size => |ty| @floatFromInt(Type.fromInterned(ty).abiSize(mod)),
         },
         .float => |float| switch (float.storage) {
@@ -1529,9 +1529,9 @@ pub fn floatFromIntScalar(val: Value, float_ty: Type, mod: *Module, opt_sema: ?*
             },
             inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, mod),
             .lazy_align => |ty| if (opt_sema) |sema| {
-                return floatFromIntInner((try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits(0), float_ty, mod);
+                return floatFromIntInner((try Type.fromInterned(ty).abiAlignmentAdvanced(mod, .{ .sema = sema })).scalar.toByteUnits() orelse 0, float_ty, mod);
             } else {
-                return floatFromIntInner(Type.fromInterned(ty).abiAlignment(mod).toByteUnits(0), float_ty, mod);
+                return floatFromIntInner(Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0, float_ty, mod);
             },
             .lazy_size => |ty| if (opt_sema) |sema| {
                 return floatFromIntInner((try Type.fromInterned(ty).abiSizeAdvanced(mod, .{ .sema = sema })).scalar, float_ty, mod);

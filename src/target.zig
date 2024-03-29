@@ -525,7 +525,7 @@ pub fn backendSupportsFeature(
         .error_return_trace => use_llvm,
         .is_named_enum_value => use_llvm,
         .error_set_has_value => use_llvm or cpu_arch.isWasm(),
-        .field_reordering => use_llvm,
+        .field_reordering => ofmt == .c or use_llvm,
         .safety_checked_instructions => use_llvm,
     };
 }

@@ -712,7 +712,7 @@ pub const Key = union(enum) {
         pub fn fieldName(
             self: AnonStructType,
             ip: *const InternPool,
-            index: u32,
+            index: usize,
         ) OptionalNullTerminatedString {
             if (self.names.len == 0)
                 return .none;
@@ -3879,16 +3879,9 @@ pub const Alignment = enum(u6) {
     none = std.math.maxInt(u6),
     _,
 
-    pub fn toByteUnitsOptional(a: Alignment) ?u64 {
+    pub fn toByteUnits(a: Alignment) ?u64 {
         return switch (a) {
             .none => null,
-            else => @as(u64, 1) << @intFromEnum(a),
-        };
-    }
-
-    pub fn toByteUnits(a: Alignment, default: u64) u64 {
-        return switch (a) {
-            .none => default,
             else => @as(u64, 1) << @intFromEnum(a),
         };
     }

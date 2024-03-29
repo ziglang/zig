@@ -203,7 +203,7 @@ pub const Type = struct {
                         info.flags.alignment
                     else
                         Type.fromInterned(info.child).abiAlignment(mod);
-                    try writer.print("align({d}", .{alignment.toByteUnits(0)});
+                    try writer.print("align({d}", .{alignment.toByteUnits() orelse 0});
 
                     if (info.packed_offset.bit_offset != 0 or info.packed_offset.host_size != 0) {
                         try writer.print(":{d}:{d}", .{
@@ -863,7 +863,7 @@ pub const Type = struct {
     pub fn lazyAbiAlignment(ty: Type, mod: *Module) !Value {
         switch (try ty.abiAlignmentAdvanced(mod, .lazy)) {
             .val => |val| return val,
-            .scalar => |x| return mod.intValue(Type.comptime_int, x.toByteUnits(0)),
+            .scalar => |x| return mod.intValue(Type.comptime_int, x.toByteUnits() orelse 0),
         }
     }
 
@@ -905,7 +905,7 @@ pub const Type = struct {
                     return .{ .scalar = intAbiAlignment(int_type.bits, target) };
                 },
                 .ptr_type, .anyframe_type => {
-                    return .{ .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)) };
+                    return .{ .scalar = ptrAbiAlignment(target) };
                 },
                 .array_type => |array_type| {
                     return Type.fromInterned(array_type.child).abiAlignmentAdvanced(mod, strat);
@@ -919,6 +919,9 @@ pub const Type = struct {
                             const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                             const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
                             return .{ .scalar = Alignment.fromByteUnits(alignment) };
+                        },
+                        .stage2_c => {
+                            return Type.fromInterned(vector_type.child).abiAlignmentAdvanced(mod, strat);
                         },
                         .stage2_x86_64 => {
                             if (vector_type.child == .bool_type) {
@@ -966,12 +969,12 @@ pub const Type = struct {
 
                     .usize,
                     .isize,
+                    => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target) },
+
                     .export_options,
                     .extern_options,
                     .type_info,
-                    => return .{
-                        .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)),
-                    },
+                    => return .{ .scalar = ptrAbiAlignment(target) },
 
                     .c_char => return .{ .scalar = cTypeAlign(target, .char) },
                     .c_short => return .{ .scalar = cTypeAlign(target, .short) },
@@ -1160,9 +1163,7 @@ pub const Type = struct {
         const child_type = ty.optionalChild(mod);
 
         switch (child_type.zigTypeTag(mod)) {
-            .Pointer => return .{
-                .scalar = Alignment.fromByteUnits(@divExact(target.ptrBitWidth(), 8)),
-            },
+            .Pointer => return .{ .scalar = ptrAbiAlignment(target) },
             .ErrorSet => return abiAlignmentAdvanced(Type.anyerror, mod, strat),
             .NoReturn => return .{ .scalar = .@"1" },
             else => {},
@@ -1273,6 +1274,10 @@ pub const Type = struct {
                             const elem_bits = try Type.fromInterned(vector_type.child).bitSizeAdvanced(mod, opt_sema);
                             const total_bits = elem_bits * vector_type.len;
                             break :total_bytes (total_bits + 7) / 8;
+                        },
+                        .stage2_c => total_bytes: {
+                            const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeAdvanced(mod, strat)).scalar);
+                            break :total_bytes elem_bytes * vector_type.len;
                         },
                         .stage2_x86_64 => total_bytes: {
                             if (vector_type.child == .bool_type) break :total_bytes std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
@@ -1527,15 +1532,19 @@ pub const Type = struct {
         // guaranteed to be >= that of bool's (1 byte) the added size is exactly equal
         // to the child type's ABI alignment.
         return AbiSizeAdvanced{
-            .scalar = child_ty.abiAlignment(mod).toByteUnits(0) + payload_size,
+            .scalar = (child_ty.abiAlignment(mod).toByteUnits() orelse 0) + payload_size,
         };
     }
 
-    fn intAbiSize(bits: u16, target: Target) u64 {
+    pub fn ptrAbiAlignment(target: Target) Alignment {
+        return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
+    }
+
+    pub fn intAbiSize(bits: u16, target: Target) u64 {
         return intAbiAlignment(bits, target).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
     }
 
-    fn intAbiAlignment(bits: u16, target: Target) Alignment {
+    pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
         return Alignment.fromByteUnits(@min(
             std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
             target.maxIntAlignment(),
@@ -1572,7 +1581,7 @@ pub const Type = struct {
                 if (len == 0) return 0;
                 const elem_ty = Type.fromInterned(array_type.child);
                 const elem_size = @max(
-                    (try elem_ty.abiAlignmentAdvanced(mod, strat)).scalar.toByteUnits(0),
+                    (try elem_ty.abiAlignmentAdvanced(mod, strat)).scalar.toByteUnits() orelse 0,
                     (try elem_ty.abiSizeAdvanced(mod, strat)).scalar,
                 );
                 if (elem_size == 0) return 0;
@@ -3016,24 +3025,13 @@ pub const Type = struct {
     }
 
     /// Returns none in the case of a tuple which uses the integer index as the field name.
-    pub fn structFieldName(ty: Type, field_index: u32, mod: *Module) InternPool.OptionalNullTerminatedString {
+    pub fn structFieldName(ty: Type, index: usize, mod: *Module) InternPool.OptionalNullTerminatedString {
         const ip = &mod.intern_pool;
         return switch (ip.indexToKey(ty.toIntern())) {
-            .struct_type => ip.loadStructType(ty.toIntern()).fieldName(ip, field_index),
-            .anon_struct_type => |anon_struct| anon_struct.fieldName(ip, field_index),
+            .struct_type => ip.loadStructType(ty.toIntern()).fieldName(ip, index),
+            .anon_struct_type => |anon_struct| anon_struct.fieldName(ip, index),
             else => unreachable,
         };
-    }
-
-    /// When struct types have no field names, the names are implicitly understood to be
-    /// strings corresponding to the field indexes in declaration order. It used to be the
-    /// case that a NullTerminatedString would be stored for each field in this case, however,
-    /// now, callers must handle the possibility that there are no names stored at all.
-    /// Here we fake the previous behavior. Probably something better could be done by examining
-    /// all the callsites of this function.
-    pub fn legacyStructFieldName(ty: Type, i: u32, mod: *Module) InternPool.NullTerminatedString {
-        return ty.structFieldName(i, mod).unwrap() orelse
-            mod.intern_pool.getOrPutStringFmt(mod.gpa, "{d}", .{i}) catch @panic("OOM");
     }
 
     pub fn structFieldCount(ty: Type, mod: *Module) u32 {

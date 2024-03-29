@@ -6508,7 +6508,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     const alignment = try sema.resolveAlign(block, operand_src, extra.operand);
     if (alignment.order(Alignment.fromNonzeroByteUnits(256)).compare(.gt)) {
         return sema.fail(block, src, "attempt to @setAlignStack({d}); maximum is 256", .{
-            alignment.toByteUnitsOptional().?,
+            alignment.toByteUnits().?,
         });
     }
 
@@ -17804,7 +17804,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         },
         .Pointer => {
             const info = ty.ptrInfo(mod);
-            const alignment = if (info.flags.alignment.toByteUnitsOptional()) |alignment|
+            const alignment = if (info.flags.alignment.toByteUnits()) |alignment|
                 try mod.intValue(Type.comptime_int, alignment)
             else
                 try Type.fromInterned(info.child).lazyAbiAlignment(mod);
@@ -18279,7 +18279,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // type: type,
                     field_ty,
                     // alignment: comptime_int,
-                    (try mod.intValue(Type.comptime_int, alignment.toByteUnits(0))).toIntern(),
+                    (try mod.intValue(Type.comptime_int, alignment.toByteUnits() orelse 0)).toIntern(),
                 };
                 field_val.* = try mod.intern(.{ .aggregate = .{
                     .ty = union_field_ty.toIntern(),
@@ -18436,7 +18436,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 // is_comptime: bool,
                                 Value.makeBool(is_comptime).toIntern(),
                                 // alignment: comptime_int,
-                                (try mod.intValue(Type.comptime_int, Type.fromInterned(field_ty).abiAlignment(mod).toByteUnits(0))).toIntern(),
+                                (try mod.intValue(Type.comptime_int, Type.fromInterned(field_ty).abiAlignment(mod).toByteUnits() orelse 0)).toIntern(),
                             };
                             struct_field_val.* = try mod.intern(.{ .aggregate = .{
                                 .ty = struct_field_ty.toIntern(),
@@ -18505,7 +18505,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         // is_comptime: bool,
                         Value.makeBool(field_is_comptime).toIntern(),
                         // alignment: comptime_int,
-                        (try mod.intValue(Type.comptime_int, alignment.toByteUnits(0))).toIntern(),
+                        (try mod.intValue(Type.comptime_int, alignment.toByteUnits() orelse 0)).toIntern(),
                     };
                     field_val.* = try mod.intern(.{ .aggregate = .{
                         .ty = struct_field_ty.toIntern(),
@@ -22552,7 +22552,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                 try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
             }
             if (ptr_align.compare(.gt, .@"1")) {
-                const align_bytes_minus_1 = ptr_align.toByteUnitsOptional().? - 1;
+                const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
                 const align_minus_1 = Air.internedToRef((try mod.intValue(Type.usize, align_bytes_minus_1)).toIntern());
                 const remainder = try block.addBinOp(.bit_and, operand_coerced, align_minus_1);
                 const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
@@ -22572,7 +22572,7 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
                 try sema.addSafetyCheck(block, src, is_non_zero, .cast_to_null);
             }
             if (ptr_align.compare(.gt, .@"1")) {
-                const align_bytes_minus_1 = ptr_align.toByteUnitsOptional().? - 1;
+                const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
                 const align_minus_1 = Air.internedToRef((try mod.intValue(Type.usize, align_bytes_minus_1)).toIntern());
                 const remainder = try block.addBinOp(.bit_and, elem_coerced, align_minus_1);
                 const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
@@ -22970,10 +22970,10 @@ fn ptrCastFull(
                 const msg = try sema.errMsg(block, src, "cast increases pointer alignment", .{});
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(block, operand_src, msg, "'{}' has alignment '{d}'", .{
-                    operand_ty.fmt(mod), src_align.toByteUnits(0),
+                    operand_ty.fmt(mod), src_align.toByteUnits() orelse 0,
                 });
                 try sema.errNote(block, src, msg, "'{}' has alignment '{d}'", .{
-                    dest_ty.fmt(mod), dest_align.toByteUnits(0),
+                    dest_ty.fmt(mod), dest_align.toByteUnits() orelse 0,
                 });
                 try sema.errNote(block, src, msg, "use @alignCast to assert pointer alignment", .{});
                 break :msg msg;
@@ -23067,7 +23067,7 @@ fn ptrCastFull(
                     if (!dest_align.check(addr)) {
                         return sema.fail(block, operand_src, "pointer address 0x{X} is not aligned to {d} bytes", .{
                             addr,
-                            dest_align.toByteUnitsOptional().?,
+                            dest_align.toByteUnits().?,
                         });
                     }
                 }
@@ -23110,7 +23110,7 @@ fn ptrCastFull(
         dest_align.compare(.gt, src_align) and
         try sema.typeHasRuntimeBits(Type.fromInterned(dest_info.child)))
     {
-        const align_bytes_minus_1 = dest_align.toByteUnitsOptional().? - 1;
+        const align_bytes_minus_1 = dest_align.toByteUnits().? - 1;
         const align_minus_1 = Air.internedToRef((try mod.intValue(Type.usize, align_bytes_minus_1)).toIntern());
         const ptr_int = try block.addUnOp(.int_from_ptr, ptr);
         const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
@@ -27837,7 +27837,7 @@ fn structFieldPtrByIndex(
             const elem_size_bits = Type.fromInterned(ptr_ty_data.child).bitSize(mod);
             if (elem_size_bytes * 8 == elem_size_bits) {
                 const byte_offset = ptr_ty_data.packed_offset.bit_offset / 8;
-                const new_align: Alignment = @enumFromInt(@ctz(byte_offset | parent_align.toByteUnitsOptional().?));
+                const new_align: Alignment = @enumFromInt(@ctz(byte_offset | parent_align.toByteUnits().?));
                 assert(new_align != .none);
                 ptr_ty_data.flags.alignment = new_align;
                 ptr_ty_data.packed_offset = .{ .host_size = 0, .bit_offset = 0 };
@@ -29132,7 +29132,7 @@ fn coerceExtra(
                                 .addr = .{ .int = if (dest_info.flags.alignment != .none)
                                     (try mod.intValue(
                                         Type.usize,
-                                        dest_info.flags.alignment.toByteUnitsOptional().?,
+                                        dest_info.flags.alignment.toByteUnits().?,
                                     )).toIntern()
                                 else
                                     try mod.intern_pool.getCoercedInts(
@@ -29800,7 +29800,7 @@ const InMemoryCoercionResult = union(enum) {
             },
             .ptr_alignment => |pair| {
                 try sema.errNote(block, src, msg, "pointer alignment '{d}' cannot cast into pointer alignment '{d}'", .{
-                    pair.actual.toByteUnits(0), pair.wanted.toByteUnits(0),
+                    pair.actual.toByteUnits() orelse 0, pair.wanted.toByteUnits() orelse 0,
                 });
                 break;
             },

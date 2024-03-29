@@ -313,7 +313,7 @@ pub fn inputShdr(self: ZigObject, atom_index: Atom.Index, elf_file: *Elf) elf.El
     shdr.sh_addr = 0;
     shdr.sh_offset = 0;
     shdr.sh_size = atom.size;
-    shdr.sh_addralign = atom.alignment.toByteUnits(1);
+    shdr.sh_addralign = atom.alignment.toByteUnits() orelse 1;
     return shdr;
 }
 

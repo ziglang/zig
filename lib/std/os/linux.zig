@@ -4301,7 +4301,7 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?*align(1) const fn (c_int) callconv(.C) void;
+    const handler = ?*align(1) const fn (i32) callconv(.C) void;
     const restorer = *const fn () callconv(.C) void;
 };
 
@@ -4328,8 +4328,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (c_int) callconv(.C) void;
-    pub const sigaction_fn = *const fn (c_int, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
 
     handler: extern union {
         handler: ?handler_fn,

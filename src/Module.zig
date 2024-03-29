@@ -5846,7 +5846,7 @@ pub fn intBitsForValue(mod: *Module, val: Value, sign: bool) u16 {
             return @as(u16, @intCast(big.bitCountTwosComp()));
         },
         .lazy_align => |lazy_ty| {
-            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits(0)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(mod).toByteUnits() orelse 0) + @intFromBool(sign);
         },
         .lazy_size => |lazy_ty| {
             return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(mod)) + @intFromBool(sign);

@@ -172,7 +172,7 @@ pub fn attachSegfaultHandler() void {
     };
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*const anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
     // TODO: use alarm() here to prevent infinite loops
     PanicSwitch.preDispatch();
 
