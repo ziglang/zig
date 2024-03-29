@@ -1193,14 +1193,14 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
         res.root_dir = try gpa.dupe(u8, root_dir);
     }
     if (diagnostics.errors.items.len > 0) {
+        try res.rootErrorMessage("unable to unpack tarball");
         for (diagnostics.errors.items) |item| {
             switch (item) {
-                .unable_to_create_file => |i| try res.createFile(i.file_name, i.code),
-                .unable_to_create_sym_link => |i| try res.symLink(i.file_name, i.link_name, i.code),
+                .unable_to_create_file => |i| try res.unableToCreateFile(i.file_name, i.code),
+                .unable_to_create_sym_link => |i| try res.unableToCreateSymLink(i.file_name, i.link_name, i.code),
                 .unsupported_file_type => |i| try res.unsupportedFileType(i.file_name, @intFromEnum(i.file_type)),
             }
         }
-        try res.rootErrorMessage("unable to unpack tarball");
     }
     return res;
 }
@@ -1246,14 +1246,12 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
             try repository.checkout(out_dir, want_oid, &diagnostics);
 
             if (diagnostics.errors.items.len > 0) {
-                defer res.deinit();
-
+                try res.rootErrorMessage("unable to unpack packfile");
                 for (diagnostics.errors.items) |item| {
                     switch (item) {
-                        .unable_to_create_sym_link => |i| try res.symLink(i.file_name, i.link_name, i.code),
+                        .unable_to_create_sym_link => |i| try res.unableToCreateSymLink(i.file_name, i.link_name, i.code),
                     }
                 }
-                try res.rootErrorMessage("unable to unpack packfile");
             }
         }
     }
@@ -1812,14 +1810,14 @@ const UnpackResult = struct {
         return self.errors.items.len > 0;
     }
 
-    fn createFile(self: *UnpackResult, file_name: []const u8, err: anyerror) !void {
+    fn unableToCreateFile(self: *UnpackResult, file_name: []const u8, err: anyerror) !void {
         try self.errors.append(self.allocator, .{ .unable_to_create_file = .{
             .code = err,
             .file_name = try self.allocator.dupe(u8, file_name),
         } });
     }
 
-    fn symLink(self: *UnpackResult, file_name: []const u8, link_name: []const u8, err: anyerror) !void {
+    fn unableToCreateSymLink(self: *UnpackResult, file_name: []const u8, link_name: []const u8, err: anyerror) !void {
         try self.errors.append(self.allocator, .{ .unable_to_create_sym_link = .{
             .code = err,
             .file_name = try self.allocator.dupe(u8, file_name),
@@ -1892,121 +1890,51 @@ const UnpackResult = struct {
 };
 
 test "fetch tarball: fail with unable to create file" {
-    const testing = std.testing;
-    var buf: [4096]u8 = undefined;
-    var buf_pos: usize = 0;
-
-    // Create tmp dir
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const tmp_path = try tmp.dir.realpath(".", &buf);
-    buf_pos += tmp_path.len;
 
-    // Create tarball in tmp dir without build.zig.zon
     const tarball_name = "package.tar";
     try createTestTarball(tmp.dir, tarball_name, false);
 
-    // Get path to the tarball
-    const path_or_url = try std.fmt.bufPrint(buf[buf_pos..], "file://{s}/{s}", .{ tmp_path, tarball_name });
-    buf_pos += path_or_url.len;
-
-    // Global cache directory in tmp
-    const cache_path = try std.fmt.bufPrint(buf[buf_pos..], "{s}/{s}", .{ tmp_path, "global_cache" });
-    buf_pos += cache_path.len;
-
     // Run tarball fetch, expect to fail
-    var tf: TestFetch = undefined;
-    try tf.init(testing.allocator, cache_path, path_or_url);
-    defer tf.deinit();
-    try testing.expectError(error.FetchFailed, tf.fetch.run());
+    var fb: TestFetchBuilder = undefined;
+    var fetch = try fb.build(std.testing.allocator, tmp, tarball_name);
+    defer fb.deinit();
+    try std.testing.expectError(error.FetchFailed, fetch.run());
 
-    // Expect fetch errors
-    {
-        var errors = try tf.fetch.error_bundle.toOwnedBundle("");
-        defer errors.deinit(testing.allocator);
-
-        const em = errors.getErrorMessage(errors.getMessages()[0]);
-        try testing.expectEqual(1, em.count);
-        try testing.expectEqual(2, em.notes_len);
-
-        var al = std.ArrayList(u8).init(testing.allocator);
-        defer al.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, al.writer());
-        try testing.expectEqualStrings(
-            \\error: unable to unpack tarball
-            \\    note: unable to create file 'dir/file': PathAlreadyExists
-            \\    note: unable to create file 'dir1/file1': PathAlreadyExists
-            \\
-        , al.items);
-    }
+    try fb.expectFetchErrors(2,
+        \\error: unable to unpack tarball
+        \\    note: unable to create file 'dir/file': PathAlreadyExists
+        \\    note: unable to create file 'dir1/file1': PathAlreadyExists
+        \\
+    );
 }
 
 test "fetch tarball: error path are excluded" {
-    const testing = std.testing;
-    var buf: [4096]u8 = undefined;
-    var buf_pos: usize = 0;
-
-    // Create tmp dir
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    const tmp_path = try tmp.dir.realpath(".", &buf);
-    buf_pos += tmp_path.len;
 
-    // Create tarball in tmp dir
     const tarball_name = "package.tar";
     try createTestTarball(tmp.dir, tarball_name, true);
 
-    // Get path to the tarball
-    const path_or_url = try std.fmt.bufPrint(buf[buf_pos..], "file://{s}/{s}", .{ tmp_path, tarball_name });
-    buf_pos += path_or_url.len;
+    // Run tarball fetch, should succeed
+    var fb: TestFetchBuilder = undefined;
+    var fetch = try fb.build(std.testing.allocator, tmp, tarball_name);
+    defer fb.deinit();
+    try fetch.run();
 
-    // Global cache directory in tmp
-    const cache_path = try std.fmt.bufPrint(buf[buf_pos..], "{s}/{s}", .{ tmp_path, "global_cache" });
-    buf_pos += cache_path.len;
-
-    // Run tarball fetch
-    var tf: TestFetch = undefined;
-    try tf.init(testing.allocator, cache_path, path_or_url);
-    defer tf.deinit();
-    try tf.fetch.run();
-
-    const hex_digest = Package.Manifest.hexDigest(tf.fetch.actual_hash);
-    try testing.expectEqualStrings("122022afac878639d5ea6fcca14a123e21fd0395c1f2ef2c89017fa71390f73024af", &hex_digest);
+    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    try std.testing.expectEqualStrings("122022afac878639d5ea6fcca14a123e21fd0395c1f2ef2c89017fa71390f73024af", &hex_digest);
 
     const expected_files: []const []const u8 = &.{
         "build.zig",
         "build.zig.zon",
         "src/main.zig",
     };
-    // Unpacked package contains expected files
-    {
-        const package_path = try std.fmt.bufPrint(buf[buf_pos..], "global_cache/p/{s}", .{hex_digest});
-        buf_pos += package_path.len;
-        var package_dir = try tmp.dir.openDir(package_path, .{ .iterate = true });
-
-        var actual_files: std.ArrayListUnmanaged([]u8) = .{};
-        defer actual_files.deinit(testing.allocator);
-        defer for (actual_files.items) |file| testing.allocator.free(file);
-        var walker = try package_dir.walk(testing.allocator);
-        defer walker.deinit();
-        while (try walker.next()) |entry| {
-            if (entry.kind != .file) continue;
-            //std.debug.print("{s}\n", .{entry.path});
-            const path = try testing.allocator.dupe(u8, entry.path);
-            errdefer testing.allocator.free(path);
-            std.mem.replaceScalar(u8, path, std.fs.path.sep, '/');
-            try actual_files.append(testing.allocator, path);
-        }
-        std.mem.sortUnstable([]u8, actual_files.items, {}, struct {
-            fn lessThan(_: void, a: []u8, b: []u8) bool {
-                return std.mem.lessThan(u8, a, b);
-            }
-        }.lessThan);
-        try testing.expectEqualDeep(expected_files, actual_files.items);
-    }
+    try fb.expectPackageFiles(expected_files);
 }
 
-const TestFetch = struct {
+const TestFetchBuilder = struct {
     thread_pool: ThreadPool,
     http_client: std.http.Client,
     global_cache_directory: Cache.Directory,
@@ -2014,36 +1942,30 @@ const TestFetch = struct {
     root_prog_node: *std.Progress.Node,
     job_queue: Fetch.JobQueue,
     fetch: Fetch,
-    gpa: std.mem.Allocator,
 
-    fn init(
-        tf: *TestFetch,
-        gpa: std.mem.Allocator,
-        global_cache_directory_path: []const u8,
-        path_or_url: []const u8,
-    ) !void {
-        try tf.thread_pool.init(.{ .allocator = gpa });
-        tf.http_client = .{ .allocator = gpa };
-        tf.global_cache_directory = .{
-            .handle = try fs.cwd().makeOpenPath(global_cache_directory_path, .{}),
-            .path = global_cache_directory_path,
-        };
+    fn build(self: *TestFetchBuilder, allocator: std.mem.Allocator, tmp: std.testing.TmpDir, tarball_name: []const u8) !*Fetch {
+        const cache_dir = try tmp.dir.makeOpenPath("zig-global-cache", .{});
+        const path_or_url = try std.fmt.allocPrint(allocator, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
 
-        tf.progress = .{ .dont_print_on_dumb = true };
-        tf.root_prog_node = tf.progress.start("Fetch", 0);
+        try self.thread_pool.init(.{ .allocator = allocator });
+        self.http_client = .{ .allocator = allocator };
+        self.global_cache_directory = .{ .handle = cache_dir, .path = null };
 
-        tf.job_queue = .{
-            .http_client = &tf.http_client,
-            .thread_pool = &tf.thread_pool,
-            .global_cache = tf.global_cache_directory,
+        self.progress = .{ .dont_print_on_dumb = true };
+        self.root_prog_node = self.progress.start("Fetch", 0);
+
+        self.job_queue = .{
+            .http_client = &self.http_client,
+            .thread_pool = &self.thread_pool,
+            .global_cache = self.global_cache_directory,
             .recursive = false,
             .read_only = false,
             .debug_hash = false,
             .work_around_btrfs_bug = false,
         };
 
-        tf.fetch = .{
-            .arena = std.heap.ArenaAllocator.init(gpa),
+        self.fetch = .{
+            .arena = std.heap.ArenaAllocator.init(allocator),
             .location = .{ .path_or_url = path_or_url },
             .location_tok = 0,
             .hash_tok = 0,
@@ -2051,8 +1973,8 @@ const TestFetch = struct {
             .lazy_status = .eager,
             .parent_package_root = Cache.Path{ .root_dir = undefined },
             .parent_manifest_ast = null,
-            .prog_node = tf.root_prog_node,
-            .job_queue = &tf.job_queue,
+            .prog_node = self.root_prog_node,
+            .job_queue = &self.job_queue,
             .omit_missing_hash_error = true,
             .allow_missing_paths_field = false,
 
@@ -2066,15 +1988,66 @@ const TestFetch = struct {
 
             .module = null,
         };
+        return &self.fetch;
     }
 
-    fn deinit(self: *TestFetch) void {
+    fn deinit(self: *TestFetchBuilder) void {
+        self.fetch.arena.child_allocator.free(self.fetch.location.path_or_url);
         self.fetch.deinit();
         self.job_queue.deinit();
         self.root_prog_node.end();
         self.global_cache_directory.handle.close();
         self.http_client.deinit();
         self.thread_pool.deinit();
+    }
+
+    fn packageDir(self: *TestFetchBuilder) !fs.Dir {
+        const root = self.fetch.package_root;
+        return try root.root_dir.handle.openDir(root.sub_path, .{ .iterate = true });
+    }
+
+    fn expectPackageFiles(self: *TestFetchBuilder, expected_files: []const []const u8) !void {
+        var package_dir = try self.packageDir();
+        defer package_dir.close();
+
+        var actual_files: std.ArrayListUnmanaged([]u8) = .{};
+        defer actual_files.deinit(std.testing.allocator);
+        defer for (actual_files.items) |file| std.testing.allocator.free(file);
+        var walker = try package_dir.walk(std.testing.allocator);
+        defer walker.deinit();
+        while (try walker.next()) |entry| {
+            if (entry.kind != .file) continue;
+            // std.debug.print("{s}\n", .{entry.path});
+            const path = try std.testing.allocator.dupe(u8, entry.path);
+            errdefer std.testing.allocator.free(path);
+            std.mem.replaceScalar(u8, path, std.fs.path.sep, '/');
+            try actual_files.append(std.testing.allocator, path);
+        }
+        std.mem.sortUnstable([]u8, actual_files.items, {}, struct {
+            fn lessThan(_: void, a: []u8, b: []u8) bool {
+                return std.mem.lessThan(u8, a, b);
+            }
+        }.lessThan);
+
+        try std.testing.expectEqual(expected_files.len, actual_files.items.len);
+        for (expected_files, 0..) |file_name, i| {
+            try std.testing.expectEqualStrings(file_name, actual_files.items[i]);
+        }
+        try std.testing.expectEqualDeep(expected_files, actual_files.items);
+    }
+
+    fn expectFetchErrors(self: *TestFetchBuilder, notes_len: usize, msg: []const u8) !void {
+        var errors = try self.fetch.error_bundle.toOwnedBundle("");
+        defer errors.deinit(std.testing.allocator);
+
+        const em = errors.getErrorMessage(errors.getMessages()[0]);
+        try std.testing.expectEqual(1, em.count);
+        try std.testing.expectEqual(notes_len, em.notes_len);
+
+        var al = std.ArrayList(u8).init(std.testing.allocator);
+        defer al.deinit();
+        try errors.renderToWriter(.{ .ttyconf = .no_color }, al.writer());
+        try std.testing.expectEqualStrings(msg, al.items);
     }
 };
 
