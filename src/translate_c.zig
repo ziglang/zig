@@ -1659,8 +1659,8 @@ fn transCompoundStmtInline(
     var it = stmt.body_begin();
     const end_it = stmt.body_end();
     if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
-        var inner_stmt_to_variables: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged([]const u8)) = .{};
-        defer inner_stmt_to_variables.deinit(c.gpa);
+        var first_inner_stmt_after_if_to_variables: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged([]const u8)) = .{};
+        defer first_inner_stmt_after_if_to_variables.deinit(c.gpa);
 
         var inner_stmt_break_target_transformations: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(*const GotoContext.Transformation)) = .{};
         defer inner_stmt_break_target_transformations.deinit(c.gpa);
@@ -1679,11 +1679,13 @@ fn transCompoundStmtInline(
         defer loop_variables.deinit(c.gpa);
 
         for (transformations) |*transformation| {
-            const variables = try inner_stmt_to_variables.getOrPut(c.gpa, transformation.inner_stmt);
-            if (!variables.found_existing) {
-                variables.value_ptr.* = .{};
+            if (transformation.inner_stmt != it[0]) {
+                const variables = try first_inner_stmt_after_if_to_variables.getOrPut(c.gpa, transformation.inner_stmt);
+                if (!variables.found_existing) {
+                    variables.value_ptr.* = .{};
+                }
+                try variables.value_ptr.append(c.gpa, transformation.variable);
             }
-            try variables.value_ptr.append(c.gpa, transformation.variable);
 
             switch (transformation.type) {
                 .simple => {},
@@ -1704,34 +1706,13 @@ fn transCompoundStmtInline(
             }
         }
 
-        if (inner_stmt_break_target_transformations.size != 0) {
-            var insert_if = false;
-            var iter = it;
-
-            while (iter != end_it) : (iter += 1) {
-                if (insert_if) {
-                    // Insert end of if and new if
-                    const variables = try inner_stmt_to_variables.getOrPut(c.gpa, iter[0]);
-                    if (!variables.found_existing) {
-                        variables.value_ptr.* = .{};
-                    }
-                    insert_if = false;
-                }
-
-                if (inner_stmt_break_target_transformations.contains(iter[0])) {
-                    // Insert an if after this stmt
-                    insert_if = true;
-                }
-            }
-        }
-
         var while_block: ?Scope.Block = null;
         var if_block: ?Scope.Block = null;
 
         // Either block or &while_block
         var control_flow_block: *Scope.Block = block;
 
-        while (inner_stmt_to_variables.count() != 0 or inner_stmt_break_target_transformations.count() != 0 or require_in_loop.count() != 0) : (it += 1) {
+        while (first_inner_stmt_after_if_to_variables.count() != 0 or inner_stmt_break_target_transformations.count() != 0 or require_in_loop.count() != 0) : (it += 1) {
             assert(it != end_it);
 
             if (require_in_loop.contains(it[0]) and while_block == null and if_block == null) {
@@ -1743,9 +1724,33 @@ fn transCompoundStmtInline(
                 if_block = try Scope.Block.init(c, &control_flow_block.base, false);
             }
 
-            if (inner_stmt_to_variables.contains(it[0])) {
+            _ = require_in_loop.remove(it[0]);
+
+            var end_if = false;
+
+            if (inner_stmt_break_target_transformations.getPtr(it[0])) |break_target_transformations| {
+                defer assert(inner_stmt_break_target_transformations.remove(it[0]));
+
+                end_if = true;
+
+                var labeled_block = try Scope.Block.init(c, &if_block.?.base, true);
+                defer labeled_block.deinit();
+
+                for (break_target_transformations.items) |transformation| {
+                    transformation.type.break_target.label.* = labeled_block.label.?;
+                }
+                break_target_transformations.deinit(c.gpa);
+
+                try transStmtToScopeAndExeBlock(c, &block.base, &labeled_block, it[0]);
+
+                try if_block.?.statements.append(try labeled_block.complete(c));
+            } else {
+                try transStmtToScopeAndExeBlock(c, &block.base, &if_block.?, it[0]);
+            }
+
+            if (end_if or (it + 1 != end_it and first_inner_stmt_after_if_to_variables.contains((it + 1)[0]))) {
                 if (if_block.?.statements.items.len != 0) {
-                    var iter = inner_stmt_to_variables.valueIterator();
+                    var iter = first_inner_stmt_after_if_to_variables.valueIterator();
                     var ncond = Tag.false_literal.init();
                     while (iter.next()) |variables| {
                         for (variables.items) |variable| {
@@ -1792,28 +1797,11 @@ fn transCompoundStmtInline(
                     control_flow_block = block;
                 }
 
-                inner_stmt_to_variables.getPtr(it[0]).?.deinit(c.gpa);
-                assert(inner_stmt_to_variables.remove(it[0]));
-                it -= 1;
-            } else {
-                _ = require_in_loop.remove(it[0]);
-
-                if (inner_stmt_break_target_transformations.getPtr(it[0])) |break_target_transformations| {
-                    defer assert(inner_stmt_break_target_transformations.remove(it[0]));
-
-                    var labeled_block = try Scope.Block.init(c, &if_block.?.base, true);
-                    defer labeled_block.deinit();
-
-                    for (break_target_transformations.items) |transformation| {
-                        transformation.type.break_target.label.* = labeled_block.label.?;
+                if (it + 1 != end_it) {
+                    if (first_inner_stmt_after_if_to_variables.getPtr((it + 1)[0])) |variables| {
+                        variables.deinit(c.gpa);
+                        assert(first_inner_stmt_after_if_to_variables.remove((it + 1)[0]));
                     }
-                    break_target_transformations.deinit(c.gpa);
-
-                    try transStmtToScopeAndExeBlock(c, &block.base, &labeled_block, it[0]);
-
-                    try if_block.?.statements.append(try labeled_block.complete(c));
-                } else {
-                    try transStmtToScopeAndExeBlock(c, &block.base, &if_block.?, it[0]);
                 }
             }
         }
