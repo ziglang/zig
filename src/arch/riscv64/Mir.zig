@@ -76,13 +76,16 @@ pub const Inst = struct {
 
         /// Immediate `==`, uses i_type
         cmp_imm_eq,
-        /// Immediate `<=`, uses i_typei
+        /// Immediate `<=`, uses i_type
         cmp_imm_lte,
 
         /// Branch if equal, Uses b_type
         beq,
         /// Branch if not equal, Uses b_type
         bne,
+
+        /// Boolean NOT, Uses rr payload
+        not,
 
         nop,
         ret,

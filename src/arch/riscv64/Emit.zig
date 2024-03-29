@@ -83,6 +83,7 @@ pub fn emitMir(
             .j => try emit.mirPsuedo(inst),
 
             .mv => try emit.mirRR(inst),
+            .not => try emit.mirRR(inst),
 
             .nop => try emit.mirNop(inst),
             .ret => try emit.mirNop(inst),
@@ -414,6 +415,7 @@ fn mirRR(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     switch (tag) {
         .mv => try emit.writeInstruction(Instruction.addi(rd, rs, 0)),
+        .not => try emit.writeInstruction(Instruction.xori(rd, rs, 1)),
         else => unreachable,
     }
 }

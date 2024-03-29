@@ -1036,7 +1036,41 @@ fn airIntFromBool(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airNot(self: *Self, inst: Air.Inst.Index) !void {
     const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else return self.fail("TODO implement NOT for {}", .{self.target.cpu.arch});
+    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else result: {
+        const mod = self.bin_file.comp.module.?;
+
+        const operand = try self.resolveInst(ty_op.operand);
+        const ty = self.typeOf(ty_op.operand);
+
+        switch (ty.zigTypeTag(mod)) {
+            .Bool => {
+                const operand_reg = blk: {
+                    if (operand == .register) break :blk operand.register;
+                    break :blk try self.copyToTmpRegister(ty, operand);
+                };
+
+                const dst_reg: Register =
+                    if (self.reuseOperand(inst, ty_op.operand, 0, operand) and operand == .register)
+                    operand.register
+                else
+                    try self.register_manager.allocReg(inst, gp);
+
+                _ = try self.addInst(.{
+                    .tag = .not,
+                    .data = .{
+                        .rr = .{
+                            .rs = operand_reg,
+                            .rd = dst_reg,
+                        },
+                    },
+                });
+
+                break :result .{ .register = dst_reg };
+            },
+            .Int => return self.fail("TODO: airNot ints", .{}),
+            else => unreachable,
+        }
+    };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
