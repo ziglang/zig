@@ -9,7 +9,7 @@ const math = std.math;
 const expect = std.testing.expect;
 
 /// Returns the logarithm of x for the provided base.
-pub fn log(comptime T: type, base: T, x: T) T {
+pub fn logb(comptime T: type, base: T, x: T) T {
     if (base == 2) {
         return math.log2(x);
     } else if (base == 10) {
@@ -47,26 +47,26 @@ pub fn log(comptime T: type, base: T, x: T) T {
     }
 }
 
-test "log integer" {
-    try expect(log(u8, 2, 0x1) == 0);
-    try expect(log(u8, 2, 0x2) == 1);
-    try expect(log(u16, 2, 0x72) == 6);
-    try expect(log(u32, 2, 0xFFFFFF) == 23);
-    try expect(log(u64, 2, 0x7FF0123456789ABC) == 62);
+test "logb integer" {
+    try expect(logb(u8, 2, 0x1) == 0);
+    try expect(logb(u8, 2, 0x2) == 1);
+    try expect(logb(u16, 2, 0x72) == 6);
+    try expect(logb(u32, 2, 0xFFFFFF) == 23);
+    try expect(logb(u64, 2, 0x7FF0123456789ABC) == 62);
 }
 
-test "log float" {
+test "logb float" {
     const epsilon = 0.000001;
 
-    try expect(math.approxEqAbs(f32, log(f32, 6, 0.23947), -0.797723, epsilon));
-    try expect(math.approxEqAbs(f32, log(f32, 89, 0.23947), -0.318432, epsilon));
-    try expect(math.approxEqAbs(f64, log(f64, 123897, 12389216414), 1.981724596, epsilon));
+    try expect(math.approxEqAbs(f32, logb(f32, 6, 0.23947), -0.797723, epsilon));
+    try expect(math.approxEqAbs(f32, logb(f32, 89, 0.23947), -0.318432, epsilon));
+    try expect(math.approxEqAbs(f64, logb(f64, 123897, 12389216414), 1.981724596, epsilon));
 }
 
-test "log float_special" {
-    try expect(log(f32, 2, 0.2301974) == math.log2(@as(f32, 0.2301974)));
-    try expect(log(f32, 10, 0.2301974) == math.log10(@as(f32, 0.2301974)));
+test "logb float_special" {
+    try expect(logb(f32, 2, 0.2301974) == math.log2(@as(f32, 0.2301974)));
+    try expect(logb(f32, 10, 0.2301974) == math.log10(@as(f32, 0.2301974)));
 
-    try expect(log(f64, 2, 213.23019799993) == math.log2(@as(f64, 213.23019799993)));
-    try expect(log(f64, 10, 213.23019799993) == math.log10(@as(f64, 213.23019799993)));
+    try expect(logb(f64, 2, 213.23019799993) == math.log2(@as(f64, 213.23019799993)));
+    try expect(logb(f64, 10, 213.23019799993) == math.log10(@as(f64, 213.23019799993)));
 }
