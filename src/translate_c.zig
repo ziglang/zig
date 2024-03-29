@@ -5376,7 +5376,14 @@ fn transGotoStmt(c: *Context, scope: *Scope, stmt: *const clang.GotoStmt) TransE
     var block = try Scope.Block.init(c, scope, false);
     defer block.deinit();
 
-    const variable = c.goto.?.label_variable_names.get(try c.str(stmt.getLabel().getName_bytes_begin())).?;
+    const variable = c.goto.?.label_variable_names.get(try c.str(stmt.getLabel().getName_bytes_begin())) orelse
+        return fail(
+        c,
+        error.UnsupportedTranslation,
+        @as(*const clang.Stmt, @ptrCast(stmt)).getBeginLoc(),
+        "TODO complex goto with label '{s}'",
+        .{try c.str(stmt.getLabel().getName_bytes_begin())},
+    );
 
     try block.statements.append(try transCreateNodeInfixOp(
         c,
@@ -5434,15 +5441,15 @@ fn transLabelStmt(c: *Context, scope: *Scope, stmt: *const clang.LabelStmt) Tran
         block = try Scope.Block.init(c, scope, false);
     }
 
-    const variable = c.goto.?.label_variable_names.get(try c.str(stmt.getName())).?;
-
-    try block.?.statements.append(try transCreateNodeInfixOp(
-        c,
-        .assign,
-        try Tag.identifier.create(c.arena, variable),
-        Tag.false_literal.init(),
-        .used,
-    ));
+    if (c.goto.?.label_variable_names.get(try c.str(stmt.getName()))) |variable| {
+        try block.?.statements.append(try transCreateNodeInfixOp(
+            c,
+            .assign,
+            try Tag.identifier.create(c.arena, variable),
+            Tag.false_literal.init(),
+            .used,
+        ));
+    }
 
     try block.?.statements.append(try transStmt(c, scope, inner_stmt, .unused));
 
