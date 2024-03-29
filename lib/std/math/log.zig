@@ -29,7 +29,7 @@ pub fn logb(comptime T: type, base: T, x: T) T {
         },
 
         .Int => |IntType| switch (IntType.signedness) {
-            .signed => @compileError("log not implemented for signed integers"),
+            .signed => @compileError("logb not implemented for signed integers"),
             .unsigned => return @as(T, math.log_int(T, base, x)),
         },
 
@@ -37,12 +37,12 @@ pub fn logb(comptime T: type, base: T, x: T) T {
             switch (T) {
                 f32 => return @as(f32, @floatCast(@log(@as(f64, x)) / @log(float_base))),
                 f64 => return @log(x) / @log(float_base),
-                else => @compileError("log not implemented for " ++ @typeName(T)),
+                else => @compileError("logb not implemented for " ++ @typeName(T)),
             }
         },
 
         else => {
-            @compileError("log expects integer or float, found '" ++ @typeName(T) ++ "'");
+            @compileError("logb expects integer or float, found '" ++ @typeName(T) ++ "'");
         },
     }
 }
