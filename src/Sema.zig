@@ -26466,7 +26466,7 @@ fn zirDepositExtractBits(
     if (dest_ty.zigTypeTag(mod) == .ComptimeInt) {
         if (maybe_lhs_val) |lhs_val| {
             if (!lhs_val.isUndef(mod) and lhs_val.orderAgainstZero(mod) == .lt) {
-                const err = try sema.errMsg(block, lhs_src, "use of negative value '{}'", .{lhs_val.fmtValue(lhs_ty, sema.mod)});
+                const err = try sema.errMsg(block, lhs_src, "use of negative value '{}'", .{lhs_val.fmtValue(sema.mod)});
                 try sema.errNote(block, src, err, "parameters to {s} must be positive", .{builtin_name});
                 return sema.failWithOwnedErrorMsg(block, err);
             }
@@ -26474,7 +26474,7 @@ fn zirDepositExtractBits(
 
         if (maybe_rhs_val) |rhs_val| {
             if (!rhs_val.isUndef(mod) and rhs_val.orderAgainstZero(mod) == .lt) {
-                const err = try sema.errMsg(block, rhs_src, "use of negative value '{}'", .{rhs_val.fmtValue(rhs_ty, sema.mod)});
+                const err = try sema.errMsg(block, rhs_src, "use of negative value '{}'", .{rhs_val.fmtValue(sema.mod)});
                 try sema.errNote(block, src, err, "parameters to {s} must be positive", .{builtin_name});
                 return sema.failWithOwnedErrorMsg(block, err);
             }
