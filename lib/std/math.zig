@@ -441,7 +441,7 @@ test {
     _ = hypot;
     _ = expm1;
     _ = ilogb;
-    _ = log;
+    _ = logb;
     _ = log2;
     _ = log10;
     _ = log10_int;
