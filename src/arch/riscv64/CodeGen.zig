@@ -3535,6 +3535,27 @@ fn genSetReg(self: *Self, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                     }),
                 },
             });
+
+            const tag: Mir.Inst.Tag = switch (abi_size) {
+                1 => .lb,
+                2 => .lh,
+                4 => .lw,
+                8 => .ld,
+                else => return self.fail("TODO: genSetReg for size {d}", .{abi_size}),
+            };
+
+            _ = try self.addInst(.{
+                .tag = tag,
+                .data = .{
+                    .i_type = .{
+                        .rd = reg,
+                        .rs1 = reg,
+                        .imm12 = 0,
+                    },
+                },
+            });
+
+            unreachable;
         },
         .air_ref => |ref| try self.genSetReg(ty, reg, try self.resolveInst(ref)),
         .indirect => |reg_off| {
