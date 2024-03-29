@@ -52,6 +52,7 @@ pub const floatTrueMin = @import("math/float.zig").floatTrueMin;
 pub const floatMin = @import("math/float.zig").floatMin;
 pub const floatMax = @import("math/float.zig").floatMax;
 pub const floatEps = @import("math/float.zig").floatEps;
+pub const floatEpsAt = @import("math/float.zig").floatEpsAt;
 pub const inf = @import("math/float.zig").inf;
 pub const nan = @import("math/float.zig").nan;
 pub const snan = @import("math/float.zig").snan;
