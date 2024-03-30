@@ -1249,6 +1249,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
                 try res.rootErrorMessage("unable to unpack packfile");
                 for (diagnostics.errors.items) |item| {
                     switch (item) {
+                        .unable_to_create_file => |i| try res.unableToCreateFile(i.file_name, i.code),
                         .unable_to_create_sym_link => |i| try res.unableToCreateSymLink(i.file_name, i.link_name, i.code),
                     }
                 }
