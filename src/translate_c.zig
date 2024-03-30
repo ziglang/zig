@@ -1751,41 +1751,54 @@ fn transCompoundStmtInline(
             if (end_if or (it + 1 != end_it and first_inner_stmt_after_if_to_variables.contains((it + 1)[0]))) {
                 if (if_block.?.statements.items.len != 0) {
                     var iter = first_inner_stmt_after_if_to_variables.valueIterator();
-                    var ncond = Tag.false_literal.init();
+                    var ncond: ?Node = null;
                     while (iter.next()) |variables| {
                         for (variables.items) |variable| {
-                            ncond = try Tag.@"or".create(c.arena, .{
-                                .lhs = try Tag.identifier.create(c.arena, variable),
-                                .rhs = ncond,
-                            });
+                            const ident = try Tag.identifier.create(c.arena, variable);
+                            ncond = if (ncond) |nc|
+                                try Tag.@"or".create(c.arena, .{
+                                    .lhs = ident,
+                                    .rhs = nc,
+                                })
+                            else
+                                ident;
                         }
                     }
 
+                    const if_block_node = try if_block.?.complete(c);
+
                     try control_flow_block.statements.append(
-                        try Tag.@"if".create(
-                            c.arena,
-                            .{
-                                .cond = try Tag.not.create(c.arena, ncond),
-                                .then = try if_block.?.complete(c),
-                                .@"else" = null,
-                            },
-                        ),
+                        if (ncond) |nc|
+                            try Tag.@"if".create(
+                                c.arena,
+                                .{
+                                    .cond = try Tag.not.create(c.arena, nc),
+                                    .then = if_block_node,
+                                    .@"else" = null,
+                                },
+                            )
+                        else
+                            if_block_node,
                     );
                 }
                 if_block.?.deinit();
                 if_block = null;
 
                 if (while_block != null and require_in_loop.count() == 0) {
-                    var while_ncond = Tag.false_literal.init();
+                    var while_ncond: ?Node = null;
 
                     for (loop_variables.items) |variable| {
-                        while_ncond = try Tag.@"or".create(c.arena, .{
-                            .lhs = try Tag.identifier.create(c.arena, variable),
-                            .rhs = while_ncond,
-                        });
+                        const ident = try Tag.identifier.create(c.arena, variable);
+                        while_ncond = if (while_ncond) |wnc|
+                            try Tag.@"or".create(c.arena, .{
+                                .lhs = ident,
+                                .rhs = wnc,
+                            })
+                        else
+                            ident;
                     }
 
-                    try while_block.?.statements.append(try Tag.if_not_break.create(c.arena, while_ncond));
+                    try while_block.?.statements.append(try Tag.if_not_break.create(c.arena, while_ncond.?));
 
                     try block.statements.append(try Tag.while_true.create(
                         c.arena,
@@ -3084,14 +3097,18 @@ fn transIfStmt(
 
     var if_vars: std.ArrayListUnmanaged([]const u8) = .{};
     defer if_vars.deinit(c.gpa);
-    var else_vars: std.ArrayListUnmanaged([]const u8) = .{};
-    defer else_vars.deinit(c.gpa);
 
-    // while_block: non-null if a loop is required
-    var while_block: ?Scope.Block = null;
-    defer if (while_block) |*b| b.deinit();
+    // while_block_and_vars: non-null if a loop is required
+    var while_block_and_vars: ?struct {
+        block: Scope.Block,
+        vars: std.ArrayListUnmanaged([]const u8) = .{},
+    } = null;
+    defer if (while_block_and_vars) |*w| {
+        w.block.deinit();
+        w.vars.deinit(c.gpa);
+    };
 
-    // Either scope or &while_block.?.base
+    // Either scope or &while_block_and_vars.?.block.base
     var control_flow_scope: *Scope = scope;
 
     if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
@@ -3100,18 +3117,21 @@ fn transIfStmt(
                 try if_vars.append(c.gpa, transformation.variable);
             } else {
                 assert(transformation.inner_stmt == else_stmt);
-                try else_vars.append(c.gpa, transformation.variable);
             }
 
             switch (transformation.type) {
                 .simple => {},
                 .break_target => |*bt| {
-                    if (while_block == null) {
-                        while_block = try Scope.Block.init(c, scope, true);
-                        control_flow_scope = &while_block.?.base;
+                    if (while_block_and_vars == null) {
+                        while_block_and_vars = .{
+                            .block = try Scope.Block.init(c, scope, true),
+                        };
+                        control_flow_scope = &while_block_and_vars.?.block.base;
                     }
 
-                    bt.label.* = while_block.?.label.?;
+                    bt.label.* = while_block_and_vars.?.block.label.?;
+
+                    try while_block_and_vars.?.vars.append(c.gpa, transformation.variable);
 
                     assert(bt.from == if (transformation.inner_stmt == then_stmt) else_stmt else then_stmt);
                 },
@@ -3155,25 +3175,23 @@ fn transIfStmt(
 
     const if_node = try Tag.@"if".create(c.arena, .{ .cond = cond, .then = then_body, .@"else" = else_body });
 
-    if (while_block) |*wb| {
-        try wb.statements.append(if_node);
+    if (while_block_and_vars) |*w| {
+        try w.block.statements.append(if_node);
 
-        var ncond = Tag.false_literal.init();
-        for (if_vars.items) |variable| {
-            ncond = try Tag.@"or".create(c.arena, .{
-                .lhs = try Tag.identifier.create(c.arena, variable),
-                .rhs = ncond,
-            });
+        var ncond: ?Node = null;
+        for (w.vars.items) |variable| {
+            const ident = try Tag.identifier.create(c.arena, variable);
+            ncond = if (ncond) |nc|
+                try Tag.@"or".create(c.arena, .{
+                    .lhs = ident,
+                    .rhs = nc,
+                })
+            else
+                ident;
         }
-        for (else_vars.items) |variable| {
-            ncond = try Tag.@"or".create(c.arena, .{
-                .lhs = try Tag.identifier.create(c.arena, variable),
-                .rhs = ncond,
-            });
-        }
-        try wb.statements.append(try Tag.if_not_break.create(c.arena, ncond));
+        try w.block.statements.append(try Tag.if_not_break.create(c.arena, ncond.?));
 
-        return try Tag.while_true.create(c.arena, try wb.complete(c));
+        return try Tag.while_true.create(c.arena, try w.block.complete(c));
     } else {
         return if_node;
     }
@@ -3295,18 +3313,22 @@ fn transForLoop(
             defer if_block.deinit();
             try transStmtToScopeAndExeBlock(c, &block_scope.?.base, &if_block, init);
 
-            var ncond = Tag.false_literal.init();
+            var ncond: ?Node = null;
             for (transformations) |*transformation| {
-                ncond = try Tag.@"or".create(c.arena, .{
-                    .lhs = try Tag.identifier.create(c.arena, transformation.variable),
-                    .rhs = ncond,
-                });
+                const ident = try Tag.identifier.create(c.arena, transformation.variable);
+                ncond = if (ncond) |nc|
+                    try Tag.@"or".create(c.arena, .{
+                        .lhs = ident,
+                        .rhs = nc,
+                    })
+                else
+                    ident;
             }
 
             try block_scope.?.statements.append(try Tag.@"if".create(
                 c.arena,
                 .{
-                    .cond = try Tag.not.create(c.arena, ncond),
+                    .cond = try Tag.not.create(c.arena, ncond.?),
                     .then = try if_block.complete(c),
                     .@"else" = null,
                 },
