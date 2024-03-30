@@ -33,6 +33,8 @@ pub const Inst = struct {
         add,
         /// Subtraction
         sub,
+        /// Multiply, uses r_type. Needs the M extension.
+        mul,
 
         /// Absolute Value, uses i_type payload.
         abs,
@@ -76,8 +78,12 @@ pub const Inst = struct {
 
         /// Immediate `==`, uses i_type
         cmp_imm_eq,
+        /// Immediate `!=`, uses i_type.
+        cmp_imm_neq,
         /// Immediate `<=`, uses i_type
         cmp_imm_lte,
+        /// Immediate `<`, uses i_type
+        cmp_imm_lt,
 
         /// Branch if equal, Uses b_type
         beq,

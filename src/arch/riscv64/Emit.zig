@@ -4,6 +4,8 @@
 mir: Mir,
 bin_file: *link.File,
 debug_output: DebugInfoOutput,
+output_mode: std.builtin.OutputMode,
+link_mode: std.builtin.LinkMode,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
 src_loc: Module.SrcLoc,
@@ -47,6 +49,7 @@ pub fn emitMir(
         switch (tag) {
             .add => try emit.mirRType(inst),
             .sub => try emit.mirRType(inst),
+            .mul => try emit.mirRType(inst),
             .@"or" => try emit.mirRType(inst),
 
             .cmp_eq => try emit.mirRType(inst),
@@ -56,7 +59,9 @@ pub fn emitMir(
             .cmp_lt => try emit.mirRType(inst),
             .cmp_imm_gte => try emit.mirRType(inst),
             .cmp_imm_eq => try emit.mirIType(inst),
+            .cmp_imm_neq => try emit.mirIType(inst),
             .cmp_imm_lte => try emit.mirIType(inst),
+            .cmp_imm_lt => try emit.mirIType(inst),
 
             .beq => try emit.mirBType(inst),
             .bne => try emit.mirBType(inst),
@@ -186,6 +191,7 @@ fn mirRType(emit: *Emit, inst: Mir.Inst.Index) !void {
     switch (tag) {
         .add => try emit.writeInstruction(Instruction.add(rd, rs1, rs2)),
         .sub => try emit.writeInstruction(Instruction.sub(rd, rs1, rs2)),
+        .mul => try emit.writeInstruction(Instruction.mul(rd, rs1, rs2)),
         .cmp_gt => {
             // rs1 > rs2
             try emit.writeInstruction(Instruction.sltu(rd, rs2, rs1));
@@ -283,6 +289,14 @@ fn mirIType(emit: *Emit, inst: Mir.Inst.Index) !void {
         .cmp_imm_eq => {
             try emit.writeInstruction(Instruction.xori(rd, rs1, imm12));
             try emit.writeInstruction(Instruction.sltiu(rd, rd, 1));
+        },
+        .cmp_imm_neq => {
+            try emit.writeInstruction(Instruction.xori(rd, rs1, imm12));
+            try emit.writeInstruction(Instruction.sltu(rd, .x0, rd));
+        },
+
+        .cmp_imm_lt => {
+            try emit.writeInstruction(Instruction.slti(rd, rs1, imm12));
         },
 
         .cmp_imm_lte => {
@@ -447,6 +461,7 @@ fn mirLoadSymbol(emit: *Emit, inst: Mir.Inst.Index) !void {
 
     const start_offset = @as(u32, @intCast(emit.code.items.len));
     try emit.writeInstruction(Instruction.lui(reg, 0));
+    try emit.writeInstruction(Instruction.addi(reg, reg, 0));
 
     switch (emit.bin_file.tag) {
         .elf => {
@@ -463,12 +478,6 @@ fn mirLoadSymbol(emit: *Emit, inst: Mir.Inst.Index) !void {
 
                 hi_r_type = Elf.R_ZIG_GOT_HI20;
                 lo_r_type = Elf.R_ZIG_GOT_LO12;
-
-                // we need to deref once if we are getting from zig_got, as itll
-                // reloc an address of the address in the got.
-                try emit.writeInstruction(Instruction.ld(reg, 0, reg));
-            } else {
-                try emit.writeInstruction(Instruction.addi(reg, reg, 0));
             }
 
             try atom_ptr.addReloc(elf_file, .{
@@ -544,6 +553,7 @@ fn instructionSize(emit: *Emit, inst: Mir.Inst.Index) usize {
         .cmp_eq,
         .cmp_neq,
         .cmp_imm_eq,
+        .cmp_imm_neq,
         .cmp_gte,
         .load_symbol,
         .abs,

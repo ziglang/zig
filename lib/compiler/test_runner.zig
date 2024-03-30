@@ -12,9 +12,9 @@ var cmdline_buffer: [4096]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&cmdline_buffer);
 
 pub fn main() void {
-    if (builtin.zig_backend == .stage2_aarch64 or
-        builtin.zig_backend == .stage2_riscv64)
-    {
+    if (builtin.zig_backend == .stage2_riscv64) return mainExtraSimple() catch @panic("test failure");
+
+    if (builtin.zig_backend == .stage2_aarch64) {
         return mainSimple() catch @panic("test failure");
     }
 
@@ -247,5 +247,19 @@ pub fn mainSimple() anyerror!void {
     if (enable_print) {
         stderr.writer().print("{} passed, {} skipped, {} failed\n", .{ passed, skipped, failed }) catch {};
         if (failed != 0) std.process.exit(1);
+    }
+}
+
+pub fn mainExtraSimple() !void {
+    var pass_count: u8 = 0;
+
+    for (builtin.test_functions) |test_fn| {
+        test_fn.func() catch |err| {
+            if (err != error.SkipZigTest) {
+                @panic(test_fn.name);
+            }
+            continue;
+        };
+        pass_count += 1;
     }
 }

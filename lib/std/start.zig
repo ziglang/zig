@@ -20,7 +20,6 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_x86 or
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
-    builtin.zig_backend == .stage2_riscv64 or
     builtin.zig_backend == .stage2_sparc64 or
     builtin.cpu.arch == .spirv32 or
     builtin.cpu.arch == .spirv64;
@@ -60,6 +59,10 @@ comptime {
                     @export(mainWithoutEnv, .{ .name = "main" });
                 } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
                     @export(main, .{ .name = "main" });
+                }
+            } else if (native_arch.isRISCV()) {
+                if (!@hasDecl(root, "_start")) {
+                    @export(riscv_start, .{ .name = "_start" });
                 }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
@@ -151,14 +154,6 @@ fn exit2(code: usize) noreturn {
                     : "memory", "cc"
                 );
             },
-            .riscv64 => {
-                asm volatile ("ecall"
-                    :
-                    : [number] "{a7}" (94),
-                      [arg1] "{a0}" (code),
-                    : "rcx", "r11", "memory"
-                );
-            },
             .sparc64 => {
                 asm volatile ("ta 0x6d"
                     :
@@ -210,6 +205,11 @@ fn wasi_start() callconv(.C) void {
         .reactor => _ = @call(.always_inline, callMain, .{}),
         .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{})),
     }
+}
+
+fn riscv_start() callconv(.C) noreturn {
+    const code = @call(.always_inline, callMain, .{});
+    std.process.exit(code);
 }
 
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {

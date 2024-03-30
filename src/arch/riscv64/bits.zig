@@ -112,7 +112,7 @@ pub const Instruction = union(enum) {
     // -- less burden on callsite, bonus semantic checking
     fn bType(op: u7, fn3: u3, r1: Register, r2: Register, imm: i13) Instruction {
         const umm = @as(u13, @bitCast(imm));
-        assert(umm % 2 == 0); // misaligned branch target
+        assert(umm % 4 == 0); // misaligned branch target
 
         return Instruction{
             .B = .{
@@ -199,6 +199,12 @@ pub const Instruction = union(enum) {
 
     pub fn sltu(rd: Register, r1: Register, r2: Register) Instruction {
         return rType(0b0110011, 0b011, 0b0000000, rd, r1, r2);
+    }
+
+    // M extension operations
+
+    pub fn mul(rd: Register, r1: Register, r2: Register) Instruction {
+        return rType(0b0110011, 0b000, 0b0000001, rd, r1, r2);
     }
 
     // Arithmetic/Logical, Register-Register (32-bit)
