@@ -317,10 +317,8 @@ pub const Inst = struct {
         /// break instruction in a block, and the target block is the parent.
         /// Uses the `break` union field.
         break_inline,
-        /// Return a value from a block. This instruction is used to branch to a switch
-        /// case referred to by the returned value.
-        /// Uses the `break` union field.
-        /// Uses the source information from previous instruction.
+        /// Branch from within a switch case to the case specified by the operand.
+        /// Uses the `break` union field. `block_inst` refers to a `switch_block` or `switch_block_ref`.
         switch_continue,
         /// Checks that comptime control flow does not happen inside a runtime block.
         /// Uses the `un_node` union field.

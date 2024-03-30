@@ -4998,8 +4998,7 @@ pub const FuncGen = struct {
                 .block          => try self.airBlock(inst),
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
-                .switch_directbr => try self.airSwitchDirectBr(inst),
-                .switch_indirectbr => try self.airSwitchIndirectBr(inst),
+                .switch_dispatch => try self.airSwitchDispatch(inst),
                 .trap           => try self.airTrap(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
@@ -6001,48 +6000,50 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn airSwitchDirectBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airSwitchDispatch(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
+        var b = o.builder;
         const data = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
         const switch_inst = data.block_inst;
-        const operand = Value.fromInterned(data.operand.toInterned().?).toUnsignedInt(o.module);
         const switch_table = self.switch_dispatch_tables.get(switch_inst).?;
-        const case_block = switch_table.addrs[operand];
-        _ = try self.wip.br(case_block);
-        self.wip.blocks.items[@intFromEnum(case_block)].incoming += 1;
+        if (try self.air.value(data.operand, o.module)) |value| {
+            const operand = value.toUnsignedInt(o.module);
+            const case_block = switch_table.addrs[operand];
+            _ = try self.wip.br(case_block);
+            self.wip.blocks.items[@intFromEnum(case_block)].incoming += 1;
+        } else {
+            // TODO: generate IR like https://godbolt.org/z/zqx6sY5fh with these steps:
+            // - load the operand and cast it as an index
+            // - get the blockaddress of the case block by the index
+            // - jump using the indirectbr instruction and the blockaddress
+            // NOTE: that link shows a generated IR block called %indirectgoto but it is not
+            // necessary to create it.
+            const llvm_item = try self.resolveInst(data.operand);
+            const aggrt = switch_table.aggrt.?;
+            const base = aggrt.getBase(&b).toConst().toValue();
 
-        return .none;
-    }
+            const aggrt_ty = aggrt.typeOf(&b);
+            const item_ty = llvm_item.typeOf(self.wip.function, &b);
+            const loaded_item = try self.wip.load(
+                .normal,
+                item_ty,
+                llvm_item,
+                Builder.Alignment.fromByteUnits(1),
+                "",
+            );
 
-    fn airSwitchIndirectBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        var b = self.dg.object.builder;
-        const data = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
-        const llvm_item = try self.resolveInst(data.operand);
-        const dispatch = self.switch_dispatch_tables.get(inst).?;
-        const aggrt = dispatch.aggrt.?;
-        const base = aggrt.getBase(&b).toConst().toValue();
+            const sext_item = try self.wip.cast(.sext, loaded_item, .i64, "");
+            const addr = try self.wip.gep(.inbounds, aggrt_ty, base, &.{sext_item}, "");
+            const loaded_addr = try self.wip.load(
+                .normal,
+                try b.intType(std.math.log2_int(usize, switch_table.addrs.len)),
+                addr,
+                Builder.Alignment.fromByteUnits(8),
+                "",
+            );
 
-        const aggrt_ty = aggrt.typeOf(&b);
-        const item_ty = llvm_item.typeOf(self.wip.function, &b);
-        const loaded_item = try self.wip.load(
-            .normal,
-            item_ty,
-            llvm_item,
-            Builder.Alignment.fromByteUnits(1),
-            "",
-        );
-
-        const sext_item = try self.wip.cast(.sext, loaded_item, .i64, "");
-        const addr = try self.wip.gep(.inbounds, aggrt_ty, base, &.{sext_item}, "");
-        const loaded_addr = try self.wip.load(
-            .normal,
-            try b.intType(std.math.log2_int(usize, dispatch.addrs.len)),
-            addr,
-            Builder.Alignment.fromByteUnits(8),
-            "",
-        );
-
-        _ = try self.wip.indirectBr(loaded_addr, dispatch.dests);
+            _ = try self.wip.indirectBr(loaded_addr, switch_table.dests);
+        }
 
         return .none;
     }
@@ -6161,9 +6162,9 @@ pub const FuncGen = struct {
         var wip_addrs = std.ArrayList(Builder.WipFunction.Block.Index).init(self.gpa);
         var wip_dests = std.ArrayList(Builder.WipFunction.Block.Index).init(self.gpa);
         try wip_dests.ensureTotalCapacity(switch_br.data.cases_len + 1);
-        if (switch_br.data.dispatchMode().hasAnyDispatch()) {
-            try wip_addrs.ensureTotalCapacity(switch_br.data.cardinal());
-            wip_addrs.appendNTimesAssumeCapacity(else_block, switch_br.data.cardinal());
+        if (switch_br.data.flags.dispatch_mode.hasAnyDispatch()) {
+            try wip_addrs.ensureTotalCapacity(switch_br.data.flags.dispatch_table_len);
+            wip_addrs.appendNTimesAssumeCapacity(else_block, switch_br.data.flags.dispatch_table_len);
         }
 
         var extra_index: usize = switch_br.end;
@@ -6183,7 +6184,7 @@ pub const FuncGen = struct {
         }
         wip_dests.appendAssumeCapacity(else_block);
 
-        if (switch_br.data.dispatchMode().hasAnyDispatch()) {
+        if (switch_br.data.flags.dispatch_mode.hasAnyDispatch()) {
             extra_index = switch_br.end;
             case_i = 0;
             while (case_i < switch_br.data.cases_len) : (case_i += 1) {
@@ -6226,7 +6227,7 @@ pub const FuncGen = struct {
             .addrs = try wip_addrs.toOwnedSlice(),
             .dests = try wip_dests.toOwnedSlice(),
         };
-        if (switch_br.data.dispatchMode().hasAnyDispatch()) {
+        if (switch_br.data.flags.dispatch_mode.hasAnyDispatch()) {
             try self.switch_dispatch_tables.put(self.gpa, @enumFromInt(switch_br.data.block_inst), dispatch_table);
         }
 

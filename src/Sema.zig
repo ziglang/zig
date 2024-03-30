@@ -377,7 +377,7 @@ pub const Block = struct {
     // TODO is_comptime and comptime_reason should probably be merged together.
     is_comptime: bool,
     is_typeof: bool = false,
-    major_dispatch_mode: Air.SwitchBr.DispatchMode = .none,
+    dispatch_mode: Air.SwitchBr.DispatchMode = .{ .direct = false, .indirect = false },
 
     /// Keep track of the active error return trace index around blocks so that we can correctly
     /// pop the error trace upon block exit.
@@ -603,10 +603,9 @@ pub const Block = struct {
         block: *Block,
         target_block: Air.Inst.Index,
         operand: Air.Inst.Ref,
-        comptime_known: bool,
     ) error{OutOfMemory}!Air.Inst.Ref {
         return block.addInst(.{
-            .tag = if (comptime_known) .switch_directbr else .switch_indirectbr,
+            .tag = .switch_dispatch,
             .data = .{ .br = .{
                 .block_inst = target_block,
                 .operand = operand,
@@ -1528,10 +1527,6 @@ fn analyzeBodyInner(
             },
             .switch_continue => {
                 if (block.is_comptime) {
-                    // We need to construct new capture scopes for the next loop iteration so it
-                    // can capture values without clobbering the earlier iteration's captures.
-                    // block.wip_capture_scope = try mod.createCaptureScope(parent_capture_scope);
-
                     sema.comptime_break_inst = inst;
                     return error.ComptimeBreak;
                 } else {
@@ -6665,15 +6660,15 @@ fn zirSwitchContinue(sema: *Sema, start_block: *Block, inst: Zir.Inst.Index) Com
     while (true) {
         if (block.label) |label| {
             if (label.zir_block == zir_block) {
-                block.major_dispatch_mode.set(if (is_comptime_known) .direct_only else .indirect_only);
-                const br_ref = try start_block.addSwitchDispatch(label.merges.block_inst, operand, is_comptime_known);
+                if (is_comptime_known)
+                    block.dispatch_mode.direct = true
+                else
+                    block.dispatch_mode.indirect = true;
+                const br_ref = try start_block.addSwitchDispatch(label.merges.block_inst, operand);
                 const src_loc = LazySrcLoc.nodeOffset(extra.operand_src_node);
                 _ = br_ref;
                 _ = src_loc;
-                // try label.merges.src_locs.append(sema.gpa, src_loc);
-                // try label.merges.results.append(sema.gpa, operand);
-                // try label.merges.br_list.append(sema.gpa, br_ref.toIndex().?);
-                block.runtime_index = .zero;
+                // TODO: check continue operand type with the switch operand one
                 return;
             }
         }
@@ -10935,11 +10930,17 @@ const SwitchProngAnalysis = struct {
     /// undefined if no prong has a tag capture.
     tag_capture_inst: Zir.Inst.Index,
 
+    const ResolvedProng = union(enum) {
+        is_comptime: Air.Inst.Ref,
+        is_runtime: Air.Inst.Ref,
+    };
     /// Resolve a switch prong which is determined at comptime to have no peers.
     /// Uses `resolveBlockBody`. Sets up captures as needed.
+    /// TODO: replace `resolveBlockBody` with `analyzeBodyInner` and handle `error.ComptimeBreak`
     fn resolveProngComptime(
         spa: SwitchProngAnalysis,
         child_block: *Block,
+        operand_ty: Type,
         prong_type: enum { normal, special },
         prong_body: []const Zir.Inst.Index,
         capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
@@ -10955,7 +10956,7 @@ const SwitchProngAnalysis = struct {
         /// `inline_case_capture` cannot be `.none`.
         has_tag_capture: bool,
         merges: *Block.Merges,
-    ) CompileError!Air.Inst.Ref {
+    ) CompileError!ResolvedProng {
         const sema = spa.sema;
         const src = sema.code.instructions.items(.data)[@intFromEnum(spa.switch_block_inst)].pl_node.src();
 
@@ -11386,8 +11387,8 @@ const SwitchProngAnalysis = struct {
                     @typeInfo(Air.Block).Struct.fields.len +
                     1);
 
-                const cardinal: u30 =
-                    if (block.major_dispatch_mode.hasAnyDispatch())
+                const dispatch_table_len: u30 =
+                    if (block.dispatch_mode.hasAnyDispatch())
                     switch (operand_ty.zigTypeTag(sema.mod)) {
                         .Bool => 2,
                         .Int => if (std.math.cast(u30, operand_ty.bitSize(sema.mod))) |b| std.math.powi(u30, 2, b) catch null else null,
@@ -11406,10 +11407,10 @@ const SwitchProngAnalysis = struct {
                         .payload = sema.addExtraAssumeCapacity(Air.SwitchBr{
                             .cases_len = @intCast(prong_count),
                             .else_body_len = @intCast(else_body_len),
-                            .flags = Air.SwitchBr.makeFlags(.{
-                                .dispatch_mode = block.major_dispatch_mode,
-                                .cardinal = cardinal,
-                            }),
+                            .flags = .{
+                                .dispatch_mode = block.dispatch_mode,
+                                .dispatch_table_len = dispatch_table_len,
+                            },
                             .block_inst = if (block.label) |label| @intFromEnum(label.merges.block_inst) else 0,
                         }),
                     } },
@@ -13102,8 +13103,8 @@ fn analyzeSwitchRuntimeBlock(
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).Struct.fields.len +
         cases_extra.items.len + final_else_body.len);
 
-    const cardinal: u30 =
-        if (child_block.major_dispatch_mode.hasAnyDispatch())
+    const dispatch_table_len: u30 =
+        if (child_block.dispatch_mode.hasAnyDispatch())
         switch (operand_ty.zigTypeTag(sema.mod)) {
             .Bool => 2,
             .Int => if (std.math.cast(u30, operand_ty.bitSize(sema.mod))) |b| std.math.powi(u30, 2, b) catch null else null,
@@ -13117,10 +13118,10 @@ fn analyzeSwitchRuntimeBlock(
     const payload_index = sema.addExtraAssumeCapacity(Air.SwitchBr{
         .cases_len = @intCast(cases_len),
         .else_body_len = @intCast(final_else_body.len),
-        .flags = Air.SwitchBr.makeFlags(.{
-            .dispatch_mode = child_block.major_dispatch_mode,
-            .cardinal = cardinal,
-        }),
+        .flags = .{
+            .dispatch_mode = child_block.dispatch_mode,
+            .dispatch_table_len = dispatch_table_len,
+        },
         .block_inst = if (child_block.label) |label| @intFromEnum(label.merges.block_inst) else 0,
     });
 
@@ -13168,8 +13169,9 @@ fn resolveSwitchComptime(
                 const item_val = sema.resolveConstDefinedValue(child_block, .unneeded, item, undefined) catch unreachable;
                 if (next_dispatch_val.eql(item_val, operand_ty, sema.mod)) {
                     if (err_set) try sema.maybeErrorUnwrapComptime(child_block, body, cond_operand);
-                    const resolved = try spa.resolveProngComptime(
+                    switch (try spa.resolveProngComptime(
                         child_block,
+                        operand_ty,
                         .normal,
                         body,
                         info.capture,
@@ -13178,16 +13180,13 @@ fn resolveSwitchComptime(
                         if (info.is_inline) cond_operand else .none,
                         info.has_tag_capture,
                         merges,
-                    );
-                    if (try sema.resolveSwitchDispatchComptime(
-                        spa,
-                        child_block,
-                        operand_ty,
-                        resolved,
-                    )) |dispatched| {
-                        next_dispatch_val = dispatched;
-                        continue :dispatch;
-                    } else return resolved;
+                    )) {
+                        .is_comptime => |val| {
+                            next_dispatch_val = val;
+                            continue :dispatch;
+                        },
+                        else => |val| return val,
+                    }
                 }
             }
         }
@@ -13211,8 +13210,9 @@ fn resolveSwitchComptime(
                     const item_val = sema.resolveConstDefinedValue(child_block, .unneeded, item, undefined) catch unreachable;
                     if (next_dispatch_val.eql(item_val, operand_ty, sema.mod)) {
                         if (err_set) try sema.maybeErrorUnwrapComptime(child_block, body, cond_operand);
-                        const resolved = try spa.resolveProngComptime(
+                        switch (try spa.resolveProngComptime(
                             child_block,
+                            operand_ty,
                             .normal,
                             body,
                             info.capture,
@@ -13221,16 +13221,13 @@ fn resolveSwitchComptime(
                             if (info.is_inline) cond_operand else .none,
                             info.has_tag_capture,
                             merges,
-                        );
-                        if (try sema.resolveSwitchDispatchComptime(
-                            spa,
-                            child_block,
-                            operand_ty,
-                            resolved,
-                        )) |dispatched| {
-                            next_dispatch_val = dispatched;
-                            continue :dispatch;
-                        } else return resolved;
+                        )) {
+                            .is_comptime => |val| {
+                                next_dispatch_val = val;
+                                continue :dispatch;
+                            },
+                            else => |val| return val,
+                        }
                     }
                 }
 
@@ -13249,8 +13246,9 @@ fn resolveSwitchComptime(
                         (try sema.compareAll(resolved_operand_val, .lte, last_val, operand_ty)))
                     {
                         if (err_set) try sema.maybeErrorUnwrapComptime(child_block, body, cond_operand);
-                        const resolved = try spa.resolveProngComptime(
+                        switch (try spa.resolveProngComptime(
                             child_block,
+                            operand_ty,
                             .normal,
                             body,
                             info.capture,
@@ -13259,16 +13257,13 @@ fn resolveSwitchComptime(
                             if (info.is_inline) cond_operand else .none,
                             info.has_tag_capture,
                             merges,
-                        );
-                        if (try sema.resolveSwitchDispatchComptime(
-                            spa,
-                            child_block,
-                            operand_ty,
-                            resolved,
-                        )) |dispatched| {
-                            next_dispatch_val = dispatched;
-                            continue :dispatch;
-                        } else return resolved;
+                        )) {
+                            .is_comptime => |val| {
+                                next_dispatch_val = val;
+                                continue :dispatch;
+                            },
+                            else => |val| return val,
+                        }
                     }
                 }
 
@@ -13280,8 +13275,9 @@ fn resolveSwitchComptime(
             return .void_value;
         }
 
-        const resolved = try spa.resolveProngComptime(
+        switch (try spa.resolveProngComptime(
             child_block,
+            operand_ty,
             .special,
             special.body,
             special.capture,
@@ -13290,16 +13286,13 @@ fn resolveSwitchComptime(
             if (special.is_inline) cond_operand else .none,
             special.has_tag_capture,
             merges,
-        );
-        if (try sema.resolveSwitchDispatchComptime(
-            spa,
-            child_block,
-            operand_ty,
-            resolved,
-        )) |dispatched| {
-            next_dispatch_val = dispatched;
-            continue :dispatch;
-        } else return resolved;
+        )) {
+            .is_comptime => |val| {
+                next_dispatch_val = val;
+                continue :dispatch;
+            },
+            else => |val| return val,
+        }
     }
 }
 

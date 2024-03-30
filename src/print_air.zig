@@ -294,7 +294,7 @@ const Writer = struct {
 
             .aggregate_init => try w.writeAggregateInit(s, inst),
             .union_init => try w.writeUnionInit(s, inst),
-            .br, .switch_directbr, .switch_indirectbr => try w.writeBr(s, inst),
+            .br, .switch_dispatch => try w.writeBr(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
             .@"try" => try w.writeTry(s, inst),
             .try_ptr => try w.writeTryPtr(s, inst),

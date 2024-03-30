@@ -594,7 +594,7 @@ pub fn categorizeOperand(
             return .write;
         },
 
-        .br, .switch_directbr, .switch_indirectbr => {
+        .br, .switch_dispatch => {
             const br = air_datas[@intFromEnum(inst)].br;
             if (br.operand == operand_ref) return matchOperandSmallIndex(l, operand, 0, .noret);
             return .noret;
@@ -1199,7 +1199,7 @@ fn analyzeInst(
             return analyzeOperands(a, pass, data, inst, .{ pl_op.operand, extra.operand, .none });
         },
 
-        .br, .switch_directbr, .switch_indirectbr => return analyzeInstBr(a, pass, data, inst),
+        .br, .switch_dispatch => return analyzeInstBr(a, pass, data, inst),
 
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[@intFromEnum(inst)].ty_pl.payload);

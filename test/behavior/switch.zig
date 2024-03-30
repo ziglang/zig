@@ -958,3 +958,198 @@ test "block error return trace index is reset between prongs" {
     };
     try result;
 }
+
+test "comptime direct switch dispatch with numbers" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const val: u7 = 2;
+    const a = brk: switch (val) {
+        0, 1 => continue :brk 3,
+        2 => continue :brk 0,
+        3 => 4,
+        else => 5,
+    };
+
+    comptime {
+        try expectEqual(4, a);
+    }
+}
+
+test "runtime direct switch dispatch with numbers" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    var val: u7 = 2;
+    _ = &val;
+    const a = brk: switch (val) {
+        0, 1 => continue :brk 3,
+        2 => continue :brk 0,
+        3 => 4,
+        else => 5,
+    };
+    try expectEqual(4, a);
+}
+
+test "direct switch dispatch with enum" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const E = enum { a, b, c, d, e, f };
+    const e = E.f;
+
+    var val: u8 = 3;
+    val = brk: switch (e) {
+        .a, .b => continue :brk .d,
+        .c => break 2,
+        .d => continue :brk .c,
+        else => continue :brk .b,
+    };
+
+    try expectEqual(2, val);
+}
+
+test "comptime direct switch dispatch with tagged union" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const Val = union(enum) {
+        a: u8,
+        b: bool,
+        c: i32,
+    };
+
+    const val = Val{ .a = 3 };
+    const b = brk: switch (val) {
+        .a => |v| {
+            const c: i32 = @intCast(v);
+            continue :brk Val{ .c = c };
+        },
+        .b => |v| break :brk !v,
+        .c => |v| continue :brk Val{ .b = v < 4 },
+    };
+
+    comptime {
+        try expectEqual(false, b);
+    }
+}
+
+test "runtime direct switch dispatch with tagged union" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const Val = union(enum) {
+        a: u8,
+        b: bool,
+        c: i32,
+    };
+
+    var val = Val{ .a = 3 };
+    _ = &val;
+
+    const b = brk: switch (val) {
+        .a => |v| {
+            const c: i32 = @intCast(v);
+            continue :brk Val{ .c = c };
+        },
+        .b => |v| break :brk !v,
+        .c => |v| continue :brk Val{ .b = v < 4 },
+    };
+
+    try expectEqual(false, b);
+}
+
+test "runtime indirect switch dispatch with enum" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const E = enum { a, b, c, d, e, f, g };
+
+    var val: u8 = 3;
+    var list = [_]E{ .b, .c, .f, .a, .e, .d, .b, .a, .b, .g };
+    _ = &list;
+
+    // 3 -> 4 -> 6 -> 2 -> 4 -> 2 -> 1 -> 2 -> 4 -> 5
+
+    var i: usize = 0;
+    brk: switch (list[i]) {
+        .a => {
+            val *= 2;
+            i += 1;
+            continue :brk list[i];
+        },
+        .b, .c => |op| {
+            val += if (op == .b) 1 else 2;
+            i += 1;
+            continue :brk list[i];
+        },
+        .d => {
+            val -= 1;
+            i += 1;
+            continue :brk list[i];
+        },
+        else => |op| {
+            if (op == .g) break :brk;
+
+            val /= if (op == .e) 2 else 3;
+            i += 1;
+            continue :brk list[i];
+        },
+    }
+
+    try expectEqual(5, val);
+}
+
+test "runtime direct switch dispatch with referenced number" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    var val: u7 = 2;
+    _ = &val;
+    const a = brk: switch (val) {
+        0, 1 => |*v| {
+            try expectEqual(2, val);
+            v.* = 3;
+            try expectEqual(3, val);
+            continue :brk v.*;
+        },
+        2 => continue :brk 0,
+        3 => 4,
+        else => 5,
+    };
+    try expectEqual(4, a);
+}
+
+test "runtime direct switch dispatch with referenced tagged union" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const Val = union(enum) {
+        a: u8,
+        b: bool,
+        c: i32,
+    };
+
+    var val = Val{ .a = 3 };
+    _ = &val;
+
+    const b = brk: switch (val) {
+        .a => |v| {
+            const c: i32 = @intCast(v);
+            continue :brk Val{ .c = c };
+        },
+        .b => |*v| {
+            try expectEqual(true, v.*);
+            break :brk !v.*;
+        },
+        .c => |v| continue :brk Val{ .b = v < 4 },
+    };
+
+    try expectEqual(false, b);
+}
+
+test "direct switch dispatch with types" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest; // TODO
+
+    const val: type = u8;
+    const a = brk: switch (val) {
+        u8 => continue :brk u7,
+        bool => []i4,
+        u7 => continue :brk bool,
+        else => unreachable,
+    };
+
+    try expectEqual([]i4, a);
+}

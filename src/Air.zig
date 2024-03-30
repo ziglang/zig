@@ -283,14 +283,10 @@ pub const Inst = struct {
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `br` field.
         br,
-        /// Switch direct dispatch.
+        /// Switch dispatch.
         /// TODO: description
         /// Uses the `br` field.
-        switch_directbr,
-        /// Switch indirect dispatch.
-        /// TODO: description
-        /// Uses the `br` field.
-        switch_indirectbr,
+        switch_dispatch,
         /// Lowers to a trap/jam instruction causing program abortion.
         /// This may lower to an instruction known to be invalid.
         /// Sometimes, for the lack of a better instruction, `trap` and `breakpoint` may compile down to the same code.
@@ -1146,26 +1142,24 @@ pub const CondBr = struct {
 pub const SwitchBr = struct {
     cases_len: u32,
     else_body_len: u32,
-    /// 0b000000000000000000000000000000XX - dispatch_mode
-    /// 0bXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX00 - cardinal
-    flags: u32,
+    flags: Flags,
     block_inst: u32,
 
-    pub fn dispatchMode(self: SwitchBr) DispatchMode {
-        return @enumFromInt(@as(u2, @truncate(self.flags)));
-    }
-
-    pub fn cardinal(self: SwitchBr) u30 {
-        return @as(u30, @truncate(self.flags >> 2));
-    }
-
-    pub fn makeFlags(flags: Flags) u32 {
-        return @intFromEnum(flags.dispatch_mode) | @as(u32, flags.cardinal) << 2;
-    }
-
-    const Flags = struct {
+    const Flags = packed struct(u32) {
+        /// The number of values the `switch`'s operand type can represent and, consequently, the size of the dispatch table.
+        dispatch_table_len: u30,
         dispatch_mode: DispatchMode,
-        cardinal: u30,
+    };
+
+    const DispatchMode = packed struct(u2) {
+        /// Set if any dispatch instruction has a comptime known operand.
+        direct: bool,
+        /// Set if any dispatch instruction has a runtime known operand.
+        indirect: bool,
+
+        pub fn hasAnyDispatch(self: DispatchMode) bool {
+            return self.direct | self.indirect;
+        }
     };
 
     /// Trailing:
@@ -1174,25 +1168,6 @@ pub const SwitchBr = struct {
     pub const Case = struct {
         items_len: u32,
         body_len: u32,
-    };
-
-    pub const DispatchMode = enum(u2) {
-        none,
-        direct_only,
-        indirect_only,
-        both,
-
-        pub fn set(self: *DispatchMode, mode: DispatchMode) void {
-            self.* = @enumFromInt(@intFromEnum(self.*) | @intFromEnum(mode));
-        }
-
-        pub fn hasAnyDispatch(self: DispatchMode) bool {
-            return @intFromEnum(self) != 0;
-        }
-
-        pub fn hasIndirectDispatches(self: DispatchMode) bool {
-            return self == .indirect_only or self == .both;
-        }
     };
 };
 
@@ -1490,8 +1465,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .br,
         .cond_br,
         .switch_br,
-        .switch_directbr,
-        .switch_indirectbr,
+        .switch_dispatch,
         .ret,
         .ret_safe,
         .ret_load,
@@ -1654,8 +1628,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .call_never_inline,
         .cond_br,
         .switch_br,
-        .switch_directbr,
-        .switch_indirectbr,
+        .switch_dispatch,
         .@"try",
         .try_ptr,
         .dbg_stmt,
