@@ -734,6 +734,8 @@ pub const Info = union(enum) {
     aggregate: Aggregate,
     function: Function,
 
+    const Tag = @typeInfo(Info).Union.tag_type.?;
+
     pub const Pointer = struct {
         elem_ctype: CType,
         @"const": bool = false,
@@ -761,7 +763,7 @@ pub const Info = union(enum) {
         len: u64,
     };
 
-    pub const Tag = enum { @"enum", @"struct", @"union" };
+    pub const AggregateTag = enum { @"enum", @"struct", @"union" };
 
     pub const Field = struct {
         name: String,
@@ -820,7 +822,7 @@ pub const Info = union(enum) {
     };
 
     pub const FwdDecl = struct {
-        tag: Tag,
+        tag: AggregateTag,
         name: union(enum) {
             anon: Field.Slice,
             owner_decl: DeclIndex,
@@ -828,7 +830,7 @@ pub const Info = union(enum) {
     };
 
     pub const Aggregate = struct {
-        tag: Tag,
+        tag: AggregateTag,
         @"packed": bool = false,
         name: union(enum) {
             anon: struct {
@@ -853,9 +855,8 @@ pub const Info = union(enum) {
         rhs_pool: *const Pool,
         pool_adapter: anytype,
     ) bool {
-        const InfoTag = @typeInfo(Info).Union.tag_type.?;
         const rhs_info = rhs_ctype.info(rhs_pool);
-        if (@as(InfoTag, lhs_info) != @as(InfoTag, rhs_info)) return false;
+        if (@as(Info.Tag, lhs_info) != @as(Info.Tag, rhs_info)) return false;
         return switch (lhs_info) {
             .basic => |lhs_basic_info| lhs_basic_info == rhs_info.basic,
             .pointer => |lhs_pointer_info| lhs_pointer_info.@"const" == rhs_info.pointer.@"const" and
@@ -1012,7 +1013,7 @@ pub const Pool = struct {
         pool: *Pool,
         allocator: std.mem.Allocator,
         fwd_decl_info: struct {
-            tag: Info.Tag,
+            tag: Info.AggregateTag,
             name: union(enum) {
                 anon: []const Info.Field,
                 owner_decl: DeclIndex,
@@ -1070,7 +1071,7 @@ pub const Pool = struct {
         pool: *Pool,
         allocator: std.mem.Allocator,
         aggregate_info: struct {
-            tag: Info.Tag,
+            tag: Info.AggregateTag,
             @"packed": bool = false,
             name: union(enum) {
                 anon: struct {
@@ -1175,7 +1176,7 @@ pub const Pool = struct {
     pub fn fromFields(
         pool: *Pool,
         allocator: std.mem.Allocator,
-        tag: Info.Tag,
+        tag: Info.AggregateTag,
         fields: []Info.Field,
         kind: Kind,
     ) !CType {
@@ -1390,8 +1391,8 @@ pub const Pool = struct {
             else => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
-                    .One, .Many, .C => return pool.getPointer(allocator, .{
-                        .elem_ctype = elem_ctype: {
+                    .One, .Many, .C => {
+                        const elem_ctype = elem_ctype: {
                             if (ptr_info.packed_offset.host_size > 0 and
                                 ptr_info.flags.vector_index == .none)
                                 break :elem_ctype try pool.fromIntInfo(allocator, .{
@@ -1412,13 +1413,31 @@ pub const Pool = struct {
                                     .abi = Type.fromInterned(ptr_info.child).abiAlignment(zcu),
                                 }),
                             };
-                            if (elem.alignas.abiOrder().compare(.gte))
-                                break :elem_ctype elem.ctype;
-                            break :elem_ctype try pool.getAligned(allocator, elem);
-                        },
-                        .@"const" = ptr_info.flags.is_const,
-                        .@"volatile" = ptr_info.flags.is_volatile,
-                    }),
+                            break :elem_ctype if (elem.alignas.abiOrder().compare(.gte))
+                                elem.ctype
+                            else
+                                try pool.getAligned(allocator, elem);
+                        };
+                        const elem_tag: Info.Tag = switch (elem_ctype.info(pool)) {
+                            .aligned => |aligned_info| aligned_info.ctype.info(pool),
+                            else => |elem_tag| elem_tag,
+                        };
+                        return pool.getPointer(allocator, .{
+                            .elem_ctype = elem_ctype,
+                            .@"const" = switch (elem_tag) {
+                                .basic,
+                                .pointer,
+                                .aligned,
+                                .array,
+                                .vector,
+                                .fwd_decl,
+                                .aggregate,
+                                => ptr_info.flags.is_const,
+                                .function => false,
+                            },
+                            .@"volatile" = ptr_info.flags.is_volatile,
+                        });
+                    },
                     .Slice => {
                         const target = &mod.resolved_target.result;
                         var fields = [_]Info.Field{
@@ -1589,7 +1608,7 @@ pub const Pool = struct {
                                 loaded_struct.field_types.len * @typeInfo(Field).Struct.fields.len,
                             );
                             var hasher = Hasher.init;
-                            var tag: Tag = .aggregate_struct;
+                            var tag: Pool.Tag = .aggregate_struct;
                             var field_it = loaded_struct.iterateRuntimeOrder(ip);
                             while (field_it.next()) |field_index| {
                                 const field_type = Type.fromInterned(
@@ -1729,7 +1748,7 @@ pub const Pool = struct {
                                 loaded_union.field_types.len * @typeInfo(Field).Struct.fields.len,
                             );
                             var hasher = Hasher.init;
-                            var tag: Tag = .aggregate_union;
+                            var tag: Pool.Tag = .aggregate_union;
                             var payload_align: Alignment = .@"1";
                             for (0..loaded_union.field_types.len) |field_index| {
                                 const field_type = Type.fromInterned(
@@ -2093,7 +2112,7 @@ pub const Pool = struct {
             inline for (@typeInfo(Extra).Struct.fields) |field| {
                 const value = @field(extra, field.name);
                 hasher.update(switch (field.type) {
-                    Tag, String, CType => unreachable,
+                    Pool.Tag, String, CType => unreachable,
                     CType.Index => (CType{ .index = value }).hash(pool),
                     String.Index => (String{ .index = value }).slice(pool),
                     else => value,
@@ -2102,7 +2121,7 @@ pub const Pool = struct {
         }
         fn update(hasher: *Hasher, data: anytype) void {
             switch (@TypeOf(data)) {
-                Tag => @compileError("pass tag to final"),
+                Pool.Tag => @compileError("pass tag to final"),
                 CType, CType.Index => @compileError("hash ctype.hash(pool) instead"),
                 String, String.Index => @compileError("hash string.slice(pool) instead"),
                 u32, DeclIndex, Aligned.Flags => hasher.impl.update(std.mem.asBytes(&data)),
@@ -2111,7 +2130,7 @@ pub const Pool = struct {
             }
         }
 
-        fn final(hasher: Hasher, tag: Tag) Map.Hash {
+        fn final(hasher: Hasher, tag: Pool.Tag) Map.Hash {
             var impl = hasher.impl;
             impl.update(std.mem.asBytes(&tag));
             return @truncate(impl.final());
@@ -2122,11 +2141,11 @@ pub const Pool = struct {
         pool: *Pool,
         allocator: std.mem.Allocator,
         hasher: Hasher,
-        tag: Tag,
+        tag: Pool.Tag,
         data: u32,
     ) !CType {
         try pool.ensureUnusedCapacity(allocator, 1);
-        const Key = struct { hash: Map.Hash, tag: Tag, data: u32 };
+        const Key = struct { hash: Map.Hash, tag: Pool.Tag, data: u32 };
         const CTypeAdapter = struct {
             pool: *const Pool,
             pub fn hash(_: @This(), key: Key) Map.Hash {
@@ -2148,7 +2167,7 @@ pub const Pool = struct {
     fn tagExtra(
         pool: *Pool,
         allocator: std.mem.Allocator,
-        tag: Tag,
+        tag: Pool.Tag,
         comptime Extra: type,
         extra: Extra,
     ) !CType {
@@ -2166,7 +2185,7 @@ pub const Pool = struct {
         pool: *Pool,
         allocator: std.mem.Allocator,
         hasher: Hasher,
-        tag: Tag,
+        tag: Pool.Tag,
         extra_index: ExtraIndex,
     ) !CType {
         try pool.ensureUnusedCapacity(allocator, 1);
@@ -2176,10 +2195,10 @@ pub const Pool = struct {
     fn tagTrailingExtraAssumeCapacity(
         pool: *Pool,
         hasher: Hasher,
-        tag: Tag,
+        tag: Pool.Tag,
         extra_index: ExtraIndex,
     ) CType {
-        const Key = struct { hash: Map.Hash, tag: Tag, extra: []const u32 };
+        const Key = struct { hash: Map.Hash, tag: Pool.Tag, extra: []const u32 };
         const CTypeAdapter = struct {
             pool: *const Pool,
             pub fn hash(_: @This(), key: Key) Map.Hash {
@@ -2239,7 +2258,7 @@ pub const Pool = struct {
     }
 
     const Item = struct {
-        tag: Tag,
+        tag: Pool.Tag,
         data: u32,
     };
 

@@ -2475,14 +2475,20 @@ pub fn genTypeDecl(
         .basic, .pointer, .array, .vector, .function => {},
         .aligned => |aligned_info| {
             if (!found_existing) {
-                try writer.writeAll("typedef ");
-                try writer.print("{}", .{
-                    try renderTypePrefix(pass, global_ctype_pool, zcu, writer, aligned_info.ctype, .suffix, .{}),
-                });
-                try renderAlignedTypeName(writer, global_ctype);
-                try renderTypeSuffix(pass, global_ctype_pool, zcu, writer, aligned_info.ctype, .suffix, .{});
                 std.debug.assert(aligned_info.alignas.abiOrder().compare(.lt));
-                try writer.print(" zig_under_align({d});\n", .{aligned_info.alignas.toByteUnits()});
+                try writer.print("typedef zig_under_align({d}) ", .{aligned_info.alignas.toByteUnits()});
+                try writer.print("{}", .{try renderTypePrefix(
+                    .flush,
+                    global_ctype_pool,
+                    zcu,
+                    writer,
+                    aligned_info.ctype,
+                    .suffix,
+                    .{},
+                )});
+                try renderAlignedTypeName(writer, global_ctype);
+                try renderTypeSuffix(.flush, global_ctype_pool, zcu, writer, aligned_info.ctype, .suffix, .{});
+                try writer.writeAll(";\n");
             }
             switch (pass) {
                 .decl, .anon => {
@@ -5032,15 +5038,18 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
     const result = result: {
         const writer = f.object.writer();
         const inst_ty = f.typeOfIndex(inst);
-        const local = if (inst_ty.hasRuntimeBitsIgnoreComptime(zcu)) local: {
-            const local = try f.allocLocal(inst, inst_ty);
+        const inst_local = if (inst_ty.hasRuntimeBitsIgnoreComptime(zcu)) local: {
+            const inst_local = try f.allocLocalValue(.{
+                .ctype = try f.ctypeFromType(inst_ty, .complete),
+                .alignas = CType.AlignAs.fromAbiAlignment(inst_ty.abiAlignment(zcu)),
+            });
             if (f.wantSafety()) {
-                try f.writeCValue(writer, local, .Other);
+                try f.writeCValue(writer, inst_local, .Other);
                 try writer.writeAll(" = ");
                 try f.writeCValue(writer, .{ .undef = inst_ty }, .Other);
                 try writer.writeAll(";\n");
             }
-            break :local local;
+            break :local inst_local;
         } else .none;
 
         const locals_begin = @as(LocalIndex, @intCast(f.locals.items.len));
@@ -5063,9 +5072,12 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             if (is_reg) {
                 const output_ty = if (output == .none) inst_ty else f.typeOf(output).childType(zcu);
                 try writer.writeAll("register ");
-                const local_value = try f.allocLocal(inst, output_ty);
-                try f.allocs.put(gpa, local_value.new_local, false);
-                try f.object.dg.renderTypeAndName(writer, output_ty, local_value, .{}, .none, .complete);
+                const output_local = try f.allocLocalValue(.{
+                    .ctype = try f.ctypeFromType(output_ty, .complete),
+                    .alignas = CType.AlignAs.fromAbiAlignment(output_ty.abiAlignment(zcu)),
+                });
+                try f.allocs.put(gpa, output_local.new_local, false);
+                try f.object.dg.renderTypeAndName(writer, output_ty, output_local, .{}, .none, .complete);
                 try writer.writeAll(" __asm(\"");
                 try writer.writeAll(constraint["={".len .. constraint.len - "}".len]);
                 try writer.writeAll("\")");
@@ -5095,9 +5107,12 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             if (asmInputNeedsLocal(f, constraint, input_val)) {
                 const input_ty = f.typeOf(input);
                 if (is_reg) try writer.writeAll("register ");
-                const local_value = try f.allocLocal(inst, input_ty);
-                try f.allocs.put(gpa, local_value.new_local, false);
-                try f.object.dg.renderTypeAndName(writer, input_ty, local_value, Const, .none, .complete);
+                const input_local = try f.allocLocalValue(.{
+                    .ctype = try f.ctypeFromType(input_ty, .complete),
+                    .alignas = CType.AlignAs.fromAbiAlignment(input_ty.abiAlignment(zcu)),
+                });
+                try f.allocs.put(gpa, input_local.new_local, false);
+                try f.object.dg.renderTypeAndName(writer, input_ty, input_local, Const, .none, .complete);
                 if (is_reg) {
                     try writer.writeAll(" __asm(\"");
                     try writer.writeAll(constraint["{".len .. constraint.len - "}".len]);
@@ -5190,7 +5205,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.writeCValue(writer, .{ .local = locals_index }, .Other);
                 locals_index += 1;
             } else if (output == .none) {
-                try f.writeCValue(writer, local, .FunctionArgument);
+                try f.writeCValue(writer, inst_local, .FunctionArgument);
             } else {
                 try f.writeCValueDeref(writer, try f.resolveInst(output));
             }
@@ -5246,7 +5261,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             const is_reg = constraint[1] == '{';
             if (is_reg) {
                 try f.writeCValueDeref(writer, if (output == .none)
-                    .{ .local_ref = local.new_local }
+                    .{ .local_ref = inst_local.new_local }
                 else
                     try f.resolveInst(output));
                 try writer.writeAll(" = ");
@@ -5256,7 +5271,7 @@ fn airAsm(f: *Function, inst: Air.Inst.Index) !CValue {
             }
         }
 
-        break :result if (f.liveness.isUnused(inst)) .none else local;
+        break :result if (f.liveness.isUnused(inst)) .none else inst_local;
     };
 
     var bt = iterateBigTomb(f, inst);
@@ -6690,25 +6705,15 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
     try writeSliceOrPtr(f, writer, src_ptr, src_ty);
     try writer.writeAll(", ");
     switch (dest_ty.ptrSize(zcu)) {
-        .Slice => {
-            const elem_ty = dest_ty.childType(zcu);
-            const elem_abi_size = elem_ty.abiSize(zcu);
-            try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" });
-            if (elem_abi_size > 1) {
-                try writer.print(" * {d});\n", .{elem_abi_size});
-            } else {
-                try writer.writeAll(");\n");
-            }
-        },
-        .One => {
-            const array_ty = dest_ty.childType(zcu);
-            const elem_ty = array_ty.childType(zcu);
-            const elem_abi_size = elem_ty.abiSize(zcu);
-            const len = array_ty.arrayLen(zcu) * elem_abi_size;
-            try writer.print("{d});\n", .{len});
-        },
+        .One => try writer.print("{}", .{
+            try f.fmtIntLiteral(try zcu.intValue(Type.usize, dest_ty.childType(zcu).arrayLen(zcu))),
+        }),
         .Many, .C => unreachable,
+        .Slice => try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" }),
     }
+    try writer.writeAll(" * sizeof(");
+    try f.renderType(writer, dest_ty.elemType2(zcu));
+    try writer.writeAll("));\n");
 
     try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
     return .none;

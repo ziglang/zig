@@ -36125,7 +36125,7 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
         // alignment is greater.
         var size: u64 = 0;
         var padding: u32 = 0;
-        if (tag_align.compare(.gte, max_align)) {
+        if (tag_align.order(max_align).compare(.gte)) {
             // {Tag, Payload}
             size += tag_size;
             size = max_align.forward(size);
@@ -36136,7 +36136,10 @@ fn resolveUnionLayout(sema: *Sema, ty: Type) CompileError!void {
         } else {
             // {Payload, Tag}
             size += max_size;
-            size = tag_align.forward(size);
+            size = switch (mod.getTarget().ofmt) {
+                .c => max_align,
+                else => tag_align,
+            }.forward(size);
             size += tag_size;
             const prev_size = size;
             size = max_align.forward(size);

@@ -130,22 +130,18 @@ typedef char bool;
 #define zig_restrict
 #endif
 
-#if __STDC_VERSION__ >= 201112L
-#define zig_align(alignment) _Alignas(alignment)
-#elif zig_has_attribute(aligned)
-#define zig_align(alignment) __attribute__((aligned(alignment)))
-#elif _MSC_VER
-#define zig_align(alignment) __declspec(align(alignment))
-#else
-#define zig_align zig_align_unavailable
-#endif
-
 #if zig_has_attribute(aligned)
 #define zig_under_align(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
-#define zig_under_align(alignment) zig_align(alignment)
+#define zig_under_align(alignment) __declspec(align(alignment))
 #else
-#define zig_align zig_align_unavailable
+#define zig_under_align zig_align_unavailable
+#endif
+
+#if __STDC_VERSION__ >= 201112L
+#define zig_align(alignment) _Alignas(alignment)
+#else
+#define zig_align(alignment) zig_under_align(alignment)
 #endif
 
 #if zig_has_attribute(aligned)
