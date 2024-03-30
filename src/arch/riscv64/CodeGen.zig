@@ -4194,13 +4194,63 @@ fn airTagName(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
+    const mod = self.bin_file.comp.module.?;
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try self.resolveInst(un_op);
-    const result: MCValue = if (self.liveness.isUnused(inst)) .dead else {
-        _ = operand;
-        return self.fail("TODO implement airErrorName for riscv64", .{});
-    };
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
+
+    const err_ty = self.typeOf(un_op);
+    const err_mcv = try self.resolveInst(un_op);
+
+    const err_reg = try self.copyToTmpRegister(err_ty, err_mcv);
+    const err_lock = self.register_manager.lockRegAssumeUnused(err_reg);
+    defer self.register_manager.unlockReg(err_lock);
+
+    const addr_reg, const addr_lock = try self.allocReg();
+    defer self.register_manager.unlockReg(addr_lock);
+
+    const lazy_sym = link.File.LazySymbol.initDecl(.const_data, null, mod);
+    if (self.bin_file.cast(link.File.Elf)) |elf_file| {
+        const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, lazy_sym) catch |err|
+            return self.fail("{s} creating lazy symbol", .{@errorName(err)});
+        const sym = elf_file.symbol(sym_index);
+        try self.genSetReg(Type.usize, addr_reg, .{ .load_symbol = .{ .sym = sym.esym_index } });
+    } else {
+        return self.fail("TODO: riscv non-elf", .{});
+    }
+
+    const start_reg, const start_lock = try self.allocReg();
+    defer self.register_manager.unlockReg(start_lock);
+
+    const end_reg, const end_lock = try self.allocReg();
+    defer self.register_manager.unlockReg(end_lock);
+
+    _ = try self.addInst(.{
+        .tag = .slli,
+        .data = .{
+            .i_type = .{
+                .rd = err_reg,
+                .rs1 = err_reg,
+                .imm12 = 4,
+            },
+        },
+    });
+
+    try self.binOpMir(
+        .add,
+        null,
+        Type.usize,
+        .{ .register = err_reg },
+        .{ .register = addr_reg },
+    );
+
+    try self.genSetReg(Type.usize, start_reg, .{ .indirect = .{ .reg = err_reg } });
+    try self.genSetReg(Type.usize, end_reg, .{ .indirect = .{ .reg = err_reg, .off = 8 } });
+
+    const dst_mcv = try self.allocRegOrMem(inst, false);
+
+    try self.genSetStack(Type.usize, dst_mcv.stack_offset, .{ .register = start_reg });
+    try self.genSetStack(Type.usize, dst_mcv.stack_offset + 8, .{ .register = end_reg });
+
+    return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
 
 fn airSplat(self: *Self, inst: Air.Inst.Index) !void {
