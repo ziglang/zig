@@ -2150,13 +2150,13 @@ test "pathological packages" {
         // tar
         .{ .files = &.{ "build.zig", "build.zig.zon" } },
         .{ .files = &.{ "build.zig", "build.zig.zon", "main" } },
-        .{ .err_msg =
+        .{ .err_msg = 
         \\error: unable to unpack tarball
         \\    note: unable to create file 'main': PathAlreadyExists
         \\    note: unable to create file 'subdir/main': PathAlreadyExists
         \\
         },
-        .{ .err_msg =
+        .{ .err_msg = 
         \\error: unable to unpack tarball
         \\    note: unable to create symlink from 'link' to 'main': AccessDenied
         \\    note: unable to create symlink from 'subdir/link' to 'main': AccessDenied
@@ -2165,13 +2165,13 @@ test "pathological packages" {
         // git
         .{ .files = &.{ "build.zig", "build.zig.zon" } },
         .{ .files = &.{ "build.zig", "build.zig.zon", "main" } },
-        .{ .err_msg =
+        .{ .err_msg = 
         \\error: unable to unpack packfile
         \\    note: unable to create file 'main': PathAlreadyExists
         \\    note: unable to create file 'subdir/main': PathAlreadyExists
         \\
         },
-        .{ .err_msg =
+        .{ .err_msg = 
         \\error: unable to unpack packfile
         \\    note: unable to create symlink from 'link' to 'main': AccessDenied
         \\    note: unable to create symlink from 'subdir/link' to 'main': AccessDenied
