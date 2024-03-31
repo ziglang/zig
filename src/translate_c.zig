@@ -3097,6 +3097,8 @@ fn transIfStmt(
 
     var if_vars: std.ArrayListUnmanaged([]const u8) = .{};
     defer if_vars.deinit(c.gpa);
+    var else_vars: std.ArrayListUnmanaged([]const u8) = .{};
+    defer else_vars.deinit(c.gpa);
 
     // while_block_and_vars: non-null if a loop is required
     var while_block_and_vars: ?struct {
@@ -3116,6 +3118,7 @@ fn transIfStmt(
             if (transformation.inner_stmt == then_stmt) {
                 try if_vars.append(c.gpa, transformation.variable);
             } else {
+                try else_vars.append(c.gpa, transformation.variable);
                 assert(transformation.inner_stmt == else_stmt);
             }
 
@@ -3152,6 +3155,13 @@ fn transIfStmt(
     for (if_vars.items) |variable| {
         cond = try Tag.@"or".create(c.arena, .{
             .lhs = try Tag.identifier.create(c.arena, variable),
+            .rhs = cond,
+        });
+    }
+
+    for (else_vars.items) |variable| {
+        cond = try Tag.@"and".create(c.arena, .{
+            .lhs = try Tag.not.create(c.arena, try Tag.identifier.create(c.arena, variable)),
             .rhs = cond,
         });
     }
