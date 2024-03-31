@@ -4230,3 +4230,25 @@ fn expect_buf_grp_cqe(
 
     return cqe;
 }
+
+test "failing test for issue 19451" {
+    var ring = try IoUring.init(2, 0);
+    defer ring.deinit();
+
+    try testing.expectEqual(2, ring.sq.sqes.len);
+    try testing.expectEqual(4, ring.cq.cqes.len);
+
+    for (0..4) |i| {
+        const sqe = try ring.get_sqe();
+        sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+        sqe.user_data = i;
+        _ = try ring.submit();
+    }
+
+    var cqe_count: u32 = 0;
+    while (cqe_count < 4) {
+        var cqes: [8]linux.io_uring_cqe = undefined;
+        cqe_count += try ring.copy_cqes(&cqes, 4 - cqe_count);
+    }
+    try testing.expectEqual(4, cqe_count);
+}
