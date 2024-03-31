@@ -5606,9 +5606,19 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@round#}
       <pre>{#syntax#}@round(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Rounds the given floating point number to an integer, away from zero. Uses a dedicated hardware instruction
-      when available.
+      Rounds the given floating point number to the nearest integer. If two integers are equally close, round away from zero.
+      Uses a dedicated hardware instruction when available.
       </p>
+      {#code_begin|test|test_round_builtin#}
+const expect = @import("std").testing.expect;
+
+test "@round" {
+    try expect(@round(1.4) == 1);
+    try expect(@round(1.5) == 2);
+    try expect(@round(-1.4) == -1);
+    try expect(@round(-2.5) == -3);
+}
+      {#code_end#}
       <p>
       Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>
