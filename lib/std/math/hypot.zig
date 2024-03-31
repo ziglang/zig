@@ -40,8 +40,8 @@ pub fn hypot(x: anytype, y: anytype) Hypot(@TypeOf(x, y)) {
     var minor: T = y;
     if (isInf(major) or isInf(minor)) return inf(T);
     if (isNan(major) or isNan(minor)) return nan(T);
-    if (T == f16) return @floatCast(@sqrt(@mulAdd(f32, x, x, @mulAdd(f32, y, y, 0))));
-    if (T == f32) return @floatCast(@sqrt(@mulAdd(f64, x, x, @mulAdd(f64, y, y, 0))));
+    if (T == f16) return @floatCast(@sqrt(@mulAdd(f32, x, x, @as(f32, y) * y)));
+    if (T == f32) return @floatCast(@sqrt(@mulAdd(f64, x, x, @as(f64, y) * y)));
     major = @abs(major);
     minor = @abs(minor);
     if (minor > major) {
