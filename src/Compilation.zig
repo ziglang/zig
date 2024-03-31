@@ -3451,19 +3451,24 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
 
                     var dg: c_codegen.DeclGen = .{
                         .gpa = gpa,
-                        .module = module,
+                        .zcu = module,
+                        .mod = module.namespacePtr(decl.src_namespace).file_scope.mod,
                         .error_msg = null,
                         .pass = .{ .decl = decl_index },
                         .is_naked_fn = false,
                         .fwd_decl = fwd_decl.toManaged(gpa),
-                        .ctypes = .{},
+                        .ctype_pool = c_codegen.CType.Pool.empty,
+                        .scratch = .{},
                         .anon_decl_deps = .{},
                         .aligned_anon_decls = .{},
                     };
                     defer {
-                        dg.ctypes.deinit(gpa);
-                        dg.fwd_decl.deinit();
+                        fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
+                        fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
+                        dg.ctype_pool.deinit(gpa);
+                        dg.scratch.deinit(gpa);
                     }
+                    try dg.ctype_pool.init(gpa);
 
                     c_codegen.genHeader(&dg) catch |err| switch (err) {
                         error.AnalysisFail => {
@@ -3472,9 +3477,6 @@ fn processOneJob(comp: *Compilation, job: Job, prog_node: *std.Progress.Node) !v
                         },
                         else => |e| return e,
                     };
-
-                    fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
-                    fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
                 },
             }
         },

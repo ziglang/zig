@@ -1062,8 +1062,8 @@ pub fn getUninstallStep(self: *Build) *Step {
 
 fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!void {
     _ = prog_node;
-    const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
-    const self = @fieldParentPtr(Build, "uninstall_tls", uninstall_tls);
+    const uninstall_tls: *TopLevelStep = @fieldParentPtr("step", uninstall_step);
+    const self: *Build = @fieldParentPtr("uninstall_tls", uninstall_tls);
 
     for (self.installed_files.items) |installed_file| {
         const full_path = self.getInstallPath(installed_file.dir, installed_file.path);

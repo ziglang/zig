@@ -1164,19 +1164,26 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             compile_c.addCSourceFile(.{
                 .file = these_tests.getEmittedBin(),
                 .flags = &.{
-                    // TODO output -std=c89 compatible C code
+                    // Tracking issue for making the C backend generate C89 compatible code:
+                    // https://github.com/ziglang/zig/issues/19468
                     "-std=c99",
                     "-pedantic",
                     "-Werror",
-                    // TODO stop violating these pedantic errors. spotted everywhere
+
+                    // Tracking issue for making the C backend generate code
+                    // that does not trigger warnings:
+                    // https://github.com/ziglang/zig/issues/19467
+
+                    // spotted everywhere
                     "-Wno-builtin-requires-header",
-                    // TODO stop violating these pedantic errors. spotted on linux
-                    "-Wno-address-of-packed-member",
+
+                    // spotted on linux
                     "-Wno-gnu-folding-constant",
                     "-Wno-incompatible-function-pointer-types",
                     "-Wno-incompatible-pointer-types",
                     "-Wno-overlength-strings",
-                    // TODO stop violating these pedantic errors. spotted on darwin
+
+                    // spotted on darwin
                     "-Wno-dollar-in-identifier-extension",
                     "-Wno-absolute-value",
                 },

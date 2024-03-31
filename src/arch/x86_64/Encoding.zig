@@ -848,9 +848,8 @@ const mnemonic_to_encodings_map = init: {
     const final_storage = data_storage;
     var final_map: [mnemonic_count][]const Data = .{&.{}} ** mnemonic_count;
     storage_i = 0;
-    for (&final_map, mnemonic_map) |*value, wip_value| {
-        value.ptr = final_storage[storage_i..].ptr;
-        value.len = wip_value.len;
+    for (&final_map, mnemonic_map) |*final_value, value| {
+        final_value.* = final_storage[storage_i..][0..value.len];
         storage_i += value.len;
     }
     break :init final_map;

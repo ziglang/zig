@@ -380,7 +380,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         if (atoms.items.len == 0) continue;
         for (atoms.items) |atom_index| {
             const atom = macho_file.getAtom(atom_index).?;
-            const atom_alignment = atom.alignment.toByteUnits(1);
+            const atom_alignment = atom.alignment.toByteUnits() orelse 1;
             const offset = mem.alignForward(u64, header.size, atom_alignment);
             const padding = offset - header.size;
             atom.value = offset;

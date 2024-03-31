@@ -415,7 +415,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
 
     const b = step.owner;
-    const self = @fieldParentPtr(Options, "step", step);
+    const self: *Options = @fieldParentPtr("step", step);
 
     for (self.args.items) |item| {
         self.addOption(

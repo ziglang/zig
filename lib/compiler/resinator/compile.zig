@@ -229,34 +229,34 @@ pub const Compiler = struct {
     pub fn writeNode(self: *Compiler, node: *Node, writer: anytype) !void {
         switch (node.id) {
             .root => unreachable, // writeRoot should be called directly instead
-            .resource_external => try self.writeResourceExternal(@fieldParentPtr(Node.ResourceExternal, "base", node), writer),
-            .resource_raw_data => try self.writeResourceRawData(@fieldParentPtr(Node.ResourceRawData, "base", node), writer),
+            .resource_external => try self.writeResourceExternal(@alignCast(@fieldParentPtr("base", node)), writer),
+            .resource_raw_data => try self.writeResourceRawData(@alignCast(@fieldParentPtr("base", node)), writer),
             .literal => unreachable, // this is context dependent and should be handled by its parent
             .binary_expression => unreachable,
             .grouped_expression => unreachable,
             .not_expression => unreachable,
             .invalid => {}, // no-op, currently only used for dangling literals at EOF
-            .accelerators => try self.writeAccelerators(@fieldParentPtr(Node.Accelerators, "base", node), writer),
+            .accelerators => try self.writeAccelerators(@alignCast(@fieldParentPtr("base", node)), writer),
             .accelerator => unreachable, // handled by writeAccelerators
-            .dialog => try self.writeDialog(@fieldParentPtr(Node.Dialog, "base", node), writer),
+            .dialog => try self.writeDialog(@alignCast(@fieldParentPtr("base", node)), writer),
             .control_statement => unreachable,
-            .toolbar => try self.writeToolbar(@fieldParentPtr(Node.Toolbar, "base", node), writer),
-            .menu => try self.writeMenu(@fieldParentPtr(Node.Menu, "base", node), writer),
+            .toolbar => try self.writeToolbar(@alignCast(@fieldParentPtr("base", node)), writer),
+            .menu => try self.writeMenu(@alignCast(@fieldParentPtr("base", node)), writer),
             .menu_item => unreachable,
             .menu_item_separator => unreachable,
             .menu_item_ex => unreachable,
             .popup => unreachable,
             .popup_ex => unreachable,
-            .version_info => try self.writeVersionInfo(@fieldParentPtr(Node.VersionInfo, "base", node), writer),
+            .version_info => try self.writeVersionInfo(@alignCast(@fieldParentPtr("base", node)), writer),
             .version_statement => unreachable,
             .block => unreachable,
             .block_value => unreachable,
             .block_value_value => unreachable,
-            .string_table => try self.writeStringTable(@fieldParentPtr(Node.StringTable, "base", node)),
+            .string_table => try self.writeStringTable(@alignCast(@fieldParentPtr("base", node))),
             .string_table_string => unreachable, // handled by writeStringTable
-            .language_statement => self.writeLanguageStatement(@fieldParentPtr(Node.LanguageStatement, "base", node)),
+            .language_statement => self.writeLanguageStatement(@alignCast(@fieldParentPtr("base", node))),
             .font_statement => unreachable,
-            .simple_statement => self.writeTopLevelSimpleStatement(@fieldParentPtr(Node.SimpleStatement, "base", node)),
+            .simple_statement => self.writeTopLevelSimpleStatement(@alignCast(@fieldParentPtr("base", node))),
         }
     }
 
@@ -1289,7 +1289,7 @@ pub const Compiler = struct {
             return evaluateNumberExpression(node, self.source, self.input_code_pages).asWord();
         } else {
             std.debug.assert(node.isStringLiteral());
-            const literal = @fieldParentPtr(Node.Literal, "base", node);
+            const literal: *Node.Literal = @alignCast(@fieldParentPtr("base", node));
             const bytes = SourceBytes{
                 .slice = literal.token.slice(self.source),
                 .code_page = self.input_code_pages.getForToken(literal.token),
@@ -1342,7 +1342,7 @@ pub const Compiler = struct {
     /// the writer within this function could return error.NoSpaceLeft
     pub fn writeAcceleratorsData(self: *Compiler, node: *Node.Accelerators, data_writer: anytype) !void {
         for (node.accelerators, 0..) |accel_node, i| {
-            const accelerator = @fieldParentPtr(Node.Accelerator, "base", accel_node);
+            const accelerator: *Node.Accelerator = @alignCast(@fieldParentPtr("base", accel_node));
             var modifiers = res.AcceleratorModifiers{};
             for (accelerator.type_and_options) |type_or_option| {
                 const modifier = rc.AcceleratorTypeAndOptions.map.get(type_or_option.slice(self.source)).?;
@@ -1426,7 +1426,7 @@ pub const Compiler = struct {
         for (node.optional_statements) |optional_statement| {
             switch (optional_statement.id) {
                 .simple_statement => {
-                    const simple_statement = @fieldParentPtr(Node.SimpleStatement, "base", optional_statement);
+                    const simple_statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", optional_statement));
                     const statement_identifier = simple_statement.identifier;
                     const statement_type = rc.OptionalStatements.dialog_map.get(statement_identifier.slice(self.source)) orelse continue;
                     switch (statement_type) {
@@ -1440,7 +1440,7 @@ pub const Compiler = struct {
                         },
                         .caption => {
                             std.debug.assert(simple_statement.value.id == .literal);
-                            const literal_node = @fieldParentPtr(Node.Literal, "base", simple_statement.value);
+                            const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", simple_statement.value));
                             optional_statement_values.caption = literal_node.token;
                         },
                         .class => {
@@ -1466,7 +1466,7 @@ pub const Compiler = struct {
                                 optional_statement_values.class = NameOrOrdinal{ .ordinal = class_ordinal.asWord() };
                             } else {
                                 std.debug.assert(simple_statement.value.isStringLiteral());
-                                const literal_node = @fieldParentPtr(Node.Literal, "base", simple_statement.value);
+                                const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", simple_statement.value));
                                 const parsed = try self.parseQuotedStringAsWideString(literal_node.token);
                                 optional_statement_values.class = NameOrOrdinal{ .name = parsed };
                             }
@@ -1492,7 +1492,7 @@ pub const Compiler = struct {
                             }
 
                             std.debug.assert(simple_statement.value.id == .literal);
-                            const literal_node = @fieldParentPtr(Node.Literal, "base", simple_statement.value);
+                            const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", simple_statement.value));
 
                             const token_slice = literal_node.token.slice(self.source);
                             const bytes = SourceBytes{
@@ -1542,7 +1542,7 @@ pub const Compiler = struct {
                     }
                 },
                 .font_statement => {
-                    const font = @fieldParentPtr(Node.FontStatement, "base", optional_statement);
+                    const font: *Node.FontStatement = @alignCast(@fieldParentPtr("base", optional_statement));
                     if (optional_statement_values.font != null) {
                         optional_statement_values.font.?.node = font;
                     } else {
@@ -1581,7 +1581,7 @@ pub const Compiler = struct {
         // Multiple CLASS parameters are specified and any of them are treated as a number, then
         // the last CLASS is always treated as a number no matter what
         if (last_class_would_be_forced_ordinal and optional_statement_values.class.? == .name) {
-            const literal_node = @fieldParentPtr(Node.Literal, "base", last_class.value);
+            const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", last_class.value));
             const ordinal_value = res.ForcedOrdinal.fromUtf16Le(optional_statement_values.class.?.name);
 
             try self.addErrorDetails(.{
@@ -1611,7 +1611,7 @@ pub const Compiler = struct {
         // 2. Multiple MENU parameters are specified and any of them are treated as a number, then
         //    the last MENU is always treated as a number no matter what
         if ((last_menu_would_be_forced_ordinal or last_menu_has_digit_as_first_char) and optional_statement_values.menu.? == .name) {
-            const literal_node = @fieldParentPtr(Node.Literal, "base", last_menu.value);
+            const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", last_menu.value));
             const token_slice = literal_node.token.slice(self.source);
             const bytes = SourceBytes{
                 .slice = token_slice,
@@ -1658,7 +1658,7 @@ pub const Compiler = struct {
         // between resinator and the Win32 RC compiler, we only emit a hint instead of
         // a warning.
         if (last_menu_did_uppercase) {
-            const literal_node = @fieldParentPtr(Node.Literal, "base", last_menu.value);
+            const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", last_menu.value));
             try self.addErrorDetails(.{
                 .err = .dialog_menu_id_was_uppercased,
                 .type = .hint,
@@ -1704,7 +1704,7 @@ pub const Compiler = struct {
         defer controls_by_id.deinit();
 
         for (node.controls) |control_node| {
-            const control = @fieldParentPtr(Node.ControlStatement, "base", control_node);
+            const control: *Node.ControlStatement = @alignCast(@fieldParentPtr("base", control_node));
 
             self.writeDialogControl(
                 control,
@@ -1940,7 +1940,7 @@ pub const Compiler = struct {
                 // And then write out the ordinal using a proper a NameOrOrdinal encoding.
                 try ordinal.write(data_writer);
             } else if (class_node.isStringLiteral()) {
-                const literal_node = @fieldParentPtr(Node.Literal, "base", class_node);
+                const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", class_node));
                 const parsed = try self.parseQuotedStringAsWideString(literal_node.token);
                 defer self.allocator.free(parsed);
                 if (rc.ControlClass.fromWideString(parsed)) |control_class| {
@@ -1955,7 +1955,7 @@ pub const Compiler = struct {
                     try name.write(data_writer);
                 }
             } else {
-                const literal_node = @fieldParentPtr(Node.Literal, "base", class_node);
+                const literal_node: *Node.Literal = @alignCast(@fieldParentPtr("base", class_node));
                 const literal_slice = literal_node.token.slice(self.source);
                 // This succeeding is guaranteed by the parser
                 const control_class = rc.ControlClass.map.get(literal_slice) orelse unreachable;
@@ -2178,7 +2178,7 @@ pub const Compiler = struct {
                 try writer.writeInt(u16, 0, .little); // null-terminated UTF-16 text
             },
             .menu_item => {
-                const menu_item = @fieldParentPtr(Node.MenuItem, "base", node);
+                const menu_item: *Node.MenuItem = @alignCast(@fieldParentPtr("base", node));
                 var flags = res.MenuItemFlags{};
                 for (menu_item.option_list) |option_token| {
                     // This failing would be a bug in the parser
@@ -2196,7 +2196,7 @@ pub const Compiler = struct {
                 try writer.writeAll(std.mem.sliceAsBytes(text[0 .. text.len + 1]));
             },
             .popup => {
-                const popup = @fieldParentPtr(Node.Popup, "base", node);
+                const popup: *Node.Popup = @alignCast(@fieldParentPtr("base", node));
                 var flags = res.MenuItemFlags{ .value = res.MF.POPUP };
                 for (popup.option_list) |option_token| {
                     // This failing would be a bug in the parser
@@ -2216,7 +2216,7 @@ pub const Compiler = struct {
                 }
             },
             inline .menu_item_ex, .popup_ex => |node_type| {
-                const menu_item = @fieldParentPtr(node_type.Type(), "base", node);
+                const menu_item: *node_type.Type() = @alignCast(@fieldParentPtr("base", node));
 
                 if (menu_item.type) |flags| {
                     const value = evaluateNumberExpression(flags, self.source, self.input_code_pages);
@@ -2295,7 +2295,7 @@ pub const Compiler = struct {
         for (node.fixed_info) |fixed_info| {
             switch (fixed_info.id) {
                 .version_statement => {
-                    const version_statement = @fieldParentPtr(Node.VersionStatement, "base", fixed_info);
+                    const version_statement: *Node.VersionStatement = @alignCast(@fieldParentPtr("base", fixed_info));
                     const version_type = rc.VersionInfo.map.get(version_statement.type.slice(self.source)).?;
 
                     // Ensure that all parts are cleared for each version, to properly account for
@@ -2345,7 +2345,7 @@ pub const Compiler = struct {
                     }
                 },
                 .simple_statement => {
-                    const statement = @fieldParentPtr(Node.SimpleStatement, "base", fixed_info);
+                    const statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", fixed_info));
                     const statement_type = rc.VersionInfo.map.get(statement.identifier.slice(self.source)).?;
                     const value = evaluateNumberExpression(statement.value, self.source, self.input_code_pages);
                     switch (statement_type) {
@@ -2416,7 +2416,7 @@ pub const Compiler = struct {
 
         switch (node.id) {
             inline .block, .block_value => |node_type| {
-                const block_or_value = @fieldParentPtr(node_type.Type(), "base", node);
+                const block_or_value: *node_type.Type() = @alignCast(@fieldParentPtr("base", node));
                 const parsed_key = try self.parseQuotedStringAsWideString(block_or_value.key);
                 defer self.allocator.free(parsed_key);
 
@@ -2506,7 +2506,7 @@ pub const Compiler = struct {
         const language = getLanguageFromOptionalStatements(node.optional_statements, self.source, self.input_code_pages) orelse self.state.language;
 
         for (node.strings) |string_node| {
-            const string = @fieldParentPtr(Node.StringTableString, "base", string_node);
+            const string: *Node.StringTableString = @alignCast(@fieldParentPtr("base", string_node));
             const string_id_data = try self.evaluateDataExpression(string.id);
             const string_id = string_id_data.number.asWord();
 
@@ -2795,11 +2795,11 @@ pub const Compiler = struct {
     fn applyToOptionalStatements(language: *res.Language, version: *u32, characteristics: *u32, statements: []*Node, source: []const u8, code_page_lookup: *const CodePageLookup) void {
         for (statements) |node| switch (node.id) {
             .language_statement => {
-                const language_statement = @fieldParentPtr(Node.LanguageStatement, "base", node);
+                const language_statement: *Node.LanguageStatement = @alignCast(@fieldParentPtr("base", node));
                 language.* = languageFromLanguageStatement(language_statement, source, code_page_lookup);
             },
             .simple_statement => {
-                const simple_statement = @fieldParentPtr(Node.SimpleStatement, "base", node);
+                const simple_statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", node));
                 const statement_type = rc.OptionalStatements.map.get(simple_statement.identifier.slice(source)) orelse continue;
                 const result = Compiler.evaluateNumberExpression(simple_statement.value, source, code_page_lookup);
                 switch (statement_type) {
@@ -2824,7 +2824,7 @@ pub const Compiler = struct {
     pub fn getLanguageFromOptionalStatements(statements: []*Node, source: []const u8, code_page_lookup: *const CodePageLookup) ?res.Language {
         for (statements) |node| switch (node.id) {
             .language_statement => {
-                const language_statement = @fieldParentPtr(Node.LanguageStatement, "base", node);
+                const language_statement: *Node.LanguageStatement = @alignCast(@fieldParentPtr("base", node));
                 return languageFromLanguageStatement(language_statement, source, code_page_lookup);
             },
             else => continue,

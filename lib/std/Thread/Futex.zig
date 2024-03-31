@@ -644,7 +644,7 @@ const PosixImpl = struct {
             };
 
             // There's a wait queue on the address; get the queue head and tail.
-            const head = @fieldParentPtr(Waiter, "node", entry_node);
+            const head: *Waiter = @fieldParentPtr("node", entry_node);
             const tail = head.tail orelse unreachable;
 
             // Push the waiter to the tail by replacing it and linking to the previous tail.
@@ -656,7 +656,7 @@ const PosixImpl = struct {
         fn remove(treap: *Treap, address: usize, max_waiters: usize) WaitList {
             // Find the wait queue associated with this address and get the head/tail if any.
             var entry = treap.getEntryFor(address);
-            var queue_head = if (entry.node) |node| @fieldParentPtr(Waiter, "node", node) else null;
+            var queue_head: ?*Waiter = if (entry.node) |node| @fieldParentPtr("node", node) else null;
             const queue_tail = if (queue_head) |head| head.tail else null;
 
             // Once we're done updating the head, fix it's tail pointer and update the treap's queue head as well.
@@ -699,7 +699,7 @@ const PosixImpl = struct {
                 };
 
                 // The queue head and tail must exist if we're removing a queued waiter.
-                const head = @fieldParentPtr(Waiter, "node", entry.node orelse unreachable);
+                const head: *Waiter = @fieldParentPtr("node", entry.node orelse unreachable);
                 const tail = head.tail orelse unreachable;
 
                 // A waiter with a previous link is never the head of the queue.

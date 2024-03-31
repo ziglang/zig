@@ -889,7 +889,7 @@ pub const Parser = struct {
         if (control == .control) {
             class = try self.parseExpression(.{});
             if (class.?.id == .literal) {
-                const class_literal = @fieldParentPtr(Node.Literal, "base", class.?);
+                const class_literal: *Node.Literal = @alignCast(@fieldParentPtr("base", class.?));
                 const is_invalid_control_class = class_literal.token.id == .literal and !rc.ControlClass.map.has(class_literal.token.slice(self.lexer.buffer));
                 if (is_invalid_control_class) {
                     return self.addErrorDetailsAndFail(.{

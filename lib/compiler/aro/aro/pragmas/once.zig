@@ -27,18 +27,18 @@ pub fn init(allocator: mem.Allocator) !*Pragma {
 }
 
 fn afterParse(pragma: *Pragma, _: *Compilation) void {
-    var self = @fieldParentPtr(Once, "pragma", pragma);
+    var self: *Once = @fieldParentPtr("pragma", pragma);
     self.pragma_once.clearRetainingCapacity();
 }
 
 fn deinit(pragma: *Pragma, comp: *Compilation) void {
-    var self = @fieldParentPtr(Once, "pragma", pragma);
+    var self: *Once = @fieldParentPtr("pragma", pragma);
     self.pragma_once.deinit();
     comp.gpa.destroy(self);
 }
 
 fn preprocessorHandler(pragma: *Pragma, pp: *Preprocessor, start_idx: TokenIndex) Pragma.Error!void {
-    var self = @fieldParentPtr(Once, "pragma", pragma);
+    var self: *Once = @fieldParentPtr("pragma", pragma);
     const name_tok = pp.tokens.get(start_idx);
     const next = pp.tokens.get(start_idx + 1);
     if (next.id != .nl) {

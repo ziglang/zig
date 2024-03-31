@@ -167,7 +167,7 @@ fn putValue(self: *ConfigHeader, field_name: []const u8, comptime T: type, v: T)
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
-    const self = @fieldParentPtr(ConfigHeader, "step", step);
+    const self: *ConfigHeader = @fieldParentPtr("step", step);
     const gpa = b.allocator;
     const arena = b.allocator;
 

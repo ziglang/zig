@@ -16,9 +16,7 @@ pub fn build(b: *std.Build) !void {
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;
     const target = t: {
         var default_target: std.zig.CrossTarget = .{};
-        if (only_c) {
-            default_target.ofmt = .c;
-        }
+        default_target.ofmt = b.option(std.Target.ObjectFormat, "ofmt", "Object format to target") orelse if (only_c) .c else null;
         break :t b.standardTargetOptions(.{ .default_target = default_target });
     };
 

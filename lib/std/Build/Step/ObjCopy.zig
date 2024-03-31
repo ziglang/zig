@@ -92,7 +92,7 @@ pub fn getOutputSeparatedDebug(self: *const ObjCopy) ?std.Build.LazyPath {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
-    const self = @fieldParentPtr(ObjCopy, "step", step);
+    const self: *ObjCopy = @fieldParentPtr("step", step);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();

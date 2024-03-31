@@ -414,7 +414,7 @@ pub const Macros = struct {
     }
 
     pub fn WL_CONTAINER_OF(ptr: anytype, sample: anytype, comptime member: []const u8) @TypeOf(sample) {
-        return @fieldParentPtr(@TypeOf(sample.*), member, ptr);
+        return @fieldParentPtr(member, ptr);
     }
 
     /// A 2-argument function-like macro defined as #define FOO(A, B) (A)(B)

@@ -222,7 +222,7 @@ test "fieldParentPtr of tuple" {
     var x: u32 = 0;
     _ = &x;
     const tuple = .{ x, x };
-    try testing.expect(&tuple == @fieldParentPtr(@TypeOf(tuple), "1", &tuple[1]));
+    try testing.expect(&tuple == @as(@TypeOf(&tuple), @fieldParentPtr("1", &tuple[1])));
 }
 
 test "fieldParentPtr of anon struct" {
@@ -233,7 +233,7 @@ test "fieldParentPtr of anon struct" {
     var x: u32 = 0;
     _ = &x;
     const anon_st = .{ .foo = x, .bar = x };
-    try testing.expect(&anon_st == @fieldParentPtr(@TypeOf(anon_st), "bar", &anon_st.bar));
+    try testing.expect(&anon_st == @as(@TypeOf(&anon_st), @fieldParentPtr("bar", &anon_st.bar)));
 }
 
 test "offsetOf tuple" {

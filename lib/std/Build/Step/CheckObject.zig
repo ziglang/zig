@@ -530,7 +530,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const gpa = b.allocator;
-    const self = @fieldParentPtr(CheckObject, "step", step);
+    const self: *CheckObject = @fieldParentPtr("step", step);
 
     const src_path = self.source.getPath(b);
     const contents = fs.cwd().readFileAllocOptions(

@@ -3544,11 +3544,7 @@ fn createModule(
         // If the target is not overridden, use the parent's target. Of course,
         // if this is the root module then we need to proceed to resolve the
         // target.
-        if (cli_mod.target_arch_os_abi == null and
-            cli_mod.target_mcpu == null and
-            create_module.dynamic_linker == null and
-            create_module.object_format == null)
-        {
+        if (cli_mod.target_arch_os_abi == null and cli_mod.target_mcpu == null) {
             if (parent) |p| break :t p.resolved_target;
         }
 

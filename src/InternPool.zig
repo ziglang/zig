@@ -712,7 +712,7 @@ pub const Key = union(enum) {
         pub fn fieldName(
             self: AnonStructType,
             ip: *const InternPool,
-            index: u32,
+            index: usize,
         ) OptionalNullTerminatedString {
             if (self.names.len == 0)
                 return .none;
@@ -3879,16 +3879,9 @@ pub const Alignment = enum(u6) {
     none = std.math.maxInt(u6),
     _,
 
-    pub fn toByteUnitsOptional(a: Alignment) ?u64 {
+    pub fn toByteUnits(a: Alignment) ?u64 {
         return switch (a) {
             .none => null,
-            else => @as(u64, 1) << @intFromEnum(a),
-        };
-    }
-
-    pub fn toByteUnits(a: Alignment, default: u64) u64 {
-        return switch (a) {
-            .none => default,
             else => @as(u64, 1) << @intFromEnum(a),
         };
     }
@@ -5170,48 +5163,55 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
         .ptr => |ptr| {
             const ptr_type = ip.indexToKey(ptr.ty).ptr_type;
             assert(ptr_type.flags.size != .Slice);
-            switch (ptr.addr) {
-                .decl => |decl| ip.items.appendAssumeCapacity(.{
+            ip.items.appendAssumeCapacity(switch (ptr.addr) {
+                .decl => |decl| .{
                     .tag = .ptr_decl,
                     .data = try ip.addExtra(gpa, PtrDecl{
                         .ty = ptr.ty,
                         .decl = decl,
                     }),
-                }),
-                .comptime_alloc => |alloc_index| ip.items.appendAssumeCapacity(.{
+                },
+                .comptime_alloc => |alloc_index| .{
                     .tag = .ptr_comptime_alloc,
                     .data = try ip.addExtra(gpa, PtrComptimeAlloc{
                         .ty = ptr.ty,
                         .index = alloc_index,
                     }),
-                }),
-                .anon_decl => |anon_decl| ip.items.appendAssumeCapacity(
-                    if (ptrsHaveSameAlignment(ip, ptr.ty, ptr_type, anon_decl.orig_ty)) .{
+                },
+                .anon_decl => |anon_decl| if (ptrsHaveSameAlignment(ip, ptr.ty, ptr_type, anon_decl.orig_ty)) item: {
+                    if (ptr.ty != anon_decl.orig_ty) {
+                        _ = ip.map.pop();
+                        var new_key = key;
+                        new_key.ptr.addr.anon_decl.orig_ty = ptr.ty;
+                        const new_gop = try ip.map.getOrPutAdapted(gpa, new_key, adapter);
+                        if (new_gop.found_existing) return @enumFromInt(new_gop.index);
+                    }
+                    break :item .{
                         .tag = .ptr_anon_decl,
                         .data = try ip.addExtra(gpa, PtrAnonDecl{
                             .ty = ptr.ty,
                             .val = anon_decl.val,
                         }),
-                    } else .{
-                        .tag = .ptr_anon_decl_aligned,
-                        .data = try ip.addExtra(gpa, PtrAnonDeclAligned{
-                            .ty = ptr.ty,
-                            .val = anon_decl.val,
-                            .orig_ty = anon_decl.orig_ty,
-                        }),
-                    },
-                ),
-                .comptime_field => |field_val| {
+                    };
+                } else .{
+                    .tag = .ptr_anon_decl_aligned,
+                    .data = try ip.addExtra(gpa, PtrAnonDeclAligned{
+                        .ty = ptr.ty,
+                        .val = anon_decl.val,
+                        .orig_ty = anon_decl.orig_ty,
+                    }),
+                },
+                .comptime_field => |field_val| item: {
                     assert(field_val != .none);
-                    ip.items.appendAssumeCapacity(.{
+                    break :item .{
                         .tag = .ptr_comptime_field,
                         .data = try ip.addExtra(gpa, PtrComptimeField{
                             .ty = ptr.ty,
                             .field_val = field_val,
                         }),
-                    });
+                    };
                 },
-                .int, .eu_payload, .opt_payload => |base| {
+                .int, .eu_payload, .opt_payload => |base| item: {
                     switch (ptr.addr) {
                         .int => assert(ip.typeOf(base) == .usize_type),
                         .eu_payload => assert(ip.indexToKey(
@@ -5222,7 +5222,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         ) == .opt_type),
                         else => unreachable,
                     }
-                    ip.items.appendAssumeCapacity(.{
+                    break :item .{
                         .tag = switch (ptr.addr) {
                             .int => .ptr_int,
                             .eu_payload => .ptr_eu_payload,
@@ -5233,9 +5233,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                             .ty = ptr.ty,
                             .base = base,
                         }),
-                    });
+                    };
                 },
-                .elem, .field => |base_index| {
+                .elem, .field => |base_index| item: {
                     const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
                     switch (ptr.addr) {
                         .elem => assert(base_ptr_type.flags.size == .Many),
@@ -5272,7 +5272,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                     } });
                     assert(!(try ip.map.getOrPutAdapted(gpa, key, adapter)).found_existing);
                     try ip.items.ensureUnusedCapacity(gpa, 1);
-                    ip.items.appendAssumeCapacity(.{
+                    break :item .{
                         .tag = switch (ptr.addr) {
                             .elem => .ptr_elem,
                             .field => .ptr_field,
@@ -5283,9 +5283,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                             .base = base_index.base,
                             .index = index_index,
                         }),
-                    });
+                    };
                 },
-            }
+            });
         },
 
         .opt => |opt| {

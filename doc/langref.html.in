@@ -3107,7 +3107,7 @@ test "struct namespaced variable" {
 // struct field order is determined by the compiler for optimal performance.
 // however, you can still calculate a struct base pointer given a field pointer:
 fn setYBasedOnX(x: *f32, y: f32) void {
-    const point = @fieldParentPtr(Point, "x", x);
+    const point: *Point = @fieldParentPtr("x", x);
     point.y = y;
 }
 test "field parent pointer" {
@@ -8757,8 +8757,7 @@ test "decl access by string" {
       {#header_close#}
 
       {#header_open|@fieldParentPtr#}
-      <pre>{#syntax#}@fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8,
-    field_ptr: *T) *ParentType{#endsyntax#}</pre>
+      <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
       Given a pointer to a field, returns the base pointer of a struct.
       </p>

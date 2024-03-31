@@ -548,7 +548,7 @@ pub fn generateSymbol(
                         }
 
                         const size = struct_type.size(ip).*;
-                        const alignment = struct_type.flagsPtr(ip).alignment.toByteUnitsOptional().?;
+                        const alignment = struct_type.flagsPtr(ip).alignment.toByteUnits().?;
 
                         const padding = math.cast(
                             usize,
@@ -893,12 +893,12 @@ fn genDeclRef(
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
     if (ty.castPtrToFn(zcu)) |fn_ty| {
         if (zcu.typeToFunc(fn_ty).?.is_generic) {
-            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(zcu).toByteUnitsOptional().? });
+            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? });
         }
     } else if (ty.zigTypeTag(zcu) == .Pointer) {
         const elem_ty = ty.elemType2(zcu);
         if (!elem_ty.hasRuntimeBits(zcu)) {
-            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(zcu).toByteUnitsOptional().? });
+            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? });
         }
     }
 

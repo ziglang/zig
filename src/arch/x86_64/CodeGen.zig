@@ -7920,17 +7920,14 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
     const mod = self.bin_file.comp.module.?;
     const ptr_field_ty = self.typeOfIndex(inst);
     const ptr_container_ty = self.typeOf(operand);
-    const ptr_container_ty_info = ptr_container_ty.ptrInfo(mod);
     const container_ty = ptr_container_ty.childType(mod);
 
-    const field_offset: i32 = if (mod.typeToPackedStruct(container_ty)) |struct_obj|
-        if (ptr_field_ty.ptrInfo(mod).packed_offset.host_size == 0)
-            @divExact(mod.structPackedFieldBitOffset(struct_obj, index) +
-                ptr_container_ty_info.packed_offset.bit_offset, 8)
-        else
-            0
-    else
-        @intCast(container_ty.structFieldOffset(index, mod));
+    const field_off: i32 = switch (container_ty.containerLayout(mod)) {
+        .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, mod)),
+        .@"packed" => @divExact(@as(i32, ptr_container_ty.ptrInfo(mod).packed_offset.bit_offset) +
+            (if (mod.typeToStruct(container_ty)) |struct_obj| mod.structPackedFieldBitOffset(struct_obj, index) else 0) -
+            ptr_field_ty.ptrInfo(mod).packed_offset.bit_offset, 8),
+    };
 
     const src_mcv = try self.resolveInst(operand);
     const dst_mcv = if (switch (src_mcv) {
@@ -7938,7 +7935,7 @@ fn fieldPtr(self: *Self, inst: Air.Inst.Index, operand: Air.Inst.Ref, index: u32
         .register, .register_offset => self.reuseOperand(inst, operand, 0, src_mcv),
         else => false,
     }) src_mcv else try self.copyToRegisterWithInstTracking(inst, ptr_field_ty, src_mcv);
-    return dst_mcv.offset(field_offset);
+    return dst_mcv.offset(field_off);
 }
 
 fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
@@ -7958,11 +7955,8 @@ fn airStructFieldVal(self: *Self, inst: Air.Inst.Index) !void {
 
         const src_mcv = try self.resolveInst(operand);
         const field_off: u32 = switch (container_ty.containerLayout(mod)) {
-            .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, mod) * 8),
-            .@"packed" => if (mod.typeToStruct(container_ty)) |struct_type|
-                mod.structPackedFieldBitOffset(struct_type, index)
-            else
-                0,
+            .auto, .@"extern" => @intCast(container_ty.structFieldOffset(extra.field_index, mod) * 8),
+            .@"packed" => if (mod.typeToStruct(container_ty)) |struct_obj| mod.structPackedFieldBitOffset(struct_obj, extra.field_index) else 0,
         };
 
         switch (src_mcv) {
@@ -8239,7 +8233,12 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
 
     const inst_ty = self.typeOfIndex(inst);
     const parent_ty = inst_ty.childType(mod);
-    const field_offset: i32 = @intCast(parent_ty.structFieldOffset(extra.field_index, mod));
+    const field_off: i32 = switch (parent_ty.containerLayout(mod)) {
+        .auto, .@"extern" => @intCast(parent_ty.structFieldOffset(extra.field_index, mod)),
+        .@"packed" => @divExact(@as(i32, inst_ty.ptrInfo(mod).packed_offset.bit_offset) +
+            (if (mod.typeToStruct(parent_ty)) |struct_obj| mod.structPackedFieldBitOffset(struct_obj, extra.field_index) else 0) -
+            self.typeOf(extra.field_ptr).ptrInfo(mod).packed_offset.bit_offset, 8),
+    };
 
     const src_mcv = try self.resolveInst(extra.field_ptr);
     const dst_mcv = if (src_mcv.isRegisterOffset() and
@@ -8247,7 +8246,7 @@ fn airFieldParentPtr(self: *Self, inst: Air.Inst.Index) !void {
         src_mcv
     else
         try self.copyToRegisterWithInstTracking(inst, inst_ty, src_mcv);
-    const result = dst_mcv.offset(-field_offset);
+    const result = dst_mcv.offset(-field_off);
     return self.finishAir(inst, result, .{ extra.field_ptr, .none, .none });
 }
 
@@ -17950,7 +17949,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
             .Struct => {
                 const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(result_ty, mod));
                 if (result_ty.containerLayout(mod) == .@"packed") {
-                    const struct_type = mod.typeToStruct(result_ty).?;
+                    const struct_obj = mod.typeToStruct(result_ty).?;
                     try self.genInlineMemset(
                         .{ .lea_frame = .{ .index = frame_index } },
                         .{ .immediate = 0 },
@@ -17971,7 +17970,7 @@ fn airAggregateInit(self: *Self, inst: Air.Inst.Index) !void {
                         }
                         const elem_abi_size: u32 = @intCast(elem_ty.abiSize(mod));
                         const elem_abi_bits = elem_abi_size * 8;
-                        const elem_off = mod.structPackedFieldBitOffset(struct_type, elem_i);
+                        const elem_off = mod.structPackedFieldBitOffset(struct_obj, elem_i);
                         const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
                         const elem_bit_off = elem_off % elem_abi_bits;
                         const elem_mcv = try self.resolveInst(elem);
@@ -18959,7 +18958,7 @@ fn resolveCallingConventionValues(
 
                 const param_size: u31 = @intCast(ty.abiSize(mod));
                 const param_align: u31 =
-                    @intCast(@max(ty.abiAlignment(mod).toByteUnitsOptional().?, 8));
+                    @intCast(@max(ty.abiAlignment(mod).toByteUnits().?, 8));
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -19003,7 +19002,7 @@ fn resolveCallingConventionValues(
                     continue;
                 }
                 const param_size: u31 = @intCast(ty.abiSize(mod));
-                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnitsOptional().?);
+                const param_align: u31 = @intCast(ty.abiAlignment(mod).toByteUnits().?);
                 result.stack_byte_count =
                     mem.alignForward(u31, result.stack_byte_count, param_align);
                 arg.* = .{ .load_frame = .{
@@ -19096,7 +19095,7 @@ fn splitType(self: *Self, ty: Type) ![2]Type {
             .integer => switch (part_i) {
                 0 => Type.u64,
                 1 => part: {
-                    const elem_size = ty.abiAlignment(mod).minStrict(.@"8").toByteUnitsOptional().?;
+                    const elem_size = ty.abiAlignment(mod).minStrict(.@"8").toByteUnits().?;
                     const elem_ty = try mod.intType(.unsigned, @intCast(elem_size * 8));
                     break :part switch (@divExact(ty.abiSize(mod) - 8, elem_size)) {
                         1 => elem_ty,

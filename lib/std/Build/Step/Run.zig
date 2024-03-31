@@ -497,7 +497,7 @@ const IndexedOutput = struct {
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const arena = b.allocator;
-    const self = @fieldParentPtr(Run, "step", step);
+    const self: *Run = @fieldParentPtr("step", step);
     const has_side_effects = self.hasSideEffects();
 
     var argv_list = ArrayList([]const u8).init(arena);

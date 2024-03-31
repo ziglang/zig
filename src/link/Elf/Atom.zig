@@ -208,7 +208,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
             zig_object.debug_aranges_section_dirty = true;
         }
     }
-    shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnitsOptional().?);
+    shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnits().?);
 
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before

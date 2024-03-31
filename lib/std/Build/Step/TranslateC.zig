@@ -118,7 +118,7 @@ pub fn defineCMacroRaw(self: *TranslateC, name_and_value: []const u8) void {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
-    const self = @fieldParentPtr(TranslateC, "step", step);
+    const self: *TranslateC = @fieldParentPtr("step", step);
 
     var argv_list = std.ArrayList([]const u8).init(b.allocator);
     try argv_list.append(b.graph.zig_exe);

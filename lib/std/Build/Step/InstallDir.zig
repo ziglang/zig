@@ -63,7 +63,7 @@ pub fn create(owner: *std.Build, options: Options) *InstallDirStep {
 
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
-    const self = @fieldParentPtr(InstallDirStep, "step", step);
+    const self: *InstallDirStep = @fieldParentPtr("step", step);
     const dest_builder = self.dest_builder;
     const arena = dest_builder.allocator;
     const dest_prefix = dest_builder.getInstallPath(self.options.install_dir, self.options.install_subdir);

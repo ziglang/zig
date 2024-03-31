@@ -231,7 +231,7 @@ fn makeNoOp(step: *Step, prog_node: *std.Progress.Node) anyerror!void {
 
 pub fn cast(step: *Step, comptime T: type) ?*T {
     if (step.id == T.base_id) {
-        return @fieldParentPtr(T, "step", step);
+        return @fieldParentPtr("step", step);
     }
     return null;
 }

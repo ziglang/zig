@@ -8,7 +8,7 @@ const foo = Foo{
 };
 
 comptime {
-    const another_foo_ptr = @fieldParentPtr(Foo, "b", &foo.a);
+    const another_foo_ptr: *const Foo = @fieldParentPtr("b", &foo.a);
     _ = another_foo_ptr;
 }
 
@@ -16,5 +16,5 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :11:29: error: field 'b' has index '1' but pointer value is index '0' of struct 'tmp.Foo'
+// :11:41: error: field 'b' has index '1' but pointer value is index '0' of struct 'tmp.Foo'
 // :1:13: note: struct declared here

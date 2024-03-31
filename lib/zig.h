@@ -130,22 +130,18 @@ typedef char bool;
 #define zig_restrict
 #endif
 
-#if __STDC_VERSION__ >= 201112L
-#define zig_align(alignment) _Alignas(alignment)
-#elif zig_has_attribute(aligned)
-#define zig_align(alignment) __attribute__((aligned(alignment)))
-#elif _MSC_VER
-#define zig_align(alignment) __declspec(align(alignment))
-#else
-#define zig_align zig_align_unavailable
-#endif
-
 #if zig_has_attribute(aligned)
 #define zig_under_align(alignment) __attribute__((aligned(alignment)))
 #elif _MSC_VER
-#define zig_under_align(alignment) zig_align(alignment)
+#define zig_under_align(alignment) __declspec(align(alignment))
 #else
-#define zig_align zig_align_unavailable
+#define zig_under_align zig_align_unavailable
+#endif
+
+#if __STDC_VERSION__ >= 201112L
+#define zig_align(alignment) _Alignas(alignment)
+#else
+#define zig_align(alignment) zig_under_align(alignment)
 #endif
 
 #if zig_has_attribute(aligned)
@@ -165,11 +161,14 @@ typedef char bool;
 #endif
 
 #if zig_has_attribute(section)
-#define zig_linksection(name, def, ...) def __attribute__((section(name)))
+#define zig_linksection(name) __attribute__((section(name)))
+#define zig_linksection_fn zig_linksection
 #elif _MSC_VER
-#define zig_linksection(name, def, ...) __pragma(section(name, __VA_ARGS__)) __declspec(allocate(name)) def
+#define zig_linksection(name) __pragma(section(name, read, write)) __declspec(allocate(name))
+#define zig_linksection_fn(name) __pragma(section(name, read, execute)) __declspec(code_seg(name))
 #else
-#define zig_linksection(name, def, ...) zig_linksection_unavailable
+#define zig_linksection(name) zig_linksection_unavailable
+#define zig_linksection_fn zig_linksection
 #endif
 
 #if zig_has_builtin(unreachable) || defined(zig_gnuc)

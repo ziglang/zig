@@ -1021,4 +1021,5 @@ test {
     _ = string_literal;
     _ = system;
     _ = target;
+    _ = c_translation;
 }

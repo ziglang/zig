@@ -918,7 +918,7 @@ fn getGeneratedFilePath(self: *Compile, comptime tag_name: []const u8, asking_st
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const b = step.owner;
     const arena = b.allocator;
-    const self = @fieldParentPtr(Compile, "step", step);
+    const self: *Compile = @fieldParentPtr("step", step);
 
     var zig_args = ArrayList([]const u8).init(arena);
     defer zig_args.deinit();

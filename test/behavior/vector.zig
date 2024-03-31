@@ -1176,18 +1176,22 @@ test "@shlWithOverflow" {
 test "alignment of vectors" {
     try expect(@alignOf(@Vector(2, u8)) == switch (builtin.zig_backend) {
         else => 2,
+        .stage2_c => @alignOf(u8),
         .stage2_x86_64 => 16,
     });
     try expect(@alignOf(@Vector(2, u1)) == switch (builtin.zig_backend) {
         else => 1,
+        .stage2_c => @alignOf(u1),
         .stage2_x86_64 => 16,
     });
     try expect(@alignOf(@Vector(1, u1)) == switch (builtin.zig_backend) {
         else => 1,
+        .stage2_c => @alignOf(u1),
         .stage2_x86_64 => 16,
     });
     try expect(@alignOf(@Vector(2, u16)) == switch (builtin.zig_backend) {
         else => 4,
+        .stage2_c => @alignOf(u16),
         .stage2_x86_64 => 16,
     });
 }

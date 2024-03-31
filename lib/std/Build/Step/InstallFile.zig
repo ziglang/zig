@@ -43,7 +43,7 @@ pub fn create(
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const src_builder = step.owner;
-    const self = @fieldParentPtr(InstallFile, "step", step);
+    const self: *InstallFile = @fieldParentPtr("step", step);
     const dest_builder = self.dest_builder;
     const full_src_path = self.source.getPath2(src_builder, step);
     const full_dest_path = dest_builder.getInstallPath(self.dir, self.dest_rel_path);

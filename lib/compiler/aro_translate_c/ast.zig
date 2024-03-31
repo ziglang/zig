@@ -409,7 +409,7 @@ pub const Node = extern union {
             return null;
 
         if (self.ptr_otherwise.tag == t)
-            return @fieldParentPtr(t.Type(), "base", self.ptr_otherwise);
+            return @alignCast(@fieldParentPtr("base", self.ptr_otherwise));
 
         return null;
     }
@@ -1220,7 +1220,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
         },
         .pub_var_simple, .var_simple => {
-            const payload = @fieldParentPtr(Payload.SimpleVarDecl, "base", node.ptr_otherwise).data;
+            const payload = @as(*Payload.SimpleVarDecl, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
             if (node.tag() == .pub_var_simple) _ = try c.addToken(.keyword_pub, "pub");
             const const_tok = try c.addToken(.keyword_const, "const");
             _ = try c.addIdentifier(payload.name);
@@ -1293,7 +1293,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         },
         .var_decl => return renderVar(c, node),
         .arg_redecl, .alias => {
-            const payload = @fieldParentPtr(Payload.ArgRedecl, "base", node.ptr_otherwise).data;
+            const payload = @as(*Payload.ArgRedecl, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
             if (node.tag() == .alias) _ = try c.addToken(.keyword_pub, "pub");
             const mut_tok = if (node.tag() == .alias)
                 try c.addToken(.keyword_const, "const")
@@ -1492,7 +1492,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             });
         },
         .c_pointer, .single_pointer => {
-            const payload = @fieldParentPtr(Payload.Pointer, "base", node.ptr_otherwise).data;
+            const payload = @as(*Payload.Pointer, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
 
             const asterisk = if (node.tag() == .single_pointer)
                 try c.addToken(.asterisk, "*")
@@ -2085,7 +2085,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 }
 
 fn renderRecord(c: *Context, node: Node) !NodeIndex {
-    const payload = @fieldParentPtr(Payload.Record, "base", node.ptr_otherwise).data;
+    const payload = @as(*Payload.Record, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
     if (payload.layout == .@"packed")
         _ = try c.addToken(.keyword_packed, "packed")
     else if (payload.layout == .@"extern")
@@ -2487,7 +2487,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
 }
 
 fn renderPrefixOp(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
-    const payload = @fieldParentPtr(Payload.UnOp, "base", node.ptr_otherwise).data;
+    const payload = @as(*Payload.UnOp, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
     return c.addNode(.{
         .tag = tag,
         .main_token = try c.addToken(tok_tag, bytes),
@@ -2499,7 +2499,7 @@ fn renderPrefixOp(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_tag: T
 }
 
 fn renderBinOpGrouped(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
-    const payload = @fieldParentPtr(Payload.BinOp, "base", node.ptr_otherwise).data;
+    const payload = @as(*Payload.BinOp, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
     const lhs = try renderNodeGrouped(c, payload.lhs);
     return c.addNode(.{
         .tag = tag,
@@ -2512,7 +2512,7 @@ fn renderBinOpGrouped(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_ta
 }
 
 fn renderBinOp(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_tag: TokenTag, bytes: []const u8) !NodeIndex {
-    const payload = @fieldParentPtr(Payload.BinOp, "base", node.ptr_otherwise).data;
+    const payload = @as(*Payload.BinOp, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
     const lhs = try renderNode(c, payload.lhs);
     return c.addNode(.{
         .tag = tag,

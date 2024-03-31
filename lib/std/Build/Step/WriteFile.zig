@@ -141,7 +141,7 @@ fn maybeUpdateName(wf: *WriteFile) void {
 fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
-    const wf = @fieldParentPtr(WriteFile, "step", step);
+    const wf: *WriteFile = @fieldParentPtr("step", step);
 
     // Writing to source files is kind of an extra capability of this
     // WriteFile - arguably it should be a different step. But anyway here

@@ -624,7 +624,6 @@ test "sub-aligned pointer field access" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     // Originally reported at https://github.com/ziglang/zig/issues/14904
 
@@ -694,5 +693,5 @@ test "zero-bit fields in extern struct pad fields appropriately" {
     try expect(@intFromPtr(&s) % 2 == 0);
     try expect(@intFromPtr(&s.y) - @intFromPtr(&s.x) == 2);
     try expect(@intFromPtr(&s.y) == @intFromPtr(&s.a));
-    try expect(@fieldParentPtr(S, "a", &s.a) == &s);
+    try expect(@as(*S, @fieldParentPtr("a", &s.a)) == &s);
 }
