@@ -284,7 +284,7 @@ fn copy_cqes_ready(self: *IoUring, cqes: []linux.io_uring_cqe) u32 {
     const head = self.cq.head.* & self.cq.mask;
     const tail = (self.cq.head.* +% count) & self.cq.mask;
 
-    if (head <= tail) {
+    if (head < tail) {
         // head behind tail -> no wrapping
         @memcpy(cqes[0..count], self.cq.cqes[head..tail]);
     } else {
