@@ -197,14 +197,26 @@ pub fn deinit(self: *Module) void {
     self.* = undefined;
 }
 
-pub fn allocId(self: *Module) spec.IdResult {
-    defer self.next_result_id += 1;
-    return @enumFromInt(self.next_result_id);
+pub const IdRange = struct {
+    base: u32,
+    len: u32,
+
+    pub fn at(range: IdRange, i: usize) IdResult {
+        assert(i < range.len);
+        return @enumFromInt(range.base + i);
+    }
+};
+
+pub fn allocIds(self: *Module, n: u32) IdRange {
+    defer self.next_result_id += n;
+    return .{
+        .base = self.next_result_id,
+        .len = n,
+    };
 }
 
-pub fn allocIds(self: *Module, n: u32) spec.IdResult {
-    defer self.next_result_id += n;
-    return @enumFromInt(self.next_result_id);
+pub fn allocId(self: *Module) IdResult {
+    return self.allocIds(1).at(0);
 }
 
 pub fn idBound(self: Module) Word {

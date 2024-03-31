@@ -5440,7 +5440,7 @@ const DeclGen = struct {
         };
 
         // First, pre-allocate the labels for the cases.
-        const first_case_label = self.spv.allocIds(num_cases);
+        const case_labels = self.spv.allocIds(num_cases);
         // We always need the default case - if zig has none, we will generate unreachable there.
         const default = self.spv.allocId();
 
@@ -5471,7 +5471,7 @@ const DeclGen = struct {
                 const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
                 extra_index = case.end + case.data.items_len + case_body.len;
 
-                const label: IdRef = @enumFromInt(@intFromEnum(first_case_label) + case_i);
+                const label = case_labels.at(case_i);
 
                 for (items) |item| {
                     const value = (try self.air.value(item, mod)) orelse unreachable;
@@ -5511,7 +5511,7 @@ const DeclGen = struct {
             const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
             extra_index = case.end + case.data.items_len + case_body.len;
 
-            const label: IdResult = @enumFromInt(@intFromEnum(first_case_label) + case_i);
+            const label = case_labels.at(case_i);
 
             try self.beginSpvBlock(label);
 
