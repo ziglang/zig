@@ -94,6 +94,8 @@ pub const ParseError = error{
     DuplicateId,
     /// Some ID did not resolve.
     InvalidId,
+    /// This opcode or instruction is not supported yet.
+    UnsupportedOperation,
     /// Parser ran out of memory.
     OutOfMemory,
 };
