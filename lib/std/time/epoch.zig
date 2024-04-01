@@ -1,8 +1,262 @@
-//! Epoch reference times in terms of their difference from
-//! UTC 1970-01-01 in seconds.
+//! Gregorian calendar date and time relative to unix time.
+//!
+//! Unix time is time since midnight 1970-01-01, ignoring leap seconds.
+//!
+//! Uses algorithms from https://howardhinnant.github.io/date_algorithms.html
+pub const epoch_year = 1970;
+
+/// Using 32 bit arithmetic, overflow occurs approximately at +/- 5.8 million years.
+/// Using 64 bit arithmetic overflow occurs far beyond +/- the age of the universe.
+/// The intent is to make range checking superfluous.
+pub const Int = i64;
+// pub const UInt = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @typeInfo(Int).Int.bits } });
+
+pub const Year = Int;
+pub const MonthInt = IntFittingRange(1, 12);
+pub const Month = enum(MonthInt) {
+    jan = 1,
+    feb = 2,
+    mar = 3,
+    apr = 4,
+    may = 5,
+    jun = 6,
+    jul = 7,
+    aug = 8,
+    sep = 9,
+    oct = 10,
+    nov = 11,
+    dec = 12,
+
+    /// Convenient conversion to `MonthInt`. jan = 1, dec = 12
+    pub fn numeric(self: Month) MonthInt {
+        return @intFromEnum(self);
+    }
+
+    pub fn days(self: Month, is_leap_year: bool) IntFittingRange(1, 31) {
+        return switch (self) {
+            .jan => 31,
+            .feb => @as(u5, switch (is_leap_year) {
+                .leap => 29,
+                .not_leap => 28,
+            }),
+            .mar => 31,
+            .apr => 30,
+            .may => 31,
+            .jun => 30,
+            .jul => 31,
+            .aug => 31,
+            .sep => 30,
+            .oct => 31,
+            .nov => 30,
+            .dec => 31,
+        };
+    }
+};
+
+pub fn isLeapYear(y: Year) bool {
+    return @mod(y, 4) == 0 and (@mod(y, 100) != 0 or @mod(y, 400) == 0);
+}
+
+test isLeapYear {
+    try testing.expectEqual(false, isLeapYear(2095));
+    try testing.expectEqual(true, isLeapYear(2096));
+    try testing.expectEqual(false, isLeapYear(2100));
+    try testing.expectEqual(true, isLeapYear(2400));
+}
+
+const secs_per_day = 24 * 60 * 60;
+
+pub const Date = struct {
+    year: Year = epoch_year,
+    month: Month = .jan,
+    day: Day = 1,
+
+    pub const Day = IntFittingRange(1, 31);
+
+    pub fn fromSeconds(epoch_seconds: Int) Date {
+        const days: Year = @divFloor(epoch_seconds, secs_per_day);
+        return fromEpochDays(days);
+    }
+
+    pub fn toSeconds(date: Date) Int {
+        return date.daysFromEpoch() * secs_per_day;
+    }
+
+    pub fn daysFromEpoch(date: Date) Int {
+        const y = if (date.month.numeric() <= 2) date.year - 1 else date.year;
+        const m: Int = @intCast(date.month.numeric());
+        const d = date.day;
+
+        const era = @divFloor(y, era_years);
+        const yoe = y - era * era_years;
+        const mp = @mod(m + 9, 12);
+        const doy = @divTrunc(153 * mp + 2, 5) + d - 1;
+        const doe = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy;
+        return era * era_days + doe - first_era;
+    }
+
+    pub fn fromEpochDays(days: Int) Date {
+        const z = days + first_era;
+        const era: Int = @divFloor(z, era_days);
+        const doe = z - era * era_days;
+        const yoe = @divTrunc(doe -
+            @divTrunc(doe, 1460) +
+            @divTrunc(doe, 365 * 100 + 100 / 4 - 1) -
+            @divTrunc(doe, era_days - 1), 365);
+        const doy = doe - (365 * yoe + @divTrunc(yoe, 4) - @divTrunc(yoe, 100));
+        const mp = @divTrunc(5 * doy + 2, 153);
+        const d: Day = @intCast(doy - @divTrunc(153 * mp + 2, 5) + 1);
+        const m = if (mp < 10) mp + 3 else mp - 9;
+        var y = yoe + era * era_years;
+        if (m <= 2) y += 1;
+        return .{ .year = y, .month = @enumFromInt(m), .day = d };
+    }
+
+    /// days between 0000-03-01 and 1970-01-01
+    const first_era = 719468;
+    // Every 400 years the Gregorian calendar repeats.
+    const era_years = 400;
+    const era_days = 146097;
+};
+
+pub const Time = struct {
+    hour: Hour = 0,
+    minute: Minute = 0,
+    second: Second = 0,
+
+    pub const Hour = IntFittingRange(0, 23);
+    pub const Minute = IntFittingRange(0, 59);
+    pub const Second = IntFittingRange(0, 59);
+
+    pub fn fromSeconds(seconds: Int) Time {
+        var day_seconds = std.math.comptimeMod(seconds, secs_per_day);
+        const DaySeconds = @TypeOf(day_seconds);
+
+        const hour: Hour = @intCast(day_seconds / (60 * 60));
+        day_seconds -= @as(DaySeconds, @intCast(hour)) * 60 * 60;
+
+        const minute: Minute = @intCast(@divFloor(day_seconds, 60));
+        day_seconds -= @as(DaySeconds, @intCast(minute)) * 60;
+
+        return .{ .hour = hour, .minute = minute, .second = @intCast(day_seconds) };
+    }
+
+    pub fn toSeconds(time: Time) Int {
+        var sec: Int = 0;
+        sec += @as(Int, time.hour) * 60 * 60;
+        sec += @as(Int, time.minute) * 60;
+        sec += @as(Int, time.second);
+
+        return sec;
+    }
+};
+
+pub const DateTime = struct {
+    year: Year = epoch_year,
+    month: Month = .jan,
+    day: Date.Day = 1,
+    hour: Time.Hour = 0,
+    minute: Time.Minute = 0,
+    second: Time.Second = 0,
+
+    pub fn fromSeconds(epoch_seconds: Int) DateTime {
+        const date = Date.fromSeconds(epoch_seconds);
+        const time = Time.fromSeconds(epoch_seconds);
+
+        return .{
+            .year = date.year,
+            .month = date.month,
+            .day = date.day,
+            .hour = time.hour,
+            .minute = time.minute,
+            .second = time.second,
+        };
+    }
+
+    pub fn toSeconds(dt: DateTime) Int {
+        const date = Date{ .year = dt.year, .month = dt.month, .day = dt.day };
+        const time = Time{ .hour = dt.hour, .minute = dt.minute, .second = dt.second };
+        return date.toSeconds() + time.toSeconds();
+    }
+};
+
+pub const Rfc3339 = struct {
+    pub fn parseDate(str: []const u8) !Date {
+        if (str.len != 10) return error.Parsing;
+        const Rfc3339Year = IntFittingRange(0, 9999);
+        const year = try std.fmt.parseInt(Rfc3339Year, str[0..4], 10);
+        if (str[4] != '-') return error.Parsing;
+        const month = try std.fmt.parseInt(MonthInt, str[5..7], 10);
+        if (str[7] != '-') return error.Parsing;
+        const day = try std.fmt.parseInt(Date.Day, str[8..10], 10);
+        return .{ .year = year, .month = @enumFromInt(month), .day = day };
+    }
+
+    pub fn parseTime(str: []const u8) !Time {
+        if (str.len < 8) return error.Parsing;
+
+        const hour = try std.fmt.parseInt(Time.Hour, str[0..2], 10);
+        if (str[2] != ':') return error.Parsing;
+        const minute = try std.fmt.parseInt(Time.Minute, str[3..5], 10);
+        if (str[5] != ':') return error.Parsing;
+        const second = try std.fmt.parseInt(Time.Second, str[6..8], 10);
+        // ignore optional subseconds
+        // ignore timezone
+
+        return .{ .hour = hour, .minute = minute, .second = second };
+    }
+
+    pub fn parseDateTime(str: []const u8) !DateTime {
+        if (str.len < 10 + 1 + 8) return error.Parsing;
+        const date = try parseDate(str[0..10]);
+        if (str[10] != 'T') return error.Parsing;
+        const time = try parseTime(str[11..]);
+        return .{
+            .year = date.year,
+            .month = date.month,
+            .day = date.day,
+            .hour = time.hour,
+            .minute = time.minute,
+            .second = time.second,
+        };
+    }
+};
+
+fn comptimeParse(comptime time: []const u8) DateTime {
+    return Rfc3339.parseDateTime(time) catch unreachable;
+}
+
+/// Tests EpochSeconds -> DateTime and DateTime -> EpochSeconds
+fn testEpoch(secs: Int, dt: DateTime) !void {
+    const actual_dt = DateTime.fromSeconds(secs);
+    try std.testing.expectEqualDeep(dt, actual_dt);
+
+    const actual_secs = actual_dt.toSeconds();
+    try std.testing.expectEqual(secs, actual_secs);
+}
+
+test DateTime {
+    // $ date -d @31535999 --iso-8601=seconds
+    try testEpoch(0, .{});
+    try testEpoch(31535999, comptimeParse("1970-12-31T23:59:59"));
+    try testEpoch(1622924906, comptimeParse("2021-06-05T20:28:26"));
+    try testEpoch(1625159473, comptimeParse("2021-07-01T17:11:13"));
+    // Washington bday, N.S.
+    try testEpoch(-7506041400, comptimeParse("1732-02-22T12:30:00"));
+    // outside Rfc3339 range
+    try testEpoch(-97506041400, .{
+        .year = -1120,
+        .month = .feb,
+        .day = 26,
+        .hour = 20,
+        .minute = 30,
+        .second = 0,
+    });
+}
+
 const std = @import("../std.zig");
 const testing = std.testing;
-const math = std.math;
+const IntFittingRange = std.math.IntFittingRange;
 
 /// Jan 01, 1970 AD
 pub const posix = 0;
@@ -38,190 +292,3 @@ pub const morphos = amiga;
 pub const brew = gps;
 pub const atsc = gps;
 pub const go = clr;
-
-/// The type that holds the current year, i.e. 2016
-pub const Year = u16;
-
-pub const epoch_year = 1970;
-pub const secs_per_day: u17 = 24 * 60 * 60;
-
-pub fn isLeapYear(year: Year) bool {
-    if (@mod(year, 4) != 0)
-        return false;
-    if (@mod(year, 100) != 0)
-        return true;
-    return (0 == @mod(year, 400));
-}
-
-test isLeapYear {
-    try testing.expectEqual(false, isLeapYear(2095));
-    try testing.expectEqual(true, isLeapYear(2096));
-    try testing.expectEqual(false, isLeapYear(2100));
-    try testing.expectEqual(true, isLeapYear(2400));
-}
-
-pub fn getDaysInYear(year: Year) u9 {
-    return if (isLeapYear(year)) 366 else 365;
-}
-
-pub const YearLeapKind = enum(u1) { not_leap, leap };
-
-pub const Month = enum(u4) {
-    jan = 1,
-    feb,
-    mar,
-    apr,
-    may,
-    jun,
-    jul,
-    aug,
-    sep,
-    oct,
-    nov,
-    dec,
-
-    /// return the numeric calendar value for the given month
-    /// i.e. jan=1, feb=2, etc
-    pub fn numeric(self: Month) u4 {
-        return @intFromEnum(self);
-    }
-};
-
-/// Get the number of days in the given month
-pub fn getDaysInMonth(leap_year: YearLeapKind, month: Month) u5 {
-    return switch (month) {
-        .jan => 31,
-        .feb => @as(u5, switch (leap_year) {
-            .leap => 29,
-            .not_leap => 28,
-        }),
-        .mar => 31,
-        .apr => 30,
-        .may => 31,
-        .jun => 30,
-        .jul => 31,
-        .aug => 31,
-        .sep => 30,
-        .oct => 31,
-        .nov => 30,
-        .dec => 31,
-    };
-}
-
-pub const YearAndDay = struct {
-    year: Year,
-    /// The number of days into the year (0 to 365)
-    day: u9,
-
-    pub fn calculateMonthDay(self: YearAndDay) MonthAndDay {
-        var month: Month = .jan;
-        var days_left = self.day;
-        const leap_kind: YearLeapKind = if (isLeapYear(self.year)) .leap else .not_leap;
-        while (true) {
-            const days_in_month = getDaysInMonth(leap_kind, month);
-            if (days_left < days_in_month)
-                break;
-            days_left -= days_in_month;
-            month = @as(Month, @enumFromInt(@intFromEnum(month) + 1));
-        }
-        return .{ .month = month, .day_index = @as(u5, @intCast(days_left)) };
-    }
-};
-
-pub const MonthAndDay = struct {
-    month: Month,
-    day_index: u5, // days into the month (0 to 30)
-};
-
-// days since epoch Oct 1, 1970
-pub const EpochDay = struct {
-    day: u47, // u47 = u64 - u17 (because day = sec(u64) / secs_per_day(u17)
-    pub fn calculateYearDay(self: EpochDay) YearAndDay {
-        var year_day = self.day;
-        var year: Year = epoch_year;
-        while (true) {
-            const year_size = getDaysInYear(year);
-            if (year_day < year_size)
-                break;
-            year_day -= year_size;
-            year += 1;
-        }
-        return .{ .year = year, .day = @as(u9, @intCast(year_day)) };
-    }
-};
-
-/// seconds since start of day
-pub const DaySeconds = struct {
-    secs: u17, // max is 24*60*60 = 86400
-
-    /// the number of hours past the start of the day (0 to 23)
-    pub fn getHoursIntoDay(self: DaySeconds) u5 {
-        return @as(u5, @intCast(@divTrunc(self.secs, 3600)));
-    }
-    /// the number of minutes past the hour (0 to 59)
-    pub fn getMinutesIntoHour(self: DaySeconds) u6 {
-        return @as(u6, @intCast(@divTrunc(@mod(self.secs, 3600), 60)));
-    }
-    /// the number of seconds past the start of the minute (0 to 59)
-    pub fn getSecondsIntoMinute(self: DaySeconds) u6 {
-        return math.comptimeMod(self.secs, 60);
-    }
-};
-
-/// seconds since epoch Oct 1, 1970 at 12:00 AM
-pub const EpochSeconds = struct {
-    secs: u64,
-
-    /// Returns the number of days since the epoch as an EpochDay.
-    /// Use EpochDay to get information about the day of this time.
-    pub fn getEpochDay(self: EpochSeconds) EpochDay {
-        return EpochDay{ .day = @as(u47, @intCast(@divTrunc(self.secs, secs_per_day))) };
-    }
-
-    /// Returns the number of seconds into the day as DaySeconds.
-    /// Use DaySeconds to get information about the time.
-    pub fn getDaySeconds(self: EpochSeconds) DaySeconds {
-        return DaySeconds{ .secs = math.comptimeMod(self.secs, secs_per_day) };
-    }
-};
-
-fn testEpoch(secs: u64, expected_year_day: YearAndDay, expected_month_day: MonthAndDay, expected_day_seconds: struct {
-    /// 0 to 23
-    hours_into_day: u5,
-    /// 0 to 59
-    minutes_into_hour: u6,
-    /// 0 to 59
-    seconds_into_minute: u6,
-}) !void {
-    const epoch_seconds = EpochSeconds{ .secs = secs };
-    const epoch_day = epoch_seconds.getEpochDay();
-    const day_seconds = epoch_seconds.getDaySeconds();
-    const year_day = epoch_day.calculateYearDay();
-    try testing.expectEqual(expected_year_day, year_day);
-    try testing.expectEqual(expected_month_day, year_day.calculateMonthDay());
-    try testing.expectEqual(expected_day_seconds.hours_into_day, day_seconds.getHoursIntoDay());
-    try testing.expectEqual(expected_day_seconds.minutes_into_hour, day_seconds.getMinutesIntoHour());
-    try testing.expectEqual(expected_day_seconds.seconds_into_minute, day_seconds.getSecondsIntoMinute());
-}
-
-test "epoch decoding" {
-    try testEpoch(0, .{ .year = 1970, .day = 0 }, .{
-        .month = .jan,
-        .day_index = 0,
-    }, .{ .hours_into_day = 0, .minutes_into_hour = 0, .seconds_into_minute = 0 });
-
-    try testEpoch(31535999, .{ .year = 1970, .day = 364 }, .{
-        .month = .dec,
-        .day_index = 30,
-    }, .{ .hours_into_day = 23, .minutes_into_hour = 59, .seconds_into_minute = 59 });
-
-    try testEpoch(1622924906, .{ .year = 2021, .day = 31 + 28 + 31 + 30 + 31 + 4 }, .{
-        .month = .jun,
-        .day_index = 4,
-    }, .{ .hours_into_day = 20, .minutes_into_hour = 28, .seconds_into_minute = 26 });
-
-    try testEpoch(1625159473, .{ .year = 2021, .day = 31 + 28 + 31 + 30 + 31 + 30 }, .{
-        .month = .jul,
-        .day_index = 0,
-    }, .{ .hours_into_day = 17, .minutes_into_hour = 11, .seconds_into_minute = 13 });
-}
