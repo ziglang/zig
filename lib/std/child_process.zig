@@ -663,7 +663,7 @@ pub const ChildProcess = struct {
             // "\Device\Null" or "\??\NUL"
             windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
                 .access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.SYNCHRONIZE,
-                .share_access = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE,
+                .share_access = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
                 .sa = &saAttr,
                 .creation = windows.OPEN_EXISTING,
             }) catch |err| switch (err) {
