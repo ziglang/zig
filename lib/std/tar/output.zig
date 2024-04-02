@@ -63,6 +63,10 @@ pub const Header = extern struct {
         _ = try std.fmt.bufPrint(&self.size, "{o:0>11}", .{size});
     }
 
+    pub fn setMode(self: *Header, mode: u32) !void {
+        _ = try std.fmt.bufPrint(&self.mode, "{o:0>7}", .{mode});
+    }
+
     pub fn updateChecksum(self: *Header) !void {
         const offset = @offsetOf(Header, "checksum");
         var checksum: usize = 0;
@@ -81,5 +85,5 @@ pub const Header = extern struct {
     }
 };
 
-const std = @import("../std.zig");
+const std = @import("std");
 const assert = std.debug.assert;
