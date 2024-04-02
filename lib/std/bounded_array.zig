@@ -227,7 +227,7 @@ pub fn BoundedArrayAligned(
         pub fn swapRemove(self: *Self, i: usize) T {
             if (self.len - 1 == i) return self.pop().?;
             const old_item = self.get(i);
-            self.set(i, self.pop());
+            self.set(i, self.pop().?);
             return old_item;
         }
 
