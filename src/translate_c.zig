@@ -5471,7 +5471,7 @@ fn transLabelStmt(c: *Context, scope: *Scope, stmt: *const clang.LabelStmt) Tran
         ));
     }
 
-    try block.?.statements.append(try transStmt(c, scope, inner_stmt, .unused));
+    try block.?.statements.append(try transStmt(c, &block.?.base, inner_stmt, .unused));
 
     if (is_break_target) {
         try block.?.statements.append(try Tag.if_not_break.create(c.arena, cond.?));
