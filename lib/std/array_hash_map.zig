@@ -1406,6 +1406,7 @@ pub fn ArrayHashMapUnmanaged(
             return self.popContext(undefined);
         }
         pub fn popContext(self: *Self, ctx: Context) KV {
+            if (self.entries.len == 0) return null;
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
 
