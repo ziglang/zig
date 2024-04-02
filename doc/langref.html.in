@@ -12746,7 +12746,7 @@ mb_utf8_literal <-
      / oxE0      oxA0_oxBF ox80_oxBF
      / oxC2_oxDF ox80_oxBF
 
-ascii_char_not_nl_slash_squote <- [\000-\011\013-\046-\050-\133\135-\177]
+ascii_char_not_nl_slash_squote <- [\000-\011\013-\046\050-\133\135-\177]
 
 char_escape
     <- "\\x" hex hex
