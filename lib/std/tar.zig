@@ -355,13 +355,13 @@ pub fn Iterator(comptime ReaderType: type) type {
             }
 
             // Writes file content to writer.
-            pub fn writeAll(self: File, writer: anytype) !void {
+            pub fn writeAll(self: File, out_writer: anytype) !void {
                 var buffer: [4096]u8 = undefined;
 
                 while (self.unread_bytes.* > 0) {
                     const buf = buffer[0..@min(buffer.len, self.unread_bytes.*)];
                     try self.parent_reader.readNoEof(buf);
-                    try writer.writeAll(buf);
+                    try out_writer.writeAll(buf);
                     self.unread_bytes.* -= buf.len;
                 }
             }
@@ -1202,4 +1202,83 @@ test "executable bit" {
             try testing.expect(fs.mode & S.IXOTH == 0);
         }
     }
+}
+
+pub fn Writer(comptime WriterType: type) type {
+    return struct {
+        underlying_writer: WriterType,
+        prefix: []const u8,
+
+        const Self = @This();
+
+        pub fn directory(self: Self, sub_path: []const u8) !void {
+            var header = output.Header.init();
+            try header.setPath(self.prefix, sub_path);
+            header.typeflag = .directory;
+            try header.updateChecksum();
+            try self.writeHeader(&header);
+        }
+
+        pub fn file(self: Self, sub_path: []const u8, size: usize, mode: u32, reader: anytype) !void {
+            var header = output.Header.init();
+            try header.setPath(self.prefix, sub_path);
+            header.typeflag = .regular;
+            try header.setSize(size);
+            try header.setMode(mode);
+            try header.updateChecksum();
+            try self.writeHeader(&header);
+
+            const block_size = 512;
+            var buf: [block_size]u8 = undefined;
+            var written: usize = 0;
+            while (written < size) {
+                const n = try reader.readAll(&buf);
+                written += n;
+                if (written > size) return error.SizeOverflow;
+                if (n < block_size) {
+                    // add padding
+                    @memset(buf[n..], 0);
+                }
+                try self.underlying_writer.writeAll(&buf);
+            }
+        }
+
+        pub fn symLink(self: Self, sub_path: []const u8, link_name: []const u8) !void {
+            var header = output.Header.init();
+            header.typeflag = .symbolic_link;
+            try header.setPath(self.prefix, sub_path);
+            @memcpy(header.linkname[0..link_name.len], link_name);
+            try header.updateChecksum();
+            try self.writeHeader(&header);
+        }
+
+        fn writeHeader(self: Self, header: *output.Header) !void {
+            try self.underlying_writer.writeAll(std.mem.asBytes(header));
+        }
+
+        pub fn close(self: Self) !void {
+            var zero_header = std.mem.zeroes(output.Header);
+            try self.writeHeader(&zero_header);
+            try self.writeHeader(&zero_header);
+        }
+    };
+}
+
+pub fn writer(underlying_writer: anytype, prefix: []const u8) Writer(@TypeOf(underlying_writer)) {
+    return .{
+        .underlying_writer = underlying_writer,
+        .prefix = prefix,
+    };
+}
+
+test "writer" {
+    var file = try std.fs.cwd().createFile("test.tar", .{});
+    defer file.close();
+
+    var w = writer(file.writer(), "root");
+    const buf: [1023]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try w.file("file1", 1023, default_mode, fbs.reader());
+    try w.directory("01223456789" ** 9);
+    try w.close();
 }
