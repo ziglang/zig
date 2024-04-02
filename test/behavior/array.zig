@@ -944,3 +944,14 @@ test "union that needs padding bytes inside an array" {
     const a = as[0].B;
     try std.testing.expect(a.D == 1);
 }
+
+test "runtime index of array of zero-bit values" {
+    var runtime: struct { array: [1]void, index: usize } = undefined;
+    runtime = .{ .array = .{{}}, .index = 0 };
+    const result = struct { index: usize, value: void }{
+        .index = runtime.index,
+        .value = runtime.array[runtime.index],
+    };
+    try std.testing.expect(result.index == 0);
+    try std.testing.expect(result.value == {});
+}
