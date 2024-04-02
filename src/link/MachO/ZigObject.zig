@@ -1423,7 +1423,7 @@ pub fn getOrCreateMetadataForLazySymbol(
     const gpa = macho_file.base.comp.gpa;
     const mod = macho_file.base.comp.module.?;
     const gop = try self.lazy_syms.getOrPut(gpa, lazy_sym.getDecl(mod));
-    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop().?;
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const metadata: struct {
         symbol_index: *Symbol.Index,

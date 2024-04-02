@@ -2826,7 +2826,7 @@ pub fn mapOldZirToNew(
     var new_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
     defer new_decls.deinit();
 
-    while (match_stack.popOrNull()) |match_item| {
+    while (match_stack.pop()) |match_item| {
         // Match the namespace declaration itself
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
@@ -3844,7 +3844,7 @@ pub fn importPkg(zcu: *Zcu, mod: *Package.Module) !ImportFileResult {
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
-    errdefer _ = zcu.import_table.pop();
+    errdefer _ = zcu.import_table.pop().?;
     if (gop.found_existing) {
         try gop.value_ptr.*.addReference(zcu.*, .{ .root = mod });
         return ImportFileResult{
@@ -3928,7 +3928,7 @@ pub fn importFile(
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
     const gop = try mod.import_table.getOrPut(gpa, resolved_path);
-    errdefer _ = mod.import_table.pop();
+    errdefer _ = mod.import_table.pop().?;
     if (gop.found_existing) return ImportFileResult{
         .file = gop.value_ptr.*,
         .is_new = false,
@@ -4000,7 +4000,7 @@ pub fn embedFile(
 
         const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
         errdefer {
-            assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
+            assert(std.mem.eql(u8, mod.embed_table.pop().?.key, resolved_path));
             keep_resolved_path = false;
         }
         if (gop.found_existing) return gop.value_ptr.*.val;
@@ -4027,7 +4027,7 @@ pub fn embedFile(
 
     const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
     errdefer {
-        assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
+        assert(std.mem.eql(u8, mod.embed_table.pop().?.key, resolved_path));
         keep_resolved_path = false;
     }
     if (gop.found_existing) return gop.value_ptr.*.val;

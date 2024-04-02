@@ -377,7 +377,7 @@ test "basic DoublyLinkedList test" {
     }
 
     _ = list.popFirst(); // {2, 3, 4, 5}
-    _ = list.pop(); // {2, 3, 4}
+    _ = list.pop().?; // {2, 3, 4}
     list.remove(&three); // {2, 4}
 
     try testing.expect(list.first.?.data == 2);

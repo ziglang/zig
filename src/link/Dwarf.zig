@@ -1440,7 +1440,7 @@ pub fn commitDeclState(
 
     try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
 
-    while (decl_state.abbrev_relocs.popOrNull()) |reloc| {
+    while (decl_state.abbrev_relocs.pop()) |reloc| {
         if (reloc.target) |reloc_target| {
             const symbol = decl_state.abbrev_table.items[reloc_target];
             const ty = symbol.type;
@@ -1479,7 +1479,7 @@ pub fn commitDeclState(
         }
     }
 
-    while (decl_state.exprloc_relocs.popOrNull()) |reloc| {
+    while (decl_state.exprloc_relocs.pop()) |reloc| {
         switch (self.bin_file.tag) {
             .macho => {
                 const macho_file = self.bin_file.cast(File.MachO).?;
@@ -2734,7 +2734,7 @@ pub fn flushModule(self: *Dwarf, module: *Module) !void {
         var buf: [@sizeOf(u32)]u8 = undefined;
         mem.writeInt(u32, &buf, self.getAtom(.di_atom, di_atom_index).off, target.cpu.arch.endian());
 
-        while (self.global_abbrev_relocs.popOrNull()) |reloc| {
+        while (self.global_abbrev_relocs.pop()) |reloc| {
             const atom = self.getAtom(.di_atom, reloc.atom_index);
             switch (self.bin_file.tag) {
                 .elf => {

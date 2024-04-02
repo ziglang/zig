@@ -268,7 +268,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: Depender, depend
             }
 
             // Prepend a new dependency.
-            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.popOrNull()) |new_index| new: {
+            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.pop()) |new_index| new: {
                 break :new .{ new_index, &ip.dep_entries.items[@intFromEnum(new_index)] };
             } else .{ @enumFromInt(ip.dep_entries.items.len), ip.dep_entries.addOneAssumeCapacity() };
             ptr.next = if (gop.found_existing) gop.value_ptr.*.toOptional() else .none;
@@ -4993,7 +4993,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
             assert(ptr_type.sentinel == .none or ip.typeOf(ptr_type.sentinel) == ptr_type.child);
 
             if (ptr_type.flags.size == .Slice) {
-                _ = ip.map.pop();
+                _ = ip.map.pop().?;
                 var new_key = key;
                 new_key.ptr_type.flags.size = .Many;
                 const ptr_type_index = try ip.get(gpa, new_key);
@@ -5265,7 +5265,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                         },
                         else => unreachable,
                     }
-                    _ = ip.map.pop();
+                    _ = ip.map.pop().?;
                     const index_index = try ip.get(gpa, .{ .int = .{
                         .ty = .usize_type,
                         .storage = .{ .u64 = base_index.index },
@@ -5678,7 +5678,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, key: Key) Allocator.Error!Index {
                 }
                 const elem = switch (aggregate.storage) {
                     .bytes => |bytes| elem: {
-                        _ = ip.map.pop();
+                        _ = ip.map.pop().?;
                         const elem = try ip.get(gpa, .{ .int = .{
                             .ty = .u8_type,
                             .storage = .{ .u64 = bytes[0] },
@@ -5835,7 +5835,7 @@ pub fn getUnionType(ip: *InternPool, gpa: Allocator, ini: UnionTypeInit) Allocat
         } },
     } }, adapter);
     if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
-    errdefer _ = ip.map.pop();
+    errdefer _ = ip.map.pop().?;
 
     const align_elements_len = if (ini.flags.any_aligned_fields) (ini.fields_len + 3) / 4 else 0;
     const align_element: u32 = @bitCast([1]u8{@intFromEnum(Alignment.none)} ** 4);
@@ -5984,10 +5984,10 @@ pub fn getStructType(
     } };
     const gop = try ip.map.getOrPutAdapted(gpa, key, adapter);
     if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
-    errdefer _ = ip.map.pop();
+    errdefer _ = ip.map.pop().?;
 
     const names_map = try ip.addMap(gpa, ini.fields_len);
-    errdefer _ = ip.maps.pop();
+    errdefer _ = ip.maps.pop().?;
 
     const zir_index = switch (ini.key) {
         inline else => |x| x.zir_index,
@@ -6255,7 +6255,7 @@ pub fn getExternFunc(ip: *InternPool, gpa: Allocator, key: Key.ExternFunc) Alloc
     const adapter: KeyAdapter = .{ .intern_pool = ip };
     const gop = try ip.map.getOrPutAdapted(gpa, Key{ .extern_func = key }, adapter);
     if (gop.found_existing) return @enumFromInt(gop.index);
-    errdefer _ = ip.map.pop();
+    errdefer _ = ip.map.pop().?;
     const prev_extra_len = ip.extra.items.len;
     const extra_index = try ip.addExtra(gpa, @as(Tag.ExternFunc, key));
     errdefer ip.extra.items.len = prev_extra_len;
@@ -6479,7 +6479,7 @@ pub fn getErrorSetType(
     const gop = try ip.map.getOrPutAdapted(gpa, Key{
         .error_set_type = extraErrorSet(ip, error_set_extra_index),
     }, adapter);
-    errdefer _ = ip.map.pop();
+    errdefer _ = ip.map.pop().?;
 
     if (gop.found_existing) {
         ip.extra.items.len = prev_extra_len;
@@ -6494,7 +6494,7 @@ pub fn getErrorSetType(
 
     const names_map = try ip.addMap(gpa, names.len);
     assert(names_map == predicted_names_map);
-    errdefer _ = ip.maps.pop();
+    errdefer _ = ip.maps.pop().?;
 
     addStringsToMap(ip, names_map, names);
 
@@ -6560,7 +6560,7 @@ pub fn getFuncInstance(ip: *InternPool, gpa: Allocator, arg: GetFuncInstanceKey)
     const gop = try ip.map.getOrPutAdapted(gpa, Key{
         .func = extraFuncInstance(ip, func_extra_index),
     }, KeyAdapter{ .intern_pool = ip });
-    errdefer _ = ip.map.pop();
+    errdefer _ = ip.map.pop().?;
 
     if (gop.found_existing) {
         ip.extra.items.len = prev_extra_len;
@@ -6861,12 +6861,12 @@ pub fn getEnumType(
     } }, adapter);
     if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
     assert(gop.index == ip.items.len);
-    errdefer _ = ip.map.pop();
+    errdefer _ = ip.map.pop().?;
 
     try ip.items.ensureUnusedCapacity(gpa, 1);
 
     const names_map = try ip.addMap(gpa, ini.fields_len);
-    errdefer _ = ip.maps.pop();
+    errdefer _ = ip.maps.pop().?;
 
     switch (ini.tag_mode) {
         .auto => {
@@ -6922,7 +6922,7 @@ pub fn getEnumType(
                 break :m values_map.toOptional();
             };
             errdefer if (ini.has_values) {
-                _ = ip.map.pop();
+                _ = ip.map.pop().?;
             };
 
             try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(EnumExplicit).Struct.fields.len +
@@ -7004,7 +7004,7 @@ pub fn getGeneratedTagEnumType(ip: *InternPool, gpa: Allocator, ini: GeneratedTa
     try ip.items.ensureUnusedCapacity(gpa, 1);
 
     const names_map = try ip.addMap(gpa, ini.names.len);
-    errdefer _ = ip.maps.pop();
+    errdefer _ = ip.maps.pop().?;
     ip.addStringsToMap(names_map, ini.names);
 
     const fields_len: u32 = @intCast(ini.names.len);
@@ -7105,7 +7105,7 @@ pub fn getOpaqueType(ip: *InternPool, gpa: Allocator, ini: OpaqueTypeInit) Alloc
         } },
     } }, adapter);
     if (gop.found_existing) return .{ .existing = @enumFromInt(gop.index) };
-    errdefer _ = ip.map.pop();
+    errdefer _ = ip.map.pop().?;
     try ip.items.ensureUnusedCapacity(gpa, 1);
     try ip.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.TypeOpaque).Struct.fields.len + switch (ini.key) {
         .declared => |d| d.captures.len,
@@ -7178,7 +7178,7 @@ fn addIndexesToMap(
 
 fn addMap(ip: *InternPool, gpa: Allocator, cap: usize) Allocator.Error!MapIndex {
     const ptr = try ip.maps.addOne(gpa);
-    errdefer _ = ip.maps.pop();
+    errdefer _ = ip.maps.pop().?;
     ptr.* = .{};
     try ptr.ensureTotalCapacity(gpa, cap);
     return @enumFromInt(ip.maps.items.len - 1);
@@ -7206,7 +7206,7 @@ pub fn remove(ip: *InternPool, index: Index) void {
     if (@intFromEnum(index) == ip.items.len - 1) {
         // Happy case - we can just drop the item without affecting any other indices.
         ip.items.len -= 1;
-        _ = ip.map.pop();
+        _ = ip.map.pop().?;
     } else {
         // We must preserve the item so that indices following it remain valid.
         // Thus, we will rewrite the tag to `removed`, leaking the item until
@@ -8391,7 +8391,7 @@ pub fn createDecl(
     gpa: Allocator,
     initialization: Module.Decl,
 ) Allocator.Error!DeclIndex {
-    if (ip.decls_free_list.popOrNull()) |index| {
+    if (ip.decls_free_list.pop()) |index| {
         ip.allocated_decls.at(@intFromEnum(index)).* = initialization;
         return index;
     }
@@ -8413,7 +8413,7 @@ pub fn createNamespace(
     gpa: Allocator,
     initialization: Module.Namespace,
 ) Allocator.Error!NamespaceIndex {
-    if (ip.namespaces_free_list.popOrNull()) |index| {
+    if (ip.namespaces_free_list.pop()) |index| {
         ip.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
         return index;
     }
@@ -8478,7 +8478,7 @@ pub fn getOrPutTrailingString(
     const string_bytes = &ip.string_bytes;
     const str_index: u32 = @intCast(string_bytes.items.len - len);
     if (len > 0 and string_bytes.getLast() == 0) {
-        _ = string_bytes.pop();
+        _ = string_bytes.pop().?;
     } else {
         try string_bytes.ensureUnusedCapacity(gpa, 1);
     }

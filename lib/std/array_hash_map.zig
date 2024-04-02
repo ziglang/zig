@@ -466,15 +466,10 @@ pub fn ArrayHashMap(
             return self.unmanaged.shrinkAndFreeContext(self.allocator, new_len, self.ctx);
         }
 
-        /// Removes the last inserted `Entry` in the hash map and returns it.
-        pub fn pop(self: *Self) KV {
-            return self.unmanaged.popContext(self.ctx);
-        }
-
         /// Removes the last inserted `Entry` in the hash map and returns it if count is nonzero.
         /// Otherwise returns null.
-        pub fn popOrNull(self: *Self) ?KV {
-            return self.unmanaged.popOrNullContext(self.ctx);
+        pub fn pop(self: *Self) ?KV {
+            return self.unmanaged.popContext(self.ctx);
         }
     };
 }
@@ -1403,8 +1398,9 @@ pub fn ArrayHashMapUnmanaged(
             self.entries.shrinkAndFree(allocator, new_len);
         }
 
-        /// Removes the last inserted `Entry` in the hash map and returns it.
-        pub fn pop(self: *Self) KV {
+        /// Removes the last inserted `Entry` in the hash map and returns it if count is nonzero.
+        /// Otherwise returns null.
+        pub fn pop(self: *Self) ?KV {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call popContext instead.");
             return self.popContext(undefined);
@@ -1421,17 +1417,6 @@ pub fn ArrayHashMapUnmanaged(
                 .key = item.key,
                 .value = item.value,
             };
-        }
-
-        /// Removes the last inserted `Entry` in the hash map and returns it if count is nonzero.
-        /// Otherwise returns null.
-        pub fn popOrNull(self: *Self) ?KV {
-            if (@sizeOf(ByIndexContext) != 0)
-                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call popContext instead.");
-            return self.popOrNullContext(undefined);
-        }
-        pub fn popOrNullContext(self: *Self, ctx: Context) ?KV {
-            return if (self.entries.len == 0) null else self.popContext(ctx);
         }
 
         fn fetchRemoveByKey(
@@ -2373,25 +2358,7 @@ test "pop" {
         try testing.expect((try map.fetchPut(i, i)) == null);
     }
 
-    while (i > 0) : (i -= 1) {
-        const pop = map.pop();
-        try testing.expect(pop.key == i - 1 and pop.value == i - 1);
-    }
-}
-
-test "popOrNull" {
-    var map = AutoArrayHashMap(i32, i32).init(std.testing.allocator);
-    defer map.deinit();
-
-    // Insert just enough entries so that the map expands. Afterwards,
-    // pop all entries out of the map.
-
-    var i: i32 = 0;
-    while (i < 9) : (i += 1) {
-        try testing.expect((try map.fetchPut(i, i)) == null);
-    }
-
-    while (map.popOrNull()) |pop| {
+    while (map.pop()) |pop| {
         try testing.expect(pop.key == i - 1 and pop.value == i - 1);
         i -= 1;
     }

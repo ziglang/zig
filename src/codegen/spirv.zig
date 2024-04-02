@@ -4479,7 +4479,7 @@ const DeclGen = struct {
 
         {
             try self.control_flow.structured.block_stack.append(self.gpa, &sblock);
-            defer _ = self.control_flow.structured.block_stack.pop();
+            defer _ = self.control_flow.structured.block_stack.pop().?;
 
             try self.genBody(body);
         }

@@ -6861,7 +6861,7 @@ fn forExpr(
     // We need to finish loop_scope later once we have the deferred refs from then_scope. However, the
     // load must be removed from instructions in the meantime or it appears to be part of parent_gz.
     const index = try loop_scope.addUnNode(.load, index_ptr, node);
-    _ = loop_scope.instructions.pop();
+    _ = loop_scope.instructions.pop().?;
 
     var cond_scope = parent_gz.makeSubBlock(&loop_scope.base);
     defer cond_scope.unstack();

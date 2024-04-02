@@ -496,7 +496,7 @@ pub const Function = struct {
 
         const gop = try f.lazy_fns.getOrPut(gpa, key);
         if (!gop.found_existing) {
-            errdefer _ = f.lazy_fns.pop();
+            errdefer _ = f.lazy_fns.pop().?;
 
             gop.value_ptr.* = .{
                 .fn_name = switch (key) {

@@ -417,7 +417,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     try self.stack.append(allocator, self.stack.items[self.stack.items.len - 1]);
                 },
                 OP.drop => {
-                    _ = self.stack.pop();
+                    _ = self.stack.pop().?;
                 },
                 OP.pick, OP.over => {
                     const stack_index = if (opcode == OP.over) 1 else operand.?.generic;
@@ -449,7 +449,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                         OP.xderef_size,
                         OP.xderef_type,
                         => blk: {
-                            _ = self.stack.pop();
+                            _ = self.stack.pop().?;
                             if (self.stack.items.len == 0) return error.InvalidExpression;
                             break :blk try self.stack.items[self.stack.items.len - 1].asIntegral();
                         },
@@ -526,14 +526,14 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.@"and" => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().asIntegral();
+                    const a = try self.stack.pop().?.asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = a & try self.stack.items[self.stack.items.len - 1].asIntegral(),
                     };
                 },
                 OP.div => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: isize = @bitCast(try self.stack.pop().asIntegral());
+                    const a: isize = @bitCast(try self.stack.pop().?.asIntegral());
                     const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = @bitCast(try std.math.divTrunc(isize, b, a)),
@@ -541,14 +541,14 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.minus => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const b = try self.stack.pop().asIntegral();
+                    const b = try self.stack.pop().?.asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = try std.math.sub(addr_type, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
                     };
                 },
                 OP.mod => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: isize = @bitCast(try self.stack.pop().asIntegral());
+                    const a: isize = @bitCast(try self.stack.pop().?.asIntegral());
                     const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = @bitCast(@mod(b, a)),
@@ -556,7 +556,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.mul => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a: isize = @bitCast(try self.stack.pop().asIntegral());
+                    const a: isize = @bitCast(try self.stack.pop().?.asIntegral());
                     const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = @bitCast(@mulWithOverflow(a, b)[0]),
@@ -580,14 +580,14 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.@"or" => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().asIntegral();
+                    const a = try self.stack.pop().?.asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = a | try self.stack.items[self.stack.items.len - 1].asIntegral(),
                     };
                 },
                 OP.plus => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const b = try self.stack.pop().asIntegral();
+                    const b = try self.stack.pop().?.asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = try std.math.add(addr_type, try self.stack.items[self.stack.items.len - 1].asIntegral(), b),
                     };
@@ -601,7 +601,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.shl => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().asIntegral();
+                    const a = try self.stack.pop().?.asIntegral();
                     const b = try self.stack.items[self.stack.items.len - 1].asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = std.math.shl(usize, b, a),
@@ -609,7 +609,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.shr => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().asIntegral();
+                    const a = try self.stack.pop().?.asIntegral();
                     const b = try self.stack.items[self.stack.items.len - 1].asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = std.math.shr(usize, b, a),
@@ -617,7 +617,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.shra => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().asIntegral();
+                    const a = try self.stack.pop().?.asIntegral();
                     const b: isize = @bitCast(try self.stack.items[self.stack.items.len - 1].asIntegral());
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = @bitCast(std.math.shr(isize, b, a)),
@@ -625,7 +625,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 },
                 OP.xor => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = try self.stack.pop().asIntegral();
+                    const a = try self.stack.pop().?.asIntegral();
                     self.stack.items[self.stack.items.len - 1] = .{
                         .generic = a ^ try self.stack.items[self.stack.items.len - 1].asIntegral(),
                     };
@@ -640,7 +640,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                 OP.ne,
                 => {
                     if (self.stack.items.len < 2) return error.InvalidExpression;
-                    const a = self.stack.pop();
+                    const a = self.stack.pop().?;
                     const b = self.stack.items[self.stack.items.len - 1];
 
                     if (a == .generic and b == .generic) {
@@ -666,7 +666,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     const branch_offset = operand.?.branch_offset;
                     const condition = if (opcode == OP.bra) blk: {
                         if (self.stack.items.len == 0) return error.InvalidExpression;
-                        break :blk try self.stack.pop().asIntegral() != 0;
+                        break :blk try self.stack.pop().?.asIntegral() != 0;
                     } else true;
 
                     if (condition) {
@@ -1079,7 +1079,7 @@ test "DWARF expressions" {
 
         for (0..32) |i| {
             const expected = 31 - i;
-            try testing.expectEqual(expected, stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(expected, stack_machine.stack.pop().?.generic);
         }
     }
 
@@ -1140,7 +1140,7 @@ test "DWARF expressions" {
 
         _ = try stack_machine.run(program.items, allocator, context, 0);
 
-        const const_type = stack_machine.stack.popOrNull().?.const_type;
+        const const_type = stack_machine.stack.pop().?.const_type;
         try testing.expectEqual(die_offset, const_type.type_offset);
         try testing.expectEqualSlices(u8, type_bytes, const_type.value_bytes);
 
@@ -1161,7 +1161,7 @@ test "DWARF expressions" {
         };
 
         inline for (expected) |e| {
-            try testing.expectEqual(@as(e[0], e[1]), @as(e[2], @bitCast(stack_machine.stack.popOrNull().?.generic)));
+            try testing.expectEqual(@as(e[0], e[1]), @as(e[2], @bitCast(stack_machine.stack.pop().?.generic)));
         }
     }
 
@@ -1198,14 +1198,14 @@ test "DWARF expressions" {
 
             _ = try stack_machine.run(program.items, allocator, context, 0);
 
-            const regval_type = stack_machine.stack.popOrNull().?.regval_type;
+            const regval_type = stack_machine.stack.pop().?.regval_type;
             try testing.expectEqual(@as(usize, 400), regval_type.type_offset);
             try testing.expectEqual(@as(u8, @sizeOf(usize)), regval_type.type_size);
             try testing.expectEqual(@as(usize, 0xee), regval_type.value);
 
-            try testing.expectEqual(@as(usize, 303), stack_machine.stack.popOrNull().?.generic);
-            try testing.expectEqual(@as(usize, 202), stack_machine.stack.popOrNull().?.generic);
-            try testing.expectEqual(@as(usize, 101), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, 303), stack_machine.stack.pop().?.generic);
+            try testing.expectEqual(@as(usize, 202), stack_machine.stack.pop().?.generic);
+            try testing.expectEqual(@as(usize, 101), stack_machine.stack.pop().?.generic);
         } else |err| {
             switch (err) {
                 error.UnimplementedArch,
@@ -1226,15 +1226,15 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 1);
         try b.writeOpcode(writer, OP.dup);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 1), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(usize, 1), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 1), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 1), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeConst(writer, u8, 1);
         try b.writeOpcode(writer, OP.drop);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expect(stack_machine.stack.popOrNull() == null);
+        try testing.expect(stack_machine.stack.pop() == null);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1243,7 +1243,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 6);
         try b.writePick(writer, 2);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 4), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 4), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1252,7 +1252,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 6);
         try b.writeOpcode(writer, OP.over);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1260,8 +1260,8 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 6);
         try b.writeOpcode(writer, OP.swap);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(usize, 6), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 6), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1270,9 +1270,9 @@ test "DWARF expressions" {
         try b.writeConst(writer, u8, 6);
         try b.writeOpcode(writer, OP.rot);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(usize, 4), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(usize, 6), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 4), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 6), stack_machine.stack.pop().?.generic);
 
         const deref_target: usize = @truncate(0xffeeffee_ffeeffee);
 
@@ -1281,7 +1281,7 @@ test "DWARF expressions" {
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeOpcode(writer, OP.deref);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(deref_target, stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(deref_target, stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1289,14 +1289,14 @@ test "DWARF expressions" {
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeOpcode(writer, OP.xderef);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(deref_target, stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(deref_target, stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeDerefSize(writer, 1);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1304,7 +1304,7 @@ test "DWARF expressions" {
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeXDerefSize(writer, 1);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), stack_machine.stack.pop().?.generic);
 
         const type_offset: usize = @truncate(0xaabbaabb_aabbaabb);
 
@@ -1313,7 +1313,7 @@ test "DWARF expressions" {
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeDerefType(writer, 1, type_offset);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        const deref_type = stack_machine.stack.popOrNull().?.regval_type;
+        const deref_type = stack_machine.stack.pop().?.regval_type;
         try testing.expectEqual(type_offset, deref_type.type_offset);
         try testing.expectEqual(@as(u8, 1), deref_type.type_size);
         try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), deref_type.value);
@@ -1324,7 +1324,7 @@ test "DWARF expressions" {
         try b.writeAddr(writer, @intFromPtr(&deref_target));
         try b.writeXDerefType(writer, 1, type_offset);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        const xderef_type = stack_machine.stack.popOrNull().?.regval_type;
+        const xderef_type = stack_machine.stack.pop().?.regval_type;
         try testing.expectEqual(type_offset, xderef_type.type_offset);
         try testing.expectEqual(@as(u8, 1), xderef_type.type_size);
         try testing.expectEqual(@as(usize, @as(*const u8, @ptrCast(&deref_target)).*), xderef_type.value);
@@ -1335,7 +1335,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeOpcode(writer, OP.push_object_address);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, @intFromPtr(context.object_address.?)), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, @intFromPtr(context.object_address.?)), stack_machine.stack.pop().?.generic);
 
         // TODO: Test OP.form_tls_address
 
@@ -1345,7 +1345,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeOpcode(writer, OP.call_frame_cfa);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(context.cfa.?, stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(context.cfa.?, stack_machine.stack.pop().?.generic);
     }
 
     // Arithmetic and Logical Operations
@@ -1357,7 +1357,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, i16, -4096);
         try b.writeOpcode(writer, OP.abs);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 4096), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 4096), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1365,7 +1365,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xf0ff);
         try b.writeOpcode(writer, OP.@"and");
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 0xf00f), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 0xf00f), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1373,7 +1373,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, i16, 100);
         try b.writeOpcode(writer, OP.div);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(isize, -404 / 100), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(isize, -404 / 100), @as(isize, @bitCast(stack_machine.stack.pop().?.generic)));
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1381,7 +1381,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 50);
         try b.writeOpcode(writer, OP.minus);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 150), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 150), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1389,7 +1389,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 100);
         try b.writeOpcode(writer, OP.mod);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 23), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 23), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1397,7 +1397,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xee);
         try b.writeOpcode(writer, OP.mul);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 0xed12), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 0xed12), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1406,15 +1406,15 @@ test "DWARF expressions" {
         try b.writeConst(writer, i16, -6);
         try b.writeOpcode(writer, OP.neg);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 6), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(isize, -5), @as(isize, @bitCast(stack_machine.stack.popOrNull().?.generic)));
+        try testing.expectEqual(@as(usize, 6), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(isize, -5), @as(isize, @bitCast(stack_machine.stack.pop().?.generic)));
 
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeConst(writer, u16, 0xff0f);
         try b.writeOpcode(writer, OP.not);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(~@as(usize, 0xff0f), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(~@as(usize, 0xff0f), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1422,7 +1422,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xf0ff);
         try b.writeOpcode(writer, OP.@"or");
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 0xffff), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 0xffff), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1430,14 +1430,14 @@ test "DWARF expressions" {
         try b.writeConst(writer, i16, 100);
         try b.writeOpcode(writer, OP.plus);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 502), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 502), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
         try b.writeConst(writer, u16, 4096);
         try b.writePlusUconst(writer, @as(usize, 8192));
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 4096 + 8192), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 4096 + 8192), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1445,7 +1445,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 1);
         try b.writeOpcode(writer, OP.shl);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 0xfff << 1), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 0xfff << 1), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1453,7 +1453,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 1);
         try b.writeOpcode(writer, OP.shr);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 0xfff >> 1), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 0xfff >> 1), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1461,7 +1461,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 1);
         try b.writeOpcode(writer, OP.shr);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, @bitCast(@as(isize, 0xfff) >> 1)), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, @bitCast(@as(isize, 0xfff) >> 1)), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1469,7 +1469,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, u16, 0xff0f);
         try b.writeOpcode(writer, OP.xor);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 0x0ff0), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 0x0ff0), stack_machine.stack.pop().?.generic);
     }
 
     // Control Flow Operations
@@ -1498,9 +1498,9 @@ test "DWARF expressions" {
             try b.writeConst(writer, u16, 0);
             try b.writeOpcode(writer, e[0]);
             _ = try stack_machine.run(program.items, allocator, context, null);
-            try testing.expectEqual(@as(usize, e[3]), stack_machine.stack.popOrNull().?.generic);
-            try testing.expectEqual(@as(usize, e[2]), stack_machine.stack.popOrNull().?.generic);
-            try testing.expectEqual(@as(usize, e[1]), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, e[3]), stack_machine.stack.pop().?.generic);
+            try testing.expectEqual(@as(usize, e[2]), stack_machine.stack.pop().?.generic);
+            try testing.expectEqual(@as(usize, e[1]), stack_machine.stack.pop().?.generic);
         }
 
         stack_machine.reset();
@@ -1509,7 +1509,7 @@ test "DWARF expressions" {
         try b.writeSkip(writer, 1);
         try b.writeLiteral(writer, 3);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 2), stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(@as(usize, 2), stack_machine.stack.pop().?.generic);
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1521,9 +1521,9 @@ test "DWARF expressions" {
         try b.writeLiteral(writer, 4);
         try b.writeLiteral(writer, 5);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(@as(usize, 5), stack_machine.stack.popOrNull().?.generic);
-        try testing.expectEqual(@as(usize, 4), stack_machine.stack.popOrNull().?.generic);
-        try testing.expect(stack_machine.stack.popOrNull() == null);
+        try testing.expectEqual(@as(usize, 5), stack_machine.stack.pop().?.generic);
+        try testing.expectEqual(@as(usize, 4), stack_machine.stack.pop().?.generic);
+        try testing.expect(stack_machine.stack.pop() == null);
 
         // TODO: Test call2, call4, call_ref once implemented
 
@@ -1547,7 +1547,7 @@ test "DWARF expressions" {
         try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeConvert(writer, @as(usize, 0));
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(value, stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(value, stack_machine.stack.pop().?.generic);
 
         // Reinterpret to generic type
         stack_machine.reset();
@@ -1555,7 +1555,7 @@ test "DWARF expressions" {
         try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeReinterpret(writer, @as(usize, 0));
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expectEqual(value, stack_machine.stack.popOrNull().?.generic);
+        try testing.expectEqual(value, stack_machine.stack.pop().?.generic);
 
         // Reinterpret to new type
         const die_offset: usize = 0xffee;
@@ -1565,7 +1565,7 @@ test "DWARF expressions" {
         try b.writeConstType(writer, @as(usize, 0), &value_bytes);
         try b.writeReinterpret(writer, die_offset);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        const const_type = stack_machine.stack.popOrNull().?.const_type;
+        const const_type = stack_machine.stack.pop().?.const_type;
         try testing.expectEqual(die_offset, const_type.type_offset);
 
         stack_machine.reset();
@@ -1573,7 +1573,7 @@ test "DWARF expressions" {
         try b.writeLiteral(writer, 0);
         try b.writeReinterpret(writer, die_offset);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        const regval_type = stack_machine.stack.popOrNull().?.regval_type;
+        const regval_type = stack_machine.stack.pop().?.regval_type;
         try testing.expectEqual(die_offset, regval_type.type_offset);
     }
 
@@ -1585,7 +1585,7 @@ test "DWARF expressions" {
         program.clearRetainingCapacity();
         try b.writeOpcode(writer, OP.nop);
         _ = try stack_machine.run(program.items, allocator, context, null);
-        try testing.expect(stack_machine.stack.popOrNull() == null);
+        try testing.expect(stack_machine.stack.pop() == null);
 
         // Sub-expression
         {
@@ -1598,7 +1598,7 @@ test "DWARF expressions" {
             program.clearRetainingCapacity();
             try b.writeEntryValue(writer, sub_program.items);
             _ = try stack_machine.run(program.items, allocator, context, null);
-            try testing.expectEqual(@as(usize, 3), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, 3), stack_machine.stack.pop().?.generic);
         }
 
         // Register location description
@@ -1625,7 +1625,7 @@ test "DWARF expressions" {
             program.clearRetainingCapacity();
             try b.writeEntryValue(writer, sub_program.items);
             _ = try stack_machine.run(program.items, allocator, context, null);
-            try testing.expectEqual(@as(usize, 0xee), stack_machine.stack.popOrNull().?.generic);
+            try testing.expectEqual(@as(usize, 0xee), stack_machine.stack.pop().?.generic);
         } else |err| {
             switch (err) {
                 error.UnimplementedArch,

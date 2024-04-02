@@ -44,7 +44,7 @@ pub fn size(itab: ImportTable) u32 {
 pub fn addImport(itab: *ImportTable, allocator: Allocator, target: SymbolWithLoc) !ImportIndex {
     try itab.entries.ensureUnusedCapacity(allocator, 1);
     const index: u32 = blk: {
-        if (itab.free_list.popOrNull()) |index| {
+        if (itab.free_list.pop()) |index| {
             log.debug("  (reusing import entry index {d})", .{index});
             break :blk index;
         } else {

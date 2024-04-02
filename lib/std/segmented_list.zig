@@ -134,7 +134,6 @@ pub fn SegmentedList(comptime T: type, comptime prealloc_item_count: usize) type
 
         pub fn pop(self: *Self) ?T {
             if (self.len == 0) return null;
-
             const index = self.len - 1;
             const result = uncheckedAt(self, index).*;
             self.len = index;

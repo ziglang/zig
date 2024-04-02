@@ -3868,7 +3868,7 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
 
     const tmp_air = sema.getTmpAir();
 
-    while (to_map.popOrNull()) |air_ptr| {
+    while (to_map.pop()) |air_ptr| {
         if (ptr_mapping.contains(air_ptr)) continue;
         const PointerMethod = union(enum) {
             same_addr,
@@ -6484,7 +6484,7 @@ fn addExport(mod: *Module, export_init: Module.Export) error{OutOfMemory}!void {
     const eo_gop = mod.export_owners.getOrPutAssumeCapacity(export_init.owner_decl);
     if (!eo_gop.found_existing) eo_gop.value_ptr.* = .{};
     try eo_gop.value_ptr.append(gpa, new_export);
-    errdefer _ = eo_gop.value_ptr.pop();
+    errdefer _ = eo_gop.value_ptr.pop().?;
 
     switch (export_init.exported) {
         .decl_index => |decl_index| {

@@ -734,7 +734,7 @@ pub fn allocateSymbol(self: *Coff) !u32 {
     try self.locals.ensureUnusedCapacity(gpa, 1);
 
     const index = blk: {
-        if (self.locals_free_list.popOrNull()) |index| {
+        if (self.locals_free_list.pop()) |index| {
             log.debug("  (reusing symbol index {d})", .{index});
             break :blk index;
         } else {
@@ -762,7 +762,7 @@ fn allocateGlobal(self: *Coff) !u32 {
     try self.globals.ensureUnusedCapacity(gpa, 1);
 
     const index = blk: {
-        if (self.globals_free_list.popOrNull()) |index| {
+        if (self.globals_free_list.pop()) |index| {
             log.debug("  (reusing global index {d})", .{index});
             break :blk index;
         } else {
@@ -888,7 +888,7 @@ fn writeAtom(self: *Coff, atom_index: Atom.Index, code: []u8) !void {
     try self.base.file.?.pwriteAll(code, file_offset);
 
     // Now we can mark the relocs as resolved.
-    while (relocs.popOrNull()) |reloc| {
+    while (relocs.pop()) |reloc| {
         reloc.dirty = false;
     }
 }
@@ -1361,7 +1361,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Ato
     const gpa = self.base.comp.gpa;
     const mod = self.base.comp.module.?;
     const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(mod));
-    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop();
+    errdefer _ = if (!gop.found_existing) self.lazy_syms.pop().?;
     if (!gop.found_existing) gop.value_ptr.* = .{};
     const metadata: struct { atom: *Atom.Index, state: *LazySymbolMetadata.State } = switch (sym.kind) {
         .code => .{ .atom = &gop.value_ptr.text_atom, .state = &gop.value_ptr.text_state },
@@ -1767,7 +1767,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         }
     }
 
-    while (self.unresolved.popOrNull()) |entry| {
+    while (self.unresolved.pop()) |entry| {
         assert(entry.value);
         const global = self.globals.items[entry.key];
         const sym = self.getSymbol(global);

@@ -143,7 +143,7 @@ fn iterateAndFilterBySemVer(
 
     const dirs_filtered_slice = try dirs_filtered_list.toOwnedSlice();
     // Keep in mind that order of these names is not guaranteed by Windows,
-    // so we cannot just reverse or "while (popOrNull())" this ArrayList.
+    // so we cannot just reverse or "while (pop())" this ArrayList.
     std.mem.sortUnstable([]const u8, dirs_filtered_slice, {}, struct {
         fn desc(_: void, lhs: []const u8, rhs: []const u8) bool {
             return std.mem.order(u8, lhs, rhs) == .gt;
@@ -440,7 +440,7 @@ pub const Windows10Sdk = struct {
             errdefer path.deinit();
 
             // String might contain trailing slash, so trim it here
-            if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop();
+            if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop().?;
 
             const path_without_trailing_slash = try path.toOwnedSlice();
             break :path10 path_without_trailing_slash;
@@ -530,7 +530,7 @@ pub const Windows81Sdk = struct {
             errdefer path.deinit();
 
             // String might contain trailing slash, so trim it here
-            if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop();
+            if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop().?;
 
             const path_without_trailing_slash = try path.toOwnedSlice();
             break :path81 path_without_trailing_slash;
@@ -839,7 +839,7 @@ const MsvcLibDir = struct {
             errdefer msvc_dir.deinit();
 
             // String might contain trailing slash, so trim it here
-            if (msvc_dir.items.len > "C:\\".len and msvc_dir.getLast() == '\\') _ = msvc_dir.pop();
+            if (msvc_dir.items.len > "C:\\".len and msvc_dir.getLast() == '\\') _ = msvc_dir.pop().?;
 
             // Remove `\include` at the end of path
             if (std.mem.endsWith(u8, msvc_dir.items, "\\include")) {
@@ -884,7 +884,7 @@ const MsvcLibDir = struct {
 
                     try list.appendSlice(VS140COMNTOOLS); // C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\Tools
                     // String might contain trailing slash, so trim it here
-                    if (list.items.len > "C:\\".len and list.getLast() == '\\') _ = list.pop();
+                    if (list.items.len > "C:\\".len and list.getLast() == '\\') _ = list.pop().?;
                     list.shrinkRetainingCapacity(list.items.len - "\\Common7\\Tools".len); // C:\Program Files (x86)\Microsoft Visual Studio 14.0
                     break :base_path list;
                 }
@@ -907,7 +907,7 @@ const MsvcLibDir = struct {
                 errdefer path.deinit();
 
                 // String might contain trailing slash, so trim it here
-                if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop();
+                if (path.items.len > "C:\\".len and path.getLast() == '\\') _ = path.pop().?;
                 break :base_path path;
             }
             return error.PathNotFound;
