@@ -27979,6 +27979,8 @@ fn structFieldVal(
             }
 
             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+            if (try sema.typeHasOnePossibleValue(field_ty)) |field_val|
+                return Air.internedToRef(field_val.toIntern());
 
             if (try sema.resolveValue(struct_byval)) |struct_val| {
                 if (struct_val.isUndef(mod)) return mod.undefRef(field_ty);
@@ -28620,8 +28622,6 @@ fn elemValArray(
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, array_ty, array_src);
 
     const runtime_src = if (maybe_undef_array_val != null) elem_index_src else array_src;
-    try sema.requireRuntimeBlock(block, src, runtime_src);
-    try sema.queueFullTypeResolution(array_ty);
     if (oob_safety and block.wantSafety()) {
         // Runtime check is only needed if unable to comptime check
         if (maybe_index_val == null) {
@@ -28630,6 +28630,12 @@ fn elemValArray(
             try sema.panicIndexOutOfBounds(block, src, elem_index, len_inst, cmp_op);
         }
     }
+
+    if (try sema.typeHasOnePossibleValue(elem_ty)) |elem_val|
+        return Air.internedToRef(elem_val.toIntern());
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+    try sema.queueFullTypeResolution(array_ty);
     return block.addBinOp(.array_elem_val, array, elem_index);
 }
 
