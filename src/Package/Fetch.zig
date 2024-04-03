@@ -1416,7 +1416,8 @@ fn computeHash(
         }) |entry| {
             if (entry.kind == .directory) continue;
 
-            if (!filter.includePath(entry.path)) {
+            const entry_pkg_path = stripRoot(entry.path, pkg_path.sub_path);
+            if (!filter.includePath(entry_pkg_path)) {
                 // Delete instead of including in hash calculation.
                 const fs_path = try arena.dupe(u8, entry.path);
 
@@ -1454,7 +1455,7 @@ fn computeHash(
             const hashed_file = try arena.create(HashedFile);
             hashed_file.* = .{
                 .fs_path = fs_path,
-                .normalized_path = try normalizePathAlloc(arena, stripRoot(fs_path, pkg_path.sub_path)),
+                .normalized_path = try normalizePathAlloc(arena, entry_pkg_path),
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
@@ -1657,9 +1658,9 @@ fn stripRoot(fs_path: []const u8, root_dir: []const u8) []const u8 {
 
 /// Make a file system path identical independently of operating system path inconsistencies.
 /// This converts backslashes into forward slashes.
-fn normalizePathAlloc(arena: Allocator, fs_path: []const u8) ![]const u8 {
-    if (fs.path.sep == canonical_sep) return fs_path;
-    const normalized = try arena.dupe(u8, fs_path);
+fn normalizePathAlloc(arena: Allocator, pkg_path: []const u8) ![]const u8 {
+    const normalized = try arena.dupe(u8, pkg_path);
+    if (fs.path.sep == canonical_sep) return normalized;
     normalizePath(normalized);
     return normalized;
 }
