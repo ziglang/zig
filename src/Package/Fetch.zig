@@ -532,8 +532,10 @@ fn runResource(
         ) });
         return error.FetchFailed;
     };
-    // Remove temporary directory root.
-    cache_root.handle.deleteTree(tmp_dir_sub_path) catch {};
+    // Remove temporary directory root if not already renamed to cache.
+    if (!std.mem.eql(u8, package_sub_path, tmp_dir_sub_path)) {
+        cache_root.handle.deleteDir(tmp_dir_sub_path) catch {};
+    }
 
     // Validate the computed hash against the expected hash. If invalid, this
     // job is done.
@@ -1059,6 +1061,10 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     ));
 }
 
+/// A `null` return value indicates the `tmp_directory` is populated directly
+/// with the package contents.
+/// A non-null return value means that the package contents are inside a
+/// sub-directory indicated by the named path.
 fn unpackResource(
     f: *Fetch,
     resource: *Resource,
