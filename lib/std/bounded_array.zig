@@ -46,6 +46,7 @@ pub fn BoundedArrayAligned(
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
+        /// Use std.BoundedArray(T, N){} to initialize an empty BoundedArray
         pub fn init(len: usize) error{Overflow}!Self {
             if (len > buffer_capacity) return error.Overflow;
             return Self{ .len = @intCast(len) };
