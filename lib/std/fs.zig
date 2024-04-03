@@ -270,6 +270,7 @@ pub fn defaultWasiCwd() std.os.wasi.fd_t {
     return 3;
 }
 
+// Opens the directory that holds the current executable as the working directory.
 pub fn defaultUefiCwd() Dir {
     const uefi = std.os.uefi;
 
@@ -716,6 +717,28 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                 error.InvalidWtf8 => unreachable,
                 else => |e| return e,
             };
+        },
+        .uefi => {
+            const uefi = std.os.uefi;
+
+            if (uefi.system_table.boot_services) |boot_services| {
+                const loaded_image = boot_services.openProtocol(uefi.handle, uefi.protocol.LoadedImage, .{}) catch return error.FileNotFound;
+
+                const file_path = if (loaded_image.file_path.node()) |node| file_path: {
+                    if (node == .media and node.media == .file_path)
+                        break :file_path node.media.file_path.path();
+
+                    return error.FileNotFound;
+                } else return error.FileNotFound;
+
+                // this is an overestimate, but it's the maximum possible wtf8 length.
+                if (file_path.len * 3 + 1 > MAX_PATH_BYTES) return error.NameTooLong;
+
+                const len = std.unicode.wtf16LeToWtf8(out_buffer, file_path);
+                return out_buffer[0..len];
+            }
+
+            return error.FileNotFound;
         },
         else => @compileError("std.fs.selfExePath not supported for this target"),
     }
