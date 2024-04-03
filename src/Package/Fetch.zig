@@ -625,16 +625,6 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     }
 }
 
-fn archivePackageDir(arena: Allocator, out_dir: fs.Dir) !?[]const u8 {
-    var iter = out_dir.iterate();
-    if (try iter.next()) |entry| {
-        if (try iter.next() == null and entry.kind == .directory) {
-            return try arena.dupe(u8, entry.name);
-        }
-    }
-    return null;
-}
-
 fn queueJobsForDeps(f: *Fetch) RunError!void {
     assert(f.job_queue.recursive);
 
@@ -1235,7 +1225,10 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!?[]const 
         return error.FetchFailed;
     }
 
-    return archivePackageDir(arena, out_dir) catch null;
+    return if (diagnostics.root_dir) |root_dir|
+        return try arena.dupe(u8, root_dir)
+    else
+        null;
 }
 
 fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void {
@@ -1751,35 +1744,4 @@ const native_os = builtin.os.tag;
 test {
     _ = Filter;
     _ = FileType;
-}
-
-test archivePackageDir {
-    const testing = std.testing;
-
-    var tmp = std.testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-
-    // folder1
-    //     ├── folder2
-    //     ├── file1
-    //
-    try tmp.dir.makePath("folder1/folder2");
-    (try tmp.dir.createFile("folder1/file1", .{})).close();
-
-    // start at root returns folder1 as package root
-    const sub_path = (try archivePackageDir(testing.allocator, tmp.dir)).?;
-    try testing.expectEqualStrings("folder1", sub_path);
-    testing.allocator.free(sub_path);
-
-    // start at folder1 returns null
-    try testing.expect(null == (try archivePackageDir(
-        testing.allocator,
-        try tmp.dir.openDir("folder1", .{ .iterate = true }),
-    )));
-
-    // start at folder1/folder2 returns null
-    try testing.expect(null == (try archivePackageDir(
-        testing.allocator,
-        try tmp.dir.openDir("folder1/folder2", .{ .iterate = true }),
-    )));
 }
