@@ -182,11 +182,6 @@ pub fn getFileSize(fd: fd_t) !u64 {
     }
 }
 
-const uctx = @import("uefi/ucontext.zig");
-pub const getcontext = uctx.getcontext;
-pub const ucontext_t = uctx.ucontext_t;
-pub const REG = uctx.REG;
-
 test {
     _ = table;
     _ = protocol;

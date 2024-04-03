@@ -8,7 +8,7 @@ const Allocator = mem.Allocator;
 const assert = std.debug.assert;
 
 /// Allocates memory in pages.
-/// 
+///
 /// This allocator is backed by `allocatePages` and is therefore only suitable for usage when Boot Services are available.
 pub const PageAllocator = struct {
     memory_type: uefi.bits.MemoryDescriptor.Type = .loader_data,
@@ -86,7 +86,7 @@ pub const PageAllocator = struct {
 };
 
 /// Supports the full std.mem.Allocator interface, including up to page alignment.
-/// 
+///
 /// This allocator is backed by `allocatePool` and is therefore only suitable for usage when Boot Services are available.
 pub const PoolAllocator = struct {
     memory_type: uefi.bits.MemoryDescriptor.Type = .loader_data,
@@ -174,7 +174,7 @@ pub const PoolAllocator = struct {
 };
 
 /// Asserts all allocations are at most 8 byte aligned. This is the highest alignment UEFI will give us directly.
-/// 
+///
 /// This allocator is backed by `allocatePool` and is therefore only suitable for usage when Boot Services are available.
 pub const RawPoolAllocator = struct {
     memory_type: uefi.bits.MemoryDescriptor.Type = .loader_data,
@@ -231,6 +231,6 @@ pub const RawPoolAllocator = struct {
         ret_addr: usize,
     ) void {
         _ = .{ ctx, log2_buf_align, ret_addr };
-       uefi.system_table.boot_services.?.freePool(@alignCast(buf));
+        uefi.system_table.boot_services.?.freePool(@alignCast(buf));
     }
 };

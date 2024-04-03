@@ -1,4 +1,3 @@
-
 // ** UEFI Specification Version 2.10, August 29, 2022
 
 // 3.2 BootManagerPolicy

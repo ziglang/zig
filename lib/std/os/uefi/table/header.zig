@@ -4,7 +4,7 @@ pub const Header = extern struct {
     signature: u64,
 
     /// The revision of the EFI Specification to which this table conforms.
-    /// 
+    ///
     /// Encoded as `(major << 16) | (minor * 10) | (patch)`.
     revision: u32,
 
