@@ -208,8 +208,7 @@ fn wasi_start() callconv(.C) void {
 }
 
 fn riscv_start() callconv(.C) noreturn {
-    const code = @call(.always_inline, callMain, .{});
-    std.process.exit(code);
+    std.process.exit(@call(.always_inline, callMain, .{}));
 }
 
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {

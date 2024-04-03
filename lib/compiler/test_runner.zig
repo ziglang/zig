@@ -252,12 +252,16 @@ pub fn mainSimple() anyerror!void {
 
 pub fn mainExtraSimple() !void {
     var pass_count: u8 = 0;
+    var skip_count: u8 = 0;
+    var fail_count: u8 = 0;
 
     for (builtin.test_functions) |test_fn| {
         test_fn.func() catch |err| {
             if (err != error.SkipZigTest) {
-                @panic(test_fn.name);
+                fail_count += 1;
+                continue;
             }
+            skip_count += 1;
             continue;
         };
         pass_count += 1;

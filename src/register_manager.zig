@@ -360,6 +360,7 @@ pub fn RegisterManager(
             } else self.getRegIndexAssumeFree(tracked_index, inst);
         }
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
+            log.debug("getting reg: {}", .{reg});
             return self.getRegIndex(indexOfRegIntoTracked(reg) orelse return, inst);
         }
         pub fn getKnownReg(

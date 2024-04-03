@@ -9,22 +9,32 @@
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
+frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
 pub const Inst = struct {
     tag: Tag,
-    /// The meaning of this depends on `tag`.
     data: Data,
+    ops: Ops,
+
+    /// The position of an MIR instruction within the `Mir` instructions array.
+    pub const Index = u32;
 
     pub const Tag = enum(u16) {
+        /// Add immediate. Uses i_type payload.
         addi,
+
+        /// Add immediate and produce a sign-extended result.
+        ///
+        /// Uses i-type payload.
         addiw,
+
         jalr,
         lui,
         mv,
 
-        unimp,
         ebreak,
         ecall,
+        unimp,
 
         /// OR instruction. Uses r_type payload.
         @"or",
@@ -48,9 +58,11 @@ pub const Inst = struct {
         /// Register Logical Right Shit, uses r_type payload
         srlw,
 
+        /// Jumps, but stores the address of the instruction following the
+        /// jump in `rd`.
+        ///
+        /// Uses j_type payload.
         jal,
-        /// Jumps. Uses `inst` payload.
-        j,
 
         /// Immediate AND, uses i_type payload
         andi,
@@ -93,55 +105,34 @@ pub const Inst = struct {
         /// Boolean NOT, Uses rr payload
         not,
 
+        /// Generates a NO-OP, uses nop payload
         nop,
-        ret,
 
-        /// Load double (64 bits)
+        /// Load double (64 bits), uses i_type payload
         ld,
-        /// Store double (64 bits)
-        sd,
-        /// Load word (32 bits)
+        /// Load word (32 bits), uses i_type payload
         lw,
-        /// Store word (32 bits)
-        sw,
-        /// Load half (16 bits)
+        /// Load half (16 bits), uses i_type payload
         lh,
-        /// Store half (16 bits)
-        sh,
-        /// Load byte (8 bits)
+        /// Load byte (8 bits), uses i_type payload
         lb,
-        /// Store byte (8 bits)
+
+        /// Store double (64 bits), uses s_type payload
+        sd,
+        /// Store word (32 bits), uses s_type payload
+        sw,
+        /// Store half (16 bits), uses s_type payload
+        sh,
+        /// Store byte (8 bits), uses s_type payload
         sb,
 
-        /// Pseudo-instruction: End of prologue
-        dbg_prologue_end,
-        /// Pseudo-instruction: Beginning of epilogue
-        dbg_epilogue_begin,
-        /// Pseudo-instruction: Update debug line
-        dbg_line,
-
-        /// Psuedo-instruction that will generate a backpatched
-        /// function prologue.
-        psuedo_prologue,
-        /// Psuedo-instruction that will generate a backpatched
-        /// function epilogue
-        psuedo_epilogue,
-
-        /// Loads the address of a value that hasn't yet been allocated in memory.
-        ///
-        /// uses the Mir.LoadSymbolPayload payload.
-        load_symbol,
-
-        // TODO: add description
-        // this is bad, remove this
-        ldr_ptr_stack,
+        /// A pseudo-instruction. Used for anything that isn't 1:1 with an
+        /// assembly instruction.
+        pseudo,
     };
 
-    /// The position of an MIR instruction within the `Mir` instructions array.
-    pub const Index = u32;
-
     /// All instructions have a 4-byte payload, which is contained within
-    /// this union. `Tag` determines which union field is active, as well as
+    /// this union. `Ops` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
         /// No additional data
@@ -152,22 +143,69 @@ pub const Inst = struct {
         ///
         /// Used by e.g. b
         inst: Index,
-        /// A 16-bit immediate value.
-        ///
-        /// Used by e.g. svc
-        imm16: i16,
-        /// A 12-bit immediate value.
-        ///
-        /// Used by e.g. psuedo_prologue
-        imm12: i12,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
         ///
         /// Used by e.g. load_memory
         payload: u32,
+
+        r_type: struct {
+            rd: Register,
+            rs1: Register,
+            rs2: Register,
+        },
+
+        i_type: struct {
+            rd: Register,
+            rs1: Register,
+            imm12: Immediate,
+        },
+
+        s_type: struct {
+            rs1: Register,
+            rs2: Register,
+            imm5: Immediate,
+            imm7: Immediate,
+        },
+
+        b_type: struct {
+            rs1: Register,
+            rs2: Register,
+            inst: Inst.Index,
+        },
+
+        u_type: struct {
+            rd: Register,
+            imm20: Immediate,
+        },
+
+        j_type: struct {
+            rd: Register,
+            inst: Inst.Index,
+        },
+
+        /// Debug info: line and column
+        ///
+        /// Used by e.g. pseudo_dbg_line
+        pseudo_dbg_line_column: struct {
+            line: u32,
+            column: u32,
+        },
+
+        // Custom types to be lowered
+
+        /// Register + Memory
+        rm: struct {
+            r: Register,
+            m: Memory,
+        },
+
+        reg_list: Mir.RegisterList,
+
         /// A register
         ///
         /// Used by e.g. blr
         reg: Register,
+
         /// Two registers
         ///
         /// Used by e.g. mv
@@ -175,51 +213,84 @@ pub const Inst = struct {
             rd: Register,
             rs: Register,
         },
-        /// I-Type
+    };
+
+    pub const Ops = enum {
+        /// No data associated with this instruction (only mnemonic is used).
+        none,
+        /// Two registers
+        rr,
+        /// Three registers
+        rrr,
+
+        /// Two registers + immediate, uses the i_type payload.
+        rri,
+        /// Two registers + Two Immediates
+        rrii,
+
+        /// Two registers + another instruction.
+        rr_inst,
+
+        /// Register + Memory
+        rm,
+
+        /// Register + Immediate
+        ri,
+
+        /// Another instruction.
+        inst,
+
+        /// Pseudo-instruction that will generate a backpatched
+        /// function prologue.
+        pseudo_prologue,
+        /// Pseudo-instruction that will generate a backpatched
+        /// function epilogue
+        pseudo_epilogue,
+
+        /// Pseudo-instruction: End of prologue
+        pseudo_dbg_prologue_end,
+        /// Pseudo-instruction: Beginning of epilogue
+        pseudo_dbg_epilogue_begin,
+        /// Pseudo-instruction: Update debug line
+        pseudo_dbg_line_column,
+
+        /// Pseudo-instruction that loads from memory into a register.
         ///
-        /// Used by e.g. jalr
-        i_type: struct {
-            rd: Register,
-            rs1: Register,
-            imm12: i12,
-        },
-        /// R-Type
+        /// Uses `rm` payload.
+        pseudo_load_rm,
+        /// Pseudo-instruction that stores from a register into memory
         ///
-        /// Used by e.g. add
-        r_type: struct {
-            rd: Register,
-            rs1: Register,
-            rs2: Register,
-        },
-        /// B-Type
+        /// Uses `rm` payload.
+        pseudo_store_rm,
+
+        /// Pseudo-instruction that loads the address of memory into a register.
         ///
-        /// Used by e.g. beq
-        b_type: struct {
-            rs1: Register,
-            rs2: Register,
-            inst: Inst.Index,
-        },
-        /// J-Type
+        /// Uses `rm` payload.
+        pseudo_lea_rm,
+
+        /// Shorthand for returning, aka jumping to ra register.
         ///
-        /// Used by e.g. jal
-        j_type: struct {
-            rd: Register,
-            inst: Inst.Index,
-        },
-        /// U-Type
+        /// Uses nop payload.
+        pseudo_ret,
+
+        /// Jumps. Uses `inst` payload.
+        pseudo_j,
+
+        /// Dead inst, ignored by the emitter.
+        pseudo_dead,
+
+        /// Loads the address of a value that hasn't yet been allocated in memory.
         ///
-        /// Used by e.g. lui
-        u_type: struct {
-            rd: Register,
-            imm20: i20,
-        },
-        /// Debug info: line and column
+        /// uses the Mir.LoadSymbolPayload payload.
+        pseudo_load_symbol,
+
+        /// Moves the value of rs1 to rd.
         ///
-        /// Used by e.g. dbg_line
-        dbg_line_column: struct {
-            line: u32,
-            column: u32,
-        },
+        /// uses the `rr` payload.
+        pseudo_mv,
+
+        pseudo_restore_regs,
+        pseudo_spill_regs,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
@@ -229,13 +300,31 @@ pub const Inst = struct {
     //         assert(@sizeOf(Inst) == 8);
     //     }
     // }
+
+    pub fn format(
+        inst: Inst,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        assert(fmt.len == 0);
+        _ = options;
+
+        try writer.print("Tag: {s}, Ops: {s}", .{ @tagName(inst.tag), @tagName(inst.ops) });
+    }
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
+    mir.frame_locs.deinit(gpa);
     gpa.free(mir.extra);
     mir.* = undefined;
 }
+
+pub const FrameLoc = struct {
+    base: Register,
+    disp: i32,
+};
 
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
@@ -291,11 +380,11 @@ pub const RegisterList = struct {
         return self.bitset.iterator(options);
     }
 
-    pub fn count(self: Self) u32 {
+    pub fn count(self: Self) i32 {
         return @intCast(self.bitset.count());
     }
 
-    pub fn size(self: Self) u32 {
+    pub fn size(self: Self) i32 {
         return @intCast(self.bitset.count() * 8);
     }
 };
@@ -307,4 +396,8 @@ const assert = std.debug.assert;
 
 const bits = @import("bits.zig");
 const Register = bits.Register;
+const Immediate = bits.Immediate;
+const Memory = bits.Memory;
+const FrameIndex = bits.FrameIndex;
+const FrameAddr = @import("CodeGen.zig").FrameAddr;
 const IntegerBitSet = std.bit_set.IntegerBitSet;

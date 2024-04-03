@@ -93,7 +93,7 @@ pub fn classifyType(ty: Type, mod: *Module) Class {
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, mod: *Module) [8]Class {
+pub fn classifySystem(ty: Type, mod: *Module) [8]Class {
     var result = [1]Class{.none} ** 8;
     switch (ty.zigTypeTag(mod)) {
         .Pointer => switch (ty.ptrSize(mod)) {
@@ -109,18 +109,42 @@ pub fn classifySystemV(ty: Type, mod: *Module) [8]Class {
         },
         .Optional => {
             if (ty.isPtrLikeOptional(mod)) {
+                result[0] = .integer;
                 return result;
             }
             result[0] = .integer;
             result[1] = .integer;
             return result;
         },
-        else => return result,
+        .Int, .Enum, .ErrorSet => {
+            const int_bits = ty.intInfo(mod).bits;
+            if (int_bits <= 64) {
+                result[0] = .integer;
+                return result;
+            }
+            if (int_bits <= 128) {
+                result[0] = .integer;
+                result[1] = .integer;
+                return result;
+            }
+            unreachable; // support > 128 bit int arguments
+        },
+        .ErrorUnion => {
+            const payload = ty.errorUnionPayload(mod);
+            const payload_bits = payload.bitSize(mod);
+            if (payload_bits <= 64) {
+                result[0] = .integer;
+                result[1] = .integer;
+            }
+            unreachable; // support > 64 bit error payloads
+        },
+        else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
     }
 }
 
 pub const callee_preserved_regs = [_]Register{
-    .s0, .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
+    // .s0 is ommited to be used as a frame pointer
+    .s1, .s2, .s3, .s4, .s5, .s6, .s7, .s8, .s9, .s10, .s11,
 };
 
 pub const function_arg_regs = [_]Register{
