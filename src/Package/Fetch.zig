@@ -461,36 +461,26 @@ fn runResource(
         };
         defer tmp_directory.handle.close();
 
-        const package_dir = try unpackResource(f, resource, uri_path, tmp_directory);
+        const pkg_dir = try unpackResource(f, resource, uri_path, tmp_directory);
 
-        if (package_dir) |dir_name| {
-            // Position tmp_directory to dir_name inside tmp_dir_sub_path.
-            const path = try cache_root.join(arena, &.{ tmp_dir_sub_path, dir_name });
-            const handle = tmp_directory.handle.openDir(dir_name, .{ .iterate = true }) catch |err| {
-                try eb.addRootErrorMessage(.{
-                    .msg = try eb.printString("unable to open temporary directory '{s}': {s}", .{
-                        path, @errorName(err),
-                    }),
-                });
-                return error.FetchFailed;
-            };
-            tmp_directory.handle.close();
-            tmp_directory = .{ .path = path, .handle = handle };
-        } else {
-            // btrfs workaround; reopen tmp_directory
-            if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
-                // https://github.com/ziglang/zig/issues/17095
-                tmp_directory.handle.close();
-                tmp_directory.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
-                    .iterate = true,
-                }) catch @panic("btrfs workaround failed");
-            }
+        var pkg_path: Cache.Path = if (pkg_dir) |pkg_dir_name|
+            .{ .root_dir = tmp_directory, .sub_path = pkg_dir_name }
+        else
+            .{ .root_dir = tmp_directory };
+
+        // btrfs workaround; reopen tmp_directory
+        if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
+            // https://github.com/ziglang/zig/issues/17095
+            pkg_path.root_dir.handle.close();
+            pkg_path.root_dir.handle = cache_root.handle.makeOpenPath(tmp_dir_sub_path, .{
+                .iterate = true,
+            }) catch @panic("btrfs workaround failed");
         }
 
         // Load, parse, and validate the unpacked build.zig.zon file. It is allowed
         // for the file to be missing, in which case this fetched package is
         // considered to be a "naked" package.
-        try loadManifest(f, .{ .root_dir = tmp_directory });
+        try loadManifest(f, pkg_path);
 
         // Apply the manifest's inclusion rules to the temporary directory by
         // deleting excluded files. If any error occurred for files that were
@@ -505,10 +495,10 @@ fn runResource(
 
         // Compute the package hash based on the remaining files in the temporary
         // directory.
-        f.actual_hash = try computeHash(f, tmp_directory, filter);
+        f.actual_hash = try computeHash(f, pkg_path, filter);
 
-        break :blk if (package_dir) |dir_name|
-            try fs.path.join(arena, &.{ tmp_dir_sub_path, dir_name })
+        break :blk if (pkg_dir) |pkg_dir_name|
+            try fs.path.join(arena, &.{ tmp_dir_sub_path, pkg_dir_name })
         else
             tmp_dir_sub_path;
     };
@@ -1388,7 +1378,7 @@ pub fn renameTmpIntoCache(
 /// function.
 fn computeHash(
     f: *Fetch,
-    tmp_directory: Cache.Directory,
+    pkg_path: Cache.Path,
     filter: Filter,
 ) RunError!Manifest.Digest {
     // All the path name strings need to be in memory for sorting.
@@ -1396,6 +1386,7 @@ fn computeHash(
     const gpa = f.arena.child_allocator;
     const eb = &f.error_bundle;
     const thread_pool = f.job_queue.thread_pool;
+    const root_dir = pkg_path.root_dir.handle;
 
     // Collect all files, recursively, then sort.
     var all_files = std.ArrayList(*HashedFile).init(gpa);
@@ -1409,7 +1400,7 @@ fn computeHash(
     var sus_dirs: std.StringArrayHashMapUnmanaged(void) = .{};
     defer sus_dirs.deinit(gpa);
 
-    var walker = try tmp_directory.handle.walk(gpa);
+    var walker = try root_dir.walk(gpa);
     defer walker.deinit();
 
     {
@@ -1423,7 +1414,7 @@ fn computeHash(
         while (walker.next() catch |err| {
             try eb.addRootErrorMessage(.{ .msg = try eb.printString(
                 "unable to walk temporary directory '{}': {s}",
-                .{ tmp_directory, @errorName(err) },
+                .{ pkg_path, @errorName(err) },
             ) });
             return error.FetchFailed;
         }) |entry| {
@@ -1444,7 +1435,7 @@ fn computeHash(
                 };
                 wait_group.start();
                 try thread_pool.spawn(workerDeleteFile, .{
-                    tmp_directory.handle, deleted_file, &wait_group,
+                    root_dir, deleted_file, &wait_group,
                 });
                 try deleted_files.append(deleted_file);
                 continue;
@@ -1467,14 +1458,14 @@ fn computeHash(
             const hashed_file = try arena.create(HashedFile);
             hashed_file.* = .{
                 .fs_path = fs_path,
-                .normalized_path = try normalizePathAlloc(arena, fs_path),
+                .normalized_path = try normalizePathAlloc(arena, stripRoot(fs_path, pkg_path.sub_path)),
                 .kind = kind,
                 .hash = undefined, // to be populated by the worker
                 .failure = undefined, // to be populated by the worker
             };
             wait_group.start();
             try thread_pool.spawn(workerHashFile, .{
-                tmp_directory.handle, hashed_file, &wait_group,
+                root_dir, hashed_file, &wait_group,
             });
             try all_files.append(hashed_file);
         }
@@ -1493,7 +1484,7 @@ fn computeHash(
         var i: usize = 0;
         while (i < sus_dirs.count()) : (i += 1) {
             const sus_dir = sus_dirs.keys()[i];
-            tmp_directory.handle.deleteDir(sus_dir) catch |err| switch (err) {
+            root_dir.deleteDir(sus_dir) catch |err| switch (err) {
                 error.DirNotEmpty => continue,
                 error.FileNotFound => continue,
                 else => |e| {
@@ -1656,6 +1647,17 @@ const HashedFile = struct {
         return std.mem.lessThan(u8, lhs.normalized_path, rhs.normalized_path);
     }
 };
+
+/// Strips root directory name from file system path.
+fn stripRoot(fs_path: []const u8, root_dir: []const u8) []const u8 {
+    if (root_dir.len == 0 or fs_path.len <= root_dir.len) return fs_path;
+
+    if (std.mem.eql(u8, fs_path[0..root_dir.len], root_dir) and fs_path[root_dir.len] == fs.path.sep) {
+        return fs_path[root_dir.len + 1 ..];
+    }
+
+    return fs_path;
+}
 
 /// Make a file system path identical independently of operating system path inconsistencies.
 /// This converts backslashes into forward slashes.
