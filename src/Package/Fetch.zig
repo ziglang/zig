@@ -461,14 +461,16 @@ fn runResource(
         };
         defer tmp_directory.handle.close();
 
+        // Unpack resource into tmp_directory. A non-null return value means
+        // that the package contents are inside a `pkg_dir` sub-directory.
         const pkg_dir = try unpackResource(f, resource, uri_path, tmp_directory);
 
-        var pkg_path: Cache.Path = if (pkg_dir) |pkg_dir_name|
-            .{ .root_dir = tmp_directory, .sub_path = pkg_dir_name }
-        else
-            .{ .root_dir = tmp_directory };
+        var pkg_path: Cache.Path = .{
+            .root_dir = tmp_directory,
+            .sub_path = if (pkg_dir) |pkg_dir_name| pkg_dir_name else "",
+        };
 
-        // btrfs workaround; reopen tmp_directory
+        // Apply btrfs workaround if needed. Reopen tmp_directory.
         if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
             // https://github.com/ziglang/zig/issues/17095
             pkg_path.root_dir.handle.close();
@@ -482,17 +484,18 @@ fn runResource(
         // considered to be a "naked" package.
         try loadManifest(f, pkg_path);
 
-        // Apply the manifest's inclusion rules to the temporary directory by
-        // deleting excluded files. If any error occurred for files that were
-        // ultimately excluded, those errors should be ignored, such as failure to
-        // create symlinks that weren't supposed to be included anyway.
-
-        // Empty directories have already been omitted by `unpackResource`.
-
         const filter: Filter = .{
             .include_paths = if (f.manifest) |m| m.paths else .{},
         };
 
+        // TODO:
+        // If any error occurred for files that were ultimately excluded, those
+        // errors should be ignored, such as failure to create symlinks that
+        // weren't supposed to be included anyway.
+
+        // Apply the manifest's inclusion rules to the temporary directory by
+        // deleting excluded files.
+        // Empty directories have already been omitted by `unpackResource`.
         // Compute the package hash based on the remaining files in the temporary
         // directory.
         f.actual_hash = try computeHash(f, pkg_path, filter);
@@ -522,7 +525,7 @@ fn runResource(
         ) });
         return error.FetchFailed;
     };
-    // Remove temporary directory root if not already renamed to cache.
+    // Remove temporary directory root if not already renamed to global cache.
     if (!std.mem.eql(u8, package_sub_path, tmp_dir_sub_path)) {
         cache_root.handle.deleteDir(tmp_dir_sub_path) catch {};
     }
