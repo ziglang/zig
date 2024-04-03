@@ -367,7 +367,7 @@ pub fn MultiArrayList(comptime T: type) type {
 
             if (new_len == 0) {
                 gpa.free(self.allocatedBytes());
-                self.* = .{};
+                self.* = .{ .pointer_stability = self.pointer_stability };
                 return;
             }
             assert(new_len <= self.capacity);
