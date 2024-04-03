@@ -23,9 +23,6 @@ pub var handle: bits.Handle = undefined;
 /// A pointer to the EFI System Table that is passed to the EFI image's entry point.
 pub var system_table: *table.System = undefined;
 
-// A reasonable default value, UEFI does not specify an upper limit.
-pub const PATH_MAX = 4096;
-
 pub const ino_t = u64;
 pub const mode_t = u64;
 
@@ -73,7 +70,7 @@ pub fn openat(dirfd: fd_t, path: [:0]const u16, flags: protocol.File.OpenMode) !
     }
 }
 
-pub fn read(fd: fd_t, buf: []u8) std.os.ReadError!usize {
+pub fn read(fd: fd_t, buf: []u8) std.posix.ReadError!usize {
     switch (fd) {
         .file => |p| {
             return p.read(buf) catch |err| switch (err) {
@@ -102,7 +99,7 @@ pub fn read(fd: fd_t, buf: []u8) std.os.ReadError!usize {
     }
 }
 
-pub fn write(fd: fd_t, buf: []const u8) std.os.WriteError!usize {
+pub fn write(fd: fd_t, buf: []const u8) std.posix.WriteError!usize {
     switch (fd) {
         .file => |p| {
             return p.write(buf) catch |err| switch (err) {

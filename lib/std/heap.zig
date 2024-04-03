@@ -237,7 +237,7 @@ else if (builtin.target.os.tag == .plan9)
         .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
     }
 else if (builtin.target.os.tag == .uefi)
-    os.uefi.global_page_allocator.allocator()
+    std.os.uefi.global_page_allocator.allocator()
 else
     Allocator{
         .ptr = undefined,

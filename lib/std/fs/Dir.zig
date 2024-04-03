@@ -812,8 +812,6 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
 
         return File{
             .handle = handle,
-            .capable_io_mode = std.io.default_mode,
-            .intended_io_mode = flags.intended_io_mode,
         };
     }
     const path_c = try posix.toPosixPath(sub_path);

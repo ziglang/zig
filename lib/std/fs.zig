@@ -53,12 +53,12 @@ pub const MAX_PATH_BYTES = max_path_bytes;
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
 pub const max_path_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi, .uefi => posix.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi => posix.PATH_MAX,
     // Each WTF-16LE code unit may be expanded to 3 WTF-8 bytes.
     // If it would require 4 WTF-8 bytes, then there would be a surrogate
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
     // +1 for the null byte at the end, which can be encoded in 1 byte.
-    .windows => windows.PATH_MAX_WIDE * 3 + 1,
+    .windows, .uefi => windows.PATH_MAX_WIDE * 3 + 1,
     else => if (@hasDecl(root, "os") and @hasDecl(root.os, "PATH_MAX"))
         root.os.PATH_MAX
     else
@@ -731,10 +731,13 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
                     return error.FileNotFound;
                 } else return error.FileNotFound;
 
-                // this is an overestimate, but it's the maximum possible wtf8 length.
-                if (file_path.len * 3 + 1 > MAX_PATH_BYTES) return error.NameTooLong;
+                if (file_path.len > windows.PATH_MAX_WIDE) return error.NameTooLong;
 
-                const len = std.unicode.wtf16LeToWtf8(out_buffer, file_path);
+                // required because device paths are not aligned
+                var alignment_buffer: [windows.PATH_MAX_WIDE]u16 = undefined;
+                @memcpy(alignment_buffer[0..file_path.len], file_path);
+
+                const len = std.unicode.wtf16LeToWtf8(out_buffer, alignment_buffer[0..file_path.len]);
                 return out_buffer[0..len];
             }
 

@@ -28,7 +28,7 @@ fn getStdOutHandle() posix.fd_t {
     }
 
     if (builtin.os.tag == .uefi) {
-        return .{ .simple_output = os.uefi.system_table.con_out.? };
+        return .{ .simple_output = std.os.uefi.system_table.con_out.? };
     }
 
     return posix.STDOUT_FILENO;
@@ -52,7 +52,7 @@ fn getStdErrHandle() posix.fd_t {
     }
 
     if (builtin.os.tag == .uefi) {
-        return .{ .simple_output = os.uefi.system_table.std_err.? };
+        return .{ .simple_output = std.os.uefi.system_table.std_err.? };
     }
 
     return posix.STDERR_FILENO;
@@ -76,7 +76,7 @@ fn getStdInHandle() posix.fd_t {
     }
 
     if (builtin.os.tag == .uefi) {
-        return .{ .simple_input = os.uefi.system_table.con_in.? };
+        return .{ .simple_input = std.os.uefi.system_table.con_in.? };
     }
 
     return posix.STDIN_FILENO;

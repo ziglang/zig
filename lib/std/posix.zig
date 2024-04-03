@@ -46,6 +46,7 @@ pub const system = if (use_libc)
 else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
+    .uefi => std.os.uefi,
     else => struct {},
 };
 
@@ -238,6 +239,10 @@ pub fn close(fd: fd_t) void {
     }
     if (native_os == .wasi and !builtin.link_libc) {
         _ = std.os.wasi.fd_close(fd);
+        return;
+    }
+    if (native_os == .uefi) {
+        uefi.close(fd);
         return;
     }
     if (builtin.target.isDarwin()) {
@@ -748,7 +753,6 @@ pub fn exit(status: u8) noreturn {
         linux.exit_group(status);
     }
     if (native_os == .uefi) {
-        const uefi = std.os.uefi;
         // exit() is only available if exitBootServices() has not been called yet.
         // This call to exit should not fail, so we don't care about its return value.
         if (uefi.system_table.boot_services) |bs| {
