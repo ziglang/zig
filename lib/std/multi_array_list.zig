@@ -23,6 +23,9 @@ pub fn MultiArrayList(comptime T: type) type {
         len: usize = 0,
         capacity: usize = 0,
 
+        /// Used to detect memory safety violations.
+        pointer_stability: std.debug.SafetyLock = .{},
+
         const Elem = switch (@typeInfo(T)) {
             .Struct => T,
             .Union => |u| struct {
@@ -174,8 +177,26 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// Release all allocated memory.
         pub fn deinit(self: *Self, gpa: Allocator) void {
+            self.pointer_stability.assertUnlocked();
             gpa.free(self.allocatedBytes());
             self.* = undefined;
+        }
+
+        /// Puts the MultiArrayList into a state where any method call that
+        /// would cause an existing item pointer to become invalidated will
+        /// instead trigger an assertion.
+        ///
+        /// An additional call to `lockPointers` in such state also triggers an
+        /// assertion.
+        ///
+        /// `unlockPointers` returns the MultiArrayList to the previous state.
+        pub fn lockPointers(self: *Self) void {
+            self.pointer_stability.lock();
+        }
+
+        /// Undoes a call to `lockPointers`.
+        pub fn unlockPointers(self: *Self) void {
+            self.pointer_stability.unlock();
         }
 
         /// The caller owns the returned memory. Empties this MultiArrayList.
@@ -341,6 +362,9 @@ pub fn MultiArrayList(comptime T: type) type {
         /// If `new_len` is greater than zero, this may fail to reduce the capacity,
         /// but the data remains intact and the length is updated to new_len.
         pub fn shrinkAndFree(self: *Self, gpa: Allocator, new_len: usize) void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             if (new_len == 0) {
                 gpa.free(self.allocatedBytes());
                 self.* = .{};
@@ -372,6 +396,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 .bytes = other_bytes.ptr,
                 .capacity = new_len,
                 .len = new_len,
+                .pointer_stability = self.pointer_stability,
             };
             self.len = new_len;
             const self_slice = self.slice();
@@ -398,11 +423,17 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Invalidates pointers if additional memory is needed.
         pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
             var better_capacity = self.capacity;
-            if (better_capacity >= new_capacity) return;
 
-            while (true) {
-                better_capacity += better_capacity / 2 + 8;
-                if (better_capacity >= new_capacity) break;
+            {
+                self.pointer_stability.lock();
+                defer self.pointer_stability.unlock();
+
+                if (better_capacity >= new_capacity) return;
+
+                while (true) {
+                    better_capacity += better_capacity / 2 + 8;
+                    if (better_capacity >= new_capacity) break;
+                }
             }
 
             return self.setCapacity(gpa, better_capacity);
@@ -418,6 +449,9 @@ pub fn MultiArrayList(comptime T: type) type {
         /// Invalidates pointers if additional memory is needed.
         /// `new_capacity` must be greater or equal to `len`.
         pub fn setCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
             assert(new_capacity >= self.len);
             const new_bytes = try gpa.alignedAlloc(
                 u8,
@@ -434,6 +468,7 @@ pub fn MultiArrayList(comptime T: type) type {
                 .bytes = new_bytes.ptr,
                 .capacity = new_capacity,
                 .len = self.len,
+                .pointer_stability = self.pointer_stability,
             };
             const self_slice = self.slice();
             const other_slice = other.slice();
@@ -672,6 +707,8 @@ test "basic usage" {
     try testing.expectEqual(@as(u32, 2), list.pop().a);
     try testing.expectEqual(@as(u8, 'a'), list.pop().c);
     try testing.expectEqual(@as(?Foo, null), list.popOrNull());
+
+    try list.resize(ally, 0);
 }
 
 // This was observed to fail on aarch64 with LLVM 11, when the capacityInBytes
