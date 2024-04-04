@@ -195,7 +195,7 @@ pub fn KeccakF(comptime f: u11) type {
 }
 
 /// A generic Keccak-P state.
-pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, comptime rounds: u5) type {
+pub fn State(comptime f: u11, comptime capacity: u11, comptime rounds: u5) type {
     comptime assert(f > 200 and f <= 1600 and f % 200 == 0); // invalid state size
     comptime assert(capacity < f and capacity % 8 == 0); // invalid capacity size
 
@@ -206,6 +206,9 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
         pub const rate = KeccakF(f).block_bytes - capacity / 8;
         /// Keccak does not have any options.
         pub const Options = struct {};
+
+        /// The input delimiter.
+        delim: u8,
 
         offset: usize = 0,
         buf: [rate]u8 = undefined,
@@ -238,10 +241,28 @@ pub fn State(comptime f: u11, comptime capacity: u11, comptime delim: u8, compti
             }
         }
 
+        /// Initialize the state from a slice of bytes.
+        pub fn init(bytes: [f / 8]u8) Self {
+            return .{ .st = KeccakF(f).init(bytes) };
+        }
+
+        /// Permute the state
+        pub fn permute(self: *Self) void {
+            self.st.permuteR(rounds);
+            self.offset = 0;
+        }
+
+        /// Align the input to the rate boundary.
+        pub fn fillBlock(self: *Self) void {
+            self.st.addBytes(self.buf[0..self.offset]);
+            self.st.permuteR(rounds);
+            self.offset = 0;
+        }
+
         /// Mark the end of the input.
         pub fn pad(self: *Self) void {
             self.st.addBytes(self.buf[0..self.offset]);
-            self.st.addByte(delim, self.offset);
+            self.st.addByte(self.delim, self.offset);
             self.st.addByte(0x80, rate - 1);
             self.st.permuteR(rounds);
             self.offset = 0;

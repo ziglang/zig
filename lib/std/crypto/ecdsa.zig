@@ -26,7 +26,7 @@ pub const EcdsaSecp256k1Sha256oSha256 = Ecdsa(crypto.ecc.Secp256k1, crypto.hash.
 
 /// Elliptic Curve Digital Signature Algorithm (ECDSA).
 pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
-    const Hmac = crypto.auth.hmac.Hmac(Hash);
+    const Hmac = if (@hasDecl(Hash, "toMac")) Hash.toMac() else crypto.auth.hmac.Hmac(Hash);
 
     return struct {
         /// Length (in bytes) of optional random bytes, for non-deterministic signatures.
