@@ -938,6 +938,33 @@ pub fn main() void {
       implementation feature, not a language semantic, so it is not guaranteed to be observable to code.
       </p>
       {#header_close#}
+      {#header_open|Destructured Assignment#}
+      <p>
+      If an expression produces a compound type comprised of positional components exclusively (arrays, vectors, and tuples), 
+      they can be assigned to multiple identifiers via destructuring syntax:
+      </p>
+      {#code_begin|syntax|destructure_matrix#}
+const a, const b, const c,
+const d, const e, const f, 
+const g, const h, const i = makeTransform(scale, rotate);
+var xs: [num]f32 = undefined;
+var ys: [num]f32 = undefined;
+var zs: [num]f32 = undefined;
+inline for (verts, 0..) |v, n| {
+    xs[n], ys[n], zs[n] = .{
+        a*v.x + b*v.y + c*v.z,
+        d*v.x + e*v.y + f*v.z,
+        g*v.x + h*v.y + i*v.z,
+    };
+}
+      {#code_end#}
+      <p>
+      Mixture of var/const declarations and reassignments are permitted, as well as type coercions:
+      </p>
+      {#code_begin|syntax|destructure_mixed#}
+current_index, const flags: u32, var payload: []u8 = getData();
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
       {#header_close#}
       {#header_open|Zig Test#}
