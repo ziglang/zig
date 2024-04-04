@@ -465,10 +465,7 @@ fn runResource(
         var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory);
         defer unpack_result.deinit();
 
-        var pkg_path: Cache.Path = .{
-            .root_dir = tmp_directory,
-            .sub_path = if (unpack_result.root_dir) |root_dir| root_dir else "",
-        };
+        var pkg_path: Cache.Path = .{ .root_dir = tmp_directory, .sub_path = unpack_result.root_dir };
 
         // Apply btrfs workaround if needed. Reopen tmp_directory.
         if (native_os == .linux and f.job_queue.work_around_btrfs_bug) {
@@ -503,8 +500,8 @@ fn runResource(
         // directory.
         f.actual_hash = try computeHash(f, pkg_path, filter);
 
-        break :blk if (unpack_result.root_dir) |root_dir|
-            try fs.path.join(arena, &.{ tmp_dir_sub_path, root_dir })
+        break :blk if (unpack_result.root_dir.len > 0)
+            try fs.path.join(arena, &.{ tmp_dir_sub_path, unpack_result.root_dir })
         else
             tmp_dir_sub_path;
     };
@@ -1185,8 +1182,8 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
     ));
 
     var res = UnpackResult.init(gpa);
-    if (diagnostics.root_dir) |root_dir| {
-        res.root_dir = try gpa.dupe(u8, root_dir);
+    if (diagnostics.root_dir.len > 0) {
+        res.root_dir = try gpa.dupe(u8, diagnostics.root_dir);
     }
     if (diagnostics.errors.items.len > 0) {
         try res.rootErrorMessage("unable to unpack tarball");
@@ -1748,9 +1745,9 @@ const UnpackResult = struct {
     errors: std.ArrayListUnmanaged(Error) = .{},
     root_error_message: []const u8 = "",
 
-    // A `null` value indicates the `tmp_directory` is populated directly with the package contents.
-    // A non-null value means that the package contents are inside a sub-directory indicated by the named path.
-    root_dir: ?[]const u8 = null,
+    // A non empty value means that the package contents are inside a
+    // sub-directory indicated by the named path.
+    root_dir: []const u8 = "",
 
     const Error = union(enum) {
         unable_to_create_sym_link: struct {
@@ -1802,9 +1799,7 @@ const UnpackResult = struct {
         }
         self.errors.deinit(self.allocator);
         self.allocator.free(self.root_error_message);
-        if (self.root_dir) |root_dir| {
-            self.allocator.free(root_dir);
-        }
+        self.allocator.free(self.root_dir);
         self.* = undefined;
     }
 
@@ -1837,11 +1832,10 @@ const UnpackResult = struct {
     // Filter errors by manifest inclusion rules.
     fn filterErrors(self: *UnpackResult, filter: Filter) !void {
         var i = self.errors.items.len;
-        const root_dir: []const u8 = if (self.root_dir) |root_dir| root_dir else "";
         while (i > 0) {
             i -= 1;
             const item = self.errors.items[i];
-            if (item.excluded(filter, root_dir)) {
+            if (item.excluded(filter, self.root_dir)) {
                 _ = self.errors.swapRemove(i);
                 item.free(self.allocator);
             }
@@ -1861,8 +1855,6 @@ const UnpackResult = struct {
         if (self.errors.items.len == 0 and self.root_error_message.len == 0)
             return;
 
-        const root_dir = if (self.root_dir) |root_dir| root_dir else "";
-
         const notes_len: u32 = @intCast(self.errors.items.len);
         try eb.addRootErrorMessage(.{
             .msg = try eb.addString(self.root_error_message),
@@ -1875,21 +1867,21 @@ const UnpackResult = struct {
                 .unable_to_create_sym_link => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                            stripRoot(info.file_name, root_dir), info.link_name, @errorName(info.code),
+                            stripRoot(info.file_name, self.root_dir), info.link_name, @errorName(info.code),
                         }),
                     }));
                 },
                 .unable_to_create_file => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("unable to create file '{s}': {s}", .{
-                            stripRoot(info.file_name, root_dir), @errorName(info.code),
+                            stripRoot(info.file_name, self.root_dir), @errorName(info.code),
                         }),
                     }));
                 },
                 .unsupported_file_type => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
-                            stripRoot(info.file_name, root_dir), info.file_type,
+                            stripRoot(info.file_name, self.root_dir), info.file_type,
                         }),
                     }));
                 },
