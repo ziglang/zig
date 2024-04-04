@@ -18707,13 +18707,14 @@ fn typeInfoNamespaceDecls(
     const decls = namespace.decls.keys();
     for (decls) |decl_index| {
         const decl = mod.declPtr(decl_index);
+        if (!decl.is_pub) continue;
         if (decl.kind == .@"usingnamespace") {
             if (decl.analysis == .in_progress) continue;
             try mod.ensureDeclAnalyzed(decl_index);
             try sema.typeInfoNamespaceDecls(block, decl.val.toType().getNamespaceIndex(mod), declaration_ty, decl_vals, seen_namespaces);
             continue;
         }
-        if (decl.kind != .named or !decl.is_pub) continue;
+        if (decl.kind != .named) continue;
         const name_val = v: {
             // TODO: write something like getCoercedInts to avoid needing to dupe
             const name = try sema.arena.dupeZ(u8, ip.stringToSlice(decl.name));
