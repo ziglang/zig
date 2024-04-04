@@ -1189,9 +1189,9 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
         try res.rootErrorMessage("unable to unpack tarball");
         for (diagnostics.errors.items) |item| {
             switch (item) {
-                .unable_to_create_file => |i| try res.unableToCreateFile(i.file_name, i.code),
-                .unable_to_create_sym_link => |i| try res.unableToCreateSymLink(i.file_name, i.link_name, i.code),
-                .unsupported_file_type => |i| try res.unsupportedFileType(i.file_name, @intFromEnum(i.file_type)),
+                .unable_to_create_file => |i| try res.unableToCreateFile(stripRoot(i.file_name, res.root_dir), i.code),
+                .unable_to_create_sym_link => |i| try res.unableToCreateSymLink(stripRoot(i.file_name, res.root_dir), i.link_name, i.code),
+                .unsupported_file_type => |i| try res.unsupportedFileType(stripRoot(i.file_name, res.root_dir), @intFromEnum(i.file_type)),
             }
         }
     }
@@ -1764,13 +1764,13 @@ const UnpackResult = struct {
             file_type: u8,
         },
 
-        fn excluded(self: Error, filter: Filter, root_dir: []const u8) bool {
+        fn excluded(self: Error, filter: Filter) bool {
             const file_name = switch (self) {
                 .unable_to_create_file => |info| info.file_name,
                 .unable_to_create_sym_link => |info| info.file_name,
                 .unsupported_file_type => |info| info.file_name,
             };
-            return !filter.includePath(stripRoot(file_name, root_dir));
+            return !filter.includePath(file_name);
         }
 
         fn free(self: Error, allocator: std.mem.Allocator) void {
@@ -1835,7 +1835,7 @@ const UnpackResult = struct {
         while (i > 0) {
             i -= 1;
             const item = self.errors.items[i];
-            if (item.excluded(filter, self.root_dir)) {
+            if (item.excluded(filter)) {
                 _ = self.errors.swapRemove(i);
                 item.free(self.allocator);
             }
@@ -1867,21 +1867,21 @@ const UnpackResult = struct {
                 .unable_to_create_sym_link => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                            stripRoot(info.file_name, self.root_dir), info.link_name, @errorName(info.code),
+                            info.file_name, info.link_name, @errorName(info.code),
                         }),
                     }));
                 },
                 .unable_to_create_file => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("unable to create file '{s}': {s}", .{
-                            stripRoot(info.file_name, self.root_dir), @errorName(info.code),
+                            info.file_name, @errorName(info.code),
                         }),
                     }));
                 },
                 .unsupported_file_type => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
-                            stripRoot(info.file_name, self.root_dir), info.file_type,
+                            info.file_name, info.file_type,
                         }),
                     }));
                 },
