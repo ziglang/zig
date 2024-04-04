@@ -1861,6 +1861,8 @@ const UnpackResult = struct {
         if (self.errors.items.len == 0 and self.root_error_message.len == 0)
             return;
 
+        const root_dir = if (self.root_dir) |root_dir| root_dir else "";
+
         const notes_len: u32 = @intCast(self.errors.items.len);
         try eb.addRootErrorMessage(.{
             .msg = try eb.addString(self.root_error_message),
@@ -1873,21 +1875,21 @@ const UnpackResult = struct {
                 .unable_to_create_sym_link => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                            info.file_name, info.link_name, @errorName(info.code),
+                            stripRoot(info.file_name, root_dir), info.link_name, @errorName(info.code),
                         }),
                     }));
                 },
                 .unable_to_create_file => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("unable to create file '{s}': {s}", .{
-                            info.file_name, @errorName(info.code),
+                            stripRoot(info.file_name, root_dir), @errorName(info.code),
                         }),
                     }));
                 },
                 .unsupported_file_type => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
                         .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
-                            info.file_name, info.file_type,
+                            stripRoot(info.file_name, root_dir), info.file_type,
                         }),
                     }));
                 },
@@ -1914,8 +1916,8 @@ test "tarball with duplicate file names" {
 
     try fb.expectFetchErrors(2,
         \\error: unable to unpack tarball
-        \\    note: unable to create file 'package.tar/dir/file': PathAlreadyExists
-        \\    note: unable to create file 'package.tar/dir1/file1': PathAlreadyExists
+        \\    note: unable to create file 'dir/file': PathAlreadyExists
+        \\    note: unable to create file 'dir1/file1': PathAlreadyExists
         \\
     );
 }
