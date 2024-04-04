@@ -952,10 +952,11 @@ test {
     var ys: [8]f32, 
     var zs: [8]f32 = .{ undefined, undefined, undefined };
     inline for (verts, &xs, &ys, &zs) |v, *x, *y, *z| {
+        const vx, const vy, const vz = v;
         x.*, y.*, z.* = .{
-            a*v[0] + b*v[1] + c*v[2],
-            d*v[0] + e*v[1] + f*v[2],
-            g*v[0] + h*v[1] + i*v[2],
+            a*vx + b*vy + c*vz,
+            d*vx + e*vy + f*vz,
+            g*vx + h*vy + i*vz,
         };
     }
 }
