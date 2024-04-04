@@ -999,13 +999,13 @@ test lenSliceTo {
     }
 }
 
-/// Takes a sentinel-terminated pointer and iterates over the memory to find the
-/// sentinel and determine the length.
+/// Takes a sentinel-terminated pointer, array, or slice and iterates over the
+/// memory to find the sentinel and determine the length.
 /// `[*c]` pointers are assumed to be non-null and 0-terminated.
 pub fn len(value: anytype) usize {
     switch (@typeInfo(@TypeOf(value))) {
         .Pointer => |info| switch (info.size) {
-            .Many => {
+            .Slice, .Many => {
                 const sentinel_ptr = info.sentinel orelse
                     @compileError("invalid type given to std.mem.len: " ++ @typeName(@TypeOf(value)));
                 const sentinel = @as(*align(1) const info.child, @ptrCast(sentinel_ptr)).*;
@@ -1017,6 +1017,12 @@ pub fn len(value: anytype) usize {
             },
             else => @compileError("invalid type given to std.mem.len: " ++ @typeName(@TypeOf(value))),
         },
+        .Array => |info| {
+            const sentinel_ptr = info.sentinel orelse
+                @compileError("invalid type given to std.mem.len: " ++ @typeName(@TypeOf(value)));
+            const sentinel = @as(*align(1) const info.child, @ptrCast(sentinel_ptr)).*;
+            return indexOfSentinel(info.child, sentinel, @as([*:sentinel]const info.child, &value));
+        },
         else => @compileError("invalid type given to std.mem.len: " ++ @typeName(@TypeOf(value))),
     }
 }
@@ -1027,6 +1033,10 @@ test len {
     try testing.expect(len(ptr) == 3);
     const c_ptr = @as([*c]u16, ptr);
     try testing.expect(len(c_ptr) == 2);
+    const sentinel_array = [_:0]u16{ 1, 2, 0, 4, 5 };
+    try testing.expect(len(sentinel_array) == 2);
+    const slice: [:0]const u16 = sentinel_array[1..];
+    try testing.expect(len(slice) == 1);
 }
 
 const backend_supports_vectors = switch (builtin.zig_backend) {
