@@ -1659,7 +1659,7 @@ fn transCompoundStmtInline(
     var it = stmt.body_begin();
     const end_it = stmt.body_end();
     if (c.goto.?.transformations.get(@ptrCast(stmt))) |transformations| {
-        var first_inner_stmt_after_if_to_variables: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged([]const u8)) = .{};
+        var first_inner_stmt_after_if_to_variables: std.AutoArrayHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged([]const u8)) = .{};
         defer first_inner_stmt_after_if_to_variables.deinit(c.gpa);
 
         var upwards_inner_stmt_break_target_transformations: std.AutoHashMapUnmanaged(*const clang.Stmt, std.ArrayListUnmanaged(*const GotoContext.Transformation)) = .{};
@@ -1772,9 +1772,8 @@ fn transCompoundStmtInline(
 
             if (end_if or (it + 1 != end_it and first_inner_stmt_after_if_to_variables.contains((it + 1)[0]))) {
                 if (if_block.?.statements.items.len != 0) {
-                    var iter = first_inner_stmt_after_if_to_variables.valueIterator();
                     var ncond: ?Node = null;
-                    while (iter.next()) |variables| {
+                    for (first_inner_stmt_after_if_to_variables.values()) |*variables| {
                         for (variables.items) |variable| {
                             const ident = try Tag.identifier.create(c.arena, variable);
                             ncond = if (ncond) |nc|
@@ -1822,7 +1821,7 @@ fn transCompoundStmtInline(
                 if (it + 1 != end_it) {
                     if (first_inner_stmt_after_if_to_variables.getPtr((it + 1)[0])) |variables| {
                         variables.deinit(c.gpa);
-                        assert(first_inner_stmt_after_if_to_variables.remove((it + 1)[0]));
+                        assert(first_inner_stmt_after_if_to_variables.swapRemove((it + 1)[0]));
                     }
                 }
             }
