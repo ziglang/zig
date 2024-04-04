@@ -951,8 +951,8 @@ test {
     var xs: [8]f32, 
     var ys: [8]f32, 
     var zs: [8]f32 = .{ undefined, undefined, undefined };
-    inline for (verts, 0..) |v, n| {
-        xs[n], ys[n], zs[n] = .{
+    inline for (verts, &xs, &ys, &zs) |v, *x, *y, *z| {
+        x.*, y.*, z.* = .{
             a*v[0] + b*v[1] + c*v[2],
             d*v[0] + e*v[1] + f*v[2],
             g*v[0] + h*v[1] + i*v[2],
