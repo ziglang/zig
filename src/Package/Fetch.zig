@@ -1890,13 +1890,27 @@ const UnpackResult = struct {
     }
 };
 
-test "tarball with duplicate file names" {
+test "tarball with duplicate paths" {
+    // This tarball has duplicate path 'dir1/file1' to simulate case sensitve
+    // file system on any file sytstem.
+    //
+    //     duplicate_paths/
+    //     duplicate_paths/dir1/
+    //     duplicate_paths/dir1/file1
+    //     duplicate_paths/dir1/file1
+    //     duplicate_paths/build.zig.zon
+    //     duplicate_paths/src/
+    //     duplicate_paths/src/main.zig
+    //     duplicate_paths/src/root.zig
+    //     duplicate_paths/build.zig
+    //
+
     const gpa = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const tarball_name = "package.tar";
-    try createTestTarball(tmp.dir, tarball_name, false);
+    const tarball_name = "duplicate_paths.tar.gz";
+    try saveEmbedFile(tarball_name, tmp.dir);
     const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
@@ -1906,32 +1920,87 @@ test "tarball with duplicate file names" {
     defer fb.deinit();
     try std.testing.expectError(error.FetchFailed, fetch.run());
 
-    try fb.expectFetchErrors(2,
+    try fb.expectFetchErrors(1,
         \\error: unable to unpack tarball
-        \\    note: unable to create file 'dir/file': PathAlreadyExists
         \\    note: unable to create file 'dir1/file1': PathAlreadyExists
         \\
     );
 }
 
-test "tarball with error paths excluded" {
+test "tarball with excluded duplicate paths" {
+    // Same as previous tarball but has build.zig.zon wich excludes 'dir1'.
+    //
+    //     .paths = .{
+    //        "build.zig",
+    //        "build.zig.zon",
+    //        "src",
+    //    }
+    //
+
     const gpa = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    const tarball_name = "package.tar";
-    try createTestTarball(tmp.dir, tarball_name, true);
+    const tarball_name = "duplicate_paths_excluded.tar.gz";
+    try saveEmbedFile(tarball_name, tmp.dir);
     const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
     defer gpa.free(tarball_path);
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(std.testing.allocator, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
     defer fb.deinit();
     try fetch.run();
 
     const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
-    try std.testing.expectEqualStrings("122022afac878639d5ea6fcca14a123e21fd0395c1f2ef2c89017fa71390f73024af", &hex_digest);
+    try std.testing.expectEqualStrings(
+        "12200bafe035cbb453dd717741b66e9f9d1e6c674069d06121dafa1b2e62eb6b22da",
+        &hex_digest,
+    );
+
+    const expected_files: []const []const u8 = &.{
+        "build.zig",
+        "build.zig.zon",
+        "src/main.zig",
+        "src/root.zig",
+    };
+    try fb.expectPackageFiles(expected_files);
+}
+
+test "tarball without root folder" {
+    // Tarball with root folder. Manifest excludes dir1 and dir2.
+    //
+    //    build.zig
+    //    build.zig.zon
+    //    dir1/
+    //    dir1/file2
+    //    dir1/file1
+    //    dir2/
+    //    dir2/file2
+    //    src/
+    //    src/main.zig
+    //
+
+    const gpa = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const tarball_name = "no_root.tar.gz";
+    try saveEmbedFile(tarball_name, tmp.dir);
+    const tarball_path = try std.fmt.allocPrint(gpa, "zig-cache/tmp/{s}/{s}", .{ tmp.sub_path, tarball_name });
+    defer gpa.free(tarball_path);
+
+    // Run tarball fetch, should succeed
+    var fb: TestFetchBuilder = undefined;
+    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    defer fb.deinit();
+    try fetch.run();
+
+    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    try std.testing.expectEqualStrings(
+        "12209f939bfdcb8b501a61bb4a43124dfa1b2848adc60eec1e4624c560357562b793",
+        &hex_digest,
+    );
 
     const expected_files: []const []const u8 = &.{
         "build.zig",
@@ -1939,6 +2008,14 @@ test "tarball with error paths excluded" {
         "src/main.zig",
     };
     try fb.expectPackageFiles(expected_files);
+}
+
+fn saveEmbedFile(comptime tarball_name: []const u8, dir: fs.Dir) !void {
+    //const tarball_name = "duplicate_paths_excluded.tar.gz";
+    const tarball_content = @embedFile("Fetch/testdata/" ++ tarball_name);
+    var tmp_file = try dir.createFile(tarball_name, .{});
+    defer tmp_file.close();
+    try tmp_file.writeAll(tarball_content);
 }
 
 // Builds Fetch with required dependencies, clears dependencies on deinit().
@@ -1981,7 +2058,7 @@ const TestFetchBuilder = struct {
             .hash_tok = 0,
             .name_tok = 0,
             .lazy_status = .eager,
-            .parent_package_root = Cache.Path{ .root_dir = undefined },
+            .parent_package_root = Cache.Path{ .root_dir = Cache.Directory{ .handle = cache_dir, .path = null } },
             .parent_manifest_ast = null,
             .prog_node = self.progress.start("Fetch", 0),
             .job_queue = &self.job_queue,
@@ -2061,66 +2138,3 @@ const TestFetchBuilder = struct {
         try std.testing.expectEqualStrings(msg, al.items);
     }
 };
-
-// Creates tarball with duplicate files names. Simulating case collisions on
-// case insensitive file system without use of that kind of the file system.
-// Manifest will exclude those files, so adding manifest should remove duplicate
-// files problem.
-fn createTestTarball(dir: fs.Dir, tarball_name: []const u8, with_manifest: bool) !void {
-    const file = try dir.createFile(tarball_name, .{});
-    defer file.close();
-
-    const TarHeader = std.tar.output.Header;
-    const prefix = tarball_name;
-
-    // add root directory
-    {
-        var hdr = TarHeader.init();
-        hdr.typeflag = .directory;
-        try hdr.setPath(prefix, "");
-        try hdr.updateChecksum();
-        try file.writeAll(std.mem.asBytes(&hdr));
-    }
-
-    // add files
-    const files: []const []const u8 = &.{
-        "build.zig",
-        "src/main.zig",
-        // duplicate file paths
-        "dir/file",
-        "dir1/file1",
-        "dir/file",
-        "dir1/file1",
-    };
-
-    for (files) |path| {
-        var hdr = TarHeader.init();
-        hdr.typeflag = .regular;
-        try hdr.setPath(prefix, path);
-        try hdr.updateChecksum();
-        try file.writeAll(std.mem.asBytes(&hdr));
-    }
-
-    // add manifest
-    if (with_manifest) {
-        const build_zig_zon =
-            \\ .{
-            \\    .name = "fetch",
-            \\    .version = "0.0.0",
-            \\    .paths = .{
-            \\                "src",
-            \\                "build.zig",
-            \\                "build.zig.zon"
-            \\    },
-            \\ }
-        ;
-        var hdr = TarHeader.init();
-        hdr.typeflag = .regular;
-        try hdr.setPath(prefix, "build.zig.zon");
-        try hdr.setSize(build_zig_zon.len);
-        try hdr.updateChecksum();
-        try file.writeAll(std.mem.asBytes(&hdr));
-        try file.writeAll(build_zig_zon);
-        try file.writeAll(&[_]u8{0} ** (512 - build_zig_zon.len));
-    }
-}
