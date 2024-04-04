@@ -571,11 +571,13 @@ test "typeInfo resolves usingnamespace declarations" {
 
     const B = struct {
         pub const f0 = 42;
-        usingnamespace A;
+        pub usingnamespace A;
     };
 
-    try expect(@typeInfo(B).Struct.decls.len == 2);
-    //a
+    const decls = @typeInfo(B).Struct.decls;
+    try expect(decls.len == 2);
+    try expectEqualStrings(decls[0].name, "f0");
+    try expectEqualStrings(decls[1].name, "f1");
 }
 
 test "value from struct @typeInfo default_value can be loaded at comptime" {
@@ -596,7 +598,7 @@ test "@typeInfo decls and usingnamespace" {
         comptime {}
     };
     const B = struct {
-        usingnamespace A;
+        pub usingnamespace A;
         pub const z = 56;
 
         test {}
@@ -625,4 +627,30 @@ test "type info of tuple of string literal default value" {
     const struct_field = @typeInfo(@TypeOf(.{"hi"})).Struct.fields[0];
     const value = @as(*align(1) const *const [2:0]u8, @ptrCast(struct_field.default_value.?)).*;
     comptime std.debug.assert(value[0] == 'h');
+}
+
+test "@typeInfo only contains pub decls" {
+    const other = struct {
+        const std = @import("std");
+
+        usingnamespace struct {
+            pub const inside_non_pub_usingnamespace = 0;
+        };
+
+        pub const Enum = enum {
+            a,
+            b,
+            c,
+        };
+
+        pub const Struct = struct {
+            foo: i32,
+        };
+    };
+    const ti = @typeInfo(other);
+    const decls = ti.Struct.decls;
+
+    try std.testing.expectEqual(2, decls.len);
+    try std.testing.expectEqualStrings("Enum", decls[0].name);
+    try std.testing.expectEqualStrings("Struct", decls[1].name);
 }
