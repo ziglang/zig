@@ -1047,10 +1047,6 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     ));
 }
 
-/// A `null` return value indicates the `tmp_directory` is populated directly
-/// with the package contents.
-/// A non-null return value means that the package contents are inside a
-/// sub-directory indicated by the named path.
 fn unpackResource(
     f: *Fetch,
     resource: *Resource,
@@ -1751,6 +1747,9 @@ const UnpackResult = struct {
     allocator: std.mem.Allocator,
     errors: std.ArrayListUnmanaged(Error) = .{},
     root_error_message: []const u8 = "",
+
+    // A `null` value indicates the `tmp_directory` is populated directly with the package contents.
+    // A non-null value means that the package contents are inside a sub-directory indicated by the named path.
     root_dir: ?[]const u8 = null,
 
     const Error = union(enum) {
@@ -1774,7 +1773,6 @@ const UnpackResult = struct {
                 .unable_to_create_sym_link => |info| info.file_name,
                 .unsupported_file_type => |info| info.file_name,
             };
-
             return !filter.includePath(stripRoot(file_name, root_dir));
         }
 
@@ -1916,8 +1914,8 @@ test "tarball with duplicate file names" {
 
     try fb.expectFetchErrors(2,
         \\error: unable to unpack tarball
-        \\    note: unable to create file 'dir/file': PathAlreadyExists
-        \\    note: unable to create file 'dir1/file1': PathAlreadyExists
+        \\    note: unable to create file 'package.tar/dir/file': PathAlreadyExists
+        \\    note: unable to create file 'package.tar/dir1/file1': PathAlreadyExists
         \\
     );
 }
@@ -2035,7 +2033,6 @@ const TestFetchBuilder = struct {
         defer walker.deinit();
         while (try walker.next()) |entry| {
             if (entry.kind != .file) continue;
-            // std.debug.print("{s}\n", .{entry.path});
             const path = try std.testing.allocator.dupe(u8, entry.path);
             errdefer std.testing.allocator.free(path);
             std.mem.replaceScalar(u8, path, std.fs.path.sep, '/');
@@ -2082,6 +2079,16 @@ fn createTestTarball(dir: fs.Dir, tarball_name: []const u8, with_manifest: bool)
     const TarHeader = std.tar.output.Header;
     const prefix = tarball_name;
 
+    // add root directory
+    {
+        var hdr = TarHeader.init();
+        hdr.typeflag = .directory;
+        try hdr.setPath(prefix, "");
+        try hdr.updateChecksum();
+        try file.writeAll(std.mem.asBytes(&hdr));
+    }
+
+    // add files
     const files: []const []const u8 = &.{
         "build.zig",
         "src/main.zig",
@@ -2091,6 +2098,7 @@ fn createTestTarball(dir: fs.Dir, tarball_name: []const u8, with_manifest: bool)
         "dir/file",
         "dir1/file1",
     };
+
     for (files) |path| {
         var hdr = TarHeader.init();
         hdr.typeflag = .regular;
@@ -2099,6 +2107,7 @@ fn createTestTarball(dir: fs.Dir, tarball_name: []const u8, with_manifest: bool)
         try file.writeAll(std.mem.asBytes(&hdr));
     }
 
+    // add manifest
     if (with_manifest) {
         const build_zig_zon =
             \\ .{
