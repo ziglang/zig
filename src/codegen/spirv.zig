@@ -1102,6 +1102,9 @@ const DeclGen = struct {
     fn constantPtr(self: *DeclGen, ptr_ty: Type, ptr_val: Value) Error!IdRef {
         const result_ty_ref = try self.resolveType(ptr_ty, .direct);
         const mod = self.module;
+
+        if (ptr_val.isUndef(mod)) return self.spv.constUndef(result_ty_ref);
+
         switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
             .decl => |decl| return try self.constantDeclRef(ptr_ty, decl),
             .anon_decl => |anon_decl| return try self.constantAnonDeclRef(ptr_ty, anon_decl),
