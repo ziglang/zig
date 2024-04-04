@@ -2024,49 +2024,53 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    _ = &i;
         \\    var res: c_int = 0;
         \\    _ = &res;
-        \\    while (true) {
-        \\        switch (i) {
-        \\            @as(c_int, 0) => {
-        \\                res = 1;
-        \\                res = 2;
-        \\                res = @as(c_int, 3) * i;
-        \\                break;
-        \\            },
-        \\            @as(c_int, 1)...@as(c_int, 3) => {
-        \\                res = 2;
-        \\                res = @as(c_int, 3) * i;
-        \\                break;
-        \\            },
-        \\            else => {
-        \\                res = @as(c_int, 3) * i;
-        \\                break;
-        \\            },
-        \\            @as(c_int, 7) => {
-        \\                {
-        \\                    res = 7;
+        \\    {
+        \\        while (true) {
+        \\            switch (i) {
+        \\                @as(c_int, 0) => {
+        \\                    res = 1;
+        \\                    res = 2;
+        \\                    res = @as(c_int, 3) * i;
         \\                    break;
-        \\                }
-        \\            },
-        \\            @as(c_int, 4), @as(c_int, 5) => {
-        \\                res = 69;
-        \\                {
-        \\                    res = 5;
-        \\                    return;
-        \\                }
-        \\            },
-        \\            @as(c_int, 6) => {
-        \\                while (true) {
-        \\                    switch (res) {
-        \\                        @as(c_int, 9) => break,
-        \\                        else => {},
+        \\                },
+        \\                @as(c_int, 1)...@as(c_int, 3) => {
+        \\                    res = 2;
+        \\                    res = @as(c_int, 3) * i;
+        \\                    break;
+        \\                },
+        \\                else => {
+        \\                    res = @as(c_int, 3) * i;
+        \\                    break;
+        \\                },
+        \\                @as(c_int, 7) => {
+        \\                    {
+        \\                        res = 7;
+        \\                        break;
         \\                    }
-        \\                    break;
-        \\                }
-        \\                res = 1;
-        \\                return;
-        \\            },
+        \\                },
+        \\                @as(c_int, 4), @as(c_int, 5) => {
+        \\                    res = 69;
+        \\                    {
+        \\                        res = 5;
+        \\                        return;
+        \\                    }
+        \\                },
+        \\                @as(c_int, 6) => {
+        \\                    {
+        \\                        while (true) {
+        \\                            switch (res) {
+        \\                                @as(c_int, 9) => break,
+        \\                                else => break,
+        \\                            }
+        \\                            break;
+        \\                        }
+        \\                    }
+        \\                    res = 1;
+        \\                    return;
+        \\                },
+        \\            }
+        \\            break;
         \\        }
-        \\        break;
         \\    }
         \\}
     });
