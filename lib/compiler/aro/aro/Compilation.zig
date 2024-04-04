@@ -1,7 +1,6 @@
 const std = @import("std");
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
-const EpochSeconds = std.time.epoch.EpochSeconds;
 const mem = std.mem;
 const Interner = @import("../backend.zig").Interner;
 const Builtins = @import("Builtins.zig");
@@ -195,38 +194,35 @@ fn getTimestamp(comp: *Compilation) !u47 {
 }
 
 fn generateDateAndTime(w: anytype, timestamp: u47) !void {
-    const epoch_seconds = EpochSeconds{ .secs = timestamp };
-    const epoch_day = epoch_seconds.getEpochDay();
-    const day_seconds = epoch_seconds.getDaySeconds();
-    const year_day = epoch_day.calculateYearDay();
-    const month_day = year_day.calculateMonthDay();
+    const DateTime = std.date_time.Date16Time;
+    const dt = DateTime.fromEpoch(timestamp);
 
     const month_names = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-    std.debug.assert(std.time.epoch.Month.jan.numeric() == 1);
+    std.debug.assert(DateTime.Date.Month.jan.numeric() == 1);
 
-    const month_name = month_names[month_day.month.numeric() - 1];
+    const month_name = month_names[dt.date.month.numeric() - 1];
     try w.print("#define __DATE__ \"{s} {d: >2} {d}\"\n", .{
         month_name,
-        month_day.day_index + 1,
-        year_day.year,
+        dt.date.day,
+        dt.date.year,
     });
     try w.print("#define __TIME__ \"{d:0>2}:{d:0>2}:{d:0>2}\"\n", .{
-        day_seconds.getHoursIntoDay(),
-        day_seconds.getMinutesIntoHour(),
-        day_seconds.getSecondsIntoMinute(),
+        dt.time.hour,
+        dt.time.minute,
+        dt.time.second,
     });
 
     const day_names = [_][]const u8{ "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
     // days since Thu Oct 1 1970
-    const day_name = day_names[@intCast((epoch_day.day + 3) % 7)];
+    const day_name = day_names[std.math.comptimeMod(dt.date.toEpoch() + 3, day_names.len)];
     try w.print("#define __TIMESTAMP__ \"{s} {s} {d: >2} {d:0>2}:{d:0>2}:{d:0>2} {d}\"\n", .{
         day_name,
         month_name,
-        month_day.day_index + 1,
-        day_seconds.getHoursIntoDay(),
-        day_seconds.getMinutesIntoHour(),
-        day_seconds.getSecondsIntoMinute(),
-        year_day.year,
+        dt.date.day,
+        dt.time.hour,
+        dt.time.minute,
+        dt.time.second,
+        dt.date.year,
     });
 }
 
@@ -534,8 +530,8 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
 
     if (system_defines_mode == .include_system_defines) {
         try buf.appendSlice(
-            \\#define __VERSION__ "Aro 
-        ++ @import("../backend.zig").version_str ++ "\"\n" ++
+            \\#define __VERSION__ "Aro
+        ++ " " ++ @import("../backend.zig").version_str ++ "\"\n" ++
             \\#define __Aro__
             \\
         );

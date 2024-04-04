@@ -190,8 +190,8 @@ pub const Parsed = struct {
     };
 
     pub const Validity = struct {
-        not_before: u64,
-        not_after: u64,
+        not_before: DateTime.EpochSeconds,
+        not_after: DateTime.EpochSeconds,
     };
 
     pub const Slice = der.Element.Slice;
@@ -542,8 +542,9 @@ pub fn parseBitString(cert: Certificate, elem: der.Element) !der.Element.Slice {
 pub const ParseTimeError = error{ CertificateTimeInvalid, CertificateFieldHasWrongDataType };
 
 /// Returns number of seconds since epoch.
-pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
+pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!DateTime.EpochSeconds {
     const bytes = cert.contents(elem);
+
     switch (elem.identifier.tag) {
         .utc_time => {
             // Example: "YYMMDD000000Z"
@@ -552,14 +553,18 @@ pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
             if (bytes[12] != 'Z')
                 return error.CertificateTimeInvalid;
 
-            return Date.toSeconds(.{
-                .year = @as(u16, 2000) + try parseTimeDigits(bytes[0..2], 0, 99),
-                .month = try parseTimeDigits(bytes[2..4], 1, 12),
-                .day = try parseTimeDigits(bytes[4..6], 1, 31),
-                .hour = try parseTimeDigits(bytes[6..8], 0, 23),
-                .minute = try parseTimeDigits(bytes[8..10], 0, 59),
-                .second = try parseTimeDigits(bytes[10..12], 0, 59),
-            });
+            return (DateTime{
+                .date = .{
+                    .year = @as(DateTime.Date.Year, 2000) + try parseTimeDigits(bytes[0..2], 0, 99),
+                    .month = @enumFromInt(try parseTimeDigits(bytes[2..4], 1, 12)),
+                    .day = try parseTimeDigits(bytes[4..6], 1, 31),
+                },
+                .time = .{
+                    .hour = try parseTimeDigits(bytes[6..8], 0, 23),
+                    .minute = try parseTimeDigits(bytes[8..10], 0, 59),
+                    .second = try parseTimeDigits(bytes[10..12], 0, 59),
+                },
+            }).toEpoch();
         },
         .generalized_time => {
             // Examples:
@@ -568,67 +573,24 @@ pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!u64 {
             // "19920722132100.3Z"
             if (bytes.len < 15)
                 return error.CertificateTimeInvalid;
-            return Date.toSeconds(.{
-                .year = try parseYear4(bytes[0..4]),
-                .month = try parseTimeDigits(bytes[4..6], 1, 12),
-                .day = try parseTimeDigits(bytes[6..8], 1, 31),
-                .hour = try parseTimeDigits(bytes[8..10], 0, 23),
-                .minute = try parseTimeDigits(bytes[10..12], 0, 59),
-                .second = try parseTimeDigits(bytes[12..14], 0, 59),
-            });
+            return (DateTime{
+                .date = .{
+                    .year = try parseYear4(bytes[0..4]),
+                    .month = @enumFromInt(try parseTimeDigits(bytes[4..6], 1, 12)),
+                    .day = try parseTimeDigits(bytes[6..8], 1, 31),
+                },
+                .time = .{
+                    .hour = try parseTimeDigits(bytes[8..10], 0, 23),
+                    .minute = try parseTimeDigits(bytes[10..12], 0, 59),
+                    .second = try parseTimeDigits(bytes[12..14], 0, 59),
+                },
+            }).toEpoch();
         },
         else => return error.CertificateFieldHasWrongDataType,
     }
 }
 
-const Date = struct {
-    /// example: 1999
-    year: u16,
-    /// range: 1 to 12
-    month: u8,
-    /// range: 1 to 31
-    day: u8,
-    /// range: 0 to 59
-    hour: u8,
-    /// range: 0 to 59
-    minute: u8,
-    /// range: 0 to 59
-    second: u8,
-
-    /// Convert to number of seconds since epoch.
-    pub fn toSeconds(date: Date) u64 {
-        var sec: u64 = 0;
-
-        {
-            var year: u16 = 1970;
-            while (year < date.year) : (year += 1) {
-                const days: u64 = std.time.epoch.getDaysInYear(year);
-                sec += days * std.time.epoch.secs_per_day;
-            }
-        }
-
-        {
-            const is_leap = std.time.epoch.isLeapYear(date.year);
-            var month: u4 = 1;
-            while (month < date.month) : (month += 1) {
-                const days: u64 = std.time.epoch.getDaysInMonth(
-                    @as(std.time.epoch.YearLeapKind, @enumFromInt(@intFromBool(is_leap))),
-                    @as(std.time.epoch.Month, @enumFromInt(month)),
-                );
-                sec += days * std.time.epoch.secs_per_day;
-            }
-        }
-
-        sec += (date.day - 1) * @as(u64, std.time.epoch.secs_per_day);
-        sec += date.hour * @as(u64, 60 * 60);
-        sec += date.minute * @as(u64, 60);
-        sec += date.second;
-
-        return sec;
-    }
-};
-
-pub fn parseTimeDigits(text: *const [2]u8, min: u8, max: u8) !u8 {
+pub fn parseTimeDigits(text: *const [2]u8, min: comptime_int, max: comptime_int) !std.math.IntFittingRange(min, max) {
     const result = if (use_vectors) result: {
         const nn: @Vector(2, u16) = .{ text[0], text[1] };
         const zero: @Vector(2, u16) = .{ '0', '0' };
@@ -652,22 +614,18 @@ test parseTimeDigits {
     try expectError(error.CertificateTimeInvalid, parseTimeDigits("Di", 0, 99));
 }
 
-pub fn parseYear4(text: *const [4]u8) !u16 {
-    const result = if (use_vectors) result: {
-        const nnnn: @Vector(4, u32) = .{ text[0], text[1], text[2], text[3] };
-        const zero: @Vector(4, u32) = .{ '0', '0', '0', '0' };
-        const mmmm: @Vector(4, u32) = .{ 1000, 100, 10, 1 };
-        break :result @reduce(.Add, (nnnn -% zero) *% mmmm);
-    } else std.fmt.parseInt(u16, text, 10) catch return error.CertificateTimeInvalid;
+pub fn parseYear4(text: *const [4]u8) !DateTime.Date.Year {
+    const result = std.fmt.parseInt(DateTime.Date.Year, text, 10) catch
+        return error.CertificateTimeInvalid;
     if (result > 9999) return error.CertificateTimeInvalid;
-    return @truncate(result);
+    return result;
 }
 
 test parseYear4 {
     const expectEqual = std.testing.expectEqual;
-    try expectEqual(@as(u16, 0), try parseYear4("0000"));
-    try expectEqual(@as(u16, 9999), try parseYear4("9999"));
-    try expectEqual(@as(u16, 1988), try parseYear4("1988"));
+    try expectEqual(0, try parseYear4("0000"));
+    try expectEqual(9999, try parseYear4("9999"));
+    try expectEqual(1988, try parseYear4("1988"));
 
     const expectError = std.testing.expectError;
     try expectError(error.CertificateTimeInvalid, parseYear4("999b"));
@@ -859,6 +817,7 @@ fn verifyEd25519(
 const std = @import("../std.zig");
 const crypto = std.crypto;
 const mem = std.mem;
+const DateTime = std.date_time.Date16Time;
 const Certificate = @This();
 
 pub const der = struct {
