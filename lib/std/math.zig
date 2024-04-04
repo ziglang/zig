@@ -1770,7 +1770,20 @@ test boolMask {
 
 /// Return the mod of `num` with the smallest integer type
 pub fn comptimeMod(num: anytype, comptime denom: comptime_int) IntFittingRange(0, denom - 1) {
-    return @as(IntFittingRange(0, denom - 1), @intCast(@mod(num, denom)));
+    return @intCast(@mod(num, denom));
+}
+
+fn ComptimeDiv(comptime Num: type, comptime divisor: comptime_int) type {
+    const info = @typeInfo(Num).Int;
+    var n_bits = info.bits;
+    n_bits -= log2_int(usize, divisor);
+
+    return std.meta.Int(info.signedness, n_bits);
+}
+
+/// Return the quotient of `num` with the smallest integer type
+pub fn comptimeDivFloor(num: anytype, comptime divisor: comptime_int) ComptimeDiv(@TypeOf(num), divisor) {
+    return @intCast(@divFloor(num, divisor));
 }
 
 pub const F80 = struct {

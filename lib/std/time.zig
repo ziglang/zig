@@ -1,12 +1,12 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
+const epoch = @import("./date/epoch.zig");
 const assert = std.debug.assert;
 const testing = std.testing;
 const math = std.math;
 const windows = std.os.windows;
 const posix = std.posix;
-
-pub const epoch = @import("time/epoch.zig");
+const IntFittingRange = std.math.IntFittingRange;
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn sleep(nanoseconds: u64) void {
@@ -342,6 +342,67 @@ test Timer {
 
     timer.reset();
     try testing.expect(timer.read() < time_1);
+}
+
+pub fn Time(precision_: comptime_int) type {
+    const multiplier: comptime_int = try std.math.powi(usize, 10, precision_);
+    return struct {
+        hour: Hour = 0,
+        minute: Minute = 0,
+        second: Second = 0,
+        /// Milliseconds, microseconds, or nanoseconds.
+        fractional_second: FractionalSecond = 0,
+
+        pub const Hour = IntFittingRange(0, 23);
+        pub const Minute = IntFittingRange(0, 59);
+        pub const Second = IntFittingRange(0, 59);
+        pub const FractionalSecond = IntFittingRange(0, if (precision_ == 0) 0 else multiplier);
+        pub const DayFractionalSeconds = IntFittingRange(0, s_per_day * multiplier);
+
+        const Self = @This();
+
+        pub const precision = precision_;
+        pub const fs_per_hour = 60 * 60 * multiplier;
+        pub const fs_per_minute = 60 * multiplier;
+        pub const fs_per_s = multiplier;
+
+        pub fn fromDayFractionalSeconds(fractional_seconds: DayFractionalSeconds) Self {
+            var fs = fractional_seconds;
+
+            const hour: Hour = @intCast(@divFloor(fs, fs_per_hour));
+            fs -= @as(DayFractionalSeconds, @intCast(hour)) * fs_per_hour;
+
+            const minute: Minute = @intCast(@divFloor(fs, fs_per_minute));
+            fs -= @as(DayFractionalSeconds, @intCast(minute)) * fs_per_minute;
+
+            const second: Second = @intCast(@divFloor(fs, fs_per_s));
+            fs -= @as(DayFractionalSeconds, @intCast(second)) * fs_per_s;
+
+            return .{
+                .hour = hour,
+                .minute = minute,
+                .second = second,
+                .fractional_second = @intCast(fs),
+            };
+        }
+
+        pub fn toDayFractionalSeconds(self: Self) DayFractionalSeconds {
+            var sec: DayFractionalSeconds = 0;
+            sec += @as(DayFractionalSeconds, self.hour) * fs_per_hour;
+            sec += @as(DayFractionalSeconds, self.minute) * fs_per_minute;
+            sec += @as(DayFractionalSeconds, self.second) * fs_per_s;
+            sec += @as(DayFractionalSeconds, self.fractional_second);
+
+            return sec;
+        }
+    };
+}
+
+comptime {
+    assert(@sizeOf(Time(0)) == 3);
+    assert(@sizeOf(Time(3)) == 6);
+    assert(@sizeOf(Time(6)) == 8);
+    assert(@sizeOf(Time(9)) == 8);
 }
 
 test {
