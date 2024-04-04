@@ -945,28 +945,52 @@ pub fn main() void {
       </p>
       {#code_begin|syntax|destructure_matrix#}
 test {
-	const a, const b, const c,
-	const d, const e, const f, 
-	const g, const h, const i = makeTransform(scale, rotate);
-	var xs: [num]f32 = undefined;
-	var ys: [num]f32 = undefined;
-	var zs: [num]f32 = undefined;
-	inline for (verts, 0..) |v, n| {
-	    xs[n], ys[n], zs[n] = .{
-	        a*v.x + b*v.y + c*v.z,
-	        d*v.x + e*v.y + f*v.z,
-	        g*v.x + h*v.y + i*v.z,
-	    };
-	}
+    const a, const b, const c, 
+    const d, const e, const f, 
+    const g, const h, const i = matrix;
+    var xs: [8]f32, 
+    var ys: [8]f32, 
+    var zs: [8]f32 = .{ undefined, undefined, undefined };
+    inline for (verts, 0..) |v, n| {
+        xs[n], ys[n], zs[n] = .{
+            a*v[0] + b*v[1] + c*v[2],
+            d*v[0] + e*v[1] + f*v[2],
+            g*v[0] + h*v[1] + i*v[2],
+        };
+    }
 }
+
+const matrix = [9]f32{
+    3, 0, 0,
+    0, 2, 0,
+    0, 0, 1,
+};
+
+const verts = [8][3]f32{
+    .{ 0, 0, 0 }, .{ 0, 0, 1 }, .{ 0, 1, 0 }, .{ 0, 1, 1 },
+    .{ 1, 0, 0 }, .{ 1, 0, 1 }, .{ 1, 1, 0 }, .{ 1, 1, 1 },
+};
       {#code_end#}
       <p>
       Mixture of var/const declarations and reassignments are permitted, as well as type coercions:
       </p>
       {#code_begin|syntax|destructure_mixed#}
 test {
-    current_index, const flags: u32, var payload: []u8 = getData();
+    var txt = ("a"**256).*;
+    var current_index: usize = 0;
+    current_index, const flags: u32, var payload: []u8 = Data{
+        0xFF, 0x80, &txt,
+    };
+    payload[0] = 'A';
+    try expect(txt[0] == 'A');
+    try expect(flags == 0x80);
 }
+
+const Data = struct {
+    u32, u8, *[256]u8,
+};
+
+const expect = @import("std").testing.expect;
       {#code_end#}
       {#header_close#}
       {#header_close#}
