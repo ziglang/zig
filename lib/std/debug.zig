@@ -1117,7 +1117,11 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
             di.dwarf = dwarf;
         }
 
-        const raw_path = try coff_obj.getPdbPath() orelse return di;
+        const raw_path = if (native_os == .uefi) // this is a workaround because pdb paths are never UEFI paths
+            std.fs.path.basenameWindows(try coff_obj.getPdbPath() orelse return di)
+        else
+            try coff_obj.getPdbPath() orelse return di;
+
         const path = blk: {
             if (fs.path.isAbsolute(raw_path)) {
                 break :blk raw_path;

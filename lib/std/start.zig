@@ -216,6 +216,9 @@ fn EfiMain(handle: uefi.bits.Handle, system_table: *uefi.table.System) callconv(
     uefi.handle = handle;
     uefi.system_table = system_table;
 
+    // This is not strictly necessary, but fetching the working directory is relatively allocation heavy, so we do it once here.
+    uefi.working_directory = uefi.cwd();
+
     switch (@typeInfo(@TypeOf(root.main)).Fn.return_type.?) {
         noreturn => {
             root.main();
@@ -236,6 +239,7 @@ fn EfiMain(handle: uefi.bits.Handle, system_table: *uefi.table.System) callconv(
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
+                std.time.sleep(5 * std.time.ns_per_s);
                 return @intFromEnum(uefi.Status.aborted);
             };
 

@@ -869,8 +869,8 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// This function assumes that all vectors, including zero-length vectors, have
 /// a pointer within the address space of the application.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
-    if (native_os == .windows) {
-        // TODO improve this to use ReadFileScatter
+    if (native_os == .windows or native_os == .uefi) {
+        // TODO improve this to use ReadFileScatter on windows
         if (iov.len == 0) return 0;
         const first = iov[0];
         return read(fd, first.iov_base[0..first.iov_len]);
@@ -937,6 +937,12 @@ pub fn pread(fd: fd_t, buf: []u8, offset: u64) PReadError!usize {
     if (buf.len == 0) return 0;
     if (native_os == .windows) {
         return windows.ReadFile(fd, buf, offset);
+    }
+    if (native_os == .uefi) {
+        const pos = lseek_CUR_get(fd) catch return error.Unseekable;
+        lseek_SET(fd, offset) catch return error.Unseekable;
+        try read(fd, buf);
+        lseek_SET(fd, pos) catch return error.Unseekable;
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const iovs = [1]iovec{iovec{
@@ -1077,7 +1083,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
 /// On these systems, the read races with concurrent writes to the same file descriptor.
 pub fn preadv(fd: fd_t, iov: []const iovec, offset: u64) PReadError!usize {
     const have_pread_but_not_preadv = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .haiku => true,
+        .windows, .macos, .ios, .watchos, .tvos, .haiku, .uefi => true,
         else => false,
     };
     if (have_pread_but_not_preadv) {
@@ -1270,8 +1276,8 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
 /// This function assumes that all vectors, including zero-length vectors, have
 /// a pointer within the address space of the application.
 pub fn writev(fd: fd_t, iov: []const iovec_const) WriteError!usize {
-    if (native_os == .windows) {
-        // TODO improve this to use WriteFileScatter
+    if (native_os == .windows or native_os == .uefi) {
+        // TODO improve this to use WriteFileScatter on windows
         if (iov.len == 0) return 0;
         const first = iov[0];
         return write(fd, first.iov_base[0..first.iov_len]);
@@ -1348,6 +1354,12 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
     if (bytes.len == 0) return 0;
     if (native_os == .windows) {
         return windows.WriteFile(fd, bytes, offset);
+    }
+    if (native_os == .uefi) {
+        const pos = lseek_CUR_get(fd) catch return error.Unseekable;
+        lseek_SET(fd, offset) catch return error.Unseekable;
+        try write(fd, bytes);
+        lseek_SET(fd, pos) catch return error.Unseekable;
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const ciovs = [1]iovec_const{iovec_const{
@@ -1434,7 +1446,7 @@ pub fn pwrite(fd: fd_t, bytes: []const u8, offset: u64) PWriteError!usize {
 /// If `iov.len` is larger than `IOV_MAX`, a partial write will occur.
 pub fn pwritev(fd: fd_t, iov: []const iovec_const, offset: u64) PWriteError!usize {
     const have_pwrite_but_not_pwritev = switch (native_os) {
-        .windows, .macos, .ios, .watchos, .tvos, .haiku => true,
+        .windows, .macos, .ios, .watchos, .tvos, .haiku, .uefi => true,
         else => false,
     };
 
@@ -1569,7 +1581,7 @@ pub const OpenError = error{
 pub fn open(file_path: []const u8, flags: O, perm: mode_t) OpenError!fd_t {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.fs API");
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return openat(AT.FDCWD, file_path, flags, perm);
     }
     const file_path_c = try toPosixPath(file_path);
@@ -1584,7 +1596,7 @@ pub fn open(file_path: []const u8, flags: O, perm: mode_t) OpenError!fd_t {
 pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.fs API");
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return open(mem.sliceTo(file_path, 0), flags, perm);
     }
 
@@ -1648,6 +1660,16 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenE
         }
 
         return fd;
+    } else if (native_os == .uefi) {
+        var temp_path: std.os.windows.PathSpace = undefined;
+        temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, file_path);
+        temp_path.data[temp_path.len] = 0;
+
+        return try uefi.openat(dir_fd, temp_path.span(), .{
+            .read = true, // must be specified when reading or writing, which is always the case
+            .write = flags.ACCMODE != .RDONLY or flags.CREAT,
+            .create = flags.CREAT,
+        });
     }
     const file_path_c = try toPosixPath(file_path);
     return openatZ(dir_fd, &file_path_c, flags, mode);
@@ -1749,7 +1771,7 @@ fn openOptionsFromFlagsWasi(oflag: O) OpenError!WasiOpenOptions {
 pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) OpenError!fd_t {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.fs API");
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return openat(dir_fd, mem.sliceTo(file_path, 0), flags, mode);
     }
 
@@ -5065,6 +5087,9 @@ pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
     if (native_os == .windows) {
         return windows.SetFilePointerEx_BEGIN(fd, offset);
     }
+    if (native_os == .uefi) {
+        return uefi.setFilePosition(fd, offset);
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
         switch (wasi.fd_seek(fd, @bitCast(offset), .SET, &new_offset)) {
@@ -5108,6 +5133,18 @@ pub fn lseek_CUR(fd: fd_t, offset: i64) SeekError!void {
     if (native_os == .windows) {
         return windows.SetFilePointerEx_CURRENT(fd, offset);
     }
+    if (native_os == .uefi) {
+        var pos: i64 = @intCast(try uefi.getFilePosition(fd));
+        const end = try uefi.getFileEndPosition(fd);
+        if (pos + offset < 0) {
+            pos = 0;
+        } else if (pos + offset > end) {
+            pos = end;
+        } else {
+            pos += offset;
+        }
+        return uefi.setFilePosition(@intCast(pos));
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
         switch (wasi.fd_seek(fd, offset, .CUR, &new_offset)) {
@@ -5150,6 +5187,10 @@ pub fn lseek_END(fd: fd_t, offset: i64) SeekError!void {
     if (native_os == .windows) {
         return windows.SetFilePointerEx_END(fd, offset);
     }
+    if (native_os == .uefi) {
+        const end = try uefi.getFileEndPosition(fd);
+        return uefi.setFilePosition(end);
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
         switch (wasi.fd_seek(fd, offset, .END, &new_offset)) {
@@ -5191,6 +5232,9 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
     }
     if (native_os == .windows) {
         return windows.SetFilePointerEx_CURRENT_get(fd);
+    }
+    if (native_os == .uefi) {
+        return uefi.getFilePosition(fd);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
@@ -5428,6 +5472,15 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[max_path_bytes]u8) RealPat
 
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
+    if (native_os == .uefi) {
+        if (uefi.system_table.boot_services) |boot_services| {
+            boot_services.stall(seconds * std.time.us_per_s + nanoseconds / std.time.ns_per_us);
+            return;
+        } else {
+            // no boot services, should we busy wait?
+            return;
+        }
+    }
     var req = timespec{
         .tv_sec = cast(isize, seconds) orelse maxInt(isize),
         .tv_nsec = cast(isize, nanoseconds) orelse maxInt(isize),

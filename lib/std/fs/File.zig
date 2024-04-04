@@ -290,14 +290,6 @@ pub const SeekError = posix.SeekError;
 /// Repositions read/write file offset relative to the current offset.
 /// TODO: integrate with async I/O
 pub fn seekBy(self: File, offset: i64) SeekError!void {
-    if (builtin.os.tag == .uefi) {
-        if (self.handle == .file) {
-            return self.handle.file.movePosition(offset) catch return error.Unseekable;
-        } else {
-            return error.Unseekable;
-        }
-    }
-
     return posix.lseek_CUR(self.handle, offset);
 }
 
@@ -310,14 +302,6 @@ pub fn seekFromEnd(self: File, offset: i64) SeekError!void {
 /// Repositions read/write file offset relative to the beginning.
 /// TODO: integrate with async I/O
 pub fn seekTo(self: File, offset: u64) SeekError!void {
-    if (builtin.os.tag == .uefi) {
-        if (self.handle == .file) {
-            return self.handle.file.setPosition(offset) catch return error.Unseekable;
-        } else {
-            return error.Unseekable;
-        }
-    }
-
     return posix.lseek_SET(self.handle, offset);
 }
 
@@ -325,14 +309,6 @@ pub const GetSeekPosError = posix.SeekError || posix.FStatError;
 
 /// TODO: integrate with async I/O
 pub fn getPos(self: File) GetSeekPosError!u64 {
-    if (builtin.os.tag == .uefi) {
-        if (self.handle == .file) {
-            return self.handle.file.getPosition() catch return error.Unseekable;
-        } else {
-            return error.Unseekable;
-        }
-    }
-
     return posix.lseek_CUR_get(self.handle);
 }
 
@@ -340,13 +316,6 @@ pub fn getPos(self: File) GetSeekPosError!u64 {
 pub fn getEndPos(self: File) GetSeekPosError!u64 {
     if (builtin.os.tag == .windows) {
         return windows.GetFileSizeEx(self.handle);
-    }
-    if (builtin.os.tag == .uefi) {
-        if (self.handle == .file) {
-            return self.handle.file.getEndPosition() catch return error.Unseekable;
-        } else {
-            return error.Unseekable;
-        }
     }
     return (try self.stat()).size;
 }
@@ -488,6 +457,34 @@ pub fn stat(self: File) StatError!Stat {
             .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
             .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
             .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
+        };
+    }
+    if (builtin.os.tag == .uefi) {
+        if (self.handle != .file)
+            return error.Unexpected; // TODO
+
+        const file: *const std.os.uefi.protocol.File = self.handle.file;
+
+        var pool_allocator = std.os.uefi.PoolAllocator{};
+
+        const buffer_size = file.getInfoSize(std.os.uefi.bits.FileInfo) catch return error.Unexpected;
+        const buffer = pool_allocator.allocator().alignedAlloc(
+            u8,
+            @alignOf(std.os.uefi.bits.FileInfo),
+            buffer_size,
+        ) catch return error.SystemResources;
+        defer pool_allocator.allocator().free(buffer);
+
+        const info = file.getInfo(std.os.uefi.bits.FileInfo, buffer) catch return error.Unexpected;
+
+        return .{
+            .inode = 0,
+            .size = info.file_size,
+            .mode = 0,
+            .kind = .file,
+            .atime = @bitCast(info.last_access_time.toUnixEpochNanoseconds()),
+            .mtime = @bitCast(info.modification_time.toUnixEpochNanoseconds()),
+            .ctime = @bitCast(info.create_time.toUnixEpochNanoseconds()),
         };
     }
 

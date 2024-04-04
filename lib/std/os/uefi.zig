@@ -23,6 +23,8 @@ pub var handle: bits.Handle = undefined;
 /// A pointer to the EFI System Table that is passed to the EFI image's entry point.
 pub var system_table: *table.System = undefined;
 
+pub var working_directory: fd_t = .none;
+
 pub const ino_t = u64;
 pub const mode_t = u64;
 
@@ -31,11 +33,44 @@ pub const fd_t = union(enum) {
     simple_output: *const protocol.SimpleTextOutput,
     simple_input: *const protocol.SimpleTextInput,
     none: void, // used to refer to a file descriptor that is not open and cannot do anything
+    cwd: void, // used to refer to the current working directory
 };
 
 fn unexpectedError(err: anyerror) error{Unexpected} {
     std.log.err("unexpected error: {}\n", .{err});
     return error.Unexpected;
+}
+
+pub fn cwd() fd_t {
+    const uefi = std.os.uefi;
+
+    if (uefi.system_table.boot_services) |boot_services| blk: {
+        const loaded_image = boot_services.openProtocol(uefi.handle, uefi.protocol.LoadedImage, .{}) catch break :blk;
+
+        const file_path = if (loaded_image.file_path.node()) |node| file_path: {
+            if (node == .media and node.media == .file_path)
+                break :file_path node.media.file_path.path();
+
+            break :blk;
+        } else break :blk;
+
+        if (file_path.len + 4 > std.fs.max_path_bytes) break :blk;
+
+        // required because device paths are not aligned
+        var path_buffer: [std.fs.max_path_bytes]u16 = undefined;
+        @memcpy(path_buffer[0..file_path.len], file_path);
+        path_buffer[file_path.len] = '\\';
+        path_buffer[file_path.len + 1] = '.';
+        path_buffer[file_path.len + 2] = '.';
+        path_buffer[file_path.len + 3] = 0;
+
+        const file_system = boot_services.openProtocol(loaded_image.device_handle.?, uefi.protocol.SimpleFileSystem, .{}) catch break :blk;
+
+        const volume = file_system.openVolume() catch break :blk;
+        return .{ .file = volume.open(path_buffer[0 .. file_path.len + 3 :0], .{}, .{}) catch break :blk };
+    }
+
+    return .none;
 }
 
 pub fn close(fd: fd_t) void {
@@ -44,6 +79,7 @@ pub fn close(fd: fd_t) void {
         .simple_output => |p| p.reset(true) catch {},
         .simple_input => |p| p.reset(true) catch {},
         .none => {},
+        .cwd => {},
     }
 }
 
@@ -67,6 +103,7 @@ pub fn openat(dirfd: fd_t, path: [:0]const u16, flags: protocol.File.OpenMode) !
         .simple_output => return error.NotDir,
         .simple_input => return error.NotDir,
         .none => return error.NotDir,
+        .cwd => return openat(working_directory, path, flags),
     }
 }
 
@@ -170,7 +207,7 @@ pub fn write(fd: fd_t, buf: []const u8) std.posix.WriteError!usize {
     }
 }
 
-pub fn getFileSize(fd: fd_t) !u64 {
+pub fn getFileEndPosition(fd: fd_t) !u64 {
     switch (fd) {
         .file => |p| {
             return p.getEndPosition() catch return error.Unseekable;
@@ -178,6 +215,38 @@ pub fn getFileSize(fd: fd_t) !u64 {
         else => return error.Unseekable, // cannot read
     }
 }
+
+pub fn getFilePosition(fd: fd_t) !u64 {
+    switch (fd) {
+        .file => |p| {
+            return p.getPosition() catch return error.Unseekable;
+        },
+        else => return error.Unseekable, // cannot read
+    }
+}
+
+pub fn setFilePosition(fd: fd_t, pos: u64) !void {
+    switch (fd) {
+        .file => |p| {
+            return p.setPosition(pos) catch return error.Unseekable;
+        },
+        else => return error.Unseekable, // cannot read
+    }
+}
+
+pub const PATH_MAX = 8192;
+
+pub const O = packed struct {
+    ACCMODE: std.posix.ACCMODE = .RDONLY,
+    NONBLOCK: bool = false,
+    CLOEXEC: bool = false,
+    CREAT: bool = false,
+    TRUNC: bool = false,
+};
+
+pub const AT = struct {
+    pub const FDCWD: fd_t = .cwd;
+};
 
 test {
     _ = table;

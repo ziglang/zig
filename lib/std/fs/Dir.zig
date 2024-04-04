@@ -797,23 +797,6 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
         const fd = try posix.openatWasi(self.fd, sub_path, .{}, .{}, .{}, base, .{});
         return .{ .handle = fd };
     }
-    if (native_os == .uefi) {
-        var temp_path: std.os.windows.PathSpace = undefined;
-        temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, sub_path);
-        temp_path.data[temp_path.len] = 0;
-
-        const uefi = std.os.uefi;
-
-        const handle = try uefi.openat(self.fd, temp_path.span(), .{
-            .read = flags.isRead(),
-            .write = flags.isWrite(),
-        });
-        errdefer uefi.close(handle);
-
-        return File{
-            .handle = handle,
-        };
-    }
     const path_c = try posix.toPosixPath(sub_path);
     return self.openFileZ(&path_c, flags);
 }
@@ -966,25 +949,6 @@ pub fn createFile(self: Dir, sub_path: []const u8, flags: File.CreateFlags) File
                 .FD_FILESTAT_SET_SIZE = true,
                 .FD_FILESTAT_GET = true,
             }, .{}),
-        };
-    }
-    if (native_os == .uefi) {
-        var temp_path: std.os.windows.PathSpace = undefined;
-        temp_path.len = try std.unicode.utf8ToUtf16Le(&temp_path.data, sub_path);
-        temp_path.data[temp_path.len] = 0;
-        const uefi = std.os.uefi;
-
-        const handle = try uefi.openat(self.fd, temp_path.span(), .{
-            .read = true,
-            .write = true,
-            .create = true,
-        });
-        errdefer uefi.close(handle);
-
-        return File{
-            .handle = handle,
-            .capable_io_mode = std.io.default_mode,
-            .intended_io_mode = flags.intended_io_mode,
         };
     }
     const path_c = try posix.toPosixPath(sub_path);

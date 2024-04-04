@@ -145,7 +145,10 @@ pub const File = extern struct {
         comptime Information: type,
     ) !usize {
         var buffer_size: usize = 0;
-        try self._get_info(self, Information.guid, &buffer_size, null).err();
+        self._get_info(self, &Information.guid, &buffer_size, null).err() catch |err| switch (err) {
+            error.BufferTooSmall => {},
+            else => |e| return e,
+        };
         return buffer_size;
     }
 
@@ -156,9 +159,9 @@ pub const File = extern struct {
         self: *const File,
         comptime Information: type,
         buffer: []align(@alignOf(Information)) u8,
-    ) !*const Information {
+    ) !*Information {
         var size: usize = buffer.len;
-        try self._get_info(self, Information.guid, &size, buffer.ptr).err();
+        try self._get_info(self, &Information.guid, &size, buffer.ptr).err();
         return @ptrCast(buffer.ptr);
     }
 

@@ -80,6 +80,7 @@ pub fn isGetFdPathSupportedOnTarget(os: std.Target.Os) bool {
         .solaris,
         .illumos,
         .freebsd,
+        .uefi,
         => true,
 
         .dragonfly => os.version_range.semver.max.order(.{ .major = 6, .minor = 0, .patch = 0 }) != .lt,
@@ -229,6 +230,28 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[MAX_PATH_BYTES]u8) std.posix.
                 else => |err| return posix.unexpectedErrno(err),
             }
             const len = mem.indexOfScalar(u8, out_buffer[0..], 0) orelse MAX_PATH_BYTES;
+            return out_buffer[0..len];
+        },
+        .uefi => {
+            if (fd != .file)
+                return error.FileNotFound;
+
+            const file: *const uefi.protocol.File = fd.file;
+
+            var pool_allocator = uefi.PoolAllocator{};
+
+            const buffer_size = file.getInfoSize(uefi.bits.FileInfo) catch return error.FileNotFound;
+            const buffer = pool_allocator.allocator().alignedAlloc(
+                u8,
+                @alignOf(uefi.bits.FileInfo),
+                buffer_size,
+            ) catch return error.NameTooLong;
+            defer pool_allocator.allocator().free(buffer);
+
+            const info = file.getInfo(uefi.bits.FileInfo, buffer) catch return error.NameTooLong;
+            const path = info.getFileName();
+
+            const len = std.unicode.wtf16LeToWtf8(out_buffer, path);
             return out_buffer[0..len];
         },
         else => unreachable, // made unreachable by isGetFdPathSupportedOnTarget above

@@ -243,6 +243,8 @@ test join {
 pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
     if (native_os == .windows) {
         return isAbsoluteWindowsZ(path_c);
+    } else if (native_os == .uefi) {
+        return isAbsoluteUefiZ(path_c);
     } else {
         return isAbsolutePosixZ(path_c);
     }
@@ -251,6 +253,8 @@ pub fn isAbsoluteZ(path_c: [*:0]const u8) bool {
 pub fn isAbsolute(path: []const u8) bool {
     if (native_os == .windows) {
         return isAbsoluteWindows(path);
+    } else if (native_os == .uefi) {
+        return isAbsoluteUefi(path);
     } else {
         return isAbsolutePosix(path);
     }
@@ -303,6 +307,14 @@ pub fn isAbsolutePosixZ(path_c: [*:0]const u8) bool {
     return isAbsolutePosix(mem.sliceTo(path_c, 0));
 }
 
+pub fn isAbsoluteUefi(path: []const u8) bool {
+    return path.len > 0 and path[0] == sep_windows;
+}
+
+pub fn isAbsoluteUefiZ(path_c: [*:0]const u8) bool {
+    return isAbsoluteUefi(mem.sliceTo(path_c, 0));
+}
+
 test isAbsoluteWindows {
     try testIsAbsoluteWindows("", false);
     try testIsAbsoluteWindows("/", true);
@@ -334,12 +346,24 @@ test isAbsolutePosix {
     try testIsAbsolutePosix("./baz", false);
 }
 
+test isAbsoluteUefi {
+    try testIsAbsoluteUefi("", false);
+    try testIsAbsoluteUefi("\\home\\foo", true);
+    try testIsAbsoluteUefi("\\home\\foo\\..", true);
+    try testIsAbsoluteUefi("bar\\", false);
+    try testIsAbsoluteUefi(".\\baz", false);
+}
+
 fn testIsAbsoluteWindows(path: []const u8, expected_result: bool) !void {
     try testing.expectEqual(expected_result, isAbsoluteWindows(path));
 }
 
 fn testIsAbsolutePosix(path: []const u8, expected_result: bool) !void {
     try testing.expectEqual(expected_result, isAbsolutePosix(path));
+}
+
+fn testIsAbsoluteUefi(path: []const u8, expected_result: bool) !void {
+    try testing.expectEqual(expected_result, isAbsoluteUefi(path));
 }
 
 pub const WindowsPath = struct {
@@ -742,6 +766,85 @@ pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.E
     }
 }
 
+/// This function is like a series of `cd` statements executed one after another.
+/// It resolves "." and "..", but will not convert relative path to absolute path, use std.fs.Dir.realpath instead.
+/// The result does not have a trailing path separator.
+/// This function does not perform any syscalls. Executing this series of path
+/// lookups on the actual filesystem may produce different results due to
+/// symlinks.
+pub fn resolveUefi(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
+    assert(paths.len > 0);
+
+    var result = std.ArrayList(u8).init(allocator);
+    defer result.deinit();
+
+    var negative_count: usize = 0;
+    var is_abs = false;
+
+    for (paths) |p| {
+        if (isAbsoluteUefi(p)) {
+            is_abs = true;
+            negative_count = 0;
+            result.clearRetainingCapacity();
+        }
+        var it = mem.tokenizeScalar(u8, p, '\\');
+        while (it.next()) |component| {
+            if (mem.eql(u8, component, ".")) {
+                continue;
+            } else if (mem.eql(u8, component, "..")) {
+                if (result.items.len == 0) {
+                    negative_count += @intFromBool(!is_abs);
+                    continue;
+                }
+                while (true) {
+                    const ends_with_slash = result.items[result.items.len - 1] == '\\';
+                    result.items.len -= 1;
+                    if (ends_with_slash or result.items.len == 0) break;
+                }
+            } else if (result.items.len > 0 or is_abs) {
+                try result.ensureUnusedCapacity(1 + component.len);
+                result.appendAssumeCapacity('\\');
+                result.appendSliceAssumeCapacity(component);
+            } else {
+                try result.appendSlice(component);
+            }
+        }
+    }
+
+    if (result.items.len == 0) {
+        if (is_abs) {
+            return allocator.dupe(u8, "\\");
+        }
+        if (negative_count == 0) {
+            return allocator.dupe(u8, ".");
+        } else {
+            const real_result = try allocator.alloc(u8, 3 * negative_count - 1);
+            var count = negative_count - 1;
+            var i: usize = 0;
+            while (count > 0) : (count -= 1) {
+                real_result[i..][0..3].* = "..\\".*;
+                i += 3;
+            }
+            real_result[i..][0..2].* = "..".*;
+            return real_result;
+        }
+    }
+
+    if (negative_count == 0) {
+        return result.toOwnedSlice();
+    } else {
+        const real_result = try allocator.alloc(u8, 3 * negative_count + result.items.len);
+        var count = negative_count;
+        var i: usize = 0;
+        while (count > 0) : (count -= 1) {
+            real_result[i..][0..3].* = "..\\".*;
+            i += 3;
+        }
+        @memcpy(real_result[i..][0..result.items.len], result.items);
+        return real_result;
+    }
+}
+
 test resolve {
     try testResolveWindows(&[_][]const u8{ "a\\b\\c\\", "..\\..\\.." }, ".");
     try testResolveWindows(&[_][]const u8{"."}, ".");
@@ -798,6 +901,24 @@ test resolvePosix {
     try testResolvePosix(&.{ ".", "src/test.zig", "..", "../test/cases.zig" }, "test/cases.zig");
 }
 
+test resolveUefi {
+    try testResolveUefi(&[_][]const u8{ "\\a\\b", "c" }, "\\a\\b\\c");
+    try testResolveUefi(&[_][]const u8{ "\\a\\b", "c", "\\\\d", "e\\\\" }, "\\d\\e");
+    try testResolveUefi(&[_][]const u8{ "\\a\\b\\c", "..", "..\\" }, "\\a");
+    try testResolveUefi(&[_][]const u8{ "\\", "..", ".." }, "\\");
+    try testResolveUefi(&[_][]const u8{"\\a\\b\\c\\"}, "\\a\\b\\c");
+
+    try testResolveUefi(&[_][]const u8{ "\\var\\lib", "..\\", "file\\" }, "\\var\\file");
+    try testResolveUefi(&[_][]const u8{ "\\var\\lib", "\\..\\", "file\\" }, "\\file");
+    try testResolveUefi(&[_][]const u8{ "\\some\\dir", ".", "\\absolute\\" }, "\\absolute");
+    try testResolveUefi(&[_][]const u8{ "\\foo\\tmp.3\\", "..\\tmp.3\\cycles\\root.js" }, "\\foo\\tmp.3\\cycles\\root.js");
+
+    // Keep relative paths relative.
+    try testResolveUefi(&[_][]const u8{"a\\b"}, "a\\b");
+    try testResolveUefi(&[_][]const u8{"."}, ".");
+    try testResolveUefi(&[_][]const u8{".", "src\\test.zig", "..", "..\\test\\cases.zig"}, "test\\cases.zig");
+}
+
 fn testResolveWindows(paths: []const []const u8, expected: []const u8) !void {
     const actual = try resolveWindows(testing.allocator, paths);
     defer testing.allocator.free(actual);
@@ -806,6 +927,12 @@ fn testResolveWindows(paths: []const []const u8, expected: []const u8) !void {
 
 fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
     const actual = try resolvePosix(testing.allocator, paths);
+    defer testing.allocator.free(actual);
+    try testing.expectEqualStrings(expected, actual);
+}
+
+fn testResolveUefi(paths: []const []const u8, expected: []const u8) !void {
+    const actual = try resolveUefi(testing.allocator, paths);
     defer testing.allocator.free(actual);
     try testing.expectEqualStrings(expected, actual);
 }
@@ -819,6 +946,8 @@ fn testResolvePosix(paths: []const []const u8, expected: []const u8) !void {
 pub fn dirname(path: []const u8) ?[]const u8 {
     if (native_os == .windows) {
         return dirnameWindows(path);
+    } else if (native_os == .uefi) {
+        return dirnameUefi(path);
     } else {
         return dirnamePosix(path);
     }
@@ -884,6 +1013,32 @@ pub fn dirnamePosix(path: []const u8) ?[]const u8 {
     return path[0..end_index];
 }
 
+pub fn dirnameUefi(path: []const u8) ?[]const u8 {
+    if (path.len == 0)
+        return null;
+
+    var end_index: usize = path.len - 1;
+    while (path[end_index] == '\\') {
+        if (end_index == 0)
+            return null;
+        end_index -= 1;
+    }
+
+    while (path[end_index] != '\\') {
+        if (end_index == 0)
+            return null;
+        end_index -= 1;
+    }
+
+    if (end_index == 0 and path[0] == '\\')
+        return path[0..1];
+
+    if (end_index == 0)
+        return null;
+
+    return path[0..end_index];
+}
+
 test dirnamePosix {
     try testDirnamePosix("/a/b/c", "/a/b");
     try testDirnamePosix("/a/b/c///", "/a/b");
@@ -934,6 +1089,20 @@ test dirnameWindows {
     try testDirnameWindows("foo", null);
 }
 
+test dirnameUefi {
+    try testDirnameUefi("\\a\\b\\c", "\\a\\b");
+    try testDirnameUefi("\\a\\b\\c\\\\\\", "\\a\\b");
+    try testDirnameUefi("\\a", "\\");
+    try testDirnameUefi("\\", null);
+    try testDirnameUefi("\\\\", null);
+    try testDirnameUefi("\\\\\\", null);
+    try testDirnameUefi("\\\\\\\\", null);
+    try testDirnameUefi("", null);
+    try testDirnameUefi("a", null);
+    try testDirnameUefi("a\\", null);
+    try testDirnameUefi("a\\\\", null);
+}
+
 fn testDirnamePosix(input: []const u8, expected_output: ?[]const u8) !void {
     if (dirnamePosix(input)) |output| {
         try testing.expect(mem.eql(u8, output, expected_output.?));
@@ -950,9 +1119,19 @@ fn testDirnameWindows(input: []const u8, expected_output: ?[]const u8) !void {
     }
 }
 
+fn testDirnameUefi(input: []const u8, expected_output: ?[]const u8) !void {
+    if (dirnameUefi(input)) |output| {
+        try testing.expect(mem.eql(u8, output, expected_output.?));
+    } else {
+        try testing.expect(expected_output == null);
+    }
+}
+
 pub fn basename(path: []const u8) []const u8 {
     if (native_os == .windows) {
         return basenameWindows(path);
+    } else if (native_os == .uefi) {
+        return basenameUefi(path);
     } else {
         return basenamePosix(path);
     }
@@ -1011,6 +1190,27 @@ pub fn basenameWindows(path: []const u8) []const u8 {
     return path[start_index + 1 .. end_index];
 }
 
+pub fn basenameUefi(path: []const u8) []const u8 {
+    if (path.len == 0)
+        return &[_]u8{};
+
+    var end_index: usize = path.len - 1;
+    while (path[end_index] == '\\') {
+        if (end_index == 0)
+            return &[_]u8{};
+        end_index -= 1;
+    }
+    var start_index: usize = end_index;
+    end_index += 1;
+    while (path[start_index] != '\\') {
+        if (start_index == 0)
+            return path[0..end_index];
+        start_index -= 1;
+    }
+
+    return path[start_index + 1 .. end_index];
+}
+
 test basename {
     try testBasename("", "");
     try testBasename("/", "");
@@ -1048,6 +1248,13 @@ test basename {
     try testBasenameWindows("C:basename.ext\\\\", "basename.ext");
     try testBasenameWindows("C:foo", "foo");
     try testBasenameWindows("file:stream", "file:stream");
+
+    try testBasenameUefi("\\dir\\basename.ext", "basename.ext");
+    try testBasenameUefi("\\basename.ext", "basename.ext");
+    try testBasenameUefi("basename.ext", "basename.ext");
+    try testBasenameUefi("basename.ext\\", "basename.ext");
+    try testBasenameUefi("basename.ext\\\\", "basename.ext");
+    try testBasenameUefi("foo", "foo");
 }
 
 fn testBasename(input: []const u8, expected_output: []const u8) !void {
@@ -1060,6 +1267,10 @@ fn testBasenamePosix(input: []const u8, expected_output: []const u8) !void {
 
 fn testBasenameWindows(input: []const u8, expected_output: []const u8) !void {
     try testing.expectEqualSlices(u8, expected_output, basenameWindows(input));
+}
+
+fn testBasenameUefi(input: []const u8, expected_output: []const u8) !void {
+    try testing.expectEqualSlices(u8, expected_output, basenameUefi(input));
 }
 
 /// Returns the relative path from `from` to `to`. If `from` and `to` each
@@ -1186,6 +1397,48 @@ pub fn relativePosix(allocator: Allocator, from: []const u8, to: []const u8) ![]
     return [_]u8{};
 }
 
+pub fn relativeUefi(allocator: Allocator, from: []const u8, to: []const u8) ![]u8 {
+    const cwd = try process.getCwdAlloc(allocator);
+    defer allocator.free(cwd);
+    const resolved_from = try resolveUefi(allocator, &[_][]const u8{ cwd, from });
+    defer allocator.free(resolved_from);
+    const resolved_to = try resolveUefi(allocator, &[_][]const u8{ cwd, to });
+    defer allocator.free(resolved_to);
+
+    var from_it = mem.tokenizeScalar(u8, resolved_from, '\\');
+    var to_it = mem.tokenizeScalar(u8, resolved_to, '\\');
+    while (true) {
+        const from_component = from_it.next() orelse return allocator.dupe(u8, to_it.rest());
+        const to_rest = to_it.rest();
+        if (to_it.next()) |to_component| {
+            if (mem.eql(u8, from_component, to_component))
+                continue;
+        }
+        var up_count: usize = 1;
+        while (from_it.next()) |_| {
+            up_count += 1;
+        }
+        const up_index_end = up_count * "..\\".len;
+        const result = try allocator.alloc(u8, up_index_end + to_rest.len);
+        errdefer allocator.free(result);
+
+        var result_index: usize = 0;
+        while (result_index < up_index_end) {
+            result[result_index..][0..3].* = "..\\".*;
+            result_index += 3;
+        }
+        if (to_rest.len == 0) {
+            // shave off the trailing slash
+            return allocator.realloc(result, result_index - 1);
+        }
+
+        @memcpy(result[result_index..][0..to_rest.len], to_rest);
+        return result;
+    }
+
+    return [_]u8{};
+}
+
 test relative {
     try testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
     try testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
@@ -1232,6 +1485,19 @@ test relative {
     try testRelativePosix("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
     try testRelativePosix("/baz-quux", "/baz", "../baz");
     try testRelativePosix("/baz", "/baz-quux", "../baz-quux");
+
+    try testRelativeUefi("\\var\\lib", "\\var", "..");
+    try testRelativeUefi("\\var\\lib", "\\bin", "..\\..\\bin"); 
+    try testRelativeUefi("\\var\\lib", "\\var\\lib", "");
+    try testRelativeUefi("\\var\\lib", "\\var\\apache", "..\\apache");
+    try testRelativeUefi("\\var\\", "\\var\\lib", "lib");
+    try testRelativeUefi("\\", "\\var\\lib", "var\\lib");
+    try testRelativeUefi("\\foo\\test", "\\foo\\test\\bar\\package.json", "bar\\package.json");
+    try testRelativeUefi("\\Users\\a\\web\\b\\test\\mails", "\\Users\\a\\web\\b", "..\\..");
+    try testRelativeUefi("\\foo\\bar\\baz-quux", "\\foo\\bar\\baz", "..\\baz");
+    try testRelativeUefi("\\foo\\bar\\baz", "\\foo\\bar\\baz-quux", "..\\baz-quux");
+    try testRelativeUefi("\\baz-quux", "\\baz", "..\\baz");
+    try testRelativeUefi("\\baz", "\\baz-quux", "..\\baz-quux");
 }
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) !void {
@@ -1242,6 +1508,12 @@ fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const 
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) !void {
     const result = try relativeWindows(testing.allocator, from, to);
+    defer testing.allocator.free(result);
+    try testing.expectEqualStrings(expected_output, result);
+}
+
+fn testRelativeUefi(from: []const u8, to: []const u8, expected_output: []const u8) !void {
+    const result = try relativeUefi(testing.allocator, from, to);
     defer testing.allocator.free(result);
     try testing.expectEqualStrings(expected_output, result);
 }

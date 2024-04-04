@@ -40,14 +40,6 @@ pub fn sleep(nanoseconds: u64) void {
         return;
     }
 
-    if (builtin.os.tag == .uefi) {
-        const boot_services = std.os.uefi.system_table.boot_services.?;
-        const us_from_ns = nanoseconds / ns_per_us;
-        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
-        return;
-    }
-
     const s = nanoseconds / ns_per_s;
     const ns = nanoseconds % ns_per_s;
     posix.nanosleep(s, ns);
@@ -108,10 +100,8 @@ pub fn nanoTimestamp() i128 {
             return ns;
         },
         .uefi => {
-            var value: std.os.uefi.Time = undefined;
-            const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-            assert(status == .Success);
-            return value.toEpoch();
+            const value = std.os.uefi.system_table.runtime_services.getTime() catch return 0;
+            return value.toUnixEpochNanoseconds();
         },
         else => {
             var ts: posix.timespec = undefined;
@@ -198,10 +188,8 @@ pub const Instant = struct {
                 return .{ .timestamp = ns };
             },
             .uefi => {
-                var value: std.os.uefi.Time = undefined;
-                const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-                if (status != .Success) return error.Unsupported;
-                return Instant{ .timestamp = value.toEpoch() };
+                const value = std.os.uefi.system_table.runtime_services.getTime() catch return error.Unsupported;
+                return Instant{ .timestamp = @truncate(value.toEpochNanoseconds()) };
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
             // suspended.
@@ -262,7 +250,7 @@ pub const Instant = struct {
         }
 
         // WASI timestamps are directly in nanoseconds
-        if (builtin.os.tag == .wasi) {
+        if (!is_posix) {
             return self.timestamp - earlier.timestamp;
         }
 

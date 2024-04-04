@@ -72,7 +72,7 @@ pub const Time = extern struct {
     /// Allowed values are -1440 to 1440 or unspecified_timezone
     timezone: i16,
     daylight: packed struct {
-        _pad1: u6,
+        _pad1: u6 = 0,
 
         /// If true, the time has been adjusted for daylight savings time.
         in_daylight: bool,
@@ -100,7 +100,7 @@ pub const Time = extern struct {
             days += time.epoch.getDaysInMonth(leap_kind, @enumFromInt(month));
         }
 
-        days += self.day - 1;
+        days += self.day -| 1;
 
         return days * time.s_per_day +
             @as(u32, self.hour) * time.s_per_hour +
@@ -109,24 +109,13 @@ pub const Time = extern struct {
     }
 
     /// Returns the time in nanoseconds since 1900-01-01 00:00:00.
-    pub fn toEpochNanoseconds(self: Time) u128 {
-        return @as(u128, self.toEpochSeconds()) * time.ns_per_s + self.nanosecond;
+    pub fn toEpochNanoseconds(self: Time) i128 {
+        return @as(i128, self.toEpochSeconds()) * time.ns_per_s + self.nanosecond;
     }
 
-    /// Returns the time in nanoseconds since 1970-01-01 00:00:00, or null if the time does not fit.
-    pub fn toUnixEpochNanoseconds(self: Time) ?u64 {
-        const nanoseconds = self.toEpochNanoseconds();
-
-        if (nanoseconds < time.epoch.unix_epoch_nanoseconds) {
-            return null;
-        }
-
-        const unix = nanoseconds - time.epoch.unix_epoch_nanoseconds;
-        if (unix > std.math.maxInt(u64)) {
-            return null;
-        }
-
-        return @intCast(unix);
+    /// Returns the time in nanoseconds since 1970-01-01 00:00:00.
+    pub fn toUnixEpochNanoseconds(self: Time) i128 {
+        return self.toEpochNanoseconds() -| unix_epoch_nanoseconds;
     }
 
     pub const unix_epoch = Time{
