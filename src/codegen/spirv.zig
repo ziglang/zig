@@ -41,6 +41,8 @@ const SpvTypeInfo = struct {
 
 const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, SpvTypeInfo);
 
+const InternMap = std.AutoHashMapUnmanaged(struct { InternPool.Index, DeclGen.Repr }, IdResult);
+
 const ControlFlow = union(enum) {
     const Structured = struct {
         /// This type indicates the way that a block is terminated. The
@@ -171,6 +173,8 @@ pub const Object = struct {
     /// of the SPIR-V module.
     type_map: TypeMap = .{},
 
+    intern_map: InternMap = .{},
+
     pub fn init(gpa: Allocator) Object {
         return .{
             .gpa = gpa,
@@ -183,6 +187,7 @@ pub const Object = struct {
         self.decl_link.deinit(self.gpa);
         self.anon_decl_link.deinit(self.gpa);
         self.type_map.deinit(self.gpa);
+        self.intern_map.deinit(self.gpa);
     }
 
     fn genDecl(
@@ -205,6 +210,7 @@ pub const Object = struct {
             .air = air,
             .liveness = liveness,
             .type_map = &self.type_map,
+            .intern_map = &self.intern_map,
             .control_flow = switch (structured_cfg) {
                 true => .{ .structured = .{} },
                 false => .{ .unstructured = .{} },
@@ -312,6 +318,8 @@ const DeclGen = struct {
     /// A map that maps AIR intern pool indices to SPIR-V cache references.
     /// See Object.type_map
     type_map: *TypeMap,
+
+    intern_map: *InternMap,
 
     /// Child types of pointers that are currently in progress of being resolved. If a pointer
     /// is already in this map, its recursive.
@@ -696,14 +704,25 @@ const DeclGen = struct {
 
     /// Emits a bool constant in a particular representation.
     fn constBool(self: *DeclGen, value: bool, repr: Repr) !IdRef {
+        // TODO: Cache?
+
+        const section = &self.spv.sections.types_globals_constants;
         switch (repr) {
             .indirect => {
-                const int_ty_ref = try self.intType(.unsigned, 1);
-                return self.constInt(int_ty_ref, @intFromBool(value));
+                return try self.constInt(Type.u1, @intFromBool(value), .indirect);
             },
             .direct => {
-                const bool_ty_ref = try self.resolveType(Type.bool, .direct);
-                return self.spv.constBool(bool_ty_ref, value);
+                const result_ty_id = try self.resolveType2(Type.bool, .direct);
+                const result_id = self.spv.allocId();
+                const operands = .{
+                    .id_result_type = result_ty_id,
+                    .id_result = result_id,
+                };
+                switch (value) {
+                    true => try section.emit(self.spv.gpa, .OpConstantTrue, operands),
+                    false => try section.emit(self.spv.gpa, .OpConstantFalse, operands),
+                }
+                return result_id;
             },
         }
     }
@@ -711,68 +730,63 @@ const DeclGen = struct {
     /// Emits an integer constant.
     /// This function, unlike SpvModule.constInt, takes care to bitcast
     /// the value to an unsigned int first for Kernels.
-    fn constInt(self: *DeclGen, ty_ref: CacheRef, value: anytype) !IdRef {
-        switch (self.spv.cache.lookup(ty_ref)) {
-            .vector_type => |vec_type| {
-                const elem_ids = try self.gpa.alloc(IdRef, vec_type.component_count);
-                defer self.gpa.free(elem_ids);
-                const int_value = try self.constInt(vec_type.component_type, value);
-                @memset(elem_ids, int_value);
+    fn constInt(self: *DeclGen, ty: Type, value: anytype, repr: Repr) !IdRef {
+        // TODO: Cache?
+        const mod = self.module;
+        const scalar_ty = ty.scalarType(mod);
+        const int_info = scalar_ty.intInfo(mod);
+        // Use backing bits so that negatives are sign extended
+        const backing_bits = self.backingIntBits(int_info.bits).?; // Assertion failure means big int
 
-                const constituents_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-                    .id_result_type = self.typeId(ty_ref),
-                    .id_result = constituents_id,
-                    .constituents = elem_ids,
-                });
-                return constituents_id;
-            },
-            else => {},
-        }
-
-        if (value < 0) {
-            const ty = self.spv.cache.lookup(ty_ref).int_type;
-            // Manually truncate the value so that the resulting value
-            // fits within the unsigned type.
-            const bits: u64 = @bitCast(@as(i64, @intCast(value)));
-            const truncated_bits = if (ty.bits == 64)
-                bits
-            else
-                bits & (@as(u64, 1) << @intCast(ty.bits)) - 1;
-            return try self.spv.constInt(ty_ref, truncated_bits);
-        } else {
-            return try self.spv.constInt(ty_ref, value);
-        }
-    }
-
-    /// Emits a float constant
-    fn constFloat(self: *DeclGen, ty_ref: CacheRef, value: f128) !IdRef {
-        switch (self.spv.cache.lookup(ty_ref)) {
-            .vector_type => |vec_type| {
-                const elem_ids = try self.gpa.alloc(IdRef, vec_type.component_count);
-                defer self.gpa.free(elem_ids);
-                const int_value = try self.constFloat(vec_type.component_type, value);
-                @memset(elem_ids, int_value);
-
-                const constituents_id = self.spv.allocId();
-                try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
-                    .id_result_type = self.typeId(ty_ref),
-                    .id_result = constituents_id,
-                    .constituents = elem_ids,
-                });
-                return constituents_id;
-            },
-            else => {},
-        }
-
-        const ty = self.spv.cache.lookup(ty_ref).float_type;
-        return switch (ty.bits) {
-            16 => try self.spv.resolveId(.{ .float = .{ .ty = ty_ref, .value = .{ .float16 = @floatCast(value) } } }),
-            32 => try self.spv.resolveId(.{ .float = .{ .ty = ty_ref, .value = .{ .float32 = @floatCast(value) } } }),
-            64 => try self.spv.resolveId(.{ .float = .{ .ty = ty_ref, .value = .{ .float64 = @floatCast(value) } } }),
-            80, 128 => unreachable, // TODO
-            else => unreachable,
+        const bits: u64 = switch (int_info.signedness) {
+            // Intcast needed to silence compile errors for when the wrong path is compiled.
+            // Lazy fix.
+            .signed => @bitCast(@as(i64, @intCast(value))),
+            .unsigned => @as(u64, @intCast(value)),
         };
+
+        // Manually truncate the value to the right amount of bits.
+        const truncated_bits = if (backing_bits == 64)
+            bits
+        else
+            bits & (@as(u64, 1) << @intCast(backing_bits)) - 1;
+
+        const result_ty_id = try self.resolveType2(scalar_ty, repr);
+        const result_id = self.spv.allocId();
+
+        const section = &self.spv.sections.types_globals_constants;
+        switch (backing_bits) {
+            0 => unreachable, // u0 is comptime
+            1...32 => try section.emit(self.spv.gpa, .OpConstant, .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+                .value = .{ .uint32 = @truncate(truncated_bits) },
+            }),
+            33...64 => try section.emit(self.spv.gpa, .OpConstant, .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+                .value = .{ .uint64 = truncated_bits },
+            }),
+            else => unreachable, // TODO: Large integer constants
+        }
+
+        if (!ty.isVector(mod)) {
+            return result_id;
+        }
+
+        const n = ty.vectorLen(mod);
+        const ids = try self.gpa.alloc(IdRef, n);
+        defer self.gpa.free(ids);
+        @memset(ids, result_id);
+
+        const vec_ty_id = try self.resolveType2(ty, repr);
+        const vec_result_id = self.spv.allocId();
+        try self.func.body.emit(self.spv.gpa, .OpCompositeConstruct, .{
+            .id_result_type = vec_ty_id,
+            .id_result = vec_result_id,
+            .constituents = ids,
+        });
+        return vec_result_id;
     }
 
     /// Construct a struct at runtime.
@@ -852,258 +866,279 @@ const DeclGen = struct {
     /// is done by emitting a sequence of instructions that initialize the value.
     //
     /// This function should only be called during function code generation.
-    fn constant(self: *DeclGen, ty: Type, arg_val: Value, repr: Repr) !IdRef {
+    fn constant(self: *DeclGen, ty: Type, val: Value, repr: Repr) !IdRef {
+        // Note: Using intern_map can only be used with constants that DO NOT generate any runtime code!!
+        // Ideally that should be all constants in the future, or it should be cleaned up somehow. For
+        // now, only use the intern_map on case-by-case basis by breaking to :cache.
+        if (self.intern_map.get(.{ val.toIntern(), repr })) |id| {
+            return id;
+        }
+
         const mod = self.module;
         const target = self.getTarget();
         const result_ty_ref = try self.resolveType(ty, repr);
+        const result_ty_id = self.typeId(result_ty_ref);
         const ip = &mod.intern_pool;
 
-        const val = arg_val;
-
-        log.debug("constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(mod) });
+        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(mod), val.fmtValue(mod) });
         if (val.isUndefDeep(mod)) {
-            return self.spv.constUndef(result_ty_ref);
+            return self.spv.constUndef(result_ty_id);
         }
 
-        switch (ip.indexToKey(val.toIntern())) {
-            .int_type,
-            .ptr_type,
-            .array_type,
-            .vector_type,
-            .opt_type,
-            .anyframe_type,
-            .error_union_type,
-            .simple_type,
-            .struct_type,
-            .anon_struct_type,
-            .union_type,
-            .opaque_type,
-            .enum_type,
-            .func_type,
-            .error_set_type,
-            .inferred_error_set_type,
-            => unreachable, // types, not values
+        const section = &self.spv.sections.types_globals_constants;
 
-            .undef => unreachable, // handled above
+        const cacheable_id = cache: {
+            switch (ip.indexToKey(val.toIntern())) {
+                .int_type,
+                .ptr_type,
+                .array_type,
+                .vector_type,
+                .opt_type,
+                .anyframe_type,
+                .error_union_type,
+                .simple_type,
+                .struct_type,
+                .anon_struct_type,
+                .union_type,
+                .opaque_type,
+                .enum_type,
+                .func_type,
+                .error_set_type,
+                .inferred_error_set_type,
+                => unreachable, // types, not values
 
-            .variable,
-            .extern_func,
-            .func,
-            .enum_literal,
-            .empty_enum_value,
-            => unreachable, // non-runtime values
+                .undef => unreachable, // handled above
 
-            .simple_value => |simple_value| switch (simple_value) {
-                .undefined,
-                .void,
-                .null,
-                .empty_struct,
-                .@"unreachable",
-                .generic_poison,
+                .variable,
+                .extern_func,
+                .func,
+                .enum_literal,
+                .empty_enum_value,
                 => unreachable, // non-runtime values
 
-                .false, .true => return try self.constBool(val.toBool(), repr),
-            },
+                .simple_value => |simple_value| switch (simple_value) {
+                    .undefined,
+                    .void,
+                    .null,
+                    .empty_struct,
+                    .@"unreachable",
+                    .generic_poison,
+                    => unreachable, // non-runtime values
 
-            .int => {
-                if (ty.isSignedInt(mod)) {
-                    return try self.constInt(result_ty_ref, val.toSignedInt(mod));
-                } else {
-                    return try self.constInt(result_ty_ref, val.toUnsignedInt(mod));
-                }
-            },
-            .float => return switch (ty.floatBits(target)) {
-                16 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float16 = val.toFloat(f16, mod) } } }),
-                32 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float32 = val.toFloat(f32, mod) } } }),
-                64 => try self.spv.resolveId(.{ .float = .{ .ty = result_ty_ref, .value = .{ .float64 = val.toFloat(f64, mod) } } }),
-                80, 128 => unreachable, // TODO
-                else => unreachable,
-            },
-            .err => |err| {
-                const value = try mod.getErrorValue(err.name);
-                return try self.constInt(result_ty_ref, value);
-            },
-            .error_union => |error_union| {
-                // TODO: Error unions may be constructed with constant instructions if the payload type
-                // allows it. For now, just generate it here regardless.
-                const err_int_ty = try mod.errorIntType();
-                const err_ty = switch (error_union.val) {
-                    .err_name => ty.errorUnionSet(mod),
-                    .payload => err_int_ty,
-                };
-                const err_val = switch (error_union.val) {
-                    .err_name => |err_name| Value.fromInterned((try mod.intern(.{ .err = .{
-                        .ty = ty.errorUnionSet(mod).toIntern(),
-                        .name = err_name,
-                    } }))),
-                    .payload => try mod.intValue(err_int_ty, 0),
-                };
-                const payload_ty = ty.errorUnionPayload(mod);
-                const eu_layout = self.errorUnionLayout(payload_ty);
-                if (!eu_layout.payload_has_bits) {
-                    // We use the error type directly as the type.
-                    return try self.constant(err_ty, err_val, .indirect);
-                }
-
-                const payload_val = Value.fromInterned(switch (error_union.val) {
-                    .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
-                    .payload => |payload| payload,
-                });
-
-                var constituents: [2]IdRef = undefined;
-                var types: [2]Type = undefined;
-                if (eu_layout.error_first) {
-                    constituents[0] = try self.constant(err_ty, err_val, .indirect);
-                    constituents[1] = try self.constant(payload_ty, payload_val, .indirect);
-                    types = .{ err_ty, payload_ty };
-                } else {
-                    constituents[0] = try self.constant(payload_ty, payload_val, .indirect);
-                    constituents[1] = try self.constant(err_ty, err_val, .indirect);
-                    types = .{ payload_ty, err_ty };
-                }
-
-                return try self.constructStruct(ty, &types, &constituents);
-            },
-            .enum_tag => {
-                const int_val = try val.intFromEnum(ty, mod);
-                const int_ty = ty.intTagType(mod);
-                return try self.constant(int_ty, int_val, repr);
-            },
-            .ptr => return self.constantPtr(ty, val),
-            .slice => |slice| {
-                const ptr_ty = ty.slicePtrFieldType(mod);
-                const ptr_id = try self.constantPtr(ptr_ty, Value.fromInterned(slice.ptr));
-                const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
-                return self.constructStruct(
-                    ty,
-                    &.{ ptr_ty, Type.usize },
-                    &.{ ptr_id, len_id },
-                );
-            },
-            .opt => {
-                const payload_ty = ty.optionalChild(mod);
-                const maybe_payload_val = val.optionalValue(mod);
-
-                if (!payload_ty.hasRuntimeBits(mod)) {
-                    return try self.constBool(maybe_payload_val != null, .indirect);
-                } else if (ty.optionalReprIsPayload(mod)) {
-                    // Optional representation is a nullable pointer or slice.
-                    if (maybe_payload_val) |payload_val| {
-                        return try self.constant(payload_ty, payload_val, .indirect);
+                    .false, .true => break :cache try self.constBool(val.toBool(), repr),
+                },
+                .int => {
+                    if (ty.isSignedInt(mod)) {
+                        break :cache try self.constInt(ty, val.toSignedInt(mod), repr);
                     } else {
-                        const ptr_ty_ref = try self.resolveType(ty, .indirect);
-                        return self.spv.constNull(ptr_ty_ref);
-                    }
-                }
-
-                // Optional representation is a structure.
-                // { Payload, Bool }
-
-                const has_pl_id = try self.constBool(maybe_payload_val != null, .indirect);
-                const payload_id = if (maybe_payload_val) |payload_val|
-                    try self.constant(payload_ty, payload_val, .indirect)
-                else
-                    try self.spv.constUndef(try self.resolveType(payload_ty, .indirect));
-
-                return try self.constructStruct(
-                    ty,
-                    &.{ payload_ty, Type.bool },
-                    &.{ payload_id, has_pl_id },
-                );
-            },
-            .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
-                inline .array_type, .vector_type => |array_type, tag| {
-                    const elem_ty = Type.fromInterned(array_type.child);
-                    const elem_ty_ref = try self.resolveType(elem_ty, .indirect);
-
-                    const constituents = try self.gpa.alloc(IdRef, @intCast(ty.arrayLenIncludingSentinel(mod)));
-                    defer self.gpa.free(constituents);
-
-                    switch (aggregate.storage) {
-                        .bytes => |bytes| {
-                            // TODO: This is really space inefficient, perhaps there is a better
-                            // way to do it?
-                            for (bytes, 0..) |byte, i| {
-                                constituents[i] = try self.constInt(elem_ty_ref, byte);
-                            }
-                        },
-                        .elems => |elems| {
-                            for (0..@as(usize, @intCast(array_type.len))) |i| {
-                                constituents[i] = try self.constant(elem_ty, Value.fromInterned(elems[i]), .indirect);
-                            }
-                        },
-                        .repeated_elem => |elem| {
-                            const val_id = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
-                            for (0..@as(usize, @intCast(array_type.len))) |i| {
-                                constituents[i] = val_id;
-                            }
-                        },
-                    }
-
-                    switch (tag) {
-                        inline .array_type => {
-                            if (array_type.sentinel != .none) {
-                                const sentinel = Value.fromInterned(array_type.sentinel);
-                                constituents[constituents.len - 1] = try self.constant(elem_ty, sentinel, .indirect);
-                            }
-                            return self.constructArray(ty, constituents);
-                        },
-                        inline .vector_type => return self.constructVector(ty, constituents),
-                        else => unreachable,
+                        break :cache try self.constInt(ty, val.toUnsignedInt(mod), repr);
                     }
                 },
-                .struct_type => {
-                    const struct_type = mod.typeToStruct(ty).?;
-                    if (struct_type.layout == .@"packed") {
-                        return self.todo("packed struct constants", .{});
+                .float => {
+                    const lit: spec.LiteralContextDependentNumber = switch (ty.floatBits(target)) {
+                        16 => .{ .uint32 = @as(u16, @bitCast(val.toFloat(f16, mod))) },
+                        32 => .{ .float32 = val.toFloat(f32, mod) },
+                        64 => .{ .float64 = val.toFloat(f64, mod) },
+                        80, 128 => unreachable, // TODO
+                        else => unreachable,
+                    };
+                    const result_id = self.spv.allocId();
+                    try section.emit(self.spv.gpa, .OpConstant, .{
+                        .id_result_type = result_ty_id,
+                        .id_result = result_id,
+                        .value = lit,
+                    });
+                    break :cache result_id;
+                },
+                .err => |err| {
+                    const value = try mod.getErrorValue(err.name);
+                    break :cache try self.constInt(ty, value, repr);
+                },
+                .error_union => |error_union| {
+                    // TODO: Error unions may be constructed with constant instructions if the payload type
+                    // allows it. For now, just generate it here regardless.
+                    const err_int_ty = try mod.errorIntType();
+                    const err_ty = switch (error_union.val) {
+                        .err_name => ty.errorUnionSet(mod),
+                        .payload => err_int_ty,
+                    };
+                    const err_val = switch (error_union.val) {
+                        .err_name => |err_name| Value.fromInterned((try mod.intern(.{ .err = .{
+                            .ty = ty.errorUnionSet(mod).toIntern(),
+                            .name = err_name,
+                        } }))),
+                        .payload => try mod.intValue(err_int_ty, 0),
+                    };
+                    const payload_ty = ty.errorUnionPayload(mod);
+                    const eu_layout = self.errorUnionLayout(payload_ty);
+                    if (!eu_layout.payload_has_bits) {
+                        // We use the error type directly as the type.
+                        break :cache try self.constant(err_ty, err_val, .indirect);
                     }
 
-                    var types = std.ArrayList(Type).init(self.gpa);
-                    defer types.deinit();
+                    const payload_val = Value.fromInterned(switch (error_union.val) {
+                        .err_name => try mod.intern(.{ .undef = payload_ty.toIntern() }),
+                        .payload => |payload| payload,
+                    });
 
-                    var constituents = std.ArrayList(IdRef).init(self.gpa);
-                    defer constituents.deinit();
+                    var constituents: [2]IdRef = undefined;
+                    var types: [2]Type = undefined;
+                    if (eu_layout.error_first) {
+                        constituents[0] = try self.constant(err_ty, err_val, .indirect);
+                        constituents[1] = try self.constant(payload_ty, payload_val, .indirect);
+                        types = .{ err_ty, payload_ty };
+                    } else {
+                        constituents[0] = try self.constant(payload_ty, payload_val, .indirect);
+                        constituents[1] = try self.constant(err_ty, err_val, .indirect);
+                        types = .{ payload_ty, err_ty };
+                    }
 
-                    var it = struct_type.iterateRuntimeOrder(ip);
-                    while (it.next()) |field_index| {
-                        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-                            // This is a zero-bit field - we only needed it for the alignment.
-                            continue;
+                    return try self.constructStruct(ty, &types, &constituents);
+                },
+                .enum_tag => {
+                    const int_val = try val.intFromEnum(ty, mod);
+                    const int_ty = ty.intTagType(mod);
+                    break :cache try self.constant(int_ty, int_val, repr);
+                },
+                .ptr => return self.constantPtr(ty, val),
+                .slice => |slice| {
+                    const ptr_ty = ty.slicePtrFieldType(mod);
+                    const ptr_id = try self.constantPtr(ptr_ty, Value.fromInterned(slice.ptr));
+                    const len_id = try self.constant(Type.usize, Value.fromInterned(slice.len), .indirect);
+                    return self.constructStruct(
+                        ty,
+                        &.{ ptr_ty, Type.usize },
+                        &.{ ptr_id, len_id },
+                    );
+                },
+                .opt => {
+                    const payload_ty = ty.optionalChild(mod);
+                    const maybe_payload_val = val.optionalValue(mod);
+
+                    if (!payload_ty.hasRuntimeBits(mod)) {
+                        break :cache try self.constBool(maybe_payload_val != null, .indirect);
+                    } else if (ty.optionalReprIsPayload(mod)) {
+                        // Optional representation is a nullable pointer or slice.
+                        if (maybe_payload_val) |payload_val| {
+                            return try self.constant(payload_ty, payload_val, .indirect);
+                        } else {
+                            break :cache try self.spv.constNull(result_ty_id);
+                        }
+                    }
+
+                    // Optional representation is a structure.
+                    // { Payload, Bool }
+
+                    const has_pl_id = try self.constBool(maybe_payload_val != null, .indirect);
+                    const payload_id = if (maybe_payload_val) |payload_val|
+                        try self.constant(payload_ty, payload_val, .indirect)
+                    else
+                        try self.spv.constUndef(try self.resolveType2(payload_ty, .indirect));
+
+                    return try self.constructStruct(
+                        ty,
+                        &.{ payload_ty, Type.bool },
+                        &.{ payload_id, has_pl_id },
+                    );
+                },
+                .aggregate => |aggregate| switch (ip.indexToKey(ty.ip_index)) {
+                    inline .array_type, .vector_type => |array_type, tag| {
+                        const elem_ty = Type.fromInterned(array_type.child);
+
+                        const constituents = try self.gpa.alloc(IdRef, @as(u32, @intCast(ty.arrayLenIncludingSentinel(mod))));
+                        defer self.gpa.free(constituents);
+
+                        switch (aggregate.storage) {
+                            .bytes => |bytes| {
+                                // TODO: This is really space inefficient, perhaps there is a better
+                                // way to do it?
+                                for (bytes, 0..) |byte, i| {
+                                    constituents[i] = try self.constInt(elem_ty, byte, .indirect);
+                                }
+                            },
+                            .elems => |elems| {
+                                for (0..@as(usize, @intCast(array_type.len))) |i| {
+                                    constituents[i] = try self.constant(elem_ty, Value.fromInterned(elems[i]), .indirect);
+                                }
+                            },
+                            .repeated_elem => |elem| {
+                                const val_id = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
+                                for (0..@as(usize, @intCast(array_type.len))) |i| {
+                                    constituents[i] = val_id;
+                                }
+                            },
                         }
 
-                        // TODO: Padding?
-                        const field_val = try val.fieldValue(mod, field_index);
-                        const field_id = try self.constant(field_ty, field_val, .indirect);
+                        switch (tag) {
+                            inline .array_type => {
+                                if (array_type.sentinel != .none) {
+                                    const sentinel = Value.fromInterned(array_type.sentinel);
+                                    constituents[constituents.len - 1] = try self.constant(elem_ty, sentinel, .indirect);
+                                }
+                                return self.constructArray(ty, constituents);
+                            },
+                            inline .vector_type => return self.constructVector(ty, constituents),
+                            else => unreachable,
+                        }
+                    },
+                    .struct_type => {
+                        const struct_type = mod.typeToStruct(ty).?;
+                        if (struct_type.layout == .@"packed") {
+                            return self.todo("packed struct constants", .{});
+                        }
 
-                        try types.append(field_ty);
-                        try constituents.append(field_id);
-                    }
+                        var types = std.ArrayList(Type).init(self.gpa);
+                        defer types.deinit();
 
-                    return try self.constructStruct(ty, types.items, constituents.items);
+                        var constituents = std.ArrayList(IdRef).init(self.gpa);
+                        defer constituents.deinit();
+
+                        var it = struct_type.iterateRuntimeOrder(ip);
+                        while (it.next()) |field_index| {
+                            const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+                                // This is a zero-bit field - we only needed it for the alignment.
+                                continue;
+                            }
+
+                            // TODO: Padding?
+                            const field_val = try val.fieldValue(mod, field_index);
+                            const field_id = try self.constant(field_ty, field_val, .indirect);
+
+                            try types.append(field_ty);
+                            try constituents.append(field_id);
+                        }
+
+                        return try self.constructStruct(ty, types.items, constituents.items);
+                    },
+                    .anon_struct_type => unreachable, // TODO
+                    else => unreachable,
                 },
-                .anon_struct_type => unreachable, // TODO
-                else => unreachable,
-            },
-            .un => |un| {
-                const active_field = ty.unionTagFieldIndex(Value.fromInterned(un.tag), mod).?;
-                const union_obj = mod.typeToUnion(ty).?;
-                const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[active_field]);
-                const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(mod))
-                    try self.constant(field_ty, Value.fromInterned(un.val), .direct)
-                else
-                    null;
-                return try self.unionInit(ty, active_field, payload);
-            },
-            .memoized_call => unreachable,
-        }
+                .un => |un| {
+                    const active_field = ty.unionTagFieldIndex(Value.fromInterned(un.tag), mod).?;
+                    const union_obj = mod.typeToUnion(ty).?;
+                    const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[active_field]);
+                    const payload = if (field_ty.hasRuntimeBitsIgnoreComptime(mod))
+                        try self.constant(field_ty, Value.fromInterned(un.val), .direct)
+                    else
+                        null;
+                    return try self.unionInit(ty, active_field, payload);
+                },
+                .memoized_call => unreachable,
+            }
+        };
+
+        try self.intern_map.putNoClobber(self.gpa, .{ val.toIntern(), repr }, cacheable_id);
+
+        return cacheable_id;
     }
 
     fn constantPtr(self: *DeclGen, ptr_ty: Type, ptr_val: Value) Error!IdRef {
+        const result_ty_id = try self.resolveType2(ptr_ty, .direct);
         const result_ty_ref = try self.resolveType(ptr_ty, .direct);
         const mod = self.module;
 
-        if (ptr_val.isUndef(mod)) return self.spv.constUndef(result_ty_ref);
+        if (ptr_val.isUndef(mod)) return self.spv.constUndef(result_ty_id);
 
         switch (mod.intern_pool.indexToKey(ptr_val.toIntern()).ptr.addr) {
             .decl => |decl| return try self.constantDeclRef(ptr_ty, decl),
@@ -1126,8 +1161,7 @@ const DeclGen = struct {
             .elem => |elem_ptr| {
                 const parent_ptr_ty = Type.fromInterned(mod.intern_pool.typeOf(elem_ptr.base));
                 const parent_ptr_id = try self.constantPtr(parent_ptr_ty, Value.fromInterned(elem_ptr.base));
-                const size_ty_ref = try self.sizeType();
-                const index_id = try self.constInt(size_ty_ref, elem_ptr.index);
+                const index_id = try self.constInt(Type.usize, elem_ptr.index, .direct);
 
                 const elem_ptr_id = try self.ptrElemPtr(parent_ptr_ty, parent_ptr_id, index_id);
 
@@ -1181,7 +1215,7 @@ const DeclGen = struct {
         // const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
         if (!decl_ty.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
             // Pointer to nothing - return undefoined
-            return self.spv.constUndef(ty_ref);
+            return self.spv.constUndef(self.typeId(ty_ref));
         }
 
         if (decl_ty.zigTypeTag(mod) == .Fn) {
@@ -1217,7 +1251,7 @@ const DeclGen = struct {
             .func => {
                 // TODO: Properly lower function pointers. For now we are going to hack around it and
                 // just generate an empty pointer. Function pointers are represented by a pointer to usize.
-                return try self.spv.constUndef(ty_ref);
+                return try self.spv.constUndef(ty_id);
             },
             .extern_func => unreachable, // TODO
             else => {},
@@ -1225,7 +1259,7 @@ const DeclGen = struct {
 
         if (!decl.typeOf(mod).isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
             // Pointer to nothing - return undefined.
-            return self.spv.constUndef(ty_ref);
+            return self.spv.constUndef(ty_id);
         }
 
         const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
@@ -1274,6 +1308,14 @@ const DeclGen = struct {
         return self.spv.resultId(type_ref);
     }
 
+    /// Turn a Zig type into a SPIR-V Type result-id.
+    /// This function represents the "new interface", where types handled only
+    /// with Type and IdResult, and CacheRef is not used. Prefer this for now.
+    fn resolveType2(self: *DeclGen, ty: Type, repr: Repr) !IdResult {
+        const type_ref = try self.resolveType(ty, repr);
+        return self.typeId(type_ref);
+    }
+
     fn typeId(self: *DeclGen, ty_ref: CacheRef) IdRef {
         return self.spv.resultId(ty_ref);
     }
@@ -1295,11 +1337,6 @@ const DeclGen = struct {
         }
 
         return self.spv.intType(.unsigned, backing_bits);
-    }
-
-    /// Create an integer type that represents 'usize'.
-    fn sizeType(self: *DeclGen) !CacheRef {
-        return try self.intType(.unsigned, self.getTarget().ptrBitWidth());
     }
 
     fn ptrType(self: *DeclGen, child_ty: Type, storage_class: StorageClass) !CacheRef {
@@ -1367,7 +1404,7 @@ const DeclGen = struct {
         var member_types: [4]CacheRef = undefined;
         var member_names: [4]CacheString = undefined;
 
-        const u8_ty_ref = try self.intType(.unsigned, 8); // TODO: What if Int8Type is not enabled?
+        const u8_ty_ref = try self.resolveType(Type.u8, .direct); // TODO: What if Int8Type is not enabled?
 
         if (layout.tag_size != 0) {
             const tag_ty_ref = try self.resolveType(Type.fromInterned(union_obj.enum_tag_ty), .indirect);
@@ -1439,7 +1476,7 @@ const DeclGen = struct {
             },
             .Bool => switch (repr) {
                 .direct => return try self.spv.resolve(.bool_type),
-                .indirect => return try self.intType(.unsigned, 1),
+                .indirect => return try self.resolveType(Type.u1, .indirect),
             },
             .Int => {
                 const int_info = ty.intInfo(mod);
@@ -1548,7 +1585,7 @@ const DeclGen = struct {
                 .indirect => {
                     // TODO: Represent function pointers properly.
                     // For now, just use an usize type.
-                    return try self.sizeType();
+                    return try self.resolveType(Type.usize, .indirect);
                 },
             },
             .Pointer => {
@@ -1564,7 +1601,7 @@ const DeclGen = struct {
                     return ptr_ty_ref;
                 }
 
-                const size_ty_ref = try self.sizeType();
+                const size_ty_ref = try self.resolveType(Type.usize, .direct);
                 return self.spv.resolve(.{ .struct_type = .{
                     .member_types = &.{ ptr_ty_ref, size_ty_ref },
                     .member_names = &.{
@@ -1680,7 +1717,7 @@ const DeclGen = struct {
                 return ty_ref;
             },
             .Union => return try self.resolveUnionType(ty),
-            .ErrorSet => return try self.intType(.unsigned, 16),
+            .ErrorSet => return try self.resolveType(Type.u16, repr),
             .ErrorUnion => {
                 const payload_ty = ty.errorUnionPayload(mod);
                 const error_ty_ref = try self.resolveType(Type.anyerror, .indirect);
@@ -2202,12 +2239,12 @@ const DeclGen = struct {
         }
     }
 
-    fn intFromBool(self: *DeclGen, result_ty_ref: CacheRef, condition_id: IdRef) !IdRef {
-        const zero_id = try self.constInt(result_ty_ref, 0);
-        const one_id = try self.constInt(result_ty_ref, 1);
+    fn intFromBool(self: *DeclGen, ty: Type, condition_id: IdRef) !IdRef {
+        const zero_id = try self.constInt(ty, 0, .direct);
+        const one_id = try self.constInt(ty, 1, .direct);
         const result_id = self.spv.allocId();
         try self.func.body.emit(self.spv.gpa, .OpSelect, .{
-            .id_result_type = self.typeId(result_ty_ref),
+            .id_result_type = try self.resolveType2(ty, .direct),
             .id_result = result_id,
             .condition = condition_id,
             .object_1 = one_id,
@@ -2222,15 +2259,12 @@ const DeclGen = struct {
         const mod = self.module;
         return switch (ty.zigTypeTag(mod)) {
             .Bool => blk: {
-                const direct_bool_ty_ref = try self.resolveType(ty, .direct);
-                const indirect_bool_ty_ref = try self.resolveType(ty, .indirect);
-                const zero_id = try self.constInt(indirect_bool_ty_ref, 0);
                 const result_id = self.spv.allocId();
                 try self.func.body.emit(self.spv.gpa, .OpINotEqual, .{
-                    .id_result_type = self.typeId(direct_bool_ty_ref),
+                    .id_result_type = try self.resolveType2(Type.bool, .direct),
                     .id_result = result_id,
                     .operand_1 = operand_id,
-                    .operand_2 = zero_id,
+                    .operand_2 = try self.constBool(false, .indirect),
                 });
                 break :blk result_id;
             },
@@ -2243,10 +2277,7 @@ const DeclGen = struct {
     fn convertToIndirect(self: *DeclGen, ty: Type, operand_id: IdRef) !IdRef {
         const mod = self.module;
         return switch (ty.zigTypeTag(mod)) {
-            .Bool => blk: {
-                const indirect_bool_ty_ref = try self.resolveType(ty, .indirect);
-                break :blk self.intFromBool(indirect_bool_ty_ref, operand_id);
-            },
+            .Bool => try self.intFromBool(Type.u1, operand_id),
             else => operand_id,
         };
     }
@@ -2529,7 +2560,7 @@ const DeclGen = struct {
                 try self.func.body.emit(self.spv.gpa, unsigned, args);
             }
 
-            result_id.* = try self.normalize(wip.ty_ref, value_id, info);
+            result_id.* = try self.normalize(wip.ty, value_id, info);
         }
         return try wip.finalize();
     }
@@ -2622,7 +2653,7 @@ const DeclGen = struct {
     /// - Signed integers are also sign extended if they are negative.
     /// All other values are returned unmodified (this makes strange integer
     /// wrapping easier to use in generic operations).
-    fn normalize(self: *DeclGen, ty_ref: CacheRef, value_id: IdRef, info: ArithmeticTypeInfo) !IdRef {
+    fn normalize(self: *DeclGen, ty: Type, value_id: IdRef, info: ArithmeticTypeInfo) !IdRef {
         switch (info.class) {
             .integer, .bool, .float => return value_id,
             .composite_integer => unreachable, // TODO
@@ -2630,9 +2661,9 @@ const DeclGen = struct {
                 .unsigned => {
                     const mask_value = if (info.bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
                     const result_id = self.spv.allocId();
-                    const mask_id = try self.constInt(ty_ref, mask_value);
+                    const mask_id = try self.constInt(ty, mask_value, .direct);
                     try self.func.body.emit(self.spv.gpa, .OpBitwiseAnd, .{
-                        .id_result_type = self.typeId(ty_ref),
+                        .id_result_type = try self.resolveType2(ty, .direct),
                         .id_result = result_id,
                         .operand_1 = value_id,
                         .operand_2 = mask_id,
@@ -2641,17 +2672,17 @@ const DeclGen = struct {
                 },
                 .signed => {
                     // Shift left and right so that we can copy the sight bit that way.
-                    const shift_amt_id = try self.constInt(ty_ref, info.backing_bits - info.bits);
+                    const shift_amt_id = try self.constInt(ty, info.backing_bits - info.bits, .direct);
                     const left_id = self.spv.allocId();
                     try self.func.body.emit(self.spv.gpa, .OpShiftLeftLogical, .{
-                        .id_result_type = self.typeId(ty_ref),
+                        .id_result_type = try self.resolveType2(ty, .direct),
                         .id_result = left_id,
                         .base = value_id,
                         .shift = shift_amt_id,
                     });
                     const right_id = self.spv.allocId();
                     try self.func.body.emit(self.spv.gpa, .OpShiftRightArithmetic, .{
-                        .id_result_type = self.typeId(ty_ref),
+                        .id_result_type = try self.resolveType2(ty, .direct),
                         .id_result = right_id,
                         .base = left_id,
                         .shift = shift_amt_id,
@@ -2667,13 +2698,13 @@ const DeclGen = struct {
         const lhs_id = try self.resolve(bin_op.lhs);
         const rhs_id = try self.resolve(bin_op.rhs);
         const ty = self.typeOfIndex(inst);
-        const ty_ref = try self.resolveType(ty, .direct);
+        const ty_id = try self.resolveType2(ty, .direct);
         const info = self.arithmeticTypeInfo(ty);
         switch (info.class) {
             .composite_integer => unreachable, // TODO
             .integer, .strange_integer => {
-                const zero_id = try self.constInt(ty_ref, 0);
-                const one_id = try self.constInt(ty_ref, 1);
+                const zero_id = try self.constInt(ty, 0, .direct);
+                const one_id = try self.constInt(ty, 1, .direct);
 
                 // (a ^ b) > 0
                 const bin_bitwise_id = try self.binOpSimple(ty, lhs_id, rhs_id, .OpBitwiseXor);
@@ -2696,14 +2727,14 @@ const DeclGen = struct {
                 const negative_div_id = try self.arithOp(ty, negative_div_lhs, rhs_abs, .OpFDiv, .OpSDiv, .OpUDiv);
                 const negated_negative_div_id = self.spv.allocId();
                 try self.func.body.emit(self.spv.gpa, .OpSNegate, .{
-                    .id_result_type = self.typeId(ty_ref),
+                    .id_result_type = ty_id,
                     .id_result = negated_negative_div_id,
                     .operand = negative_div_id,
                 });
 
                 const result_id = self.spv.allocId();
                 try self.func.body.emit(self.spv.gpa, .OpSelect, .{
-                    .id_result_type = self.typeId(ty_ref),
+                    .id_result_type = ty_id,
                     .id_result = result_id,
                     .condition = is_positive_id,
                     .object_1 = positive_div_id,
@@ -2819,7 +2850,7 @@ const DeclGen = struct {
 
             // TODO: Trap on overflow? Probably going to be annoying.
             // TODO: Look into SPV_KHR_no_integer_wrap_decoration which provides NoSignedWrap/NoUnsignedWrap.
-            result_id.* = try self.normalize(wip.ty_ref, value_id, info);
+            result_id.* = try self.normalize(wip.ty, value_id, info);
         }
 
         return try wip.finalize();
@@ -2929,7 +2960,7 @@ const DeclGen = struct {
             });
 
             // Normalize the result so that the comparisons go well
-            result_id.* = try self.normalize(wip_result.ty_ref, value_id, info);
+            result_id.* = try self.normalize(wip_result.ty, value_id, info);
 
             const overflowed_id = switch (info.signedness) {
                 .unsigned => blk: {
@@ -2963,7 +2994,7 @@ const DeclGen = struct {
                     // = (rhs < 0) == (lhs > value)
 
                     const rhs_lt_zero_id = self.spv.allocId();
-                    const zero_id = try self.constInt(wip_result.ty_ref, 0);
+                    const zero_id = try self.constInt(wip_result.ty, 0, .direct);
                     try self.func.body.emit(self.spv.gpa, .OpSLessThan, .{
                         .id_result_type = self.typeId(cmp_ty_ref),
                         .id_result = rhs_lt_zero_id,
@@ -2990,7 +3021,7 @@ const DeclGen = struct {
                 },
             };
 
-            ov_id.* = try self.intFromBool(wip_ov.ty_ref, overflowed_id);
+            ov_id.* = try self.intFromBool(wip_ov.ty, overflowed_id);
         }
 
         return try self.constructStruct(
@@ -3022,9 +3053,9 @@ const DeclGen = struct {
         var wip_ov = try self.elementWise(ov_ty, true);
         defer wip_ov.deinit();
 
-        const zero_id = try self.constInt(wip_result.ty_ref, 0);
-        const zero_ov_id = try self.constInt(wip_ov.ty_ref, 0);
-        const one_ov_id = try self.constInt(wip_ov.ty_ref, 1);
+        const zero_id = try self.constInt(wip_result.ty, 0, .direct);
+        const zero_ov_id = try self.constInt(wip_ov.ty, 0, .direct);
+        const one_ov_id = try self.constInt(wip_ov.ty, 1, .direct);
 
         for (wip_result.results, wip_ov.results, 0..) |*result_id, *ov_id, i| {
             const lhs_elem_id = try wip_result.elementAt(operand_ty, lhs, i);
@@ -3109,7 +3140,7 @@ const DeclGen = struct {
                 .base = lhs_elem_id,
                 .shift = shift_id,
             });
-            result_id.* = try self.normalize(wip_result.ty_ref, value_id, info);
+            result_id.* = try self.normalize(wip_result.ty, value_id, info);
 
             const right_shift_id = self.spv.allocId();
             switch (info.signedness) {
@@ -3139,7 +3170,7 @@ const DeclGen = struct {
                 .operand_2 = right_shift_id,
             });
 
-            ov_id.* = try self.intFromBool(wip_ov.ty_ref, overflowed_id);
+            ov_id.* = try self.intFromBool(wip_ov.ty, overflowed_id);
         }
 
         return try self.constructStruct(
@@ -3351,7 +3382,7 @@ const DeclGen = struct {
         for (wip.results, 0..) |*result_id, i| {
             const elem = try mask.elemValue(mod, i);
             if (elem.isUndef(mod)) {
-                result_id.* = try self.spv.constUndef(wip.ty_ref);
+                result_id.* = try self.spv.constUndef(wip.ty_id);
                 continue;
             }
 
@@ -3366,11 +3397,10 @@ const DeclGen = struct {
     }
 
     fn indicesToIds(self: *DeclGen, indices: []const u32) ![]IdRef {
-        const index_ty_ref = try self.intType(.unsigned, 32);
         const ids = try self.gpa.alloc(IdRef, indices.len);
         errdefer self.gpa.free(ids);
         for (indices, ids) |index, *id| {
-            id.* = try self.constInt(index_ty_ref, index);
+            id.* = try self.constInt(Type.u32, index, .direct);
         }
 
         return ids;
@@ -3502,7 +3532,7 @@ const DeclGen = struct {
                 cmp_lhs_id = self.spv.allocId();
                 cmp_rhs_id = self.spv.allocId();
 
-                const usize_ty_id = self.typeId(try self.sizeType());
+                const usize_ty_id = try self.resolveType2(Type.usize, .direct);
 
                 try self.func.body.emit(self.spv.gpa, .OpConvertPtrToU, .{
                     .id_result_type = usize_ty_id,
@@ -3761,7 +3791,7 @@ const DeclGen = struct {
         // should we change the representation of strange integers?
         if (dst_ty.zigTypeTag(mod) == .Int) {
             const info = self.arithmeticTypeInfo(dst_ty);
-            return try self.normalize(dst_ty_ref, result_id, info);
+            return try self.normalize(dst_ty, result_id, info);
         }
 
         return result_id;
@@ -3811,7 +3841,7 @@ const DeclGen = struct {
             // type, we don't need to normalize when growing the type. The
             // representation is already the same.
             if (dst_info.bits < src_info.bits) {
-                result_id.* = try self.normalize(wip.ty_ref, value_id, dst_info);
+                result_id.* = try self.normalize(wip.ty, value_id, dst_info);
             } else {
                 result_id.* = value_id;
             }
@@ -3898,7 +3928,7 @@ const DeclGen = struct {
         defer wip.deinit();
         for (wip.results, 0..) |*result_id, i| {
             const elem_id = try wip.elementAt(Type.bool, operand_id, i);
-            result_id.* = try self.intFromBool(wip.ty_ref, elem_id);
+            result_id.* = try self.intFromBool(wip.ty, elem_id);
         }
         return try wip.finalize();
     }
@@ -3958,10 +3988,9 @@ const DeclGen = struct {
         const elem_ptr_ty = slice_ty.slicePtrFieldType(mod);
 
         const elem_ptr_ty_ref = try self.resolveType(elem_ptr_ty, .direct);
-        const size_ty_ref = try self.sizeType();
 
         const array_ptr_id = try self.resolve(ty_op.operand);
-        const len_id = try self.constInt(size_ty_ref, array_ty.arrayLen(mod));
+        const len_id = try self.constInt(Type.usize, array_ty.arrayLen(mod), .direct);
 
         const elem_ptr_id = if (!array_ty.hasRuntimeBitsIgnoreComptime(mod))
             // Note: The pointer is something like *opaque{}, so we need to bitcast it to the element type.
@@ -4092,8 +4121,8 @@ const DeclGen = struct {
                 const array_ty = ty.childType(mod);
                 const elem_ty = array_ty.childType(mod);
                 const abi_size = elem_ty.abiSize(mod);
-                const usize_ty_ref = try self.resolveType(Type.usize, .direct);
-                return self.spv.constInt(usize_ty_ref, array_ty.arrayLenIncludingSentinel(mod) * abi_size);
+                const size = array_ty.arrayLenIncludingSentinel(mod) * abi_size;
+                return try self.constInt(Type.usize, size, .direct);
             },
             .Many, .C => unreachable,
         }
@@ -4298,6 +4327,8 @@ const DeclGen = struct {
         // union type, then get the field pointer and pointer-cast it to the
         // right type to store it. Finally load the entire union.
 
+        // Note: The result here is not cached, because it generates runtime code.
+
         const mod = self.module;
         const ip = &mod.intern_pool;
         const union_ty = mod.typeToUnion(ty).?;
@@ -4316,17 +4347,15 @@ const DeclGen = struct {
         } else 0;
 
         if (!layout.has_payload) {
-            const tag_ty_ref = try self.resolveType(tag_ty, .direct);
-            return try self.constInt(tag_ty_ref, tag_int);
+            return try self.constInt(tag_ty, tag_int, .direct);
         }
 
         const tmp_id = try self.alloc(ty, .{ .storage_class = .Function });
 
         if (layout.tag_size != 0) {
-            const tag_ty_ref = try self.resolveType(tag_ty, .direct);
             const tag_ptr_ty_ref = try self.ptrType(tag_ty, .Function);
             const ptr_id = try self.accessChain(tag_ptr_ty_ref, tmp_id, &.{@as(u32, @intCast(layout.tag_index))});
-            const tag_id = try self.constInt(tag_ty_ref, tag_int);
+            const tag_id = try self.constInt(tag_ty, tag_int, .direct);
             try self.store(tag_ty, ptr_id, tag_id, .{});
         }
 
@@ -4420,8 +4449,6 @@ const DeclGen = struct {
 
         const parent_ty = ty_pl.ty.toType().childType(mod);
         const res_ty = try self.resolveType(ty_pl.ty.toType(), .indirect);
-        const usize_ty = Type.usize;
-        const usize_ty_ref = try self.resolveType(usize_ty, .direct);
 
         const field_ptr = try self.resolve(extra.field_ptr);
         const field_ptr_int = try self.intFromPtr(field_ptr);
@@ -4430,8 +4457,8 @@ const DeclGen = struct {
         const base_ptr_int = base_ptr_int: {
             if (field_offset == 0) break :base_ptr_int field_ptr_int;
 
-            const field_offset_id = try self.constInt(usize_ty_ref, field_offset);
-            break :base_ptr_int try self.binOpSimple(usize_ty, field_ptr_int, field_offset_id, .OpISub);
+            const field_offset_id = try self.constInt(Type.usize, field_offset, .direct);
+            break :base_ptr_int try self.binOpSimple(Type.usize, field_ptr_int, field_offset_id, .OpISub);
         };
 
         const base_ptr = self.spv.allocId();
@@ -4469,7 +4496,7 @@ const DeclGen = struct {
                     if (!layout.has_payload) {
                         // Asked to get a pointer to a zero-sized field. Just lower this
                         // to undefined, there is no reason to make it be a valid pointer.
-                        return try self.spv.constUndef(result_ty_ref);
+                        return try self.spv.constUndef(self.typeId(result_ty_ref));
                     }
 
                     const storage_class = self.spvStorageClass(object_ptr_ty.ptrAddressSpace(mod));
@@ -4563,7 +4590,7 @@ const DeclGen = struct {
         assert(self.control_flow == .structured);
 
         const result_id = self.spv.allocId();
-        const block_id_ty_ref = try self.intType(.unsigned, 32);
+        const block_id_ty_ref = try self.resolveType(Type.u32, .direct);
         try self.func.body.emitRaw(self.spv.gpa, .OpPhi, @intCast(2 + incoming.len * 2)); // result type + result + variable/parent...
         self.func.body.writeOperand(spec.IdResultType, self.typeId(block_id_ty_ref));
         self.func.body.writeOperand(spec.IdRef, result_id);
@@ -4663,8 +4690,8 @@ const DeclGen = struct {
                     // Make sure that we are still in a block when exiting the function.
                     // TODO: Can we get rid of that?
                     try self.beginSpvBlock(self.spv.allocId());
-                    const block_id_ty_ref = try self.intType(.unsigned, 32);
-                    return try self.spv.constUndef(block_id_ty_ref);
+                    const block_id_ty_ref = try self.resolveType(Type.u32, .direct);
+                    return try self.spv.constUndef(self.typeId(block_id_ty_ref));
                 }
 
                 // The top-most merge actually only has a single source, the
@@ -4781,8 +4808,7 @@ const DeclGen = struct {
         assert(cf.block_stack.items.len > 0);
 
         // Check if the target of the branch was this current block.
-        const block_id_ty_ref = try self.intType(.unsigned, 32);
-        const this_block = try self.constInt(block_id_ty_ref, @intFromEnum(inst));
+        const this_block = try self.constInt(Type.u32, @intFromEnum(inst), .direct);
         const jump_to_this_block_id = self.spv.allocId();
         const bool_ty_ref = try self.resolveType(Type.bool, .direct);
         try self.func.body.emit(self.spv.gpa, .OpIEqual, .{
@@ -4862,8 +4888,7 @@ const DeclGen = struct {
                     try self.store(operand_ty, block_result_var_id, operand_id, .{});
                 }
 
-                const block_id_ty_ref = try self.intType(.unsigned, 32);
-                const next_block = try self.constInt(block_id_ty_ref, @intFromEnum(br.block_inst));
+                const next_block = try self.constInt(Type.u32, @intFromEnum(br.block_inst), .direct);
                 try self.structuredBreak(next_block);
             },
             .unstructured => |cf| {
@@ -5026,8 +5051,7 @@ const DeclGen = struct {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
-                const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
-                const no_err_id = try self.constInt(err_ty_ref, 0);
+                const no_err_id = try self.constInt(Type.anyerror, 0, .direct);
                 return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
             } else {
                 return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
@@ -5051,8 +5075,7 @@ const DeclGen = struct {
                 // Functions with an empty error set are emitted with an error code
                 // return type and return zero so they can be function pointers coerced
                 // to functions that return anyerror.
-                const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
-                const no_err_id = try self.constInt(err_ty_ref, 0);
+                const no_err_id = try self.constInt(Type.anyerror, 0, .direct);
                 return try self.func.body.emit(self.spv.gpa, .OpReturnValue, .{ .value = no_err_id });
             } else {
                 return try self.func.body.emit(self.spv.gpa, .OpReturn, {});
@@ -5076,7 +5099,6 @@ const DeclGen = struct {
         const err_union_ty = self.typeOf(pl_op.operand);
         const payload_ty = self.typeOfIndex(inst);
 
-        const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
         const bool_ty_ref = try self.resolveType(Type.bool, .direct);
 
         const eu_layout = self.errorUnionLayout(payload_ty);
@@ -5087,7 +5109,7 @@ const DeclGen = struct {
             else
                 err_union_id;
 
-            const zero_id = try self.constInt(err_ty_ref, 0);
+            const zero_id = try self.constInt(Type.anyerror, 0, .direct);
             const is_err_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpINotEqual, .{
                 .id_result_type = self.typeId(bool_ty_ref),
@@ -5146,7 +5168,7 @@ const DeclGen = struct {
 
         if (err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
             // No error possible, so just return undefined.
-            return try self.spv.constUndef(err_ty_ref);
+            return try self.spv.constUndef(self.typeId(err_ty_ref));
         }
 
         const payload_ty = err_union_ty.errorUnionPayload(mod);
@@ -5189,7 +5211,7 @@ const DeclGen = struct {
 
         var members: [2]IdRef = undefined;
         members[eu_layout.errorFieldIndex()] = operand_id;
-        members[eu_layout.payloadFieldIndex()] = try self.spv.constUndef(payload_ty_ref);
+        members[eu_layout.payloadFieldIndex()] = try self.spv.constUndef(self.typeId(payload_ty_ref));
 
         var types: [2]Type = undefined;
         types[eu_layout.errorFieldIndex()] = Type.anyerror;
@@ -5203,15 +5225,14 @@ const DeclGen = struct {
         const err_union_ty = self.typeOfIndex(inst);
         const operand_id = try self.resolve(ty_op.operand);
         const payload_ty = self.typeOf(ty_op.operand);
-        const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
         const eu_layout = self.errorUnionLayout(payload_ty);
 
         if (!eu_layout.payload_has_bits) {
-            return try self.constInt(err_ty_ref, 0);
+            return try self.constInt(Type.anyerror, 0, .direct);
         }
 
         var members: [2]IdRef = undefined;
-        members[eu_layout.errorFieldIndex()] = try self.constInt(err_ty_ref, 0);
+        members[eu_layout.errorFieldIndex()] = try self.constInt(Type.anyerror, 0, .direct);
         members[eu_layout.payloadFieldIndex()] = try self.convertToIndirect(payload_ty, operand_id);
 
         var types: [2]Type = undefined;
@@ -5248,8 +5269,8 @@ const DeclGen = struct {
             else
                 loaded_id;
 
-            const payload_ty_ref = try self.resolveType(ptr_ty, .direct);
-            const null_id = try self.spv.constNull(payload_ty_ref);
+            const payload_ty_id = try self.resolveType2(ptr_ty, .direct);
+            const null_id = try self.spv.constNull(payload_ty_id);
             const op: std.math.CompareOperator = switch (pred) {
                 .is_null => .eq,
                 .is_non_null => .neq,
@@ -5306,7 +5327,6 @@ const DeclGen = struct {
         const payload_ty = err_union_ty.errorUnionPayload(mod);
         const eu_layout = self.errorUnionLayout(payload_ty);
         const bool_ty_ref = try self.resolveType(Type.bool, .direct);
-        const err_ty_ref = try self.resolveType(Type.anyerror, .direct);
 
         const error_id = if (!eu_layout.payload_has_bits)
             operand_id
@@ -5318,7 +5338,7 @@ const DeclGen = struct {
             .id_result_type = self.typeId(bool_ty_ref),
             .id_result = result_id,
             .operand_1 = error_id,
-            .operand_2 = try self.constInt(err_ty_ref, 0),
+            .operand_2 = try self.constInt(Type.anyerror, 0, .direct),
         };
         switch (pred) {
             .is_err => try self.func.body.emit(self.spv.gpa, .OpINotEqual, operands),

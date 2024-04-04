@@ -435,28 +435,22 @@ pub fn arrayType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
     } });
 }
 
-pub fn constInt(self: *Module, ty_ref: CacheRef, value: anytype) !IdRef {
-    const ty = self.cache.lookup(ty_ref).int_type;
-    const Value = Cache.Key.Int.Value;
-    return try self.resolveId(.{ .int = .{
-        .ty = ty_ref,
-        .value = switch (ty.signedness) {
-            .signed => Value{ .int64 = @intCast(value) },
-            .unsigned => Value{ .uint64 = @intCast(value) },
-        },
-    } });
+pub fn constUndef(self: *Module, ty_id: IdRef) !IdRef {
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpUndef, .{
+        .id_result_type = ty_id,
+        .id_result = result_id,
+    });
+    return result_id;
 }
 
-pub fn constUndef(self: *Module, ty_ref: CacheRef) !IdRef {
-    return try self.resolveId(.{ .undef = .{ .ty = ty_ref } });
-}
-
-pub fn constNull(self: *Module, ty_ref: CacheRef) !IdRef {
-    return try self.resolveId(.{ .null = .{ .ty = ty_ref } });
-}
-
-pub fn constBool(self: *Module, ty_ref: CacheRef, value: bool) !IdRef {
-    return try self.resolveId(.{ .bool = .{ .ty = ty_ref, .value = value } });
+pub fn constNull(self: *Module, ty_id: IdRef) !IdRef {
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpConstantNull, .{
+        .id_result_type = ty_id,
+        .id_result = result_id,
+    });
+    return result_id;
 }
 
 pub fn constComposite(self: *Module, ty_ref: CacheRef, members: []const IdRef) !IdRef {
