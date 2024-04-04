@@ -296,18 +296,19 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
         .OpTypeVoid => try self.spv.resolve(.void_type),
         .OpTypeBool => try self.spv.resolve(.bool_type),
         .OpTypeInt => blk: {
-            const signedness: std.builtin.Signedness = switch (operands[2].literal32) {
-                0 => .unsigned,
-                1 => .signed,
-                else => {
-                    // TODO: Improve source location.
-                    return self.fail(0, "{} is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
-                },
-            };
-            const width = std.math.cast(u16, operands[1].literal32) orelse {
-                return self.fail(0, "int type of {} bits is too large", .{operands[1].literal32});
-            };
-            break :blk try self.spv.intType(signedness, width);
+            // const signedness: std.builtin.Signedness = switch (operands[2].literal32) {
+            //     0 => .unsigned,
+            //     1 => .signed,
+            //     else => {
+            //         // TODO: Improve source location.
+            //         return self.fail(0, "{} is not a valid signedness (expected 0 or 1)", .{operands[2].literal32});
+            //     },
+            // };
+            // const width = std.math.cast(u16, operands[1].literal32) orelse {
+            //     return self.fail(0, "int type of {} bits is too large", .{operands[1].literal32});
+            // };
+            // break :blk try self.spv.intType(signedness, width);
+            break :blk @as(CacheRef, @enumFromInt(0)); // TODO(robin): fix
         },
         .OpTypeFloat => blk: {
             const bits = operands[1].literal32;
