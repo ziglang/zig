@@ -1102,6 +1102,8 @@ pub const FunctionBlock = struct {
         FNeg,
         FNegFast,
         Binary,
+        BinaryNoWrap,
+        BinaryExact,
         BinaryFast,
         Cmp,
         CmpFast,
@@ -1225,6 +1227,40 @@ pub const FunctionBlock = struct {
             ValueAbbrev,
             ValueAbbrev,
             .{ .fixed = @bitSizeOf(BinaryOpcode) },
+        };
+
+        lhs: u32,
+        rhs: u32,
+        opcode: BinaryOpcode,
+    };
+
+    pub const BinaryNoWrap = struct {
+        const BinaryOpcode = Builder.BinaryOpcode;
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 2 },
+            ValueAbbrev,
+            ValueAbbrev,
+            .{ .fixed = @bitSizeOf(BinaryOpcode) },
+            .{ .fixed = 2 },
+        };
+
+        lhs: u32,
+        rhs: u32,
+        opcode: BinaryOpcode,
+        flags: packed struct(u2) {
+            no_unsigned_wrap: bool,
+            no_signed_wrap: bool,
+        },
+    };
+
+    pub const BinaryExact = struct {
+        const BinaryOpcode = Builder.BinaryOpcode;
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 2 },
+            ValueAbbrev,
+            ValueAbbrev,
+            .{ .fixed = @bitSizeOf(BinaryOpcode) },
+            .{ .literal = 1 },
         };
 
         lhs: u32,
