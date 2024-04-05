@@ -7339,28 +7339,36 @@ pub const Constant = enum(u32) {
                     .positive_integer,
                     .negative_integer,
                     => |tag| {
-                        const extra: *align(@alignOf(std.math.big.Limb)) Integer =
+                        const extra: *align(@alignOf(std.math.big.Limb)) const Integer =
                             @ptrCast(data.builder.constant_limbs.items[item.data..][0..Integer.limbs]);
                         const limbs = data.builder.constant_limbs
                             .items[item.data + Integer.limbs ..][0..extra.limbs_len];
                         const bigint: std.math.big.int.Const = .{
                             .limbs = limbs,
-                            .positive = tag == .positive_integer,
+                            .positive = switch (tag) {
+                                .positive_integer => true,
+                                .negative_integer => false,
+                                else => unreachable,
+                            },
                         };
                         const ExpectedContents = extern struct {
-                            string: [(64 * 8 / std.math.log2(10)) + 2]u8,
+                            const expected_limbs = @divExact(512, @bitSizeOf(std.math.big.Limb));
+                            string: [
+                                (std.math.big.int.Const{
+                                    .limbs = &([1]std.math.big.Limb{
+                                        std.math.maxInt(std.math.big.Limb),
+                                    } ** expected_limbs),
+                                    .positive = false,
+                                }).sizeInBaseUpperBound(10)
+                            ]u8,
                             limbs: [
-                                std.math.big.int.calcToStringLimbsBufferLen(
-                                    64 / @sizeOf(std.math.big.Limb),
-                                    10,
-                                )
+                                std.math.big.int.calcToStringLimbsBufferLen(expected_limbs, 10)
                             ]std.math.big.Limb,
                         };
                         var stack align(@alignOf(ExpectedContents)) =
                             std.heap.stackFallback(@sizeOf(ExpectedContents), data.builder.gpa);
                         const allocator = stack.get();
-                        const str = bigint.toStringAlloc(allocator, 10, undefined) catch
-                            return writer.writeAll("...");
+                        const str = try bigint.toStringAlloc(allocator, 10, undefined);
                         defer allocator.free(str);
                         try writer.writeAll(str);
                     },
@@ -9464,10 +9472,38 @@ pub fn print(self: *Builder, writer: anytype) (@TypeOf(writer).Error || Allocato
     try bw.flush();
 }
 
+fn WriterWithErrors(comptime BackingWriter: type, comptime ExtraErrors: type) type {
+    return struct {
+        backing_writer: BackingWriter,
+
+        pub const Error = BackingWriter.Error || ExtraErrors;
+        pub const Writer = std.io.Writer(*const Self, Error, write);
+
+        const Self = @This();
+
+        pub fn writer(self: *const Self) Writer {
+            return .{ .context = self };
+        }
+
+        pub fn write(self: *const Self, bytes: []const u8) Error!usize {
+            return self.backing_writer.write(bytes);
+        }
+    };
+}
+fn writerWithErrors(
+    backing_writer: anytype,
+    comptime ExtraErrors: type,
+) WriterWithErrors(@TypeOf(backing_writer), ExtraErrors) {
+    return .{ .backing_writer = backing_writer };
+}
+
 pub fn printUnbuffered(
     self: *Builder,
-    writer: anytype,
-) (@TypeOf(writer).Error || Allocator.Error)!void {
+    backing_writer: anytype,
+) (@TypeOf(backing_writer).Error || Allocator.Error)!void {
+    const writer_with_errors = writerWithErrors(backing_writer, Allocator.Error);
+    const writer = writer_with_errors.writer();
+
     var need_newline = false;
     var metadata_formatter: Metadata.Formatter = .{ .builder = self, .need_comma = undefined };
     defer metadata_formatter.map.deinit(self.gpa);
@@ -10344,12 +10380,17 @@ pub fn printUnbuffered(
                     const extra = self.metadataExtraData(Metadata.Enumerator, metadata_item.data);
 
                     const ExpectedContents = extern struct {
-                        string: [(64 * 8 / std.math.log2(10)) + 2]u8,
+                        const expected_limbs = @divExact(512, @bitSizeOf(std.math.big.Limb));
+                        string: [
+                            (std.math.big.int.Const{
+                                .limbs = &([1]std.math.big.Limb{
+                                    std.math.maxInt(std.math.big.Limb),
+                                } ** expected_limbs),
+                                .positive = false,
+                            }).sizeInBaseUpperBound(10)
+                        ]u8,
                         limbs: [
-                            std.math.big.int.calcToStringLimbsBufferLen(
-                                64 / @sizeOf(std.math.big.Limb),
-                                10,
-                            )
+                            std.math.big.int.calcToStringLimbsBufferLen(expected_limbs, 10)
                         ]std.math.big.Limb,
                     };
                     var stack align(@alignOf(ExpectedContents)) =
@@ -10375,7 +10416,9 @@ pub fn printUnbuffered(
                         .value = str,
                         .isUnsigned = switch (kind) {
                             .enumerator_unsigned => true,
-                            .enumerator_signed_positive, .enumerator_signed_negative => false,
+                            .enumerator_signed_positive,
+                            .enumerator_signed_negative,
+                            => false,
                             else => unreachable,
                         },
                     }, writer);
@@ -13787,37 +13830,42 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     => |tag| {
                         const extra: *align(@alignOf(std.math.big.Limb)) Constant.Integer =
                             @ptrCast(self.constant_limbs.items[data..][0..Constant.Integer.limbs]);
-                        const limbs = self.constant_limbs
-                            .items[data + Constant.Integer.limbs ..][0..extra.limbs_len];
                         const bigint: std.math.big.int.Const = .{
-                            .limbs = limbs,
-                            .positive = tag == .positive_integer,
+                            .limbs = self.constant_limbs
+                                .items[data + Constant.Integer.limbs ..][0..extra.limbs_len],
+                            .positive = switch (tag) {
+                                .positive_integer => true,
+                                .negative_integer => false,
+                                else => unreachable,
+                            },
                         };
-
                         const bit_count = extra.type.scalarBits(self);
-                        if (bit_count <= 64) {
-                            const val = bigint.to(i64) catch unreachable;
-                            const emit_val = if (tag == .positive_integer)
-                                @shlWithOverflow(val, 1)[0]
-                            else
-                                (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
-                            try constants_block.writeAbbrev(Constants.Integer{ .value = @bitCast(emit_val) });
-                        } else {
-                            const word_count = std.mem.alignForward(u24, bit_count, 64) / 64;
-                            try record.ensureUnusedCapacity(self.gpa, word_count);
-                            const buffer: [*]u8 = @ptrCast(record.items.ptr);
-                            bigint.writeTwosComplement(buffer[0..(word_count * 8)], .little);
-
-                            const signed_buffer: [*]i64 = @ptrCast(record.items.ptr);
-                            for (signed_buffer[0..word_count], 0..) |val, i| {
-                                signed_buffer[i] = if (val >= 0)
-                                    @shlWithOverflow(val, 1)[0]
+                        const val: i64 = if (bit_count <= 64)
+                            bigint.to(i64) catch unreachable
+                        else if (bigint.to(u64)) |val|
+                            @bitCast(val)
+                        else |_| {
+                            const limbs = try record.addManyAsSlice(
+                                self.gpa,
+                                std.math.divCeil(u24, bit_count, 64) catch unreachable,
+                            );
+                            bigint.writeTwosComplement(std.mem.sliceAsBytes(limbs), .little);
+                            for (limbs) |*limb| {
+                                const val = std.mem.littleToNative(i64, @bitCast(limb.*));
+                                limb.* = @bitCast(if (val >= 0)
+                                    val << 1 | 0
                                 else
-                                    (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                                    -%val << 1 | 1);
                             }
-
-                            try constants_block.writeUnabbrev(5, record.items.ptr[0..word_count]);
-                        }
+                            try constants_block.writeUnabbrev(5, record.items);
+                            continue;
+                        };
+                        try constants_block.writeAbbrev(Constants.Integer{
+                            .value = @bitCast(if (val >= 0)
+                                val << 1 | 0
+                            else
+                                -%val << 1 | 1),
+                        });
                     },
                     .half,
                     .bfloat,
@@ -14186,6 +14234,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 self.metadata_items.items(.tag)[1..],
                 self.metadata_items.items(.data)[1..],
             ) |tag, data| {
+                record.clearRetainingCapacity();
                 switch (tag) {
                     .none => unreachable,
                     .file => {
@@ -14333,77 +14382,60 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .enumerator_signed_positive,
                     .enumerator_signed_negative,
                     => |kind| {
-                        const positive = switch (kind) {
-                            .enumerator_unsigned,
-                            .enumerator_signed_positive,
-                            => true,
-                            .enumerator_signed_negative => false,
-                            else => unreachable,
-                        };
-
-                        const unsigned = switch (kind) {
-                            .enumerator_unsigned => true,
-                            .enumerator_signed_positive,
-                            .enumerator_signed_negative,
-                            => false,
-                            else => unreachable,
-                        };
-
                         const extra = self.metadataExtraData(Metadata.Enumerator, data);
-
-                        const limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len];
-
                         const bigint: std.math.big.int.Const = .{
-                            .limbs = limbs,
-                            .positive = positive,
+                            .limbs = self.metadata_limbs.items[extra.limbs_index..][0..extra.limbs_len],
+                            .positive = switch (kind) {
+                                .enumerator_unsigned,
+                                .enumerator_signed_positive,
+                                => true,
+                                .enumerator_signed_negative => false,
+                                else => unreachable,
+                            },
                         };
-
-                        if (extra.bit_width <= 64) {
-                            const val = bigint.to(i64) catch unreachable;
-                            const emit_val = if (positive)
-                                @shlWithOverflow(val, 1)[0]
-                            else
-                                (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
-                            try metadata_block.writeAbbrevAdapted(MetadataBlock.Enumerator{
-                                .flags = .{
-                                    .unsigned = unsigned,
-                                },
-                                .bit_width = extra.bit_width,
-                                .name = extra.name,
-                                .value = @bitCast(emit_val),
-                            }, metadata_adapter);
-                        } else {
-                            const word_count = std.mem.alignForward(u32, extra.bit_width, 64) / 64;
-                            try record.ensureUnusedCapacity(self.gpa, 3 + word_count);
-
-                            const flags: MetadataBlock.Enumerator.Flags = .{
-                                .unsigned = unsigned,
-                            };
-
-                            const FlagsInt = @typeInfo(MetadataBlock.Enumerator.Flags).Struct.backing_integer.?;
-
-                            const flags_int: FlagsInt = @bitCast(flags);
-
-                            record.appendAssumeCapacity(@intCast(flags_int));
-                            record.appendAssumeCapacity(@intCast(extra.bit_width));
+                        const flags: MetadataBlock.Enumerator.Flags = .{
+                            .unsigned = switch (kind) {
+                                .enumerator_unsigned => true,
+                                .enumerator_signed_positive,
+                                .enumerator_signed_negative,
+                                => false,
+                                else => unreachable,
+                            },
+                        };
+                        const val: i64 = if (bigint.to(i64)) |val|
+                            val
+                        else |_| if (bigint.to(u64)) |val|
+                            @bitCast(val)
+                        else |_| {
+                            const limbs_len = std.math.divCeil(u32, extra.bit_width, 64) catch unreachable;
+                            try record.ensureTotalCapacity(self.gpa, 3 + limbs_len);
+                            record.appendAssumeCapacity(@as(
+                                @typeInfo(MetadataBlock.Enumerator.Flags).Struct.backing_integer.?,
+                                @bitCast(flags),
+                            ));
+                            record.appendAssumeCapacity(extra.bit_width);
                             record.appendAssumeCapacity(metadata_adapter.getMetadataStringIndex(extra.name));
-
-                            const buffer: [*]u8 = @ptrCast(record.items.ptr);
-                            bigint.writeTwosComplement(buffer[0..(word_count * 8)], .little);
-
-                            const signed_buffer: [*]i64 = @ptrCast(record.items.ptr);
-                            for (signed_buffer[0..word_count], 0..) |val, i| {
-                                signed_buffer[i] = if (val >= 0)
-                                    @shlWithOverflow(val, 1)[0]
+                            const limbs = record.addManyAsSliceAssumeCapacity(limbs_len);
+                            bigint.writeTwosComplement(std.mem.sliceAsBytes(limbs), .little);
+                            for (limbs) |*limb| {
+                                const val = std.mem.littleToNative(i64, @bitCast(limb.*));
+                                limb.* = @bitCast(if (val >= 0)
+                                    val << 1 | 0
                                 else
-                                    (@shlWithOverflow(@addWithOverflow(~val, 1)[0], 1)[0] | 1);
+                                    -%val << 1 | 1);
                             }
-
-                            try metadata_block.writeUnabbrev(
-                                MetadataBlock.Enumerator.id,
-                                record.items.ptr[0..(3 + word_count)],
-                            );
-                        }
+                            try metadata_block.writeUnabbrev(MetadataBlock.Enumerator.id, record.items);
+                            continue;
+                        };
+                        try metadata_block.writeAbbrevAdapted(MetadataBlock.Enumerator{
+                            .flags = flags,
+                            .bit_width = extra.bit_width,
+                            .name = extra.name,
+                            .value = @bitCast(if (val >= 0)
+                                val << 1 | 0
+                            else
+                                -%val << 1 | 1),
+                        }, metadata_adapter);
                     },
                     .subrange => {
                         const extra = self.metadataExtraData(Metadata.Subrange, data);
@@ -14491,7 +14523,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         }, metadata_adapter);
                     },
                 }
-                record.clearRetainingCapacity();
             }
 
             // Write named metadata
@@ -14615,7 +14646,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 }
 
                 pub fn getOffsetValueIndex(adapter: @This(), value: Value) u32 {
-                    return @subWithOverflow(adapter.offset(), adapter.getValueIndex(value))[0];
+                    return adapter.offset() -% adapter.getValueIndex(value);
                 }
 
                 pub fn getOffsetValueSignedIndex(adapter: @This(), value: Value) i32 {
