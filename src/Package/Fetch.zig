@@ -1181,7 +1181,6 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!?[]const 
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
         .strip_components = 0,
-        // https://github.com/ziglang/zig/issues/17463
         .mode_mode = .ignore,
         .exclude_empty_directories = true,
     }) catch |err| return f.fail(f.location_tok, try eb.printString(
@@ -1569,17 +1568,22 @@ fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void
     var buf: [8000]u8 = undefined;
     var hasher = Manifest.Hash.init(.{});
     hasher.update(hashed_file.normalized_path);
+
     switch (hashed_file.kind) {
         .file => {
             var file = try dir.openFile(hashed_file.fs_path, .{});
             defer file.close();
-            // When implementing https://github.com/ziglang/zig/issues/17463
-            // this will change to hard-coded `false`.
-            hasher.update(&.{ 0, @intFromBool(try isExecutable(file)) });
+            // Hard-coded false executable bit: https://github.com/ziglang/zig/issues/17463
+            hasher.update(&.{ 0, 0 });
+            var file_header: FileHeader = .{};
             while (true) {
                 const bytes_read = try file.read(&buf);
                 if (bytes_read == 0) break;
                 hasher.update(buf[0..bytes_read]);
+                file_header.update(buf[0..bytes_read]);
+            }
+            if (file_header.isExecutable()) {
+                try setExecutable(file);
             }
         },
         .link => {
@@ -1600,19 +1604,12 @@ fn deleteFileFallible(dir: fs.Dir, deleted_file: *DeletedFile) DeletedFile.Error
     try dir.deleteFile(deleted_file.fs_path);
 }
 
-fn isExecutable(file: fs.File) !bool {
-    // When implementing https://github.com/ziglang/zig/issues/17463
-    // this function will not check the mode but instead check if the file is an ELF
-    // file or has a shebang line.
-    if (native_os == .windows) {
-        // Until this is implemented, this could be a false negative on
-        // Windows, which is why we do not yet set executable_bit_only above
-        // when unpacking the tarball.
-        return false;
-    } else {
-        const stat = try file.stat();
-        return (stat.mode & std.posix.S.IXUSR) != 0;
-    }
+fn setExecutable(file: fs.File) !void {
+    if (!std.fs.has_executable_bit) return;
+
+    const S = std.posix.S;
+    const mode = fs.File.default_mode | S.IXUSR | S.IXGRP | S.IXOTH;
+    try file.chmod(mode);
 }
 
 const DeletedFile = struct {
@@ -1635,6 +1632,7 @@ const HashedFile = struct {
         fs.File.OpenError ||
         fs.File.ReadError ||
         fs.File.StatError ||
+        fs.File.ChmodError ||
         fs.Dir.ReadLinkError;
 
     const Kind = enum { file, link };
@@ -1745,4 +1743,38 @@ const native_os = builtin.os.tag;
 test {
     _ = Filter;
     _ = FileType;
+}
+
+// Detects executable header: ELF magic header or shebang line.
+const FileHeader = struct {
+    const elf_magic = std.elf.MAGIC;
+    const shebang = "#!";
+
+    header: [@max(elf_magic.len, shebang.len)]u8 = undefined,
+    bytes_read: usize = 0,
+
+    pub fn update(self: *FileHeader, buf: []const u8) void {
+        if (self.bytes_read >= self.header.len) return;
+        const n = @min(self.header.len - self.bytes_read, buf.len);
+        @memcpy(self.header[self.bytes_read..][0..n], buf[0..n]);
+        self.bytes_read += n;
+    }
+
+    pub fn isExecutable(self: *FileHeader) bool {
+        return std.mem.eql(u8, self.header[0..shebang.len], shebang) or
+            std.mem.eql(u8, self.header[0..elf_magic.len], elf_magic);
+    }
+};
+
+test FileHeader {
+    var h: FileHeader = .{};
+    try std.testing.expect(!h.isExecutable());
+
+    h.update(FileHeader.elf_magic[0..2]);
+    try std.testing.expect(!h.isExecutable());
+    h.update(FileHeader.elf_magic[2..4]);
+    try std.testing.expect(h.isExecutable());
+
+    h.update(FileHeader.elf_magic[2..4]);
+    try std.testing.expect(h.isExecutable());
 }
