@@ -5577,7 +5577,7 @@ fn doAThing(str: []u8) void {
       errors in the {#syntax#}else{#endsyntax#} case, which now contains a narrower error set:
       </p>
       {#syntax_block|zig|handle_some_error_scenarios.zig#}
- fn doAnotherThing(str: []u8) error{InvaidChar}!void {
+ fn doAnotherThing(str: []u8) error{InvalidChar}!void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
     } else |err| switch (err) {
