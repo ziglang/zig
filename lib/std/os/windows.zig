@@ -2047,13 +2047,13 @@ pub fn peb() *PEB {
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
 pub fn fromSysTime(hns: i64) i128 {
-    const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
+    const adjusted_epoch: i128 = hns + std.date.epoch.windows * (std.time.ns_per_s / 100);
     return adjusted_epoch * 100;
 }
 
 pub fn toSysTime(ns: i128) i64 {
     const hns = @divFloor(ns, 100);
-    return @as(i64, @intCast(hns)) - std.time.epoch.windows * (std.time.ns_per_s / 100);
+    return @as(i64, @intCast(hns)) - std.date.epoch.windows * (std.time.ns_per_s / 100);
 }
 
 pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {

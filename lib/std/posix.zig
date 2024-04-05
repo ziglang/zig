@@ -5553,7 +5553,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
             const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             const ft_per_s = std.time.ns_per_s / 100;
             tp.* = .{
-                .tv_sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
+                .tv_sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.date.epoch.windows,
                 .tv_nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
             };
             return;
