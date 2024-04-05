@@ -133,7 +133,7 @@ pub const Time = extern struct {
     pub const unspecified_timezone: i16 = 0x7ff;
     pub const DateTime = std.date_time.DateTimeAdvanced(u16, std.date.epoch.uefi, 9, true);
 
-    pub fn toEpoch(self: @This()) DateTime.Seconds {
+    pub fn toEpoch(self: @This()) DateTime.EpochSubseconds {
         const dt = DateTime{
             .date = .{
                 .year = self.year,
