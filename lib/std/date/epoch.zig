@@ -25,6 +25,8 @@ pub const pickos = -732;
 pub const gps = 3_657;
 /// 0001-01-01
 pub const clr = -719_164;
+/// 1582-10-15
+pub const uefi = -141_427;
 
 pub const unix = posix;
 pub const android = posix;

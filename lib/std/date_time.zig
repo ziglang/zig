@@ -1,44 +1,94 @@
-pub fn DateTime(comptime Year: type, time_precision: comptime_int) type {
+pub fn DateTime(comptime DateT: type, comptime TimeT: type) type {
     return struct {
         date: Date,
         time: Time = .{},
 
-        pub const Date = date_mod.Date(Year);
-        pub const Time = time_mod.Time(time_precision);
-        pub const EpochSeconds = i64;
+        pub const Date = DateT;
+        pub const Time = TimeT;
+        /// Fractional epoch seconds based on `TimeT.precision`:
+        ///   0 = seconds
+        ///   3 = milliseconds
+        ///   6 = microseconds
+        ///   9 = nanoseconds
+        pub const EpochSubseconds = std.meta.Int(
+            @typeInfo(Date.EpochDays).Int.signedness,
+            @typeInfo(Date.EpochDays).Int.bits + std.math.log2_int_ceil(usize, Time.fs_per_day),
+        );
 
         const Self = @This();
 
-        pub fn fromEpoch(seconds: EpochSeconds) Self {
-            const days = @divFloor(seconds, s_per_day * Time.fs_per_s);
+        /// New date time from fractional epoch seconds.
+        pub fn fromEpoch(subseconds: EpochSubseconds, time_opts: Time.Options) Self {
+            const days = @divFloor(subseconds, s_per_day * Time.fs_per_s);
             const new_date = Date.fromEpoch(@intCast(days));
-            const day_seconds = std.math.comptimeMod(seconds, s_per_day * Time.fs_per_s);
-            const new_time = Time.fromDayFractionalSeconds(day_seconds);
+            const day_seconds = std.math.comptimeMod(subseconds, s_per_day * Time.fs_per_s);
+            const new_time = Time.fromDaySeconds(day_seconds, time_opts);
             return .{ .date = new_date, .time = new_time };
         }
 
-        pub fn toEpoch(self: Self) EpochSeconds {
-            var res: EpochSeconds = 0;
-            res += @as(EpochSeconds, self.date.toEpoch()) * s_per_day * Time.fs_per_s;
-            res += self.time.toDayFractionalSeconds();
+        /// Returns fractional epoch seconds.
+        pub fn toEpoch(self: Self) EpochSubseconds {
+            var res: EpochSubseconds = 0;
+            res += @as(EpochSubseconds, self.date.toEpoch()) * s_per_day * Time.fs_per_s;
+            res += self.time.toDaySeconds();
             return res;
+        }
+
+        pub fn add(
+            self: Self,
+            year: Date.Year,
+            month: Date.MonthAdd,
+            day: Date.IEpochDays,
+            hour: i64,
+            minute: i64,
+            second: i64,
+            subsecond: i64,
+        ) DateTime {
+            const time = self.time.addWithOverflow(hour, minute, second, subsecond);
+            const date = self.date.add(year, month, day + time.day_overflow);
+            return .{ .date = date, .time = time.time };
+        }
+
+        pub fn fromRfc3339(str: []const u8) !Self {
+            if (str.len < 10 + "hh:mm:ssZ".len) return error.Parsing;
+            if (std.ascii.toUpper(str[10]) != 'T') return error.Parsing;
+            return .{
+                .date = try Date.fromRfc3339(str[0..10]),
+                .time = try Time.fromRfc3339(str[11..]),
+            };
+        }
+
+        pub fn toRfc3339(self: Self, writer: anytype) !void {
+            try self.date.toRfc3339(writer);
+            try writer.writeByte('T');
+            try self.time.toRfc3339(writer);
         }
     };
 }
 
-pub const Date16Time = DateTime(i16, 0);
+pub fn DateTimeAdvanced(
+    comptime Year: type,
+    epoch: comptime_int,
+    time_precision: comptime_int,
+    comptime time_zoned: bool,
+) type {
+    return DateTime(date_mod.Date(Year, epoch), time_mod.Time(time_precision, time_zoned));
+}
+
+pub const Date16Time = DateTime(date_mod.Date16, time_mod.Time(0, false));
+
 comptime {
     assert(@sizeOf(Date16Time) == 8);
 }
 
 /// Tests EpochSeconds -> DateTime and DateTime -> EpochSeconds
-fn testEpoch(secs: i64, dt: Date16Time) !void {
-    const actual_dt = Date16Time.fromEpoch(secs);
-    try std.testing.expectEqualDeep(dt, actual_dt);
+fn testEpoch(secs: Date16Time.EpochSubseconds, dt: Date16Time) !void {
+    const actual_dt = Date16Time.fromEpoch(secs, .{});
+    try std.testing.expectEqual(dt, actual_dt);
     try std.testing.expectEqual(secs, dt.toEpoch());
 }
 
-test Date16Time {
+test "Date epoch" {
     // $ date -d @31535999 --iso-8601=seconds
     try testEpoch(0, .{ .date = .{ .year = 1970, .month = .jan, .day = 1 } });
     try testEpoch(31535999, .{
@@ -58,62 +108,50 @@ test Date16Time {
         .date = .{ .year = 1732, .month = .feb, .day = 22 },
         .time = .{ .hour = 12, .minute = 30 },
     });
-    // negative year
-    try testEpoch(-97506041400, .{
-        .date = .{ .year = -1120, .month = .feb, .day = 26 },
-        .time = .{ .hour = 20, .minute = 30, .second = 0 },
-    });
     // minimum date
     try testEpoch(-1096225401600, .{
         .date = .{ .year = std.math.minInt(i16), .month = .jan, .day = 1 },
     });
+    // $ date -d '32767-12-31 UTC' +%s
+    try testEpoch(971890876800, .{
+        .date = .{ .year = std.math.maxInt(i16), .month = .dec, .day = 31 },
+    });
 }
 
-// pub const Rfc3339 = struct {
-//     pub fn parseDate(str: []const u8) !Date {
-//         if (str.len != 10) return error.Parsing;
-//         const Rfc3339Year = IntFittingRange(0, 9999);
-//         const year = try std.fmt.parseInt(Rfc3339Year, str[0..4], 10);
-//         if (str[4] != '-') return error.Parsing;
-//         const month = try std.fmt.parseInt(MonthInt, str[5..7], 10);
-//         if (str[7] != '-') return error.Parsing;
-//         const day = try std.fmt.parseInt(Date.Day, str[8..10], 10);
-//         return .{ .year = year, .month = @enumFromInt(month), .day = day };
-//     }
-//
-//     pub fn parseTime(str: []const u8) !Time {
-//         if (str.len < 8) return error.Parsing;
-//
-//         const hour = try std.fmt.parseInt(Time.Hour, str[0..2], 10);
-//         if (str[2] != ':') return error.Parsing;
-//         const minute = try std.fmt.parseInt(Time.Minute, str[3..5], 10);
-//         if (str[5] != ':') return error.Parsing;
-//         const second = try std.fmt.parseInt(Time.Second, str[6..8], 10);
-//         // ignore optional subseconds
-//         // ignore timezone
-//
-//         return .{ .hour = hour, .minute = minute, .second = second };
-//     }
-//
-//     pub fn parseDateTime(str: []const u8) !DateTime {
-//         if (str.len < 10 + 1 + 8) return error.Parsing;
-//         const date = try parseDate(str[0..10]);
-//         if (str[10] != 'T') return error.Parsing;
-//         const time = try parseTime(str[11..]);
-//         return .{
-//             .year = date.year,
-//             .month = date.month,
-//             .day = date.day,
-//             .hour = time.hour,
-//             .minute = time.minute,
-//             .second = time.second,
-//         };
-//     }
-// };
-//
-// fn comptimeParse(comptime time: []const u8) DateTime {
-//     return Rfc3339.parseDateTime(time) catch unreachable;
-// }
+test "Date RFC 3339 section 5.8" {
+    const T = DateTime(date_mod.Date16, time_mod.Time(3, true));
+    const expectEqual = std.testing.expectEqual;
+    const t1 = T{
+        .date = .{ .year = 1985, .month = .apr, .day = 12 },
+        .time = .{ .hour = 23, .minute = 20, .second = 50, .subsecond = 520 },
+    };
+    try expectEqual(t1, try T.fromRfc3339("1985-04-12T23:20:50.52Z"));
+    const t2 = T{
+        .date = .{ .year = 1996, .month = .dec, .day = 19 },
+        .time = .{ .hour = 16, .minute = 39, .second = 57, .offset = -8 * 60 },
+    };
+    try expectEqual(t2, try T.fromRfc3339("1996-12-19T16:39:57-08:00"));
+    const t3 = T{
+        .date = .{ .year = 1990, .month = .dec, .day = 31 },
+        .time = .{ .hour = 23, .minute = 59, .second = 60 },
+    };
+    try expectEqual(t3, try T.fromRfc3339("1990-12-31T23:59:60Z"));
+    const t4 = T{
+        .date = .{ .year = 1990, .month = .dec, .day = 31 },
+        .time = .{ .hour = 15, .minute = 59, .second = 60, .offset = -8 * 60 },
+    };
+    try expectEqual(t4, try T.fromRfc3339("1990-12-31T15:59:60-08:00"));
+    const t5 = T{
+        .date = .{ .year = 1937, .month = .jan, .day = 1 },
+        .time = .{ .hour = 12, .second = 27, .subsecond = 870, .offset = 20 },
+    };
+    try expectEqual(t5, try T.fromRfc3339("1937-01-01T12:00:27.87+00:20"));
+
+    var buf: [32]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try t5.toRfc3339(stream.writer());
+    try std.testing.expectEqualStrings("1937-01-01T12:00:27.870+00:20", stream.getWritten());
+}
 
 const std = @import("std.zig");
 const date_mod = @import("./date.zig");

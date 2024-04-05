@@ -30,22 +30,25 @@ pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_
 
         pub const EpochDays = MakeEpochDays(Year);
         const UEpochDays = std.meta.Int(.unsigned, @typeInfo(EpochDays).Int.bits);
+        const IEpochDays = std.meta.Int(.signed, @typeInfo(EpochDays).Int.bits);
 
         const K = epoch + era_days * shift;
         const L = era * shift;
+
         /// Minimum epoch day representable by `Year`
-        pub const min_day = -K;
+        const min_day = -K;
         /// Maximum epoch day representable by `Year`
-        pub const max_day = (std.math.maxInt(EpochDays) - 3) / 4 - K;
+        const max_day = (std.math.maxInt(EpochDays) - 3) / 4 - K;
 
         // Ensure `toEpochDays` won't cause overflow.
-        //
         // If you trigger these assertions, try choosing a different value of `shift`.
         comptime {
             std.debug.assert(-L < std.math.minInt(Year));
             std.debug.assert(max_day / days_in_year.numerator - L + 1 > std.math.maxInt(Year));
         }
 
+        /// Calendar which starts at 0000-03-01 to obtain useful counting properties.
+        /// See section 4 of paper.
         const Computational = struct {
             year: UEpochDays,
             month: UIntFitting(14),
@@ -56,9 +59,10 @@ pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_
                 const J: UEpochDays = if (N_Y >= last_day_of_jan) 1 else 0;
 
                 const month: MonthInt = if (J != 0) self.month - 12 else self.month;
+                const year: EpochDays = @bitCast(self.year +% J -% L);
 
                 return .{
-                    .year = @intCast(@as(EpochDays, @bitCast(self.year +% J -% L))),
+                    .year = @intCast(year),
                     .month = @enumFromInt(month),
                     .day = @as(Day, self.day) + 1,
                 };
@@ -79,10 +83,6 @@ pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_
 
         const Self = @This();
 
-        pub fn order(self: Self, other: Self) std.math.Order {
-            return difference(self.year, other.year) orelse difference(self.month.numeric(), other.month.numeric()) orelse difference(self.day, other.day) orelse .eq;
-        }
-
         pub fn fromEpoch(days: EpochDays) Self {
             // This function is Figure 12 of the paper.
             // Besides being ported from C++, the following has changed:
@@ -92,9 +92,6 @@ pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_
             // - Use bounded int types provided in Section 10 instead of u32 and u64
             // - Add computational calendar struct type
             // - Add comments referencing some proofs
-            //
-            // While these changes should allow the reader to understand _how_ these functions
-            // work, I recommend reading the paper to understand *why*.
             assert(days > min_day);
             assert(days < max_day);
             const mod = std.math.comptimeMod;
@@ -145,6 +142,59 @@ pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_
 
             return @as(EpochDays, @intCast(N)) - K;
         }
+
+        pub const MonthAdd = std.meta.Int(.signed, @typeInfo(IEpochDays).Int.bits - std.math.log2_int(u16, 12));
+
+        pub fn add(self: Self, year: Year, month: MonthAdd, day: IEpochDays) Self {
+            const m = month + self.month.numeric() - 1;
+            const y = self.year + year + @divFloor(m, 12);
+
+            const ym_epoch_day = Self{
+                .year = @intCast(y),
+                .month = @enumFromInt(std.math.comptimeMod(m, 12) + 1),
+                .day = 1,
+            };
+
+            var epoch_days = ym_epoch_day.toEpoch();
+            epoch_days += day + self.day - 1;
+
+            return fromEpoch(epoch_days);
+        }
+
+        pub const Weekday = WeekdayT;
+        pub fn weekday(self: Self) Weekday {
+            // 1970-01-01 is a Thursday.
+            const epoch_days = self.toEpoch() +% Weekday.thu.numeric();
+            return @enumFromInt(std.math.comptimeMod(epoch_days, 7));
+        }
+
+        pub fn fromRfc3339(str: *const [10]u8) !Self {
+            if (str[4] != '-' or str[7] != '-') return error.Parsing;
+
+            const year = try std.fmt.parseInt(IntFittingRange(0, 9999), str[0..4], 10);
+            const month = try std.fmt.parseInt(Month.Int, str[5..7], 10);
+            if (month < 1 or month > 12) return error.Parsing;
+            const m: Month = @enumFromInt(month);
+            const day = try std.fmt.parseInt(Day, str[8..10], 10);
+            if (day < 1 or day > m.days(is_leap(year))) return error.Parsing;
+
+            return .{
+                .year = @intCast(year), // if YearT is `i8` or `u8` this may fail. increase it to not fail.
+                .month = m,
+                .day = day,
+            };
+        }
+
+        pub fn toRfc3339(self: Self, writer: anytype) !void {
+            if (self.year < 0 or self.year > 9999) return error.Range;
+            if (self.day < 1 or self.day > 99) return error.Range;
+            if (self.month.numeric() < 1 or self.month.numeric() > 12) return error.Range;
+            try writer.print("{d:0>4}-{d:0>2}-{d:0>2}", .{
+                @as(UEpochDays, @intCast(self.year)),
+                self.month.numeric(),
+                self.day,
+            });
+        }
     };
 }
 
@@ -154,17 +204,108 @@ pub fn Date(comptime Year: type, epoch: comptime_int) type {
     return DateAdvanced(Year, epoch, shift);
 }
 
-test Date {
-    const T = Date(i16, 0);
+fn testFromToEpoch(comptime T: type) !void {
     const d1 = T{ .year = 1970, .month = .jan, .day = 1 };
-    const d2 = T{ .year = 1971, .month = .jan, .day = 1 };
+    const d2 = T{ .year = 1980, .month = .jan, .day = 1 };
 
-    try expectEqual(d1.order(d2), .lt);
-    try expectEqual(365, d2.toEpoch() - d1.toEpoch());
+    try expectEqual(3_652, d2.toEpoch() - d1.toEpoch());
+
+    // We don't have time to test converting there and back again for every possible i64/u64.
+    // The paper has already proven it and written tests for i32 and u32.
+    // Instead let's cycle through the first and last 1 << 16 part of each range.
+    const min_epoch_day = (T{ .year = std.math.minInt(T.Year), .month = .jan, .day = 1 }).toEpoch();
+    const max_epoch_day = (T{ .year = std.math.maxInt(T.Year), .month = .dec, .day = 31 }).toEpoch();
+    const range: u128 = @intCast(max_epoch_day - min_epoch_day);
+    for (0..@min(1 << 16, range)) |i| {
+        const d3 = min_epoch_day + @as(T.EpochDays, @intCast(i));
+        try expectEqual(d3, T.fromEpoch(d3).toEpoch());
+
+        const d4 = max_epoch_day - @as(T.EpochDays, @intCast(i));
+        try expectEqual(d4, T.fromEpoch(d4).toEpoch());
+    }
 }
 
+test "Date from and to epoch" {
+    try testFromToEpoch(Date(i16, 0));
+    try testFromToEpoch(Date(i32, 0));
+    try testFromToEpoch(Date(i64, 0));
+
+    try testFromToEpoch(Date(u16, 0));
+    try testFromToEpoch(Date(u32, 0));
+    try testFromToEpoch(Date(u64, 0));
+
+    const epoch = std.date.epoch;
+
+    try testFromToEpoch(Date(u16, epoch.windows));
+    try testFromToEpoch(Date(u32, epoch.windows));
+    try testFromToEpoch(Date(u64, epoch.windows));
+}
+
+test "Date RFC3339" {
+    const T = Date(i16, 0);
+    try expectEqual(T{ .year = 2000, .month = .jan, .day = 1 }, try T.fromRfc3339("2000-01-01"));
+    try std.testing.expectError(error.Parsing, T.fromRfc3339("2000T01-01"));
+    try std.testing.expectError(error.InvalidCharacter, T.fromRfc3339("2000-01-AD"));
+}
+
+test Date {
+    const T = Date(i16, 0);
+    const d1 = T{ .year = 1960, .month = .jan, .day = 1 };
+    const epoch = T{ .year = 1970, .month = .jan, .day = 1 };
+
+    try expectEqual(365, (T{ .year = 1971, .month = .jan, .day = 1 }).toEpoch());
+    try expectEqual(epoch, T.fromEpoch(0));
+    try expectEqual(3_653, epoch.toEpoch() - d1.toEpoch());
+
+    // overflow
+    // $ TZ=UTC0 date -d '1970-01-01 +1 year +13 months +32 days' --iso-8601=seconds
+    try expectEqual(
+        T{ .year = 1972, .month = .mar, .day = 4 },
+        (T{ .year = 1970, .month = .jan, .day = 1 }).add(1, 13, 32),
+    );
+    // underflow
+    // $ TZ=UTC0 date -d '1972-03-04 -10 year -13 months -32 days' --iso-8601=seconds
+    try expectEqual(
+        T{ .year = 1961, .month = .jan, .day = 3 },
+        (T{ .year = 1972, .month = .mar, .day = 4 }).add(-10, -13, -32),
+    );
+
+    // $ date -d '1970-01-01'
+    try expectEqual(.thu, epoch.weekday());
+    try expectEqual(.thu, epoch.add(0, 0, 7).weekday());
+    try expectEqual(.thu, epoch.add(0, 0, -7).weekday());
+    // $ date -d '1980-01-01'
+    try expectEqual(.tue, (T{ .year = 1980, .month = .jan, .day = 1 }).weekday());
+    // $ date -d '1960-01-01'
+    try expectEqual(.fri, d1.weekday());
+
+    try expectEqual(T{ .year = 2000, .month = .jan, .day = 1 }, try T.fromRfc3339("2000-01-01"));
+    var buf: [10]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try (T{ .year = 2000, .month = .jan, .day = 1 }).toRfc3339(stream.writer());
+    try std.testing.expectEqualStrings("2000-01-01", stream.getWritten());
+}
+
+const WeekdayInt = IntFittingRange(1, 7);
+pub const WeekdayT = enum(WeekdayInt) {
+    sun = 1,
+    mon = 2,
+    tue = 3,
+    wed = 4,
+    thu = 5,
+    fri = 6,
+    sat = 7,
+
+    pub const Int = WeekdayInt;
+
+    /// Convenient conversion to `WeekdayInt`. sun = 1, sat = 7
+    pub fn numeric(self: @This()) Int {
+        return @intFromEnum(self);
+    }
+};
+
 const MonthInt = IntFittingRange(1, 12);
-const MonthT = enum(MonthInt) {
+pub const MonthT = enum(MonthInt) {
     jan = 1,
     feb = 2,
     mar = 3,
@@ -182,11 +323,11 @@ const MonthT = enum(MonthInt) {
     pub const Days = IntFittingRange(28, 31);
 
     /// Convenient conversion to `MonthInt`. jan = 1, dec = 12
-    pub fn numeric(self: MonthT) MonthInt {
+    pub fn numeric(self: @This()) Int {
         return @intFromEnum(self);
     }
 
-    pub fn days(self: MonthT, is_leap_year: bool) Days {
+    pub fn days(self: @This(), is_leap_year: bool) Days {
         const m: Days = @intCast(self.numeric());
         return if (m != 2)
             30 | (m ^ (m >> 3))
@@ -227,7 +368,7 @@ test is_leap {
     try expectEqual(true, is_leap(2400));
 }
 
-fn days_between_years(from: usize, to: usize) usize {
+pub fn days_between_years(from: usize, to: usize) usize {
     var res: usize = 0;
     var i: usize = from;
     while (i < to) : (i += 1) {
@@ -239,13 +380,6 @@ fn days_between_years(from: usize, to: usize) usize {
 test days_between_years {
     try expectEqual(366, days_between_years(2000, 2001));
     try expectEqual(146_097, days_between_years(0, 400));
-}
-
-/// Returns .gt, .lt, or null
-fn difference(a: anytype, b: anytype) ?std.math.Order {
-    const res = std.math.order(a, b);
-    if (res != .eq) return res;
-    return null;
 }
 
 /// The Gregorian calendar repeats every 400 years.

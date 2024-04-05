@@ -190,8 +190,8 @@ pub const Parsed = struct {
     };
 
     pub const Validity = struct {
-        not_before: DateTime.EpochSeconds,
-        not_after: DateTime.EpochSeconds,
+        not_before: DateTime.EpochSubseconds,
+        not_after: DateTime.EpochSubseconds,
     };
 
     pub const Slice = der.Element.Slice;
@@ -542,7 +542,7 @@ pub fn parseBitString(cert: Certificate, elem: der.Element) !der.Element.Slice {
 pub const ParseTimeError = error{ CertificateTimeInvalid, CertificateFieldHasWrongDataType };
 
 /// Returns number of seconds since epoch.
-pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!DateTime.EpochSeconds {
+pub fn parseTime(cert: Certificate, elem: der.Element) ParseTimeError!DateTime.EpochSubseconds {
     const bytes = cert.contents(elem);
 
     switch (elem.identifier.tag) {

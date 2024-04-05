@@ -131,9 +131,9 @@ pub const Time = extern struct {
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
-    pub const DateTime = std.date_time.DateTime(u16, 9);
+    pub const DateTime = std.date_time.DateTimeAdvanced(u16, std.date.epoch.uefi, 9, true);
 
-    pub fn toEpoch(self: @This()) DateTime.EpochSeconds {
+    pub fn toEpoch(self: @This()) DateTime.Seconds {
         const dt = DateTime{
             .date = .{
                 .year = self.year,
@@ -144,7 +144,8 @@ pub const Time = extern struct {
                 .hour = self.hour,
                 .minute = self.minute,
                 .second = self.second,
-                .fractional_second = self.nanosecond,
+                .subsecond = self.nanosecond,
+                .timezone = self.timezone,
             },
         };
         return dt.toEpoch();
