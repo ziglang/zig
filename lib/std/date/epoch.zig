@@ -27,6 +27,8 @@ pub const gps = 3_657;
 pub const clr = -719_164;
 /// 1582-10-15
 pub const uefi = -141_427;
+/// 1900-01-01
+pub const efi = -25_567;
 
 pub const unix = posix;
 pub const android = posix;

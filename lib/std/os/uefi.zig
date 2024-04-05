@@ -131,7 +131,7 @@ pub const Time = extern struct {
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
-    pub const DateTime = std.date_time.DateTimeAdvanced(u16, std.date.epoch.uefi, 9, true);
+    pub const DateTime = std.date_time.DateTimeAdvanced(u16, std.date.epoch.efi, 9, true);
 
     pub fn toEpoch(self: @This()) DateTime.EpochSubseconds {
         const dt = DateTime{
