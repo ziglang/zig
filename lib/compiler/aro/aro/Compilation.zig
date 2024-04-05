@@ -195,7 +195,7 @@ fn getTimestamp(comp: *Compilation) !u47 {
 
 fn generateDateAndTime(w: anytype, timestamp: u47) !void {
     const DateTime = std.date_time.Date16Time;
-    const dt = DateTime.fromEpoch(timestamp);
+    const dt = DateTime.fromEpoch(timestamp, .{});
 
     const month_names = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
     std.debug.assert(DateTime.Date.Month.jan.numeric() == 1);
