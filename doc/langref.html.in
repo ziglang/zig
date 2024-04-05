@@ -941,7 +941,7 @@ pub fn main() void {
       {#header_open|Destructured Assignment#}
       <p>
       If an expression produces a compound type comprised of positional components exclusively (arrays, vectors, and tuples), 
-      they can be assigned to multiple identifiers via destructuring syntax:
+      they can be assigned inside a block to multiple identifiers via destructuring syntax:
       </p>
       {#code_begin|syntax|destructure_matrix#}
 test {
