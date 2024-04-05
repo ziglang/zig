@@ -490,6 +490,7 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
         }
 
         pub fn toRfc3339(self: Self, writer: anytype) !void {
+            if (self.hour > 24 or self.minute > 59 or self.second > 60) return error.Range;
             try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ self.hour, self.minute, self.second });
             if (self.subsecond != 0) {
                 // We could trim trailing zeros here to save space.
@@ -500,7 +501,10 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
             } else {
                 try writer.writeByte(if (self.offset > 0) '+' else '-');
                 const abs: u16 = @intCast(if (self.offset > 0) self.offset else -self.offset);
-                try writer.print("{d:0>2}:{d:0>2}", .{ abs / 60, abs % 60 });
+                const offset_hour = abs / 60;
+                if (offset_hour < -24 or offset_hour > 24) return error.Range;
+                const offset_minute = abs % 60;
+                try writer.print("{d:0>2}:{d:0>2}", .{ offset_hour, offset_minute });
             }
         }
     };
