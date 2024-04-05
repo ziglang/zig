@@ -4120,7 +4120,7 @@ fn airEquality(
 
     const operand_ty = f.typeOf(bin_op.lhs);
     const operand_bits = operand_ty.bitSize(zcu);
-    if (operand_ty.isInt(zcu) and operand_bits > 64)
+    if (operand_ty.isAbiInt(zcu) and operand_bits > 64)
         return airCmpBuiltinCall(
             f,
             inst,
@@ -4474,9 +4474,9 @@ fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
     const owner_decl = zcu.funcOwnerDeclPtr(extra.data.func);
     const writer = f.object.writer();
-    try writer.writeAll("/* ");
+    try writer.writeAll("/* inline:");
     try owner_decl.renderFullyQualifiedName(zcu, writer);
-    try writer.writeAll(" */ ");
+    try writer.writeAll(" */\n");
     return lowerBlock(f, inst, @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
