@@ -1744,6 +1744,9 @@ test FileHeader {
     try std.testing.expect(h.isExecutable());
 }
 
+// Result of the `unpackResource` operation. Enables collecting errors from
+// tar/git diagnostic, filtering that errors by manifest inclusion rules and
+// emitting remaining errors to an `ErrorBundle`.
 const UnpackResult = struct {
     allocator: std.mem.Allocator,
     errors: std.ArrayListUnmanaged(Error) = .{},
@@ -1833,6 +1836,7 @@ const UnpackResult = struct {
         } });
     }
 
+    // Filter errors by manifest inclusion rules.
     fn filterErrors(self: *UnpackResult, filter: Filter) !void {
         var i = self.errors.items.len;
         const root_dir: []const u8 = if (self.root_dir) |root_dir| root_dir else "";
@@ -1850,11 +1854,15 @@ const UnpackResult = struct {
         self.root_error_message = try self.allocator.dupe(u8, msg);
     }
 
+    // Emmit errors to an `ErrorBundle`.
     fn bundleErrors(
         self: *UnpackResult,
         eb: *ErrorBundle.Wip,
         src_loc: ErrorBundle.SourceLocationIndex,
     ) !void {
+        if (self.errors.items.len == 0 and self.root_error_message.len == 0)
+            return;
+
         const notes_len: u32 = @intCast(self.errors.items.len);
         try eb.addRootErrorMessage(.{
             .msg = try eb.addString(self.root_error_message),
@@ -1941,16 +1949,21 @@ test "tarball with error paths excluded" {
     try fb.expectPackageFiles(expected_files);
 }
 
+// Builds Fetch with required dependencies, clears dependencies on deinit().
 const TestFetchBuilder = struct {
     thread_pool: ThreadPool,
     http_client: std.http.Client,
     global_cache_directory: Cache.Directory,
     progress: std.Progress,
-    root_prog_node: *std.Progress.Node,
     job_queue: Fetch.JobQueue,
     fetch: Fetch,
 
-    fn build(self: *TestFetchBuilder, allocator: std.mem.Allocator, cache_parent_dir: std.fs.Dir, path_or_url: []const u8) !*Fetch {
+    fn build(
+        self: *TestFetchBuilder,
+        allocator: std.mem.Allocator,
+        cache_parent_dir: std.fs.Dir,
+        path_or_url: []const u8,
+    ) !*Fetch {
         const cache_dir = try cache_parent_dir.makeOpenPath("zig-global-cache", .{});
 
         try self.thread_pool.init(.{ .allocator = allocator });
@@ -1958,7 +1971,6 @@ const TestFetchBuilder = struct {
         self.global_cache_directory = .{ .handle = cache_dir, .path = null };
 
         self.progress = .{ .dont_print_on_dumb = true };
-        self.root_prog_node = self.progress.start("Fetch", 0);
 
         self.job_queue = .{
             .http_client = &self.http_client,
@@ -1979,7 +1991,7 @@ const TestFetchBuilder = struct {
             .lazy_status = .eager,
             .parent_package_root = Cache.Path{ .root_dir = undefined },
             .parent_manifest_ast = null,
-            .prog_node = self.root_prog_node,
+            .prog_node = self.progress.start("Fetch", 0),
             .job_queue = &self.job_queue,
             .omit_missing_hash_error = true,
             .allow_missing_paths_field = false,
@@ -1991,7 +2003,6 @@ const TestFetchBuilder = struct {
             .actual_hash = undefined,
             .has_build_zig = false,
             .oom_flag = false,
-
             .module = null,
         };
         return &self.fetch;
@@ -2000,7 +2011,7 @@ const TestFetchBuilder = struct {
     fn deinit(self: *TestFetchBuilder) void {
         self.fetch.deinit();
         self.job_queue.deinit();
-        self.root_prog_node.end();
+        self.fetch.prog_node.end();
         self.global_cache_directory.handle.close();
         self.http_client.deinit();
         self.thread_pool.deinit();
@@ -2011,6 +2022,8 @@ const TestFetchBuilder = struct {
         return try root.root_dir.handle.openDir(root.sub_path, .{ .iterate = true });
     }
 
+    // Test helper, asserts thet package dir constains expected_files.
+    // expected_files must be sorted.
     fn expectPackageFiles(self: *TestFetchBuilder, expected_files: []const []const u8) !void {
         var package_dir = try self.packageDir();
         defer package_dir.close();
@@ -2041,6 +2054,7 @@ const TestFetchBuilder = struct {
         try std.testing.expectEqualDeep(expected_files, actual_files.items);
     }
 
+    // Test helper, asserts that fetch has failed with `msg` error message.
     fn expectFetchErrors(self: *TestFetchBuilder, notes_len: usize, msg: []const u8) !void {
         var errors = try self.fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(std.testing.allocator);
@@ -2057,6 +2071,10 @@ const TestFetchBuilder = struct {
     }
 };
 
+// Creates tarball with duplicate files names. Simulating case collisions on
+// case insensitive file system without use of that kind of the file system.
+// Manifest will exclude those files, so adding manifest should remove duplicate
+// files problem.
 fn createTestTarball(dir: fs.Dir, tarball_name: []const u8, with_manifest: bool) !void {
     const file = try dir.createFile(tarball_name, .{});
     defer file.close();
