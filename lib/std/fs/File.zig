@@ -459,35 +459,6 @@ pub fn stat(self: File) StatError!Stat {
             .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
         };
     }
-    if (builtin.os.tag == .uefi) {
-        if (self.handle != .file)
-            return error.Unexpected; // TODO
-
-        const file: *const std.os.uefi.protocol.File = self.handle.file;
-
-        var pool_allocator = std.os.uefi.PoolAllocator{};
-
-        const buffer_size = file.getInfoSize(std.os.uefi.bits.FileInfo) catch return error.Unexpected;
-        const buffer = pool_allocator.allocator().alignedAlloc(
-            u8,
-            @alignOf(std.os.uefi.bits.FileInfo),
-            buffer_size,
-        ) catch return error.SystemResources;
-        defer pool_allocator.allocator().free(buffer);
-
-        const info = file.getInfo(std.os.uefi.bits.FileInfo, buffer) catch return error.Unexpected;
-
-        return .{
-            .inode = 0,
-            .size = info.file_size,
-            .mode = 0,
-            .kind = .file,
-            .atime = @bitCast(info.last_access_time.toUnixEpochNanoseconds()),
-            .mtime = @bitCast(info.modification_time.toUnixEpochNanoseconds()),
-            .ctime = @bitCast(info.create_time.toUnixEpochNanoseconds()),
-        };
-    }
-
     if (builtin.os.tag == .wasi and !builtin.link_libc) {
         const st = try std.os.fstat_wasi(self.handle);
         return Stat.fromWasi(st);

@@ -169,16 +169,9 @@ pub const File = extern struct {
     pub fn setInfo(
         self: *const File,
         comptime Information: type,
-        info: *const Information,
+        buffer: []align(@alignOf(Information)) u8,
     ) !void {
-        const size: usize = switch (Information) {
-            bits.FileInfo => @intCast(info.size),
-            bits.FileSystemInfo => @intCast(info.size),
-            bits.FileSystemVolumeLabel => 2 * info.getVolumeLabel().len + 2,
-            else => return error.InvalidParameter,
-        };
-
-        try self._set_info(self, Information.guid, size, @ptrCast(info)).err();
+        try self._set_info(self, Information.guid, buffer.len, buffer.ptr).err();
     }
 
     /// Flushes all modified data associated with a file to a device.

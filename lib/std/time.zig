@@ -99,10 +99,6 @@ pub fn nanoTimestamp() i128 {
             assert(err == .SUCCESS);
             return ns;
         },
-        .uefi => {
-            const value = std.os.uefi.system_table.runtime_services.getTime() catch return 0;
-            return value.toUnixEpochNanoseconds();
-        },
         else => {
             var ts: posix.timespec = undefined;
             posix.clock_gettime(posix.CLOCK.REALTIME, &ts) catch |err| switch (err) {
@@ -187,10 +183,8 @@ pub const Instant = struct {
                 if (rc != .SUCCESS) return error.Unsupported;
                 return .{ .timestamp = ns };
             },
-            .uefi => {
-                const value = std.os.uefi.system_table.runtime_services.getTime() catch return error.Unsupported;
-                return Instant{ .timestamp = @truncate(value.toEpochNanoseconds()) };
-            },
+            // On uefi, use REALTIME because it's the only clock implemented right now.
+            .uefi => posix.CLOCK.REALTIME,
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
             // suspended.
             .macos, .ios, .tvos, .watchos => posix.CLOCK.UPTIME_RAW,

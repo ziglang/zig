@@ -108,13 +108,18 @@ pub const Time = extern struct {
             self.second;
     }
 
+    /// Returns the time in seconds since 1970-01-01 00:00:00.
+    pub fn toUnixEpochSeconds(self: Time) u64 {
+        return self.toEpochSeconds() -| unix_epoch_seconds;
+    }
+
     /// Returns the time in nanoseconds since 1900-01-01 00:00:00.
-    pub fn toEpochNanoseconds(self: Time) i128 {
-        return @as(i128, self.toEpochSeconds()) * time.ns_per_s + self.nanosecond;
+    pub fn toEpochNanoseconds(self: Time) u128 {
+        return @as(u128, self.toEpochSeconds()) * time.ns_per_s + self.nanosecond;
     }
 
     /// Returns the time in nanoseconds since 1970-01-01 00:00:00.
-    pub fn toUnixEpochNanoseconds(self: Time) i128 {
+    pub fn toUnixEpochNanoseconds(self: Time) u128 {
         return self.toEpochNanoseconds() -| unix_epoch_nanoseconds;
     }
 
@@ -131,6 +136,7 @@ pub const Time = extern struct {
     };
 
     pub const unix_epoch_nanoseconds = unix_epoch.toEpochNanoseconds();
+    pub const unix_epoch_seconds = unix_epoch.toEpochSeconds();
 };
 
 /// Capabilities of the clock device
