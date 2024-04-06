@@ -1750,7 +1750,6 @@ test "reinterpret extern union" {
         // https://github.com/ziglang/zig/issues/19389
         return error.SkipZigTest;
     }
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const U = extern union {
         foo: u8,

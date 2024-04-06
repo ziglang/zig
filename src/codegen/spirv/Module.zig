@@ -20,11 +20,6 @@ const IdResultType = spec.IdResultType;
 
 const Section = @import("Section.zig");
 
-const Cache = @import("Cache.zig");
-pub const CacheKey = Cache.Key;
-pub const CacheRef = Cache.Ref;
-pub const CacheString = Cache.String;
-
 /// This structure represents a function that isc in-progress of being emitted.
 /// Commonly, the contents of this structure will be merged with the appropriate
 /// sections of the module and re-used. Note that the SPIR-V module system makes
@@ -98,13 +93,16 @@ pub const EntryPoint = struct {
     /// The declaration that should be exported.
     decl_index: Decl.Index,
     /// The name of the kernel to be exported.
-    name: CacheString,
+    name: []const u8,
     /// Calling Convention
     execution_model: spec.ExecutionModel,
 };
 
 /// A general-purpose allocator which may be used to allocate resources for this module
 gpa: Allocator,
+
+/// Arena for things that need to live for the length of this program.
+arena: std.heap.ArenaAllocator,
 
 /// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
 sections: struct {
@@ -143,14 +141,21 @@ sections: struct {
 /// SPIR-V instructions return result-ids. This variable holds the module-wide counter for these.
 next_result_id: Word,
 
-/// Cache for results of OpString instructions for module file names fed to OpSource.
-/// Since OpString is pretty much only used for those, we don't need to keep track of all strings,
-/// just the ones for OpLine. Note that OpLine needs the result of OpString, and not that of OpSource.
-source_file_names: std.AutoArrayHashMapUnmanaged(CacheString, IdRef) = .{},
+/// Cache for results of OpString instructions.
+strings: std.StringArrayHashMapUnmanaged(IdRef) = .{},
 
-/// SPIR-V type- and constant cache. This structure is used to store information about these in a more
-/// efficient manner.
-cache: Cache = .{},
+/// Some types shouldn't be emitted more than one time, but cannot be caught by
+/// the `intern_map` during codegen. Sometimes, IDs are compared to check if
+/// types are the same, so we can't delay until the dedup pass. Therefore,
+/// this is an ad-hoc structure to cache types where required.
+/// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
+/// non-pointer types.
+cache: struct {
+    bool_type: ?IdRef = null,
+    void_type: ?IdRef = null,
+    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .{},
+    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .{},
+} = .{},
 
 /// Set of Decls, referred to by Decl.Index.
 decls: std.ArrayListUnmanaged(Decl) = .{},
@@ -168,6 +173,7 @@ extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) =
 pub fn init(gpa: Allocator) Module {
     return .{
         .gpa = gpa,
+        .arena = std.heap.ArenaAllocator.init(gpa),
         .next_result_id = 1, // 0 is an invalid SPIR-V result id, so start counting at 1.
     };
 }
@@ -184,8 +190,10 @@ pub fn deinit(self: *Module) void {
     self.sections.types_globals_constants.deinit(self.gpa);
     self.sections.functions.deinit(self.gpa);
 
-    self.source_file_names.deinit(self.gpa);
-    self.cache.deinit(self);
+    self.strings.deinit(self.gpa);
+
+    self.cache.int_types.deinit(self.gpa);
+    self.cache.float_types.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
@@ -193,38 +201,35 @@ pub fn deinit(self: *Module) void {
     self.entry_points.deinit(self.gpa);
 
     self.extended_instruction_set.deinit(self.gpa);
+    self.arena.deinit();
 
     self.* = undefined;
 }
 
-pub fn allocId(self: *Module) spec.IdResult {
-    defer self.next_result_id += 1;
-    return @enumFromInt(self.next_result_id);
+pub const IdRange = struct {
+    base: u32,
+    len: u32,
+
+    pub fn at(range: IdRange, i: usize) IdResult {
+        assert(i < range.len);
+        return @enumFromInt(range.base + i);
+    }
+};
+
+pub fn allocIds(self: *Module, n: u32) IdRange {
+    defer self.next_result_id += n;
+    return .{
+        .base = self.next_result_id,
+        .len = n,
+    };
 }
 
-pub fn allocIds(self: *Module, n: u32) spec.IdResult {
-    defer self.next_result_id += n;
-    return @enumFromInt(self.next_result_id);
+pub fn allocId(self: *Module) IdResult {
+    return self.allocIds(1).at(0);
 }
 
 pub fn idBound(self: Module) Word {
     return self.next_result_id;
-}
-
-pub fn resolve(self: *Module, key: CacheKey) !CacheRef {
-    return self.cache.resolve(self, key);
-}
-
-pub fn resultId(self: *const Module, ref: CacheRef) IdResult {
-    return self.cache.resultId(ref);
-}
-
-pub fn resolveId(self: *Module, key: CacheKey) !IdResult {
-    return self.resultId(try self.resolve(key));
-}
-
-pub fn resolveString(self: *Module, str: []const u8) !CacheString {
-    return try self.cache.addString(self, str);
 }
 
 fn addEntryPointDeps(
@@ -271,7 +276,7 @@ fn entryPoints(self: *Module) !Section {
         try entry_points.emit(self.gpa, .OpEntryPoint, .{
             .execution_model = entry_point.execution_model,
             .entry_point = entry_point_id,
-            .name = self.cache.getString(entry_point.name).?,
+            .name = entry_point.name,
             .interface = interface.items,
         });
     }
@@ -285,9 +290,6 @@ pub fn finalize(self: *Module, a: Allocator, target: std.Target) ![]Word {
 
     var entry_points = try self.entryPoints();
     defer entry_points.deinit(self.gpa);
-
-    var types_constants = try self.cache.materialize(self);
-    defer types_constants.deinit(self.gpa);
 
     const header = [_]Word{
         spec.magic_number,
@@ -331,7 +333,6 @@ pub fn finalize(self: *Module, a: Allocator, target: std.Target) ![]Word {
         self.sections.debug_strings.toWords(),
         self.sections.debug_names.toWords(),
         self.sections.annotations.toWords(),
-        types_constants.toWords(),
         self.sections.types_globals_constants.toWords(),
         self.sections.functions.toWords(),
     };
@@ -376,83 +377,126 @@ pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !IdRef {
     return result_id;
 }
 
-/// Fetch the result-id of an OpString instruction that encodes the path of the source
-/// file of the decl. This function may also emit an OpSource with source-level information regarding
-/// the decl.
-pub fn resolveSourceFileName(self: *Module, path: []const u8) !IdRef {
-    const path_ref = try self.resolveString(path);
-    const result = try self.source_file_names.getOrPut(self.gpa, path_ref);
-    if (!result.found_existing) {
-        const file_result_id = self.allocId();
-        result.value_ptr.* = file_result_id;
-        try self.sections.debug_strings.emit(self.gpa, .OpString, .{
-            .id_result = file_result_id,
-            .string = path,
-        });
+/// Fetch the result-id of an instruction corresponding to a string.
+pub fn resolveString(self: *Module, string: []const u8) !IdRef {
+    if (self.strings.get(string)) |id| {
+        return id;
     }
 
-    return result.value_ptr.*;
+    const id = self.allocId();
+    try self.strings.put(self.gpa, try self.arena.allocator().dupe(u8, string), id);
+
+    try self.sections.debug_strings.emit(self.gpa, .OpString, .{
+        .id_result = id,
+        .string = string,
+    });
+
+    return id;
 }
 
-pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !CacheRef {
-    return try self.resolve(.{ .int_type = .{
-        .signedness = signedness,
-        .bits = bits,
-    } });
-}
-
-pub fn vectorType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
-    return try self.resolve(.{ .vector_type = .{
-        .component_type = elem_ty_ref,
-        .component_count = len,
-    } });
-}
-
-pub fn arrayType(self: *Module, len: u32, elem_ty_ref: CacheRef) !CacheRef {
-    const len_ty_ref = try self.resolve(.{ .int_type = .{
-        .signedness = .unsigned,
-        .bits = 32,
-    } });
-    const len_ref = try self.resolve(.{ .int = .{
-        .ty = len_ty_ref,
-        .value = .{ .uint64 = len },
-    } });
-    return try self.resolve(.{ .array_type = .{
-        .element_type = elem_ty_ref,
-        .length = len_ref,
-    } });
-}
-
-pub fn constInt(self: *Module, ty_ref: CacheRef, value: anytype) !IdRef {
-    const ty = self.cache.lookup(ty_ref).int_type;
-    const Value = Cache.Key.Int.Value;
-    return try self.resolveId(.{ .int = .{
-        .ty = ty_ref,
-        .value = switch (ty.signedness) {
-            .signed => Value{ .int64 = @intCast(value) },
-            .unsigned => Value{ .uint64 = @intCast(value) },
-        },
-    } });
-}
-
-pub fn constUndef(self: *Module, ty_ref: CacheRef) !IdRef {
-    return try self.resolveId(.{ .undef = .{ .ty = ty_ref } });
-}
-
-pub fn constNull(self: *Module, ty_ref: CacheRef) !IdRef {
-    return try self.resolveId(.{ .null = .{ .ty = ty_ref } });
-}
-
-pub fn constBool(self: *Module, ty_ref: CacheRef, value: bool) !IdRef {
-    return try self.resolveId(.{ .bool = .{ .ty = ty_ref, .value = value } });
-}
-
-pub fn constComposite(self: *Module, ty_ref: CacheRef, members: []const IdRef) !IdRef {
+pub fn structType(self: *Module, types: []const IdRef, maybe_names: ?[]const []const u8) !IdRef {
     const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpSpecConstantComposite, .{
-        .id_result_type = self.resultId(ty_ref),
+
+    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeStruct, .{
         .id_result = result_id,
-        .constituents = members,
+        .id_ref = types,
+    });
+
+    if (maybe_names) |names| {
+        assert(names.len == types.len);
+        for (names, 0..) |name, i| {
+            try self.memberDebugName(result_id, @intCast(i), name);
+        }
+    }
+
+    return result_id;
+}
+
+pub fn boolType(self: *Module) !IdRef {
+    if (self.cache.bool_type) |id| return id;
+
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeBool, .{
+        .id_result = result_id,
+    });
+    self.cache.bool_type = result_id;
+    return result_id;
+}
+
+pub fn voidType(self: *Module) !IdRef {
+    if (self.cache.void_type) |id| return id;
+
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVoid, .{
+        .id_result = result_id,
+    });
+    self.cache.void_type = result_id;
+    try self.debugName(result_id, "void");
+    return result_id;
+}
+
+pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !IdRef {
+    assert(bits > 0);
+    const entry = try self.cache.int_types.getOrPut(self.gpa, .{ .signedness = signedness, .bits = bits });
+    if (!entry.found_existing) {
+        const result_id = self.allocId();
+        entry.value_ptr.* = result_id;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeInt, .{
+            .id_result = result_id,
+            .width = bits,
+            .signedness = switch (signedness) {
+                .signed => 1,
+                .unsigned => 0,
+            },
+        });
+
+        switch (signedness) {
+            .signed => try self.debugNameFmt(result_id, "i{}", .{bits}),
+            .unsigned => try self.debugNameFmt(result_id, "u{}", .{bits}),
+        }
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn floatType(self: *Module, bits: u16) !IdRef {
+    assert(bits > 0);
+    const entry = try self.cache.float_types.getOrPut(self.gpa, .{ .bits = bits });
+    if (!entry.found_existing) {
+        const result_id = self.allocId();
+        entry.value_ptr.* = result_id;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeFloat, .{
+            .id_result = result_id,
+            .width = bits,
+        });
+        try self.debugNameFmt(result_id, "f{}", .{bits});
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn vectorType(self: *Module, len: u32, child_id: IdRef) !IdRef {
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
+        .id_result = result_id,
+        .component_type = child_id,
+        .component_count = len,
+    });
+    return result_id;
+}
+
+pub fn constUndef(self: *Module, ty_id: IdRef) !IdRef {
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpUndef, .{
+        .id_result_type = ty_id,
+        .id_result = result_id,
+    });
+    return result_id;
+}
+
+pub fn constNull(self: *Module, ty_id: IdRef) !IdRef {
+    const result_id = self.allocId();
+    try self.sections.types_globals_constants.emit(self.gpa, .OpConstantNull, .{
+        .id_result_type = ty_id,
+        .id_result = result_id,
     });
     return result_id;
 }
@@ -520,7 +564,7 @@ pub fn declareEntryPoint(
 ) !void {
     try self.entry_points.append(self.gpa, .{
         .decl_index = decl_index,
-        .name = try self.resolveString(name),
+        .name = try self.arena.allocator().dupe(u8, name),
         .execution_model = execution_model,
     });
 }
