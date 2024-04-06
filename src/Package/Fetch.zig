@@ -1189,38 +1189,17 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!?[]const 
     ));
 
     if (diagnostics.errors.items.len > 0) {
-        const notes_len: u32 = @intCast(diagnostics.errors.items.len);
-        try eb.addRootErrorMessage(.{
-            .msg = try eb.addString("unable to unpack tarball"),
-            .src_loc = try f.srcLoc(f.location_tok),
-            .notes_len = notes_len,
-        });
-        const notes_start = try eb.reserveNotes(notes_len);
-        for (diagnostics.errors.items, notes_start..) |item, note_i| {
+        var res = UnpackResult.init(gpa);
+        defer res.deinit();
+
+        for (diagnostics.errors.items) |item| {
             switch (item) {
-                .unable_to_create_sym_link => |info| {
-                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                        .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                            info.file_name, info.link_name, @errorName(info.code),
-                        }),
-                    }));
-                },
-                .unable_to_create_file => |info| {
-                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                        .msg = try eb.printString("unable to create file '{s}': {s}", .{
-                            info.file_name, @errorName(info.code),
-                        }),
-                    }));
-                },
-                .unsupported_file_type => |info| {
-                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                        .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
-                            info.file_name, @intFromEnum(info.file_type),
-                        }),
-                    }));
-                },
+                .unable_to_create_file => |i| try res.createFile(i.file_name, i.code),
+                .unable_to_create_sym_link => |i| try res.symLink(i.file_name, i.link_name, i.code),
+                .unsupported_file_type => |i| try res.unsupportedFileType(i.file_name, @intFromEnum(i.file_type)),
             }
         }
+        try res.bundleErrors(eb, "unable to unpack tarball", try f.srcLoc(f.location_tok));
         return error.FetchFailed;
     }
 
@@ -1270,24 +1249,16 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!void 
             try repository.checkout(out_dir, want_oid, &diagnostics);
 
             if (diagnostics.errors.items.len > 0) {
-                const notes_len: u32 = @intCast(diagnostics.errors.items.len);
-                try eb.addRootErrorMessage(.{
-                    .msg = try eb.addString("unable to unpack packfile"),
-                    .src_loc = try f.srcLoc(f.location_tok),
-                    .notes_len = notes_len,
-                });
-                const notes_start = try eb.reserveNotes(notes_len);
-                for (diagnostics.errors.items, notes_start..) |item, note_i| {
+                var res = UnpackResult.init(gpa);
+                defer res.deinit();
+
+                for (diagnostics.errors.items) |item| {
                     switch (item) {
-                        .unable_to_create_sym_link => |info| {
-                            eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
-                                .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
-                                    info.file_name, info.link_name, @errorName(info.code),
-                                }),
-                            }));
-                        },
+                        .unable_to_create_sym_link => |i| try res.symLink(i.file_name, i.link_name, i.code),
                     }
                 }
+                try res.bundleErrors(eb, "unable to unpack packfile", try f.srcLoc(f.location_tok));
+
                 return error.InvalidGitPack;
             }
         }
@@ -1778,6 +1749,140 @@ test FileHeader {
     h.update(FileHeader.elf_magic[2..4]);
     try std.testing.expect(h.isExecutable());
 }
+
+const UnpackResult = struct {
+    allocator: std.mem.Allocator,
+    errors: std.ArrayListUnmanaged(Error) = .{},
+
+    const Error = union(enum) {
+        unable_to_create_sym_link: struct {
+            code: anyerror,
+            file_name: []const u8,
+            link_name: []const u8,
+        },
+        unable_to_create_file: struct {
+            code: anyerror,
+            file_name: []const u8,
+        },
+        unsupported_file_type: struct {
+            file_name: []const u8,
+            file_type: u8,
+        },
+
+        fn excluded(self: Error, filter: Filter) bool {
+            switch (self) {
+                .unable_to_create_file => |info| return !filter.includePath(info.file_name),
+                .unable_to_create_sym_link => |info| return !filter.includePath(info.file_name),
+                .unsupported_file_type => |info| return !filter.includePath(info.file_name),
+            }
+        }
+
+        fn free(self: Error, allocator: std.mem.Allocator) void {
+            switch (self) {
+                .unable_to_create_sym_link => |info| {
+                    allocator.free(info.file_name);
+                    allocator.free(info.link_name);
+                },
+                .unable_to_create_file => |info| {
+                    allocator.free(info.file_name);
+                },
+                .unsupported_file_type => |info| {
+                    allocator.free(info.file_name);
+                },
+            }
+        }
+    };
+
+    fn init(allocator: std.mem.Allocator) UnpackResult {
+        return .{ .allocator = allocator };
+    }
+
+    fn deinit(self: *UnpackResult) void {
+        for (self.errors.items) |item| {
+            item.free(self.allocator);
+        }
+        self.errors.deinit(self.allocator);
+        self.* = undefined;
+    }
+
+    fn hasErrors(self: *UnpackResult) bool {
+        return self.errors.items.len > 0;
+    }
+
+    fn createFile(self: *UnpackResult, file_name: []const u8, err: anyerror) !void {
+        try self.errors.append(self.allocator, .{ .unable_to_create_file = .{
+            .code = err,
+            .file_name = try self.allocator.dupe(u8, file_name),
+        } });
+    }
+
+    fn symLink(self: *UnpackResult, file_name: []const u8, link_name: []const u8, err: anyerror) !void {
+        try self.errors.append(self.allocator, .{ .unable_to_create_sym_link = .{
+            .code = err,
+            .file_name = try self.allocator.dupe(u8, file_name),
+            .link_name = try self.allocator.dupe(u8, link_name),
+        } });
+    }
+
+    fn unsupportedFileType(self: *UnpackResult, file_name: []const u8, file_type: u8) !void {
+        try self.errors.append(self.allocator, .{ .unsupported_file_type = .{
+            .file_name = try self.allocator.dupe(u8, file_name),
+            .file_type = file_type,
+        } });
+    }
+
+    fn filterErrors(self: *UnpackResult, filter: Filter) !void {
+        var i = self.errors.items.len;
+        while (i > 0) {
+            i -= 1;
+            const item = self.errors.items[i];
+            if (item.excluded(filter)) {
+                _ = self.errors.swapRemove(i);
+                item.free(self.allocator);
+            }
+        }
+    }
+
+    fn bundleErrors(
+        self: *UnpackResult,
+        eb: *ErrorBundle.Wip,
+        msg: []const u8,
+        src_loc: ErrorBundle.SourceLocationIndex,
+    ) !void {
+        const notes_len: u32 = @intCast(self.errors.items.len);
+        try eb.addRootErrorMessage(.{
+            .msg = try eb.addString(msg),
+            .src_loc = src_loc,
+            .notes_len = notes_len,
+        });
+        const notes_start = try eb.reserveNotes(notes_len);
+        for (self.errors.items, notes_start..) |item, note_i| {
+            switch (item) {
+                .unable_to_create_sym_link => |info| {
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("unable to create symlink from '{s}' to '{s}': {s}", .{
+                            info.file_name, info.link_name, @errorName(info.code),
+                        }),
+                    }));
+                },
+                .unable_to_create_file => |info| {
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("unable to create file '{s}': {s}", .{
+                            info.file_name, @errorName(info.code),
+                        }),
+                    }));
+                },
+                .unsupported_file_type => |info| {
+                    eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.printString("file '{s}' has unsupported type '{c}'", .{
+                            info.file_name, info.file_type,
+                        }),
+                    }));
+                },
+            }
+        }
+    }
+};
 
 // Removing dependencies
 const Package = struct {
