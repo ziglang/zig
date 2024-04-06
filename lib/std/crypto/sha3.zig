@@ -194,8 +194,9 @@ fn ShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime 
             self.st.fillBlock();
         }
 
-        /// Return the KMAC function with the same security level.
-        pub fn toMac() type {
+        /// Return a KMAC instance based on this SHAKE instance.
+        /// For Shake128, this returns Kmac128. For Shake256, this returns Kmac256.
+        pub fn ToMac() type {
             return KMacLike(security_level, 0x04, rounds);
         }
 
@@ -307,8 +308,8 @@ fn CShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime
 }
 
 /// The KMAC extendable output authentication function.
-/// KMAC is a MAC function based on the cSHAKE function, with an optional context.
-/// It is similar to HMAC, but with a variable output length.
+/// KMAC is a keyed version of the cSHAKE function, with an optional context.
+/// It can be used as an SHA-3 based alternative to HMAC, as well as a generic keyed XoF (extendable output function).
 pub fn KMac(comptime security_level: u11) type {
     return KMacLike(security_level, 0x04, 24);
 }
@@ -338,7 +339,9 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
             context: ?[]const u8 = null,
         };
 
-        /// Initialize a state for the MAC function, with an optional context and an arbitrary-long key.
+        /// Initialize a state for the KMAC function, with an optional context and an arbitrary-long key.
+        /// If the context and key are going to be reused, the structure can be initialized once, and cloned for each message.
+        /// This is more efficient than reinitializing the state for each message at the cost of a small amount of memory.
         pub fn initWithOptions(key: []const u8, options: Options) Self {
             var cshaker = CShaker.init(.{ .context = options.context });
             const encoded_rate_len = NistEncodedLength.encode(block_length / 8, .left);
@@ -352,7 +355,9 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
             };
         }
 
-        /// Initialize a state for the MAC function.
+        /// Initialize a state for the KMAC function.
+        /// If the context and key are going to be reused, the structure can be initialized once, and cloned for each message.
+        /// This is more efficient than reinitializing the state for each message at the cost of a small amount of memory.
         pub fn init(key: []const u8) Self {
             return initWithOptions(key, .{});
         }
@@ -440,6 +445,10 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
         };
 
         /// Initialize a state for the TupleHash function, with an optional context.
+        /// If the context is going to be reused, the structure can be initialized once, and cloned for each message.
+        /// This is more efficient than reinitializing the state for each message at the cost of a small amount of memory.
+        ///
+        /// A key can be optionally added to the context to create a keyed TupleHash function, similar to KMAC.
         pub fn initWithOptions(options: Options) Self {
             const cshaker = CShaker.init(.{ .context = options.context });
             return Self{
@@ -464,6 +473,11 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
             const encoded_out_len = NistEncodedLength.encode(out.len, .right);
             self.cshaker.update(encoded_out_len.slice());
             self.cshaker.final(out);
+        }
+
+        /// Align the input to a block boundary.
+        pub fn fillBlock(self: *Self) void {
+            self.cshaker.fillBlock();
         }
 
         /// Squeeze a slice of bytes from the state.
