@@ -429,8 +429,8 @@ pub fn constInt(self: *Module, ty_ref: CacheRef, value: anytype) !IdRef {
     return try self.resolveId(.{ .int = .{
         .ty = ty_ref,
         .value = switch (ty.signedness) {
-            .signed => Value{ .int64 = @as(i64, @intCast(value)) },
-            .unsigned => Value{ .uint64 = @as(u64, @intCast(value)) },
+            .signed => Value{ .int64 = @intCast(value) },
+            .unsigned => Value{ .uint64 = @intCast(value) },
         },
     } });
 }
@@ -500,9 +500,9 @@ pub fn declPtr(self: *Module, index: Decl.Index) *Decl {
 
 /// Declare ALL dependencies for a decl.
 pub fn declareDeclDeps(self: *Module, decl_index: Decl.Index, deps: []const Decl.Index) !void {
-    const begin_dep = @as(u32, @intCast(self.decl_deps.items.len));
+    const begin_dep: u32 = @intCast(self.decl_deps.items.len);
     try self.decl_deps.appendSlice(self.gpa, deps);
-    const end_dep = @as(u32, @intCast(self.decl_deps.items.len));
+    const end_dep: u32 = @intCast(self.decl_deps.items.len);
 
     const decl = self.declPtr(decl_index);
     decl.begin_dep = begin_dep;

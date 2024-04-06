@@ -115,8 +115,8 @@ pub fn writeWords(section: *Section, words: []const Word) void {
 
 pub fn writeDoubleWord(section: *Section, dword: DoubleWord) void {
     section.writeWords(&.{
-        @as(Word, @truncate(dword)),
-        @as(Word, @truncate(dword >> @bitSizeOf(Word))),
+        @truncate(dword),
+        @truncate(dword >> @bitSizeOf(Word)),
     });
 }
 
@@ -196,12 +196,12 @@ fn writeString(section: *Section, str: []const u8) void {
 
 fn writeContextDependentNumber(section: *Section, operand: spec.LiteralContextDependentNumber) void {
     switch (operand) {
-        .int32 => |int| section.writeWord(@as(Word, @bitCast(int))),
-        .uint32 => |int| section.writeWord(@as(Word, @bitCast(int))),
-        .int64 => |int| section.writeDoubleWord(@as(DoubleWord, @bitCast(int))),
-        .uint64 => |int| section.writeDoubleWord(@as(DoubleWord, @bitCast(int))),
-        .float32 => |float| section.writeWord(@as(Word, @bitCast(float))),
-        .float64 => |float| section.writeDoubleWord(@as(DoubleWord, @bitCast(float))),
+        .int32 => |int| section.writeWord(@bitCast(int)),
+        .uint32 => |int| section.writeWord(@bitCast(int)),
+        .int64 => |int| section.writeDoubleWord(@bitCast(int)),
+        .uint64 => |int| section.writeDoubleWord(@bitCast(int)),
+        .float32 => |float| section.writeWord(@bitCast(float)),
+        .float64 => |float| section.writeDoubleWord(@bitCast(float)),
     }
 }
 
@@ -274,8 +274,8 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
         spec.LiteralString => std.math.divCeil(usize, operand.len + 1, @sizeOf(Word)) catch unreachable, // Add one for zero-terminator
 
         spec.LiteralContextDependentNumber => switch (operand) {
-            .int32, .uint32, .float32 => @as(usize, 1),
-            .int64, .uint64, .float64 => @as(usize, 2),
+            .int32, .uint32, .float32 => 1,
+            .int64, .uint64, .float64 => 2,
         },
 
         // TODO: Where this type is used (OpSpecConstantOp) is currently not correct in the spec
