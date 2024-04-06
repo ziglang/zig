@@ -1735,7 +1735,7 @@ const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const Fetch = @This();
 const git = @import("Fetch/git.zig");
-const Package = @import("../Package.zig");
+//const Package = @import("../Package.zig");
 const Manifest = Package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
 const native_os = builtin.os.tag;
@@ -1777,4 +1777,134 @@ test FileHeader {
 
     h.update(FileHeader.elf_magic[2..4]);
     try std.testing.expect(h.isExecutable());
+}
+
+// Removing dependencies
+const Package = struct {
+    const build_zig_basename = "build.zig";
+    const Module = struct {};
+    const Manifest = @import("Manifest.zig");
+};
+
+test "fetch tarball" {
+    const testing = std.testing;
+    const gpa = testing.allocator;
+
+    var cache_tmp = std.testing.tmpDir(.{});
+    defer cache_tmp.cleanup();
+    const global_cache_directory_path = try cache_tmp.dir.realpathAlloc(gpa, ".");
+    defer gpa.free(global_cache_directory_path);
+
+    const paths: []const []const u8 = &.{
+        "main.zig",
+        "src/root.zig",
+        // duplicate file paths
+        "dir/file",
+        "dir1/file1",
+        "dir/file",
+        "dir1/file1",
+    };
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const file = try tmp.dir.createFile("package.tar", .{});
+    try createTarball(file, "package", paths);
+    file.close();
+
+    const tmp_path = try tmp.dir.realpathAlloc(gpa, ".");
+    const path_or_url = try std.fmt.allocPrint(
+        gpa,
+        "file://{s}/package.tar",
+        .{tmp_path},
+    );
+    gpa.free(tmp_path);
+    defer gpa.free(path_or_url);
+
+    var thread_pool: ThreadPool = undefined;
+    try thread_pool.init(.{ .allocator = gpa });
+    defer thread_pool.deinit();
+
+    var http_client: std.http.Client = .{ .allocator = gpa };
+    defer http_client.deinit();
+
+    var global_cache_directory: Cache.Directory = .{
+        .handle = try fs.cwd().makeOpenPath(global_cache_directory_path, .{}),
+        .path = global_cache_directory_path,
+    };
+    defer global_cache_directory.handle.close();
+
+    var progress: std.Progress = .{ .dont_print_on_dumb = true };
+    const root_prog_node = progress.start("Fetch", 0);
+    defer root_prog_node.end();
+
+    var job_queue: Fetch.JobQueue = .{
+        .http_client = &http_client,
+        .thread_pool = &thread_pool,
+        .global_cache = global_cache_directory,
+        .recursive = false,
+        .read_only = false,
+        .debug_hash = true,
+        .work_around_btrfs_bug = false,
+    };
+    defer job_queue.deinit();
+
+    var fetch: Fetch = .{
+        .arena = std.heap.ArenaAllocator.init(gpa),
+        .location = .{ .path_or_url = path_or_url },
+        .location_tok = 0,
+        .hash_tok = 0,
+        .name_tok = 0,
+        .lazy_status = .eager,
+        .parent_package_root = Cache.Path{ .root_dir = undefined },
+        .parent_manifest_ast = null,
+        .prog_node = root_prog_node,
+        .job_queue = &job_queue,
+        .omit_missing_hash_error = true,
+        .allow_missing_paths_field = false,
+
+        .package_root = undefined,
+        .error_bundle = undefined,
+        .manifest = null,
+        .manifest_ast = undefined,
+        .actual_hash = undefined,
+        .has_build_zig = false,
+        .oom_flag = false,
+
+        .module = null,
+    };
+    defer fetch.deinit();
+
+    try testing.expectError(error.FetchFailed, fetch.run());
+
+    try testing.expectEqual(1, fetch.error_bundle.root_list.items.len);
+    var errors = try fetch.error_bundle.toOwnedBundle("");
+    defer errors.deinit(gpa);
+
+    const em = errors.getErrorMessage(errors.getMessages()[0]);
+    try testing.expectEqual(2, em.notes_len);
+
+    var al = std.ArrayList(u8).init(gpa);
+    defer al.deinit();
+    try errors.renderToWriter(.{ .ttyconf = .no_color }, al.writer());
+    try testing.expectEqualStrings(
+        \\error: unable to unpack tarball
+        \\    note: unable to create file 'dir/file': PathAlreadyExists
+        \\    note: unable to create file 'dir1/file1': PathAlreadyExists
+        \\
+    , al.items);
+}
+
+const TarHeader = std.tar.output.Header;
+
+fn createTarball(file: fs.File, prefix: []const u8, paths: []const []const u8) !void {
+    for (paths) |path| {
+        var hdr = TarHeader.init();
+        hdr.typeflag = .regular;
+        //if (prefix.len > 0) {
+        try hdr.setPath(prefix, path);
+        // } else {
+        //     hdr.setName(path);
+        // }
+        try hdr.updateChecksum();
+        try file.writeAll(std.mem.asBytes(&hdr));
+    }
 }
