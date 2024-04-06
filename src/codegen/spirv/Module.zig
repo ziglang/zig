@@ -20,10 +20,6 @@ const IdResultType = spec.IdResultType;
 
 const Section = @import("Section.zig");
 
-const Cache = @import("Cache.zig");
-pub const CacheKey = Cache.Key;
-pub const CacheRef = Cache.Ref;
-
 /// This structure represents a function that isc in-progress of being emitted.
 /// Commonly, the contents of this structure will be merged with the appropriate
 /// sections of the module and re-used. Note that the SPIR-V module system makes
@@ -148,17 +144,13 @@ next_result_id: Word,
 /// Cache for results of OpString instructions.
 strings: std.StringArrayHashMapUnmanaged(IdRef) = .{},
 
-/// SPIR-V type- and constant cache. This structure is used to store information about these in a more
-/// efficient manner.
-cache: Cache = .{},
-
 /// Some types shouldn't be emitted more than one time, but cannot be caught by
 /// the `intern_map` during codegen. Sometimes, IDs are compared to check if
 /// types are the same, so we can't delay until the dedup pass. Therefore,
 /// this is an ad-hoc structure to cache types where required.
 /// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
 /// non-pointer types.
-cache2: struct {
+cache: struct {
     bool_type: ?IdRef = null,
     void_type: ?IdRef = null,
     int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .{},
@@ -199,10 +191,9 @@ pub fn deinit(self: *Module) void {
     self.sections.functions.deinit(self.gpa);
 
     self.strings.deinit(self.gpa);
-    self.cache.deinit(self);
 
-    self.cache2.int_types.deinit(self.gpa);
-    self.cache2.float_types.deinit(self.gpa);
+    self.cache.int_types.deinit(self.gpa);
+    self.cache.float_types.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
@@ -239,18 +230,6 @@ pub fn allocId(self: *Module) IdResult {
 
 pub fn idBound(self: Module) Word {
     return self.next_result_id;
-}
-
-pub fn resolve(self: *Module, key: CacheKey) !CacheRef {
-    return self.cache.resolve(self, key);
-}
-
-pub fn resultId(self: *const Module, ref: CacheRef) IdResult {
-    return self.cache.resultId(ref);
-}
-
-pub fn resolveId(self: *Module, key: CacheKey) !IdResult {
-    return self.resultId(try self.resolve(key));
 }
 
 fn addEntryPointDeps(
@@ -312,9 +291,6 @@ pub fn finalize(self: *Module, a: Allocator, target: std.Target) ![]Word {
     var entry_points = try self.entryPoints();
     defer entry_points.deinit(self.gpa);
 
-    var types_constants = try self.cache.materialize(self);
-    defer types_constants.deinit(self.gpa);
-
     const header = [_]Word{
         spec.magic_number,
         // TODO: From cpu features
@@ -357,7 +333,6 @@ pub fn finalize(self: *Module, a: Allocator, target: std.Target) ![]Word {
         self.sections.debug_strings.toWords(),
         self.sections.debug_names.toWords(),
         self.sections.annotations.toWords(),
-        types_constants.toWords(),
         self.sections.types_globals_constants.toWords(),
         self.sections.functions.toWords(),
     };
@@ -438,31 +413,31 @@ pub fn structType(self: *Module, types: []const IdRef, maybe_names: ?[]const []c
 }
 
 pub fn boolType(self: *Module) !IdRef {
-    if (self.cache2.bool_type) |id| return id;
+    if (self.cache.bool_type) |id| return id;
 
     const result_id = self.allocId();
     try self.sections.types_globals_constants.emit(self.gpa, .OpTypeBool, .{
         .id_result = result_id,
     });
-    self.cache2.bool_type = result_id;
+    self.cache.bool_type = result_id;
     return result_id;
 }
 
 pub fn voidType(self: *Module) !IdRef {
-    if (self.cache2.void_type) |id| return id;
+    if (self.cache.void_type) |id| return id;
 
     const result_id = self.allocId();
     try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVoid, .{
         .id_result = result_id,
     });
-    self.cache2.void_type = result_id;
+    self.cache.void_type = result_id;
     try self.debugName(result_id, "void");
     return result_id;
 }
 
 pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !IdRef {
     assert(bits > 0);
-    const entry = try self.cache2.int_types.getOrPut(self.gpa, .{ .signedness = signedness, .bits = bits });
+    const entry = try self.cache.int_types.getOrPut(self.gpa, .{ .signedness = signedness, .bits = bits });
     if (!entry.found_existing) {
         const result_id = self.allocId();
         entry.value_ptr.* = result_id;
@@ -485,7 +460,7 @@ pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !Id
 
 pub fn floatType(self: *Module, bits: u16) !IdRef {
     assert(bits > 0);
-    const entry = try self.cache2.float_types.getOrPut(self.gpa, .{ .bits = bits });
+    const entry = try self.cache.float_types.getOrPut(self.gpa, .{ .bits = bits });
     if (!entry.found_existing) {
         const result_id = self.allocId();
         entry.value_ptr.* = result_id;
@@ -522,16 +497,6 @@ pub fn constNull(self: *Module, ty_id: IdRef) !IdRef {
     try self.sections.types_globals_constants.emit(self.gpa, .OpConstantNull, .{
         .id_result_type = ty_id,
         .id_result = result_id,
-    });
-    return result_id;
-}
-
-pub fn constComposite(self: *Module, ty_ref: CacheRef, members: []const IdRef) !IdRef {
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpSpecConstantComposite, .{
-        .id_result_type = self.resultId(ty_ref),
-        .id_result = result_id,
-        .constituents = members,
     });
     return result_id;
 }

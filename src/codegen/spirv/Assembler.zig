@@ -716,7 +716,7 @@ fn parseContextDependentNumber(self: *Assembler) !void {
     // TODO: Count be improved to be a little bit more efficent.
 
     {
-        var it = self.spv.cache2.int_types.iterator();
+        var it = self.spv.cache.int_types.iterator();
         while (it.next()) |entry| {
             const id = entry.value_ptr.*;
             if (id != result_id) continue;
@@ -726,7 +726,7 @@ fn parseContextDependentNumber(self: *Assembler) !void {
     }
 
     {
-        var it = self.spv.cache2.float_types.iterator();
+        var it = self.spv.cache.float_types.iterator();
         while (it.next()) |entry| {
             const id = entry.value_ptr.*;
             if (id != result_id) continue;
