@@ -28,7 +28,7 @@ pub const StringifyOptions = struct {
 
     /// Arrays/slices of u8 are typically encoded as JSON strings.
     /// This option emits them as arrays of numbers instead.
-    /// Does not affect calls to `objectField()`.
+    /// Does not affect calls to `objectField*()`.
     emit_strings_as_arrays: bool = false,
 
     /// Should unicode characters be escaped in strings?
@@ -156,7 +156,8 @@ pub fn writeStreamArbitraryDepth(
 ///    | <array>
 ///    | write
 ///    | print
-///  <object> = beginObject ( objectField <value> )* endObject
+///  <object> = beginObject ( <field> <value> )* endObject
+///  <field> = objectField | objectFieldRaw
 ///  <array> = beginArray ( <value> )* endArray
 /// ```
 ///
@@ -332,11 +333,11 @@ pub fn WriteStream(
         }
 
         fn valueStart(self: *Self) !void {
-            if (self.isObjectKeyExpected()) |is_it| assert(!is_it); // Call objectField(), not write(), for object keys.
+            if (self.isObjectKeyExpected()) |is_it| assert(!is_it); // Call objectField*(), not write(), for object keys.
             return self.valueStartAssumeTypeOk();
         }
         fn objectFieldStart(self: *Self) !void {
-            if (self.isObjectKeyExpected()) |is_it| assert(is_it); // Expected write(), not objectField().
+            if (self.isObjectKeyExpected()) |is_it| assert(is_it); // Expected write(), not objectField*().
             return self.valueStartAssumeTypeOk();
         }
         fn valueStartAssumeTypeOk(self: *Self) !void {
@@ -393,9 +394,23 @@ pub fn WriteStream(
             self.valueDone();
         }
 
+        /// See `WriteStream` for when to call this method.
+        /// `key` is the string content of the property name.
+        /// Surrounding quotes will be added and any special characters will be escaped.
+        /// See also `objectFieldRaw`.
         pub fn objectField(self: *Self, key: []const u8) Error!void {
             try self.objectFieldStart();
             try encodeJsonString(key, self.options, self.stream);
+            self.next_punctuation = .colon;
+        }
+        /// See `WriteStream` for when to call this method.
+        /// `quoted_key` is the complete bytes of the key including quotes and any necessary escape sequences.
+        /// A few assertions are performed on the given value to ensure that the caller of this function understands the API contract.
+        /// See also `objectField`.
+        pub fn objectFieldRaw(self: *Self, quoted_key: []const u8) Error!void {
+            assert(quoted_key.len >= 2 and quoted_key[0] == '"' and quoted_key[quoted_key.len - 1] == '"'); // quoted_key should be "quoted".
+            try self.objectFieldStart();
+            try self.stream.writeAll(quoted_key);
             self.next_punctuation = .colon;
         }
 
