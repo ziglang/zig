@@ -27,22 +27,23 @@ pub fn main() !void {
     var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
     const gpa = general_purpose_allocator.allocator();
 
-    const argv = try std.process.argsAlloc(arena);
-    const zig_lib_directory = argv[1];
-    const zig_exe_path = argv[2];
-    const global_cache_path = argv[3];
-    var args_iter = sliceIterator([]const u8, argv[4..]);
+    var argv = try std.process.argsWithAllocator(arena);
+    defer argv.deinit();
+    assert(argv.skip());
+    const zig_lib_directory = argv.next().?;
+    const zig_exe_path = argv.next().?;
+    const global_cache_path = argv.next().?;
 
     var lib_dir = try std.fs.cwd().openDir(zig_lib_directory, .{});
     defer lib_dir.close();
 
     var listen_port: u16 = 0;
     var force_open_browser: ?bool = null;
-    while (args_iter.next()) |arg| {
+    while (argv.next()) |arg| {
         if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
             usage();
         } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--port")) {
-            listen_port = std.fmt.parseInt(u16, args_iter.next() orelse usage(), 10) catch |err| {
+            listen_port = std.fmt.parseInt(u16, argv.next() orelse usage(), 10) catch |err| {
                 std.log.err("expected port number: {}", .{err});
                 usage();
             };
@@ -440,16 +441,4 @@ fn openBrowserTabThread(gpa: Allocator, url: []const u8) !void {
     child.stderr_behavior = .Ignore;
     try child.spawn();
     _ = try child.wait();
-}
-
-fn sliceIterator(comptime T: type, arr: []const T) struct {
-    arr: []const T,
-    i: usize = 0,
-    pub fn next(self: *@This()) ?T {
-        if (self.i >= self.arr.len) return null;
-        self.i += 1;
-        return self.arr[self.i - 1];
-    }
-} {
-    return .{ .arr = arr };
 }
