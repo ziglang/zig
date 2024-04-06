@@ -363,7 +363,11 @@ const EntityHashContext = struct {
     }
 };
 
-pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
+pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: *std.Progress.Node) !void {
+    var sub_node = progress.start("deduplicate", 0);
+    sub_node.activate();
+    defer sub_node.end();
+
     var arena = std.heap.ArenaAllocator.init(parser.a);
     defer arena.deinit();
     const a = arena.allocator();
@@ -376,6 +380,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
         .info = &info,
         .binary = binary,
     };
+
     for (info.entities.keys()) |id| {
         _ = try ctx.hash(id);
     }
@@ -395,6 +400,8 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
         }
     }
 
+    sub_node.setEstimatedTotalItems(binary.instructions.len);
+
     // Now process the module, and replace instructions where needed.
     var section = Section{};
     var it = binary.iterateInstructions();
@@ -402,6 +409,8 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule) !void {
     var new_operands = std.ArrayList(u32).init(a);
     var emitted_ptrs = std.AutoHashMap(ResultId, void).init(a);
     while (it.next()) |inst| {
+        defer sub_node.setCompletedItems(inst.offset);
+
         // Result-id can only be the first or second operand
         const inst_spec = parser.getInstSpec(inst.opcode).?;
 
