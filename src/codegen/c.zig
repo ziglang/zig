@@ -822,19 +822,6 @@ pub const DeclGen = struct {
                             try dg.fmtIntLiteral(try zcu.intValue(Type.usize, byte_offset), .Other),
                         });
                     },
-                    .end => {
-                        const ptr_base_ctype = try dg.ctypeFromType(ptr_base_ty, .complete);
-                        if (!ptr_ctype.eql(ptr_base_ctype)) {
-                            try writer.writeByte('(');
-                            try dg.renderCType(writer, ptr_ctype);
-                            try writer.writeByte(')');
-                        }
-                        try writer.writeAll("((");
-                        try dg.renderParentPtr(writer, field.base, location);
-                        try writer.print(") + {})", .{
-                            try dg.fmtIntLiteral(try zcu.intValue(Type.usize, 1), .Other),
-                        });
-                    },
                 }
             },
             .comptime_field, .comptime_alloc => unreachable,
@@ -5453,49 +5440,39 @@ fn fieldLocation(
 ) union(enum) {
     begin: void,
     field: CValue,
-    byte_offset: u32,
-    end: void,
+    byte_offset: u64,
 } {
     const ip = &zcu.intern_pool;
     const container_ty = Type.fromInterned(ip.indexToKey(container_ptr_ty.toIntern()).ptr_type.child);
     switch (ip.indexToKey(container_ty.toIntern())) {
         .struct_type => {
             const loaded_struct = ip.loadStructType(container_ty.toIntern());
-            switch (loaded_struct.layout) {
-                .auto, .@"extern" => {
-                    var field_it = loaded_struct.iterateRuntimeOrder(ip);
-                    var before = true;
-                    while (field_it.next()) |next_field_index| {
-                        if (next_field_index == field_index) before = false;
-                        if (before) continue;
-                        const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[next_field_index]);
-                        if (!field_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-                        return .{ .field = if (loaded_struct.fieldName(ip, next_field_index).unwrap()) |field_name|
-                            .{ .identifier = ip.stringToSlice(field_name) }
-                        else
-                            .{ .field = next_field_index } };
-                    }
-                    return if (container_ty.hasRuntimeBitsIgnoreComptime(zcu)) .end else .begin;
-                },
-                .@"packed" => return if (field_ptr_ty.ptrInfo(zcu).packed_offset.host_size == 0)
+            return switch (loaded_struct.layout) {
+                .auto, .@"extern" => if (!container_ty.hasRuntimeBitsIgnoreComptime(zcu))
+                    .begin
+                else if (!field_ptr_ty.childType(zcu).hasRuntimeBitsIgnoreComptime(zcu))
+                    .{ .byte_offset = loaded_struct.offsets.get(ip)[field_index] }
+                else
+                    .{ .field = if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name|
+                        .{ .identifier = ip.stringToSlice(field_name) }
+                    else
+                        .{ .field = field_index } },
+                .@"packed" => if (field_ptr_ty.ptrInfo(zcu).packed_offset.host_size == 0)
                     .{ .byte_offset = @divExact(zcu.structPackedFieldBitOffset(loaded_struct, field_index) +
                         container_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset, 8) }
                 else
                     .begin,
-            }
+            };
         },
-        .anon_struct_type => |anon_struct_info| {
-            for (field_index..anon_struct_info.types.len) |next_field_index| {
-                if (anon_struct_info.values.get(ip)[next_field_index] != .none) continue;
-                const field_type = Type.fromInterned(anon_struct_info.types.get(ip)[next_field_index]);
-                if (!field_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-                return .{ .field = if (anon_struct_info.fieldName(ip, next_field_index).unwrap()) |field_name|
-                    .{ .identifier = ip.stringToSlice(field_name) }
-                else
-                    .{ .field = next_field_index } };
-            }
-            return if (container_ty.hasRuntimeBitsIgnoreComptime(zcu)) .end else .begin;
-        },
+        .anon_struct_type => |anon_struct_info| return if (!container_ty.hasRuntimeBitsIgnoreComptime(zcu))
+            .begin
+        else if (!field_ptr_ty.childType(zcu).hasRuntimeBitsIgnoreComptime(zcu))
+            .{ .byte_offset = container_ty.structFieldOffset(field_index, zcu) }
+        else
+            .{ .field = if (anon_struct_info.fieldName(ip, field_index).unwrap()) |field_name|
+                .{ .identifier = ip.stringToSlice(field_name) }
+            else
+                .{ .field = field_index } },
         .union_type => {
             const loaded_union = ip.loadUnionType(container_ty.toIntern());
             switch (loaded_union.getLayout(ip)) {
@@ -5591,10 +5568,6 @@ fn airFieldParentPtr(f: *Function, inst: Air.Inst.Index) !CValue {
                 try f.fmtIntLiteral(try zcu.intValue(Type.usize, byte_offset)),
             });
         },
-        .end => {
-            try f.writeCValue(writer, field_ptr_val, .Other);
-            try writer.print(" - {}", .{try f.fmtIntLiteral(try zcu.intValue(Type.usize, 1))});
-        },
     }
 
     try writer.writeAll(";\n");
@@ -5638,11 +5611,6 @@ fn fieldPtr(
             try writer.print(" + {})", .{
                 try f.fmtIntLiteral(try zcu.intValue(Type.usize, byte_offset)),
             });
-        },
-        .end => {
-            try writer.writeByte('(');
-            try f.writeCValue(writer, container_ptr_val, .Other);
-            try writer.print(" + {})", .{try f.fmtIntLiteral(try zcu.intValue(Type.usize, 1))});
         },
     }
 
