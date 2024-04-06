@@ -227,6 +227,48 @@ void c_struct_u64_u64_8(size_t, size_t, size_t, size_t, size_t, size_t, size_t, 
     assert_or_panic(s.b == 40);
 }
 
+struct Struct_f32f32_f32 {
+    struct {
+        float b, c;
+    } a;
+    float d;
+};
+
+struct Struct_f32f32_f32 zig_ret_struct_f32f32_f32(void);
+
+void zig_struct_f32f32_f32(struct Struct_f32f32_f32);
+
+struct Struct_f32f32_f32 c_ret_struct_f32f32_f32(void) {
+    return (struct Struct_f32f32_f32){ { 1.0f, 2.0f }, 3.0f };
+}
+
+void c_struct_f32f32_f32(struct Struct_f32f32_f32 s) {
+    assert_or_panic(s.a.b == 1.0f);
+    assert_or_panic(s.a.c == 2.0f);
+    assert_or_panic(s.d == 3.0f);
+}
+
+struct Struct_f32_f32f32 {
+    float a;
+    struct {
+        float c, d;
+    } b;
+};
+
+struct Struct_f32_f32f32 zig_ret_struct_f32_f32f32(void);
+
+void zig_struct_f32_f32f32(struct Struct_f32_f32f32);
+
+struct Struct_f32_f32f32 c_ret_struct_f32_f32f32(void) {
+    return (struct Struct_f32_f32f32){ 1.0f, { 2.0f, 3.0f } };
+}
+
+void c_struct_f32_f32f32(struct Struct_f32_f32f32 s) {
+    assert_or_panic(s.a == 1.0f);
+    assert_or_panic(s.b.c == 2.0f);
+    assert_or_panic(s.b.d == 3.0f);
+}
+
 struct BigStruct {
     uint64_t a;
     uint64_t b;
@@ -2603,9 +2645,25 @@ void run_c_tests(void) {
         zig_struct_u64_u64_7(0, 1, 2, 3, 4, 5, 6, (struct Struct_u64_u64){ .a = 17, .b = 18 });
         zig_struct_u64_u64_8(0, 1, 2, 3, 4, 5, 6, 7, (struct Struct_u64_u64){ .a = 19, .b = 20 });
     }
+
+#if !defined(ZIG_RISCV64)
+    {
+        struct Struct_f32f32_f32 s = zig_ret_struct_f32f32_f32();
+        assert_or_panic(s.a.b == 1.0f);
+        assert_or_panic(s.a.c == 2.0f);
+        assert_or_panic(s.d == 3.0f);
+        zig_struct_f32f32_f32((struct Struct_f32f32_f32){ { 1.0f, 2.0f }, 3.0f });
+    }
+
+    {
+        struct Struct_f32_f32f32 s = zig_ret_struct_f32_f32f32();
+        assert_or_panic(s.a == 1.0f);
+        assert_or_panic(s.b.c == 2.0f);
+        assert_or_panic(s.b.d == 3.0f);
+        zig_struct_f32_f32f32((struct Struct_f32_f32f32){ 1.0f, { 2.0f, 3.0f } });
+    }
 #endif
 
-#if !defined __mips__ && !defined ZIG_PPC32
     {
         struct BigStruct s = {1, 2, 3, 4, 5};
         zig_big_struct(s);

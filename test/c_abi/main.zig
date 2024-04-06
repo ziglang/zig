@@ -273,6 +273,7 @@ const Struct_u64_u64 = extern struct {
 export fn zig_ret_struct_u64_u64() Struct_u64_u64 {
     return .{ .a = 1, .b = 2 };
 }
+
 export fn zig_struct_u64_u64_0(s: Struct_u64_u64) void {
     expect(s.a == 3) catch @panic("test failure");
     expect(s.b == 4) catch @panic("test failure");
@@ -326,11 +327,9 @@ test "C ABI struct u64 u64" {
     if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
     if (builtin.cpu.arch.isPPC()) return error.SkipZigTest;
 
-    {
-        const s = c_ret_struct_u64_u64();
-        try expect(s.a == 21);
-        try expect(s.b == 22);
-    }
+    const s = c_ret_struct_u64_u64();
+    try expect(s.a == 21);
+    try expect(s.b == 22);
     c_struct_u64_u64_0(.{ .a = 23, .b = 24 });
     c_struct_u64_u64_1(0, .{ .a = 25, .b = 26 });
     c_struct_u64_u64_2(0, 1, .{ .a = 27, .b = 28 });
@@ -340,6 +339,66 @@ test "C ABI struct u64 u64" {
     c_struct_u64_u64_6(0, 1, 2, 3, 4, 5, .{ .a = 35, .b = 36 });
     c_struct_u64_u64_7(0, 1, 2, 3, 4, 5, 6, .{ .a = 37, .b = 38 });
     c_struct_u64_u64_8(0, 1, 2, 3, 4, 5, 6, 7, .{ .a = 39, .b = 40 });
+}
+
+const Struct_f32f32_f32 = extern struct {
+    a: extern struct { b: f32, c: f32 },
+    d: f32,
+};
+
+export fn zig_ret_struct_f32f32_f32() Struct_f32f32_f32 {
+    return .{ .a = .{ .b = 1.0, .c = 2.0 }, .d = 3.0 };
+}
+
+export fn zig_struct_f32f32_f32(s: Struct_f32f32_f32) void {
+    expect(s.a.b == 1.0) catch @panic("test failure");
+    expect(s.a.c == 2.0) catch @panic("test failure");
+    expect(s.d == 3.0) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_f32f32_f32() Struct_f32f32_f32;
+
+extern fn c_struct_f32f32_f32(Struct_f32f32_f32) void;
+
+test "C ABI struct {f32,f32} f32" {
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    const s = c_ret_struct_f32f32_f32();
+    try expect(s.a.b == 1.0);
+    try expect(s.a.c == 2.0);
+    try expect(s.d == 3.0);
+    c_struct_f32f32_f32(.{ .a = .{ .b = 1.0, .c = 2.0 }, .d = 3.0 });
+}
+
+const Struct_f32_f32f32 = extern struct {
+    a: f32,
+    b: extern struct { c: f32, d: f32 },
+};
+
+export fn zig_ret_struct_f32_f32f32() Struct_f32_f32f32 {
+    return .{ .a = 1.0, .b = .{ .c = 2.0, .d = 3.0 } };
+}
+
+export fn zig_struct_f32_f32f32(s: Struct_f32_f32f32) void {
+    expect(s.a == 1.0) catch @panic("test failure");
+    expect(s.b.c == 2.0) catch @panic("test failure");
+    expect(s.b.d == 3.0) catch @panic("test failure");
+}
+
+extern fn c_ret_struct_f32_f32f32() Struct_f32_f32f32;
+
+extern fn c_struct_f32_f32f32(Struct_f32_f32f32) void;
+
+test "C ABI struct f32 {f32,f32}" {
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
+    if (builtin.cpu.arch.isPPC()) return error.SkipZigTest;
+
+    const s = c_ret_struct_f32_f32f32();
+    try expect(s.a == 1.0);
+    try expect(s.b.c == 2.0);
+    try expect(s.b.d == 3.0);
+    c_struct_f32_f32f32(.{ .a = 1.0, .b = .{ .c = 2.0, .d = 3.0 } });
 }
 
 const BigStruct = extern struct {
