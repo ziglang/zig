@@ -5402,7 +5402,7 @@ fn jitCmd(
     defer thread_pool.deinit();
 
     var child_argv: std.ArrayListUnmanaged([]const u8) = .{};
-    try child_argv.ensureUnusedCapacity(arena, args.len + 2);
+    try child_argv.ensureUnusedCapacity(arena, args.len + 4);
 
     // We want to release all the locks before executing the child process, so we make a nice
     // big block here to ensure the cleanup gets run when we extract out our argv.
