@@ -1448,7 +1448,7 @@ fn computeHash(
                 )),
             };
 
-            if (std.mem.eql(u8, entry.path, Package.build_zig_basename))
+            if (std.mem.eql(u8, entry_pkg_path, Package.build_zig_basename))
                 f.has_build_zig = true;
 
             const fs_path = try arena.dupe(u8, entry.path);
