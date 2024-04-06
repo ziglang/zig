@@ -850,8 +850,6 @@ test "inline switch range that includes the maximum value of the switched type" 
 }
 
 test "nested break ignores switch conditions and breaks instead" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const S = struct {
         fn register_to_address(ident: []const u8) !u8 {
             const reg: u8 = if (std.mem.eql(u8, ident, "zero")) 0x00 else blk: {
