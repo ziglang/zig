@@ -288,13 +288,13 @@ test Date {
 
 const WeekdayInt = IntFittingRange(1, 7);
 pub const WeekdayT = enum(WeekdayInt) {
-    sun = 1,
-    mon = 2,
-    tue = 3,
-    wed = 4,
-    thu = 5,
-    fri = 6,
-    sat = 7,
+    mon = 1,
+    tue = 2,
+    wed = 3,
+    thu = 4,
+    fri = 5,
+    sat = 6,
+    sun = 7,
 
     pub const Int = WeekdayInt;
 
