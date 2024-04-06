@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 
 fn usage() noreturn {
     io.getStdOut().writeAll(
-        \\Usage: zig fmt [options]
+        \\Usage: zig std [options]
         \\
         \\Options:
         \\  -h, --help                Print this help and exit
