@@ -193,12 +193,6 @@ pub const PkgConfigPkg = struct {
     desc: []const u8,
 };
 
-pub const CStd = enum {
-    C89,
-    C99,
-    C11,
-};
-
 const UserInputOptionsMap = StringHashMap(UserInputOption);
 const AvailableOptionsMap = StringHashMap(AvailableOption);
 
