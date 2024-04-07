@@ -1568,23 +1568,24 @@ pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *S
     return Step.ObjCopy.create(b, source, options);
 }
 
-///`dest_rel_path` is relative to install prefix path
-pub fn addInstallFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
-    return self.addInstallFileWithDir(source.dupe(self), .prefix, dest_rel_path);
+/// `dest_rel_path` is relative to install prefix path
+pub fn addInstallFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
+    return b.addInstallFileWithDir(source, .prefix, dest_rel_path);
 }
 
-///`dest_rel_path` is relative to bin path
-pub fn addInstallBinFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
-    return self.addInstallFileWithDir(source.dupe(self), .bin, dest_rel_path);
+/// `dest_rel_path` is relative to bin path
+pub fn addInstallBinFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
+    return b.addInstallFileWithDir(source, .bin, dest_rel_path);
 }
 
-///`dest_rel_path` is relative to lib path
-pub fn addInstallLibFile(self: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
-    return self.addInstallFileWithDir(source.dupe(self), .lib, dest_rel_path);
+/// `dest_rel_path` is relative to lib path
+pub fn addInstallLibFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
+    return b.addInstallFileWithDir(source, .lib, dest_rel_path);
 }
 
-pub fn addInstallHeaderFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) *Step.InstallFile {
-    return b.addInstallFileWithDir(.{ .path = src_path }, .header, dest_rel_path);
+/// `dest_rel_path` is relative to header path
+pub fn addInstallHeaderFile(b: *Build, source: LazyPath, dest_rel_path: []const u8) *Step.InstallFile {
+    return b.addInstallFileWithDir(source, .header, dest_rel_path);
 }
 
 pub fn addInstallFileWithDir(
@@ -1593,7 +1594,7 @@ pub fn addInstallFileWithDir(
     install_dir: InstallDir,
     dest_rel_path: []const u8,
 ) *Step.InstallFile {
-    return Step.InstallFile.create(self, source.dupe(self), install_dir, dest_rel_path);
+    return Step.InstallFile.create(self, source, install_dir, dest_rel_path);
 }
 
 pub fn addInstallDirectory(self: *Build, options: Step.InstallDir.Options) *Step.InstallDir {
