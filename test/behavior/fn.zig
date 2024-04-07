@@ -604,3 +604,17 @@ test "comptime parameters don't have to be marked comptime if only called at com
     };
     comptime std.debug.assert(S.foo(5, 6) == 11);
 }
+
+test "inline function with comptime-known comptime-only return type called at runtime" {
+    const S = struct {
+        inline fn foo(x: *i32, y: *const i32) type {
+            x.* = y.*;
+            return f32;
+        }
+    };
+    var a: i32 = 0;
+    const b: i32 = 111;
+    const T = S.foo(&a, &b);
+    try expectEqual(111, a);
+    try expectEqual(f32, T);
+}

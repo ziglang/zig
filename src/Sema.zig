@@ -7531,10 +7531,12 @@ fn analyzeCall(
 
     var is_generic_call = func_ty_info.is_generic;
     var is_comptime_call = block.is_comptime or modifier == .compile_time;
+    var is_inline_call = is_comptime_call or modifier == .always_inline or func_ty_info.cc == .Inline;
     var comptime_reason: ?*const Block.ComptimeReason = null;
-    if (!is_comptime_call) {
+    if (!is_inline_call and !is_comptime_call) {
         if (sema.typeRequiresComptime(Type.fromInterned(func_ty_info.return_type))) |ct| {
             is_comptime_call = ct;
+            is_inline_call = ct;
             if (ct) {
                 comptime_reason = &.{ .comptime_ret_ty = .{
                     .block = block,
@@ -7548,8 +7550,6 @@ fn analyzeCall(
             else => |e| return e,
         }
     }
-    var is_inline_call = is_comptime_call or modifier == .always_inline or
-        func_ty_info.cc == .Inline;
 
     if (sema.func_is_naked and !is_inline_call and !is_comptime_call) {
         const msg = msg: {
