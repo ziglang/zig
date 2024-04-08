@@ -2166,12 +2166,7 @@ pub const LazyPath = struct {
         },
     },
 
-    /// Returns a new file source that will have a relative path to the build root guaranteed.
-    /// Asserts the parameter is not an absolute path.
-    pub fn relative(p: []const u8) LazyPath {
-        std.debug.assert(!std.fs.path.isAbsolute(p));
-        return LazyPath{ .root = .{ .path = p } };
-    }
+    pub const relative = @compileError("use std.Build.path() instead");
 
     /// Returns a lazy path referring to the directory containing this path.
     ///
