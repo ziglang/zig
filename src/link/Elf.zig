@@ -1461,7 +1461,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        if (self.isEffectivelyDynLib()) {
+        if (self.base.isDynLib()) {
             if (self.soname) |name| {
                 try argv.append("-soname");
                 try argv.append(name);
