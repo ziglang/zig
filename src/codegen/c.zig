@@ -646,8 +646,7 @@ pub const DeclGen = struct {
     fn renderAnonDeclValue(
         dg: *DeclGen,
         writer: anytype,
-        ptr_val: Value,
-        anon_decl: InternPool.Key.Ptr.Addr.AnonDecl,
+        anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const zcu = dg.zcu;
@@ -657,16 +656,16 @@ pub const DeclGen = struct {
         const decl_ty = decl_val.typeOf(zcu);
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        const ptr_ty = ptr_val.typeOf(zcu);
+        const ptr_ty = Type.fromInterned(anon_decl.orig_ty);
         if (ptr_ty.isPtrAtRuntime(zcu) and !decl_ty.isFnOrHasRuntimeBits(zcu)) {
             return dg.writeCValue(writer, .{ .undef = ptr_ty });
         }
 
         // Chase function values in order to be able to reference the original function.
         if (decl_val.getFunction(zcu)) |func|
-            return dg.renderDeclValue(writer, ptr_val, func.owner_decl, location);
+            return dg.renderDeclValue(writer, func.owner_decl, location);
         if (decl_val.getExternFunc(zcu)) |extern_func|
-            return dg.renderDeclValue(writer, ptr_val, extern_func.decl, location);
+            return dg.renderDeclValue(writer, extern_func.decl, location);
 
         assert(decl_val.getVariable(zcu) == null);
 
@@ -712,7 +711,6 @@ pub const DeclGen = struct {
     fn renderDeclValue(
         dg: *DeclGen,
         writer: anytype,
-        val: Value,
         decl_index: InternPool.DeclIndex,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
@@ -722,17 +720,17 @@ pub const DeclGen = struct {
         assert(decl.has_tv);
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        const ty = val.typeOf(zcu);
         const decl_ty = decl.typeOf(zcu);
-        if (ty.isPtrAtRuntime(zcu) and !decl_ty.isFnOrHasRuntimeBits(zcu)) {
-            return dg.writeCValue(writer, .{ .undef = ty });
+        const ptr_ty = try decl.declPtrType(zcu);
+        if (!decl_ty.isFnOrHasRuntimeBits(zcu)) {
+            return dg.writeCValue(writer, .{ .undef = ptr_ty });
         }
 
         // Chase function values in order to be able to reference the original function.
         if (decl.val.getFunction(zcu)) |func| if (func.owner_decl != decl_index)
-            return dg.renderDeclValue(writer, val, func.owner_decl, location);
+            return dg.renderDeclValue(writer, func.owner_decl, location);
         if (decl.val.getExternFunc(zcu)) |extern_func| if (extern_func.decl != decl_index)
-            return dg.renderDeclValue(writer, val, extern_func.decl, location);
+            return dg.renderDeclValue(writer, extern_func.decl, location);
 
         if (decl.val.getVariable(zcu)) |variable| try dg.renderFwdDecl(decl_index, variable, .tentative);
 
@@ -740,7 +738,7 @@ pub const DeclGen = struct {
         // them).  The analysis until now should ensure that the C function
         // pointers are compatible.  If they are not, then there is a bug
         // somewhere and we should let the C compiler tell us about it.
-        const ctype = try dg.ctypeFromType(ty, .complete);
+        const ctype = try dg.ctypeFromType(ptr_ty, .complete);
         const elem_ctype = ctype.info(ctype_pool).pointer.elem_ctype;
         const decl_ctype = try dg.ctypeFromType(decl_ty, .complete);
         const need_cast = !elem_ctype.eql(decl_ctype) and
@@ -755,125 +753,108 @@ pub const DeclGen = struct {
         if (need_cast) try writer.writeByte(')');
     }
 
-    /// Renders a "parent" pointer by recursing to the root decl/variable
-    /// that its contents are defined with respect to.
-    fn renderParentPtr(
+    fn renderPointer(
         dg: *DeclGen,
         writer: anytype,
-        ptr_val: InternPool.Index,
+        derivation: Value.PointerDeriveStep,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const zcu = dg.zcu;
-        const ip = &zcu.intern_pool;
-        const ptr_ty = Type.fromInterned(ip.typeOf(ptr_val));
-        const ptr_ctype = try dg.ctypeFromType(ptr_ty, .complete);
-        const ptr_child_ctype = ptr_ctype.info(&dg.ctype_pool).pointer.elem_ctype;
-        const ptr = ip.indexToKey(ptr_val).ptr;
-        switch (ptr.addr) {
-            .decl => |d| try dg.renderDeclValue(writer, Value.fromInterned(ptr_val), d, location),
-            .anon_decl => |anon_decl| try dg.renderAnonDeclValue(writer, Value.fromInterned(ptr_val), anon_decl, location),
+        switch (derivation) {
+            .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
             .int => |int| {
+                const ptr_ctype = try dg.ctypeFromType(int.ptr_ty, .complete);
+                const addr_val = try zcu.intValue(Type.usize, int.addr);
                 try writer.writeByte('(');
                 try dg.renderCType(writer, ptr_ctype);
-                try writer.print("){x}", .{try dg.fmtIntLiteral(Value.fromInterned(int), .Other)});
+                try writer.print("){x}", .{try dg.fmtIntLiteral(addr_val, .Other)});
             },
-            .eu_payload, .opt_payload => |base| {
-                const ptr_base_ty = Type.fromInterned(ip.typeOf(base));
-                const base_ty = ptr_base_ty.childType(zcu);
-                // Ensure complete type definition is visible before accessing fields.
-                _ = try dg.ctypeFromType(base_ty, .complete);
-                const payload_ty = switch (ptr.addr) {
-                    .eu_payload => base_ty.errorUnionPayload(zcu),
-                    .opt_payload => base_ty.optionalChild(zcu),
-                    else => unreachable,
-                };
-                const payload_ctype = try dg.ctypeFromType(payload_ty, .forward);
-                if (!ptr_child_ctype.eql(payload_ctype)) {
-                    try writer.writeByte('(');
-                    try dg.renderCType(writer, ptr_ctype);
-                    try writer.writeByte(')');
-                }
+
+            .decl_ptr => |decl| try dg.renderDeclValue(writer, decl, location),
+            .anon_decl_ptr => |ad| try dg.renderAnonDeclValue(writer, ad, location),
+
+            inline .eu_payload_ptr, .opt_payload_ptr => |info| {
                 try writer.writeAll("&(");
-                try dg.renderParentPtr(writer, base, location);
+                try dg.renderPointer(writer, info.parent.*, location);
                 try writer.writeAll(")->payload");
             },
-            .elem => |elem| {
-                const ptr_base_ty = Type.fromInterned(ip.typeOf(elem.base));
-                const elem_ty = ptr_base_ty.elemType2(zcu);
-                const elem_ctype = try dg.ctypeFromType(elem_ty, .forward);
-                if (!ptr_child_ctype.eql(elem_ctype)) {
-                    try writer.writeByte('(');
-                    try dg.renderCType(writer, ptr_ctype);
-                    try writer.writeByte(')');
-                }
-                try writer.writeAll("&(");
-                if (ip.indexToKey(ptr_base_ty.toIntern()).ptr_type.flags.size == .One)
-                    try writer.writeByte('*');
-                try dg.renderParentPtr(writer, elem.base, location);
-                try writer.print(")[{d}]", .{elem.index});
-            },
-            .field => |field| {
-                const ptr_base_ty = Type.fromInterned(ip.typeOf(field.base));
-                const base_ty = ptr_base_ty.childType(zcu);
+
+            .field_ptr => |field| {
+                const parent_ptr_ty = try field.parent.ptrType(zcu);
+
                 // Ensure complete type definition is available before accessing fields.
-                _ = try dg.ctypeFromType(base_ty, .complete);
-                switch (fieldLocation(ptr_base_ty, ptr_ty, @as(u32, @intCast(field.index)), zcu)) {
+                _ = try dg.ctypeFromType(parent_ptr_ty.childType(zcu), .complete);
+
+                switch (fieldLocation(parent_ptr_ty, field.result_ptr_ty, field.field_idx, zcu)) {
                     .begin => {
-                        const ptr_base_ctype = try dg.ctypeFromType(ptr_base_ty, .complete);
-                        if (!ptr_ctype.eql(ptr_base_ctype)) {
-                            try writer.writeByte('(');
-                            try dg.renderCType(writer, ptr_ctype);
-                            try writer.writeByte(')');
-                        }
-                        try dg.renderParentPtr(writer, field.base, location);
+                        const ptr_ctype = try dg.ctypeFromType(field.result_ptr_ty, .complete);
+                        try writer.writeByte('(');
+                        try dg.renderCType(writer, ptr_ctype);
+                        try writer.writeByte(')');
+                        try dg.renderPointer(writer, field.parent.*, location);
                     },
                     .field => |name| {
-                        const field_ty = switch (ip.indexToKey(base_ty.toIntern())) {
-                            .anon_struct_type,
-                            .struct_type,
-                            .union_type,
-                            => base_ty.structFieldType(@as(usize, @intCast(field.index)), zcu),
-                            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                                .One, .Many, .C => unreachable,
-                                .Slice => switch (field.index) {
-                                    Value.slice_ptr_index => base_ty.slicePtrFieldType(zcu),
-                                    Value.slice_len_index => Type.usize,
-                                    else => unreachable,
-                                },
-                            },
-                            else => unreachable,
-                        };
-                        const field_ctype = try dg.ctypeFromType(field_ty, .forward);
-                        if (!ptr_child_ctype.eql(field_ctype)) {
-                            try writer.writeByte('(');
-                            try dg.renderCType(writer, ptr_ctype);
-                            try writer.writeByte(')');
-                        }
                         try writer.writeAll("&(");
-                        try dg.renderParentPtr(writer, field.base, location);
+                        try dg.renderPointer(writer, field.parent.*, location);
                         try writer.writeAll(")->");
                         try dg.writeCValue(writer, name);
                     },
                     .byte_offset => |byte_offset| {
-                        const u8_ptr_ty = try zcu.adjustPtrTypeChild(ptr_ty, Type.u8);
-                        const u8_ptr_ctype = try dg.ctypeFromType(u8_ptr_ty, .complete);
-
-                        if (!ptr_ctype.eql(u8_ptr_ctype)) {
-                            try writer.writeByte('(');
-                            try dg.renderCType(writer, ptr_ctype);
-                            try writer.writeByte(')');
-                        }
-                        try writer.writeAll("((");
-                        try dg.renderCType(writer, u8_ptr_ctype);
+                        const ptr_ctype = try dg.ctypeFromType(field.result_ptr_ty, .complete);
+                        try writer.writeByte('(');
+                        try dg.renderCType(writer, ptr_ctype);
                         try writer.writeByte(')');
-                        try dg.renderParentPtr(writer, field.base, location);
-                        try writer.print(" + {})", .{
-                            try dg.fmtIntLiteral(try zcu.intValue(Type.usize, byte_offset), .Other),
-                        });
+                        const offset_val = try zcu.intValue(Type.usize, byte_offset);
+                        try writer.writeAll("((char *)");
+                        try dg.renderPointer(writer, field.parent.*, location);
+                        try writer.print(" + {})", .{try dg.fmtIntLiteral(offset_val, .Other)});
                     },
                 }
             },
-            .comptime_field, .comptime_alloc => unreachable,
+
+            .elem_ptr => |elem| if (!(try elem.parent.ptrType(zcu)).childType(zcu).hasRuntimeBits(zcu)) {
+                // Element type is zero-bit, so lowers to `void`. The index is irrelevant; just cast the pointer.
+                const ptr_ctype = try dg.ctypeFromType(elem.result_ptr_ty, .complete);
+                try writer.writeByte('(');
+                try dg.renderCType(writer, ptr_ctype);
+                try writer.writeByte(')');
+                try dg.renderPointer(writer, elem.parent.*, location);
+            } else {
+                const index_val = try zcu.intValue(Type.usize, elem.elem_idx);
+                // We want to do pointer arithmetic on a pointer to the element type.
+                // We might have a pointer-to-array. In this case, we must cast first.
+                const result_ctype = try dg.ctypeFromType(elem.result_ptr_ty, .complete);
+                const parent_ctype = try dg.ctypeFromType(try elem.parent.ptrType(zcu), .complete);
+                if (result_ctype.eql(parent_ctype)) {
+                    // The pointer already has an appropriate type - just do the arithmetic.
+                    try writer.writeByte('(');
+                    try dg.renderPointer(writer, elem.parent.*, location);
+                    try writer.print(" + {})", .{try dg.fmtIntLiteral(index_val, .Other)});
+                } else {
+                    // We probably have an array pointer `T (*)[n]`. Cast to an element pointer,
+                    // and *then* apply the index.
+                    try writer.writeAll("((");
+                    try dg.renderCType(writer, result_ctype);
+                    try writer.writeByte(')');
+                    try dg.renderPointer(writer, elem.parent.*, location);
+                    try writer.print(" + {})", .{try dg.fmtIntLiteral(index_val, .Other)});
+                }
+            },
+
+            .offset_and_cast => |oac| {
+                const ptr_ctype = try dg.ctypeFromType(oac.new_ptr_ty, .complete);
+                try writer.writeByte('(');
+                try dg.renderCType(writer, ptr_ctype);
+                try writer.writeByte(')');
+                if (oac.byte_offset == 0) {
+                    try dg.renderPointer(writer, oac.parent.*, location);
+                } else {
+                    const offset_val = try zcu.intValue(Type.usize, oac.byte_offset);
+                    try writer.writeAll("((char *)");
+                    try dg.renderPointer(writer, oac.parent.*, location);
+                    try writer.print(" + {})", .{try dg.fmtIntLiteral(offset_val, .Other)});
+                }
+            },
         }
     }
 
@@ -1103,20 +1084,11 @@ pub const DeclGen = struct {
                 }
                 try writer.writeByte('}');
             },
-            .ptr => |ptr| switch (ptr.addr) {
-                .decl => |d| try dg.renderDeclValue(writer, val, d, location),
-                .anon_decl => |decl_val| try dg.renderAnonDeclValue(writer, val, decl_val, location),
-                .int => |int| {
-                    try writer.writeAll("((");
-                    try dg.renderCType(writer, ctype);
-                    try writer.print("){x})", .{try dg.fmtIntLiteral(Value.fromInterned(int), location)});
-                },
-                .eu_payload,
-                .opt_payload,
-                .elem,
-                .field,
-                => try dg.renderParentPtr(writer, val.toIntern(), location),
-                .comptime_field, .comptime_alloc => unreachable,
+            .ptr => {
+                var arena = std.heap.ArenaAllocator.init(zcu.gpa);
+                defer arena.deinit();
+                const derivation = try val.pointerDerivation(arena.allocator(), zcu);
+                try dg.renderPointer(writer, derivation, location);
             },
             .opt => |opt| switch (ctype.info(ctype_pool)) {
                 .basic => if (ctype.isBool()) try writer.writeAll(switch (opt.val) {
@@ -4574,10 +4546,10 @@ fn airCall(
                 break :fn_decl switch (zcu.intern_pool.indexToKey(callee_val.toIntern())) {
                     .extern_func => |extern_func| extern_func.decl,
                     .func => |func| func.owner_decl,
-                    .ptr => |ptr| switch (ptr.addr) {
+                    .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                         .decl => |decl| decl,
                         else => break :known,
-                    },
+                    } else break :known,
                     else => break :known,
                 };
             };
@@ -5147,10 +5119,10 @@ fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool 
         'I' => !target.cpu.arch.isArmOrThumb(),
         else => switch (value) {
             .constant => |val| switch (f.object.dg.zcu.intern_pool.indexToKey(val.toIntern())) {
-                .ptr => |ptr| switch (ptr.addr) {
+                .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                     .decl => false,
                     else => true,
-                },
+                } else true,
                 else => true,
             },
             else => false,

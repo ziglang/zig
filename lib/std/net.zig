@@ -271,13 +271,16 @@ pub const Ip4Address = extern struct {
     sa: posix.sockaddr.in,
 
     pub fn parse(buf: []const u8, port: u16) IPv4ParseError!Ip4Address {
-        var result = Ip4Address{
+        var result: Ip4Address = .{
             .sa = .{
                 .port = mem.nativeToBig(u16, port),
                 .addr = undefined,
             },
         };
         const out_ptr = mem.asBytes(&result.sa.addr);
+        if (@inComptime()) {
+            @memset(out_ptr, 0); // TODO: #19634
+        }
 
         var x: u8 = 0;
         var index: u8 = 0;
@@ -389,6 +392,9 @@ pub const Ip6Address = extern struct {
                 .addr = undefined,
             },
         };
+        if (@inComptime()) {
+            @memset(std.mem.asBytes(&result.sa.addr), 0); // TODO: #19634
+        }
         var ip_slice: *[16]u8 = result.sa.addr[0..];
 
         var tail: [16]u8 = undefined;
@@ -507,6 +513,9 @@ pub const Ip6Address = extern struct {
                 .addr = undefined,
             },
         };
+        if (@inComptime()) {
+            @memset(std.mem.asBytes(&result.sa.addr), 0); // TODO: #19634
+        }
         var ip_slice: *[16]u8 = result.sa.addr[0..];
 
         var tail: [16]u8 = undefined;

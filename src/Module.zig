@@ -528,21 +528,6 @@ pub const Decl = struct {
         return zcu.namespacePtrUnwrap(decl.getInnerNamespaceIndex(zcu));
     }
 
-    pub fn dump(decl: *Decl) void {
-        const loc = std.zig.findLineColumn(decl.scope.source.bytes, decl.src);
-        std.debug.print("{s}:{d}:{d} name={d} status={s}", .{
-            decl.scope.sub_file_path,
-            loc.line + 1,
-            loc.column + 1,
-            @intFromEnum(decl.name),
-            @tagName(decl.analysis),
-        });
-        if (decl.has_tv) {
-            std.debug.print(" val={}", .{decl.val});
-        }
-        std.debug.print("\n", .{});
-    }
-
     pub fn getFileScope(decl: Decl, zcu: *Zcu) *File {
         return zcu.namespacePtr(decl.src_namespace).file_scope;
     }
@@ -659,6 +644,22 @@ pub const Decl = struct {
                 .lazy = lazy,
             },
         };
+    }
+
+    pub fn declPtrType(decl: Decl, zcu: *Zcu) !Type {
+        assert(decl.has_tv);
+        const decl_ty = decl.typeOf(zcu);
+        return zcu.ptrType(.{
+            .child = decl_ty.toIntern(),
+            .flags = .{
+                .alignment = if (decl.alignment == decl_ty.abiAlignment(zcu))
+                    .none
+                else
+                    decl.alignment,
+                .address_space = decl.@"addrspace",
+                .is_const = decl.getOwnedVariable(zcu) == null,
+            },
+        });
     }
 };
 
@@ -3535,6 +3536,10 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     }
 
     log.debug("semaDecl '{d}'", .{@intFromEnum(decl_index)});
+    log.debug("decl name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish decl name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
 
     const old_has_tv = decl.has_tv;
     // The following values are ignored if `!old_has_tv`
@@ -4122,10 +4127,11 @@ fn newEmbedFile(
     })).toIntern();
     const ptr_val = try ip.get(gpa, .{ .ptr = .{
         .ty = ptr_ty,
-        .addr = .{ .anon_decl = .{
+        .base_addr = .{ .anon_decl = .{
             .val = array_val,
             .orig_ty = ptr_ty,
         } },
+        .byte_offset = 0,
     } });
 
     result.* = new_file;
@@ -4488,6 +4494,11 @@ pub fn analyzeFnBody(mod: *Module, func_index: InternPool.Index, arena: Allocato
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
+
+    log.debug("func name '{}'", .{(try decl.fullyQualifiedName(mod)).fmt(ip)});
+    defer blk: {
+        log.debug("finish func name '{}'", .{(decl.fullyQualifiedName(mod) catch break :blk).fmt(ip)});
+    }
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .func = func_index }));
 
@@ -5332,7 +5343,7 @@ pub fn populateTestFunctions(
     const decl = mod.declPtr(decl_index);
     const test_fn_ty = decl.typeOf(mod).slicePtrFieldType(mod).childType(mod);
 
-    const array_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = array: {
+    const array_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = array: {
         // Add mod.test_functions to an array decl then make the test_functions
         // decl reference it as a slice.
         const test_fn_vals = try gpa.alloc(InternPool.Index, mod.test_functions.count());
@@ -5342,7 +5353,7 @@ pub fn populateTestFunctions(
             const test_decl = mod.declPtr(test_decl_index);
             const test_decl_name = try test_decl.fullyQualifiedName(mod);
             const test_decl_name_len = test_decl_name.length(ip);
-            const test_name_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = n: {
+            const test_name_anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl = n: {
                 const test_name_ty = try mod.arrayType(.{
                     .len = test_decl_name_len,
                     .child = .u8_type,
@@ -5363,7 +5374,8 @@ pub fn populateTestFunctions(
                     .ty = .slice_const_u8_type,
                     .ptr = try mod.intern(.{ .ptr = .{
                         .ty = .manyptr_const_u8_type,
-                        .addr = .{ .anon_decl = test_name_anon_decl },
+                        .base_addr = .{ .anon_decl = test_name_anon_decl },
+                        .byte_offset = 0,
                     } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
@@ -5378,7 +5390,8 @@ pub fn populateTestFunctions(
                             .is_const = true,
                         },
                     } }),
-                    .addr = .{ .decl = test_decl_index },
+                    .base_addr = .{ .decl = test_decl_index },
+                    .byte_offset = 0,
                 } }),
             };
             test_fn_val.* = try mod.intern(.{ .aggregate = .{
@@ -5415,7 +5428,8 @@ pub fn populateTestFunctions(
             .ty = new_ty.toIntern(),
             .ptr = try mod.intern(.{ .ptr = .{
                 .ty = new_ty.slicePtrFieldType(mod).toIntern(),
-                .addr = .{ .anon_decl = array_anon_decl },
+                .base_addr = .{ .anon_decl = array_anon_decl },
+                .byte_offset = 0,
             } }),
             .len = (try mod.intValue(Type.usize, mod.test_functions.count())).toIntern(),
         } });
@@ -5680,9 +5694,11 @@ pub fn errorSetFromUnsortedNames(
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(mod: *Module, ty: Type, x: u64) Allocator.Error!Value {
     assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
+    assert(x != 0 or ty.isAllowzeroPtr(mod));
     const i = try intern(mod, .{ .ptr = .{
         .ty = ty.toIntern(),
-        .addr = .{ .int = (try mod.intValue_u64(Type.usize, x)).toIntern() },
+        .base_addr = .int,
+        .byte_offset = x,
     } });
     return Value.fromInterned(i);
 }
