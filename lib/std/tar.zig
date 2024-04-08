@@ -1282,3 +1282,21 @@ test "writer" {
     try w.directory("01223456789" ** 9);
     try w.close();
 }
+
+test "walk" {
+    const gpa = testing.allocator;
+    var dir = try std.fs.cwd().openDir(".", .{ .iterate = true });
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next()) |entry| {
+        switch (entry.kind) {
+            .directory => {
+                std.debug.print("entry: {s} {s}\n", .{ entry.path, entry.basename });
+            },
+            .sym_link => {},
+            .file => {},
+            else => {},
+        }
+    }
+}
