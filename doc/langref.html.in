@@ -5577,7 +5577,7 @@ fn doAThing(str: []u8) void {
       errors in the {#syntax#}else{#endsyntax#} case, which now contains a narrower error set:
       </p>
       {#syntax_block|zig|handle_some_error_scenarios.zig#}
- fn doAnotherThing(str: []u8) error{InvaidChar}!void {
+ fn doAnotherThing(str: []u8) error{InvalidChar}!void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
     } else |err| switch (err) {
@@ -8014,10 +8014,16 @@ test "global assembly" {
       {#header_close#}
 
       {#header_open|Async Functions#}
-      <p>Async functions are being temporarily regressed and will be
-      <a href="https://github.com/ziglang/zig/issues/6025">restored before Zig
-        0.11.0 is tagged</a>. I apologize for the instability. Please use Zig 0.10.0 with
-      the <code>-fstage1</code> flag for now if you need this feature.</p>
+      <p>Async functions regressed with the release of 0.11.0. Their future in
+      the Zig language is unclear due to multiple unsolved problems:</p>
+      <ul>
+        <li>LLVM's lack of ability to optimize them.</li>
+        <li>Third-party debuggers' lack of ability to debug them.</li>
+        <li><a href="https://github.com/ziglang/zig/issues/5913">The cancellation problem</a>.</li>
+        <li>Async function pointers preventing the stack size from being known.</li>
+      </ul>
+      <p>These problems are surmountable, but it will take time. The Zig team
+      is currently focused on other priorities.</p>
       {#header_close#}
 
       {#header_open|Builtin Functions|2col#}

@@ -376,6 +376,106 @@ test "lists with block content" {
     );
 }
 
+test "indented lists" {
+    try testRender(
+        \\Test:
+        \\ * a1
+        \\ * a2
+        \\      * b1
+        \\      * b2
+        \\
+        \\---
+        \\
+        \\    Test:
+        \\  - One
+        \\Two
+        \\    - Three
+        \\Four
+        \\    Five
+        \\Six
+        \\
+        \\---
+        \\
+        \\None of these items are indented far enough from the previous one to
+        \\start a nested list:
+        \\  - One
+        \\   - Two
+        \\    - Three
+        \\     - Four
+        \\      - Five
+        \\     - Six
+        \\    - Seven
+        \\   - Eight
+        \\  - Nine
+        \\
+        \\---
+        \\
+        \\   - One
+        \\     - Two
+        \\       - Three
+        \\         - Four
+        \\     - Five
+        \\         - Six
+        \\- Seven
+        \\
+    ,
+        \\<p>Test:</p>
+        \\<ul>
+        \\<li>a1</li>
+        \\<li>a2<ul>
+        \\<li>b1</li>
+        \\<li>b2</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\<hr />
+        \\<p>Test:</p>
+        \\<ul>
+        \\<li>One
+        \\Two<ul>
+        \\<li>Three
+        \\Four
+        \\Five
+        \\Six</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\<hr />
+        \\<p>None of these items are indented far enough from the previous one to
+        \\start a nested list:</p>
+        \\<ul>
+        \\<li>One</li>
+        \\<li>Two</li>
+        \\<li>Three</li>
+        \\<li>Four</li>
+        \\<li>Five</li>
+        \\<li>Six</li>
+        \\<li>Seven</li>
+        \\<li>Eight</li>
+        \\<li>Nine</li>
+        \\</ul>
+        \\<hr />
+        \\<ul>
+        \\<li>One<ul>
+        \\<li>Two<ul>
+        \\<li>Three<ul>
+        \\<li>Four</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\</li>
+        \\<li>Five<ul>
+        \\<li>Six</li>
+        \\</ul>
+        \\</li>
+        \\</ul>
+        \\</li>
+        \\<li>Seven</li>
+        \\</ul>
+        \\
+    );
+}
+
 test "tables" {
     try testRender(
         \\| Operator | Meaning          |
@@ -393,6 +493,10 @@ test "tables" {
         \\
         \\| :--- | :----: | ----: |
         \\| Left | Center | Right |
+        \\
+        \\   | One | Two |
+        \\ | Three |     Four   |
+        \\         | Five | Six |
         \\
     ,
         \\<table>
@@ -444,6 +548,20 @@ test "tables" {
         \\<td style="text-align: left">Left</td>
         \\<td style="text-align: center">Center</td>
         \\<td style="text-align: right">Right</td>
+        \\</tr>
+        \\</table>
+        \\<table>
+        \\<tr>
+        \\<td>One</td>
+        \\<td>Two</td>
+        \\</tr>
+        \\<tr>
+        \\<td>Three</td>
+        \\<td>Four</td>
+        \\</tr>
+        \\<tr>
+        \\<td>Five</td>
+        \\<td>Six</td>
         \\</tr>
         \\</table>
         \\
@@ -597,6 +715,14 @@ test "code blocks" {
         \\    try std.testing.expect(2 + 2 == 4);
         \\}
         \\```
+        \\   ```
+        \\   Indentation up to the fence is removed.
+        \\        Like this.
+        \\ Doesn't need to be fully indented.
+        \\  ```
+        \\```
+        \\Overly indented closing fence is fine:
+        \\    ```
         \\
     ,
         \\<pre><code>Hello, world!
@@ -607,6 +733,12 @@ test "code blocks" {
         \\test {
         \\    try std.testing.expect(2 + 2 == 4);
         \\}
+        \\</code></pre>
+        \\<pre><code>Indentation up to the fence is removed.
+        \\     Like this.
+        \\Doesn't need to be fully indented.
+        \\</code></pre>
+        \\<pre><code>Overly indented closing fence is fine:
         \\</code></pre>
         \\
     );

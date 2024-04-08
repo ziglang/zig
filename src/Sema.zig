@@ -4557,14 +4557,20 @@ fn zirValidateArrayInitRefTy(
     };
     const ptr_ty = maybe_wrapped_ptr_ty.optEuBaseType(mod);
     assert(ptr_ty.zigTypeTag(mod) == .Pointer); // validated by a previous instruction
-    if (ptr_ty.isSlice(mod)) {
-        // Use array of correct length
-        const arr_ty = try mod.arrayType(.{
-            .len = extra.elem_count,
-            .child = ptr_ty.childType(mod).toIntern(),
-            .sentinel = if (ptr_ty.sentinel(mod)) |s| s.toIntern() else .none,
-        });
-        return Air.internedToRef(arr_ty.toIntern());
+    switch (mod.intern_pool.indexToKey(ptr_ty.toIntern())) {
+        .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
+            .Slice, .Many => {
+                // Use array of correct length
+                const arr_ty = try mod.arrayType(.{
+                    .len = extra.elem_count,
+                    .child = ptr_ty.childType(mod).toIntern(),
+                    .sentinel = if (ptr_ty.sentinel(mod)) |s| s.toIntern() else .none,
+                });
+                return Air.internedToRef(arr_ty.toIntern());
+            },
+            else => {},
+        },
+        else => {},
     }
     // Otherwise, we just want the pointer child type
     const ret_ty = ptr_ty.childType(mod);
@@ -7525,10 +7531,12 @@ fn analyzeCall(
 
     var is_generic_call = func_ty_info.is_generic;
     var is_comptime_call = block.is_comptime or modifier == .compile_time;
+    var is_inline_call = is_comptime_call or modifier == .always_inline or func_ty_info.cc == .Inline;
     var comptime_reason: ?*const Block.ComptimeReason = null;
-    if (!is_comptime_call) {
+    if (!is_inline_call and !is_comptime_call) {
         if (sema.typeRequiresComptime(Type.fromInterned(func_ty_info.return_type))) |ct| {
             is_comptime_call = ct;
+            is_inline_call = ct;
             if (ct) {
                 comptime_reason = &.{ .comptime_ret_ty = .{
                     .block = block,
@@ -7542,8 +7550,6 @@ fn analyzeCall(
             else => |e| return e,
         }
     }
-    var is_inline_call = is_comptime_call or modifier == .always_inline or
-        func_ty_info.cc == .Inline;
 
     if (sema.func_is_naked and !is_inline_call and !is_comptime_call) {
         const msg = msg: {
@@ -18707,13 +18713,14 @@ fn typeInfoNamespaceDecls(
     const decls = namespace.decls.keys();
     for (decls) |decl_index| {
         const decl = mod.declPtr(decl_index);
+        if (!decl.is_pub) continue;
         if (decl.kind == .@"usingnamespace") {
             if (decl.analysis == .in_progress) continue;
             try mod.ensureDeclAnalyzed(decl_index);
             try sema.typeInfoNamespaceDecls(block, decl.val.toType().getNamespaceIndex(mod), declaration_ty, decl_vals, seen_namespaces);
             continue;
         }
-        if (decl.kind != .named or !decl.is_pub) continue;
+        if (decl.kind != .named) continue;
         const name_val = v: {
             // TODO: write something like getCoercedInts to avoid needing to dupe
             const name = try sema.arena.dupeZ(u8, ip.stringToSlice(decl.name));

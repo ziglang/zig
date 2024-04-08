@@ -59,7 +59,13 @@ test_runner: ?[]const u8,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: ArrayList(*Step),
+installed_headers: ArrayList(HeaderInstallation),
+
+/// This step is used to create an include tree that dependent modules can add to their include
+/// search paths. Installed headers are copied to this step.
+/// This step is created the first time a module links with this artifact and is not
+/// created otherwise.
+installed_headers_include_tree: ?*Step.WriteFile = null,
 
 // keep in sync with src/Compilation.zig:RcIncludes
 /// Behavior of automatic detection of include directories when compiling .rc files.
@@ -249,6 +255,90 @@ pub const Kind = enum {
     @"test",
 };
 
+pub const HeaderInstallation = union(enum) {
+    file: File,
+    directory: Directory,
+
+    pub const File = struct {
+        source: LazyPath,
+        dest_rel_path: []const u8,
+
+        pub fn dupe(self: File, b: *std.Build) File {
+            // 'path' lazy paths are relative to the build root of some step, inferred from the step
+            // in which they are used. This means that we can't dupe such paths, because they may
+            // come from dependencies with their own build roots and duping the paths as is might
+            // cause the build script to search for the file relative to the wrong root.
+            // As a temporary workaround, we convert build root-relative paths to absolute paths.
+            // If/when the build-root relative paths are updated to encode which build root they are
+            // relative to, this workaround should be removed.
+            const duped_source: LazyPath = switch (self.source) {
+                .path => |root_rel| .{ .cwd_relative = b.pathFromRoot(root_rel) },
+                else => self.source.dupe(b),
+            };
+
+            return .{
+                .source = duped_source,
+                .dest_rel_path = b.dupePath(self.dest_rel_path),
+            };
+        }
+    };
+
+    pub const Directory = struct {
+        source: LazyPath,
+        dest_rel_path: []const u8,
+        options: Directory.Options,
+
+        pub const Options = struct {
+            /// File paths that end in any of these suffixes will be excluded from installation.
+            exclude_extensions: []const []const u8 = &.{},
+            /// Only file paths that end in any of these suffixes will be included in installation.
+            /// `null` means that all suffixes will be included.
+            /// `exclude_extensions` takes precedence over `include_extensions`.
+            include_extensions: ?[]const []const u8 = &.{".h"},
+
+            pub fn dupe(self: Directory.Options, b: *std.Build) Directory.Options {
+                return .{
+                    .exclude_extensions = b.dupeStrings(self.exclude_extensions),
+                    .include_extensions = if (self.include_extensions) |incs| b.dupeStrings(incs) else null,
+                };
+            }
+        };
+
+        pub fn dupe(self: Directory, b: *std.Build) Directory {
+            // 'path' lazy paths are relative to the build root of some step, inferred from the step
+            // in which they are used. This means that we can't dupe such paths, because they may
+            // come from dependencies with their own build roots and duping the paths as is might
+            // cause the build script to search for the file relative to the wrong root.
+            // As a temporary workaround, we convert build root-relative paths to absolute paths.
+            // If/when the build-root relative paths are updated to encode which build root they are
+            // relative to, this workaround should be removed.
+            const duped_source: LazyPath = switch (self.source) {
+                .path => |root_rel| .{ .cwd_relative = b.pathFromRoot(root_rel) },
+                else => self.source.dupe(b),
+            };
+
+            return .{
+                .source = duped_source,
+                .dest_rel_path = b.dupePath(self.dest_rel_path),
+                .options = self.options.dupe(b),
+            };
+        }
+    };
+
+    pub fn getSource(self: HeaderInstallation) LazyPath {
+        return switch (self) {
+            inline .file, .directory => |x| x.source,
+        };
+    }
+
+    pub fn dupe(self: HeaderInstallation, b: *std.Build) HeaderInstallation {
+        return switch (self) {
+            .file => |f| .{ .file = f.dupe(b) },
+            .directory => |d| .{ .directory = d.dupe(b) },
+        };
+    }
+};
+
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
@@ -308,7 +398,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = ArrayList(*Step).init(owner.allocator),
+        .installed_headers = ArrayList(HeaderInstallation).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
@@ -380,78 +470,85 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     return self;
 }
 
-pub fn installHeader(cs: *Compile, src_path: []const u8, dest_rel_path: []const u8) void {
+/// Marks the specified header for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
+pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
-    const install_file = b.addInstallHeaderFile(src_path, dest_rel_path);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
+    const installation: HeaderInstallation = .{ .file = .{
+        .source = source.dupe(b),
+        .dest_rel_path = b.dupePath(dest_rel_path),
+    } };
+    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.addHeaderInstallationToIncludeTree(installation);
+    installation.getSource().addStepDependencies(&cs.step);
 }
 
-pub const InstallConfigHeaderOptions = struct {
-    install_dir: InstallDir = .header,
-    dest_rel_path: ?[]const u8 = null,
-};
-
-pub fn installConfigHeader(
-    cs: *Compile,
-    config_header: *Step.ConfigHeader,
-    options: InstallConfigHeaderOptions,
-) void {
-    const dest_rel_path = options.dest_rel_path orelse config_header.include_path;
-    const b = cs.step.owner;
-    const install_file = b.addInstallFileWithDir(
-        .{ .generated = &config_header.output_file },
-        options.install_dir,
-        dest_rel_path,
-    );
-    install_file.step.dependOn(&config_header.step);
-    b.getInstallStep().dependOn(&install_file.step);
-    cs.installed_headers.append(&install_file.step) catch @panic("OOM");
-}
-
+/// Marks headers from the specified directory for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
 pub fn installHeadersDirectory(
-    a: *Compile,
-    src_dir_path: []const u8,
-    dest_rel_path: []const u8,
-) void {
-    return installHeadersDirectoryOptions(a, .{
-        .source_dir = .{ .path = src_dir_path },
-        .install_dir = .header,
-        .install_subdir = dest_rel_path,
-    });
-}
-
-pub fn installHeadersDirectoryOptions(
     cs: *Compile,
-    options: std.Build.Step.InstallDir.Options,
+    source: LazyPath,
+    dest_rel_path: []const u8,
+    options: HeaderInstallation.Directory.Options,
 ) void {
     const b = cs.step.owner;
-    const install_dir = b.addInstallDirectory(options);
-    b.getInstallStep().dependOn(&install_dir.step);
-    cs.installed_headers.append(&install_dir.step) catch @panic("OOM");
+    const installation: HeaderInstallation = .{ .directory = .{
+        .source = source.dupe(b),
+        .dest_rel_path = b.dupePath(dest_rel_path),
+        .options = options.dupe(b),
+    } };
+    cs.installed_headers.append(installation) catch @panic("OOM");
+    cs.addHeaderInstallationToIncludeTree(installation);
+    installation.getSource().addStepDependencies(&cs.step);
 }
 
-pub fn installLibraryHeaders(cs: *Compile, l: *Compile) void {
-    assert(l.kind == .lib);
-    const b = cs.step.owner;
-    const install_step = b.getInstallStep();
-    // Copy each element from installed_headers, modifying the builder
-    // to be the new parent's builder.
-    for (l.installed_headers.items) |step| {
-        const step_copy = switch (step.id) {
-            inline .install_file, .install_dir => |id| blk: {
-                const T = id.Type();
-                const ptr = b.allocator.create(T) catch @panic("OOM");
-                ptr.* = step.cast(T).?.*;
-                ptr.dest_builder = b;
-                break :blk &ptr.step;
-            },
-            else => unreachable,
-        };
-        cs.installed_headers.append(step_copy) catch @panic("OOM");
-        install_step.dependOn(step_copy);
+/// Marks the specified config header for installation alongside this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
+pub fn installConfigHeader(cs: *Compile, config_header: *Step.ConfigHeader) void {
+    cs.installHeader(config_header.getOutput(), config_header.include_path);
+}
+
+/// Forwards all headers marked for installation from `lib` to this artifact.
+/// When a module links with this artifact, all headers marked for installation are added to that
+/// module's include search path.
+pub fn installLibraryHeaders(cs: *Compile, lib: *Compile) void {
+    assert(lib.kind == .lib);
+    for (lib.installed_headers.items) |installation| {
+        const installation_copy = installation.dupe(lib.step.owner);
+        cs.installed_headers.append(installation_copy) catch @panic("OOM");
+        cs.addHeaderInstallationToIncludeTree(installation_copy);
+        installation_copy.getSource().addStepDependencies(&cs.step);
     }
-    cs.installed_headers.appendSlice(l.installed_headers.items) catch @panic("OOM");
+}
+
+fn addHeaderInstallationToIncludeTree(cs: *Compile, installation: HeaderInstallation) void {
+    if (cs.installed_headers_include_tree) |wf| switch (installation) {
+        .file => |file| {
+            _ = wf.addCopyFile(file.source, file.dest_rel_path);
+        },
+        .directory => |dir| {
+            _ = wf.addCopyDirectory(dir.source, dir.dest_rel_path, .{
+                .exclude_extensions = dir.options.exclude_extensions,
+                .include_extensions = dir.options.include_extensions,
+            });
+        },
+    };
+}
+
+pub fn getEmittedIncludeTree(cs: *Compile) LazyPath {
+    if (cs.installed_headers_include_tree) |wf| return wf.getDirectory();
+    const b = cs.step.owner;
+    const wf = b.addWriteFiles();
+    cs.installed_headers_include_tree = wf;
+    for (cs.installed_headers.items) |installation| {
+        cs.addHeaderInstallationToIncludeTree(installation);
+    }
+    // The compile step itself does not need to depend on the write files step,
+    // only dependent modules do.
+    return wf.getDirectory();
 }
 
 pub fn addObjCopy(cs: *Compile, options: Step.ObjCopy.Options) *Step.ObjCopy {

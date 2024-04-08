@@ -2078,7 +2078,7 @@ pub const DeclGen = struct {
         else
             false;
         if (variable.is_weak_linkage or export_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
-        if (variable.is_threadlocal) try fwd.writeAll("zig_threadlocal ");
+        if (variable.is_threadlocal and !dg.mod.single_threaded) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
             fwd,
             decl.typeOf(zcu),
@@ -2899,7 +2899,7 @@ pub fn genDecl(o: *Object) !void {
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
-        if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
+        if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
         if (zcu.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
         const decl_c_value = .{ .decl = decl_index };
@@ -4120,7 +4120,7 @@ fn airEquality(
 
     const operand_ty = f.typeOf(bin_op.lhs);
     const operand_bits = operand_ty.bitSize(zcu);
-    if (operand_ty.isInt(zcu) and operand_bits > 64)
+    if (operand_ty.isAbiInt(zcu) and operand_bits > 64)
         return airCmpBuiltinCall(
             f,
             inst,
@@ -4474,9 +4474,9 @@ fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
     const owner_decl = zcu.funcOwnerDeclPtr(extra.data.func);
     const writer = f.object.writer();
-    try writer.writeAll("/* ");
+    try writer.writeAll("/* inline:");
     try owner_decl.renderFullyQualifiedName(zcu, writer);
-    try writer.writeAll(" */ ");
+    try writer.writeAll(" */\n");
     return lowerBlock(f, inst, @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]));
 }
 

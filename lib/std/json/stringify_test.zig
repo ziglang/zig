@@ -51,7 +51,7 @@ fn testBasicWriteStream(w: anytype, slice_stream: anytype) !void {
     defer arena_allocator.deinit();
     try w.write(try getJsonObject(arena_allocator.allocator()));
 
-    try w.objectField("string");
+    try w.objectFieldRaw("\"string\"");
     try w.write("This is a string");
 
     try w.objectField("array");

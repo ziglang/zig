@@ -152,7 +152,7 @@ const Block = struct {
                 ""
             else
                 null,
-            .table => if (unindented.len > 0) unindented else null,
+            .table => if (unindented.len > 0) line else null,
             .table_row => null,
             .heading => null,
             .code_block => code_block: {
@@ -168,7 +168,7 @@ const Block = struct {
                 unindented[1..]
             else
                 null,
-            .paragraph => if (unindented.len > 0) unindented else null,
+            .paragraph => if (unindented.len > 0) line else null,
             .thematic_break => null,
         };
     }
@@ -225,7 +225,7 @@ pub fn feedLine(p: *Parser, line: []const u8) Allocator.Error!void {
         p.pending_blocks.items.len > 0 and
         p.pending_blocks.getLast().tag == .paragraph)
     {
-        try p.addScratchStringLine(rest_line);
+        try p.addScratchStringLine(mem.trimLeft(u8, rest_line, " \t"));
         return;
     }
 
@@ -271,8 +271,8 @@ pub fn feedLine(p: *Parser, line: []const u8) Allocator.Error!void {
             // loose, since we might just be looking at a blank line after the
             // end of the last item in the list. The final determination will be
             // made when appending the next child of the list or list item.
-            const maybe_containing_list = if (p.pending_blocks.items.len > 0 and p.pending_blocks.getLast().tag == .list_item)
-                &p.pending_blocks.items[p.pending_blocks.items.len - 2]
+            const maybe_containing_list_index = if (p.pending_blocks.items.len > 0 and p.pending_blocks.getLast().tag == .list_item)
+                p.pending_blocks.items.len - 2
             else
                 null;
 
@@ -285,8 +285,8 @@ pub fn feedLine(p: *Parser, line: []const u8) Allocator.Error!void {
                 try p.addScratchStringLine(rest_line_trimmed);
             }
 
-            if (maybe_containing_list) |containing_list| {
-                containing_list.data.list.last_line_blank = rest_line_trimmed.len == 0;
+            if (maybe_containing_list_index) |containing_list_index| {
+                p.pending_blocks.items[containing_list_index].data.list.last_line_blank = rest_line_trimmed.len == 0;
             }
         },
         .inlines => try p.addScratchStringLine(rest_line_trimmed),
@@ -515,7 +515,7 @@ fn startBlock(p: *Parser, line: []const u8) !?BlockStart {
             .data = .{ .list_item = .{
                 .marker = list_item.marker,
                 .number = list_item.number,
-                .continuation_indent = list_item.continuation_indent,
+                .continuation_indent = indent + list_item.marker_len,
             } },
             .rest = list_item.rest,
         };
@@ -559,7 +559,7 @@ fn startBlock(p: *Parser, line: []const u8) !?BlockStart {
 const ListItemStart = struct {
     marker: Block.Data.ListMarker,
     number: u30,
-    continuation_indent: usize,
+    marker_len: usize,
     rest: []const u8,
 };
 
@@ -568,21 +568,21 @@ fn startListItem(unindented_line: []const u8) ?ListItemStart {
         return .{
             .marker = .@"-",
             .number = undefined,
-            .continuation_indent = 2,
+            .marker_len = 2,
             .rest = unindented_line[2..],
         };
     } else if (mem.startsWith(u8, unindented_line, "* ")) {
         return .{
             .marker = .@"*",
             .number = undefined,
-            .continuation_indent = 2,
+            .marker_len = 2,
             .rest = unindented_line[2..],
         };
     } else if (mem.startsWith(u8, unindented_line, "+ ")) {
         return .{
             .marker = .@"+",
             .number = undefined,
-            .continuation_indent = 2,
+            .marker_len = 2,
             .rest = unindented_line[2..],
         };
     }
@@ -600,7 +600,7 @@ fn startListItem(unindented_line: []const u8) ?ListItemStart {
     return .{
         .marker = marker,
         .number = number,
-        .continuation_indent = number_end + 2,
+        .marker_len = number_end + 2,
         .rest = after_number[2..],
     };
 }

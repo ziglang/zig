@@ -415,6 +415,15 @@ pub fn isNative(self: Query) bool {
     return self.isNativeCpu() and self.isNativeOs() and self.isNativeAbi();
 }
 
+pub fn canDetectLibC(self: Query) bool {
+    if (self.isNative()) return true;
+    if (self.os_tag) |os| {
+        if (builtin.os.tag == .macos and os.isDarwin()) return true;
+        if (os == .linux and self.abi == .android) return true;
+    }
+    return false;
+}
+
 /// Formats a version with the patch component omitted if it is zero,
 /// unlike SemanticVersion.format which formats all its version components regardless.
 fn formatVersion(version: SemanticVersion, writer: anytype) !void {
