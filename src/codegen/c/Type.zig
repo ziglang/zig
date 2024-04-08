@@ -1465,7 +1465,7 @@ pub const Pool = struct {
                     },
                 },
                 .array_type => |array_info| {
-                    const len = array_info.len + @intFromBool(array_info.sentinel != .none);
+                    const len = array_info.lenIncludingSentinel();
                     if (len == 0) return .{ .index = .void };
                     const elem_type = Type.fromInterned(array_info.child);
                     const elem_ctype = try pool.fromType(
@@ -1479,7 +1479,7 @@ pub const Pool = struct {
                     if (elem_ctype.index == .void) return .{ .index = .void };
                     const array_ctype = try pool.getArray(allocator, .{
                         .elem_ctype = elem_ctype,
-                        .len = array_info.len + @intFromBool(array_info.sentinel != .none),
+                        .len = len,
                     });
                     if (!kind.isParameter()) return array_ctype;
                     var fields = [_]Info.Field{
@@ -1625,7 +1625,7 @@ pub const Pool = struct {
                                 if (field_ctype.index == .void) continue;
                                 const field_name = if (loaded_struct.fieldName(ip, field_index)
                                     .unwrap()) |field_name|
-                                    try pool.string(allocator, ip.stringToSlice(field_name))
+                                    try pool.string(allocator, field_name.toSlice(ip))
                                 else
                                     try pool.fmt(allocator, "f{d}", .{field_index});
                                 const field_alignas = AlignAs.fromAlignment(.{
@@ -1685,7 +1685,7 @@ pub const Pool = struct {
                         if (field_ctype.index == .void) continue;
                         const field_name = if (anon_struct_info.fieldName(ip, @intCast(field_index))
                             .unwrap()) |field_name|
-                            try pool.string(allocator, ip.stringToSlice(field_name))
+                            try pool.string(allocator, field_name.toSlice(ip))
                         else
                             try pool.fmt(allocator, "f{d}", .{field_index});
                         pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
@@ -1766,7 +1766,7 @@ pub const Pool = struct {
                                 if (field_ctype.index == .void) continue;
                                 const field_name = try pool.string(
                                     allocator,
-                                    ip.stringToSlice(loaded_tag.names.get(ip)[field_index]),
+                                    loaded_tag.names.get(ip)[field_index].toSlice(ip),
                                 );
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_union.fieldAlign(ip, @intCast(field_index)),

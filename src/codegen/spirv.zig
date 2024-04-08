@@ -1028,39 +1028,30 @@ const DeclGen = struct {
                     inline .array_type, .vector_type => |array_type, tag| {
                         const elem_ty = Type.fromInterned(array_type.child);
 
-                        const constituents = try self.gpa.alloc(IdRef, @as(u32, @intCast(ty.arrayLenIncludingSentinel(mod))));
+                        const constituents = try self.gpa.alloc(IdRef, @intCast(ty.arrayLenIncludingSentinel(mod)));
                         defer self.gpa.free(constituents);
 
                         switch (aggregate.storage) {
                             .bytes => |bytes| {
                                 // TODO: This is really space inefficient, perhaps there is a better
                                 // way to do it?
-                                for (bytes, 0..) |byte, i| {
-                                    constituents[i] = try self.constInt(elem_ty, byte, .indirect);
+                                for (constituents, bytes.toSlice(constituents.len, ip)) |*constituent, byte| {
+                                    constituent.* = try self.constInt(elem_ty, byte, .indirect);
                                 }
                             },
                             .elems => |elems| {
-                                for (0..@as(usize, @intCast(array_type.len))) |i| {
-                                    constituents[i] = try self.constant(elem_ty, Value.fromInterned(elems[i]), .indirect);
+                                for (constituents, elems) |*constituent, elem| {
+                                    constituent.* = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
                                 }
                             },
                             .repeated_elem => |elem| {
-                                const val_id = try self.constant(elem_ty, Value.fromInterned(elem), .indirect);
-                                for (0..@as(usize, @intCast(array_type.len))) |i| {
-                                    constituents[i] = val_id;
-                                }
+                                @memset(constituents, try self.constant(elem_ty, Value.fromInterned(elem), .indirect));
                             },
                         }
 
                         switch (tag) {
-                            inline .array_type => {
-                                if (array_type.sentinel != .none) {
-                                    const sentinel = Value.fromInterned(array_type.sentinel);
-                                    constituents[constituents.len - 1] = try self.constant(elem_ty, sentinel, .indirect);
-                                }
-                                return self.constructArray(ty, constituents);
-                            },
-                            inline .vector_type => return self.constructVector(ty, constituents),
+                            .array_type => return self.constructArray(ty, constituents),
+                            .vector_type => return self.constructVector(ty, constituents),
                             else => unreachable,
                         }
                     },
@@ -1683,9 +1674,9 @@ const DeclGen = struct {
                     }
 
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                        try ip.getOrPutStringFmt(mod.gpa, "{d}", .{field_index});
+                        try ip.getOrPutStringFmt(mod.gpa, "{d}", .{field_index}, .no_embedded_nulls);
                     try member_types.append(try self.resolveType(field_ty, .indirect));
-                    try member_names.append(ip.stringToSlice(field_name));
+                    try member_names.append(field_name.toSlice(ip));
                 }
 
                 const result_id = try self.spv.structType(member_types.items, member_names.items);
@@ -2123,12 +2114,12 @@ const DeclGen = struct {
                 // Append the actual code into the functions section.
                 try self.spv.addFunction(spv_decl_index, self.func);
 
-                const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-                try self.spv.debugName(result_id, fqn);
+                const fqn = try decl.fullyQualifiedName(self.module);
+                try self.spv.debugName(result_id, fqn.toSlice(ip));
 
                 // Temporarily generate a test kernel declaration if this is a test function.
                 if (self.module.test_functions.contains(self.decl_index)) {
-                    try self.generateTestEntryPoint(fqn, spv_decl_index);
+                    try self.generateTestEntryPoint(fqn.toSlice(ip), spv_decl_index);
                 }
             },
             .global => {
@@ -2152,8 +2143,8 @@ const DeclGen = struct {
                     .storage_class = final_storage_class,
                 });
 
-                const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-                try self.spv.debugName(result_id, fqn);
+                const fqn = try decl.fullyQualifiedName(self.module);
+                try self.spv.debugName(result_id, fqn.toSlice(ip));
                 try self.spv.declareDeclDeps(spv_decl_index, &.{});
             },
             .invocation_global => {
@@ -2197,8 +2188,8 @@ const DeclGen = struct {
                     try self.func.body.emit(self.spv.gpa, .OpFunctionEnd, {});
                     try self.spv.addFunction(spv_decl_index, self.func);
 
-                    const fqn = ip.stringToSlice(try decl.fullyQualifiedName(self.module));
-                    try self.spv.debugNameFmt(initializer_id, "initializer of {s}", .{fqn});
+                    const fqn = try decl.fullyQualifiedName(self.module);
+                    try self.spv.debugNameFmt(initializer_id, "initializer of {}", .{fqn.fmt(ip)});
 
                     try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpExtInst, .{
                         .id_result_type = ptr_ty_id,

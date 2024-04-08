@@ -490,18 +490,10 @@ pub const Type = struct {
                     };
                 },
                 .anyframe_type => true,
-                .array_type => |array_type| {
-                    if (array_type.sentinel != .none) {
-                        return Type.fromInterned(array_type.child).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-                    } else {
-                        return array_type.len > 0 and
-                            try Type.fromInterned(array_type.child).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-                    }
-                },
-                .vector_type => |vector_type| {
-                    return vector_type.len > 0 and
-                        try Type.fromInterned(vector_type.child).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat);
-                },
+                .array_type => |array_type| return array_type.lenIncludingSentinel() > 0 and
+                    try Type.fromInterned(array_type.child).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
+                .vector_type => |vector_type| return vector_type.len > 0 and
+                    try Type.fromInterned(vector_type.child).hasRuntimeBitsAdvanced(mod, ignore_comptime_only, strat),
                 .opt_type => |child| {
                     const child_ty = Type.fromInterned(child);
                     if (child_ty.isNoReturn(mod)) {
@@ -1240,7 +1232,7 @@ pub const Type = struct {
                 .anyframe_type => return AbiSizeAdvanced{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
                 .array_type => |array_type| {
-                    const len = array_type.len + @intFromBool(array_type.sentinel != .none);
+                    const len = array_type.lenIncludingSentinel();
                     if (len == 0) return .{ .scalar = 0 };
                     switch (try Type.fromInterned(array_type.child).abiSizeAdvanced(mod, strat)) {
                         .scalar => |elem_size| return .{ .scalar = len * elem_size },
@@ -1577,7 +1569,7 @@ pub const Type = struct {
             .anyframe_type => return target.ptrBitWidth(),
 
             .array_type => |array_type| {
-                const len = array_type.len + @intFromBool(array_type.sentinel != .none);
+                const len = array_type.lenIncludingSentinel();
                 if (len == 0) return 0;
                 const elem_ty = Type.fromInterned(array_type.child);
                 const elem_size = @max(
@@ -1731,7 +1723,7 @@ pub const Type = struct {
             .struct_type => ip.loadStructType(ty.toIntern()).haveLayout(ip),
             .union_type => ip.loadUnionType(ty.toIntern()).haveLayout(ip),
             .array_type => |array_type| {
-                if ((array_type.len + @intFromBool(array_type.sentinel != .none)) == 0) return true;
+                if (array_type.lenIncludingSentinel() == 0) return true;
                 return Type.fromInterned(array_type.child).layoutIsResolved(mod);
             },
             .opt_type => |child| Type.fromInterned(child).layoutIsResolved(mod),

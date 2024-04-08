@@ -258,8 +258,8 @@ pub fn updateDecl(
 
     if (decl.isExtern(mod)) {
         const variable = decl.getOwnedVariable(mod).?;
-        const name = mod.intern_pool.stringToSlice(decl.name);
-        const lib_name = mod.intern_pool.stringToSliceUnwrap(variable.lib_name);
+        const name = decl.name.toSlice(&mod.intern_pool);
+        const lib_name = variable.lib_name.toSlice(&mod.intern_pool);
         return zig_object.addOrUpdateImport(wasm_file, name, atom.sym_index, lib_name, null);
     }
     const val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
@@ -341,8 +341,8 @@ fn finishUpdateDecl(
     const atom_index = decl_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
     const sym = zig_object.symbol(atom.sym_index);
-    const full_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
-    sym.name = try zig_object.string_table.insert(gpa, full_name);
+    const full_name = try decl.fullyQualifiedName(mod);
+    sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&mod.intern_pool));
     try atom.code.appendSlice(gpa, code);
     atom.size = @intCast(code.len);
 
@@ -382,7 +382,7 @@ fn finishUpdateDecl(
             // Will be freed upon freeing of decl or after cleanup of Wasm binary.
             const full_segment_name = try std.mem.concat(gpa, u8, &.{
                 segment_name,
-                full_name,
+                full_name.toSlice(&mod.intern_pool),
             });
             errdefer gpa.free(full_segment_name);
             sym.tag = .data;
@@ -427,9 +427,9 @@ pub fn getOrCreateAtomForDecl(zig_object: *ZigObject, wasm_file: *Wasm, decl_ind
         gop.value_ptr.* = .{ .atom = try wasm_file.createAtom(sym_index, zig_object.index) };
         const mod = wasm_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
-        const full_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+        const full_name = try decl.fullyQualifiedName(mod);
         const sym = zig_object.symbol(sym_index);
-        sym.name = try zig_object.string_table.insert(gpa, full_name);
+        sym.name = try zig_object.string_table.insert(gpa, full_name.toSlice(&mod.intern_pool));
     }
     return gop.value_ptr.atom;
 }
@@ -478,9 +478,9 @@ pub fn lowerUnnamedConst(zig_object: *ZigObject, wasm_file: *Wasm, val: Value, d
     const parent_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, decl_index);
     const parent_atom = wasm_file.getAtom(parent_atom_index);
     const local_index = parent_atom.locals.items.len;
-    const fqn = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
-    const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{s}_{d}", .{
-        fqn, local_index,
+    const fqn = try decl.fullyQualifiedName(mod);
+    const name = try std.fmt.allocPrintZ(gpa, "__unnamed_{}_{d}", .{
+        fqn.fmt(&mod.intern_pool), local_index,
     });
     defer gpa.free(name);
 
@@ -623,11 +623,11 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     // Addend for each relocation to the table
     var addend: u32 = 0;
     const mod = wasm_file.base.comp.module.?;
-    for (mod.global_error_set.keys()) |error_name_nts| {
+    for (mod.global_error_set.keys()) |error_name| {
         const atom = wasm_file.getAtomPtr(atom_index);
 
-        const error_name = mod.intern_pool.stringToSlice(error_name_nts);
-        const len: u32 = @intCast(error_name.len + 1); // names are 0-terminated
+        const error_name_slice = error_name.toSlice(&mod.intern_pool);
+        const len: u32 = @intCast(error_name_slice.len + 1); // names are 0-terminated
 
         const slice_ty = Type.slice_const_u8_sentinel_0;
         const offset = @as(u32, @intCast(atom.code.items.len));
@@ -646,10 +646,9 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm) !void {
 
         // as we updated the error name table, we now store the actual name within the names atom
         try names_atom.code.ensureUnusedCapacity(gpa, len);
-        names_atom.code.appendSliceAssumeCapacity(error_name);
-        names_atom.code.appendAssumeCapacity(0);
+        names_atom.code.appendSliceAssumeCapacity(error_name_slice[0..len]);
 
-        log.debug("Populated error name: '{s}'", .{error_name});
+        log.debug("Populated error name: '{}'", .{error_name.fmt(&mod.intern_pool)});
     }
     names_atom.size = addend;
     zig_object.error_names_atom = names_atom_index;
@@ -833,8 +832,7 @@ pub fn deleteDeclExport(
 ) void {
     const mod = wasm_file.base.comp.module.?;
     const decl_info = zig_object.decls_map.getPtr(decl_index) orelse return;
-    const export_name = mod.intern_pool.stringToSlice(name);
-    if (decl_info.@"export"(zig_object, export_name)) |sym_index| {
+    if (decl_info.@"export"(zig_object, name.toSlice(&mod.intern_pool))) |sym_index| {
         const sym = zig_object.symbol(sym_index);
         decl_info.deleteExport(sym_index);
         std.debug.assert(zig_object.global_syms.remove(sym.name));
@@ -864,10 +862,10 @@ pub fn updateExports(
     const atom = wasm_file.getAtom(atom_index);
     const atom_sym = atom.symbolLoc().getSymbol(wasm_file).*;
     const gpa = mod.gpa;
-    log.debug("Updating exports for decl '{s}'", .{mod.intern_pool.stringToSlice(decl.name)});
+    log.debug("Updating exports for decl '{}'", .{decl.name.fmt(&mod.intern_pool)});
 
     for (exports) |exp| {
-        if (mod.intern_pool.stringToSliceUnwrap(exp.opts.section)) |section| {
+        if (exp.opts.section.toSlice(&mod.intern_pool)) |section| {
             try mod.failed_exports.putNoClobber(gpa, exp, try Module.ErrorMsg.create(
                 gpa,
                 decl.srcLoc(mod),
@@ -877,10 +875,8 @@ pub fn updateExports(
             continue;
         }
 
-        const export_string = mod.intern_pool.stringToSlice(exp.opts.name);
-        const sym_index = if (decl_info.@"export"(zig_object, export_string)) |idx|
-            idx
-        else index: {
+        const export_string = exp.opts.name.toSlice(&mod.intern_pool);
+        const sym_index = if (decl_info.@"export"(zig_object, export_string)) |idx| idx else index: {
             const sym_index = try zig_object.allocateSymbol(gpa);
             try decl_info.appendExport(gpa, sym_index);
             break :index sym_index;
@@ -1089,9 +1085,9 @@ pub fn createDebugSectionForIndex(zig_object: *ZigObject, wasm_file: *Wasm, inde
 pub fn updateDeclLineNumber(zig_object: *ZigObject, mod: *Module, decl_index: InternPool.DeclIndex) !void {
     if (zig_object.dwarf) |*dw| {
         const decl = mod.declPtr(decl_index);
-        const decl_name = mod.intern_pool.stringToSlice(try decl.fullyQualifiedName(mod));
+        const decl_name = try decl.fullyQualifiedName(mod);
 
-        log.debug("updateDeclLineNumber {s}{*}", .{ decl_name, decl });
+        log.debug("updateDeclLineNumber {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
         try dw.updateDeclLineNumber(mod, decl_index);
     }
 }

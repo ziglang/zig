@@ -204,26 +204,35 @@ fn printAggregate(
             try writer.writeAll(" }");
             return;
         },
-        .Array => if (aggregate.storage == .bytes and aggregate.storage.bytes.len > 0) {
-            const skip_terminator = aggregate.storage.bytes[aggregate.storage.bytes.len - 1] == 0;
-            const bytes = if (skip_terminator) b: {
-                break :b aggregate.storage.bytes[0 .. aggregate.storage.bytes.len - 1];
-            } else aggregate.storage.bytes;
-            try writer.print("\"{}\"", .{std.zig.fmtEscapes(bytes)});
-            if (!is_ref) try writer.writeAll(".*");
-            return;
-        } else if (ty.arrayLen(zcu) == 0) {
-            if (is_ref) try writer.writeByte('&');
-            return writer.writeAll(".{}");
-        } else if (ty.arrayLen(zcu) == 1) one_byte_str: {
-            // The repr isn't `bytes`, but we might still be able to print this as a string
-            if (ty.childType(zcu).toIntern() != .u8_type) break :one_byte_str;
-            const elem_val = Value.fromInterned(aggregate.storage.values()[0]);
-            if (elem_val.isUndef(zcu)) break :one_byte_str;
-            const byte = elem_val.toUnsignedInt(zcu);
-            try writer.print("\"{}\"", .{std.zig.fmtEscapes(&.{@intCast(byte)})});
-            if (!is_ref) try writer.writeAll(".*");
-            return;
+        .Array => {
+            switch (aggregate.storage) {
+                .bytes => |bytes| string: {
+                    const len = ty.arrayLenIncludingSentinel(zcu);
+                    if (len == 0) break :string;
+                    const slice = bytes.toSlice(if (bytes.at(len - 1, ip) == 0) len - 1 else len, ip);
+                    try writer.print("\"{}\"", .{std.zig.fmtEscapes(slice)});
+                    if (!is_ref) try writer.writeAll(".*");
+                    return;
+                },
+                .elems, .repeated_elem => {},
+            }
+            switch (ty.arrayLen(zcu)) {
+                0 => {
+                    if (is_ref) try writer.writeByte('&');
+                    return writer.writeAll(".{}");
+                },
+                1 => one_byte_str: {
+                    // The repr isn't `bytes`, but we might still be able to print this as a string
+                    if (ty.childType(zcu).toIntern() != .u8_type) break :one_byte_str;
+                    const elem_val = Value.fromInterned(aggregate.storage.values()[0]);
+                    if (elem_val.isUndef(zcu)) break :one_byte_str;
+                    const byte = elem_val.toUnsignedInt(zcu);
+                    try writer.print("\"{}\"", .{std.zig.fmtEscapes(&.{@intCast(byte)})});
+                    if (!is_ref) try writer.writeAll(".*");
+                    return;
+                },
+                else => {},
+            }
         },
         .Vector => if (ty.arrayLen(zcu) == 0) {
             if (is_ref) try writer.writeByte('&');

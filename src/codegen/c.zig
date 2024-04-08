@@ -505,7 +505,7 @@ pub const Function = struct {
                     .never_inline,
                     => |owner_decl| try ctype_pool.fmt(gpa, "zig_{s}_{}__{d}", .{
                         @tagName(key),
-                        fmtIdent(zcu.intern_pool.stringToSlice(zcu.declPtr(owner_decl).name)),
+                        fmtIdent(zcu.declPtr(owner_decl).name.toSlice(&zcu.intern_pool)),
                         @intFromEnum(owner_decl),
                     }),
                 },
@@ -898,7 +898,7 @@ pub const DeclGen = struct {
                 },
             },
             .err => |err| try writer.print("zig_error_{}", .{
-                fmtIdent(ip.stringToSlice(err.name)),
+                fmtIdent(err.name.toSlice(ip)),
             }),
             .error_union => |error_union| {
                 const payload_ty = ty.errorUnionPayload(zcu);
@@ -1178,7 +1178,7 @@ pub const DeclGen = struct {
                             switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
                                 .bytes => |bytes| try ip.get(zcu.gpa, .{ .int = .{
                                     .ty = field_ty.toIntern(),
-                                    .storage = .{ .u64 = bytes[field_index] },
+                                    .storage = .{ .u64 = bytes.at(field_index, ip) },
                                 } }),
                                 .elems => |elems| elems[field_index],
                                 .repeated_elem => |elem| elem,
@@ -1212,7 +1212,7 @@ pub const DeclGen = struct {
                                 const field_val = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
                                     .bytes => |bytes| try ip.get(zcu.gpa, .{ .int = .{
                                         .ty = field_ty.toIntern(),
-                                        .storage = .{ .u64 = bytes[field_index] },
+                                        .storage = .{ .u64 = bytes.at(field_index, ip) },
                                     } }),
                                     .elems => |elems| elems[field_index],
                                     .repeated_elem => |elem| elem,
@@ -1258,7 +1258,7 @@ pub const DeclGen = struct {
                                     const field_val = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
                                         .bytes => |bytes| try ip.get(zcu.gpa, .{ .int = .{
                                             .ty = field_ty.toIntern(),
-                                            .storage = .{ .u64 = bytes[field_index] },
+                                            .storage = .{ .u64 = bytes.at(field_index, ip) },
                                         } }),
                                         .elems => |elems| elems[field_index],
                                         .repeated_elem => |elem| elem,
@@ -1299,7 +1299,7 @@ pub const DeclGen = struct {
                                     const field_val = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
                                         .bytes => |bytes| try ip.get(zcu.gpa, .{ .int = .{
                                             .ty = field_ty.toIntern(),
-                                            .storage = .{ .u64 = bytes[field_index] },
+                                            .storage = .{ .u64 = bytes.at(field_index, ip) },
                                         } }),
                                         .elems => |elems| elems[field_index],
                                         .repeated_elem => |elem| elem,
@@ -1392,7 +1392,7 @@ pub const DeclGen = struct {
                         try writer.writeAll(" .payload = {");
                     }
                     if (field_ty.hasRuntimeBits(zcu)) {
-                        try writer.print(" .{ } = ", .{fmtIdent(ip.stringToSlice(field_name))});
+                        try writer.print(" .{ } = ", .{fmtIdent(field_name.toSlice(ip))});
                         try dg.renderValue(writer, Value.fromInterned(un.val), initializer_type);
                         try writer.writeByte(' ');
                     } else for (0..loaded_union.field_types.len) |this_field_index| {
@@ -1741,14 +1741,12 @@ pub const DeclGen = struct {
                 switch (name) {
                     .export_index => |export_index| mangled: {
                         const maybe_exports = zcu.decl_exports.get(fn_decl_index);
-                        const external_name = ip.stringToSlice(
-                            if (maybe_exports) |exports|
-                                exports.items[export_index].opts.name
-                            else if (fn_decl.isExtern(zcu))
-                                fn_decl.name
-                            else
-                                break :mangled,
-                        );
+                        const external_name = (if (maybe_exports) |exports|
+                            exports.items[export_index].opts.name
+                        else if (fn_decl.isExtern(zcu))
+                            fn_decl.name
+                        else
+                            break :mangled).toSlice(ip);
                         const is_mangled = isMangledIdent(external_name, true);
                         const is_export = export_index > 0;
                         if (is_mangled and is_export) {
@@ -1756,7 +1754,7 @@ pub const DeclGen = struct {
                                 fmtIdent(external_name),
                                 fmtStringLiteral(external_name, null),
                                 fmtStringLiteral(
-                                    ip.stringToSlice(maybe_exports.?.items[0].opts.name),
+                                    maybe_exports.?.items[0].opts.name.toSlice(ip),
                                     null,
                                 ),
                             });
@@ -1767,7 +1765,7 @@ pub const DeclGen = struct {
                         } else if (is_export) {
                             try w.print(" zig_export({s}, {s})", .{
                                 fmtStringLiteral(
-                                    ip.stringToSlice(maybe_exports.?.items[0].opts.name),
+                                    maybe_exports.?.items[0].opts.name.toSlice(ip),
                                     null,
                                 ),
                                 fmtStringLiteral(external_name, null),
@@ -2075,12 +2073,12 @@ pub const DeclGen = struct {
             .complete,
         );
         mangled: {
-            const external_name = zcu.intern_pool.stringToSlice(if (maybe_exports) |exports|
+            const external_name = (if (maybe_exports) |exports|
                 exports.items[0].opts.name
             else if (variable.is_extern)
                 decl.name
             else
-                break :mangled);
+                break :mangled).toSlice(&zcu.intern_pool);
             if (isMangledIdent(external_name, true)) {
                 try fwd.print(" zig_mangled_{s}({ }, {s})", .{
                     @tagName(fwd_kind),
@@ -2094,15 +2092,16 @@ pub const DeclGen = struct {
 
     fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: InternPool.DeclIndex, export_index: u32) !void {
         const zcu = dg.zcu;
+        const ip = &zcu.intern_pool;
         const decl = zcu.declPtr(decl_index);
 
         if (zcu.decl_exports.get(decl_index)) |exports| {
             try writer.print("{ }", .{
-                fmtIdent(zcu.intern_pool.stringToSlice(exports.items[export_index].opts.name)),
+                fmtIdent(exports.items[export_index].opts.name.toSlice(ip)),
             });
         } else if (decl.getExternDecl(zcu).unwrap()) |extern_decl_index| {
             try writer.print("{ }", .{
-                fmtIdent(zcu.intern_pool.stringToSlice(zcu.declPtr(extern_decl_index).name)),
+                fmtIdent(zcu.declPtr(extern_decl_index).name.toSlice(ip)),
             });
         } else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
@@ -2226,7 +2225,7 @@ fn renderFwdDeclTypeName(
     switch (fwd_decl.name) {
         .anon => try w.print("anon__lazy_{d}", .{@intFromEnum(ctype.index)}),
         .owner_decl => |owner_decl| try w.print("{}__{d}", .{
-            fmtIdent(zcu.intern_pool.stringToSlice(zcu.declPtr(owner_decl).name)),
+            fmtIdent(zcu.declPtr(owner_decl).name.toSlice(&zcu.intern_pool)),
             @intFromEnum(owner_decl),
         }),
     }
@@ -2548,7 +2547,7 @@ pub fn genErrDecls(o: *Object) !void {
         try writer.writeAll("enum {\n");
         o.indent_writer.pushIndent();
         for (zcu.global_error_set.keys()[1..], 1..) |name_nts, value| {
-            const name = ip.stringToSlice(name_nts);
+            const name = name_nts.toSlice(ip);
             max_name_len = @max(name.len, max_name_len);
             const err_val = try zcu.intern(.{ .err = .{
                 .ty = .anyerror_type,
@@ -2566,19 +2565,19 @@ pub fn genErrDecls(o: *Object) !void {
     defer o.dg.gpa.free(name_buf);
 
     @memcpy(name_buf[0..name_prefix.len], name_prefix);
-    for (zcu.global_error_set.keys()) |name_ip| {
-        const name = ip.stringToSlice(name_ip);
-        @memcpy(name_buf[name_prefix.len..][0..name.len], name);
-        const identifier = name_buf[0 .. name_prefix.len + name.len];
+    for (zcu.global_error_set.keys()) |name| {
+        const name_slice = name.toSlice(ip);
+        @memcpy(name_buf[name_prefix.len..][0..name_slice.len], name_slice);
+        const identifier = name_buf[0 .. name_prefix.len + name_slice.len];
 
         const name_ty = try zcu.arrayType(.{
-            .len = name.len,
+            .len = name_slice.len,
             .child = .u8_type,
             .sentinel = .zero_u8,
         });
         const name_val = try zcu.intern(.{ .aggregate = .{
             .ty = name_ty.toIntern(),
-            .storage = .{ .bytes = name },
+            .storage = .{ .bytes = name.toString() },
         } });
 
         try writer.writeAll("static ");
@@ -2611,7 +2610,7 @@ pub fn genErrDecls(o: *Object) !void {
     );
     try writer.writeAll(" = {");
     for (zcu.global_error_set.keys(), 0..) |name_nts, value| {
-        const name = ip.stringToSlice(name_nts);
+        const name = name_nts.toSlice(ip);
         if (value != 0) try writer.writeByte(',');
         try writer.print("{{" ++ name_prefix ++ "{}, {}}}", .{
             fmtIdent(name),
@@ -2659,7 +2658,7 @@ fn genExports(o: *Object) !void {
     for (exports.items[1..]) |@"export"| {
         try fwd.writeAll("zig_extern ");
         if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
-        const export_name = ip.stringToSlice(@"export".opts.name);
+        const export_name = @"export".opts.name.toSlice(ip);
         try o.dg.renderTypeAndName(
             fwd,
             decl.typeOf(zcu),
@@ -2672,11 +2671,11 @@ fn genExports(o: *Object) !void {
             try fwd.print(" zig_mangled_export({ }, {s}, {s})", .{
                 fmtIdent(export_name),
                 fmtStringLiteral(export_name, null),
-                fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
+                fmtStringLiteral(exports.items[0].opts.name.toSlice(ip), null),
             });
         } else {
             try fwd.print(" zig_export({s}, {s})", .{
-                fmtStringLiteral(ip.stringToSlice(exports.items[0].opts.name), null),
+                fmtStringLiteral(exports.items[0].opts.name.toSlice(ip), null),
                 fmtStringLiteral(export_name, null),
             });
         }
@@ -2706,17 +2705,18 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
             try w.writeAll(") {\n switch (tag) {\n");
             const tag_names = enum_ty.enumFields(zcu);
             for (0..tag_names.len) |tag_index| {
-                const tag_name = ip.stringToSlice(tag_names.get(ip)[tag_index]);
+                const tag_name = tag_names.get(ip)[tag_index];
+                const tag_name_len = tag_name.length(ip);
                 const tag_val = try zcu.enumValueFieldIndex(enum_ty, @intCast(tag_index));
 
                 const name_ty = try zcu.arrayType(.{
-                    .len = tag_name.len,
+                    .len = tag_name_len,
                     .child = .u8_type,
                     .sentinel = .zero_u8,
                 });
                 const name_val = try zcu.intern(.{ .aggregate = .{
                     .ty = name_ty.toIntern(),
-                    .storage = .{ .bytes = tag_name },
+                    .storage = .{ .bytes = tag_name.toString() },
                 } });
 
                 try w.print("  case {}: {{\n   static ", .{
@@ -2729,7 +2729,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
                 try o.dg.renderType(w, name_slice_ty);
                 try w.print("){{{}, {}}};\n", .{
                     fmtIdent("name"),
-                    try o.dg.fmtIntLiteral(try zcu.intValue(Type.usize, tag_name.len), .Other),
+                    try o.dg.fmtIntLiteral(try zcu.intValue(Type.usize, tag_name_len), .Other),
                 });
 
                 try w.writeAll("  }\n");
@@ -2797,7 +2797,7 @@ pub fn genFunc(f: *Function) !void {
 
     try o.indent_writer.insertNewline();
     if (!is_global) try o.writer().writeAll("static ");
-    if (zcu.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
+    if (decl.@"linksection".toSlice(&zcu.intern_pool)) |s|
         try o.writer().print("zig_linksection_fn({s}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderFunctionSignature(o.writer(), decl_index, .complete, .{ .export_index = 0 });
     try o.writer().writeByte(' ');
@@ -2887,7 +2887,7 @@ pub fn genDecl(o: *Object) !void {
         if (!is_global) try w.writeAll("static ");
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
         if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
-        if (zcu.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
+        if (decl.@"linksection".toSlice(&zcu.intern_pool)) |s|
             try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
         const decl_c_value = .{ .decl = decl_index };
         try o.dg.renderTypeAndName(w, decl_ty, decl_c_value, .{}, decl.alignment, .complete);
@@ -2920,7 +2920,7 @@ pub fn genDeclValue(
     switch (o.dg.pass) {
         .decl => |decl_index| {
             if (zcu.decl_exports.get(decl_index)) |exports| {
-                const export_name = zcu.intern_pool.stringToSlice(exports.items[0].opts.name);
+                const export_name = exports.items[0].opts.name.toSlice(&zcu.intern_pool);
                 if (isMangledIdent(export_name, true)) {
                     try fwd_decl_writer.print(" zig_mangled_final({ }, {s})", .{
                         fmtIdent(export_name), fmtStringLiteral(export_name, null),
@@ -2936,7 +2936,7 @@ pub fn genDeclValue(
 
     const w = o.writer();
     if (!is_global) try w.writeAll("static ");
-    if (zcu.intern_pool.stringToSliceUnwrap(@"linksection")) |s|
+    if (@"linksection".toSlice(&zcu.intern_pool)) |s|
         try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderTypeAndName(w, ty, decl_c_value, Const, alignment, .complete);
     try w.writeAll(" = ");
@@ -5454,7 +5454,7 @@ fn fieldLocation(
                     .{ .byte_offset = loaded_struct.offsets.get(ip)[field_index] }
                 else
                     .{ .field = if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name|
-                        .{ .identifier = ip.stringToSlice(field_name) }
+                        .{ .identifier = field_name.toSlice(ip) }
                     else
                         .{ .field = field_index } },
                 .@"packed" => if (field_ptr_ty.ptrInfo(zcu).packed_offset.host_size == 0)
@@ -5470,7 +5470,7 @@ fn fieldLocation(
             .{ .byte_offset = container_ty.structFieldOffset(field_index, zcu) }
         else
             .{ .field = if (anon_struct_info.fieldName(ip, field_index).unwrap()) |field_name|
-                .{ .identifier = ip.stringToSlice(field_name) }
+                .{ .identifier = field_name.toSlice(ip) }
             else
                 .{ .field = field_index } },
         .union_type => {
@@ -5485,9 +5485,9 @@ fn fieldLocation(
                             .begin;
                     const field_name = loaded_union.loadTagType(ip).names.get(ip)[field_index];
                     return .{ .field = if (loaded_union.hasTag(ip))
-                        .{ .payload_identifier = ip.stringToSlice(field_name) }
+                        .{ .payload_identifier = field_name.toSlice(ip) }
                     else
-                        .{ .identifier = ip.stringToSlice(field_name) } };
+                        .{ .identifier = field_name.toSlice(ip) } };
                 },
                 .@"packed" => return .begin,
             }
@@ -5643,7 +5643,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             const loaded_struct = ip.loadStructType(struct_ty.toIntern());
             switch (loaded_struct.layout) {
                 .auto, .@"extern" => break :field_name if (loaded_struct.fieldName(ip, extra.field_index).unwrap()) |field_name|
-                    .{ .identifier = ip.stringToSlice(field_name) }
+                    .{ .identifier = field_name.toSlice(ip) }
                 else
                     .{ .field = extra.field_index },
                 .@"packed" => {
@@ -5701,7 +5701,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             }
         },
         .anon_struct_type => |anon_struct_info| if (anon_struct_info.fieldName(ip, extra.field_index).unwrap()) |field_name|
-            .{ .identifier = ip.stringToSlice(field_name) }
+            .{ .identifier = field_name.toSlice(ip) }
         else
             .{ .field = extra.field_index },
         .union_type => field_name: {
@@ -5710,9 +5710,9 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
                 .auto, .@"extern" => {
                     const name = loaded_union.loadTagType(ip).names.get(ip)[extra.field_index];
                     break :field_name if (loaded_union.hasTag(ip))
-                        .{ .payload_identifier = ip.stringToSlice(name) }
+                        .{ .payload_identifier = name.toSlice(ip) }
                     else
-                        .{ .identifier = ip.stringToSlice(name) };
+                        .{ .identifier = name.toSlice(ip) };
                 },
                 .@"packed" => {
                     const operand_lval = if (struct_byval == .constant) blk: {
@@ -7062,7 +7062,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
                         const a = try Assignment.start(f, writer, field_ty);
                         try f.writeCValueMember(writer, local, if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name|
-                            .{ .identifier = ip.stringToSlice(field_name) }
+                            .{ .identifier = field_name.toSlice(ip) }
                         else
                             .{ .field = field_index });
                         try a.assign(f, writer);
@@ -7142,7 +7142,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
             const a = try Assignment.start(f, writer, field_ty);
             try f.writeCValueMember(writer, local, if (anon_struct_info.fieldName(ip, field_index).unwrap()) |field_name|
-                .{ .identifier = ip.stringToSlice(field_name) }
+                .{ .identifier = field_name.toSlice(ip) }
             else
                 .{ .field = field_index });
             try a.assign(f, writer);
@@ -7190,8 +7190,8 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
             try writer.print("{}", .{try f.fmtIntLiteral(try tag_val.intFromEnum(tag_ty, zcu))});
             try a.end(f, writer);
         }
-        break :field .{ .payload_identifier = ip.stringToSlice(field_name) };
-    } else .{ .identifier = ip.stringToSlice(field_name) };
+        break :field .{ .payload_identifier = field_name.toSlice(ip) };
+    } else .{ .identifier = field_name.toSlice(ip) };
 
     const a = try Assignment.start(f, writer, payload_ty);
     try f.writeCValueMember(writer, local, field);

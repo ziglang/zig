@@ -130,7 +130,7 @@ pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, a
 
     const func = module.funcInfo(func_index);
     const decl = module.declPtr(func.owner_decl);
-    log.debug("lowering function {s}", .{module.intern_pool.stringToSlice(decl.name)});
+    log.debug("lowering function {}", .{decl.name.fmt(&module.intern_pool)});
 
     try self.object.updateFunc(module, func_index, air, liveness);
 }
@@ -141,7 +141,7 @@ pub fn updateDecl(self: *SpirV, module: *Module, decl_index: InternPool.DeclInde
     }
 
     const decl = module.declPtr(decl_index);
-    log.debug("lowering declaration {s}", .{module.intern_pool.stringToSlice(decl.name)});
+    log.debug("lowering declaration {}", .{decl.name.fmt(&module.intern_pool)});
 
     try self.object.updateDecl(module, decl_index);
 }
@@ -178,7 +178,7 @@ pub fn updateExports(
             for (exports) |exp| {
                 try self.object.spv.declareEntryPoint(
                     spv_decl_index,
-                    mod.intern_pool.stringToSlice(exp.opts.name),
+                    exp.opts.name.toSlice(&mod.intern_pool),
                     execution_model,
                 );
             }
@@ -227,14 +227,13 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
 
     try error_info.appendSlice("zig_errors");
     const mod = self.base.comp.module.?;
-    for (mod.global_error_set.keys()) |name_nts| {
-        const name = mod.intern_pool.stringToSlice(name_nts);
+    for (mod.global_error_set.keys()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        const escaped_name = try std.Uri.escapeString(gpa, name);
+        const escaped_name = try std.Uri.escapeString(gpa, name.toSlice(&mod.intern_pool));
         defer gpa.free(escaped_name);
         try error_info.writer().print(":{s}", .{escaped_name});
     }
