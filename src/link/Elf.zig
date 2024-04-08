@@ -1461,7 +1461,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
             }
         }
 
-        if (self.base.isDynLib()) {
+        if (self.isEffectivelyDynLib()) {
             if (self.soname) |name| {
                 try argv.append("-soname");
                 try argv.append(name);
@@ -1517,7 +1517,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
         if (self.base.isStatic()) {
             try argv.append("-static");
-        } else if (self.base.isDynLib() or (target.os.tag == .haiku and self.base.isExe())) {
+        } else if (self.isEffectivelyDynLib()) {
             try argv.append("-shared");
         }
 
@@ -1997,7 +1997,7 @@ fn markImportsExports(self: *Elf) void {
                 }
                 if (file_ptr.index() == file_index) {
                     global.flags.@"export" = true;
-                    if (elf_file.base.isDynLib() and vis != .PROTECTED) {
+                    if (elf_file.isEffectivelyDynLib() and vis != .PROTECTED) {
                         global.flags.import = true;
                     }
                 }
@@ -2005,7 +2005,7 @@ fn markImportsExports(self: *Elf) void {
         }
     }.mark;
 
-    if (!self.base.isDynLib()) {
+    if (!self.isEffectivelyDynLib()) {
         for (self.shared_objects.items) |index| {
             for (self.file(index).?.globals()) |global_index| {
                 const global = self.symbol(global_index);
@@ -3117,7 +3117,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
         }
     }
 
-    if (self.getTarget().cpu.arch == .riscv64 and self.base.isDynLib()) {
+    if (self.getTarget().cpu.arch == .riscv64 and self.isEffectivelyDynLib()) {
         self.global_pointer_index = try linker_defined.addGlobal("__global_pointer$", self);
     }
 
@@ -3423,7 +3423,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
     }
 
-    if (self.base.isDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
+    if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
         self.dynstrtab_section_index = try self.addSection(.{
             .name = ".dynstr",
             .flags = elf.SHF_ALLOC,
@@ -3660,7 +3660,7 @@ fn setDynamicSection(self: *Elf, rpaths: []const []const u8) !void {
         try self.dynamic.addNeeded(shared_object, self);
     }
 
-    if (self.base.isDynLib()) {
+    if (self.isEffectivelyDynLib()) {
         if (self.soname) |soname| {
             try self.dynamic.setSoname(soname, self);
         }
@@ -5248,6 +5248,16 @@ const CsuObjects = struct {
         self.crtn = crtn;
     }
 };
+
+/// If a target compiles other output modes as dynamic libraries,
+/// this function returns true for those too.
+pub fn isEffectivelyDynLib(self: Elf) bool {
+    if (self.base.isDynLib()) return true;
+    return switch (self.getTarget().os.tag) {
+        .haiku => self.base.isExe(),
+        else => false,
+    };
+}
 
 pub fn isZigSection(self: Elf, shndx: u32) bool {
     inline for (&[_]?u32{
