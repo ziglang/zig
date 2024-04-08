@@ -313,7 +313,7 @@ pub const HeaderInstallation = union(enum) {
             // If/when the build-root relative paths are updated to encode which build root they are
             // relative to, this workaround should be removed.
             const duped_source: LazyPath = switch (self.source) {
-                .path => |root_rel| .{ .cwd_relative = b.pathFromRoot(root_rel) },
+                .path => |root_rel| b.pathCwd(b.pathFromRoot(root_rel)),
                 else => self.source.dupe(b),
             };
 
@@ -830,13 +830,13 @@ pub fn setLibCFile(self: *Compile, libc_file: ?LazyPath) void {
 
 fn getEmittedFileGeneric(self: *Compile, output_file: *?*GeneratedFile) LazyPath {
     if (output_file.*) |g| {
-        return .{ .generated = g };
+        return self.step.owner.pathGenerated(g);
     }
     const arena = self.step.owner.allocator;
     const generated_file = arena.create(GeneratedFile) catch @panic("OOM");
     generated_file.* = .{ .step = &self.step };
     output_file.* = generated_file;
-    return .{ .generated = generated_file };
+    return self.step.owner.pathGenerated(generated_file);
 }
 
 /// Returns the path to the directory that contains the emitted binary file.

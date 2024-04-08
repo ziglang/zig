@@ -5,12 +5,12 @@ pub fn build(b: *std.Build) void {
 
     const obj = b.addObject(.{
         .name = "exports",
-        .root_source_file = .{ .path = "exports.zig" },
+        .root_source_file = b.path("exports.zig"),
         .target = b.host,
         .optimize = optimize,
     });
     const main = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
         .optimize = optimize,
     });
     main.addObject(obj);

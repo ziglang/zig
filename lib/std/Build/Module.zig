@@ -451,7 +451,7 @@ pub fn linkFramework(m: *Module, name: []const u8, options: LinkFrameworkOptions
 pub const AddCSourceFilesOptions = struct {
     /// When provided, `files` are relative to `root` rather than the
     /// package that owns the `Compile` step.
-    root: LazyPath = .{ .path = "" },
+    root: ?LazyPath = null,
     files: []const []const u8,
     flags: []const []const u8 = &.{},
 };
@@ -472,7 +472,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
 
     const c_source_files = allocator.create(CSourceFiles) catch @panic("OOM");
     c_source_files.* = .{
-        .root = options.root,
+        .root = options.root orelse m.owner.path("."),
         .files = b.dupeStrings(options.files),
         .flags = b.dupeStrings(options.flags),
     };

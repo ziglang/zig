@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "test.zig" },
+        .root_source_file = b.path("test.zig"),
     });
     test_exe.test_runner = "test_runner.zig";
 

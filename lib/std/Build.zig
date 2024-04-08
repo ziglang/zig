@@ -1547,7 +1547,7 @@ pub fn addInstallArtifact(
 
 ///`dest_rel_path` is relative to prefix path
 pub fn installFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .prefix, dest_rel_path).step);
+    self.getInstallStep().dependOn(&self.addInstallFileWithDir(self.path(src_path), .prefix, dest_rel_path).step);
 }
 
 pub fn installDirectory(self: *Build, options: Step.InstallDir.Options) void {
@@ -1556,12 +1556,12 @@ pub fn installDirectory(self: *Build, options: Step.InstallDir.Options) void {
 
 ///`dest_rel_path` is relative to bin path
 pub fn installBinFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .bin, dest_rel_path).step);
+    self.getInstallStep().dependOn(&self.addInstallFileWithDir(self.path(src_path), .bin, dest_rel_path).step);
 }
 
 ///`dest_rel_path` is relative to lib path
 pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
+    self.getInstallStep().dependOn(&self.addInstallFileWithDir(self.path(src_path), .lib, dest_rel_path).step);
 }
 
 pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *Step.ObjCopy {
@@ -2084,6 +2084,20 @@ pub const GeneratedFile = struct {
         );
     }
 };
+
+pub fn path(b: *Build, p: []const u8) LazyPath {
+    // TODO: absolute paths
+    return .{ .path = b.dupePath(p) };
+}
+
+pub fn pathCwd(b: *Build, p: []const u8) LazyPath {
+    // TODO: absolute paths?
+    return .{ .cwd_relative = b.dupePath(p) };
+}
+
+pub fn pathGenerated(_: *Build, g: *const GeneratedFile) LazyPath {
+    return .{ .generated = g };
+}
 
 // dirnameAllowEmpty is a variant of fs.path.dirname
 // that allows "" to refer to the root for relative paths.

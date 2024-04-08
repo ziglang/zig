@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
         \\}
     ) });
 
-    libfoo.installHeadersDirectory(.{ .path = "include" }, "foo", .{ .exclude_extensions = &.{".ignore_me.h"} });
+    libfoo.installHeadersDirectory(b.path("include"), "foo", .{ .exclude_extensions = &.{".ignore_me.h"} });
     libfoo.installHeader(b.addWriteFiles().add("d.h",
         \\#define FOO_D "D"
         \\
@@ -78,7 +78,7 @@ pub fn build(b: *std.Build) void {
     });
     const check_exists = b.addExecutable(.{
         .name = "check_exists",
-        .root_source_file = .{ .path = "check_exists.zig" },
+        .root_source_file = b.path("check_exists.zig"),
         .target = b.resolveTargetQuery(.{}),
         .optimize = .Debug,
     });
@@ -92,7 +92,7 @@ pub fn build(b: *std.Build) void {
         "custom/include/foo/config.h",
         "custom/include/bar.h",
     });
-    run_check_exists.setCwd(.{ .cwd_relative = b.getInstallPath(.prefix, "") });
+    run_check_exists.setCwd(b.pathCwd(b.getInstallPath(.prefix, "")));
     run_check_exists.expectExitCode(0);
     run_check_exists.step.dependOn(&install_libfoo.step);
     test_step.dependOn(&run_check_exists.step);

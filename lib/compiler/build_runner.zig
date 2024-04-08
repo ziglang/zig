@@ -188,7 +188,7 @@ pub fn main() !void {
                     });
                 };
             } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                builder.zig_lib_dir = .{ .cwd_relative = nextArgOrFatal(args, &arg_idx) };
+                builder.zig_lib_dir = builder.pathCwd(nextArgOrFatal(args, &arg_idx));
             } else if (mem.eql(u8, arg, "--seed")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u32 after '{s}'", .{arg});

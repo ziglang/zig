@@ -213,7 +213,7 @@ pub fn addPrefixedOutputFileArg(
         self.setName(b.fmt("{s} ({s})", .{ self.step.name, basename }));
     }
 
-    return .{ .generated = &output.generated_file };
+    return self.step.owner.pathGenerated(&output.generated_file);
 }
 
 /// Appends an input file to the command line arguments.
@@ -299,7 +299,7 @@ pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []c
 
     self.argv.append(.{ .output = dep_file }) catch @panic("OOM");
 
-    return .{ .generated = &dep_file.generated_file };
+    return self.step.pathGenerated(&dep_file.generated_file);
 }
 
 pub fn addArg(self: *Run, arg: []const u8) void {
@@ -414,7 +414,7 @@ pub fn addCheck(self: *Run, new_check: StdIo.Check) void {
 pub fn captureStdErr(self: *Run) std.Build.LazyPath {
     assert(self.stdio != .inherit);
 
-    if (self.captured_stderr) |output| return .{ .generated = &output.generated_file };
+    if (self.captured_stderr) |output| return self.step.owner.pathGenerated(&output.generated_file);
 
     const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
@@ -423,13 +423,13 @@ pub fn captureStdErr(self: *Run) std.Build.LazyPath {
         .generated_file = .{ .step = &self.step },
     };
     self.captured_stderr = output;
-    return .{ .generated = &output.generated_file };
+    return self.step.owner.pathGenerated(&output.generated_file);
 }
 
 pub fn captureStdOut(self: *Run) std.Build.LazyPath {
     assert(self.stdio != .inherit);
 
-    if (self.captured_stdout) |output| return .{ .generated = &output.generated_file };
+    if (self.captured_stdout) |output| return self.step.owner.pathGenerated(&output.generated_file);
 
     const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
@@ -438,7 +438,7 @@ pub fn captureStdOut(self: *Run) std.Build.LazyPath {
         .generated_file = .{ .step = &self.step },
     };
     self.captured_stdout = output;
-    return .{ .generated = &output.generated_file };
+    return self.step.owner.pathGenerated(&output.generated_file);
 }
 
 /// Returns whether the Run step has side effects *other than* updating the output arguments.
