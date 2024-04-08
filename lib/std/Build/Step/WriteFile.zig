@@ -139,7 +139,7 @@ pub fn addCopyDirectory(
     const gpa = b.allocator;
     const dir = gpa.create(Directory) catch @panic("OOM");
     dir.* = .{
-        .source = source.dupe(b),
+        .source = source.dupe(),
         .sub_path = b.dupePath(sub_path),
         .options = options.dupe(b),
         .generated_dir = .{ .step = &wf.step },

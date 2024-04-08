@@ -91,7 +91,7 @@ pub const CSourceFile = struct {
 
     pub fn dupe(self: CSourceFile, b: *std.Build) CSourceFile {
         return .{
-            .file = self.file.dupe(b),
+            .file = self.file.dupe(),
             .flags = b.dupeStrings(self.flags),
         };
     }
@@ -113,7 +113,7 @@ pub const RcSourceFile = struct {
 
     pub fn dupe(self: RcSourceFile, b: *std.Build) RcSourceFile {
         return .{
-            .file = self.file.dupe(b),
+            .file = self.file.dupe(),
             .flags = b.dupeStrings(self.flags),
         };
     }
@@ -190,7 +190,7 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
     m.* = .{
         .owner = owner,
         .depending_steps = .{},
-        .root_source_file = if (options.root_source_file) |lp| lp.dupe(owner) else null,
+        .root_source_file = if (options.root_source_file) |lp| lp.dupe() else null,
         .import_table = .{},
         .resolved_target = options.target,
         .optimize = options.optimize,
@@ -507,13 +507,13 @@ pub fn addWin32ResourceFile(m: *Module, source: RcSourceFile) void {
 
 pub fn addAssemblyFile(m: *Module, source: LazyPath) void {
     const b = m.owner;
-    m.link_objects.append(b.allocator, .{ .assembly_file = source.dupe(b) }) catch @panic("OOM");
+    m.link_objects.append(b.allocator, .{ .assembly_file = source.dupe() }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, source);
 }
 
 pub fn addObjectFile(m: *Module, object: LazyPath) void {
     const b = m.owner;
-    m.link_objects.append(b.allocator, .{ .static_path = object.dupe(b) }) catch @panic("OOM");
+    m.link_objects.append(b.allocator, .{ .static_path = object.dupe() }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, object);
 }
 
@@ -529,19 +529,19 @@ pub fn linkLibrary(m: *Module, library: *Step.Compile) void {
 
 pub fn addAfterIncludePath(m: *Module, lazy_path: LazyPath) void {
     const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .path_after = lazy_path.dupe(b) }) catch @panic("OOM");
+    m.include_dirs.append(b.allocator, .{ .path_after = lazy_path.dupe() }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, lazy_path);
 }
 
 pub fn addSystemIncludePath(m: *Module, lazy_path: LazyPath) void {
     const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .path_system = lazy_path.dupe(b) }) catch @panic("OOM");
+    m.include_dirs.append(b.allocator, .{ .path_system = lazy_path.dupe() }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, lazy_path);
 }
 
 pub fn addIncludePath(m: *Module, lazy_path: LazyPath) void {
     const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .path = lazy_path.dupe(b) }) catch @panic("OOM");
+    m.include_dirs.append(b.allocator, .{ .path = lazy_path.dupe() }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, lazy_path);
 }
 
@@ -553,21 +553,21 @@ pub fn addConfigHeader(m: *Module, config_header: *Step.ConfigHeader) void {
 
 pub fn addSystemFrameworkPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .framework_path_system = directory_path.dupe(b) }) catch
+    m.include_dirs.append(b.allocator, .{ .framework_path_system = directory_path.dupe() }) catch
         @panic("OOM");
     addLazyPathDependenciesOnly(m, directory_path);
 }
 
 pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    m.include_dirs.append(b.allocator, .{ .framework_path = directory_path.dupe(b) }) catch
+    m.include_dirs.append(b.allocator, .{ .framework_path = directory_path.dupe() }) catch
         @panic("OOM");
     addLazyPathDependenciesOnly(m, directory_path);
 }
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    m.lib_paths.append(b.allocator, directory_path.dupe(b)) catch @panic("OOM");
+    m.lib_paths.append(b.allocator, directory_path.dupe()) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, directory_path);
 }
 
@@ -584,7 +584,7 @@ pub fn addRPath(m: *Module, directory_path: LazyPath) void {
         },
         else => {},
     }
-    m.rpaths.append(b.allocator, .{ .lazy_path = directory_path.dupe(b) }) catch @panic("OOM");
+    m.rpaths.append(b.allocator, .{ .lazy_path = directory_path.dupe() }) catch @panic("OOM");
     addLazyPathDependenciesOnly(m, directory_path);
 }
 

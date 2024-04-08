@@ -34,7 +34,7 @@ pub fn create(
             .owner = owner,
             .makeFn = make,
         }),
-        .source = source.dupe(owner),
+        .source = source.dupe(),
         .checks = std.ArrayList(Check).init(gpa),
         .obj_format = obj_format,
     };

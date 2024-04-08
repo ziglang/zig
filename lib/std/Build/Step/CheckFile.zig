@@ -34,7 +34,7 @@ pub fn create(
             .owner = owner,
             .makeFn = make,
         }),
-        .source = source.dupe(owner),
+        .source = source.dupe(),
         .expected_matches = owner.dupeStrings(options.expected_matches),
         .expected_exact = options.expected_exact,
     };

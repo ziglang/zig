@@ -31,7 +31,7 @@ pub const Options = struct {
 
     fn dupe(self: Options, b: *std.Build) Options {
         return .{
-            .source_dir = self.source_dir.dupe(b),
+            .source_dir = self.source_dir.dupe(),
             .install_dir = self.install_dir.dupe(b),
             .install_subdir = b.dupe(self.install_subdir),
             .exclude_extensions = b.dupeStrings(self.exclude_extensions),

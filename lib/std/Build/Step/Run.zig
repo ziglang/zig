@@ -246,7 +246,7 @@ pub fn addPrefixedFileArg(self: *Run, prefix: []const u8, lp: std.Build.LazyPath
 
     const prefixed_file_source: PrefixedLazyPath = .{
         .prefix = b.dupe(prefix),
-        .lazy_path = lp.dupe(b),
+        .lazy_path = lp.dupe(),
     };
     self.argv.append(.{ .lazy_path = prefixed_file_source }) catch @panic("OOM");
     lp.addStepDependencies(&self.step);
@@ -267,7 +267,7 @@ pub fn addPrefixedDirectoryArg(self: *Run, prefix: []const u8, directory_source:
 
     const prefixed_directory_source: PrefixedLazyPath = .{
         .prefix = b.dupe(prefix),
-        .lazy_path = directory_source.dupe(b),
+        .lazy_path = directory_source.dupe(),
     };
     self.argv.append(.{ .directory_source = prefixed_directory_source }) catch @panic("OOM");
     directory_source.addStepDependencies(&self.step);

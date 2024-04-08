@@ -28,7 +28,7 @@ pub const Options = struct {
 
 pub fn create(owner: *std.Build, options: Options) *TranslateC {
     const self = owner.allocator.create(TranslateC) catch @panic("OOM");
-    const source = options.root_source_file.dupe(owner);
+    const source = options.root_source_file.dupe();
     self.* = TranslateC{
         .step = Step.init(.{
             .id = .translate_c,

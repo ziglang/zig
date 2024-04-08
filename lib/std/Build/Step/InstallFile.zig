@@ -28,7 +28,7 @@ pub fn create(
             .owner = owner,
             .makeFn = make,
         }),
-        .source = source.dupe(owner),
+        .source = source.dupe(),
         .dir = dir.dupe(owner),
         .dest_rel_path = owner.dupePath(dest_rel_path),
     };

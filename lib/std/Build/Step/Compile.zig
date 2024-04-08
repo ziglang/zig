@@ -274,7 +274,7 @@ pub const HeaderInstallation = union(enum) {
             // TODO(lacc97): fix
             const duped_source: LazyPath = switch (self.source.root) {
                 .path => |root_rel| .{ .owner = self.source.owner, .root = .{ .cwd_relative = b.pathFromRoot(root_rel) } },
-                else => self.source.dupe(b),
+                else => self.source.dupe(),
             };
 
             return .{
@@ -316,7 +316,7 @@ pub const HeaderInstallation = union(enum) {
             // TODO(lacc97): fix
             const duped_source: LazyPath = switch (self.source.root) {
                 .path => |root_rel| .{ .owner = self.source.owner, .root = .{ .cwd_relative = b.pathFromRoot(root_rel) } },
-                else => self.source.dupe(b),
+                else => self.source.dupe(),
             };
 
             return .{
@@ -427,7 +427,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     self.root_module.init(owner, options.root_module, self);
 
     if (options.zig_lib_dir) |lp| {
-        self.zig_lib_dir = lp.dupe(self.step.owner);
+        self.zig_lib_dir = lp.dupe();
         lp.addStepDependencies(&self.step);
     }
 
@@ -435,7 +435,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
     // gets embedded, so for any other target the manifest file is just ignored.
     if (target.ofmt == .coff) {
         if (options.win32_manifest) |lp| {
-            self.win32_manifest = lp.dupe(self.step.owner);
+            self.win32_manifest = lp.dupe();
             lp.addStepDependencies(&self.step);
         }
     }
@@ -478,7 +478,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 pub fn installHeader(cs: *Compile, source: LazyPath, dest_rel_path: []const u8) void {
     const b = cs.step.owner;
     const installation: HeaderInstallation = .{ .file = .{
-        .source = source.dupe(b),
+        .source = source.dupe(),
         .dest_rel_path = b.dupePath(dest_rel_path),
     } };
     cs.installed_headers.append(installation) catch @panic("OOM");
@@ -497,7 +497,7 @@ pub fn installHeadersDirectory(
 ) void {
     const b = cs.step.owner;
     const installation: HeaderInstallation = .{ .directory = .{
-        .source = source.dupe(b),
+        .source = source.dupe(),
         .dest_rel_path = b.dupePath(dest_rel_path),
         .options = options.dupe(b),
     } };
@@ -582,14 +582,12 @@ pub fn checkObject(self: *Compile) *Step.CheckObject {
 pub const setLinkerScriptPath = setLinkerScript;
 
 pub fn setLinkerScript(self: *Compile, source: LazyPath) void {
-    const b = self.step.owner;
-    self.linker_script = source.dupe(b);
+    self.linker_script = source.dupe();
     source.addStepDependencies(&self.step);
 }
 
 pub fn setVersionScript(self: *Compile, source: LazyPath) void {
-    const b = self.step.owner;
-    self.version_script = source.dupe(b);
+    self.version_script = source.dupe();
     source.addStepDependencies(&self.step);
 }
 
@@ -826,8 +824,7 @@ pub fn setVerboseCC(self: *Compile, value: bool) void {
 }
 
 pub fn setLibCFile(self: *Compile, libc_file: ?LazyPath) void {
-    const b = self.step.owner;
-    self.libc_file = if (libc_file) |f| f.dupe(b) else null;
+    self.libc_file = if (libc_file) |f| f.dupe() else null;
 }
 
 fn getEmittedFileGeneric(self: *Compile, output_file: *?*GeneratedFile) LazyPath {

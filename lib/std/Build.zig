@@ -2314,21 +2314,25 @@ pub const LazyPath = struct {
         }
     }
 
-    /// Duplicates the file source for a given builder.
-    pub fn dupe(self: LazyPath, b: *Build) LazyPath {
-        // TODO(lacc97): no longer require `b` parameter
-        return .{ .owner = b, .root = switch (self.root) {
-            .path => |p| .{ .path = b.dupePath(p) },
-            .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
-            .generated => |gen| .{ .generated = gen },
-            .generated_dirname => |gen| .{
-                .generated_dirname = .{
-                    .generated = gen.generated,
-                    .up = gen.up,
+    /// Duplicates the file source.
+    pub fn dupe(self: LazyPath) LazyPath {
+        return .{
+            .owner = self.owner,
+            .root = switch (self.root) {
+                // TODO: do we really need to dupe path, cwd_relative? the LazyPath should
+                // already own its path
+                .path => |p| .{ .path = self.owner.dupePath(p) },
+                .cwd_relative => |p| .{ .cwd_relative = self.owner.dupePath(p) },
+                .generated => |gen| .{ .generated = gen },
+                .generated_dirname => |gen| .{
+                    .generated_dirname = .{
+                        .generated = gen.generated,
+                        .up = gen.up,
+                    },
                 },
+                .dependency => |dep| .{ .dependency = dep },
             },
-            .dependency => |dep| .{ .dependency = dep },
-        } };
+        };
     }
 };
 
