@@ -264,21 +264,8 @@ pub const HeaderInstallation = union(enum) {
         dest_rel_path: []const u8,
 
         pub fn dupe(self: File, b: *std.Build) File {
-            // 'path' lazy paths are relative to the build root of some step, inferred from the step
-            // in which they are used. This means that we can't dupe such paths, because they may
-            // come from dependencies with their own build roots and duping the paths as is might
-            // cause the build script to search for the file relative to the wrong root.
-            // As a temporary workaround, we convert build root-relative paths to absolute paths.
-            // If/when the build-root relative paths are updated to encode which build root they are
-            // relative to, this workaround should be removed.
-            // TODO(lacc97): fix
-            const duped_source: LazyPath = switch (self.source.root) {
-                .path => |root_rel| .{ .owner = self.source.owner, .root = .{ .cwd_relative = b.pathFromRoot(root_rel) } },
-                else => self.source.dupe(),
-            };
-
             return .{
-                .source = duped_source,
+                .source = self.source.dupe(),
                 .dest_rel_path = b.dupePath(self.dest_rel_path),
             };
         }
@@ -306,21 +293,8 @@ pub const HeaderInstallation = union(enum) {
         };
 
         pub fn dupe(self: Directory, b: *std.Build) Directory {
-            // 'path' lazy paths are relative to the build root of some step, inferred from the step
-            // in which they are used. This means that we can't dupe such paths, because they may
-            // come from dependencies with their own build roots and duping the paths as is might
-            // cause the build script to search for the file relative to the wrong root.
-            // As a temporary workaround, we convert build root-relative paths to absolute paths.
-            // If/when the build-root relative paths are updated to encode which build root they are
-            // relative to, this workaround should be removed.
-            // TODO(lacc97): fix
-            const duped_source: LazyPath = switch (self.source.root) {
-                .path => |root_rel| .{ .owner = self.source.owner, .root = .{ .cwd_relative = b.pathFromRoot(root_rel) } },
-                else => self.source.dupe(),
-            };
-
             return .{
-                .source = duped_source,
+                .source = self.source.dupe(),
                 .dest_rel_path = b.dupePath(self.dest_rel_path),
                 .options = self.options.dupe(b),
             };

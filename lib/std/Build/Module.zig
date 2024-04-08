@@ -574,10 +574,10 @@ pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
     switch (directory_path.root) {
-        .path, .cwd_relative => |path| {
+        .build, .cwd => {
             // TODO: remove this check after people upgrade and stop expecting it to work
-            if (std.mem.startsWith(u8, path, "@executable_path") or
-                std.mem.startsWith(u8, path, "@loader_path"))
+            if (std.mem.startsWith(u8, directory_path.path, "@executable_path") or
+                std.mem.startsWith(u8, directory_path.path, "@loader_path"))
             {
                 @panic("this function is for adding directory paths. It does not support special rpaths. use addRPathSpecial for that.");
             }
