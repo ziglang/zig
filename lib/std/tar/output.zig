@@ -35,6 +35,8 @@ pub const Header = extern struct {
         reserved = '7',
         pax_global = 'g',
         extended = 'x',
+        gnu_long_name = 'L',
+        gnu_long_link = 'K',
         _,
     };
 
@@ -67,6 +69,11 @@ pub const Header = extern struct {
         _ = try std.fmt.bufPrint(&self.mode, "{o:0>7}", .{mode});
     }
 
+    // Integer number of seconds since January 1, 1970, 00:00 Coordinated Universal Time.
+    pub fn setMtime(self: *Header, mtime: u64) !void {
+        _ = try std.fmt.bufPrint(&self.mtime, "{o:0>11}", .{mtime});
+    }
+
     pub fn updateChecksum(self: *Header) !void {
         const offset = @offsetOf(Header, "checksum");
         var checksum: usize = 0;
@@ -78,6 +85,16 @@ pub const Header = extern struct {
         }
 
         _ = try std.fmt.bufPrint(&self.checksum, "{o:0>7}", .{checksum});
+    }
+
+    pub fn write(self: *Header, writer: anytype) !void {
+        try self.updateChecksum();
+        try writer.writeAll(std.mem.asBytes(self));
+    }
+
+    pub fn setLinkname(self: *Header, link: []const u8) !void {
+        if (link.len > self.linkname.len) return error.NameTooLong;
+        @memcpy(self.linkname[0..link.len], link);
     }
 
     pub fn setName(self: *Header, prefix: []const u8, sub_path: []const u8) !void {
@@ -112,6 +129,7 @@ pub const Header = extern struct {
         const prefix_remaining = max_prefix - prefix_pos;
         if (std.mem.lastIndexOf(u8, sub_path[0..@min(prefix_remaining, sub_path.len)], &.{'/'})) |sep_pos| {
             @memcpy(self.prefix[prefix_pos..][0..sep_pos], sub_path[0..sep_pos]);
+            if ((sub_path.len - sep_pos - 1) > max_name) return error.NameTooLong;
             @memcpy(self.name[0..][0 .. sub_path.len - sep_pos - 1], sub_path[sep_pos + 1 ..]);
             return;
         }
@@ -175,19 +193,24 @@ pub const Header = extern struct {
             try testing.expectEqualStrings(case.out[1], str(&header.name));
         }
 
-        // cant fit into 255 + sep
-        var header = Header.init();
-        try testing.expectError(
-            error.NameTooLong,
-            header.setName("prefix", "0123456789/" ** 22 ++ "basename"),
-        );
+        const error_cases = [_]struct {
+            in: []const []const u8,
+        }{
+            // basename can't fit into name (106 characters)
+            .{ .in = &.{ "zig", "test/cases/compile_errors/regression_test_2980_base_type_u32_is_not_type_checked_properly_when_assigning_a_value_within_a_struct.zig" } },
+            // cant fit into 255 + sep
+            .{ .in = &.{ "prefix", "0123456789/" ** 22 ++ "basename" } },
+            // can fit but sub_path can't be split (there is no separator)
+            .{ .in = &.{ "prefix", "0123456789" ** 14 ++ "basename" } },
+        };
 
-        // can fit but sub_path can't be split (there is no separator)
-        header = Header.init();
-        try testing.expectError(
-            error.NameTooLong,
-            header.setName("prefix", "0123456789" ** 14 ++ "basename"),
-        );
+        for (error_cases) |case| {
+            var header = Header.init();
+            try testing.expectError(
+                error.NameTooLong,
+                header.setName(case.in[0], case.in[1]),
+            );
+        }
     }
     // Breaks string on first null character.
     fn str(s: []const u8) []const u8 {
@@ -197,6 +220,8 @@ pub const Header = extern struct {
         return s;
     }
 };
+
+pub const zero_header: [@sizeOf(Header)]u8 = .{0} ** @sizeOf(Header);
 
 const std = @import("std");
 const assert = std.debug.assert;
