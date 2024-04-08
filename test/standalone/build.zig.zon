@@ -155,6 +155,9 @@
         .install_headers = .{
             .path = "install_headers",
         },
+        .build_dep = .{
+            .path = "build_dep",
+        },
     },
     .paths = .{
         "build.zig",

@@ -1,0 +1,7 @@
+.{
+    .name = "build_dep",
+    .version = "0.0.0",
+    .paths = .{ "build.zig", "build.zig.zon", "dep" },
+    .dependencies = .{
+        .dep = .{ .path = "dep" } },
+}
