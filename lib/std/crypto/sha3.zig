@@ -194,12 +194,6 @@ fn ShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime 
             self.st.fillBlock();
         }
 
-        /// Return a KMAC instance based on this SHAKE instance.
-        /// For Shake128, this returns Kmac128. For Shake256, this returns Kmac256.
-        pub fn ToMac() type {
-            return KMacLike(security_level, 0x04, rounds);
-        }
-
         pub const Error = error{};
         pub const Writer = std.io.Writer(*Self, Error, write);
 
@@ -242,18 +236,18 @@ fn CShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime
             }
             var shaker = Shaker.init(.{});
             comptime assert(Shaker.block_length % 8 == 0);
-            const encoded_rate_len = NistEncodedLength.encode(block_length / 8, .left);
+            const encoded_rate_len = NistLengthEncoding.encode(.left, block_length / 8);
             shaker.update(encoded_rate_len.slice());
-            const encoded_zero = comptime NistEncodedLength.encode(0, .left);
+            const encoded_zero = comptime NistLengthEncoding.encode(.left, 0);
             if (fname) |name| {
-                const encoded_fname_len = comptime NistEncodedLength.encode(name.len, .left);
+                const encoded_fname_len = comptime NistLengthEncoding.encode(.left, name.len);
                 const encoded_fname = comptime encoded_fname_len.slice() ++ name;
                 shaker.update(encoded_fname);
             } else {
                 shaker.update(encoded_zero.slice());
             }
             if (options.context) |context| {
-                const encoded_context_len = NistEncodedLength.encode(context.len, .left);
+                const encoded_context_len = NistLengthEncoding.encode(.left, context.len);
                 shaker.update(encoded_context_len.slice());
                 shaker.update(context);
             } else {
@@ -344,9 +338,9 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
         /// This is more efficient than reinitializing the state for each message at the cost of a small amount of memory.
         pub fn initWithOptions(key: []const u8, options: Options) Self {
             var cshaker = CShaker.init(.{ .context = options.context });
-            const encoded_rate_len = NistEncodedLength.encode(block_length / 8, .left);
+            const encoded_rate_len = NistLengthEncoding.encode(.left, block_length / 8);
             cshaker.update(encoded_rate_len.slice());
-            const encoded_key_len = NistEncodedLength.encode(key.len, .left);
+            const encoded_key_len = NistLengthEncoding.encode(.left, key.len);
             cshaker.update(encoded_key_len.slice());
             cshaker.update(key);
             cshaker.fillBlock();
@@ -369,7 +363,7 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
 
         /// Return an authentication tag for the current state.
         pub fn final(self: *Self, out: []u8) void {
-            const encoded_out_len = NistEncodedLength.encode(out.len, .right);
+            const encoded_out_len = NistLengthEncoding.encode(.right, out.len);
             self.update(encoded_out_len.slice());
             self.cshaker.final(out);
         }
@@ -378,7 +372,7 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
         /// `out` can be any length, and the function can be called multiple times.
         pub fn squeeze(self: *Self, out: []u8) void {
             if (!self.xof_mode) {
-                const encoded_out_len = comptime NistEncodedLength.encode(0, .right);
+                const encoded_out_len = comptime NistLengthEncoding.encode(.right, 0);
                 self.update(encoded_out_len.slice());
                 self.xof_mode = true;
             }
@@ -463,14 +457,14 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
 
         /// Add data to the state, separated from previous updates.
         pub fn update(self: *Self, b: []const u8) void {
-            const encoded_b_len = NistEncodedLength.encode(b.len, .left);
+            const encoded_b_len = NistLengthEncoding.encode(.left, b.len);
             self.cshaker.update(encoded_b_len.slice());
             self.cshaker.update(b);
         }
 
         /// Return an authentication tag for the current state.
         pub fn final(self: *Self, out: []u8) void {
-            const encoded_out_len = NistEncodedLength.encode(out.len, .right);
+            const encoded_out_len = NistLengthEncoding.encode(.right, out.len);
             self.cshaker.update(encoded_out_len.slice());
             self.cshaker.final(out);
         }
@@ -484,7 +478,7 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
         /// `out` can be any length, and the function can be called multiple times.
         pub fn squeeze(self: *Self, out: []u8) void {
             if (!self.xof_mode) {
-                const encoded_out_len = comptime NistEncodedLength.encode(0, .right);
+                const encoded_out_len = comptime NistLengthEncoding.encode(.right, 0);
                 self.update(encoded_out_len.slice());
                 self.xof_mode = true;
             }
@@ -505,18 +499,26 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
     };
 }
 
-/// The NIST encoded length format.
-pub const NistLengthEncoding = enum { left, right };
+/// The NIST SP 800-185 encoded length format.
+pub const NistLengthEncoding = enum {
+    left,
+    right,
 
-/// A length encoded according to NIST SP 800-185.
-pub const NistEncodedLength = struct {
-    /// The size of the encoded value, in bytes.
-    len: usize = 0,
-    /// A buffer to store the encoded length.
-    buf: [@sizeOf(usize) + 1]u8 = undefined,
+    /// A length encoded according to NIST SP 800-185.
+    pub const NistEncodedLength = struct {
+        /// The size of the encoded value, in bytes.
+        len: usize = 0,
+        /// A buffer to store the encoded length.
+        buf: [@sizeOf(usize) + 1]u8 = undefined,
+
+        /// Return the encoded length as a slice.
+        pub fn slice(self: *const NistEncodedLength) []const u8 {
+            return self.buf[0..self.len];
+        }
+    };
 
     /// Encode a length according to NIST SP 800-185.
-    pub fn encode(len: usize, comptime encoding: NistLengthEncoding) NistEncodedLength {
+    pub fn encode(comptime encoding: NistLengthEncoding, len: usize) NistEncodedLength {
         const len_bits = @bitSizeOf(@TypeOf(len)) - @clz(len) + 3;
         const len_bytes = std.math.divCeil(usize, len_bits, 8) catch unreachable;
 
@@ -535,11 +537,6 @@ pub const NistEncodedLength = struct {
             res.buf[0] = @intCast(len_bytes);
         }
         return res;
-    }
-
-    /// Return the encoded length as a slice.
-    pub fn slice(self: *const NistEncodedLength) []const u8 {
-        return self.buf[0..self.len];
     }
 };
 
