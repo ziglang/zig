@@ -1816,10 +1816,7 @@ pub const Dependency = struct {
         return .{
             .owner = d.builder,
             .root = .{
-                .dependency = .{
-                    .dependency = d,
-                    .sub_path = sub_path,
-                },
+                .path = sub_path,
             },
         };
     }
@@ -2163,11 +2160,6 @@ pub const LazyPath = struct {
         /// which `zig build` was invoked.
         /// Use of this tag indicates a dependency on the host system.
         cwd_relative: []const u8,
-
-        dependency: struct {
-            dependency: *Dependency,
-            sub_path: []const u8,
-        },
     },
 
     pub const relative = @compileError("use std.Build.path() instead");
@@ -2219,17 +2211,6 @@ pub const LazyPath = struct {
                         }
                     },
                 },
-                .dependency => |dep| .{ .dependency = .{
-                    .dependency = dep.dependency,
-                    .sub_path = dirnameAllowEmpty(dep.sub_path) orelse {
-                        dumpBadDirnameHelp(null, null,
-                            \\dirname() attempted to traverse outside the dependency root.
-                            \\This is not allowed.
-                            \\
-                        , .{}) catch {};
-                        @panic("misconfigured build script");
-                    },
-                } },
             },
         };
     }
@@ -2238,17 +2219,17 @@ pub const LazyPath = struct {
     /// Either returns the path or `"generated"`.
     pub fn getDisplayName(self: LazyPath) []const u8 {
         return switch (self.root) {
+            // TODO: display string for what used to be `dependency` case?
             .path, .cwd_relative => self.root.path,
             .generated => "generated",
             .generated_dirname => "generated",
-            .dependency => "dependency",
         };
     }
 
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self.root) {
-            .path, .cwd_relative, .dependency => {},
+            .path, .cwd_relative => {},
             .generated => |gen| other_step.dependOn(gen.step),
             .generated_dirname => |gen| other_step.dependOn(gen.generated.step),
         }
@@ -2267,7 +2248,10 @@ pub const LazyPath = struct {
     /// run that is asking for the path.
     pub fn getPath2(self: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self.root) {
-            .path => |p| return src_builder.pathFromRoot(p),
+            .path => |p| {
+                if (self.owner != src_builder) assert(self.owner.build_root.path != null);
+                return self.owner.pathFromRoot(p);
+            },
             .cwd_relative => |p| return src_builder.pathFromCwd(p),
             .generated => |gen| return gen.path orelse {
                 std.debug.getStderrMutex().lock();
@@ -2308,12 +2292,6 @@ pub const LazyPath = struct {
                 }
                 return p;
             },
-            .dependency => |dep| {
-                return dep.dependency.builder.pathJoin(&[_][]const u8{
-                    dep.dependency.builder.build_root.path.?,
-                    dep.sub_path,
-                });
-            },
         }
     }
 
@@ -2333,7 +2311,6 @@ pub const LazyPath = struct {
                         .up = gen.up,
                     },
                 },
-                .dependency => |dep| .{ .dependency = dep },
             },
         };
     }

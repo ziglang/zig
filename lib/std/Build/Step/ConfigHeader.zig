@@ -61,7 +61,6 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
             .path => |path| path,
             .generated, .generated_dirname => break :default_include_path,
             .cwd_relative => |sub_path| sub_path,
-            .dependency => |dependency| dependency.sub_path,
         };
         const basename = std.fs.path.basename(sub_path);
         if (std.mem.endsWith(u8, basename, ".h.in")) {
