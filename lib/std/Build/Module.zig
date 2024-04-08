@@ -694,7 +694,9 @@ pub fn appendZigProcessFlags(
                 }
             },
             .config_header_step => |config_header| {
-                try zig_args.appendSlice(&.{ "-I", std.fs.path.dirname(config_header.output_file.getPath()).? });
+                const full_file_path = config_header.output_file.getPath();
+                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
+                try zig_args.appendSlice(&.{ "-I", header_dir_path });
             },
         }
     }
