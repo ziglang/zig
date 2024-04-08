@@ -573,7 +573,7 @@ pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
 
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    switch (directory_path) {
+    switch (directory_path.root) {
         .path, .cwd_relative => |path| {
             // TODO: remove this check after people upgrade and stop expecting it to work
             if (std.mem.startsWith(u8, path, "@executable_path") or

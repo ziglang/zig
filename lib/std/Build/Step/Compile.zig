@@ -271,8 +271,8 @@ pub const HeaderInstallation = union(enum) {
             // As a temporary workaround, we convert build root-relative paths to absolute paths.
             // If/when the build-root relative paths are updated to encode which build root they are
             // relative to, this workaround should be removed.
-            const duped_source: LazyPath = switch (self.source) {
-                .path => |root_rel| .{ .cwd_relative = b.pathFromRoot(root_rel) },
+            const duped_source: LazyPath = switch (self.source.root) {
+                .path => |root_rel| .{ .root = .{ .cwd_relative = b.pathFromRoot(root_rel) } },
                 else => self.source.dupe(b),
             };
 
@@ -312,8 +312,8 @@ pub const HeaderInstallation = union(enum) {
             // As a temporary workaround, we convert build root-relative paths to absolute paths.
             // If/when the build-root relative paths are updated to encode which build root they are
             // relative to, this workaround should be removed.
-            const duped_source: LazyPath = switch (self.source) {
-                .path => |root_rel| b.pathCwd(b.pathFromRoot(root_rel)),
+            const duped_source: LazyPath = switch (self.source.root) {
+                .path => |root_rel| .{ .root = .{ .cwd_relative = b.pathFromRoot(root_rel) } },
                 else => self.source.dupe(b),
             };
 
