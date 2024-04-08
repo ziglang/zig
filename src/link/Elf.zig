@@ -1517,7 +1517,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
         if (self.base.isStatic()) {
             try argv.append("-static");
-        } else if (self.base.isDynLib()) {
+        } else if (self.base.isDynLib() or (target.os.tag == .haiku and self.base.isExe())) {
             try argv.append("-shared");
         }
 
@@ -2469,7 +2469,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, prog_node: *std.Progress.Node) !voi
             } else {
                 try argv.append("-static");
             }
-        } else if (is_dyn_lib) {
+        } else if (switch (target.os.tag) {
+            else => is_dyn_lib,
+            .haiku => is_exe_or_dyn_lib,
+        }) {
             try argv.append("-shared");
         }
 
