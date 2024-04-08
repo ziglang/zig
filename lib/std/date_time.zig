@@ -12,24 +12,24 @@ pub fn DateTime(comptime DateT: type, comptime TimeT: type) type {
         ///   9 = nanoseconds
         pub const EpochSubseconds = std.meta.Int(
             @typeInfo(Date.EpochDays).Int.signedness,
-            @typeInfo(Date.EpochDays).Int.bits + std.math.log2_int_ceil(usize, Time.fs_per_day),
+            @typeInfo(Date.EpochDays).Int.bits + std.math.log2_int_ceil(usize, Time.subseconds_per_day),
         );
 
         const Self = @This();
 
-        /// New date time from fractional epoch seconds.
+        /// New date time from fractional seconds since `Date.epoch`.
         pub fn fromEpoch(subseconds: EpochSubseconds, time_opts: Time.Options) Self {
-            const days = @divFloor(subseconds, s_per_day * Time.fs_per_s);
+            const days = @divFloor(subseconds, s_per_day * Time.subseconds_per_s);
             const new_date = Date.fromEpoch(@intCast(days));
-            const day_seconds = std.math.comptimeMod(subseconds, s_per_day * Time.fs_per_s);
+            const day_seconds = std.math.comptimeMod(subseconds, s_per_day * Time.subseconds_per_s);
             const new_time = Time.fromDaySeconds(day_seconds, time_opts);
             return .{ .date = new_date, .time = new_time };
         }
 
-        /// Returns fractional epoch seconds.
+        /// Returns fractional seconds since `Date.epoch`.
         pub fn toEpoch(self: Self) EpochSubseconds {
             var res: EpochSubseconds = 0;
-            res += @as(EpochSubseconds, self.date.toEpoch()) * s_per_day * Time.fs_per_s;
+            res += @as(EpochSubseconds, self.date.toEpoch()) * s_per_day * Time.subseconds_per_s;
             res += self.time.toDaySeconds();
             return res;
         }

@@ -367,27 +367,27 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
         const Self = @This();
 
         pub const precision = precision_;
-        pub const fs_per_s = multiplier;
-        pub const fs_per_min = 60 * fs_per_s;
-        pub const fs_per_hour = 60 * fs_per_min;
-        pub const fs_per_day = 24 * fs_per_hour;
+        pub const subseconds_per_s = multiplier;
+        pub const subseconds_per_min = 60 * subseconds_per_s;
+        pub const subseconds_per_hour = 60 * subseconds_per_min;
+        pub const subseconds_per_day = 24 * subseconds_per_hour;
 
         pub const Options = struct {
             offset: IMinutes = 0,
         };
 
         pub fn fromDaySeconds(seconds: DaySubseconds, options: Options) Self {
-            const fs_offset = @as(IDaySubseconds, options.offset) * fs_per_min + seconds;
-            var fs = std.math.comptimeMod(fs_offset, fs_per_day);
+            const fs_offset = @as(IDaySubseconds, options.offset) * subseconds_per_min + seconds;
+            var fs = std.math.comptimeMod(fs_offset, subseconds_per_day);
 
-            const hour: Hour = @intCast(@divFloor(fs, fs_per_hour));
-            fs -= @as(DaySubseconds, @intCast(hour)) * fs_per_hour;
+            const hour: Hour = @intCast(@divFloor(fs, subseconds_per_hour));
+            fs -= @as(DaySubseconds, @intCast(hour)) * subseconds_per_hour;
 
-            const minute: Minute = @intCast(@divFloor(fs, fs_per_min));
-            fs -= @as(DaySubseconds, @intCast(minute)) * fs_per_min;
+            const minute: Minute = @intCast(@divFloor(fs, subseconds_per_min));
+            fs -= @as(DaySubseconds, @intCast(minute)) * subseconds_per_min;
 
-            const second: Second = @intCast(@divFloor(fs, fs_per_s));
-            fs -= @as(DaySubseconds, @intCast(second)) * fs_per_s;
+            const second: Second = @intCast(@divFloor(fs, subseconds_per_s));
+            fs -= @as(DaySubseconds, @intCast(second)) * subseconds_per_s;
 
             return .{
                 .hour = hour,
@@ -404,9 +404,9 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
 
         pub fn toDaySecondsZone(self: Self, zone: IMinutes) DaySubseconds {
             var sec = @as(IDaySubseconds, zone) * 60 * multiplier;
-            sec += @as(IDaySubseconds, self.hour) * fs_per_hour;
-            sec += @as(IDaySubseconds, self.minute) * fs_per_min;
-            sec += @as(IDaySubseconds, self.second) * fs_per_s;
+            sec += @as(IDaySubseconds, self.hour) * subseconds_per_hour;
+            sec += @as(IDaySubseconds, self.minute) * subseconds_per_min;
+            sec += @as(IDaySubseconds, self.second) * subseconds_per_s;
             sec += @as(IDaySubseconds, self.subsecond);
 
             return std.math.comptimeMod(sec, s_per_day * multiplier);
