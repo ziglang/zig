@@ -2078,7 +2078,7 @@ pub const DeclGen = struct {
         else
             false;
         if (variable.is_weak_linkage or export_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
-        if (variable.is_threadlocal) try fwd.writeAll("zig_threadlocal ");
+        if (variable.is_threadlocal and !dg.mod.single_threaded) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
             fwd,
             decl.typeOf(zcu),
@@ -2899,7 +2899,7 @@ pub fn genDecl(o: *Object) !void {
         const w = o.writer();
         if (!is_global) try w.writeAll("static ");
         if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
-        if (variable.is_threadlocal) try w.writeAll("zig_threadlocal ");
+        if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
         if (zcu.intern_pool.stringToSliceUnwrap(decl.@"linksection")) |s|
             try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
         const decl_c_value = .{ .decl = decl_index };
