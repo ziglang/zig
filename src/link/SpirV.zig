@@ -280,7 +280,7 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
         .glsl450 => &.{.Shader},
-        .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
+        .vulkan => &.{ .Shader, .Int8, .Int16, .Int64, .Float16, .Float64 },
         else => unreachable, // TODO
     };
 

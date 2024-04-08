@@ -859,6 +859,12 @@ const DeclGen = struct {
         }
 
         const mod = self.module;
+
+        // Needed for inline assembly to pass types
+        if (ty.zigTypeTag(mod) == .Type) {
+            return self.resolveType(val.toType(), .direct);
+        }
+
         const target = self.getTarget();
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &mod.intern_pool;
@@ -1457,12 +1463,15 @@ const DeclGen = struct {
 
     /// Turn a Zig type into a SPIR-V Type, and return a reference to it.
     fn resolveType(self: *DeclGen, ty: Type, repr: Repr) Error!IdRef {
-        if (self.intern_map.get(.{ ty.toIntern(), repr })) |id| {
+        // Hardcode representation-agnostic types to prevent duplicate types
+        const actual_repr = if (self.isReprAgnostic(ty)) .direct else repr;
+
+        if (self.intern_map.get(.{ ty.toIntern(), actual_repr })) |id| {
             return id;
         }
 
         const id = try self.resolveTypeInner(ty, repr);
-        try self.intern_map.put(self.gpa, .{ ty.toIntern(), repr }, id);
+        try self.intern_map.put(self.gpa, .{ ty.toIntern(), actual_repr }, id);
         return id;
     }
 
@@ -1769,11 +1778,43 @@ const DeclGen = struct {
         }
     }
 
+    fn isReprAgnostic(self: *DeclGen, ty: Type) bool {
+        const mod = self.module;
+        return switch (ty.zigTypeTag(mod)) {
+            .Void, .Bool, .Fn => false,
+
+            .NoReturn,
+            .Int,
+            .Enum,
+            .Float,
+            .Array,
+            .Pointer,
+            .Vector,
+            .Struct,
+            .Optional,
+            .Union,
+            .ErrorSet,
+            .ErrorUnion,
+            .Opaque,
+            => true,
+
+            .Null,
+            .Undefined,
+            .EnumLiteral,
+            .ComptimeFloat,
+            .ComptimeInt,
+            .Type,
+            => unreachable,
+
+            .Frame, .AnyFrame => unreachable, // TODO
+        };
+    }
+
     fn spvStorageClass(self: *DeclGen, as: std.builtin.AddressSpace) StorageClass {
         const target = self.getTarget();
         return switch (as) {
             .generic => switch (target.os.tag) {
-                .vulkan => .Private,
+                .vulkan => .Function,
                 else => .Generic,
             },
             .shared => .Workgroup,

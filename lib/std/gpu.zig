@@ -1,4 +1,5 @@
 const std = @import("std.zig");
+const builtin = @import("builtin");
 const comptimePrint = std.fmt.comptimePrint;
 
 /// Will make `ptr` contain the location of the current invocation within the
@@ -64,6 +65,58 @@ pub fn fragmentDepth(comptime ptr: *addrspace(.output) f32) void {
         \\OpDecorate %ptr BuiltIn FragDepth
         :
         : [ptr] "" (ptr),
+    );
+}
+
+/// Establish an struct type as a memory interface block.
+pub fn block(comptime T: type) void {
+    asm volatile (
+        \\OpDecorate %T Block
+        :
+        : [T] "" (T),
+    );
+}
+
+/// Apply to an array type to specify the stride.
+pub fn arrayStride(comptime T: type, comptime stride: u32) void {
+    const code = comptimePrint("OpDecorate %T ArrayStride {}", .{stride});
+    asm volatile (code
+        :
+        : [T] "" (T),
+    );
+}
+
+/// Dictates the byte offset of an struct field.
+pub fn fieldOffset(comptime T: type, comptime field_index: u32, comptime offset: u32) void {
+    const code = comptimePrint("OpMemberDecorate %T {} Offset {}", .{ field_index, offset });
+    asm volatile (code
+        :
+        : [T] "" (T),
+    );
+}
+
+pub fn fieldColumnMajor(comptime T: type, comptime field_index: u32) void {
+    const code = comptimePrint("OpMemberDecorate %T {} ColMajor", .{field_index});
+    asm volatile (code
+        :
+        : [T] "" (T),
+    );
+}
+
+pub fn fieldRowMajor(comptime T: type, comptime field_index: u32) void {
+    const code = comptimePrint("OpMemberDecorate %T {} RowMajor", .{field_index});
+    asm volatile (code
+        :
+        : [T] "" (T),
+    );
+}
+
+/// Apply to a matrix or array type to specify the stride.
+pub fn fieldMatrixStride(comptime T: type, comptime field_index: u32, comptime stride: u32) void {
+    const code = comptimePrint("OpMemberDecorate %T {} MatrixStride {}", .{ field_index, stride });
+    asm volatile (code
+        :
+        : [T] "" (T),
     );
 }
 
@@ -162,5 +215,75 @@ pub fn workgroupSizeHint(comptime entry_point: anytype, comptime size: @Vector(3
     asm volatile (code
         :
         : [entry_point] "" (entry_point),
+    );
+}
+
+pub fn normalize(comptime T: type, value: T) T {
+    return switch (builtin.target.os.tag) {
+        .vulkan => return asm volatile (
+            \\%set = OpExtInstImport "GLSL.std.450"
+            \\%id  = OpExtInst %T %set 69 %value
+            : [id] "" (-> T),
+            : [T] "" (T),
+              [value] "" (value),
+        ),
+        .opencl => unreachable,
+        else => unreachable,
+    };
+}
+
+pub fn pow(comptime T: type, x: T, y: T) T {
+    return switch (builtin.target.os.tag) {
+        .vulkan => asm volatile (
+            \\%set = OpExtInstImport "GLSL.std.450"
+            \\%id  = OpExtInst %T %set 26 %x %y
+            : [id] "" (-> T),
+            : [T] "" (T),
+              [x] "" (x),
+              [y] "" (y),
+        ),
+        .opencl => asm volatile (
+            \\%set = OpExtInstImport "OpenCL.std"
+            \\%id  = OpExtInst %T %set 48 %x %y
+            : [id] "" (-> T),
+            : [T] "" (T),
+              [x] "" (x),
+              [y] "" (y),
+        ),
+        else => unreachable,
+    };
+}
+
+pub fn mix(comptime T: type, x: T, y: T, z: T) T {
+    return switch (builtin.target.os.tag) {
+        .vulkan => asm volatile (
+            \\%set = OpExtInstImport "GLSL.std.450"
+            \\%id  = OpExtInst %T %set 46 %x %y %z
+            : [id] "" (-> T),
+            : [T] "" (T),
+              [x] "" (x),
+              [y] "" (y),
+              [z] "" (z),
+        ),
+        .opencl => asm volatile (
+            \\%set = OpExtInstImport "OpenCL.std"
+            \\%id  = OpExtInst %T %set 99 %x %y %z
+            : [id] "" (-> T),
+            : [T] "" (T),
+              [x] "" (x),
+              [y] "" (y),
+              [z] "" (z),
+        ),
+        else => unreachable,
+    };
+}
+
+pub fn dot(comptime T: type, x: T, y: T) std.meta.Child(T) {
+    return asm volatile (
+        \\%id = OpDot %T %x %y
+        : [id] "" (-> std.meta.Child(T)),
+        : [T] "" (std.meta.Child(T)),
+          [x] "" (x),
+          [y] "" (y),
     );
 }
