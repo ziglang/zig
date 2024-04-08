@@ -1814,9 +1814,12 @@ pub const Dependency = struct {
 
     pub fn path(d: *Dependency, sub_path: []const u8) LazyPath {
         return .{
-            .dependency = .{
-                .dependency = d,
-                .sub_path = sub_path,
+            .owner = d.builder,
+            .root = .{
+                .dependency = .{
+                    .dependency = d,
+                    .sub_path = sub_path,
+                },
             },
         };
     }
