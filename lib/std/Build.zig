@@ -2087,16 +2087,16 @@ pub const GeneratedFile = struct {
 
 pub fn path(b: *Build, p: []const u8) LazyPath {
     // TODO: absolute paths
-    return .{ .root = .{ .path = b.dupePath(p) } };
+    return .{ .owner = b, .root = .{ .path = b.dupePath(p) } };
 }
 
 pub fn pathCwd(b: *Build, p: []const u8) LazyPath {
     // TODO: absolute paths?
-    return .{ .root = .{ .cwd_relative = b.dupePath(p) } };
+    return .{ .owner = b, .root = .{ .cwd_relative = b.dupePath(p) } };
 }
 
-pub fn pathGenerated(_: *Build, g: *const GeneratedFile) LazyPath {
-    return .{ .root = .{ .generated = g } };
+pub fn pathGenerated(b: *Build, g: *const GeneratedFile) LazyPath {
+    return .{ .owner = b, .root = .{ .generated = g } };
 }
 
 // dirnameAllowEmpty is a variant of fs.path.dirname
@@ -2131,6 +2131,7 @@ test dirnameAllowEmpty {
 
 /// A reference to an existing or future path.
 pub const LazyPath = struct {
+    owner: *std.Build,
     root: union(enum) {
         /// A source file path relative to build root.
         /// This should not be an absolute path, but in an older iteration of the zig build
@@ -2177,6 +2178,7 @@ pub const LazyPath = struct {
     /// the dirname is not allowed to traverse outside of zig-cache.
     pub fn dirname(self: LazyPath) LazyPath {
         return .{
+            .owner = self.owner,
             .root = switch (self.root) {
                 .generated => |gen| .{ .generated_dirname = .{ .generated = gen, .up = 0 } },
                 .generated_dirname => |gen| .{ .generated_dirname = .{ .generated = gen.generated, .up = gen.up + 1 } },
@@ -2275,7 +2277,7 @@ pub const LazyPath = struct {
                     (src_builder.cache_root.join(src_builder.allocator, &.{"."}) catch @panic("OOM"));
 
                 const gen_step = gen.generated.step;
-                var p = getPath2(LazyPath{ .root = .{ .generated = gen.generated } }, src_builder, asking_step);
+                var p = getPath2(LazyPath{ .owner = self.owner, .root = .{ .generated = gen.generated } }, src_builder, asking_step);
                 var i: usize = 0;
                 while (i <= gen.up) : (i += 1) {
                     // path is absolute.
@@ -2314,7 +2316,8 @@ pub const LazyPath = struct {
 
     /// Duplicates the file source for a given builder.
     pub fn dupe(self: LazyPath, b: *Build) LazyPath {
-        return .{ .root = switch (self.root) {
+        // TODO(lacc97): no longer require `b` parameter
+        return .{ .owner = b, .root = switch (self.root) {
             .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
