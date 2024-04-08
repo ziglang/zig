@@ -2928,7 +2928,7 @@ pub fn writeElfHeader(self: *Elf) !void {
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
     const elf_type: elf.ET = switch (output_mode) {
-        .Exe => if (comp.config.pie) .DYN else .EXEC,
+        .Exe => if (comp.config.pie or target.os.tag == .haiku) .DYN else .EXEC,
         .Obj => .REL,
         .Lib => switch (link_mode) {
             .static => @as(elf.ET, .REL),
