@@ -505,24 +505,24 @@ pub const NistLengthEncoding = enum {
     right,
 
     /// A length encoded according to NIST SP 800-185.
-    pub const NistEncodedLength = struct {
+    pub const Length = struct {
         /// The size of the encoded value, in bytes.
         len: usize = 0,
         /// A buffer to store the encoded length.
         buf: [@sizeOf(usize) + 1]u8 = undefined,
 
         /// Return the encoded length as a slice.
-        pub fn slice(self: *const NistEncodedLength) []const u8 {
+        pub fn slice(self: *const Length) []const u8 {
             return self.buf[0..self.len];
         }
     };
 
     /// Encode a length according to NIST SP 800-185.
-    pub fn encode(comptime encoding: NistLengthEncoding, len: usize) NistEncodedLength {
+    pub fn encode(comptime encoding: NistLengthEncoding, len: usize) Length {
         const len_bits = @bitSizeOf(@TypeOf(len)) - @clz(len) + 3;
         const len_bytes = std.math.divCeil(usize, len_bits, 8) catch unreachable;
 
-        var res = NistEncodedLength{ .len = len_bytes + 1 };
+        var res = Length{ .len = len_bytes + 1 };
         if (encoding == .right) {
             res.buf[len_bytes] = @intCast(len_bytes);
         }
