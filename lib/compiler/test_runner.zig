@@ -106,10 +106,10 @@ fn mainServer() !void {
                         .fail = fail,
                         .skip = skip,
                         .leak = leak,
-                        .log_err_count = std.math.lossyCast(std.meta.FieldType(
-                            std.zig.Server.Message.TestResults.Flags,
-                            .log_err_count,
-                        ), log_err_count),
+                        .log_err_count = std.math.lossyCast(
+                            @TypeOf(@as(std.zig.Server.Message.TestResults.Flags, undefined).log_err_count),
+                            log_err_count,
+                        ),
                     },
                 });
             },

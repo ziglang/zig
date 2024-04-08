@@ -6943,7 +6943,7 @@ fn cmdFetch(
         std.zig.fmtEscapes(&hex_digest),
     });
 
-    const new_node_text = try std.fmt.allocPrint(arena, ".{} = {s},\n", .{
+    const new_node_text = try std.fmt.allocPrint(arena, ".{p_} = {s},\n", .{
         std.zig.fmtId(name), new_node_init,
     });
 
