@@ -337,30 +337,17 @@ pub const Parser = struct {
     ) !usize {
         var offset = start_offset;
         for (operands) |operand| {
-            offset = try self.parseOperandResultIds(binary, inst, operand, offset, offsets);
-        }
-        return offset;
-    }
-
-    fn parseOperandResultIds(
-        self: *Parser,
-        binary: BinaryModule,
-        inst: Instruction,
-        operand: spec.Operand,
-        start_offset: usize,
-        offsets: *std.ArrayList(u16),
-    ) !usize {
-        var offset = start_offset;
-        switch (operand.quantifier) {
-            .variadic => while (offset < inst.operands.len) {
-                offset = try self.parseOperandKindResultIds(binary, inst, operand.kind, offset, offsets);
-            },
-            .optional => if (offset < inst.operands.len) {
-                offset = try self.parseOperandKindResultIds(binary, inst, operand.kind, offset, offsets);
-            },
-            .required => {
-                offset = try self.parseOperandKindResultIds(binary, inst, operand.kind, offset, offsets);
-            },
+            switch (operand.quantifier) {
+                .variadic => while (offset < inst.operands.len) {
+                    offset = try self.parseOperandKindResultIds(binary, inst, operand.kind, offset, offsets);
+                },
+                .optional => if (offset < inst.operands.len) {
+                    offset = try self.parseOperandKindResultIds(binary, inst, operand.kind, offset, offsets);
+                },
+                .required => {
+                    offset = try self.parseOperandKindResultIds(binary, inst, operand.kind, offset, offsets);
+                },
+            }
         }
         return offset;
     }

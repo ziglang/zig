@@ -601,6 +601,11 @@ const DeclGen = struct {
             }
         }
 
+        // TODO: Temporary hack for vulkan shaders
+        if (target.os.tag == .vulkan) {
+            return 32;
+        }
+
         return null;
     }
 
@@ -1303,11 +1308,11 @@ const DeclGen = struct {
             return self.todo("Implement {s} composite int type of {} bits", .{ @tagName(signedness), bits });
         };
 
-        // Kernel only supports unsigned ints.
         if (self.getTarget().os.tag == .vulkan) {
             return self.spv.intType(signedness, backing_bits);
         }
 
+        // Kernel only supports unsigned ints.
         return self.spv.intType(.unsigned, backing_bits);
     }
 
