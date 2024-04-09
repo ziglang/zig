@@ -167,34 +167,6 @@ pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_
             const epoch_days = self.toEpoch() +% Weekday.thu.numeric();
             return @enumFromInt(std.math.comptimeMod(epoch_days, 7));
         }
-
-        pub fn fromRfc3339(str: *const [10]u8) !Self {
-            if (str[4] != '-' or str[7] != '-') return error.Parsing;
-
-            const year = try std.fmt.parseInt(IntFittingRange(0, 9999), str[0..4], 10);
-            const month = try std.fmt.parseInt(Month.Int, str[5..7], 10);
-            if (month < 1 or month > 12) return error.Parsing;
-            const m: Month = @enumFromInt(month);
-            const day = try std.fmt.parseInt(Day, str[8..10], 10);
-            if (day < 1 or day > m.days(is_leap(year))) return error.Parsing;
-
-            return .{
-                .year = @intCast(year), // if YearT is `i8` or `u8` this may fail. increase it to not fail.
-                .month = m,
-                .day = day,
-            };
-        }
-
-        pub fn toRfc3339(self: Self, writer: anytype) !void {
-            if (self.year < 0 or self.year > 9999) return error.Range;
-            if (self.day < 1 or self.day > 99) return error.Range;
-            if (self.month.numeric() < 1 or self.month.numeric() > 12) return error.Range;
-            try writer.print("{d:0>4}-{d:0>2}-{d:0>2}", .{
-                @as(UEpochDays, @intCast(self.year)),
-                self.month.numeric(),
-                self.day,
-            });
-        }
     };
 }
 
@@ -241,13 +213,6 @@ test "Date from and to epoch" {
     try testFromToEpoch(Date(u64, epoch.windows));
 }
 
-test "Date RFC3339" {
-    const T = Date(i16, 0);
-    try expectEqual(T{ .year = 2000, .month = .jan, .day = 1 }, try T.fromRfc3339("2000-01-01"));
-    try std.testing.expectError(error.Parsing, T.fromRfc3339("2000T01-01"));
-    try std.testing.expectError(error.InvalidCharacter, T.fromRfc3339("2000-01-AD"));
-}
-
 test Date {
     const T = Date(i16, 0);
     const d1 = T{ .year = 1960, .month = .jan, .day = 1 };
@@ -278,12 +243,6 @@ test Date {
     try expectEqual(.tue, (T{ .year = 1980, .month = .jan, .day = 1 }).weekday());
     // $ date -d '1960-01-01'
     try expectEqual(.fri, d1.weekday());
-
-    try expectEqual(T{ .year = 2000, .month = .jan, .day = 1 }, try T.fromRfc3339("2000-01-01"));
-    var buf: [10]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try (T{ .year = 2000, .month = .jan, .day = 1 }).toRfc3339(stream.writer());
-    try std.testing.expectEqualStrings("2000-01-01", stream.getWritten());
 }
 
 const WeekdayInt = IntFittingRange(1, 7);

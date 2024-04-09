@@ -344,7 +344,7 @@ test Timer {
     try testing.expect(timer.read() < time_1);
 }
 
-pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
+pub fn Time(precision_: comptime_int) type {
     const multiplier: comptime_int = try std.math.powi(usize, 10, precision_);
     return struct {
         hour: Hour = 0,
@@ -353,8 +353,6 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
         second: Second = 0,
         /// Milliseconds, microseconds, or nanoseconds.
         subsecond: Subsecond = 0,
-        /// Offset of `hour` and `minute` from in minutes from UTC.
-        offset: IMinutes = 0,
 
         pub const Hour = IntFittingRange(0, 23);
         pub const Minute = IntFittingRange(0, 59);
@@ -362,7 +360,6 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
         pub const Subsecond = IntFittingRange(0, if (precision_ == 0) 0 else multiplier);
         pub const DaySubseconds = IntFittingRange(0, s_per_day * multiplier);
         const IDaySubseconds = std.meta.Int(.signed, @typeInfo(DaySubseconds).Int.bits + 1);
-        pub const IMinutes = if (has_offset) IntFittingRange(-24 * 60, 24 * 60) else u0;
 
         const Self = @This();
 
@@ -372,12 +369,8 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
         pub const subseconds_per_hour = 60 * subseconds_per_min;
         pub const subseconds_per_day = 24 * subseconds_per_hour;
 
-        pub const Options = struct {
-            offset: IMinutes = 0,
-        };
-
-        pub fn fromDaySeconds(seconds: DaySubseconds, options: Options) Self {
-            const fs_offset = @as(IDaySubseconds, options.offset) * subseconds_per_min + seconds;
+        pub fn fromDaySeconds(seconds: DaySubseconds) Self {
+            const fs_offset = seconds;
             var fs = std.math.comptimeMod(fs_offset, subseconds_per_day);
 
             const hour: Hour = @intCast(@divFloor(fs, subseconds_per_hour));
@@ -394,16 +387,11 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
                 .minute = minute,
                 .second = second,
                 .subsecond = @intCast(fs),
-                .offset = options.offset,
             };
         }
 
         pub fn toDaySeconds(self: Self) DaySubseconds {
-            return self.toDaySecondsZone(self.offset);
-        }
-
-        pub fn toDaySecondsZone(self: Self, zone: IMinutes) DaySubseconds {
-            var sec = @as(IDaySubseconds, zone) * 60 * multiplier;
+            var sec: IDaySubseconds = 0;
             sec += @as(IDaySubseconds, self.hour) * subseconds_per_hour;
             sec += @as(IDaySubseconds, self.minute) * subseconds_per_min;
             sec += @as(IDaySubseconds, self.second) * subseconds_per_s;
@@ -441,122 +429,24 @@ pub fn Time(precision_: comptime_int, comptime has_offset: bool) type {
         pub fn add(self: Self, hour: i64, minute: i64, second: i64, subsecond: i64) Self {
             return self.addWithOverflow(hour, minute, second, subsecond).time;
         }
-
-        pub fn fromRfc3339(str: []const u8) !Self {
-            if (str.len < "hh:mm:ssZ".len) return error.Parsing;
-
-            if (str[2] != ':' or str[5] != ':') return error.Parsing;
-
-            const hour = try std.fmt.parseInt(Hour, str[0..2], 10);
-            const minute = try std.fmt.parseInt(Minute, str[3..5], 10);
-            const second = try std.fmt.parseInt(Second, str[6..8], 10);
-
-            var i: usize = 8;
-            const subsecond: Subsecond = if (str[i] == '.') brk: {
-                i += 1;
-                while (i < str.len and std.ascii.isDigit(str[i])) : (i += 1) {}
-                if (Subsecond == u0) break :brk 0;
-                const subsecond_str = str[9..i];
-                // Choose largest performant type.
-                // Ideally, this would allow infinite precision.
-                const T = f64;
-                var subsecond = try std.fmt.parseFloat(T, subsecond_str);
-                const actual_precision: T = @floatFromInt(subsecond_str.len);
-                subsecond *= std.math.pow(T, 10, precision - actual_precision);
-
-                break :brk @intFromFloat(subsecond);
-            } else 0;
-
-            // timezone required
-            if (str.len <= i) return error.Parsing;
-
-            const offset = if (std.ascii.toUpper(str[i]) == 'Z') 0 else brk: {
-                var sign: IMinutes = 1;
-                if (str[i] == '-') {
-                    sign = -1;
-                    i += 1;
-                } else if (str[i] == '+') {
-                    i += 1;
-                }
-
-                const offset_hour = try std.fmt.parseInt(IMinutes, str[i..][0..2], 10);
-                if (str[i + 2] != ':') return error.Parsing;
-                const offset_minute = try std.fmt.parseInt(IMinutes, str[i + 3 ..][0..2], 10);
-
-                break :brk sign * (offset_hour * 60 + offset_minute);
-            };
-
-            return .{ .hour = hour, .minute = minute, .second = second, .subsecond = subsecond, .offset = offset };
-        }
-
-        pub fn toRfc3339(self: Self, writer: anytype) !void {
-            if (self.hour > 24 or self.minute > 59 or self.second > 60) return error.Range;
-            try writer.print("{d:0>2}:{d:0>2}:{d:0>2}", .{ self.hour, self.minute, self.second });
-            if (self.subsecond != 0) {
-                // We could trim trailing zeros here to save space.
-                try writer.print(".{d}", .{self.subsecond});
-            }
-            if (self.offset == 0) {
-                try writer.writeByte('Z');
-            } else {
-                try writer.writeByte(if (self.offset > 0) '+' else '-');
-                const abs: u16 = @intCast(if (self.offset > 0) self.offset else -self.offset);
-                const offset_hour = abs / 60;
-                if (offset_hour < -24 or offset_hour > 24) return error.Range;
-                const offset_minute = abs % 60;
-                try writer.print("{d:0>2}:{d:0>2}", .{ offset_hour, offset_minute });
-            }
-        }
     };
 }
 
 test Time {
-    const TimeMilli = Time(3, false);
+    const TimeMilli = Time(3);
     const t1 = TimeMilli{};
     const expectEqual = std.testing.expectEqual;
     // cause each place to overflow
     try expectEqual(TimeMilli{ .hour = 2, .minute = 2, .second = 2, .subsecond = 1 }, t1.add(25, 61, 61, 1001));
     // cause each place to underflow
     try expectEqual(TimeMilli{ .hour = 21, .minute = 57, .second = 57, .subsecond = 999 }, t1.add(-25, -61, -61, -1001));
-
-    const TimeMilliOffset = Time(3, true);
-    // positive offset
-    try expectEqual(
-        TimeMilliOffset{ .hour = 1, .minute = 30, .offset = 90 },
-        TimeMilliOffset.fromDaySeconds(0, .{ .offset = 90 }),
-    );
-    // negative offset
-    try expectEqual(
-        TimeMilliOffset{ .hour = 22, .minute = 30, .offset = -90 },
-        TimeMilliOffset.fromDaySeconds(0, .{ .offset = -90 }),
-    );
-
-    try expectEqual(TimeMilliOffset{ .hour = 22, .minute = 30, .offset = -90 }, try TimeMilliOffset.fromRfc3339("22:30:00-01:30"));
-    try expectEqual(TimeMilliOffset{ .hour = 22, .minute = 30, .offset = 90 }, try TimeMilliOffset.fromRfc3339("22:30:00.0000+01:30"));
-    try expectEqual(TimeMilliOffset{ .hour = 22, .minute = 30, .second = 20, .subsecond = 100 }, try TimeMilliOffset.fromRfc3339("22:30:20.1Z"));
-
-    const expectError = std.testing.expectError;
-    try expectError(error.Parsing, TimeMilliOffset.fromRfc3339("22:30:20.100")); // missing timezone
-    try expectError(error.InvalidCharacter, TimeMilliOffset.fromRfc3339("22:30:20.1a00"));
-    try expectError(error.Parsing, TimeMilliOffset.fromRfc3339("2:00:20Z")); // missing hour digit
-
-    var buf: [32]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    const time = TimeMilliOffset{ .hour = 22, .minute = 30, .second = 20, .subsecond = 100 };
-    try time.toRfc3339(stream.writer());
-    try std.testing.expectEqualStrings("22:30:20.100Z", stream.getWritten());
-
-    stream.reset();
-    const time2 = TimeMilliOffset{ .hour = 22, .minute = 30, .second = 20, .subsecond = 100, .offset = 100 };
-    try time2.toRfc3339(stream.writer());
-    try std.testing.expectEqualStrings("22:30:20.100+01:40", stream.getWritten());
 }
 
 comptime {
-    assert(@sizeOf(Time(0, false)) == 3);
-    assert(@sizeOf(Time(3, false)) == 6);
-    assert(@sizeOf(Time(6, false)) == 8);
-    assert(@sizeOf(Time(9, false)) == 8);
+    assert(@sizeOf(Time(0)) == 3);
+    assert(@sizeOf(Time(3)) == 6);
+    assert(@sizeOf(Time(6)) == 8);
+    assert(@sizeOf(Time(9)) == 8);
 }
 
 test {
