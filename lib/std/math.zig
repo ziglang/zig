@@ -1775,15 +1775,16 @@ pub fn comptimeMod(num: anytype, comptime denom: comptime_int) IntFittingRange(0
 
 fn ComptimeDiv(comptime Num: type, comptime divisor: comptime_int) type {
     const info = @typeInfo(Num).Int;
-    var n_bits = info.bits;
-    n_bits -= log2_int(usize, divisor);
-
-    return std.meta.Int(info.signedness, n_bits);
+    return std.meta.Int(info.signedness, info.bits - log2(divisor));
 }
 
 /// Return the quotient of `num` with the smallest integer type
 pub fn comptimeDivFloor(num: anytype, comptime divisor: comptime_int) ComptimeDiv(@TypeOf(num), divisor) {
     return @intCast(@divFloor(num, divisor));
+}
+
+test comptimeDivFloor {
+    try std.testing.expectEqual(@as(u13, 100), comptimeDivFloor(@as(u16, 1000), 10));
 }
 
 pub const F80 = struct {
