@@ -817,7 +817,7 @@ fn verifyEd25519(
 const std = @import("../std.zig");
 const crypto = std.crypto;
 const mem = std.mem;
-const DateTime = std.date_time.Date16Time;
+const DateTime = std.date_time.DateTime;
 const Certificate = @This();
 
 pub const der = struct {
