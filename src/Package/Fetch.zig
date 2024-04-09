@@ -463,7 +463,6 @@ fn runResource(
 
         // Fetch and unpack a resource into a temporary directory.
         var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory);
-        defer unpack_result.deinit();
 
         var pkg_path: Cache.Path = .{ .root_dir = tmp_directory, .sub_path = unpack_result.root_dir };
 
@@ -487,11 +486,7 @@ fn runResource(
 
         // Ignore errors that were excluded by manifest, such as failure to
         // create symlinks that weren't supposed to be included anyway.
-        try unpack_result.filterErrors(filter);
-        if (unpack_result.hasErrors()) {
-            try unpack_result.bundleErrors(eb, try f.srcLoc(f.location_tok));
-            return error.FetchFailed;
-        }
+        try unpack_result.validate(f, filter);
 
         // Apply the manifest's inclusion rules to the temporary directory by
         // deleting excluded files.
@@ -1117,8 +1112,7 @@ fn unpackResource(
                     .{ uri_path, @errorName(err) },
                 ));
             };
-            const gpa = f.arena.child_allocator;
-            return UnpackResult.init(gpa);
+            return .{};
         },
     };
 
@@ -1166,10 +1160,9 @@ fn unpackResource(
 
 fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
     const eb = &f.error_bundle;
-    const gpa = f.arena.child_allocator;
+    const arena = f.arena.allocator();
 
-    var diagnostics: std.tar.Diagnostics = .{ .allocator = gpa };
-    defer diagnostics.deinit();
+    var diagnostics: std.tar.Diagnostics = .{ .allocator = arena };
 
     std.tar.pipeToFileSystem(out_dir, reader, .{
         .diagnostics = &diagnostics,
@@ -1181,17 +1174,14 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
         .{@errorName(err)},
     ));
 
-    var res = UnpackResult.init(gpa);
-    if (diagnostics.root_dir.len > 0) {
-        res.root_dir = try gpa.dupe(u8, diagnostics.root_dir);
-    }
+    var res: UnpackResult = .{ .root_dir = diagnostics.root_dir };
     if (diagnostics.errors.items.len > 0) {
-        try res.rootErrorMessage("unable to unpack tarball");
+        try res.allocErrors(arena, diagnostics.errors.items.len, "unable to unpack tarball");
         for (diagnostics.errors.items) |item| {
             switch (item) {
-                .unable_to_create_file => |i| try res.unableToCreateFile(stripRoot(i.file_name, res.root_dir), i.code),
-                .unable_to_create_sym_link => |i| try res.unableToCreateSymLink(stripRoot(i.file_name, res.root_dir), i.link_name, i.code),
-                .unsupported_file_type => |i| try res.unsupportedFileType(stripRoot(i.file_name, res.root_dir), @intFromEnum(i.file_type)),
+                .unable_to_create_file => |i| res.unableToCreateFile(stripRoot(i.file_name, res.root_dir), i.code),
+                .unable_to_create_sym_link => |i| res.unableToCreateSymLink(stripRoot(i.file_name, res.root_dir), i.link_name, i.code),
+                .unsupported_file_type => |i| res.unsupportedFileType(stripRoot(i.file_name, res.root_dir), @intFromEnum(i.file_type)),
             }
         }
     }
@@ -1199,11 +1189,12 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
 }
 
 fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!UnpackResult {
+    const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
     const want_oid = resource.git.want_oid;
     const reader = resource.git.fetch_stream.reader();
 
-    var res = UnpackResult.init(gpa);
+    var res: UnpackResult = .{};
     // The .git directory is used to store the packfile and associated index, but
     // we do not attempt to replicate the exact structure of a real .git
     // directory, since that isn't relevant for fetching a package.
@@ -1234,16 +1225,15 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
             checkout_prog_node.activate();
             var repository = try git.Repository.init(gpa, pack_file, index_file);
             defer repository.deinit();
-            var diagnostics: git.Diagnostics = .{ .allocator = gpa };
-            defer diagnostics.deinit();
+            var diagnostics: git.Diagnostics = .{ .allocator = arena };
             try repository.checkout(out_dir, want_oid, &diagnostics);
 
             if (diagnostics.errors.items.len > 0) {
-                try res.rootErrorMessage("unable to unpack packfile");
+                try res.allocErrors(arena, diagnostics.errors.items.len, "unable to unpack packfile");
                 for (diagnostics.errors.items) |item| {
                     switch (item) {
-                        .unable_to_create_file => |i| try res.unableToCreateFile(i.file_name, i.code),
-                        .unable_to_create_sym_link => |i| try res.unableToCreateSymLink(i.file_name, i.link_name, i.code),
+                        .unable_to_create_file => |i| res.unableToCreateFile(i.file_name, i.code),
+                        .unable_to_create_sym_link => |i| res.unableToCreateSymLink(i.file_name, i.link_name, i.code),
                     }
                 }
             }
@@ -1701,6 +1691,7 @@ const native_os = builtin.os.tag;
 test {
     _ = Filter;
     _ = FileType;
+    _ = UnpackResult;
 }
 
 // Detects executable header: ELF magic header or shebang line.
@@ -1741,8 +1732,8 @@ test FileHeader {
 // tar/git diagnostic, filtering that errors by manifest inclusion rules and
 // emitting remaining errors to an `ErrorBundle`.
 const UnpackResult = struct {
-    allocator: std.mem.Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
+    errors: []Error = undefined,
+    errors_count: usize = 0,
     root_error_message: []const u8 = "",
 
     // A non empty value means that the package contents are inside a
@@ -1772,78 +1763,63 @@ const UnpackResult = struct {
             };
             return !filter.includePath(file_name);
         }
-
-        fn free(self: Error, allocator: std.mem.Allocator) void {
-            switch (self) {
-                .unable_to_create_sym_link => |info| {
-                    allocator.free(info.file_name);
-                    allocator.free(info.link_name);
-                },
-                .unable_to_create_file => |info| {
-                    allocator.free(info.file_name);
-                },
-                .unsupported_file_type => |info| {
-                    allocator.free(info.file_name);
-                },
-            }
-        }
     };
 
-    fn init(allocator: std.mem.Allocator) UnpackResult {
-        return .{ .allocator = allocator };
-    }
-
-    fn deinit(self: *UnpackResult) void {
-        for (self.errors.items) |item| {
-            item.free(self.allocator);
-        }
-        self.errors.deinit(self.allocator);
-        self.allocator.free(self.root_error_message);
-        self.allocator.free(self.root_dir);
-        self.* = undefined;
+    fn allocErrors(self: *UnpackResult, arena: std.mem.Allocator, n: usize, root_error_message: []const u8) !void {
+        self.root_error_message = try arena.dupe(u8, root_error_message);
+        self.errors = try arena.alloc(UnpackResult.Error, n);
     }
 
     fn hasErrors(self: *UnpackResult) bool {
-        return self.errors.items.len > 0;
+        return self.errors_count > 0;
     }
 
-    fn unableToCreateFile(self: *UnpackResult, file_name: []const u8, err: anyerror) !void {
-        try self.errors.append(self.allocator, .{ .unable_to_create_file = .{
+    fn unableToCreateFile(self: *UnpackResult, file_name: []const u8, err: anyerror) void {
+        self.errors[self.errors_count] = .{ .unable_to_create_file = .{
             .code = err,
-            .file_name = try self.allocator.dupe(u8, file_name),
-        } });
+            .file_name = file_name,
+        } };
+        self.errors_count += 1;
     }
 
-    fn unableToCreateSymLink(self: *UnpackResult, file_name: []const u8, link_name: []const u8, err: anyerror) !void {
-        try self.errors.append(self.allocator, .{ .unable_to_create_sym_link = .{
+    fn unableToCreateSymLink(self: *UnpackResult, file_name: []const u8, link_name: []const u8, err: anyerror) void {
+        self.errors[self.errors_count] = .{ .unable_to_create_sym_link = .{
             .code = err,
-            .file_name = try self.allocator.dupe(u8, file_name),
-            .link_name = try self.allocator.dupe(u8, link_name),
-        } });
+            .file_name = file_name,
+            .link_name = link_name,
+        } };
+        self.errors_count += 1;
     }
 
-    fn unsupportedFileType(self: *UnpackResult, file_name: []const u8, file_type: u8) !void {
-        try self.errors.append(self.allocator, .{ .unsupported_file_type = .{
-            .file_name = try self.allocator.dupe(u8, file_name),
+    fn unsupportedFileType(self: *UnpackResult, file_name: []const u8, file_type: u8) void {
+        self.errors[self.errors_count] = .{ .unsupported_file_type = .{
+            .file_name = file_name,
             .file_type = file_type,
-        } });
+        } };
+        self.errors_count += 1;
     }
 
-    // Filter errors by manifest inclusion rules.
-    fn filterErrors(self: *UnpackResult, filter: Filter) !void {
-        var i = self.errors.items.len;
-        while (i > 0) {
-            i -= 1;
-            const item = self.errors.items[i];
-            if (item.excluded(filter)) {
-                _ = self.errors.swapRemove(i);
-                item.free(self.allocator);
-            }
+    fn validate(self: *UnpackResult, f: *Fetch, filter: Filter) !void {
+        self.filterErrors(filter);
+        if (self.hasErrors()) {
+            const eb = &f.error_bundle;
+            try self.bundleErrors(eb, try f.srcLoc(f.location_tok));
+            return error.FetchFailed;
         }
     }
 
-    fn rootErrorMessage(self: *UnpackResult, msg: []const u8) !void {
-        self.root_error_message = try self.allocator.dupe(u8, msg);
+    // Filter errors by manifest inclusion rules.
+    fn filterErrors(self: *UnpackResult, filter: Filter) void {
+        var i = self.errors_count;
+        while (i > 0) {
+            i -= 1;
+            if (self.errors[i].excluded(filter)) {
+                self.errors_count -= 1;
+                const tmp = self.errors[i];
+                self.errors[i] = self.errors[self.errors_count];
+                self.errors[self.errors_count] = tmp;
+            }
+        }
     }
 
     // Emmit errors to an `ErrorBundle`.
@@ -1852,17 +1828,17 @@ const UnpackResult = struct {
         eb: *ErrorBundle.Wip,
         src_loc: ErrorBundle.SourceLocationIndex,
     ) !void {
-        if (self.errors.items.len == 0 and self.root_error_message.len == 0)
+        if (self.errors_count == 0 and self.root_error_message.len == 0)
             return;
 
-        const notes_len: u32 = @intCast(self.errors.items.len);
+        const notes_len: u32 = @intCast(self.errors_count);
         try eb.addRootErrorMessage(.{
             .msg = try eb.addString(self.root_error_message),
             .src_loc = src_loc,
             .notes_len = notes_len,
         });
         const notes_start = try eb.reserveNotes(notes_len);
-        for (self.errors.items, notes_start..) |item, note_i| {
+        for (self.errors, notes_start..) |item, note_i| {
             switch (item) {
                 .unable_to_create_sym_link => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
@@ -1887,6 +1863,36 @@ const UnpackResult = struct {
                 },
             }
         }
+    }
+
+    test filterErrors {
+        var arena_instance = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena_instance.deinit();
+        const arena = arena_instance.allocator();
+
+        // init
+        var res: UnpackResult = .{};
+        try res.allocErrors(arena, 4, "error");
+        try std.testing.expectEqual(0, res.errors_count);
+
+        // create errors
+        res.unableToCreateFile("dir1/file1", error.File1);
+        res.unableToCreateSymLink("dir2/file2", "", error.File2);
+        res.unableToCreateFile("dir1/file3", error.File3);
+        res.unsupportedFileType("dir2/file4", 'x');
+        try std.testing.expectEqual(4, res.errors_count);
+
+        // filter errors
+        var filter: Filter = .{};
+        try filter.include_paths.put(arena, "dir2", {});
+        res.filterErrors(filter);
+
+        try std.testing.expectEqual(2, res.errors_count);
+        try std.testing.expect(res.errors[0] == Error.unsupported_file_type);
+        try std.testing.expect(res.errors[1] == Error.unable_to_create_sym_link);
+        // filtered: moved to the list end
+        try std.testing.expect(res.errors[2] == Error.unable_to_create_file);
+        try std.testing.expect(res.errors[3] == Error.unable_to_create_file);
     }
 };
 
