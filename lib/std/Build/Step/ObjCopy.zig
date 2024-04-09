@@ -84,7 +84,7 @@ pub fn create(
 pub const getOutputSource = getOutput;
 
 pub fn getOutput(self: *const ObjCopy) std.Build.LazyPath {
-    return .{ .generated = &self.output_file };
+    return self.step.owner.pathGenerated(&self.output_file);
 }
 pub fn getOutputSeparatedDebug(self: *const ObjCopy) ?std.Build.LazyPath {
     return if (self.output_file_debug) |*file| .{ .generated = file } else null;
