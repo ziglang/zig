@@ -772,7 +772,7 @@ fn verifyRsa(
     Hash.hash(message, &msg_hashed, .{});
 
     switch (modulus.len) {
-        inline 128, 256, 512 => |modulus_len| {
+        inline 128, 256, 384, 512 => |modulus_len| {
             const ps_len = modulus_len - (hash_der.len + msg_hashed.len) - 3;
             const em: [modulus_len]u8 =
                 [2]u8{ 0, 1 } ++
