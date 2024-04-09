@@ -75,7 +75,7 @@ pub fn DateTimeAdvanced(
     return DateTime(date_mod.Date(Year, epoch), time_mod.Time(time_precision, time_zoned));
 }
 
-pub const Date16Time = DateTime(date_mod.Date16, time_mod.Time(0, false));
+pub const Date16Time = DateTime(date_mod.Date, time_mod.Time(0, false));
 
 comptime {
     assert(@sizeOf(Date16Time) == 8);
@@ -119,7 +119,7 @@ test "Date epoch" {
 }
 
 test "Date RFC 3339 section 5.8" {
-    const T = DateTime(date_mod.Date16, time_mod.Time(3, true));
+    const T = DateTime(date_mod.Date, time_mod.Time(3, true));
     const expectEqual = std.testing.expectEqual;
     const t1 = T{
         .date = .{ .year = 1985, .month = .apr, .day = 12 },

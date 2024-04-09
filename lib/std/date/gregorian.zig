@@ -200,7 +200,7 @@ pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_
 
 /// Epoch is days since 1970
 pub fn Date(comptime Year: type, epoch: comptime_int) type {
-    const shift = solve_shift(Year, epoch) catch unreachable;
+    const shift = solveShift(Year, epoch) catch unreachable;
     return DateAdvanced(Year, epoch, shift);
 }
 
@@ -368,7 +368,7 @@ test is_leap {
     try expectEqual(true, is_leap(2400));
 }
 
-pub fn days_between_years(from: usize, to: usize) usize {
+pub fn daysBetweenYears(from: usize, to: usize) usize {
     var res: usize = 0;
     var i: usize = from;
     while (i < to) : (i += 1) {
@@ -377,14 +377,14 @@ pub fn days_between_years(from: usize, to: usize) usize {
     return res;
 }
 
-test days_between_years {
-    try expectEqual(366, days_between_years(2000, 2001));
-    try expectEqual(146_097, days_between_years(0, 400));
+test daysBetweenYears {
+    try expectEqual(366, daysBetweenYears(2000, 2001));
+    try expectEqual(146_097, daysBetweenYears(0, 400));
 }
 
 /// The Gregorian calendar repeats every 400 years.
 const era = 400;
-const era_days: comptime_int = days_between_years(0, 400); // 146_097
+const era_days: comptime_int = daysBetweenYears(0, 400); // 146_097
 
 /// Number of days between two consecutive March equinoxes
 const days_in_year = struct {
@@ -409,7 +409,7 @@ fn UIntFitting(to: comptime_int) type {
 
 /// Finds minimum epoch shift that covers the range:
 /// [std.math.minInt(YearT), std.math.maxInt(YearT)]
-fn solve_shift(comptime Year: type, epoch: comptime_int) !comptime_int {
+fn solveShift(comptime Year: type, epoch: comptime_int) !comptime_int {
     const shift = std.math.maxInt(Year) / era + 1;
 
     const L = era * shift;
@@ -424,10 +424,10 @@ fn solve_shift(comptime Year: type, epoch: comptime_int) !comptime_int {
     return shift;
 }
 
-test solve_shift {
-    try expectEqual(82, try solve_shift(i16, 719_468));
-    try expectEqual(5_368_710, try solve_shift(i32, 719_468));
-    try expectEqual(23_058_430_092_136_940, try solve_shift(i64, 719_468));
+test solveShift {
+    try expectEqual(82, try solveShift(i16, 719_468));
+    try expectEqual(5_368_710, try solveShift(i32, 719_468));
+    try expectEqual(23_058_430_092_136_940, try solveShift(i64, 719_468));
 }
 
 const std = @import("std");
