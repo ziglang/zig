@@ -46,6 +46,10 @@ pub const Diagnostics = struct {
             file_name: []const u8,
             link_name: []const u8,
         },
+        unable_to_create_file: struct {
+            code: anyerror,
+            file_name: []const u8,
+        },
     };
 
     pub fn deinit(d: *Diagnostics) void {
@@ -54,6 +58,9 @@ pub const Diagnostics = struct {
                 .unable_to_create_sym_link => |info| {
                     d.allocator.free(info.file_name);
                     d.allocator.free(info.link_name);
+                },
+                .unable_to_create_file => |info| {
+                    d.allocator.free(info.file_name);
                 },
             }
         }
@@ -119,11 +126,19 @@ pub const Repository = struct {
                     try repository.checkoutTree(subdir, entry.oid, sub_path, diagnostics);
                 },
                 .file => {
-                    var file = try dir.createFile(entry.name, .{});
-                    defer file.close();
                     try repository.odb.seekOid(entry.oid);
                     const file_object = try repository.odb.readObject();
                     if (file_object.type != .blob) return error.InvalidFile;
+                    var file = dir.createFile(entry.name, .{ .exclusive = true }) catch |e| {
+                        const file_name = try std.fs.path.join(diagnostics.allocator, &.{ current_path, entry.name });
+                        errdefer diagnostics.allocator.free(file_name);
+                        try diagnostics.errors.append(diagnostics.allocator, .{ .unable_to_create_file = .{
+                            .code = e,
+                            .file_name = file_name,
+                        } });
+                        continue;
+                    };
+                    defer file.close();
                     try file.writeAll(file_object.data);
                     try file.sync();
                 },
