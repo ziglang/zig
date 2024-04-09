@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
+const LazyPath = Build.LazyPath;
 const Step = Build.Step;
 const fs = std.fs;
 const mem = std.mem;
@@ -198,7 +199,7 @@ pub fn addPrefixedOutputFileArg(
     self: *Run,
     prefix: []const u8,
     basename: []const u8,
-) std.Build.LazyPath {
+) LazyPath {
     const b = self.step.owner;
 
     const output = b.allocator.create(Output) catch @panic("OOM");
@@ -213,7 +214,7 @@ pub fn addPrefixedOutputFileArg(
         self.setName(b.fmt("{s} ({s})", .{ self.step.name, basename }));
     }
 
-    return self.step.owner.pathGenerated(&output.generated_file);
+    return LazyPath.generatedFile(&output.generated_file);
 }
 
 /// Appends an input file to the command line arguments.
@@ -299,7 +300,7 @@ pub fn addPrefixedDepFileOutputArg(self: *Run, prefix: []const u8, basename: []c
 
     self.argv.append(.{ .output = dep_file }) catch @panic("OOM");
 
-    return self.step.pathGenerated(&dep_file.generated_file);
+    return LazyPath.generatedFile(&dep_file.generated_file);
 }
 
 pub fn addArg(self: *Run, arg: []const u8) void {
@@ -414,7 +415,7 @@ pub fn addCheck(self: *Run, new_check: StdIo.Check) void {
 pub fn captureStdErr(self: *Run) std.Build.LazyPath {
     assert(self.stdio != .inherit);
 
-    if (self.captured_stderr) |output| return self.step.owner.pathGenerated(&output.generated_file);
+    if (self.captured_stderr) |output| return LazyPath.generatedFile(&output.generated_file);
 
     const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
@@ -423,13 +424,13 @@ pub fn captureStdErr(self: *Run) std.Build.LazyPath {
         .generated_file = .{ .step = &self.step },
     };
     self.captured_stderr = output;
-    return self.step.owner.pathGenerated(&output.generated_file);
+    return LazyPath.generatedFile(&output.generated_file);
 }
 
 pub fn captureStdOut(self: *Run) std.Build.LazyPath {
     assert(self.stdio != .inherit);
 
-    if (self.captured_stdout) |output| return self.step.owner.pathGenerated(&output.generated_file);
+    if (self.captured_stdout) |output| return LazyPath.generatedFile(&output.generated_file);
 
     const output = self.step.owner.allocator.create(Output) catch @panic("OOM");
     output.* = .{
@@ -438,7 +439,7 @@ pub fn captureStdOut(self: *Run) std.Build.LazyPath {
         .generated_file = .{ .step = &self.step },
     };
     self.captured_stdout = output;
-    return self.step.owner.pathGenerated(&output.generated_file);
+    return LazyPath.generatedFile(&output.generated_file);
 }
 
 /// Returns whether the Run step has side effects *other than* updating the output arguments.

@@ -103,7 +103,7 @@ pub fn addValues(self: *ConfigHeader, values: anytype) void {
 }
 
 pub fn getOutput(self: *ConfigHeader) std.Build.LazyPath {
-    return self.step.owner.pathGenerated(&self.output_file);
+    return std.Build.LazyPath.generatedFile(&self.output_file);
 }
 
 fn addValuesInner(self: *ConfigHeader, values: anytype) !void {

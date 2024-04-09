@@ -31,7 +31,7 @@ pub const File = struct {
     contents: Contents,
 
     pub fn getPath(self: *File) std.Build.LazyPath {
-        return self.generated_file.step.owner.pathGenerated(&self.generated_file);
+        return std.Build.LazyPath.generatedFile(&self.generated_file);
     }
 };
 
@@ -58,7 +58,7 @@ pub const Directory = struct {
     };
 
     pub fn getPath(self: *Directory) std.Build.LazyPath {
-        return self.generated_dir.step.owner.pathGenerated(&self.generated_dir);
+        return std.Build.LazyPath.generatedFile(&self.generated_dir);
     }
 };
 
@@ -181,7 +181,7 @@ pub fn addBytesToSource(wf: *WriteFile, bytes: []const u8, sub_path: []const u8)
 /// Returns a `LazyPath` representing the base directory that contains all the
 /// files from this `WriteFile`.
 pub fn getDirectory(wf: *WriteFile) std.Build.LazyPath {
-    return wf.step.owner.pathGenerated(&wf.generated_directory);
+    return std.Build.LazyPath.generatedFile(&wf.generated_directory);
 }
 
 fn maybeUpdateName(wf: *WriteFile) void {

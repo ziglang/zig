@@ -2089,10 +2089,6 @@ pub fn pathCwd(b: *Build, p: []const u8) LazyPath {
     return .{ .owner = b, .path = b.dupePath(p), .root = .cwd };
 }
 
-pub fn pathGenerated(b: *Build, g: *const GeneratedFile) LazyPath {
-    return .{ .owner = b, .path = "", .root = .{ .generated = .{ .generated = g, .up = 0 } } };
-}
-
 // dirnameAllowEmpty is a variant of fs.path.dirname
 // that allows "" to refer to the root for relative paths.
 //
@@ -2156,6 +2152,10 @@ pub const LazyPath = struct {
     },
 
     pub const relative = @compileError("use std.Build.path() instead");
+
+    pub fn generatedFile(g: *const GeneratedFile) LazyPath {
+        return .{ .owner = g.step.owner, .path = "", .root = .{ .generated = .{ .generated = g, .up = 0 } } };
+    }
 
     /// Returns a lazy path referring to the directory containing this path.
     ///
