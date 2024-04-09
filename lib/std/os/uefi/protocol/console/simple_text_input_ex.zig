@@ -13,7 +13,7 @@ pub const SimpleTextInputEx = extern struct {
     _read_key_stroke_ex: *const fn (*const SimpleTextInputEx, key: *Key) callconv(cc) Status,
     wait_for_key_ex: Event,
     _set_state: *const fn (*const SimpleTextInputEx, state: *const Key.State.Toggle) callconv(cc) Status,
-    _register_key_notify: *const fn (*const SimpleTextInputEx, key: *Key, func: *const fn (*const Key) callconv(cc) usize, handle: *NotifyHandle) callconv(cc) Status,
+    _register_key_notify: *const fn (*const SimpleTextInputEx, key: *Key, func: NotifyFn, handle: *NotifyHandle) callconv(cc) Status,
     _unregister_key_notify: *const fn (*const SimpleTextInputEx, handle: NotifyHandle) callconv(cc) Status,
 
     /// Resets the input device hardware.

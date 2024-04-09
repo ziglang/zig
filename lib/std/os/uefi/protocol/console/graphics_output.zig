@@ -84,7 +84,7 @@ pub const GraphicsOutput = extern struct {
             /// The blue channel of the pixel.
             blue: u8,
         ) !void {
-            const addr = self.frame_buffer_base + (y * self.pixels_per_scan_line + x) * self.info.pixelElementSize();
+            const addr = self.frame_buffer_base + (y * self.info.pixels_per_scan_line + x) * self.info.pixelElementSize();
 
             const pixel: *[4]u8 = @ptrFromInt(addr);
 
@@ -100,7 +100,7 @@ pub const GraphicsOutput = extern struct {
                     pixel[2] = red;
                 },
                 .bitmask => {
-                    const pixel_u32: *u32 = @ptrCast(pixel);
+                    const pixel_u32: *align(1) u32 = @ptrCast(pixel);
 
                     const red_value = self.info.pixel_bitmask.toValue(.red, red);
                     const green_value = self.info.pixel_bitmask.toValue(.green, green);
@@ -144,41 +144,41 @@ pub const GraphicsOutput = extern struct {
 
         /// Finds the size in bits of a single pixel.
         pub fn bitSizeOf(self: *const PixelBitmask) u5 {
-            const highest_red_bit = 32 - @clz(self.red_mask);
-            const highest_green_bit = 32 - @clz(self.green_mask);
-            const highest_blue_bit = 32 - @clz(self.blue_mask);
-            const highest_reserved_bit = 32 - @clz(self.reserved_mask);
+            const highest_red_bit = 32 - @clz(self.red);
+            const highest_green_bit = 32 - @clz(self.green);
+            const highest_blue_bit = 32 - @clz(self.blue);
+            const highest_reserved_bit = 32 - @clz(self.reserved);
 
-            return @max(@max(highest_red_bit, highest_green_bit), @max(highest_blue_bit, highest_reserved_bit));
+            return @intCast(@max(@max(highest_red_bit, highest_green_bit), @max(highest_blue_bit, highest_reserved_bit)));
         }
 
         /// Finds the size in bits of a pixel field.
         pub inline fn bitSizeOfField(self: *const PixelBitmask, comptime field: PixelField) u5 {
             switch (field) {
-                .red => return @popCount(self.red_mask),
-                .green => return @popCount(self.green_mask),
-                .blue => return @popCount(self.blue_mask),
-                .reserved => return @popCount(self.reserved_mask),
+                .red => return @intCast(@popCount(self.red)),
+                .green => return @intCast(@popCount(self.green)),
+                .blue => return @intCast(@popCount(self.blue)),
+                .reserved => return @intCast(@popCount(self.reserved)),
             }
         }
 
         /// Finds the offset from zero (ie. a shift) in bits of a pixel field.
         pub inline fn bitOffsetOfField(self: *const PixelBitmask, comptime field: PixelField) u5 {
             switch (field) {
-                .red => return @ctz(self.red_mask),
-                .green => return @ctz(self.green_mask),
-                .blue => return @ctz(self.blue_mask),
-                .reserved => return @ctz(self.reserved_mask),
+                .red => return @intCast(@ctz(self.red)),
+                .green => return @intCast(@ctz(self.green)),
+                .blue => return @intCast(@ctz(self.blue)),
+                .reserved => return @intCast(@ctz(self.reserved)),
             }
         }
 
         /// Returns the bit mask of a pixel field.
         pub inline fn bitMaskOfField(self: *const PixelBitmask, comptime field: PixelField) u32 {
             switch (field) {
-                .red => return self.red_mask,
-                .green => return self.green_mask,
-                .blue => return self.blue_mask,
-                .reserved => return self.reserved_mask,
+                .red => return self.red,
+                .green => return self.green,
+                .blue => return self.blue,
+                .reserved => return self.reserved,
             }
         }
 
@@ -191,7 +191,7 @@ pub const GraphicsOutput = extern struct {
 
         /// Returns the value of a pixel field shifted and saturated to the correct position for the pixel.
         pub fn toValue(self: *const PixelBitmask, comptime field: PixelField, value: u8) u32 {
-            const max_field_value: u32 = 1 << self.bitSizeOfField(field);
+            const max_field_value: u32 = @as(u32, 1) << self.bitSizeOfField(field);
 
             const value_saturated: u32 = @min(value, max_field_value);
             const value_shifted = value_saturated << self.bitOffsetOfField(field);

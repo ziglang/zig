@@ -28,17 +28,17 @@ pub const RuntimeServices = extern struct {
     _setVirtualAddressMap: *const fn (mmap_size: usize, descriptor_size: usize, descriptor_version: u32, virtual_map: *const anyopaque) callconv(cc) Status,
     _convertPointer: *const fn (debug_disposition: usize, address: *?*anyopaque) callconv(cc) Status,
 
-    _getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*u32, data_size: *usize, data: ?[*]u8) callconv(cc) Status,
+    _getVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: ?*VariableAttributes, data_size: *usize, data: ?[*]u8) callconv(cc) Status,
     _getNextVariableName: *const fn (var_name_size: *usize, var_name: [*:0]u16, vendor_guid: *align(8) Guid) callconv(cc) Status,
-    _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: u32, data_size: usize, data: *anyopaque) callconv(cc) Status,
+    _setVariable: *const fn (var_name: [*:0]const u16, vendor_guid: *align(8) const Guid, attributes: VariableAttributes, data_size: usize, data: *anyopaque) callconv(cc) Status,
 
     _getNextHighMonotonicCount: *const fn (high_count: *u32) callconv(cc) Status,
     _resetSystem: *const fn (reset_type: ResetType, reset_status: Status, data_size: usize, reset_data: ?*const anyopaque) callconv(cc) noreturn,
 
     _updateCapsule: *const fn (capsule_header_array: [*]*CapsuleHeader, capsule_count: usize, scatter_gather_list: bits.PhysicalAddress) callconv(cc) Status,
-    _queryCapsuleCapabilities: *const fn (capsule_header_array: [*]*CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, resetType: *ResetType) callconv(cc) Status,
+    _queryCapsuleCapabilities: *const fn (capsule_header_array: [*]*const CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, resetType: *ResetType) callconv(cc) Status,
 
-    _queryVariableInfo: *const fn (attributes: *u32, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(cc) Status,
+    _queryVariableInfo: *const fn (attributes: *VariableAttributes, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(cc) Status,
 
     /// A tuple of EFI variable data and its attributes.
     pub const Variable = struct { []u8, VariableAttributes };
@@ -53,11 +53,12 @@ pub const RuntimeServices = extern struct {
     ) !?usize {
         var data_size: usize = 0;
 
-        switch (self._getVariable(variable_name, vendor_guid, null, &data_size, null)) {
-            .success => return data_size,
-            .not_found => return null,
-            else => |status| return status.err(),
-        }
+        self._getVariable(variable_name, vendor_guid, null, &data_size, null).err() catch |err| switch (err) {
+            error.NotFound => return null,
+            else => |e| return e,
+        };
+
+        return data_size;
     }
 
     /// Returns the value of a variable.
@@ -69,16 +70,19 @@ pub const RuntimeServices = extern struct {
         variable_name: [*:0]const u16,
         /// A unique identifier for the vendor.
         vendor_guid: *align(8) const Guid,
+        /// The buffer to store the variable data.
+        buffer: []u8,
     ) !?Variable {
-        var attributes: u32 = 0;
-        var data_size: usize = 0;
-        var data: ?[*]u8 = null;
+        var attributes: VariableAttributes = @bitCast(@as(u32, 0));
+        var data_size: usize = buffer.len;
+        var data: [*]u8 = buffer.ptr;
 
-        switch (self._getVariable(variable_name, vendor_guid, &attributes, &data_size, data)) {
-            .success => return .{ data[0..data_size], attributes },
-            .not_found => return null,
-            else => |status| return status.err(),
-        }
+        self._getVariable(variable_name, vendor_guid, &attributes, &data_size, data).err() catch |err| switch (err) {
+            error.NotFound => return null,
+            else => |e| return e,
+        };
+
+        return .{ data[0..data_size], attributes };
     }
 
     /// Enumerates the current variable names.
@@ -98,11 +102,12 @@ pub const RuntimeServices = extern struct {
         /// On output, returns the GUID of the next vendor.
         vendor_guid: *align(8) Guid,
     ) !bool {
-        switch (self._getNextVariableName(variable_name_size, variable_name, vendor_guid)) {
-            .success => return true,
-            .not_found => return false,
-            else => |status| return status.err(),
-        }
+        self._getNextVariableName(variable_name_size, variable_name, vendor_guid).err() catch |err| switch (err) {
+            error.NotFound => return false,
+            else => |e| return e,
+        };
+
+        return true;
     }
 
     /// The attributes of a EFI variable.
@@ -150,10 +155,10 @@ pub const RuntimeServices = extern struct {
         /// The data to set.
         data: []u8,
     ) !void {
-        switch (self._setVariable(variable_name, vendor_guid, attributes, data.len, data.ptr)) {
-            .success, .not_found => return,
-            else => |status| return status.err(),
-        }
+        self._setVariable(variable_name, vendor_guid, attributes, data.len, data.ptr).err() catch |err| switch (err) {
+            error.NotFound => return,
+            else => |e| return e,
+        };
     }
 
     /// Returns the current time and date information.
@@ -161,10 +166,8 @@ pub const RuntimeServices = extern struct {
         self: *const RuntimeServices,
     ) !bits.Time {
         var time: bits.Time = undefined;
-        switch (self._getTime(&time, null)) {
-            .success => return time,
-            else => |status| return status.err(),
-        }
+        try self._getTime(&time, null).err();
+        return time;
     }
 
     /// Returns the time-keeping capabilities of the hardware platform.
@@ -173,10 +176,8 @@ pub const RuntimeServices = extern struct {
     ) !bits.TimeCapabilities {
         var time: bits.Time = undefined;
         var capabilities: bits.TimeCapabilities = undefined;
-        switch (self._getTime(&time, &capabilities)) {
-            .success => return capabilities,
-            else => |status| return status.err(),
-        }
+        try self._getTime(&time, &capabilities).err();
+        return capabilities;
     }
 
     /// The state of the wakeup alarm clock.
@@ -198,10 +199,8 @@ pub const RuntimeServices = extern struct {
         var enabled: bool = false;
         var pending: bool = false;
         var time: bits.Time = undefined;
-        switch (self._getWakeupTime(&enabled, &pending, &time)) {
-            .success => return .{ .enabled = enabled, .pending = pending, .time = time },
-            else => |status| return status.err(),
-        }
+        try self._getWakeupTime(&enabled, &pending, &time).err();
+        return .{ .enabled = enabled, .pending = pending, .time = time };
     }
 
     /// Sets the current wakeup alarm clock setting.
@@ -212,10 +211,7 @@ pub const RuntimeServices = extern struct {
         time: ?bits.Time,
     ) !void {
         const enabled: bool = time != null;
-        switch (self._setWakeupTime(enabled, if (time) |*t| &t else null)) {
-            .success => return,
-            else => |status| return status.err(),
-        }
+        try self._setWakeupTime(enabled, if (time) |*t| t else null).err();
     }
 
     /// Changes the runtime addresssing mode of EFI firmware from physical to virtual.
@@ -226,10 +222,7 @@ pub const RuntimeServices = extern struct {
         /// The memory map of the address space.
         map: MemoryMap,
     ) !void {
-        switch (self._setVirtualAddressMap(map.size, map.descriptor_size, map.descriptor_version, map.map)) {
-            .success => return,
-            else => |status| return status.err(),
-        }
+        try self._setVirtualAddressMap(map.size, map.descriptor_size, map.descriptor_version, map.map).err();
     }
 
     /// Converts a pointer from physical to virtual addressing mode.
@@ -251,12 +244,10 @@ pub const RuntimeServices = extern struct {
         // This pointer needs to be the least qualified form because that's how we need to pass it to UEFI.
         // This is completely safe, because UEFI never dereferences the pointer.
         var address: ?*anyopaque = @volatileCast(@constCast(@ptrCast(pointer)));
+        try self._convertPointer(disposition, &address).err();
 
-        switch (self._convertPointer(disposition, &address)) {
-            // Requalify the pointer and cast it back to the type we originally had.
-            .success => return @alignCast(@ptrCast(address)),
-            else => |status| return status.err(),
-        }
+        // Requalify the pointer and cast it back to the type we originally had.
+        return @alignCast(@ptrCast(address));
     }
 
     pub const ResetType = enum(u32) {
@@ -302,10 +293,9 @@ pub const RuntimeServices = extern struct {
         self: *const RuntimeServices,
     ) !u32 {
         var high_count: u32 = undefined;
-        switch (self._getNextHighMonotonicCount(&high_count)) {
-            .success => return high_count,
-            else => |status| return status.err(),
-        }
+        try self._getNextHighMonotonicCount(&high_count).err();
+
+        return high_count;
     }
 
     pub const CapsuleHeader = extern struct {
@@ -372,7 +362,7 @@ pub const RuntimeServices = extern struct {
     pub fn updateCapsule(
         self: *const RuntimeServices,
         /// An array of pointers to capsule headers.
-        capsule_headers: []*const CapsuleHeader,
+        capsule_headers: []*CapsuleHeader,
         /// A physical pointer to a list of `CapsuleBlockDescriptor` structures that describe the location in physical
         /// memory of a set of capsules. This list must be in the same order as the capsules pointed to by
         /// `capsule_headers`.
@@ -392,10 +382,9 @@ pub const RuntimeServices = extern struct {
     ) !CapsuleCapabilities {
         var maximum_capsule_size: usize = undefined;
         var reset_type: ResetType = undefined;
-        switch (self._queryCapsuleCapabilities(capsule_headers.ptr, capsule_headers.len, &maximum_capsule_size, &reset_type)) {
-            .success => return .{ maximum_capsule_size, reset_type },
-            else => |status| return status.err(),
-        }
+        try self._queryCapsuleCapabilities(capsule_headers.ptr, capsule_headers.len, &maximum_capsule_size, &reset_type).err();
+
+        return .{ maximum_capsule_size, reset_type };
     }
 
     pub const signature: u64 = 0x56524553544e5552;

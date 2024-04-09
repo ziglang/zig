@@ -118,9 +118,9 @@ pub const ManagedNetwork = @import("protocol/managed_network.zig").ManagedNetwor
 // Ip4
 // Ip4Config
 // Ip4Config2
-pub const Ip6ServiceBinding = @import("protocol/ip6_service_binding.zig").Ip6ServiceBinding;
-pub const Ip6 = @import("protocol/ip6.zig").Ip6;
-pub const Ip6Config = @import("protocol/ip6_config.zig").Ip6Config;
+// pub const Ip6ServiceBinding = @import("protocol/ip6_service_binding.zig").Ip6ServiceBinding;
+// pub const Ip6 = @import("protocol/ip6.zig").Ip6;
+// pub const Ip6Config = @import("protocol/ip6_config.zig").Ip6Config;
 // IpsecConfig
 // Ipsec
 // Ipsec2
@@ -152,8 +152,8 @@ pub const Ip6Config = @import("protocol/ip6_config.zig").Ip6Config;
 // 30. UDP, MTFTP
 // Udp4ServiceBinding
 // Udp4
-pub const Udp6ServiceBinding = @import("protocol/udp6_service_binding.zig").Udp6ServiceBinding;
-pub const Udp6 = @import("protocol/udp6.zig").Udp6;
+// pub const Udp6ServiceBinding = @import("protocol/udp6_service_binding.zig").Udp6ServiceBinding;
+// pub const Udp6 = @import("protocol/udp6.zig").Udp6;
 // Mtftp4ServiceBinding
 // Mtftp4
 // Mtftp6ServiceBinding
@@ -173,14 +173,14 @@ pub const Udp6 = @import("protocol/udp6.zig").Udp6;
 // HiiImageEx
 // HiiImageDecoder
 // HiiFontGlyphGenerator
-pub const HiiDatabase = @import("protocol/hii_database.zig").HiiDatabase;
+// pub const HiiDatabase = @import("protocol/hii_database.zig").HiiDatabase;
 
 // 35. HII Configuration
 // ConfigKeywordHandler
 // HiiConfigRouting
 // HiiConfigAccess
 // FormBrowser2
-pub const HiiPopup = @import("protocol/hii_popup.zig").HiiPopup;
+// pub const HiiPopup = @import("protocol/hii_popup.zig").HiiPopup;
 
 // 36. User Identification
 // UserManager

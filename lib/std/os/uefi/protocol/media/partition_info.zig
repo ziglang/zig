@@ -59,17 +59,17 @@ pub const PartitionInfo = extern struct {
             ending_chs: [3]u8,
 
             /// Starting LBA of the partition on the disk. This is used by UEFI to find the start of the partition.
-            starting_lba: u32 align(1),
+            starting_lba: u32,
 
             /// Size of the partiion in LBA units. This is used by UEFI to find the size of the partition.
-            size_in_lba: u32 align(1),
+            size_in_lba: u32,
         };
 
         /// Shall not be used by UEFI firmware.
         boot_code: [424]u8,
 
         /// Used to identify the disk, never written by UEFI firmware.
-        unique_disk_signature: u32 align(1),
+        unique_disk_signature: u32,
 
         /// Shall not be used by UEFI firmware.
         unknown: [2]u8,
@@ -103,23 +103,23 @@ pub const PartitionInfo = extern struct {
 
         /// Unique ID that defines the purpose and type of this Partition. A value of zero defines that this
         /// partition entry is not being used.
-        partition_type: Guid align(1),
+        partition_type: Guid,
 
         /// GUID that is unique for every partition entry. Every partition ever created will have a unique GUID. This
         /// GUID must be assigned when the GPT Partition Entry is created.
-        unique_partition_guid: Guid align(1),
+        unique_partition_guid: Guid,
 
         /// Starting LBA of the partition defined by this entry.
-        starting_lba: u64 align(1),
+        starting_lba: u64,
 
         /// Ending LBA of the partition defined by this entry.
-        ending_lba: u64 align(1),
+        ending_lba: u64,
 
         /// Attribute bits, all bits reserved by UEFI
-        attributes: Attributes align(1),
+        attributes: Attributes,
 
         /// Null-terminated string containing a human-readable name of the partition.
-        partition_name: [36]u16 align(1),
+        partition_name: [36]u16,
 
         /// The human readable name of the partition.
         pub fn getName(self: *const GptEntry) []const u16 {

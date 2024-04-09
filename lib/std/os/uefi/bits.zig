@@ -108,6 +108,49 @@ pub const Time = extern struct {
             self.second;
     }
 
+    pub fn fromEpochSeconds(epoch_seconds: u64) Time {
+        var year: u16 = 1900;
+        var days: u32 = 0;
+
+        while (true) {
+            const days_in_year = time.epoch.getDaysInYear(year);
+            if (days + days_in_year > epoch_seconds / time.s_per_day) {
+                break;
+            }
+
+            days += days_in_year;
+            year += 1;
+        }
+
+        var month: u8 = 1;
+        while (true) {
+            const leap_kind: time.epoch.YearLeapKind = if (time.epoch.isLeapYear(year)) .leap else .not_leap;
+            const days_in_month = time.epoch.getDaysInMonth(leap_kind, @enumFromInt(month));
+
+            if (days + days_in_month > epoch_seconds / time.s_per_day) {
+                break;
+            }
+
+            days += days_in_month;
+            month += 1;
+        }
+
+        const day = @as(u8, @intCast(epoch_seconds / time.s_per_day - days)) + 1;
+        const seconds = epoch_seconds % time.s_per_day;
+
+        return Time{
+            .year = year,
+            .month = month,
+            .day = day,
+            .hour = @intCast(seconds / time.s_per_hour),
+            .minute = @intCast((seconds % time.s_per_hour) / time.s_per_min),
+            .second = @intCast(seconds % time.s_per_min),
+            .nanosecond = 0,
+            .timezone = unspecified_timezone,
+            .daylight = .{ .in_daylight = false, .adjust_daylight = false },
+        };
+    }
+
     /// Returns the time in seconds since 1970-01-01 00:00:00.
     pub fn toUnixEpochSeconds(self: Time) u64 {
         return self.toEpochSeconds() -| unix_epoch_seconds;
@@ -137,6 +180,17 @@ pub const Time = extern struct {
 
     pub const unix_epoch_nanoseconds = unix_epoch.toEpochNanoseconds();
     pub const unix_epoch_seconds = unix_epoch.toEpochSeconds();
+
+    test fromEpochSeconds {
+        const unix = Time.fromEpochSeconds(unix_epoch_seconds);
+
+        try std.testing.expect(unix.year == 1970);
+        try std.testing.expect(unix.month == 1);
+        try std.testing.expect(unix.day == 1);
+        try std.testing.expect(unix.hour == 0);
+        try std.testing.expect(unix.minute == 0);
+        try std.testing.expect(unix.second == 0);
+    }
 };
 
 /// Capabilities of the clock device
@@ -464,3 +518,7 @@ pub const FileSystemVolumeLabel = extern struct {
         .node = [_]u8{ 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d },
     };
 };
+
+test {
+    std.testing.refAllDecls(@This());
+}

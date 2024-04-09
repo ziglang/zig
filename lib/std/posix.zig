@@ -2008,6 +2008,8 @@ pub fn getcwd(out_buffer: []u8) GetCwdError![]u8 {
         const result = out_buffer[0..path.len];
         @memcpy(result, path);
         return result;
+    } else if (native_os == .uefi) {
+        return uefi.posix.getcwd(out_buffer);
     }
 
     const err: E = if (builtin.link_libc) err: {
@@ -2062,8 +2064,10 @@ pub const SymLinkError = error{
 pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!void {
     if (native_os == .windows) {
         @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
+    } else if (native_os == .uefi) {
+        @compileError("symlink is not supported on UEFI");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return symlinkat(target_path, wasi.AT.FDCWD, sym_link_path);
+        return symlinkat(target_path, AT.FDCWD, sym_link_path);
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -2075,8 +2079,10 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
 pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (native_os == .windows) {
         @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
+    } else if (native_os == .uefi) {
+        @compileError("symlink is not supported on UEFI");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return symlinkatZ(target_path, fs.cwd().fd, sym_link_path);
+        return symlinkatZ(target_path, AT.FDCWD, sym_link_path);
     }
     switch (errno(system.symlink(target_path, sym_link_path))) {
         .SUCCESS => return,
@@ -2114,6 +2120,8 @@ pub fn symlinkZ(target_path: [*:0]const u8, sym_link_path: [*:0]const u8) SymLin
 pub fn symlinkat(target_path: []const u8, newdirfd: fd_t, sym_link_path: []const u8) SymLinkError!void {
     if (native_os == .windows) {
         @compileError("symlinkat is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
+    } else if (native_os == .uefi) {
+        @compileError("symlinkat is not supported on UEFI");
     } else if (native_os == .wasi and !builtin.link_libc) {
         return symlinkatWasi(target_path, newdirfd, sym_link_path);
     }
@@ -2153,6 +2161,8 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
 pub fn symlinkatZ(target_path: [*:0]const u8, newdirfd: fd_t, sym_link_path: [*:0]const u8) SymLinkError!void {
     if (native_os == .windows) {
         @compileError("symlinkat is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
+    } else if (native_os == .uefi) {
+        @compileError("symlinkat is not supported on UEFI");
     } else if (native_os == .wasi and !builtin.link_libc) {
         return symlinkat(mem.sliceTo(target_path, 0), newdirfd, mem.sliceTo(sym_link_path, 0));
     }
@@ -2203,6 +2213,8 @@ pub const LinkError = UnexpectedError || error{
 pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0), flags);
+    } else if (native_os == .uefi) {
+        @compileError("link is not supported on UEFI");
     }
     switch (errno(system.link(oldpath, newpath, flags))) {
         .SUCCESS => return,
@@ -2232,8 +2244,11 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkErr
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void {
+    if (native_os == .uefi) {
+        @compileError("link is not supported on UEFI");
+    }
     if (native_os == .wasi and !builtin.link_libc) {
-        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, flags) catch |err| switch (err) {
+        return linkat(AT.FDCWD, oldpath, AT.FDCWD, newpath, flags) catch |err| switch (err) {
             error.NotDir => unreachable, // link() does not support directories
             else => |e| return e,
         };
@@ -2254,6 +2269,9 @@ pub fn linkatZ(
     newpath: [*:0]const u8,
     flags: i32,
 ) LinkatError!void {
+    if (native_os == .uefi) {
+        @compileError("linkat is not supported on UEFI");
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         return linkat(olddir, mem.sliceTo(oldpath, 0), newdir, mem.sliceTo(newpath, 0), flags);
     }
@@ -2292,6 +2310,9 @@ pub fn linkat(
     newpath: []const u8,
     flags: i32,
 ) LinkatError!void {
+    if (native_os == .uefi) {
+        @compileError("linkat is not supported on UEFI");
+    }
     if (native_os == .wasi and !builtin.link_libc) {
         const old: RelativePathWasi = .{ .dir_fd = olddir, .relative_path = oldpath };
         const new: RelativePathWasi = .{ .dir_fd = newdir, .relative_path = newpath };
@@ -2369,8 +2390,8 @@ pub const UnlinkError = error{
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 /// See also `unlinkZ`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
-    if (native_os == .wasi and !builtin.link_libc) {
-        return unlinkat(wasi.AT.FDCWD, file_path, 0) catch |err| switch (err) {
+    if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
+        return unlinkat(AT.FDCWD, file_path, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // only occurs when targeting directories
             else => |e| return e,
         };
@@ -2388,7 +2409,7 @@ pub fn unlinkZ(file_path: [*:0]const u8) UnlinkError!void {
     if (native_os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
         return unlinkW(file_path_w.span());
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return unlink(mem.sliceTo(file_path, 0));
     }
     switch (errno(system.unlink(file_path))) {
@@ -2438,6 +2459,8 @@ pub fn unlinkat(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatError!vo
         return unlinkatW(dirfd, file_path_w.span(), flags);
     } else if (native_os == .wasi and !builtin.link_libc) {
         return unlinkatWasi(dirfd, file_path, flags);
+    } else if (native_os == .uefi) {
+        return uefi.posix.unlinkat(dirfd, file_path, flags);
     } else {
         const file_path_c = try toPosixPath(file_path);
         return unlinkatZ(dirfd, &file_path_c, flags);
@@ -2482,7 +2505,7 @@ pub fn unlinkatZ(dirfd: fd_t, file_path_c: [*:0]const u8, flags: u32) UnlinkatEr
     if (native_os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(dirfd, file_path_c);
         return unlinkatW(dirfd, file_path_w.span(), flags);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return unlinkat(dirfd, mem.sliceTo(file_path_c, 0), flags);
     }
     switch (errno(system.unlinkat(dirfd, file_path_c, flags))) {
@@ -2563,8 +2586,8 @@ pub const RenameError = error{
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
-    if (native_os == .wasi and !builtin.link_libc) {
-        return renameat(wasi.AT.FDCWD, old_path, wasi.AT.FDCWD, new_path);
+    if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
+        return renameat(AT.FDCWD, old_path, AT.FDCWD, new_path);
     } else if (native_os == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(null, old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(null, new_path);
@@ -2582,7 +2605,7 @@ pub fn renameZ(old_path: [*:0]const u8, new_path: [*:0]const u8) RenameError!voi
         const old_path_w = try windows.cStrToPrefixedFileW(null, old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(null, new_path);
         return renameW(old_path_w.span().ptr, new_path_w.span().ptr);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return rename(mem.sliceTo(old_path, 0), mem.sliceTo(new_path, 0));
     }
     switch (errno(system.rename(old_path, new_path))) {
@@ -2638,6 +2661,8 @@ pub fn renameat(
         const old: RelativePathWasi = .{ .dir_fd = old_dir_fd, .relative_path = old_path };
         const new: RelativePathWasi = .{ .dir_fd = new_dir_fd, .relative_path = new_path };
         return renameatWasi(old, new);
+    } else if (native_os == .uefi) {
+        return uefi.posix.renameat(old_dir_fd, old_path, new_dir_fd, new_path);
     } else {
         const old_path_c = try toPosixPath(old_path);
         const new_path_c = try toPosixPath(new_path);
@@ -2696,7 +2721,7 @@ pub fn renameatZ(
         const old_path_w = try windows.cStrToPrefixedFileW(old_dir_fd, old_path);
         const new_path_w = try windows.cStrToPrefixedFileW(new_dir_fd, new_path);
         return renameatW(old_dir_fd, old_path_w.span(), new_dir_fd, new_path_w.span(), windows.TRUE);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return renameat(old_dir_fd, mem.sliceTo(old_path, 0), new_dir_fd, mem.sliceTo(new_path, 0));
     }
 
@@ -2844,6 +2869,8 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
     } else if (native_os == .wasi and !builtin.link_libc) {
         return mkdiratWasi(dir_fd, sub_dir_path, mode);
+    } else if (native_os == .uefi) {
+        return uefi.posix.mkdirat(dir_fd, sub_dir_path, mode);
     } else {
         const sub_dir_path_c = try toPosixPath(sub_dir_path);
         return mkdiratZ(dir_fd, &sub_dir_path_c, mode);
@@ -2879,7 +2906,7 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return mkdirat(dir_fd, mem.sliceTo(sub_dir_path, 0), mode);
     }
     switch (errno(system.mkdirat(dir_fd, sub_dir_path, mode))) {
@@ -2957,8 +2984,8 @@ pub const MakeDirError = error{
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
-    if (native_os == .wasi and !builtin.link_libc) {
-        return mkdirat(wasi.AT.FDCWD, dir_path, mode);
+    if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
+        return mkdirat(AT.FDCWD, dir_path, mode);
     } else if (native_os == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
@@ -2976,7 +3003,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
     if (native_os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return mkdir(mem.sliceTo(dir_path, 0), mode);
     }
     switch (errno(system.mkdir(dir_path, mode))) {
@@ -3045,8 +3072,8 @@ pub const DeleteDirError = error{
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
-    if (native_os == .wasi and !builtin.link_libc) {
-        return unlinkat(wasi.AT.FDCWD, dir_path, AT.REMOVEDIR) catch |err| switch (err) {
+    if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
+        return unlinkat(AT.FDCWD, dir_path, AT.REMOVEDIR) catch |err| switch (err) {
             error.FileSystem => unreachable, // only occurs when targeting files
             error.IsDir => unreachable, // only occurs when targeting files
             else => |e| return e,
@@ -3068,7 +3095,7 @@ pub fn rmdirZ(dir_path: [*:0]const u8) DeleteDirError!void {
     if (native_os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
         return rmdirW(dir_path_w.span());
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return rmdir(mem.sliceTo(dir_path, 0));
     }
     switch (errno(system.rmdir(dir_path))) {
@@ -3185,6 +3212,10 @@ pub const FchdirError = error{
 
 pub fn fchdir(dirfd: fd_t) FchdirError!void {
     if (dirfd == AT.FDCWD) return;
+    if (native_os == .uefi) {
+        return uefi.posix.fchdir(dirfd);
+    }
+
     while (true) {
         switch (errno(system.fchdir(dirfd))) {
             .SUCCESS => return,
@@ -3231,8 +3262,8 @@ pub const ReadLinkError = error{
 /// On WASI, the result is encoded as UTF-8.
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
-    if (native_os == .wasi and !builtin.link_libc) {
-        return readlinkat(wasi.AT.FDCWD, file_path, out_buffer);
+    if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
+        return readlinkat(AT.FDCWD, file_path, out_buffer);
     } else if (native_os == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(null, file_path);
         return readlinkW(file_path_w.span(), out_buffer);
@@ -3254,7 +3285,7 @@ pub fn readlinkZ(file_path: [*:0]const u8, out_buffer: []u8) ReadLinkError![]u8 
     if (native_os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(null, file_path);
         return readlinkW(file_path_w.span(), out_buffer);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return readlink(mem.sliceTo(file_path, 0), out_buffer);
     }
     const rc = system.readlink(file_path, out_buffer.ptr, out_buffer.len);
@@ -3294,6 +3325,9 @@ pub fn readlinkat(dirfd: fd_t, file_path: []const u8, out_buffer: []u8) ReadLink
         const file_path_w = try windows.sliceToPrefixedFileW(dirfd, file_path);
         return readlinkatW(dirfd, file_path_w.span(), out_buffer);
     }
+    if (native_os == .uefi) {
+        return uefi.posix.readlinkat(dirfd, file_path, out_buffer);
+    }
     const file_path_c = try toPosixPath(file_path);
     return readlinkatZ(dirfd, &file_path_c, out_buffer);
 }
@@ -3332,7 +3366,7 @@ pub fn readlinkatZ(dirfd: fd_t, file_path: [*:0]const u8, out_buffer: []u8) Read
     if (native_os == .windows) {
         const file_path_w = try windows.cStrToPrefixedFileW(dirfd, file_path);
         return readlinkatW(dirfd, file_path_w.span(), out_buffer);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return readlinkat(dirfd, mem.sliceTo(file_path, 0), out_buffer);
     }
     const rc = system.readlinkat(dirfd, file_path, out_buffer.ptr, out_buffer.len);
@@ -3445,6 +3479,9 @@ pub fn isatty(handle: fd_t) bool {
             return false;
 
         return true;
+    }
+    if (native_os == .uefi) {
+        return uefi.posix.isatty(handle);
     }
     if (native_os == .linux) {
         while (true) {
@@ -4346,6 +4383,8 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
         return Stat.fromFilestat(filestat);
     } else if (native_os == .windows) {
         @compileError("fstatat is not yet implemented on Windows");
+    } else if (native_os == .uefi) {
+        return uefi.posix.fstatat(dirfd, pathname, flags);
     } else {
         const pathname_c = try toPosixPath(pathname);
         return fstatatZ(dirfd, &pathname_c, flags);
@@ -4360,6 +4399,8 @@ pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!S
             .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
         });
         return Stat.fromFilestat(filestat);
+    } else if (native_os == .uefi) {
+        return fstatat(dirfd, mem.sliceTo(pathname, 0), flags);
     }
 
     const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
@@ -4758,7 +4799,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
-        return faccessat(wasi.AT.FDCWD, path, mode, 0);
+        return faccessat(AT.FDCWD, path, mode, 0);
     }
     const path_c = try toPosixPath(path);
     return accessZ(&path_c, mode);
@@ -4860,7 +4901,7 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
     if (native_os == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(dirfd, path);
         return faccessatW(dirfd, path_w.span().ptr);
-    } else if (native_os == .wasi and !builtin.link_libc) {
+    } else if (native_os == .wasi and !builtin.link_libc or native_os == .uefi) {
         return faccessat(dirfd, mem.sliceTo(path, 0), mode, flags);
     }
     switch (errno(system.faccessat(dirfd, path, mode, flags))) {
@@ -5222,7 +5263,7 @@ pub fn lseek_CUR_get(fd: fd_t) SeekError!u64 {
         return windows.SetFilePointerEx_CURRENT_get(fd);
     }
     if (native_os == .uefi) {
-        return uefi.lseek_CUR_get(fd);
+        return uefi.posix.lseek_CUR_get(fd);
     }
     if (native_os == .wasi and !builtin.link_libc) {
         var new_offset: wasi.filesize_t = undefined;
@@ -5292,6 +5333,10 @@ pub const FlockError = error{
 /// Depending on the operating system `flock` may or may not interact with
 /// `fcntl` locks made by other processes.
 pub fn flock(fd: fd_t, operation: i32) FlockError!void {
+    if (native_os == .uefi) {
+        return uefi.posix.flock(fd, operation);
+    }
+
     while (true) {
         const rc = system.flock(fd, operation);
         switch (errno(rc)) {
@@ -5747,6 +5792,9 @@ pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
             else => |err| return unexpectedErrno(err),
         }
     }
+    if (native_os == .uefi) {
+        return uefi.posix.futimens(fd, times);
+    }
 
     switch (errno(system.futimens(fd, times))) {
         .SUCCESS => return,
@@ -5784,6 +5832,9 @@ pub fn gethostname(name_buffer: *[HOST_NAME_MAX]u8) GetHostNameError![]u8 {
 }
 
 pub fn uname() utsname {
+    if (native_os == .uefi)
+        return uefi.posix.uname();
+    
     var uts: utsname = undefined;
     switch (errno(system.uname(&uts))) {
         .SUCCESS => return uts,

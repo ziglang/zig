@@ -27,18 +27,26 @@ pub var working_directory: fd_t = .none;
 
 pub const posix = @import("uefi/posix.zig");
 
+pub const fd_t = posix.fd_t;
 pub const ino_t = posix.ino_t;
 pub const mode_t = posix.mode_t;
 
-pub const fd_t = posix.fd_t;
 pub const timespec = posix.timespec;
+pub const utsname = posix.utsname;
 pub const Stat = posix.Stat;
 
+pub const AT = posix.AT;
+pub const CLOCK = posix.CLOCK;
+pub const LOCK = posix.LOCK;
+pub const NAME_MAX = posix.NAME_MAX;
+pub const O = posix.O;
 pub const PATH_MAX = posix.PATH_MAX;
 pub const PATH_MAX_WIDE = posix.PATH_MAX_WIDE;
-pub const O = posix.O;
-pub const AT = posix.AT;
 pub const S = posix.S;
+
+pub const F_OK = posix.F_OK;
+pub const R_OK = posix.R_OK;
+pub const W_OK = posix.W_OK;
 
 pub fn cwd() fd_t {
     if (system_table.boot_services) |boot_services| blk: {

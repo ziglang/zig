@@ -362,6 +362,9 @@ test "fstatat" {
 }
 
 test "readlinkat" {
+    if (native_os == .uefi)
+        return error.SkipZigTest;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -431,7 +434,7 @@ fn start2(ctx: *i32) u8 {
 }
 
 test "cpu count" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi or native_os == .uefi) return error.SkipZigTest;
 
     const cpu_count = try Thread.getCpuCount();
     try expect(cpu_count >= 1);
@@ -471,7 +474,7 @@ test "getcwd" {
 }
 
 test "sigaltstack" {
-    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi) return error.SkipZigTest;
 
     var st: posix.stack_t = undefined;
     try posix.sigaltstack(null, &st);
@@ -533,7 +536,7 @@ test "dl_iterate_phdr" {
 }
 
 test "gethostname" {
-    if (native_os == .windows or native_os == .wasi)
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     var buf: [posix.HOST_NAME_MAX]u8 = undefined;
@@ -542,7 +545,7 @@ test "gethostname" {
 }
 
 test "pipe" {
-    if (native_os == .windows or native_os == .wasi)
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     const fds = try posix.pipe();
@@ -586,7 +589,7 @@ test "memfd_create" {
 }
 
 test "mmap" {
-    if (native_os == .windows or native_os == .wasi)
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -696,7 +699,7 @@ test "getenv" {
 }
 
 test "fcntl" {
-    if (native_os == .windows or native_os == .wasi)
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -805,7 +808,7 @@ test "getrlimit and setrlimit" {
 }
 
 test "shutdown socket" {
-    if (native_os == .wasi)
+    if (native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
     if (native_os == .windows) {
         _ = try std.os.windows.WSAStartup(2, 2);
@@ -824,7 +827,7 @@ test "shutdown socket" {
 }
 
 test "sigaction" {
-    if (native_os == .wasi or native_os == .windows)
+    if (native_os == .wasi or native_os == .windows or native_os == .uefi)
         return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/7427
@@ -931,7 +934,7 @@ test "dup & dup2" {
 }
 
 test "writev longer than IOV_MAX" {
-    if (native_os == .windows or native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();

@@ -26,14 +26,12 @@ pub const SimpleTextInput = extern struct {
     /// Reads the next keystroke from the input device.
     pub fn readKeyStroke(self: *const SimpleTextInput) !?Key.Input {
         var input_key: Key.Input = undefined;
-        switch (self._read_key_stroke(self, &input_key)) {
-            .success => return input_key,
-            .not_ready => return null,
-            else => |s| {
-                try s.err();
-                unreachable;
-            },
-        }
+        self._read_key_stroke(self, &input_key).err() catch |err| switch (err) {
+            error.NotReady => return null,
+            else => |e| return e,
+        };
+
+        return input_key;
     }
 
     pub const guid align(8) = Guid{

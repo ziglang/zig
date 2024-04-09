@@ -74,7 +74,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
 pub const MAX_NAME_BYTES = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos, .uefi => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
     // Each WTF-16LE character may be expanded to 3 WTF-8 bytes.

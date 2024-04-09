@@ -110,13 +110,12 @@ pub const SimpleNetwork = extern struct {
     pub fn collectStatistics(self: *const SimpleNetwork) !Statistics {
         var stats: Statistics = undefined;
         var size: usize = @sizeOf(Statistics);
-        switch (self._statistics(self, false, &size, &stats)) {
-            .success, .buffer_too_small => return stats,
-            else => |e| {
-                try e.err();
-                return stats; // not an error? assume the buffer was filled and a warning was issued, this is not specified.
-            },
-        }
+        self._statistics(self, false, &size, &stats).err() catch |err| switch (err) {
+            error.BufferTooSmall => {},
+            else => |e| return e,
+        };
+
+        return stats;
     }
 
     /// Converts a multicast IP address to a multicast HW MAC address.

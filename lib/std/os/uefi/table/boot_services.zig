@@ -46,9 +46,9 @@ pub const BootServices = extern struct {
     _closeEvent: *const fn (event: Event) callconv(cc) Status,
     _checkEvent: *const fn (event: Event) callconv(cc) Status,
 
-    _installProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, interface_type: EfiInterfaceType, interface: ProtocolInterface) callconv(cc) Status,
-    _reinstallProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, old_interface: ProtocolInterface, new_interface: ProtocolInterface) callconv(cc) Status,
-    _uninstallProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: ProtocolInterface) callconv(cc) Status,
+    _installProtocolInterface: *const fn (handle: *?Handle, protocol: *align(8) const Guid, interface_type: EfiInterfaceType, interface: ?ProtocolInterface) callconv(cc) Status,
+    _reinstallProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, old_interface: ?ProtocolInterface, new_interface: ?ProtocolInterface) callconv(cc) Status,
+    _uninstallProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: ?ProtocolInterface) callconv(cc) Status,
 
     // this function is deprecated, it will not be bound.
     _handleProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: *?ProtocolInterface) callconv(cc) Status,
@@ -56,15 +56,15 @@ pub const BootServices = extern struct {
     reserved: *const anyopaque,
 
     _registerProtocolNotify: *const fn (protocol: *align(8) const Guid, event: Event, registration: *RegistrationValue) callconv(cc) Status,
-    _locateHandle: *const fn (search_type: LocateSearchType.Enum, protocol: ?*align(8) const Guid, search_key: ?RegistrationValue, buffer_size: *usize, buffer: [*]Handle) callconv(cc) Status,
-    _locateDevicePath: *const fn (protocol: *align(8) const Guid, device_path: **const DevicePathProtocol, device: *Handle) callconv(cc) Status,
+    _locateHandle: *const fn (search_type: LocateSearchType.Enum, protocol: ?*align(8) const Guid, search_key: ?RegistrationValue, buffer_size: *usize, buffer: ?[*]Handle) callconv(cc) Status,
+    _locateDevicePath: *const fn (protocol: *align(8) const Guid, device_path: *?*const DevicePathProtocol, device: *?Handle) callconv(cc) Status,
     _installConfigurationTable: *const fn (guid: *align(8) const Guid, table: ?*const anyopaque) callconv(cc) Status,
 
     _loadImage: *const fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, image_handle: *?Handle) callconv(cc) Status,
     _startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]const u16) callconv(cc) Status,
     _exit: *const fn (image_handle: Handle, exit_status: Status, exit_data_size: usize, exit_data: ?[*]const u16) callconv(cc) Status,
     _unloadImage: *const fn (image_handle: Handle) callconv(cc) Status,
-    _exitBootServices: *const fn (image_handle: Handle, map_key: usize) callconv(cc) Status,
+    _exitBootServices: *const fn (image_handle: Handle, map_key: MemoryMap.Key) callconv(cc) Status,
 
     _getNextMonotonicCount: *const fn (count: *u64) callconv(cc) Status,
     _stall: *const fn (microseconds: usize) callconv(cc) Status,
@@ -291,12 +291,12 @@ pub const BootServices = extern struct {
         /// The event to check.
         event: Event,
     ) !bool {
-        var status: Status = self._checkEvent(event);
-        switch (status) {
-            .success => return true,
-            .not_ready => return false,
-            else => return status.err(),
-        }
+        self._checkEvent(event).err() catch |err| switch (err) {
+            error.NotReady => return false,
+            else => |e| return e,
+        };
+
+        return true;
     }
 
     /// How the timer is to be set.
@@ -510,7 +510,7 @@ pub const BootServices = extern struct {
                 .map = @ptrCast(list.ptr),
                 .size = list.len * @sizeOf(bits.MemoryDescriptor),
                 .allocated_size = list.len * @sizeOf(bits.MemoryDescriptor),
-                .key = 0,
+                .key = @enumFromInt(0),
                 .descriptor_size = @sizeOf(bits.MemoryDescriptor),
                 .descriptor_version = bits.MemoryDescriptor.revision,
             };
@@ -558,14 +558,13 @@ pub const BootServices = extern struct {
         var descriptor_size: usize = 0;
         var descriptor_version: u32 = 0;
 
-        switch (self._getMemoryMap(&mmap_size, null, &mmap_key, &descriptor_size, &descriptor_version)) {
-            .buffer_too_small => return mmap_size,
-            .invalid_parameter => return null,
-            else => |s| {
-                try s.err();
-                unreachable;
-            },
-        }
+        self._getMemoryMap(&mmap_size, null, &mmap_key, &descriptor_size, &descriptor_version).err() catch |err| switch (err) {
+            error.BufferTooSmall => {},
+            error.InvalidParameter => return null,
+            else => |e| return e,
+        };
+
+        return mmap_size;
     }
 
     /// Fetches the current memory map.
@@ -658,7 +657,7 @@ pub const BootServices = extern struct {
     ) !Handle {
         var new_handle: ?Handle = handle;
         try self._installProtocolInterface(&new_handle, protocol_guid, interface_type, interface).err();
-        return new_handle;
+        return new_handle.?;
     }
 
     /// Uninstalls a protocol interface from a device handle.
@@ -745,11 +744,13 @@ pub const BootServices = extern struct {
             .by_protocol => |protocol_guid| self._locateHandle(search_type, protocol_guid, null, &buffer_size, null),
         };
 
-        switch (status) {
-            .buffer_too_small => return buffer_size,
-            .not_found => return null,
-            else => return status.err(),
-        }
+        status.err() catch |err| switch (err) {
+            error.BufferTooSmall => {},
+            error.NotFound => return null,
+            else => |e| return e,
+        };
+
+        return buffer_size;
     }
 
     /// Returns an array of handles that support a specified protocol.
@@ -762,22 +763,23 @@ pub const BootServices = extern struct {
         /// The type of search to perform.
         search_type: LocateSearchType,
         /// The buffer in which to return the array of handles.
-        buffer: [*]u8,
+        buffer: []align(@alignOf(Handle)) u8,
     ) !?[]Handle {
         var handle_buffer: [*]Handle = @ptrCast(buffer.ptr);
         var buffer_size: usize = buffer.len;
 
         const status = switch (search_type) {
-            .all => self._locateHandle(search_type, null, null, &buffer_size, &handle_buffer),
-            .by_notify => |search_key| self._locateHandle(search_type, null, search_key, &buffer_size, &handle_buffer),
-            .by_protocol => |protocol_guid| self._locateHandle(search_type, protocol_guid, null, &buffer_size, &handle_buffer),
+            .all => self._locateHandle(search_type, null, null, &buffer_size, handle_buffer),
+            .by_notify => |search_key| self._locateHandle(search_type, null, search_key, &buffer_size, handle_buffer),
+            .by_protocol => |protocol_guid| self._locateHandle(search_type, protocol_guid, null, &buffer_size, handle_buffer),
         };
 
-        switch (status) {
-            .success => return handle_buffer[0..@divExact(buffer_size, @sizeOf(Handle))],
-            .not_found => return null,
-            else => return status.err(),
-        }
+        status.err() catch |err| switch (err) {
+            error.NotFound => return null,
+            else => |e| return e,
+        };
+
+        return handle_buffer[0..@divExact(buffer_size, @sizeOf(Handle))];
     }
 
     /// A tuple of a located device path containing the handle to the device and the remaining device path.
@@ -792,12 +794,13 @@ pub const BootServices = extern struct {
         device_path: *const DevicePathProtocol,
     ) !LocatedDevicePath {
         var handle: ?Handle = null;
-        var path: *const DevicePathProtocol = device_path;
-        switch (self._locateDevicePath(protocol_guid, &handle, &path)) {
-            .success => return .{ handle, path },
-            .not_found => return .{ null, path },
-            else => |status| return status.err(),
-        }
+        var path: ?*const DevicePathProtocol = device_path;
+        self._locateDevicePath(protocol_guid, &path, &handle).err() catch |err| switch (err) {
+            error.NotFound => {},
+            else => |e| return e,
+        };
+
+        return .{ handle, path.? };
     }
 
     pub const OpenProtocolAttributes = packed struct(u32) {
@@ -907,11 +910,12 @@ pub const BootServices = extern struct {
     ) !?[]const ProtocolInformationEntry {
         var entry_buffer: [*]const ProtocolInformationEntry = undefined;
         var entry_count: usize = 0;
-        switch (self._openProtocolInformation(handle, protocol_guid, &entry_buffer, &entry_count)) {
-            .success => return entry_buffer[0..entry_count],
-            .not_found => return null,
-            else => |status| return status.err(),
-        }
+        self._openProtocolInformation(handle, protocol_guid, &entry_buffer, &entry_count).err() catch |err| switch (err) {
+            error.NotFound => return null,
+            else => |e| return e,
+        };
+
+        return entry_buffer[0..entry_count];
     }
 
     /// Connects one or more drivers to a controller.
@@ -919,8 +923,9 @@ pub const BootServices = extern struct {
         self: *const BootServices,
         /// The handle of the controller to connect.
         controller_handle: Handle,
-        /// The handle of the driver image that is connecting to the controller.
-        driver_image_handle: ?Handle,
+        /// A pointer to an ordered list handles that support the DriverBindingProtocol. The list is terminated by a
+        /// null handle value.
+        driver_image_handle: ?[*:null]?Handle,
         /// The remaining device path.
         ///
         /// If null, then handles for all children of the controller will be created.
@@ -956,7 +961,7 @@ pub const BootServices = extern struct {
         /// The handle for the protocol interface that is being queried.
         handle: Handle,
     ) ![]const *const Guid {
-        var protocol_buffer: [*]const *const Guid = undefined;
+        var protocol_buffer: [*]*align(8) const Guid = undefined;
         var protocol_buffer_count: usize = 0;
         try self._protocolsPerHandle(handle, &protocol_buffer, &protocol_buffer_count).err();
         return protocol_buffer[0..protocol_buffer_count];
@@ -999,14 +1004,12 @@ pub const BootServices = extern struct {
         options: LocateProtocolOptions,
     ) !?*const Protocol {
         var interface: ?ProtocolInterface = undefined;
-        switch (self._locateProtocol(options.protocol_guid orelse &Protocol.guid, options.registration, &interface)) {
-            .success => return @ptrCast(@alignCast(interface)),
-            .not_found => return null,
-            else => |status| {
-                try status.err();
-                unreachable;
-            },
-        }
+        self._locateProtocol(options.protocol_guid orelse &Protocol.guid, options.registration, &interface).err() catch |err| switch (err) {
+            error.NotFound => return null,
+            else => |e| return e,
+        };
+
+        return @ptrCast(@alignCast(interface));
     }
 
     /// Installs one or more protocol interfaces into the boot services environment.
@@ -1060,7 +1063,7 @@ pub const BootServices = extern struct {
     ) !Handle {
         var image_handle: ?Handle = null;
         try self._loadImage(boot_policy, parent_image_handle, device_path, source_buffer, source_size, &image_handle).err();
-        return image_handle;
+        return image_handle.?;
     }
 
     pub const ImageReturn = struct { Status, []const u16 };
@@ -1075,7 +1078,7 @@ pub const BootServices = extern struct {
         image_handle: Handle,
     ) ImageReturn {
         var exit_data_size: usize = 0;
-        var exit_data: *[*]u16 = null;
+        var exit_data: [*]const u16 = undefined;
         const status = self._startImage(image_handle, &exit_data_size, &exit_data);
 
         return .{ status, exit_data[0 .. exit_data_size / 2] };

@@ -163,7 +163,7 @@ pub const Instant = struct {
 
     // true if we should use clock_gettime()
     const is_posix = switch (builtin.os.tag) {
-        .windows, .uefi, .wasi => false,
+        .windows, .wasi => false,
         else => true,
     };
 

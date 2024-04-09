@@ -91,7 +91,7 @@ pub const Configuration = extern struct {
 /// This table should be published by a platform if it no longer supports all EFI runtime services once
 /// `exitBootServices()` has been called by the OS. Note that this is merely a hint to the OS, which it is free to
 /// ignore, as any unsupported runtime services will return `error.Unsupported` if called.
-pub const RtPropertiesTable = extern struct {
+pub const RtProperties = extern struct {
     pub const Supported = packed struct(u32) {
         get_time: bool,
         set_time: bool,
@@ -184,7 +184,7 @@ pub const MemoryAttributes = extern struct {
 
         const offset = index * self.descriptor_size;
 
-        const addr = @intFromPtr(self.table) + @sizeOf(self) + offset;
+        const addr = @intFromPtr(self) + @sizeOf(MemoryAttributes) + offset;
         return @ptrFromInt(addr);
     }
 

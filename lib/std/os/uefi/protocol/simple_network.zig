@@ -71,7 +71,7 @@ pub const SimpleNetwork = extern struct {
     ///
     /// If statistics_table is null, the statistics are reset.
     pub fn statistics(self: *const SimpleNetwork, statistics_table: ?*Statistics) !usize {
-        var statistics_size = @sizeOf(Statistics);
+        var statistics_size: usize = @sizeOf(Statistics);
         try self._statistics(self, statistics_table == null, &statistics_size, statistics_table).err();
         return statistics_size;
     }

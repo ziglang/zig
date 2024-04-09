@@ -392,7 +392,7 @@ test "openDir non-cwd parent '..'" {
 }
 
 test "readLinkAbsolute" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi or native_os == .uefi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1159,6 +1159,9 @@ test "makepath existing directories" {
 }
 
 test "makepath through existing valid symlink" {
+    if (native_os == .uefi)
+        return error.SkipZigTest;
+
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
@@ -1750,7 +1753,7 @@ test "'.' and '..' in fs.Dir functions" {
 }
 
 test "'.' and '..' in absolute functions" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (native_os == .wasi or native_os == .uefi) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1794,7 +1797,7 @@ test "'.' and '..' in absolute functions" {
 }
 
 test "chmod" {
-    if (native_os == .windows or native_os == .wasi)
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1816,7 +1819,7 @@ test "chmod" {
 }
 
 test "chown" {
-    if (native_os == .windows or native_os == .wasi)
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1849,7 +1852,7 @@ test "File.Metadata" {
 }
 
 test "File.Permissions" {
-    if (native_os == .wasi)
+    if (native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1875,7 +1878,7 @@ test "File.Permissions" {
 }
 
 test "File.PermissionsUnix" {
-    if (native_os == .windows or native_os == .wasi)
+    if (native_os == .windows or native_os == .wasi or native_os == .uefi)
         return error.SkipZigTest;
 
     var tmp = tmpDir(.{});

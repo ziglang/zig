@@ -1,8 +1,9 @@
-const std = @import("std");
-const uefi = std.os.uefi;
-const Guid = uefi.Guid;
-const Status = uefi.Status;
-const cc = uefi.cc;
+const bits = @import("../bits.zig");
+
+const cc = bits.cc;
+const Status = @import("../status.zig").Status;
+
+const Guid = bits.Guid;
 
 /// Random Number Generator protocol
 pub const Rng = extern struct {
@@ -10,13 +11,13 @@ pub const Rng = extern struct {
     _get_rng: *const fn (*const Rng, ?*align(8) const Guid, usize, [*]u8) callconv(cc) Status,
 
     /// Returns information about the random number generation implementation.
-    pub fn getInfo(self: *const Rng, list_size: *usize, list: [*]align(8) Guid) Status {
-        return self._get_info(self, list_size, list);
+    pub fn getInfo(self: *const Rng, list_size: *usize, list: [*]align(8) Guid) !void {
+        return self._get_info(self, list_size, list).err();
     }
 
     /// Produces and returns an RNG value using either the default or specified RNG algorithm.
-    pub fn getRNG(self: *const Rng, algo: ?*align(8) const Guid, value_length: usize, value: [*]u8) Status {
-        return self._get_rng(self, algo, value_length, value);
+    pub fn getRNG(self: *const Rng, algo: ?*align(8) const Guid, value_length: usize, value: [*]u8) !void {
+        return self._get_rng(self, algo, value_length, value).err();
     }
 
     pub const guid align(8) = Guid{

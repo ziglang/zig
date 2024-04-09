@@ -249,9 +249,9 @@ pub const Status = enum(usize) {
 const testing = @import("../../std.zig").testing;
 
 test "status" {
-    var st: Status = .DeviceError;
+    var st: Status = .device_error;
     try testing.expectError(error.DeviceError, st.err());
 
-    st = .Success;
+    st = .success;
     try st.err();
 }

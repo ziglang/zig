@@ -21,10 +21,12 @@ pub const LoadFile = extern struct {
         boot_policy: bool,
     ) !usize {
         var size: usize = 0;
-        switch (self._load_file(self, file_path, boot_policy, &size, null)) {
-            .buffer_too_small => return size,
-            else => |s| return s.err(),
-        }
+        self._load_file(self, file_path, boot_policy, &size, null).err() catch |err| switch (err) {
+            error.BufferTooSmall => {},
+            else => |e| return e,
+        };
+
+        return size;
     }
 
     /// Causes the driver to load a specified file.
@@ -36,10 +38,11 @@ pub const LoadFile = extern struct {
         /// file as a boot selection. If false, the file path must match an exact file to be loaded.
         boot_policy: bool,
         /// The memory buffer to transfer the file to.
-        buffer: [*]u8,
-    ) !void {
+        buffer: []u8,
+    ) !usize {
         var size: usize = buffer.len;
-        try self._load_file(self, file_path, boot_policy, &size, buffer).err();
+        try self._load_file(self, file_path, boot_policy, &size, buffer.ptr).err();
+        return size;
     }
 
     pub const guid align(8) = Guid{

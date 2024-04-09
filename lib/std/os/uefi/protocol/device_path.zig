@@ -185,7 +185,7 @@ pub const DevicePath = extern struct {
         @memcpy(new_bytes[original_size..], path_bytes[0..other_size]);
 
         // change end entire node to end this instance node
-        const end_of_existing: *DevicePath = @ptrCast(new_bytes + original_size - 4);
+        const end_of_existing: *DevicePath = @ptrCast(new_bytes.ptr + original_size - 4);
         end_of_existing.subtype = @intFromEnum(DevicePathNode.End.Subtype.this_instance);
 
         return @ptrCast(new_bytes);
