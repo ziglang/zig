@@ -145,10 +145,9 @@ pub const Time = extern struct {
                 .minute = self.minute,
                 .second = self.second,
                 .subsecond = self.nanosecond,
-                .timezone = self.timezone,
             },
         };
-        return dt.toEpoch();
+        return dt.toEpoch() - self.timezone * DateTime.Time.subseconds_per_min;
     }
 };
 
