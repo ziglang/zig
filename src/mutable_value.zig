@@ -73,7 +73,7 @@ pub const MutableValue = union(enum) {
             } }),
             .bytes => |b| try ip.get(gpa, .{ .aggregate = .{
                 .ty = b.ty,
-                .storage = .{ .bytes = b.data },
+                .storage = .{ .bytes = try ip.getOrPutString(gpa, b.data, .maybe_embedded_nulls) },
             } }),
             .aggregate => |a| {
                 const elems = try arena.alloc(InternPool.Index, a.elems.len);
@@ -158,18 +158,18 @@ pub const MutableValue = union(enum) {
                 },
                 .aggregate => |agg| switch (agg.storage) {
                     .bytes => |bytes| {
-                        assert(bytes.len == ip.aggregateTypeLenIncludingSentinel(agg.ty));
+                        const len: usize = @intCast(ip.aggregateTypeLenIncludingSentinel(agg.ty));
                         assert(ip.childType(agg.ty) == .u8_type);
                         if (allow_bytes) {
-                            const arena_bytes = try arena.alloc(u8, bytes.len);
-                            @memcpy(arena_bytes, bytes);
+                            const arena_bytes = try arena.alloc(u8, len);
+                            @memcpy(arena_bytes, bytes.toSlice(len, ip));
                             mv.* = .{ .bytes = .{
                                 .ty = agg.ty,
                                 .data = arena_bytes,
                             } };
                         } else {
-                            const mut_elems = try arena.alloc(MutableValue, bytes.len);
-                            for (bytes, mut_elems) |b, *mut_elem| {
+                            const mut_elems = try arena.alloc(MutableValue, len);
+                            for (bytes.toSlice(len, ip), mut_elems) |b, *mut_elem| {
                                 mut_elem.* = .{ .interned = try ip.get(gpa, .{ .int = .{
                                     .ty = .u8_type,
                                     .storage = .{ .u64 = b },

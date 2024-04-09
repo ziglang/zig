@@ -988,9 +988,13 @@ fn detectAbiAndDynamicLinker(
         // if it finds one, then instead of using /usr/bin/env as the ELF file to examine, it uses the file it references instead,
         // doing the same logic recursively in case it finds another shebang line.
 
-        // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
-        // reasonably reliable path to start with.
-        var file_name: []const u8 = "/usr/bin/env";
+        var file_name: []const u8 = switch (os.tag) {
+            // Since /usr/bin/env is hard-coded into the shebang line of many portable scripts, it's a
+            // reasonably reliable path to start with.
+            else => "/usr/bin/env",
+            // Haiku does not have a /usr root directory.
+            .haiku => "/bin/env",
+        };
         // #! (2) + 255 (max length of shebang line since Linux 5.1) + \n (1)
         var buffer: [258]u8 = undefined;
         while (true) {
