@@ -339,12 +339,12 @@ pub fn run(f: *Fetch) RunError!void {
         .path_or_url => |path_or_url| {
             if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
                 var resource: Resource = .{ .dir = dir };
-                return runResource(f, path_or_url, &resource, null);
+                return f.runResource(path_or_url, &resource, null);
             } else |dir_err| {
                 const file_err = if (dir_err == error.NotDir) e: {
                     if (fs.cwd().openFile(path_or_url, .{})) |file| {
                         var resource: Resource = .{ .file = file };
-                        return runResource(f, path_or_url, &resource, null);
+                        return f.runResource(path_or_url, &resource, null);
                     } else |err| break :e err;
                 } else dir_err;
 
@@ -356,7 +356,7 @@ pub fn run(f: *Fetch) RunError!void {
                 };
                 var server_header_buffer: [header_buffer_size]u8 = undefined;
                 var resource = try f.initResource(uri, &server_header_buffer);
-                return runResource(f, uri.path, &resource, null);
+                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
             }
         },
     };
@@ -418,7 +418,7 @@ pub fn run(f: *Fetch) RunError!void {
     );
     var server_header_buffer: [header_buffer_size]u8 = undefined;
     var resource = try f.initResource(uri, &server_header_buffer);
-    return runResource(f, uri.path, &resource, remote.hash);
+    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash);
 }
 
 pub fn deinit(f: *Fetch) void {
@@ -897,13 +897,14 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
 
-    if (ascii.eqlIgnoreCase(uri.scheme, "file")) return .{
-        .file = f.parent_package_root.openFile(uri.path, .{}) catch |err| {
+    if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
+        const path = try uri.path.toRawMaybeAlloc(arena);
+        return .{ .file = f.parent_package_root.openFile(path, .{}) catch |err| {
             return f.fail(f.location_tok, try eb.printString("unable to open '{}{s}': {s}", .{
-                f.parent_package_root, uri.path, @errorName(err),
+                f.parent_package_root, path, @errorName(err),
             }));
-        },
-    };
+        } };
+    }
 
     const http_client = f.job_queue.http_client;
 
@@ -920,7 +921,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
         };
         errdefer req.deinit(); // releases more than memory
 
-        req.send(.{}) catch |err| {
+        req.send() catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "HTTP request failed: {s}",
                 .{@errorName(err)},
@@ -967,7 +968,8 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
         };
 
         const want_oid = want_oid: {
-            const want_ref = uri.fragment orelse "HEAD";
+            const want_ref =
+                if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
             if (git.parseOid(want_ref)) |oid| break :want_oid oid else |_| {}
 
             const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});

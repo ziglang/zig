@@ -233,9 +233,18 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
-        const escaped_name = try std.Uri.escapeString(gpa, name.toSlice(&mod.intern_pool));
-        defer gpa.free(escaped_name);
-        try error_info.writer().print(":{s}", .{escaped_name});
+        try std.Uri.Component.percentEncode(
+            error_info.writer(),
+            name.toSlice(&mod.intern_pool),
+            struct {
+                fn isValidChar(c: u8) bool {
+                    return switch (c) {
+                        0, '%', ':' => false,
+                        else => true,
+                    };
+                }
+            }.isValidChar,
+        );
     }
     try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
         .extension = error_info.items,
