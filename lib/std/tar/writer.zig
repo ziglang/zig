@@ -504,3 +504,106 @@ pub fn main() !void {
     }
     try cmp.finish();
 }
+
+test "sourcesTar" {
+    const gpa = testing.allocator;
+    var lib_dir = try std.fs.cwd().openDir("/home/ianic/Code/zig/lib", .{});
+    var out_dir = try std.fs.cwd().openDir("/home/ianic/Code/tmp", .{});
+
+    // previous version
+    {
+        var out_file = try out_dir.createFile("sources.tar", .{});
+        defer out_file.close();
+        var w = out_file.writer();
+
+        var std_dir = try lib_dir.openDir("std", .{ .iterate = true });
+        defer std_dir.close();
+
+        var walker = try std_dir.walk(gpa);
+        defer walker.deinit();
+
+        while (try walker.next()) |entry| {
+            switch (entry.kind) {
+                .file => {
+                    if (!std.mem.endsWith(u8, entry.basename, ".zig"))
+                        continue;
+                    if (std.mem.endsWith(u8, entry.basename, "test.zig"))
+                        continue;
+                },
+                else => continue,
+            }
+
+            var file = try std_dir.openFile(entry.path, .{});
+            defer file.close();
+
+            const stat = try file.stat();
+            const padding = p: {
+                const remainder = stat.size % 512;
+                break :p if (remainder > 0) 512 - remainder else 0;
+            };
+
+            var file_header = std.tar.output.Header.init();
+            file_header.typeflag = .regular;
+            try file_header.setPath("std", entry.path);
+            try file_header.setSize(stat.size);
+            try file_header.updateChecksum();
+            try w.writeAll(std.mem.asBytes(&file_header));
+            try w.any().writeFile(file);
+            try w.writeByteNTimes(0, padding);
+        }
+
+        {
+            // Since this command is JIT compiled, the builtin module available in
+            // this source file corresponds to the user's host system.
+            const builtin_zig = @embedFile("builtin");
+
+            var file_header = std.tar.output.Header.init();
+            file_header.typeflag = .regular;
+            try file_header.setPath("builtin", "builtin.zig");
+            try file_header.setSize(builtin_zig.len);
+            try file_header.updateChecksum();
+            try w.writeAll(std.mem.asBytes(&file_header));
+            try w.writeAll(builtin_zig);
+            const padding = p: {
+                const remainder = builtin_zig.len % 512;
+                break :p if (remainder > 0) 512 - remainder else 0;
+            };
+            try w.writeByteNTimes(0, padding);
+        }
+    }
+
+    // this version
+    {
+        var out_file = try out_dir.createFile("sources_new.tar", .{});
+        defer out_file.close();
+        var w = try writer(out_file.writer(), "std");
+
+        var std_dir = try lib_dir.openDir("std", .{ .iterate = true });
+        defer std_dir.close();
+
+        var walker = try std_dir.walk(gpa);
+        defer walker.deinit();
+
+        while (try walker.next()) |entry| {
+            switch (entry.kind) {
+                .file => {
+                    if (!std.mem.endsWith(u8, entry.basename, ".zig"))
+                        continue;
+                    if (std.mem.endsWith(u8, entry.basename, "test.zig"))
+                        continue;
+                },
+                else => continue,
+            }
+            try w.walkerEntry(entry);
+        }
+
+        {
+            w.prefix = "builtin";
+            // Since this command is JIT compiled, the builtin module available in
+            // this source file corresponds to the user's host system.
+            const builtin_zig = @embedFile("builtin");
+            var stm = std.io.fixedBufferStream(builtin_zig);
+            try w.file("builtin.zig", builtin_zig.len, stm.reader(), .{});
+        }
+    }
+}
