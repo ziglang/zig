@@ -51,7 +51,7 @@ pub fn Writer(comptime WriterType: type) type {
         /// Writes file. File content is read from `reader`. Number of bytes in
         /// reader must be equal to `size`. If options are omitted
         /// `default_mode.file` is used for mode and current time for mtime.
-        pub fn addFile(self: *Self, sub_path: []const u8, size: usize, reader: anytype, opt: Options) !void {
+        pub fn addFile(self: *Self, sub_path: []const u8, size: u64, reader: anytype, opt: Options) !void {
             var header = Header.init(.regular);
             try self.setPath(&header, sub_path);
             try self.setMtime(&header, opt.mtime);
