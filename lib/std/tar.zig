@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const testing = std.testing;
 
 pub const output = @import("tar/output.zig");
+pub const writer = @import("tar/writer.zig").writer;
 
 /// Provide this to receive detailed error messages.
 /// When this is provided, some errors which would otherwise be returned
