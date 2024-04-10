@@ -1540,7 +1540,7 @@ const InlineParser = struct {
                         iter.pos += 1;
                         return .{ .text = replacement };
                     };
-                    const is_valid = iter.pos + cp_len < iter.content.len and
+                    const is_valid = iter.pos + cp_len <= iter.content.len and
                         std.unicode.utf8ValidateSlice(iter.content[iter.pos..][0..cp_len]);
                     const cp_encoded = if (is_valid)
                         iter.content[iter.pos..][0..cp_len]
