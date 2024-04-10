@@ -55,7 +55,7 @@ global_base: ?u64 = null,
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filters: []const []const u8,
-test_runner: ?[]const u8,
+test_runner: ?LazyPath,
 test_server_mode: bool,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
@@ -236,7 +236,7 @@ pub const Options = struct {
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filters: []const []const u8 = &.{},
-    test_runner: ?[]const u8 = null,
+    test_runner: ?LazyPath = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -402,7 +402,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
-        .test_runner = options.test_runner,
+        .test_runner = null,
         .test_server_mode = options.test_runner == null,
         .rdynamic = false,
         .installed_path = null,
@@ -426,6 +426,11 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
     if (options.zig_lib_dir) |lp| {
         self.zig_lib_dir = lp.dupe(self.step.owner);
+        lp.addStepDependencies(&self.step);
+    }
+
+    if (options.test_runner) |lp| {
+        self.test_runner = lp.dupe(self.step.owner);
         lp.addStepDependencies(&self.step);
     }
 
@@ -1402,7 +1407,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (self.test_runner) |test_runner| {
         try zig_args.append("--test-runner");
-        try zig_args.append(b.pathFromRoot(test_runner));
+        try zig_args.append(test_runner.getPath(b));
     }
 
     for (b.debug_log_scopes) |log_scope| {
