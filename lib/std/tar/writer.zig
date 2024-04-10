@@ -3,12 +3,13 @@ const assert = std.debug.assert;
 const testing = std.testing;
 
 /// Creates tar Writer which will write tar content to the `underlying_writer`.
-/// All paths will be prefixed with `perfix` if it is not empty string.
-pub fn writer(underlying_writer: anytype, prefix: []const u8) !Writer(@TypeOf(underlying_writer)) {
-    return Writer(@TypeOf(underlying_writer)).init(
-        underlying_writer,
-        prefix,
-    );
+/// Use setRoot to nest all following entries under single root. If file don't
+/// fit into posix header (name+prefix: 100+155 bytes) gnu extented header will
+/// be used for long names. Options enables setting file premission mode and
+/// mtime. Default is to use current time for mtime and
+/// `default_mode`.file/dir/sym_link for mode.
+pub fn writer(underlying_writer: anytype) Writer(@TypeOf(underlying_writer)) {
+    return .{ .underlying_writer = underlying_writer };
 }
 
 pub fn Writer(comptime WriterType: type) type {
@@ -16,7 +17,9 @@ pub fn Writer(comptime WriterType: type) type {
         const block_size = @sizeOf(Header);
         const zero: [@sizeOf(Header)]u8 = .{0} ** @sizeOf(Header);
         pub const Options = struct {
+            /// File system permission mode.
             mode: u32 = 0,
+            /// File system modification time.
             mtime: u64 = 0,
         };
         const Self = @This();
@@ -27,21 +30,16 @@ pub fn Writer(comptime WriterType: type) type {
         block_buffer: [block_size]u8 = undefined,
         mtime_now: u64 = 0,
 
-        /// Tar will be written to the `underlying_writer`. All paths will be
-        /// prefixed with `perfix` if it is not empty string.
-        pub fn init(underlying_writer: WriterType, prefix: []const u8) !Self {
-            var self = Self{
-                .underlying_writer = underlying_writer,
-            };
-            if (prefix.len > 0) {
-                try self.addDir(prefix, .{});
-                self.prefix = prefix;
+        /// Sets prefix for all other add* method paths.
+        pub fn setRoot(self: *Self, root: []const u8) !void {
+            if (root.len > 0) {
+                try self.addDir(root, .{});
             }
-            return self;
+            self.prefix = root;
         }
 
         /// Writes directory. If options are omitted `default_mode.dir` is used
-        /// for mode and current time for mtime.
+        /// for mode and current time for `mtime`.
         pub fn addDir(self: *Self, sub_path: []const u8, opt: Options) !void {
             var header = Header.init(.directory);
             try self.setPath(&header, sub_path);
@@ -86,7 +84,7 @@ pub fn Writer(comptime WriterType: type) type {
         }
 
         /// Writes symlink. If options are omitted `default_mode.sym_link` is
-        /// used for mode and current time for mtime.
+        /// used for mode and current time for `mtime`.
         pub fn addLink(self: *Self, sub_path: []const u8, link_name: []const u8, opt: Options) !void {
             var header = Header.init(.symbolic_link);
             try self.setPath(&header, sub_path);
@@ -99,8 +97,8 @@ pub fn Writer(comptime WriterType: type) type {
             try header.write(self.underlying_writer);
         }
 
-        /// Writes fs.Dir.WalkerEntry. Uses mtime from file system entry and
-        /// defaults from `default_mode` for mode.
+        /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
+        /// default from `default_mode` for entry mode.
         pub fn addEntry(self: *Self, entry: std.fs.Dir.Walker.WalkerEntry) !void {
             const stat = try entry.dir.statFile(entry.basename);
             const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
@@ -140,6 +138,7 @@ pub fn Writer(comptime WriterType: type) type {
             };
         }
 
+        /// Writes gnu extended header: gnu_long_name or gnu_long_link.
         fn writeExtendedHeader(self: *Self, typeflag: Header.FileType, buffers: []const []const u8) !void {
             var len: usize = 0;
             for (buffers) |buf|
@@ -413,11 +412,12 @@ test "write files" {
 
     // with root
     {
-        const prefix = "root";
+        const root = "root";
 
         var output = std.ArrayList(u8).init(testing.allocator);
         defer output.deinit();
-        var wrt = try writer(output.writer(), prefix);
+        var wrt = writer(output.writer());
+        try wrt.setRoot(root);
         for (files) |file| {
             var content = std.io.fixedBufferStream(file.content);
             try wrt.addFile(file.path, file.content.len, content.reader(), .{});
@@ -432,7 +432,7 @@ test "write files" {
         // first entry is directory with prefix
         {
             const actual = (try iter.next()).?;
-            try testing.expectEqualStrings(prefix, actual.name);
+            try testing.expectEqualStrings(root, actual.name);
             try testing.expectEqual(std.tar.FileKind.directory, actual.kind);
         }
 
@@ -440,9 +440,9 @@ test "write files" {
         while (try iter.next()) |actual| {
             defer i += 1;
             const expected = files[i];
-            try testing.expectEqualStrings(prefix, actual.name[0..prefix.len]);
-            try testing.expectEqual('/', actual.name[prefix.len..][0]);
-            try testing.expectEqualStrings(expected.path, actual.name[prefix.len + 1 ..]);
+            try testing.expectEqualStrings(root, actual.name[0..root.len]);
+            try testing.expectEqual('/', actual.name[root.len..][0]);
+            try testing.expectEqualStrings(expected.path, actual.name[root.len + 1 ..]);
 
             var content = std.ArrayList(u8).init(testing.allocator);
             defer content.deinit();
@@ -454,7 +454,7 @@ test "write files" {
     {
         var output = std.ArrayList(u8).init(testing.allocator);
         defer output.deinit();
-        var wrt = try writer(output.writer(), "");
+        var wrt = writer(output.writer());
         for (files) |file| {
             var content = std.io.fixedBufferStream(file.content);
             try wrt.addFile(file.path, file.content.len, content.reader(), .{});
@@ -592,7 +592,8 @@ test "sourcesTar" {
     {
         var out_file = try out_dir.createFile("sources_new.tar", .{});
         defer out_file.close();
-        var w = try writer(out_file.writer(), "std");
+        var w = writer(out_file.writer());
+        try w.setRoot("std");
 
         var std_dir = try lib_dir.openDir("std", .{ .iterate = true });
         defer std_dir.close();

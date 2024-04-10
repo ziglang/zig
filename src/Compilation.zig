@@ -4071,7 +4071,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
     var walker = try mod_dir.walk(comp.gpa);
     defer walker.deinit();
 
-    const padding_buffer = [1]u8{0} ** 512;
+    var archiver = std.tar.writer(tar_file.writer());
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -4082,43 +4082,12 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             },
             else => continue,
         }
-
-        var file = mod_dir.openFile(entry.path, .{}) catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{}{s}': {s}", .{
+        archiver.prefix = module.fully_qualified_name;
+        archiver.addEntry(entry) catch |err| {
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{}{s}': {s}", .{
                 root, entry.path, @errorName(err),
             });
         };
-        defer file.close();
-
-        const stat = file.stat() catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to stat '{}{s}': {s}", .{
-                root, entry.path, @errorName(err),
-            });
-        };
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath(name, entry.path);
-        try file_header.setSize(stat.size);
-        try file_header.updateChecksum();
-
-        const header_bytes = std.mem.asBytes(&file_header);
-        const padding = p: {
-            const remainder: u16 = @intCast(stat.size % 512);
-            const n = if (remainder > 0) 512 - remainder else 0;
-            break :p padding_buffer[0..n];
-        };
-
-        var header_and_trailer: [2]std.posix.iovec_const = .{
-            .{ .base = header_bytes.ptr, .len = header_bytes.len },
-            .{ .base = padding.ptr, .len = padding.len },
-        };
-
-        try tar_file.writeFileAll(file, .{
-            .in_len = stat.size,
-            .headers_and_trailers = &header_and_trailer,
-            .header_count = 1,
-        });
     }
 }
 

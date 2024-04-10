@@ -181,13 +181,15 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
         },
     });
-    const w = response.writer();
 
     var std_dir = try context.lib_dir.openDir("std", .{ .iterate = true });
     defer std_dir.close();
 
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
+
+    var archiver = std.tar.writer(response.writer());
+    archiver.prefix = "std";
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -199,47 +201,20 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
             else => continue,
         }
-
-        var file = try std_dir.openFile(entry.path, .{});
-        defer file.close();
-
-        const stat = try file.stat();
-        const padding = p: {
-            const remainder = stat.size % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath("std", entry.path);
-        try file_header.setSize(stat.size);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeFile(file);
-        try w.writeByteNTimes(0, padding);
+        try archiver.addEntry(entry);
     }
 
     {
         // Since this command is JIT compiled, the builtin module available in
         // this source file corresponds to the user's host system.
         const builtin_zig = @embedFile("builtin");
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath("builtin", "builtin.zig");
-        try file_header.setSize(builtin_zig.len);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeAll(builtin_zig);
-        const padding = p: {
-            const remainder = builtin_zig.len % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-        try w.writeByteNTimes(0, padding);
+        archiver.prefix = "builtin";
+        var stream = std.io.fixedBufferStream(builtin_zig);
+        try archiver.addFile("builtin.zig", builtin_zig.len, stream.reader(), .{});
     }
 
     // intentionally omitting the pointless trailer
-    //try w.writeByteNTimes(0, 512 * 2);
+    //try archiver.finish();
     try response.end();
 }
 
