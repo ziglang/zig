@@ -208,8 +208,8 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
         // Since this command is JIT compiled, the builtin module available in
         // this source file corresponds to the user's host system.
         const builtin_zig = @embedFile("builtin");
-        archiver.prefix = "builtin";
         var stream = std.io.fixedBufferStream(builtin_zig);
+        archiver.prefix = "builtin";
         try archiver.addFile("builtin.zig", builtin_zig.len, stream.reader(), .{});
     }
 
