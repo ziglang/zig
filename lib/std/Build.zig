@@ -607,17 +607,17 @@ pub fn resolveInstallPrefix(self: *Build, install_prefix: ?[]const u8, dir_list:
     var h_list = [_][]const u8{ self.install_path, "include" };
 
     if (dir_list.lib_dir) |dir| {
-        if (std.fs.path.isAbsolute(dir)) lib_list[0] = self.dest_dir orelse "";
+        if (fs.path.isAbsolute(dir)) lib_list[0] = self.dest_dir orelse "";
         lib_list[1] = dir;
     }
 
     if (dir_list.exe_dir) |dir| {
-        if (std.fs.path.isAbsolute(dir)) exe_list[0] = self.dest_dir orelse "";
+        if (fs.path.isAbsolute(dir)) exe_list[0] = self.dest_dir orelse "";
         exe_list[1] = dir;
     }
 
     if (dir_list.include_dir) |dir| {
-        if (std.fs.path.isAbsolute(dir)) h_list[0] = self.dest_dir orelse "";
+        if (fs.path.isAbsolute(dir)) h_list[0] = self.dest_dir orelse "";
         h_list[1] = dir;
     }
 
@@ -858,7 +858,7 @@ pub const TestOptions = struct {
     /// deprecated: use `.filters = &.{filter}` instead of `.filter = filter`.
     filter: ?[]const u8 = null,
     filters: []const []const u8 = &.{},
-    test_runner: ?[]const u8 = null,
+    test_runner: ?LazyPath = null,
     link_libc: ?bool = null,
     single_threaded: ?bool = null,
     pic: ?bool = null,
@@ -1635,6 +1635,18 @@ pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
     src_file.close();
 }
 
+/// References a file or directory relative to the source root.
+pub fn path(b: *Build, sub_path: []const u8) LazyPath {
+    assert(!fs.path.isAbsolute(sub_path));
+    return .{ .src_path = .{
+        .owner = b,
+        .sub_path = sub_path,
+    } };
+}
+
+/// This is low-level implementation details of the build system, not meant to
+/// be called by users' build scripts. Even in the build system itself it is a
+/// code smell to call this function.
 pub fn pathFromRoot(b: *Build, p: []const u8) []u8 {
     return fs.path.resolve(b.allocator, &.{ b.build_root.path orelse ".", p }) catch @panic("OOM");
 }
@@ -1674,10 +1686,9 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
                 return name;
             }
             var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
-            while (it.next()) |path| {
+            while (it.next()) |p| {
                 const full_path = self.pathJoin(&.{
-                    path,
-                    self.fmt("{s}{s}", .{ name, exe_extension }),
+                    p, self.fmt("{s}{s}", .{ name, exe_extension }),
                 });
                 return fs.realpathAlloc(self.allocator, full_path) catch continue;
             }
@@ -1687,10 +1698,9 @@ pub fn findProgram(self: *Build, names: []const []const u8, paths: []const []con
         if (fs.path.isAbsolute(name)) {
             return name;
         }
-        for (paths) |path| {
+        for (paths) |p| {
             const full_path = self.pathJoin(&.{
-                path,
-                self.fmt("{s}{s}", .{ name, exe_extension }),
+                p, self.fmt("{s}{s}", .{ name, exe_extension }),
             });
             return fs.realpathAlloc(self.allocator, full_path) catch continue;
         }
@@ -1771,7 +1781,7 @@ pub fn getInstallPath(self: *Build, dir: InstallDir, dest_rel_path: []const u8) 
         .bin => self.exe_dir,
         .lib => self.lib_dir,
         .header => self.h_dir,
-        .custom => |path| self.pathJoin(&.{ self.install_path, path }),
+        .custom => |p| self.pathJoin(&.{ self.install_path, p }),
     };
     return fs.path.resolve(
         self.allocator,
@@ -2032,7 +2042,7 @@ fn dependencyInner(
 
     const build_root: std.Build.Cache.Directory = .{
         .path = build_root_string,
-        .handle = std.fs.cwd().openDir(build_root_string, .{}) catch |err| {
+        .handle = fs.cwd().openDir(build_root_string, .{}) catch |err| {
             std.debug.print("unable to open '{s}': {s}\n", .{
                 build_root_string, @errorName(err),
             });
@@ -2093,9 +2103,9 @@ pub const GeneratedFile = struct {
 // so that we can join it with another path (e.g. build root, cache root, etc.)
 //
 // dirname("") should still be null, because we can't go up any further.
-fn dirnameAllowEmpty(path: []const u8) ?[]const u8 {
-    return fs.path.dirname(path) orelse {
-        if (fs.path.isAbsolute(path) or path.len == 0) return null;
+fn dirnameAllowEmpty(full_path: []const u8) ?[]const u8 {
+    return fs.path.dirname(full_path) orelse {
+        if (fs.path.isAbsolute(full_path) or full_path.len == 0) return null;
 
         return "";
     };
@@ -2117,10 +2127,14 @@ test dirnameAllowEmpty {
 
 /// A reference to an existing or future path.
 pub const LazyPath = union(enum) {
-    /// A source file path relative to build root.
-    /// This should not be an absolute path, but in an older iteration of the zig build
-    /// system API, it was allowed to be absolute. Absolute paths should use `cwd_relative`.
+    /// Deprecated; use the `path` function instead.
     path: []const u8,
+
+    /// A source file path relative to build root.
+    src_path: struct {
+        owner: *std.Build,
+        sub_path: []const u8,
+    },
 
     /// A file that is generated by an interface. Those files usually are
     /// not available until built by a build step.
@@ -2150,11 +2164,10 @@ pub const LazyPath = union(enum) {
         sub_path: []const u8,
     },
 
-    /// Returns a new file source that will have a relative path to the build root guaranteed.
-    /// Asserts the parameter is not an absolute path.
-    pub fn relative(path: []const u8) LazyPath {
-        std.debug.assert(!std.fs.path.isAbsolute(path));
-        return LazyPath{ .path = path };
+    /// Deprecated. Call `path` instead.
+    pub fn relative(p: []const u8) LazyPath {
+        std.log.warn("deprecated. call std.Build.path instead", .{});
+        return .{ .path = p };
     }
 
     /// Returns a lazy path referring to the directory containing this path.
@@ -2168,13 +2181,16 @@ pub const LazyPath = union(enum) {
         return switch (self) {
             .generated => |gen| .{ .generated_dirname = .{ .generated = gen, .up = 0 } },
             .generated_dirname => |gen| .{ .generated_dirname = .{ .generated = gen.generated, .up = gen.up + 1 } },
+            .src_path => |sp| .{ .src_path = .{
+                .owner = sp.owner,
+                .sub_path = dirnameAllowEmpty(sp.sub_path) orelse {
+                    dumpBadDirnameHelp(null, null, "dirname() attempted to traverse outside the build root\n", .{}) catch {};
+                    @panic("misconfigured build script");
+                },
+            } },
             .path => |p| .{
                 .path = dirnameAllowEmpty(p) orelse {
-                    dumpBadDirnameHelp(null, null,
-                        \\dirname() attempted to traverse outside the build root.
-                        \\This is not allowed.
-                        \\
-                    , .{}) catch {};
+                    dumpBadDirnameHelp(null, null, "dirname() attempted to traverse outside the build root\n", .{}) catch {};
                     @panic("misconfigured build script");
                 },
             },
@@ -2195,7 +2211,6 @@ pub const LazyPath = union(enum) {
                     } else {
                         dumpBadDirnameHelp(null, null,
                             \\dirname() attempted to traverse outside the current working directory.
-                            \\This is not allowed.
                             \\
                         , .{}) catch {};
                         @panic("misconfigured build script");
@@ -2207,7 +2222,6 @@ pub const LazyPath = union(enum) {
                 .sub_path = dirnameAllowEmpty(dep.sub_path) orelse {
                     dumpBadDirnameHelp(null, null,
                         \\dirname() attempted to traverse outside the dependency root.
-                        \\This is not allowed.
                         \\
                     , .{}) catch {};
                     @panic("misconfigured build script");
@@ -2220,7 +2234,8 @@ pub const LazyPath = union(enum) {
     /// Either returns the path or `"generated"`.
     pub fn getDisplayName(self: LazyPath) []const u8 {
         return switch (self) {
-            .path, .cwd_relative => self.path,
+            .src_path => |sp| sp.sub_path,
+            .path, .cwd_relative => |p| p,
             .generated => "generated",
             .generated_dirname => "generated",
             .dependency => "dependency",
@@ -2230,7 +2245,7 @@ pub const LazyPath = union(enum) {
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
-            .path, .cwd_relative, .dependency => {},
+            .src_path, .path, .cwd_relative, .dependency => {},
             .generated => |gen| other_step.dependOn(gen.step),
             .generated_dirname => |gen| other_step.dependOn(gen.generated.step),
         }
@@ -2250,6 +2265,7 @@ pub const LazyPath = union(enum) {
     pub fn getPath2(self: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self) {
             .path => |p| return src_builder.pathFromRoot(p),
+            .src_path => |sp| return sp.owner.pathFromRoot(sp.sub_path),
             .cwd_relative => |p| return src_builder.pathFromCwd(p),
             .generated => |gen| return gen.path orelse {
                 std.debug.getStderrMutex().lock();
@@ -2262,13 +2278,13 @@ pub const LazyPath = union(enum) {
                     (src_builder.cache_root.join(src_builder.allocator, &.{"."}) catch @panic("OOM"));
 
                 const gen_step = gen.generated.step;
-                var path = getPath2(LazyPath{ .generated = gen.generated }, src_builder, asking_step);
+                var p = getPath2(LazyPath{ .generated = gen.generated }, src_builder, asking_step);
                 var i: usize = 0;
                 while (i <= gen.up) : (i += 1) {
                     // path is absolute.
                     // dirname will return null only if we're at root.
                     // Typically, we'll stop well before that at the cache root.
-                    path = fs.path.dirname(path) orelse {
+                    p = fs.path.dirname(p) orelse {
                         dumpBadDirnameHelp(gen_step, asking_step,
                             \\dirname() reached root.
                             \\No more directories left to go up.
@@ -2277,7 +2293,7 @@ pub const LazyPath = union(enum) {
                         @panic("misconfigured build script");
                     };
 
-                    if (mem.eql(u8, path, cache_root_path) and i < gen.up) {
+                    if (mem.eql(u8, p, cache_root_path) and i < gen.up) {
                         // If we hit the cache root and there's still more to go,
                         // the script attempted to go too far.
                         dumpBadDirnameHelp(gen_step, asking_step,
@@ -2288,7 +2304,7 @@ pub const LazyPath = union(enum) {
                         @panic("misconfigured build script");
                     }
                 }
-                return path;
+                return p;
             },
             .dependency => |dep| {
                 return dep.dependency.builder.pathJoin(&[_][]const u8{
@@ -2302,6 +2318,10 @@ pub const LazyPath = union(enum) {
     /// Duplicates the file source for a given builder.
     pub fn dupe(self: LazyPath, b: *Build) LazyPath {
         return switch (self) {
+            .src_path => |sp| .{ .src_path = .{
+                .owner = sp.owner,
+                .sub_path = b.dupePath(sp.sub_path),
+            } },
             .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },

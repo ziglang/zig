@@ -58,6 +58,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
 
     if (options.style.getPath()) |s| default_include_path: {
         const sub_path = switch (s) {
+            .src_path => |sp| sp.sub_path,
             .path => |path| path,
             .generated, .generated_dirname => break :default_include_path,
             .cwd_relative => |sub_path| sub_path,

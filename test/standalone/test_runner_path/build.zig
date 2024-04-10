@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) void {
     const test_exe = b.addTest(.{
         .root_source_file = .{ .path = "test.zig" },
     });
-    test_exe.test_runner = "test_runner.zig";
+    test_exe.test_runner = b.path("test_runner.zig");
 
     const test_run = b.addRunArtifact(test_exe);
     test_step.dependOn(&test_run.step);
