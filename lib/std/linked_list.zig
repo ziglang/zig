@@ -19,8 +19,6 @@ pub fn SinglyLinkedList(comptime T: type) type {
             next: ?*Node = null,
             data: T,
 
-            pub const Data = T;
-
             /// Insert a new node after the current one.
             ///
             /// Arguments:
