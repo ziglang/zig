@@ -187,8 +187,9 @@ fn testFromToEpoch(comptime T: type) !void {
     // Instead let's cycle through the first and last 1 << 16 part of each range.
     const min_epoch_day = (T{ .year = std.math.minInt(T.Year), .month = .jan, .day = 1 }).toEpoch();
     const max_epoch_day = (T{ .year = std.math.maxInt(T.Year), .month = .dec, .day = 31 }).toEpoch();
-    const range: u128 = @intCast(max_epoch_day - min_epoch_day);
-    for (0..@min(1 << 16, range)) |i| {
+    const diff = max_epoch_day - min_epoch_day;
+    const range: usize = if (max_epoch_day - min_epoch_day > 1 << 16) 1 << 16 else @intCast(diff);
+    for (0..range) |i| {
         const d3 = min_epoch_day + @as(T.EpochDays, @intCast(i));
         try expectEqual(d3, T.fromEpoch(d3).toEpoch());
 

@@ -370,23 +370,22 @@ pub fn Time(precision_: comptime_int) type {
         pub const subseconds_per_day = 24 * subseconds_per_hour;
 
         pub fn fromDaySeconds(seconds: DaySubseconds) Self {
-            const fs_offset = seconds;
-            var fs = std.math.comptimeMod(fs_offset, subseconds_per_day);
+            var subseconds = std.math.comptimeMod(seconds, subseconds_per_day);
 
-            const hour: Hour = @intCast(@divFloor(fs, subseconds_per_hour));
-            fs -= @as(DaySubseconds, @intCast(hour)) * subseconds_per_hour;
+            const hour = @divFloor(subseconds, subseconds_per_hour);
+            subseconds -= hour * subseconds_per_hour;
 
-            const minute: Minute = @intCast(@divFloor(fs, subseconds_per_min));
-            fs -= @as(DaySubseconds, @intCast(minute)) * subseconds_per_min;
+            const minute = @divFloor(subseconds, subseconds_per_min);
+            subseconds -= minute * subseconds_per_min;
 
-            const second: Second = @intCast(@divFloor(fs, subseconds_per_s));
-            fs -= @as(DaySubseconds, @intCast(second)) * subseconds_per_s;
+            const second = @divFloor(subseconds, subseconds_per_s);
+            subseconds -= second * subseconds_per_s;
 
             return .{
-                .hour = hour,
-                .minute = minute,
-                .second = second,
-                .subsecond = @intCast(fs),
+                .hour = @intCast(hour),
+                .minute = @intCast(minute),
+                .second = @intCast(second),
+                .subsecond = @intCast(subseconds),
             };
         }
 
