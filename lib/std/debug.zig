@@ -661,7 +661,7 @@ pub const StackIterator = struct {
 
     fn isValidMemory(address: usize) bool {
         // We are unable to determine validity of memory for freestanding targets
-        if (native_os == .freestanding) return true;
+        if (native_os == .freestanding or native_os == .uefi) return true;
 
         const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
         if (aligned_address == 0) return false;
