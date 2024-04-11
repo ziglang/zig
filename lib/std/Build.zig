@@ -2131,6 +2131,9 @@ test dirnameAllowEmpty {
 
 /// A reference to an existing or future path.
 pub const LazyPath = union(enum) {
+    /// Deprecated; use the `path` function instead.
+    path: []const u8,
+
     /// A source file path relative to build root.
     src_path: struct {
         owner: *std.Build,
@@ -2165,6 +2168,12 @@ pub const LazyPath = union(enum) {
         sub_path: []const u8,
     },
 
+    /// Deprecated. Call `path` instead.
+    pub fn relative(p: []const u8) LazyPath {
+        std.log.warn("deprecated. call std.Build.path instead", .{});
+        return .{ .path = p };
+    }
+
     /// Returns a lazy path referring to the directory containing this path.
     ///
     /// The dirname is not allowed to escape the logical root for underlying path.
@@ -2183,6 +2192,12 @@ pub const LazyPath = union(enum) {
                     @panic("misconfigured build script");
                 },
             } },
+            .path => |p| .{
+                .path = dirnameAllowEmpty(p) orelse {
+                    dumpBadDirnameHelp(null, null, "dirname() attempted to traverse outside the build root\n", .{}) catch {};
+                    @panic("misconfigured build script");
+                },
+            },
             .cwd_relative => |p| .{
                 .cwd_relative = dirnameAllowEmpty(p) orelse {
                     // If we get null, it means one of two things:
@@ -2224,7 +2239,7 @@ pub const LazyPath = union(enum) {
     pub fn getDisplayName(self: LazyPath) []const u8 {
         return switch (self) {
             .src_path => |sp| sp.sub_path,
-            .cwd_relative => |p| p,
+            .path, .cwd_relative => |p| p,
             .generated => "generated",
             .generated_dirname => "generated",
             .dependency => "dependency",
@@ -2234,7 +2249,7 @@ pub const LazyPath = union(enum) {
     /// Adds dependencies this file source implies to the given step.
     pub fn addStepDependencies(self: LazyPath, other_step: *Step) void {
         switch (self) {
-            .src_path, .cwd_relative, .dependency => {},
+            .src_path, .path, .cwd_relative, .dependency => {},
             .generated => |gen| other_step.dependOn(gen.step),
             .generated_dirname => |gen| other_step.dependOn(gen.generated.step),
         }
@@ -2253,6 +2268,7 @@ pub const LazyPath = union(enum) {
     /// run that is asking for the path.
     pub fn getPath2(self: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
         switch (self) {
+            .path => |p| return src_builder.pathFromRoot(p),
             .src_path => |sp| return sp.owner.pathFromRoot(sp.sub_path),
             .cwd_relative => |p| return src_builder.pathFromCwd(p),
             .generated => |gen| return gen.path orelse {
@@ -2313,6 +2329,7 @@ pub const LazyPath = union(enum) {
                 .owner = sp.owner,
                 .sub_path = sp.owner.dupePath(sp.sub_path),
             } },
+            .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
             .generated => |gen| .{ .generated = gen },
             .generated_dirname => |gen| .{
