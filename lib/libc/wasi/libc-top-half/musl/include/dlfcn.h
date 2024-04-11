@@ -12,19 +12,29 @@ extern "C" {
 #define RTLD_NOLOAD 4
 #define RTLD_NODELETE 4096
 #define RTLD_GLOBAL 256
+#ifdef __wasilibc_unmodified_upstream
 #define RTLD_LOCAL  0
+#else
+/* For WASI, we give `RTLD_LOCAL` a non-zero value, avoiding ambiguity and
+ * allowing us to defer the decision of whether `RTLD_LOCAL` or `RTLD_GLOBAL`
+ * should be the default when neither is specified.
+ */
+#define RTLD_LOCAL  8
+#endif
 
 #define RTLD_NEXT    ((void *)-1)
 #define RTLD_DEFAULT ((void *)0)
 
+#ifdef __wasilibc_unmodified_upstream
 #define RTLD_DI_LINKMAP 2
+#endif
 
 int    dlclose(void *);
 char  *dlerror(void);
 void  *dlopen(const char *, int);
 void  *dlsym(void *__restrict, const char *__restrict);
 
-#if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
+#if defined(__wasilibc_unmodified_upstream) && (defined(_GNU_SOURCE) || defined(_BSD_SOURCE))
 typedef struct {
 	const char *dli_fname;
 	void *dli_fbase;
