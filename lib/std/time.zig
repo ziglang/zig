@@ -344,6 +344,12 @@ test Timer {
     try testing.expect(timer.read() < time_1);
 }
 
+/// A time of day with a subsecond field capable of holding values
+/// between 0 and 10 ** `precision_`.
+///
+/// Time(3) = milliseconds
+/// Time(6) = microseconds
+/// Time(9) = nanoseconds
 pub fn Time(precision_: comptime_int) type {
     const multiplier: comptime_int = try std.math.powi(usize, 10, precision_);
     return struct {

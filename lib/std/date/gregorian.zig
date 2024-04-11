@@ -16,6 +16,12 @@
 /// To solve for `shift`, see `solve_shift`.
 ///
 /// [1] https://onlinelibrary.wiley.com/doi/epdf/10.1002/spe.3172
+const std = @import("std");
+const IntFittingRange = std.math.IntFittingRange;
+const secs_per_day = std.time.s_per_day;
+const expectEqual = std.testing.expectEqual;
+const assert = std.debug.assert;
+
 pub fn DateAdvanced(comptime YearT: type, epoch_: comptime_int, shift: comptime_int) type {
     // Zig's timestamp epoch is 1970-01-01. Ours is Mar 01, 0000 AD
     const epoch = epoch_ + 719_468;
@@ -258,7 +264,7 @@ pub const WeekdayT = enum(WeekdayInt) {
 
     pub const Int = WeekdayInt;
 
-    /// Convenient conversion to `WeekdayInt`. sun = 1, sat = 7
+    /// Convenient conversion to `WeekdayInt`. mon = 1, sun = 7
     pub fn numeric(self: @This()) Int {
         return @intFromEnum(self);
     }
@@ -389,9 +395,3 @@ test solveShift {
     try expectEqual(5_368_710, try solveShift(i32, 719_468));
     try expectEqual(23_058_430_092_136_940, try solveShift(i64, 719_468));
 }
-
-const std = @import("std");
-const IntFittingRange = std.math.IntFittingRange;
-const secs_per_day = std.time.s_per_day;
-const expectEqual = std.testing.expectEqual;
-const assert = std.debug.assert;

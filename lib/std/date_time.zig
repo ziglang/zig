@@ -1,3 +1,9 @@
+const std = @import("std.zig");
+const date_mod = @import("./date.zig");
+const time_mod = @import("./time.zig");
+const s_per_day = time_mod.s_per_day;
+const assert = std.debug.assert;
+
 pub fn DateTimeAdvanced(comptime DateT: type, comptime TimeT: type) type {
     return struct {
         date: Date,
@@ -97,9 +103,3 @@ test "Date epoch" {
         .date = .{ .year = std.math.maxInt(i16), .month = .dec, .day = 31 },
     });
 }
-
-const std = @import("std.zig");
-const date_mod = @import("./date.zig");
-const time_mod = @import("./time.zig");
-const s_per_day = time_mod.s_per_day;
-const assert = std.debug.assert;
