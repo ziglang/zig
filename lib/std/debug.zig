@@ -406,7 +406,7 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
 
-    panicExtra(null, null, format, args);
+    panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
 
 /// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
