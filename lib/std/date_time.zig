@@ -61,7 +61,7 @@ pub fn DateTimeAdvanced(comptime DateT: type, comptime TimeT: type) type {
 ///
 /// Supports dates between years -32_768 and 32_768.
 /// Supports times at a second resolution.
-pub const DateTime = DateTimeAdvanced(date_mod.Date, time_mod.Time(0));
+pub const DateTime = DateTimeAdvanced(date_mod.Date, time_mod.Time);
 
 comptime {
     assert(@sizeOf(DateTime) == 8);

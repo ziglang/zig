@@ -347,10 +347,11 @@ test Timer {
 /// A time of day with a subsecond field capable of holding values
 /// between 0 and 10 ** `precision_`.
 ///
-/// Time(3) = milliseconds
-/// Time(6) = microseconds
-/// Time(9) = nanoseconds
-pub fn Time(precision_: comptime_int) type {
+/// TimeAdvanced(0) = seconds
+/// TimeAdvanced(3) = milliseconds
+/// TimeAdvanced(6) = microseconds
+/// TimeAdvanced(9) = nanoseconds
+pub fn TimeAdvanced(precision_: comptime_int) type {
     const multiplier: comptime_int = try std.math.powi(usize, 10, precision_);
     return struct {
         hour: Hour = 0,
@@ -363,8 +364,8 @@ pub fn Time(precision_: comptime_int) type {
         pub const Hour = IntFittingRange(0, 23);
         pub const Minute = IntFittingRange(0, 59);
         pub const Second = IntFittingRange(0, 60);
-        pub const Subsecond = IntFittingRange(0, if (precision_ == 0) 0 else multiplier);
-        pub const DaySubseconds = IntFittingRange(0, s_per_day * multiplier);
+        pub const Subsecond = IntFittingRange(0, if (precision_ == 0) 0 else subseconds_per_s);
+        pub const DaySubseconds = IntFittingRange(0, s_per_day * subseconds_per_s);
         const IDaySubseconds = std.meta.Int(.signed, @typeInfo(DaySubseconds).Int.bits + 1);
 
         const Self = @This();
@@ -402,7 +403,7 @@ pub fn Time(precision_: comptime_int) type {
             sec += @as(IDaySubseconds, self.second) * subseconds_per_s;
             sec += @as(IDaySubseconds, self.subsecond);
 
-            return std.math.comptimeMod(sec, s_per_day * multiplier);
+            return std.math.comptimeMod(sec, s_per_day * subseconds_per_s);
         }
 
         /// Does not handle leap seconds.
@@ -437,8 +438,7 @@ pub fn Time(precision_: comptime_int) type {
     };
 }
 
-test Time {
-    const TimeMilli = Time(3);
+test TimeAdvanced {
     const t1 = TimeMilli{};
     const expectEqual = std.testing.expectEqual;
     // cause each place to overflow
@@ -448,11 +448,21 @@ test Time {
 }
 
 comptime {
-    assert(@sizeOf(Time(0)) == 3);
-    assert(@sizeOf(Time(3)) == 6);
-    assert(@sizeOf(Time(6)) == 8);
-    assert(@sizeOf(Time(9)) == 8);
+    assert(@sizeOf(TimeAdvanced(0)) == 3);
+    assert(@sizeOf(TimeAdvanced(3)) == 6);
+    assert(@sizeOf(TimeAdvanced(6)) == 8);
+    assert(@sizeOf(TimeAdvanced(9)) == 8);
+    assert(@sizeOf(TimeAdvanced(12)) == 16);
 }
+/// Time with second precision.
+pub const Time = TimeAdvanced(0);
+/// Time with millisecond precision.
+pub const TimeMilli = TimeAdvanced(3);
+/// Time with microsecond precision.
+/// Note: This is the same size `TimeNano`. If you want the extra precision use that instead.
+pub const TimeMicro = TimeAdvanced(6);
+/// Time with nanosecond precision.
+pub const TimeNano = TimeAdvanced(9);
 
 test {
     _ = epoch;
