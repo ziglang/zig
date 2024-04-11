@@ -2,10 +2,29 @@
 
 const std = @import("std");
 const testing = std.testing;
-const catalog = @import("catalog.zig");
+const verify = @import("../verify.zig");
+const crc = @import("../crc.zig");
+
+test "crc32 ieee" {
+    inline for ([2]type{ crc.Crc32WithPoly(.IEEE), crc.Crc32SmallWithPoly(.IEEE) }) |ieee| {
+        try testing.expect(ieee.hash("") == 0x00000000);
+        try testing.expect(ieee.hash("a") == 0xe8b7be43);
+        try testing.expect(ieee.hash("abc") == 0x352441c2);
+        try verify.iterativeApi(ieee);
+    }
+}
+
+test "crc32 castagnoli" {
+    inline for ([2]type{ crc.Crc32WithPoly(.Castagnoli), crc.Crc32SmallWithPoly(.Castagnoli) }) |casta| {
+        try testing.expect(casta.hash("") == 0x00000000);
+        try testing.expect(casta.hash("a") == 0xc1d04330);
+        try testing.expect(casta.hash("abc") == 0x364b3fb7);
+        try verify.iterativeApi(casta);
+    }
+}
 
 test "CRC-3/GSM" {
-    const Crc3Gsm = catalog.Crc3Gsm;
+    const Crc3Gsm = crc.Crc3Gsm;
 
     try testing.expectEqual(@as(u3, 0x4), Crc3Gsm.hash("123456789"));
 
@@ -16,7 +35,7 @@ test "CRC-3/GSM" {
 }
 
 test "CRC-3/ROHC" {
-    const Crc3Rohc = catalog.Crc3Rohc;
+    const Crc3Rohc = crc.Crc3Rohc;
 
     try testing.expectEqual(@as(u3, 0x6), Crc3Rohc.hash("123456789"));
 
@@ -27,7 +46,7 @@ test "CRC-3/ROHC" {
 }
 
 test "CRC-4/G-704" {
-    const Crc4G704 = catalog.Crc4G704;
+    const Crc4G704 = crc.Crc4G704;
 
     try testing.expectEqual(@as(u4, 0x7), Crc4G704.hash("123456789"));
 
@@ -38,7 +57,7 @@ test "CRC-4/G-704" {
 }
 
 test "CRC-4/INTERLAKEN" {
-    const Crc4Interlaken = catalog.Crc4Interlaken;
+    const Crc4Interlaken = crc.Crc4Interlaken;
 
     try testing.expectEqual(@as(u4, 0xb), Crc4Interlaken.hash("123456789"));
 
@@ -49,7 +68,7 @@ test "CRC-4/INTERLAKEN" {
 }
 
 test "CRC-5/EPC-C1G2" {
-    const Crc5EpcC1g2 = catalog.Crc5EpcC1g2;
+    const Crc5EpcC1g2 = crc.Crc5EpcC1g2;
 
     try testing.expectEqual(@as(u5, 0x00), Crc5EpcC1g2.hash("123456789"));
 
@@ -60,7 +79,7 @@ test "CRC-5/EPC-C1G2" {
 }
 
 test "CRC-5/G-704" {
-    const Crc5G704 = catalog.Crc5G704;
+    const Crc5G704 = crc.Crc5G704;
 
     try testing.expectEqual(@as(u5, 0x07), Crc5G704.hash("123456789"));
 
@@ -71,7 +90,7 @@ test "CRC-5/G-704" {
 }
 
 test "CRC-5/USB" {
-    const Crc5Usb = catalog.Crc5Usb;
+    const Crc5Usb = crc.Crc5Usb;
 
     try testing.expectEqual(@as(u5, 0x19), Crc5Usb.hash("123456789"));
 
@@ -82,7 +101,7 @@ test "CRC-5/USB" {
 }
 
 test "CRC-6/CDMA2000-A" {
-    const Crc6Cdma2000A = catalog.Crc6Cdma2000A;
+    const Crc6Cdma2000A = crc.Crc6Cdma2000A;
 
     try testing.expectEqual(@as(u6, 0x0d), Crc6Cdma2000A.hash("123456789"));
 
@@ -93,7 +112,7 @@ test "CRC-6/CDMA2000-A" {
 }
 
 test "CRC-6/CDMA2000-B" {
-    const Crc6Cdma2000B = catalog.Crc6Cdma2000B;
+    const Crc6Cdma2000B = crc.Crc6Cdma2000B;
 
     try testing.expectEqual(@as(u6, 0x3b), Crc6Cdma2000B.hash("123456789"));
 
@@ -104,7 +123,7 @@ test "CRC-6/CDMA2000-B" {
 }
 
 test "CRC-6/DARC" {
-    const Crc6Darc = catalog.Crc6Darc;
+    const Crc6Darc = crc.Crc6Darc;
 
     try testing.expectEqual(@as(u6, 0x26), Crc6Darc.hash("123456789"));
 
@@ -115,7 +134,7 @@ test "CRC-6/DARC" {
 }
 
 test "CRC-6/G-704" {
-    const Crc6G704 = catalog.Crc6G704;
+    const Crc6G704 = crc.Crc6G704;
 
     try testing.expectEqual(@as(u6, 0x06), Crc6G704.hash("123456789"));
 
@@ -126,7 +145,7 @@ test "CRC-6/G-704" {
 }
 
 test "CRC-6/GSM" {
-    const Crc6Gsm = catalog.Crc6Gsm;
+    const Crc6Gsm = crc.Crc6Gsm;
 
     try testing.expectEqual(@as(u6, 0x13), Crc6Gsm.hash("123456789"));
 
@@ -137,7 +156,7 @@ test "CRC-6/GSM" {
 }
 
 test "CRC-7/MMC" {
-    const Crc7Mmc = catalog.Crc7Mmc;
+    const Crc7Mmc = crc.Crc7Mmc;
 
     try testing.expectEqual(@as(u7, 0x75), Crc7Mmc.hash("123456789"));
 
@@ -148,7 +167,7 @@ test "CRC-7/MMC" {
 }
 
 test "CRC-7/ROHC" {
-    const Crc7Rohc = catalog.Crc7Rohc;
+    const Crc7Rohc = crc.Crc7Rohc;
 
     try testing.expectEqual(@as(u7, 0x53), Crc7Rohc.hash("123456789"));
 
@@ -159,7 +178,7 @@ test "CRC-7/ROHC" {
 }
 
 test "CRC-7/UMTS" {
-    const Crc7Umts = catalog.Crc7Umts;
+    const Crc7Umts = crc.Crc7Umts;
 
     try testing.expectEqual(@as(u7, 0x61), Crc7Umts.hash("123456789"));
 
@@ -170,7 +189,7 @@ test "CRC-7/UMTS" {
 }
 
 test "CRC-8/AUTOSAR" {
-    const Crc8Autosar = catalog.Crc8Autosar;
+    const Crc8Autosar = crc.Crc8Autosar;
 
     try testing.expectEqual(@as(u8, 0xdf), Crc8Autosar.hash("123456789"));
 
@@ -181,7 +200,7 @@ test "CRC-8/AUTOSAR" {
 }
 
 test "CRC-8/BLUETOOTH" {
-    const Crc8Bluetooth = catalog.Crc8Bluetooth;
+    const Crc8Bluetooth = crc.Crc8Bluetooth;
 
     try testing.expectEqual(@as(u8, 0x26), Crc8Bluetooth.hash("123456789"));
 
@@ -192,7 +211,7 @@ test "CRC-8/BLUETOOTH" {
 }
 
 test "CRC-8/CDMA2000" {
-    const Crc8Cdma2000 = catalog.Crc8Cdma2000;
+    const Crc8Cdma2000 = crc.Crc8Cdma2000;
 
     try testing.expectEqual(@as(u8, 0xda), Crc8Cdma2000.hash("123456789"));
 
@@ -203,7 +222,7 @@ test "CRC-8/CDMA2000" {
 }
 
 test "CRC-8/DARC" {
-    const Crc8Darc = catalog.Crc8Darc;
+    const Crc8Darc = crc.Crc8Darc;
 
     try testing.expectEqual(@as(u8, 0x15), Crc8Darc.hash("123456789"));
 
@@ -214,7 +233,7 @@ test "CRC-8/DARC" {
 }
 
 test "CRC-8/DVB-S2" {
-    const Crc8DvbS2 = catalog.Crc8DvbS2;
+    const Crc8DvbS2 = crc.Crc8DvbS2;
 
     try testing.expectEqual(@as(u8, 0xbc), Crc8DvbS2.hash("123456789"));
 
@@ -225,7 +244,7 @@ test "CRC-8/DVB-S2" {
 }
 
 test "CRC-8/GSM-A" {
-    const Crc8GsmA = catalog.Crc8GsmA;
+    const Crc8GsmA = crc.Crc8GsmA;
 
     try testing.expectEqual(@as(u8, 0x37), Crc8GsmA.hash("123456789"));
 
@@ -236,7 +255,7 @@ test "CRC-8/GSM-A" {
 }
 
 test "CRC-8/GSM-B" {
-    const Crc8GsmB = catalog.Crc8GsmB;
+    const Crc8GsmB = crc.Crc8GsmB;
 
     try testing.expectEqual(@as(u8, 0x94), Crc8GsmB.hash("123456789"));
 
@@ -247,7 +266,7 @@ test "CRC-8/GSM-B" {
 }
 
 test "CRC-8/HITAG" {
-    const Crc8Hitag = catalog.Crc8Hitag;
+    const Crc8Hitag = crc.Crc8Hitag;
 
     try testing.expectEqual(@as(u8, 0xb4), Crc8Hitag.hash("123456789"));
 
@@ -258,7 +277,7 @@ test "CRC-8/HITAG" {
 }
 
 test "CRC-8/I-432-1" {
-    const Crc8I4321 = catalog.Crc8I4321;
+    const Crc8I4321 = crc.Crc8I4321;
 
     try testing.expectEqual(@as(u8, 0xa1), Crc8I4321.hash("123456789"));
 
@@ -269,7 +288,7 @@ test "CRC-8/I-432-1" {
 }
 
 test "CRC-8/I-CODE" {
-    const Crc8ICode = catalog.Crc8ICode;
+    const Crc8ICode = crc.Crc8ICode;
 
     try testing.expectEqual(@as(u8, 0x7e), Crc8ICode.hash("123456789"));
 
@@ -280,7 +299,7 @@ test "CRC-8/I-CODE" {
 }
 
 test "CRC-8/LTE" {
-    const Crc8Lte = catalog.Crc8Lte;
+    const Crc8Lte = crc.Crc8Lte;
 
     try testing.expectEqual(@as(u8, 0xea), Crc8Lte.hash("123456789"));
 
@@ -291,7 +310,7 @@ test "CRC-8/LTE" {
 }
 
 test "CRC-8/MAXIM-DOW" {
-    const Crc8MaximDow = catalog.Crc8MaximDow;
+    const Crc8MaximDow = crc.Crc8MaximDow;
 
     try testing.expectEqual(@as(u8, 0xa1), Crc8MaximDow.hash("123456789"));
 
@@ -302,7 +321,7 @@ test "CRC-8/MAXIM-DOW" {
 }
 
 test "CRC-8/MIFARE-MAD" {
-    const Crc8MifareMad = catalog.Crc8MifareMad;
+    const Crc8MifareMad = crc.Crc8MifareMad;
 
     try testing.expectEqual(@as(u8, 0x99), Crc8MifareMad.hash("123456789"));
 
@@ -313,7 +332,7 @@ test "CRC-8/MIFARE-MAD" {
 }
 
 test "CRC-8/NRSC-5" {
-    const Crc8Nrsc5 = catalog.Crc8Nrsc5;
+    const Crc8Nrsc5 = crc.Crc8Nrsc5;
 
     try testing.expectEqual(@as(u8, 0xf7), Crc8Nrsc5.hash("123456789"));
 
@@ -324,7 +343,7 @@ test "CRC-8/NRSC-5" {
 }
 
 test "CRC-8/OPENSAFETY" {
-    const Crc8Opensafety = catalog.Crc8Opensafety;
+    const Crc8Opensafety = crc.Crc8Opensafety;
 
     try testing.expectEqual(@as(u8, 0x3e), Crc8Opensafety.hash("123456789"));
 
@@ -335,7 +354,7 @@ test "CRC-8/OPENSAFETY" {
 }
 
 test "CRC-8/ROHC" {
-    const Crc8Rohc = catalog.Crc8Rohc;
+    const Crc8Rohc = crc.Crc8Rohc;
 
     try testing.expectEqual(@as(u8, 0xd0), Crc8Rohc.hash("123456789"));
 
@@ -346,7 +365,7 @@ test "CRC-8/ROHC" {
 }
 
 test "CRC-8/SAE-J1850" {
-    const Crc8SaeJ1850 = catalog.Crc8SaeJ1850;
+    const Crc8SaeJ1850 = crc.Crc8SaeJ1850;
 
     try testing.expectEqual(@as(u8, 0x4b), Crc8SaeJ1850.hash("123456789"));
 
@@ -357,7 +376,7 @@ test "CRC-8/SAE-J1850" {
 }
 
 test "CRC-8/SMBUS" {
-    const Crc8Smbus = catalog.Crc8Smbus;
+    const Crc8Smbus = crc.Crc8Smbus;
 
     try testing.expectEqual(@as(u8, 0xf4), Crc8Smbus.hash("123456789"));
 
@@ -368,7 +387,7 @@ test "CRC-8/SMBUS" {
 }
 
 test "CRC-8/TECH-3250" {
-    const Crc8Tech3250 = catalog.Crc8Tech3250;
+    const Crc8Tech3250 = crc.Crc8Tech3250;
 
     try testing.expectEqual(@as(u8, 0x97), Crc8Tech3250.hash("123456789"));
 
@@ -379,7 +398,7 @@ test "CRC-8/TECH-3250" {
 }
 
 test "CRC-8/WCDMA" {
-    const Crc8Wcdma = catalog.Crc8Wcdma;
+    const Crc8Wcdma = crc.Crc8Wcdma;
 
     try testing.expectEqual(@as(u8, 0x25), Crc8Wcdma.hash("123456789"));
 
@@ -390,7 +409,7 @@ test "CRC-8/WCDMA" {
 }
 
 test "CRC-10/ATM" {
-    const Crc10Atm = catalog.Crc10Atm;
+    const Crc10Atm = crc.Crc10Atm;
 
     try testing.expectEqual(@as(u10, 0x199), Crc10Atm.hash("123456789"));
 
@@ -401,7 +420,7 @@ test "CRC-10/ATM" {
 }
 
 test "CRC-10/CDMA2000" {
-    const Crc10Cdma2000 = catalog.Crc10Cdma2000;
+    const Crc10Cdma2000 = crc.Crc10Cdma2000;
 
     try testing.expectEqual(@as(u10, 0x233), Crc10Cdma2000.hash("123456789"));
 
@@ -412,7 +431,7 @@ test "CRC-10/CDMA2000" {
 }
 
 test "CRC-10/GSM" {
-    const Crc10Gsm = catalog.Crc10Gsm;
+    const Crc10Gsm = crc.Crc10Gsm;
 
     try testing.expectEqual(@as(u10, 0x12a), Crc10Gsm.hash("123456789"));
 
@@ -423,7 +442,7 @@ test "CRC-10/GSM" {
 }
 
 test "CRC-11/FLEXRAY" {
-    const Crc11Flexray = catalog.Crc11Flexray;
+    const Crc11Flexray = crc.Crc11Flexray;
 
     try testing.expectEqual(@as(u11, 0x5a3), Crc11Flexray.hash("123456789"));
 
@@ -434,7 +453,7 @@ test "CRC-11/FLEXRAY" {
 }
 
 test "CRC-11/UMTS" {
-    const Crc11Umts = catalog.Crc11Umts;
+    const Crc11Umts = crc.Crc11Umts;
 
     try testing.expectEqual(@as(u11, 0x061), Crc11Umts.hash("123456789"));
 
@@ -445,7 +464,7 @@ test "CRC-11/UMTS" {
 }
 
 test "CRC-12/CDMA2000" {
-    const Crc12Cdma2000 = catalog.Crc12Cdma2000;
+    const Crc12Cdma2000 = crc.Crc12Cdma2000;
 
     try testing.expectEqual(@as(u12, 0xd4d), Crc12Cdma2000.hash("123456789"));
 
@@ -456,7 +475,7 @@ test "CRC-12/CDMA2000" {
 }
 
 test "CRC-12/DECT" {
-    const Crc12Dect = catalog.Crc12Dect;
+    const Crc12Dect = crc.Crc12Dect;
 
     try testing.expectEqual(@as(u12, 0xf5b), Crc12Dect.hash("123456789"));
 
@@ -467,7 +486,7 @@ test "CRC-12/DECT" {
 }
 
 test "CRC-12/GSM" {
-    const Crc12Gsm = catalog.Crc12Gsm;
+    const Crc12Gsm = crc.Crc12Gsm;
 
     try testing.expectEqual(@as(u12, 0xb34), Crc12Gsm.hash("123456789"));
 
@@ -478,7 +497,7 @@ test "CRC-12/GSM" {
 }
 
 test "CRC-12/UMTS" {
-    const Crc12Umts = catalog.Crc12Umts;
+    const Crc12Umts = crc.Crc12Umts;
 
     try testing.expectEqual(@as(u12, 0xdaf), Crc12Umts.hash("123456789"));
 
@@ -489,7 +508,7 @@ test "CRC-12/UMTS" {
 }
 
 test "CRC-13/BBC" {
-    const Crc13Bbc = catalog.Crc13Bbc;
+    const Crc13Bbc = crc.Crc13Bbc;
 
     try testing.expectEqual(@as(u13, 0x04fa), Crc13Bbc.hash("123456789"));
 
@@ -500,7 +519,7 @@ test "CRC-13/BBC" {
 }
 
 test "CRC-14/DARC" {
-    const Crc14Darc = catalog.Crc14Darc;
+    const Crc14Darc = crc.Crc14Darc;
 
     try testing.expectEqual(@as(u14, 0x082d), Crc14Darc.hash("123456789"));
 
@@ -511,7 +530,7 @@ test "CRC-14/DARC" {
 }
 
 test "CRC-14/GSM" {
-    const Crc14Gsm = catalog.Crc14Gsm;
+    const Crc14Gsm = crc.Crc14Gsm;
 
     try testing.expectEqual(@as(u14, 0x30ae), Crc14Gsm.hash("123456789"));
 
@@ -522,7 +541,7 @@ test "CRC-14/GSM" {
 }
 
 test "CRC-15/CAN" {
-    const Crc15Can = catalog.Crc15Can;
+    const Crc15Can = crc.Crc15Can;
 
     try testing.expectEqual(@as(u15, 0x059e), Crc15Can.hash("123456789"));
 
@@ -533,7 +552,7 @@ test "CRC-15/CAN" {
 }
 
 test "CRC-15/MPT1327" {
-    const Crc15Mpt1327 = catalog.Crc15Mpt1327;
+    const Crc15Mpt1327 = crc.Crc15Mpt1327;
 
     try testing.expectEqual(@as(u15, 0x2566), Crc15Mpt1327.hash("123456789"));
 
@@ -544,7 +563,7 @@ test "CRC-15/MPT1327" {
 }
 
 test "CRC-16/ARC" {
-    const Crc16Arc = catalog.Crc16Arc;
+    const Crc16Arc = crc.Crc16Arc;
 
     try testing.expectEqual(@as(u16, 0xbb3d), Crc16Arc.hash("123456789"));
 
@@ -555,7 +574,7 @@ test "CRC-16/ARC" {
 }
 
 test "CRC-16/CDMA2000" {
-    const Crc16Cdma2000 = catalog.Crc16Cdma2000;
+    const Crc16Cdma2000 = crc.Crc16Cdma2000;
 
     try testing.expectEqual(@as(u16, 0x4c06), Crc16Cdma2000.hash("123456789"));
 
@@ -566,7 +585,7 @@ test "CRC-16/CDMA2000" {
 }
 
 test "CRC-16/CMS" {
-    const Crc16Cms = catalog.Crc16Cms;
+    const Crc16Cms = crc.Crc16Cms;
 
     try testing.expectEqual(@as(u16, 0xaee7), Crc16Cms.hash("123456789"));
 
@@ -577,7 +596,7 @@ test "CRC-16/CMS" {
 }
 
 test "CRC-16/DDS-110" {
-    const Crc16Dds110 = catalog.Crc16Dds110;
+    const Crc16Dds110 = crc.Crc16Dds110;
 
     try testing.expectEqual(@as(u16, 0x9ecf), Crc16Dds110.hash("123456789"));
 
@@ -588,7 +607,7 @@ test "CRC-16/DDS-110" {
 }
 
 test "CRC-16/DECT-R" {
-    const Crc16DectR = catalog.Crc16DectR;
+    const Crc16DectR = crc.Crc16DectR;
 
     try testing.expectEqual(@as(u16, 0x007e), Crc16DectR.hash("123456789"));
 
@@ -599,7 +618,7 @@ test "CRC-16/DECT-R" {
 }
 
 test "CRC-16/DECT-X" {
-    const Crc16DectX = catalog.Crc16DectX;
+    const Crc16DectX = crc.Crc16DectX;
 
     try testing.expectEqual(@as(u16, 0x007f), Crc16DectX.hash("123456789"));
 
@@ -610,7 +629,7 @@ test "CRC-16/DECT-X" {
 }
 
 test "CRC-16/DNP" {
-    const Crc16Dnp = catalog.Crc16Dnp;
+    const Crc16Dnp = crc.Crc16Dnp;
 
     try testing.expectEqual(@as(u16, 0xea82), Crc16Dnp.hash("123456789"));
 
@@ -621,7 +640,7 @@ test "CRC-16/DNP" {
 }
 
 test "CRC-16/EN-13757" {
-    const Crc16En13757 = catalog.Crc16En13757;
+    const Crc16En13757 = crc.Crc16En13757;
 
     try testing.expectEqual(@as(u16, 0xc2b7), Crc16En13757.hash("123456789"));
 
@@ -632,7 +651,7 @@ test "CRC-16/EN-13757" {
 }
 
 test "CRC-16/GENIBUS" {
-    const Crc16Genibus = catalog.Crc16Genibus;
+    const Crc16Genibus = crc.Crc16Genibus;
 
     try testing.expectEqual(@as(u16, 0xd64e), Crc16Genibus.hash("123456789"));
 
@@ -643,7 +662,7 @@ test "CRC-16/GENIBUS" {
 }
 
 test "CRC-16/GSM" {
-    const Crc16Gsm = catalog.Crc16Gsm;
+    const Crc16Gsm = crc.Crc16Gsm;
 
     try testing.expectEqual(@as(u16, 0xce3c), Crc16Gsm.hash("123456789"));
 
@@ -654,7 +673,7 @@ test "CRC-16/GSM" {
 }
 
 test "CRC-16/IBM-3740" {
-    const Crc16Ibm3740 = catalog.Crc16Ibm3740;
+    const Crc16Ibm3740 = crc.Crc16Ibm3740;
 
     try testing.expectEqual(@as(u16, 0x29b1), Crc16Ibm3740.hash("123456789"));
 
@@ -665,7 +684,7 @@ test "CRC-16/IBM-3740" {
 }
 
 test "CRC-16/IBM-SDLC" {
-    const Crc16IbmSdlc = catalog.Crc16IbmSdlc;
+    const Crc16IbmSdlc = crc.Crc16IbmSdlc;
 
     try testing.expectEqual(@as(u16, 0x906e), Crc16IbmSdlc.hash("123456789"));
 
@@ -676,7 +695,7 @@ test "CRC-16/IBM-SDLC" {
 }
 
 test "CRC-16/ISO-IEC-14443-3-A" {
-    const Crc16IsoIec144433A = catalog.Crc16IsoIec144433A;
+    const Crc16IsoIec144433A = crc.Crc16IsoIec144433A;
 
     try testing.expectEqual(@as(u16, 0xbf05), Crc16IsoIec144433A.hash("123456789"));
 
@@ -687,7 +706,7 @@ test "CRC-16/ISO-IEC-14443-3-A" {
 }
 
 test "CRC-16/KERMIT" {
-    const Crc16Kermit = catalog.Crc16Kermit;
+    const Crc16Kermit = crc.Crc16Kermit;
 
     try testing.expectEqual(@as(u16, 0x2189), Crc16Kermit.hash("123456789"));
 
@@ -698,7 +717,7 @@ test "CRC-16/KERMIT" {
 }
 
 test "CRC-16/LJ1200" {
-    const Crc16Lj1200 = catalog.Crc16Lj1200;
+    const Crc16Lj1200 = crc.Crc16Lj1200;
 
     try testing.expectEqual(@as(u16, 0xbdf4), Crc16Lj1200.hash("123456789"));
 
@@ -709,7 +728,7 @@ test "CRC-16/LJ1200" {
 }
 
 test "CRC-16/M17" {
-    const Crc16M17 = catalog.Crc16M17;
+    const Crc16M17 = crc.Crc16M17;
 
     try testing.expectEqual(@as(u16, 0x772b), Crc16M17.hash("123456789"));
 
@@ -720,7 +739,7 @@ test "CRC-16/M17" {
 }
 
 test "CRC-16/MAXIM-DOW" {
-    const Crc16MaximDow = catalog.Crc16MaximDow;
+    const Crc16MaximDow = crc.Crc16MaximDow;
 
     try testing.expectEqual(@as(u16, 0x44c2), Crc16MaximDow.hash("123456789"));
 
@@ -731,7 +750,7 @@ test "CRC-16/MAXIM-DOW" {
 }
 
 test "CRC-16/MCRF4XX" {
-    const Crc16Mcrf4xx = catalog.Crc16Mcrf4xx;
+    const Crc16Mcrf4xx = crc.Crc16Mcrf4xx;
 
     try testing.expectEqual(@as(u16, 0x6f91), Crc16Mcrf4xx.hash("123456789"));
 
@@ -742,7 +761,7 @@ test "CRC-16/MCRF4XX" {
 }
 
 test "CRC-16/MODBUS" {
-    const Crc16Modbus = catalog.Crc16Modbus;
+    const Crc16Modbus = crc.Crc16Modbus;
 
     try testing.expectEqual(@as(u16, 0x4b37), Crc16Modbus.hash("123456789"));
 
@@ -753,7 +772,7 @@ test "CRC-16/MODBUS" {
 }
 
 test "CRC-16/NRSC-5" {
-    const Crc16Nrsc5 = catalog.Crc16Nrsc5;
+    const Crc16Nrsc5 = crc.Crc16Nrsc5;
 
     try testing.expectEqual(@as(u16, 0xa066), Crc16Nrsc5.hash("123456789"));
 
@@ -764,7 +783,7 @@ test "CRC-16/NRSC-5" {
 }
 
 test "CRC-16/OPENSAFETY-A" {
-    const Crc16OpensafetyA = catalog.Crc16OpensafetyA;
+    const Crc16OpensafetyA = crc.Crc16OpensafetyA;
 
     try testing.expectEqual(@as(u16, 0x5d38), Crc16OpensafetyA.hash("123456789"));
 
@@ -775,7 +794,7 @@ test "CRC-16/OPENSAFETY-A" {
 }
 
 test "CRC-16/OPENSAFETY-B" {
-    const Crc16OpensafetyB = catalog.Crc16OpensafetyB;
+    const Crc16OpensafetyB = crc.Crc16OpensafetyB;
 
     try testing.expectEqual(@as(u16, 0x20fe), Crc16OpensafetyB.hash("123456789"));
 
@@ -786,7 +805,7 @@ test "CRC-16/OPENSAFETY-B" {
 }
 
 test "CRC-16/PROFIBUS" {
-    const Crc16Profibus = catalog.Crc16Profibus;
+    const Crc16Profibus = crc.Crc16Profibus;
 
     try testing.expectEqual(@as(u16, 0xa819), Crc16Profibus.hash("123456789"));
 
@@ -797,7 +816,7 @@ test "CRC-16/PROFIBUS" {
 }
 
 test "CRC-16/RIELLO" {
-    const Crc16Riello = catalog.Crc16Riello;
+    const Crc16Riello = crc.Crc16Riello;
 
     try testing.expectEqual(@as(u16, 0x63d0), Crc16Riello.hash("123456789"));
 
@@ -808,7 +827,7 @@ test "CRC-16/RIELLO" {
 }
 
 test "CRC-16/SPI-FUJITSU" {
-    const Crc16SpiFujitsu = catalog.Crc16SpiFujitsu;
+    const Crc16SpiFujitsu = crc.Crc16SpiFujitsu;
 
     try testing.expectEqual(@as(u16, 0xe5cc), Crc16SpiFujitsu.hash("123456789"));
 
@@ -819,7 +838,7 @@ test "CRC-16/SPI-FUJITSU" {
 }
 
 test "CRC-16/T10-DIF" {
-    const Crc16T10Dif = catalog.Crc16T10Dif;
+    const Crc16T10Dif = crc.Crc16T10Dif;
 
     try testing.expectEqual(@as(u16, 0xd0db), Crc16T10Dif.hash("123456789"));
 
@@ -830,7 +849,7 @@ test "CRC-16/T10-DIF" {
 }
 
 test "CRC-16/TELEDISK" {
-    const Crc16Teledisk = catalog.Crc16Teledisk;
+    const Crc16Teledisk = crc.Crc16Teledisk;
 
     try testing.expectEqual(@as(u16, 0x0fb3), Crc16Teledisk.hash("123456789"));
 
@@ -841,7 +860,7 @@ test "CRC-16/TELEDISK" {
 }
 
 test "CRC-16/TMS37157" {
-    const Crc16Tms37157 = catalog.Crc16Tms37157;
+    const Crc16Tms37157 = crc.Crc16Tms37157;
 
     try testing.expectEqual(@as(u16, 0x26b1), Crc16Tms37157.hash("123456789"));
 
@@ -852,7 +871,7 @@ test "CRC-16/TMS37157" {
 }
 
 test "CRC-16/UMTS" {
-    const Crc16Umts = catalog.Crc16Umts;
+    const Crc16Umts = crc.Crc16Umts;
 
     try testing.expectEqual(@as(u16, 0xfee8), Crc16Umts.hash("123456789"));
 
@@ -863,7 +882,7 @@ test "CRC-16/UMTS" {
 }
 
 test "CRC-16/USB" {
-    const Crc16Usb = catalog.Crc16Usb;
+    const Crc16Usb = crc.Crc16Usb;
 
     try testing.expectEqual(@as(u16, 0xb4c8), Crc16Usb.hash("123456789"));
 
@@ -874,7 +893,7 @@ test "CRC-16/USB" {
 }
 
 test "CRC-16/XMODEM" {
-    const Crc16Xmodem = catalog.Crc16Xmodem;
+    const Crc16Xmodem = crc.Crc16Xmodem;
 
     try testing.expectEqual(@as(u16, 0x31c3), Crc16Xmodem.hash("123456789"));
 
@@ -885,7 +904,7 @@ test "CRC-16/XMODEM" {
 }
 
 test "CRC-17/CAN-FD" {
-    const Crc17CanFd = catalog.Crc17CanFd;
+    const Crc17CanFd = crc.Crc17CanFd;
 
     try testing.expectEqual(@as(u17, 0x04f03), Crc17CanFd.hash("123456789"));
 
@@ -896,7 +915,7 @@ test "CRC-17/CAN-FD" {
 }
 
 test "CRC-21/CAN-FD" {
-    const Crc21CanFd = catalog.Crc21CanFd;
+    const Crc21CanFd = crc.Crc21CanFd;
 
     try testing.expectEqual(@as(u21, 0x0ed841), Crc21CanFd.hash("123456789"));
 
@@ -907,7 +926,7 @@ test "CRC-21/CAN-FD" {
 }
 
 test "CRC-24/BLE" {
-    const Crc24Ble = catalog.Crc24Ble;
+    const Crc24Ble = crc.Crc24Ble;
 
     try testing.expectEqual(@as(u24, 0xc25a56), Crc24Ble.hash("123456789"));
 
@@ -918,7 +937,7 @@ test "CRC-24/BLE" {
 }
 
 test "CRC-24/FLEXRAY-A" {
-    const Crc24FlexrayA = catalog.Crc24FlexrayA;
+    const Crc24FlexrayA = crc.Crc24FlexrayA;
 
     try testing.expectEqual(@as(u24, 0x7979bd), Crc24FlexrayA.hash("123456789"));
 
@@ -929,7 +948,7 @@ test "CRC-24/FLEXRAY-A" {
 }
 
 test "CRC-24/FLEXRAY-B" {
-    const Crc24FlexrayB = catalog.Crc24FlexrayB;
+    const Crc24FlexrayB = crc.Crc24FlexrayB;
 
     try testing.expectEqual(@as(u24, 0x1f23b8), Crc24FlexrayB.hash("123456789"));
 
@@ -940,7 +959,7 @@ test "CRC-24/FLEXRAY-B" {
 }
 
 test "CRC-24/INTERLAKEN" {
-    const Crc24Interlaken = catalog.Crc24Interlaken;
+    const Crc24Interlaken = crc.Crc24Interlaken;
 
     try testing.expectEqual(@as(u24, 0xb4f3e6), Crc24Interlaken.hash("123456789"));
 
@@ -951,7 +970,7 @@ test "CRC-24/INTERLAKEN" {
 }
 
 test "CRC-24/LTE-A" {
-    const Crc24LteA = catalog.Crc24LteA;
+    const Crc24LteA = crc.Crc24LteA;
 
     try testing.expectEqual(@as(u24, 0xcde703), Crc24LteA.hash("123456789"));
 
@@ -962,7 +981,7 @@ test "CRC-24/LTE-A" {
 }
 
 test "CRC-24/LTE-B" {
-    const Crc24LteB = catalog.Crc24LteB;
+    const Crc24LteB = crc.Crc24LteB;
 
     try testing.expectEqual(@as(u24, 0x23ef52), Crc24LteB.hash("123456789"));
 
@@ -973,7 +992,7 @@ test "CRC-24/LTE-B" {
 }
 
 test "CRC-24/OPENPGP" {
-    const Crc24Openpgp = catalog.Crc24Openpgp;
+    const Crc24Openpgp = crc.Crc24Openpgp;
 
     try testing.expectEqual(@as(u24, 0x21cf02), Crc24Openpgp.hash("123456789"));
 
@@ -984,7 +1003,7 @@ test "CRC-24/OPENPGP" {
 }
 
 test "CRC-24/OS-9" {
-    const Crc24Os9 = catalog.Crc24Os9;
+    const Crc24Os9 = crc.Crc24Os9;
 
     try testing.expectEqual(@as(u24, 0x200fa5), Crc24Os9.hash("123456789"));
 
@@ -995,7 +1014,7 @@ test "CRC-24/OS-9" {
 }
 
 test "CRC-30/CDMA" {
-    const Crc30Cdma = catalog.Crc30Cdma;
+    const Crc30Cdma = crc.Crc30Cdma;
 
     try testing.expectEqual(@as(u30, 0x04c34abf), Crc30Cdma.hash("123456789"));
 
@@ -1006,7 +1025,7 @@ test "CRC-30/CDMA" {
 }
 
 test "CRC-31/PHILIPS" {
-    const Crc31Philips = catalog.Crc31Philips;
+    const Crc31Philips = crc.Crc31Philips;
 
     try testing.expectEqual(@as(u31, 0x0ce9e46c), Crc31Philips.hash("123456789"));
 
@@ -1017,7 +1036,7 @@ test "CRC-31/PHILIPS" {
 }
 
 test "CRC-32/AIXM" {
-    const Crc32Aixm = catalog.Crc32Aixm;
+    const Crc32Aixm = crc.Crc32Aixm;
 
     try testing.expectEqual(@as(u32, 0x3010bf7f), Crc32Aixm.hash("123456789"));
 
@@ -1028,7 +1047,7 @@ test "CRC-32/AIXM" {
 }
 
 test "CRC-32/AUTOSAR" {
-    const Crc32Autosar = catalog.Crc32Autosar;
+    const Crc32Autosar = crc.Crc32Autosar;
 
     try testing.expectEqual(@as(u32, 0x1697d06a), Crc32Autosar.hash("123456789"));
 
@@ -1039,7 +1058,7 @@ test "CRC-32/AUTOSAR" {
 }
 
 test "CRC-32/BASE91-D" {
-    const Crc32Base91D = catalog.Crc32Base91D;
+    const Crc32Base91D = crc.Crc32Base91D;
 
     try testing.expectEqual(@as(u32, 0x87315576), Crc32Base91D.hash("123456789"));
 
@@ -1050,7 +1069,7 @@ test "CRC-32/BASE91-D" {
 }
 
 test "CRC-32/BZIP2" {
-    const Crc32Bzip2 = catalog.Crc32Bzip2;
+    const Crc32Bzip2 = crc.Crc32Bzip2;
 
     try testing.expectEqual(@as(u32, 0xfc891918), Crc32Bzip2.hash("123456789"));
 
@@ -1061,7 +1080,7 @@ test "CRC-32/BZIP2" {
 }
 
 test "CRC-32/CD-ROM-EDC" {
-    const Crc32CdRomEdc = catalog.Crc32CdRomEdc;
+    const Crc32CdRomEdc = crc.Crc32CdRomEdc;
 
     try testing.expectEqual(@as(u32, 0x6ec2edc4), Crc32CdRomEdc.hash("123456789"));
 
@@ -1072,7 +1091,7 @@ test "CRC-32/CD-ROM-EDC" {
 }
 
 test "CRC-32/CKSUM" {
-    const Crc32Cksum = catalog.Crc32Cksum;
+    const Crc32Cksum = crc.Crc32Cksum;
 
     try testing.expectEqual(@as(u32, 0x765e7680), Crc32Cksum.hash("123456789"));
 
@@ -1083,7 +1102,7 @@ test "CRC-32/CKSUM" {
 }
 
 test "CRC-32/ISCSI" {
-    const Crc32Iscsi = catalog.Crc32Iscsi;
+    const Crc32Iscsi = crc.Crc32Iscsi;
 
     try testing.expectEqual(@as(u32, 0xe3069283), Crc32Iscsi.hash("123456789"));
 
@@ -1094,7 +1113,7 @@ test "CRC-32/ISCSI" {
 }
 
 test "CRC-32/ISO-HDLC" {
-    const Crc32IsoHdlc = catalog.Crc32IsoHdlc;
+    const Crc32IsoHdlc = crc.Crc32IsoHdlc;
 
     try testing.expectEqual(@as(u32, 0xcbf43926), Crc32IsoHdlc.hash("123456789"));
 
@@ -1105,7 +1124,7 @@ test "CRC-32/ISO-HDLC" {
 }
 
 test "CRC-32/JAMCRC" {
-    const Crc32Jamcrc = catalog.Crc32Jamcrc;
+    const Crc32Jamcrc = crc.Crc32Jamcrc;
 
     try testing.expectEqual(@as(u32, 0x340bc6d9), Crc32Jamcrc.hash("123456789"));
 
@@ -1116,7 +1135,7 @@ test "CRC-32/JAMCRC" {
 }
 
 test "CRC-32/MEF" {
-    const Crc32Mef = catalog.Crc32Mef;
+    const Crc32Mef = crc.Crc32Mef;
 
     try testing.expectEqual(@as(u32, 0xd2c22f51), Crc32Mef.hash("123456789"));
 
@@ -1127,7 +1146,7 @@ test "CRC-32/MEF" {
 }
 
 test "CRC-32/MPEG-2" {
-    const Crc32Mpeg2 = catalog.Crc32Mpeg2;
+    const Crc32Mpeg2 = crc.Crc32Mpeg2;
 
     try testing.expectEqual(@as(u32, 0x0376e6e7), Crc32Mpeg2.hash("123456789"));
 
@@ -1138,7 +1157,7 @@ test "CRC-32/MPEG-2" {
 }
 
 test "CRC-32/XFER" {
-    const Crc32Xfer = catalog.Crc32Xfer;
+    const Crc32Xfer = crc.Crc32Xfer;
 
     try testing.expectEqual(@as(u32, 0xbd0be338), Crc32Xfer.hash("123456789"));
 
@@ -1149,7 +1168,7 @@ test "CRC-32/XFER" {
 }
 
 test "CRC-40/GSM" {
-    const Crc40Gsm = catalog.Crc40Gsm;
+    const Crc40Gsm = crc.Crc40Gsm;
 
     try testing.expectEqual(@as(u40, 0xd4164fc646), Crc40Gsm.hash("123456789"));
 
@@ -1160,7 +1179,7 @@ test "CRC-40/GSM" {
 }
 
 test "CRC-64/ECMA-182" {
-    const Crc64Ecma182 = catalog.Crc64Ecma182;
+    const Crc64Ecma182 = crc.Crc64Ecma182;
 
     try testing.expectEqual(@as(u64, 0x6c40df5f0b497347), Crc64Ecma182.hash("123456789"));
 
@@ -1171,7 +1190,7 @@ test "CRC-64/ECMA-182" {
 }
 
 test "CRC-64/GO-ISO" {
-    const Crc64GoIso = catalog.Crc64GoIso;
+    const Crc64GoIso = crc.Crc64GoIso;
 
     try testing.expectEqual(@as(u64, 0xb90956c775a41001), Crc64GoIso.hash("123456789"));
 
@@ -1182,7 +1201,7 @@ test "CRC-64/GO-ISO" {
 }
 
 test "CRC-64/MS" {
-    const Crc64Ms = catalog.Crc64Ms;
+    const Crc64Ms = crc.Crc64Ms;
 
     try testing.expectEqual(@as(u64, 0x75d4b74f024eceea), Crc64Ms.hash("123456789"));
 
@@ -1193,7 +1212,7 @@ test "CRC-64/MS" {
 }
 
 test "CRC-64/REDIS" {
-    const Crc64Redis = catalog.Crc64Redis;
+    const Crc64Redis = crc.Crc64Redis;
 
     try testing.expectEqual(@as(u64, 0xe9c6d914c4b8d9ca), Crc64Redis.hash("123456789"));
 
@@ -1204,7 +1223,7 @@ test "CRC-64/REDIS" {
 }
 
 test "CRC-64/WE" {
-    const Crc64We = catalog.Crc64We;
+    const Crc64We = crc.Crc64We;
 
     try testing.expectEqual(@as(u64, 0x62ec59e3f1a4f00a), Crc64We.hash("123456789"));
 
@@ -1215,7 +1234,7 @@ test "CRC-64/WE" {
 }
 
 test "CRC-64/XZ" {
-    const Crc64Xz = catalog.Crc64Xz;
+    const Crc64Xz = crc.Crc64Xz;
 
     try testing.expectEqual(@as(u64, 0x995dc9bbdf1939fa), Crc64Xz.hash("123456789"));
 
@@ -1226,7 +1245,7 @@ test "CRC-64/XZ" {
 }
 
 test "CRC-82/DARC" {
-    const Crc82Darc = catalog.Crc82Darc;
+    const Crc82Darc = crc.Crc82Darc;
 
     try testing.expectEqual(@as(u82, 0x09ea83f625023801fd612), Crc82Darc.hash("123456789"));
 

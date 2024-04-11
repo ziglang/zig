@@ -63,6 +63,13 @@ When this is provided, the package is found in a directory relative to the
 build root. In this case the package's hash is irrelevant and therefore not
 computed. This field and `url` are mutually exclusive.
 
+#### `lazy`
+
+Boolean.
+
+When this is set to `true`, a package is declared to be lazily fetched. This
+makes the dependency only get fetched if it is actually used.
+
 ### `paths`
 
 List. Required.
