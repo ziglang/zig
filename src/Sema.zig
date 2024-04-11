@@ -32334,7 +32334,10 @@ fn coerceTupleToStruct(
                 anon_struct_type.names.get(ip)[tuple_field_index]
             else
                 try ip.getOrPutStringFmt(sema.gpa, "{d}", .{tuple_field_index}, .no_embedded_nulls),
-            .struct_type => ip.loadStructType(inst_ty.toIntern()).field_names.get(ip)[tuple_field_index],
+            .struct_type => if (ip.loadStructType(inst_ty.toIntern()).field_names.len > 0)
+                ip.loadStructType(inst_ty.toIntern()).field_names.get(ip)[tuple_field_index]
+            else
+                try ip.getOrPutStringFmt(sema.gpa, "{d}", .{tuple_field_index}, .no_embedded_nulls),
             else => unreachable,
         };
         const struct_field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
