@@ -52,12 +52,7 @@ pub fn Writer(comptime WriterType: type) type {
         /// reader must be equal to `size`. If options are omitted
         /// `default_mode.file` is used for mode and current time for mtime.
         pub fn addFile(self: *Self, sub_path: []const u8, size: u64, reader: anytype, opt: Options) !void {
-            var header = Header.init(.regular);
-            try self.setPath(&header, sub_path);
-            try self.setMtime(&header, opt.mtime);
-            try header.setSize(size);
-            try header.setMode(opt.mode);
-            try header.write(self.underlying_writer);
+            try self.addFileHeader(sub_path, size, opt);
 
             var written: usize = 0;
             while (written < size) {
@@ -68,6 +63,24 @@ pub fn Writer(comptime WriterType: type) type {
                     @memset(self.block_buffer[n..], 0);
                 try self.underlying_writer.writeAll(&self.block_buffer);
             }
+        }
+
+        /// Writes file system file.
+        pub fn addFsFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
+            const stat = try file.stat();
+            const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
+            try self.addFileHeader(sub_path, stat.size, .{ .mtime = mtime });
+            try self.underlying_writer.any().writeFile(file);
+            try self.writePadding(stat.size);
+        }
+
+        fn addFileHeader(self: *Self, sub_path: []const u8, size: u64, opt: Options) !void {
+            var header = Header.init(.regular);
+            try self.setPath(&header, sub_path);
+            try self.setMtime(&header, opt.mtime);
+            try header.setSize(size);
+            try header.setMode(opt.mode);
+            try header.write(self.underlying_writer);
         }
 
         fn setMtime(self: *Self, header: *Header, mtime: u64) !void {
@@ -100,26 +113,29 @@ pub fn Writer(comptime WriterType: type) type {
         /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
         /// default from `default_mode` for entry mode.
         pub fn addEntry(self: *Self, entry: std.fs.Dir.Walker.WalkerEntry) !void {
-            const stat = try entry.dir.statFile(entry.basename);
-            const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
             switch (entry.kind) {
                 .directory => {
-                    try self.addDir(entry.path, .{ .mtime = mtime });
+                    try self.addDir(entry.path, .{ .mtime = try entryMtime(entry) });
                 },
                 .file => {
                     var file = try entry.dir.openFile(entry.basename, .{});
                     defer file.close();
-                    try self.addFile(entry.path, stat.size, file.reader(), .{ .mtime = mtime });
+                    try self.addFsFile(entry.path, file);
                 },
                 .sym_link => {
                     var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
                     const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
-                    try self.addLink(entry.path, link_name, .{ .mtime = mtime });
+                    try self.addLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
                 },
                 else => {
                     return error.UnsupportedWalkerEntryKind;
                 },
             }
+        }
+
+        fn entryMtime(entry: std.fs.Dir.Walker.WalkerEntry) !u64 {
+            const stat = try entry.dir.statFile(entry.basename);
+            return @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
         }
 
         /// Writes path in posix header, if don't fit (in name+prefix; 100+155
