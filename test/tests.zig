@@ -641,7 +641,7 @@ pub fn addStackTraceTests(
 ) *Step {
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
-        .root_source_file = .{ .path = "test/src/check-stack-trace.zig" },
+        .root_source_file = b.path("test/src/check-stack-trace.zig"),
         .target = b.host,
         .optimize = .Debug,
     });
@@ -879,7 +879,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         run6.step.dependOn(&write6.step);
 
         // TODO change this to an exact match
-        const check6 = b.addCheckFile(.{ .path = fmt6_path }, .{
+        const check6 = b.addCheckFile(.{ .cwd_relative = fmt6_path }, .{
             .expected_matches = &.{
                 "// no reason",
             },
@@ -1037,7 +1037,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             options.max_rss;
 
         const these_tests = b.addTest(.{
-            .root_source_file = .{ .path = options.root_src },
+            .root_source_file = b.path(options.root_src),
             .optimize = test_target.optimize_mode,
             .target = resolved_target,
             .max_rss = max_rss,
@@ -1046,7 +1046,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
-            .zig_lib_dir = .{ .path = "lib" },
+            .zig_lib_dir = b.path("lib"),
             .pic = test_target.pic,
             .strip = test_target.strip,
         });
@@ -1062,7 +1062,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const use_lld = if (test_target.use_lld == false) "-no-lld" else "";
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
-        for (options.include_paths) |include_path| these_tests.addIncludePath(.{ .path = include_path });
+        for (options.include_paths) |include_path| these_tests.addIncludePath(b.path(include_path));
 
         const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}", .{
             options.name,
@@ -1084,7 +1084,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                 .name = qualified_name,
                 .link_libc = test_target.link_libc,
                 .target = b.resolveTargetQuery(altered_query),
-                .zig_lib_dir = .{ .path = "lib" },
+                .zig_lib_dir = b.path("lib"),
             });
             compile_c.addCSourceFile(.{
                 .file = these_tests.getEmittedBin(),
@@ -1113,7 +1113,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-Wno-absolute-value",
                 },
             });
-            compile_c.addIncludePath(.{ .path = "lib" }); // for zig.h
+            compile_c.addIncludePath(b.path("lib")); // for zig.h
             if (target.os.tag == .windows) {
                 if (true) {
                     // Unfortunately this requires about 8G of RAM for clang to compile
@@ -1189,7 +1189,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                     if (c_abi_target.use_lld == false) "-no-lld" else "",
                     if (c_abi_target.pic == true) "-pic" else "",
                 }),
-                .root_source_file = .{ .path = "test/c_abi/main.zig" },
+                .root_source_file = b.path("test/c_abi/main.zig"),
                 .target = resolved_target,
                 .optimize = optimize_mode,
                 .link_libc = true,
@@ -1199,7 +1199,7 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                 .strip = c_abi_target.strip,
             });
             test_step.addCSourceFile(.{
-                .file = .{ .path = "test/c_abi/cfuncs.c" },
+                .file = b.path("test/c_abi/cfuncs.c"),
                 .flags = &.{"-std=c99"},
             });
             for (c_abi_target.c_defines) |define| test_step.defineCMacro(define, null);

@@ -4,7 +4,7 @@ const ConfigHeader = std.Build.Step.ConfigHeader;
 pub fn build(b: *std.Build) void {
     const config_header = b.addConfigHeader(
         .{
-            .style = .{ .cmake = .{ .path = "config.h.in" } },
+            .style = .{ .cmake = b.path("config.h.in") },
             .include_path = "config.h",
         },
         .{
@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
 
     const pwd_sh = b.addConfigHeader(
         .{
-            .style = .{ .cmake = .{ .path = "pwd.sh.in" } },
+            .style = .{ .cmake = b.path("pwd.sh.in") },
             .include_path = "pwd.sh",
         },
         .{ .DIR = "${PWD}" },
@@ -36,7 +36,7 @@ pub fn build(b: *std.Build) void {
 
     const sigil_header = b.addConfigHeader(
         .{
-            .style = .{ .cmake = .{ .path = "sigil.h.in" } },
+            .style = .{ .cmake = b.path("sigil.h.in") },
             .include_path = "sigil.h",
         },
         .{},
@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) void {
 
     const stack_header = b.addConfigHeader(
         .{
-            .style = .{ .cmake = .{ .path = "stack.h.in" } },
+            .style = .{ .cmake = b.path("stack.h.in") },
             .include_path = "stack.h",
         },
         .{
@@ -57,7 +57,7 @@ pub fn build(b: *std.Build) void {
 
     const wrapper_header = b.addConfigHeader(
         .{
-            .style = .{ .cmake = .{ .path = "wrapper.h.in" } },
+            .style = .{ .cmake = b.path("wrapper.h.in") },
             .include_path = "wrapper.h",
         },
         .{

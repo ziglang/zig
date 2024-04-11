@@ -11,15 +11,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .target = b.host,
     });
-    foo.addCSourceFile(.{ .file = .{ .path = "foo.c" }, .flags = &[_][]const u8{} });
-    foo.addIncludePath(.{ .path = "." });
+    foo.addCSourceFile(.{ .file = b.path("foo.c"), .flags = &[_][]const u8{} });
+    foo.addIncludePath(b.path("."));
 
     const test_exe = b.addTest(.{
-        .root_source_file = .{ .path = "foo.zig" },
+        .root_source_file = b.path("foo.zig"),
         .optimize = optimize,
     });
     test_exe.linkLibrary(foo);
-    test_exe.addIncludePath(.{ .path = "." });
+    test_exe.addIncludePath(b.path("."));
 
     test_step.dependOn(&b.addRunArtifact(test_exe).step);
 }
