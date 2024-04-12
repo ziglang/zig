@@ -51,14 +51,14 @@ pub fn Writer(comptime WriterType: type) type {
             const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
             try self.writeHeader(.regular, sub_path, "", stat.size, .{ .mtime = mtime });
             try self.underlying_writer.writeFile(file);
-            try self.writePadding(stat.size);
+            try self.writePadding(@intCast(stat.size));
         }
 
         /// Writes file reading file content from `reader`. Number of bytes in
         /// reader must be equal to `size`.  If options are omitted `default_mode.file` is
         /// used for mode and current time for `mtime`.
-        pub fn writeFileStream(self: *Self, sub_path: []const u8, size: u64, reader: anytype, opt: Options) !void {
-            try self.writeHeader(.regular, sub_path, "", size, opt);
+        pub fn writeFileStream(self: *Self, sub_path: []const u8, size: usize, reader: anytype, opt: Options) !void {
+            try self.writeHeader(.regular, sub_path, "", @intCast(size), opt);
 
             var counting_reader = std.io.countingReader(reader);
             var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
@@ -71,7 +71,7 @@ pub fn Writer(comptime WriterType: type) type {
         /// If options are omitted `default_mode.file` is used for mode and
         /// current time for `mtime`.
         pub fn writeFileBytes(self: *Self, sub_path: []const u8, content: []const u8, opt: Options) !void {
-            try self.writeHeader(.regular, sub_path, "", content.len, opt);
+            try self.writeHeader(.regular, sub_path, "", @intCast(content.len), opt);
             try self.underlying_writer.writeAll(content);
             try self.writePadding(content.len);
         }
@@ -162,7 +162,7 @@ pub fn Writer(comptime WriterType: type) type {
 
         /// Writes gnu extended header: gnu_long_name or gnu_long_link.
         fn writeExtendedHeader(self: *Self, typeflag: Header.FileType, buffers: []const []const u8) !void {
-            var len: u64 = 0;
+            var len: usize = 0;
             for (buffers) |buf|
                 len += buf.len;
 
@@ -174,7 +174,7 @@ pub fn Writer(comptime WriterType: type) type {
             try self.writePadding(len);
         }
 
-        fn writePadding(self: *Self, bytes: u64) !void {
+        fn writePadding(self: *Self, bytes: usize) !void {
             const remainder = bytes % block_size;
             if (remainder == 0) return;
             const padding = block_size - remainder;
