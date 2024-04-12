@@ -32329,16 +32329,14 @@ fn coerceTupleToStruct(
     };
     for (0..field_count) |tuple_field_index| {
         const field_src = inst_src; // TODO better source location
-        const field_name: InternPool.NullTerminatedString = switch (ip.indexToKey(inst_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len > 0)
-                anon_struct_type.names.get(ip)[tuple_field_index]
-            else
-                try ip.getOrPutStringFmt(sema.gpa, "{d}", .{tuple_field_index}, .no_embedded_nulls),
-            .struct_type => if (ip.loadStructType(inst_ty.toIntern()).field_names.len > 0)
-                ip.loadStructType(inst_ty.toIntern()).field_names.get(ip)[tuple_field_index]
-            else
-                try ip.getOrPutStringFmt(sema.gpa, "{d}", .{tuple_field_index}, .no_embedded_nulls),
-            else => unreachable,
+        const field_name: InternPool.NullTerminatedString = blk: {
+            const field_name_optional = switch (ip.indexToKey(inst_ty.toIntern())) {
+                .anon_struct_type => |anon_struct_type| anon_struct_type.fieldName(ip, tuple_field_index),
+                .struct_type => ip.loadStructType(inst_ty.toIntern()).fieldName(ip, tuple_field_index),
+                else => unreachable,
+            };
+            break :blk field_name_optional.unwrap() orelse
+                try ip.getOrPutStringFmt(sema.gpa, "{d}", .{tuple_field_index}, .no_embedded_nulls);
         };
         const struct_field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         const struct_field_ty = Type.fromInterned(struct_type.field_types.get(ip)[struct_field_index]);
