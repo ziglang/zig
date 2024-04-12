@@ -1092,8 +1092,16 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     // Tracking issue for making the C backend generate C89 compatible code:
                     // https://github.com/ziglang/zig/issues/19468
                     "-std=c99",
-                    "-pedantic",
                     "-Werror",
+
+                    "-Wall",
+                    "-Wembedded-directive",
+                    "-Wempty-translation-unit",
+                    "-Wextra",
+                    "-Wgnu",
+                    "-Winvalid-utf8",
+                    "-Wkeyword-macro",
+                    "-Woverlength-strings",
 
                     // Tracking issue for making the C backend generate code
                     // that does not trigger warnings:
@@ -1103,14 +1111,14 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     "-Wno-builtin-requires-header",
 
                     // spotted on linux
-                    "-Wno-gnu-folding-constant",
-                    "-Wno-incompatible-function-pointer-types",
-                    "-Wno-incompatible-pointer-types",
-                    "-Wno-overlength-strings",
+                    "-Wno-braced-scalar-init",
+                    "-Wno-excess-initializers",
+                    "-Wno-incompatible-pointer-types-discards-qualifiers",
+                    "-Wno-unused",
+                    "-Wno-unused-parameter",
 
                     // spotted on darwin
-                    "-Wno-dollar-in-identifier-extension",
-                    "-Wno-absolute-value",
+                    "-Wno-incompatible-pointer-types",
                 },
             });
             compile_c.addIncludePath(b.path("lib")); // for zig.h
