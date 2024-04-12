@@ -4,6 +4,9 @@
 #include <unistd.h>
 
 int __wasilibc_fd_renumber(int fd, int newfd) {
+    // Scan the preopen fds before making any changes.
+    __wasilibc_populate_preopens();
+
     __wasi_errno_t error = __wasi_fd_renumber(fd, newfd);
     if (error != 0) {
         errno = error;

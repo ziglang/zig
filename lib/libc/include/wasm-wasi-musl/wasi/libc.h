@@ -17,6 +17,10 @@ struct timespec;
 /// afterward, you should call this before doing so.
 void __wasilibc_populate_preopens(void);
 
+/// Reset the preopens table to an uninitialized state, forcing it to be
+/// reinitialized next time it is needed.
+void __wasilibc_reset_preopens(void);
+
 /// Register the given pre-opened file descriptor under the given path.
 ///
 /// This function does not take ownership of `prefix` (it makes its own copy).
