@@ -424,7 +424,10 @@ pub fn resolve(options: Options) ResolveError!Config {
     const debug_format: DebugFormat = b: {
         if (root_strip and !options.any_non_stripped) break :b .strip;
         break :b switch (target.ofmt) {
-            .elf, .macho, .wasm => .{ .dwarf = .@"32" },
+            .elf, .macho, .wasm => switch (options.debug_format.?.dwarf) {
+                .@"32" => .{ .dwarf = .@"32" },
+                .@"64" => .{ .dwarf = .@"64" },
+            },
             .coff => .code_view,
             .c => switch (target.os.tag) {
                 .windows, .uefi => .code_view,
