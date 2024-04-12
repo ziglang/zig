@@ -5,9 +5,9 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const test_artifact = b.addTest(.{
-        .root_source_file = .{ .path = "main.zig" },
+        .root_source_file = b.path("main.zig"),
     });
-    test_artifact.addIncludePath(.{ .path = "a_directory" });
+    test_artifact.addIncludePath(b.path("a_directory"));
 
     // TODO: actually check the output
     _ = test_artifact.getEmittedBin();

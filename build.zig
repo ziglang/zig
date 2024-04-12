@@ -34,7 +34,7 @@ pub fn build(b: *std.Build) !void {
 
     const docgen_exe = b.addExecutable(.{
         .name = "docgen",
-        .root_source_file = .{ .path = "tools/docgen.zig" },
+        .root_source_file = b.path("tools/docgen.zig"),
         .target = b.host,
         .optimize = .Debug,
         .single_threaded = single_threaded,
@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) !void {
         docgen_cmd.addArg("--zig-lib-dir");
         docgen_cmd.addDirectoryArg(p);
     }
-    docgen_cmd.addFileArg(.{ .path = "doc/langref.html.in" });
+    docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
     const langref_file = docgen_cmd.addOutputFileArg("langref.html");
     const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
     if (!skip_install_langref) {
@@ -55,9 +55,9 @@ pub fn build(b: *std.Build) !void {
 
     const autodoc_test = b.addObject(.{
         .name = "std",
-        .root_source_file = .{ .path = "lib/std/std.zig" },
+        .root_source_file = b.path("lib/std/std.zig"),
         .target = target,
-        .zig_lib_dir = .{ .path = "lib" },
+        .zig_lib_dir = b.path("lib"),
         .optimize = .Debug,
     });
     const install_std_docs = b.addInstallDirectory(.{
@@ -86,7 +86,7 @@ pub fn build(b: *std.Build) !void {
 
     const check_case_exe = b.addExecutable(.{
         .name = "check-case",
-        .root_source_file = .{ .path = "test/src/Cases.zig" },
+        .root_source_file = b.path("test/src/Cases.zig"),
         .target = b.host,
         .optimize = optimize,
         .single_threaded = single_threaded,
@@ -135,7 +135,7 @@ pub fn build(b: *std.Build) !void {
 
     if (!skip_install_lib_files) {
         b.installDirectory(.{
-            .source_dir = .{ .path = "lib" },
+            .source_dir = b.path("lib"),
             .install_dir = if (flat) .prefix else .lib,
             .install_subdir = if (flat) "lib" else "zig",
             .exclude_extensions = &[_][]const u8{
@@ -552,10 +552,10 @@ pub fn build(b: *std.Build) !void {
     const update_mingw_exe = b.addExecutable(.{
         .name = "update_mingw",
         .target = b.host,
-        .root_source_file = .{ .path = "tools/update_mingw.zig" },
+        .root_source_file = b.path("tools/update_mingw.zig"),
     });
     const update_mingw_run = b.addRunArtifact(update_mingw_exe);
-    update_mingw_run.addDirectoryArg(.{ .path = "lib" });
+    update_mingw_run.addDirectoryArg(b.path("lib"));
     if (opt_mingw_src_path) |mingw_src_path| {
         update_mingw_run.addDirectoryArg(.{ .cwd_relative = mingw_src_path });
     } else {
@@ -606,10 +606,10 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     });
     run_opt.addArtifactArg(exe);
     run_opt.addArg("-o");
-    run_opt.addFileArg(.{ .path = "stage1/zig1.wasm" });
+    run_opt.addFileArg(b.path("stage1/zig1.wasm"));
 
     const copy_zig_h = b.addWriteFiles();
-    copy_zig_h.addCopyFileToSource(.{ .path = "lib/zig.h" }, "stage1/zig.h");
+    copy_zig_h.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
     update_zig1_step.dependOn(&run_opt.step);
@@ -627,7 +627,7 @@ const AddCompilerStepOptions = struct {
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "zig",
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = b.path("src/main.zig"),
         .target = options.target,
         .optimize = options.optimize,
         .max_rss = 7_000_000_000,
@@ -638,11 +638,11 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
     exe.stack_size = stack_size;
 
     const aro_module = b.createModule(.{
-        .root_source_file = .{ .path = "lib/compiler/aro/aro.zig" },
+        .root_source_file = b.path("lib/compiler/aro/aro.zig"),
     });
 
     const aro_translate_c_module = b.createModule(.{
-        .root_source_file = .{ .path = "lib/compiler/aro_translate_c.zig" },
+        .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
         .imports = &.{
             .{
                 .name = "aro",

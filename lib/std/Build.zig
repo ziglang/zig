@@ -1546,22 +1546,22 @@ pub fn addInstallArtifact(
 }
 
 ///`dest_rel_path` is relative to prefix path
-pub fn installFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .prefix, dest_rel_path).step);
+pub fn installFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .prefix, dest_rel_path).step);
 }
 
-pub fn installDirectory(self: *Build, options: Step.InstallDir.Options) void {
-    self.getInstallStep().dependOn(&self.addInstallDirectory(options).step);
+pub fn installDirectory(b: *Build, options: Step.InstallDir.Options) void {
+    b.getInstallStep().dependOn(&b.addInstallDirectory(options).step);
 }
 
 ///`dest_rel_path` is relative to bin path
-pub fn installBinFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .bin, dest_rel_path).step);
+pub fn installBinFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .bin, dest_rel_path).step);
 }
 
 ///`dest_rel_path` is relative to lib path
-pub fn installLibFile(self: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
-    self.getInstallStep().dependOn(&self.addInstallFileWithDir(.{ .path = src_path }, .lib, dest_rel_path).step);
+pub fn installLibFile(b: *Build, src_path: []const u8, dest_rel_path: []const u8) void {
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(b.path(src_path), .lib, dest_rel_path).step);
 }
 
 pub fn addObjCopy(b: *Build, source: LazyPath, options: Step.ObjCopy.Options) *Step.ObjCopy {
@@ -1637,7 +1637,11 @@ pub fn truncateFile(self: *Build, dest_path: []const u8) !void {
 
 /// References a file or directory relative to the source root.
 pub fn path(b: *Build, sub_path: []const u8) LazyPath {
-    assert(!fs.path.isAbsolute(sub_path));
+    if (fs.path.isAbsolute(sub_path)) {
+        std.debug.panic("sub_path is expected to be relative to the build root, but was this absolute path: '{s}'. It is best avoid absolute paths, but if you must, it is supported by LazyPath.cwd_relative", .{
+            sub_path,
+        });
+    }
     return .{ .src_path = .{
         .owner = b,
         .sub_path = sub_path,
@@ -2315,12 +2319,15 @@ pub const LazyPath = union(enum) {
         }
     }
 
-    /// Duplicates the file source for a given builder.
+    /// Copies the internal strings.
+    ///
+    /// The `b` parameter is only used for its allocator. All *Build instances
+    /// share the same allocator.
     pub fn dupe(self: LazyPath, b: *Build) LazyPath {
         return switch (self) {
             .src_path => |sp| .{ .src_path = .{
                 .owner = sp.owner,
-                .sub_path = b.dupePath(sp.sub_path),
+                .sub_path = sp.owner.dupePath(sp.sub_path),
             } },
             .path => |p| .{ .path = b.dupePath(p) },
             .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },

@@ -7,21 +7,21 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
 
     const shared = b.createModule(.{
-        .root_source_file = .{ .path = "shared.zig" },
+        .root_source_file = b.path("shared.zig"),
     });
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = .{ .path = "test.zig" },
+        .root_source_file = b.path("test.zig"),
         .target = b.host,
         .optimize = optimize,
     });
     exe.root_module.addAnonymousImport("foo", .{
-        .root_source_file = .{ .path = "foo.zig" },
+        .root_source_file = b.path("foo.zig"),
         .imports = &.{.{ .name = "shared", .module = shared }},
     });
     exe.root_module.addAnonymousImport("bar", .{
-        .root_source_file = .{ .path = "bar.zig" },
+        .root_source_file = b.path("bar.zig"),
         .imports = &.{.{ .name = "shared", .module = shared }},
     });
 

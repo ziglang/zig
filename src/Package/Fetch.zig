@@ -1802,45 +1802,25 @@ const UnpackResult = struct {
     }
 
     fn validate(self: *UnpackResult, f: *Fetch, filter: Filter) !void {
-        self.filterErrors(filter);
-        if (self.hasErrors()) {
-            const eb = &f.error_bundle;
-            try self.bundleErrors(eb, try f.srcLoc(f.location_tok));
-            return error.FetchFailed;
+        if (self.errors_count == 0) return;
+
+        var unfiltered_errors: u32 = 0;
+        for (self.errors) |item| {
+            if (item.excluded(filter)) continue;
+            unfiltered_errors += 1;
         }
-    }
+        if (unfiltered_errors == 0) return;
 
-    // Filter errors by manifest inclusion rules.
-    fn filterErrors(self: *UnpackResult, filter: Filter) void {
-        var i = self.errors_count;
-        while (i > 0) {
-            i -= 1;
-            if (self.errors[i].excluded(filter)) {
-                self.errors_count -= 1;
-                const tmp = self.errors[i];
-                self.errors[i] = self.errors[self.errors_count];
-                self.errors[self.errors_count] = tmp;
-            }
-        }
-    }
-
-    // Emmit errors to an `ErrorBundle`.
-    fn bundleErrors(
-        self: *UnpackResult,
-        eb: *ErrorBundle.Wip,
-        src_loc: ErrorBundle.SourceLocationIndex,
-    ) !void {
-        if (self.errors_count == 0 and self.root_error_message.len == 0)
-            return;
-
-        const notes_len: u32 = @intCast(self.errors_count);
+        // Emmit errors to an `ErrorBundle`.
+        const eb = &f.error_bundle;
         try eb.addRootErrorMessage(.{
             .msg = try eb.addString(self.root_error_message),
-            .src_loc = src_loc,
-            .notes_len = notes_len,
+            .src_loc = try f.srcLoc(f.location_tok),
+            .notes_len = unfiltered_errors,
         });
-        const notes_start = try eb.reserveNotes(notes_len);
-        for (self.errors, notes_start..) |item, note_i| {
+        var note_i: u32 = try eb.reserveNotes(unfiltered_errors);
+        for (self.errors) |item| {
+            if (item.excluded(filter)) continue;
             switch (item) {
                 .unable_to_create_sym_link => |info| {
                     eb.extra.items[note_i] = @intFromEnum(try eb.addErrorMessage(.{
@@ -1864,37 +1844,54 @@ const UnpackResult = struct {
                     }));
                 },
             }
+            note_i += 1;
         }
+
+        return error.FetchFailed;
     }
 
-    test filterErrors {
-        var arena_instance = std.heap.ArenaAllocator.init(std.testing.allocator);
+    test validate {
+        const gpa = std.testing.allocator;
+        var arena_instance = std.heap.ArenaAllocator.init(gpa);
         defer arena_instance.deinit();
         const arena = arena_instance.allocator();
 
-        // init
+        // fill UnpackResult with errors
         var res: UnpackResult = .{};
-        try res.allocErrors(arena, 4, "error");
+        try res.allocErrors(arena, 4, "unable to unpack");
         try std.testing.expectEqual(0, res.errors_count);
-
-        // create errors
         res.unableToCreateFile("dir1/file1", error.File1);
-        res.unableToCreateSymLink("dir2/file2", "", error.File2);
+        res.unableToCreateSymLink("dir2/file2", "filename", error.SymlinkError);
         res.unableToCreateFile("dir1/file3", error.File3);
         res.unsupportedFileType("dir2/file4", 'x');
         try std.testing.expectEqual(4, res.errors_count);
 
-        // filter errors
+        // create filter, includes dir2, excludes dir1
         var filter: Filter = .{};
         try filter.include_paths.put(arena, "dir2", {});
-        res.filterErrors(filter);
 
-        try std.testing.expectEqual(2, res.errors_count);
-        try std.testing.expect(res.errors[0] == Error.unsupported_file_type);
-        try std.testing.expect(res.errors[1] == Error.unable_to_create_sym_link);
-        // filtered: moved to the list end
-        try std.testing.expect(res.errors[2] == Error.unable_to_create_file);
-        try std.testing.expect(res.errors[3] == Error.unable_to_create_file);
+        // init Fetch
+        var fetch: Fetch = undefined;
+        fetch.parent_manifest_ast = null;
+        fetch.location_tok = 0;
+        try fetch.error_bundle.init(gpa);
+        defer fetch.error_bundle.deinit();
+
+        // validate errors with filter
+        try std.testing.expectError(error.FetchFailed, res.validate(&fetch, filter));
+
+        // output errors to string
+        var errors = try fetch.error_bundle.toOwnedBundle("");
+        defer errors.deinit(gpa);
+        var out = std.ArrayList(u8).init(gpa);
+        defer out.deinit();
+        try errors.renderToWriter(.{ .ttyconf = .no_color }, out.writer());
+        try std.testing.expectEqualStrings(
+            \\error: unable to unpack
+            \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
+            \\    note: file 'dir2/file4' has unsupported type 'x'
+            \\
+        , out.items);
     }
 };
 

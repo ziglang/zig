@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
                 .{ .arch_os_abi = t },
             ) catch unreachable),
         });
-        exe.addCSourceFile(.{ .file = .{ .path = "main.c" } });
+        exe.addCSourceFile(.{ .file = b.path("main.c") });
         exe.linkLibC();
         // TODO: actually test the output
         _ = exe.getEmittedBin();
@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
 
         const exe = b.addExecutable(.{
             .name = t,
-            .root_source_file = .{ .path = "glibc_runtime_check.zig" },
+            .root_source_file = b.path("glibc_runtime_check.zig"),
             .target = target,
         });
         exe.linkLibC();
