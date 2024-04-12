@@ -158,6 +158,9 @@ pub const Options = struct {
     http_disable_tls: bool = false,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
+
+    /// The exit status used when an error is returned from main
+    error_exit_status: u8 = 1,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that

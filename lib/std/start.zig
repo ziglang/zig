@@ -513,7 +513,7 @@ pub inline fn callMain() u8 {
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
-                return 1;
+                return std.options.error_exit_status;
             };
             switch (@typeInfo(@TypeOf(result))) {
                 .Void => return 0,
