@@ -111,6 +111,8 @@ set(ZIG_TARGET_TRIPLE "native" CACHE STRING "arch-os-abi to output binaries for"
 set(ZIG_TARGET_MCPU "native" CACHE STRING "-mcpu parameter to output binaries for")
 set(ZIG_SINGLE_THREADED off CACHE BOOL "limit the zig compiler to use only 1 thread")
 set(ZIG_AR_WORKAROUND off CACHE BOOL "append 'ar' subcommand to CMAKE_AR")
+set(ZIG_DYNAMIC_LINKER "" CACHE STRING
+  "Override the dynamic linker used by the Zig binary. Default is to auto-detect the dynamic linker.")
 
 if("${ZIG_TARGET_TRIPLE}" STREQUAL "native")
     set(ZIG_USE_LLVM_CONFIG ON CACHE BOOL "use llvm-config to find LLVM libraries")
@@ -897,6 +899,11 @@ if(ZIG_STATIC AND NOT MSVC)
 else()
   set(ZIG_STATIC_ARG "")
 endif()
+if("${ZIG_DYNAMIC_LINKER}" STREQUAL "")
+  set(ZIG_DYNAMIC_LINKER_ARG "")
+else()
+  set(ZIG_DYNAMIC_LINKER_ARG --host-dynamic-linker "${ZIG_DYNAMIC_LINKER}")
+endif()
 
 if(CMAKE_POSITION_INDEPENDENT_CODE OR ZIG_PIE)
   set(ZIG_PIE_ARG "-Dpie")
@@ -916,6 +923,7 @@ set(ZIG_BUILD_ARGS
   "-Dno-langref"
   ${ZIG_SINGLE_THREADED_ARG}
   ${ZIG_PIE_ARG}
+  ${ZIG_DYNAMIC_LINKER_ARG}
   "-Dtarget=${ZIG_TARGET_TRIPLE}"
   "-Dcpu=${ZIG_TARGET_MCPU}"
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
