@@ -201,16 +201,17 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
             else => continue,
         }
-        try archiver.addEntry(entry);
+        var file = try entry.dir.openFile(entry.basename, .{});
+        defer file.close();
+        try archiver.writeFile(entry.path, file);
     }
 
     {
         // Since this command is JIT compiled, the builtin module available in
         // this source file corresponds to the user's host system.
         const builtin_zig = @embedFile("builtin");
-        var stream = std.io.fixedBufferStream(builtin_zig);
         archiver.prefix = "builtin";
-        try archiver.addFile("builtin.zig", builtin_zig.len, stream.reader(), .{});
+        try archiver.writeFileBytes("builtin.zig", builtin_zig, .{});
     }
 
     // intentionally omitting the pointless trailer

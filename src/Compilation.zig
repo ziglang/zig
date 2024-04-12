@@ -4071,7 +4071,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
     var walker = try mod_dir.walk(comp.gpa);
     defer walker.deinit();
 
-    var archiver = std.tar.writer(tar_file.writer());
+    var archiver = std.tar.writer(tar_file.writer().any());
     archiver.prefix = module.fully_qualified_name;
 
     while (try walker.next()) |entry| {
@@ -4083,7 +4083,9 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             },
             else => continue,
         }
-        archiver.addEntry(entry) catch |err| {
+        var file = try entry.dir.openFile(entry.basename, .{});
+        defer file.close();
+        archiver.writeFile(entry.path, file) catch |err| {
             return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{}{s}': {s}", .{
                 root, entry.path, @errorName(err),
             });
