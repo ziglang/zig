@@ -836,9 +836,9 @@ fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
         ,
         .cpp_source_flags = &.{ "-nostdlib++", "-nostdinc++" },
     });
-    exe.root_module.addSystemIncludePath(.{ .path = b.pathJoin(&.{ sdk, "/usr/include" }) });
-    exe.root_module.addIncludePath(.{ .path = b.pathJoin(&.{ sdk, "/usr/include/c++/v1" }) });
-    exe.root_module.addObjectFile(.{ .path = b.pathJoin(&.{ sdk, "/usr/lib/libc++.tbd" }) });
+    exe.root_module.addSystemIncludePath(b.path(b.pathJoin(&.{ sdk, "/usr/include" })));
+    exe.root_module.addIncludePath(b.path(b.pathJoin(&.{ sdk, "/usr/include/c++/v1" })));
+    exe.root_module.addObjectFile(b.path(b.pathJoin(&.{ sdk, "/usr/lib/libc++.tbd" })));
 
     const check = exe.checkObject();
     check.checkInSymtab();
