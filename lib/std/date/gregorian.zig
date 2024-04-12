@@ -4,7 +4,7 @@
 
 /// A Gregorian calendar date with:
 /// * A `year: YearT,` which may be unsigned and is relative to 0000-00-00.
-/// * Conversion from and to an `EpochDays` type which is the number of days since `epoch`.
+/// * Conversion to and from an `EpochDays` type which is the number of days since `epoch`.
 ///   The conversion algorithm used is Euclidean Affine Functions by Neri and Schneider. [1]
 ///   It has been chosen for its speed.
 /// * A carefully selected epoch `shift` which allows for fast unsigned arithmetic at the cost
@@ -13,7 +13,7 @@
 /// This implementation requires the `EpochDay` range cover all possible values of `YearT`.
 /// Providing an invalid combination of `epoch` and `shift` will trigger a comptime assertion.
 ///
-/// To solve for `shift`, see `solve_shift`.
+/// To solve for `shift`, see `solveShift`.
 ///
 /// [1] https://onlinelibrary.wiley.com/doi/epdf/10.1002/spe.3172
 const std = @import("std");
