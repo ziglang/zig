@@ -1243,7 +1243,7 @@ const getExternalExecutor = std.zig.system.getExternalExecutor;
 
 const Compilation = @import("../../src/Compilation.zig");
 const zig_h = @import("../../src/link.zig").File.C.zig_h;
-const introspect = @import("../../src/introspect.zig");
+const introspect = std.zig.introspect;
 const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const build_options = @import("build_options");

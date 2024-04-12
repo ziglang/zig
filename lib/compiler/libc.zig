@@ -2,6 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const io = std.io;
 const LibCInstallation = std.zig.LibCInstallation;
+const fatal = std.zig.fatal;
 
 const usage_libc =
     \\Usage: zig libc
@@ -129,9 +130,4 @@ pub fn main() !void {
         try libc.render(bw.writer());
         try bw.flush();
     }
-}
-
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    std.process.exit(1);
 }

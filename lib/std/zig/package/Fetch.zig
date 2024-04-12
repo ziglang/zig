@@ -60,11 +60,11 @@ has_build_zig: bool,
 /// Indicates whether the task aborted due to an out-of-memory condition.
 oom_flag: bool,
 
-// This field is used by the CLI only, untouched by this file.
+// This field is used by the build CLI only, untouched by this file.
 
 /// The module for this `Fetch` tasks's package, which exposes `build.zig` as
-/// the root source file.
-module: ?*Package.Module,
+/// the root source file. It is an opaque pointer to `Package.Module`.
+module: ?*anyopaque,
 
 pub const LazyStatus = enum {
     /// Not lazy.
@@ -560,14 +560,14 @@ fn runResource(
 /// not computing a hash, we need to do a syscall to check for it.
 fn checkBuildFileExistence(f: *Fetch) RunError!void {
     const eb = &f.error_bundle;
-    if (f.package_root.access(Package.build_zig_basename, .{})) |_| {
+    if (f.package_root.access(package.build_zig_basename, .{})) |_| {
         f.has_build_zig = true;
     } else |err| switch (err) {
         error.FileNotFound => {},
         else => |e| {
             try eb.addRootErrorMessage(.{
                 .msg = try eb.printString("unable to access '{}{s}': {s}", .{
-                    f.package_root, Package.build_zig_basename, @errorName(e),
+                    f.package_root, package.build_zig_basename, @errorName(e),
                 }),
             });
             return error.FetchFailed;
@@ -1397,7 +1397,7 @@ fn computeHash(
                 )),
             };
 
-            if (std.mem.eql(u8, entry_pkg_path, Package.build_zig_basename))
+            if (std.mem.eql(u8, entry_pkg_path, package.build_zig_basename))
                 f.has_build_zig = true;
 
             const fs_path = try arena.dupe(u8, entry.path);
@@ -1685,8 +1685,8 @@ const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const Fetch = @This();
 const git = @import("Fetch/git.zig");
-const Package = @import("../Package.zig");
-const Manifest = Package.Manifest;
+const package = std.zig.package;
+const Manifest = package.Manifest;
 const ErrorBundle = std.zig.ErrorBundle;
 const native_os = builtin.os.tag;
 
@@ -1957,7 +1957,7 @@ test "tarball with excluded duplicate paths" {
     defer fb.deinit();
     try fetch.run();
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = package.Manifest.hexDigest(fetch.actual_hash);
     try std.testing.expectEqualStrings(
         "12200bafe035cbb453dd717741b66e9f9d1e6c674069d06121dafa1b2e62eb6b22da",
         &hex_digest,
@@ -2001,7 +2001,7 @@ test "tarball without root folder" {
     defer fb.deinit();
     try fetch.run();
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = package.Manifest.hexDigest(fetch.actual_hash);
     try std.testing.expectEqualStrings(
         "12209f939bfdcb8b501a61bb4a43124dfa1b2848adc60eec1e4624c560357562b793",
         &hex_digest,

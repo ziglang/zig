@@ -55,6 +55,11 @@ pub fn isSep(byte: u8) bool {
     };
 }
 
+/// Returns if the given slice starts with the up directory ".."
+pub fn isUpDir(p: []const u8) bool {
+    return mem.startsWith(u8, p, "..") and (p.len == 2 or isSep(p[2]));
+}
+
 pub const PathType = enum {
     windows,
     uefi,

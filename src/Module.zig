@@ -32,7 +32,6 @@ const Sema = @import("Sema.zig");
 const target_util = @import("target.zig");
 const build_options = @import("build_options");
 const Liveness = @import("Liveness.zig");
-const isUpDir = @import("introspect.zig").isUpDir;
 const clang = @import("clang.zig");
 const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
@@ -3954,7 +3953,7 @@ pub fn importFile(
         const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
         errdefer gpa.free(relative);
 
-        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
+        if (!std.fs.path.isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
             break :p relative;
         }
         return error.ImportOutsideModulePath;
@@ -4049,7 +4048,7 @@ pub fn embedFile(
         const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
         errdefer gpa.free(relative);
 
-        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
+        if (!std.fs.path.isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
             break :p relative;
         }
         return error.ImportOutsideModulePath;
