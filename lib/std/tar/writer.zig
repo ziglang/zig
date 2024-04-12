@@ -15,7 +15,10 @@ pub fn writer(underlying_writer: anytype) Writer(@TypeOf(underlying_writer)) {
 pub fn Writer(comptime WriterType: type) type {
     return struct {
         const block_size = @sizeOf(Header);
-        const zero: [@sizeOf(Header)]u8 = .{0} ** @sizeOf(Header);
+
+        /// Options for writing file/dir/link. If left empty
+        /// `default_mode.file`/`default_mode.dir`/`default_mode.sym_link` is
+        /// used for mode and current time for mtime.
         pub const Options = struct {
             /// File system permission mode.
             mode: u32 = 0,
@@ -26,60 +29,100 @@ pub fn Writer(comptime WriterType: type) type {
 
         underlying_writer: WriterType,
         prefix: []const u8 = "",
-
-        block_buffer: [block_size]u8 = undefined,
         mtime_now: u64 = 0,
 
         /// Sets prefix for all other add* method paths.
         pub fn setRoot(self: *Self, root: []const u8) !void {
-            if (root.len > 0) {
-                try self.addDir(root, .{});
-            }
+            if (root.len > 0)
+                try self.writeDir(root, .{});
+
             self.prefix = root;
         }
 
-        /// Writes directory. If options are omitted `default_mode.dir` is used
-        /// for mode and current time for `mtime`.
-        pub fn addDir(self: *Self, sub_path: []const u8, opt: Options) !void {
-            var header = Header.init(.directory);
-            try self.setPath(&header, sub_path);
-            try self.setMtime(&header, opt.mtime);
-            try header.setMode(opt.mode);
-            try header.write(self.underlying_writer);
-        }
-
-        /// Writes file. File content is read from `reader`. Number of bytes in
-        /// reader must be equal to `size`. If options are omitted
-        /// `default_mode.file` is used for mode and current time for mtime.
-        pub fn addFile(self: *Self, sub_path: []const u8, size: u64, reader: anytype, opt: Options) !void {
-            try self.addFileHeader(sub_path, size, opt);
-
-            var written: usize = 0;
-            while (written < size) {
-                const n = try reader.readAll(&self.block_buffer);
-                written += n;
-                if (written > size) return error.SizeOverflow;
-                if (n < block_size) // add padding
-                    @memset(self.block_buffer[n..], 0);
-                try self.underlying_writer.writeAll(&self.block_buffer);
-            }
+        /// Writes directory.  If options are omitted `default_mode.dir` is
+        /// used for mode and current time for `mtime`.
+        pub fn writeDir(self: *Self, sub_path: []const u8, opt: Options) !void {
+            try self.writeHeader(.directory, sub_path, "", 0, opt);
         }
 
         /// Writes file system file.
-        pub fn addFsFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
+        pub fn writeFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
             const stat = try file.stat();
             const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
-            try self.addFileHeader(sub_path, stat.size, .{ .mtime = mtime });
-            try self.underlying_writer.any().writeFile(file);
+            try self.writeHeader(.regular, sub_path, "", stat.size, .{ .mtime = mtime });
+            try self.underlying_writer.writeFile(file);
             try self.writePadding(stat.size);
         }
 
-        fn addFileHeader(self: *Self, sub_path: []const u8, size: u64, opt: Options) !void {
-            var header = Header.init(.regular);
+        /// Writes file reading file content from `reader`. Number of bytes in
+        /// reader must be equal to `size`.  If options are omitted `default_mode.file` is
+        /// used for mode and current time for `mtime`.
+        pub fn writeFileStream(self: *Self, sub_path: []const u8, size: u64, reader: anytype, opt: Options) !void {
+            try self.writeHeader(.regular, sub_path, "", size, opt);
+
+            var counting_reader = std.io.countingReader(reader);
+            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+            try fifo.pump(counting_reader.reader(), self.underlying_writer);
+            if (counting_reader.bytes_read != size) return error.WrongReaderSize;
+            try self.writePadding(size);
+        }
+
+        /// Writes file using bytes buffer `content` for size and file content.
+        /// If options are omitted `default_mode.file` is used for mode and
+        /// current time for `mtime`.
+        pub fn writeFileBytes(self: *Self, sub_path: []const u8, content: []const u8, opt: Options) !void {
+            try self.writeHeader(.regular, sub_path, "", content.len, opt);
+            try self.underlying_writer.writeAll(content);
+            try self.writePadding(content.len);
+        }
+
+        /// Writes symlink. If options are omitted `default_mode.sym_link` is
+        /// used for mode and current time for `mtime`.
+        pub fn writeLink(self: *Self, sub_path: []const u8, link_name: []const u8, opt: Options) !void {
+            try self.writeHeader(.symbolic_link, sub_path, link_name, 0, opt);
+        }
+
+        /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
+        /// default from `default_mode` for entry mode .
+        pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.WalkerEntry) !void {
+            switch (entry.kind) {
+                .directory => {
+                    try self.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
+                },
+                .file => {
+                    var file = try entry.dir.openFile(entry.basename, .{});
+                    defer file.close();
+                    try self.writeFile(entry.path, file);
+                },
+                .sym_link => {
+                    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+                    const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
+                    try self.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
+                },
+                else => {
+                    return error.UnsupportedWalkerEntryKind;
+                },
+            }
+        }
+
+        fn writeHeader(
+            self: *Self,
+            typeflag: Header.FileType,
+            sub_path: []const u8,
+            link_name: []const u8,
+            size: u64,
+            opt: Options,
+        ) !void {
+            var header = Header.init(typeflag);
             try self.setPath(&header, sub_path);
             try self.setMtime(&header, opt.mtime);
             try header.setSize(size);
             try header.setMode(opt.mode);
+            if (typeflag == .symbolic_link)
+                header.setLinkname(link_name) catch |err| switch (err) {
+                    error.NameTooLong => try self.writeExtendedHeader(.gnu_long_link, &.{link_name}),
+                    else => return err,
+                };
             try header.write(self.underlying_writer);
         }
 
@@ -94,43 +137,6 @@ pub fn Writer(comptime WriterType: type) type {
                 break :blk mtime;
             };
             try header.setMtime(mt);
-        }
-
-        /// Writes symlink. If options are omitted `default_mode.sym_link` is
-        /// used for mode and current time for `mtime`.
-        pub fn addLink(self: *Self, sub_path: []const u8, link_name: []const u8, opt: Options) !void {
-            var header = Header.init(.symbolic_link);
-            try self.setPath(&header, sub_path);
-            try self.setMtime(&header, opt.mtime);
-            try header.setMode(opt.mode);
-            header.setLinkname(link_name) catch |err| switch (err) {
-                error.NameTooLong => try self.writeExtendedHeader(.gnu_long_link, &.{link_name}),
-                else => return err,
-            };
-            try header.write(self.underlying_writer);
-        }
-
-        /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
-        /// default from `default_mode` for entry mode.
-        pub fn addEntry(self: *Self, entry: std.fs.Dir.Walker.WalkerEntry) !void {
-            switch (entry.kind) {
-                .directory => {
-                    try self.addDir(entry.path, .{ .mtime = try entryMtime(entry) });
-                },
-                .file => {
-                    var file = try entry.dir.openFile(entry.basename, .{});
-                    defer file.close();
-                    try self.addFsFile(entry.path, file);
-                },
-                .sym_link => {
-                    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-                    const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
-                    try self.addLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
-                },
-                else => {
-                    return error.UnsupportedWalkerEntryKind;
-                },
-            }
         }
 
         fn entryMtime(entry: std.fs.Dir.Walker.WalkerEntry) !u64 {
@@ -156,7 +162,7 @@ pub fn Writer(comptime WriterType: type) type {
 
         /// Writes gnu extended header: gnu_long_name or gnu_long_link.
         fn writeExtendedHeader(self: *Self, typeflag: Header.FileType, buffers: []const []const u8) !void {
-            var len: usize = 0;
+            var len: u64 = 0;
             for (buffers) |buf|
                 len += buf.len;
 
@@ -168,20 +174,18 @@ pub fn Writer(comptime WriterType: type) type {
             try self.writePadding(len);
         }
 
-        fn writePadding(self: *Self, bytes: usize) !void {
+        fn writePadding(self: *Self, bytes: u64) !void {
             const remainder = bytes % block_size;
             if (remainder == 0) return;
-            const padding_bytes = block_size - remainder;
-            @memset(self.block_buffer[0..padding_bytes], 0);
-            try self.underlying_writer.writeAll(self.block_buffer[0..padding_bytes]);
+            const padding = block_size - remainder;
+            try self.underlying_writer.writeByteNTimes(0, padding);
         }
 
         /// Tar should finish with two zero blocks, but 'reasonable system must
         /// not assume that such a block exists when reading an archive' (from
         /// reference). In practice it is safe to skip this finish.
         pub fn finish(self: *Self) !void {
-            try self.underlying_writer.writeAll(&Header.zero);
-            try self.underlying_writer.writeAll(&Header.zero);
+            try self.underlying_writer.writeByteNTimes(0, block_size * 2);
         }
     };
 }
@@ -434,10 +438,8 @@ test "write files" {
         defer output.deinit();
         var wrt = writer(output.writer());
         try wrt.setRoot(root);
-        for (files) |file| {
-            var content = std.io.fixedBufferStream(file.content);
-            try wrt.addFile(file.path, file.content.len, content.reader(), .{});
-        }
+        for (files) |file|
+            try wrt.writeFileBytes(file.path, file.content, .{});
 
         var input = std.io.fixedBufferStream(output.items);
         var iter = std.tar.iterator(
@@ -473,7 +475,7 @@ test "write files" {
         var wrt = writer(output.writer());
         for (files) |file| {
             var content = std.io.fixedBufferStream(file.content);
-            try wrt.addFile(file.path, file.content.len, content.reader(), .{});
+            try wrt.writeFileStream(file.path, file.content.len, content.reader(), .{});
         }
 
         var input = std.io.fixedBufferStream(output.items);
@@ -494,45 +496,4 @@ test "write files" {
             try testing.expectEqualSlices(u8, expected.content, content.items);
         }
     }
-}
-
-// zig run lib/std/tar/writer.zig -- lib.tar.gz lib
-// tar -tvf lib.tar.gztar -tvf src.tar.gz
-pub fn main() !void {
-    var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(gpa_instance.deinit() == .ok);
-    const gpa = gpa_instance.allocator();
-
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
-    if (args.len < 3) {
-        return;
-    }
-    const out_file_name = args[1];
-    const in_dir_name = args[2];
-
-    var out_file = try std.fs.cwd().createFile(out_file_name, .{});
-    defer out_file.close();
-    var in_dir = try std.fs.cwd().openDir(in_dir_name, .{ .iterate = true });
-
-    var cmp = try std.compress.gzip.compressor(out_file.writer(), .{});
-    var wrt = try writer(cmp.writer(), in_dir_name);
-
-    const excluded = [_][]const u8{
-        "zig-cache",
-        "zig-out",
-        ".git/",
-        "build/",
-        "build2/",
-    };
-
-    var walker = try in_dir.walk(gpa);
-    defer walker.deinit();
-    outer: while (try walker.next()) |entry| {
-        for (excluded) |ex|
-            if (std.mem.indexOf(u8, entry.path, ex)) |_| continue :outer;
-
-        try wrt.addEntry(entry);
-    }
-    try cmp.finish();
 }
