@@ -1696,17 +1696,8 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
     const dst_ty = self.typeOfIndex(inst);
 
     const result: MCValue = result: {
-        const dst_abi_size: u32 = @intCast(dst_ty.abiSize(zcu));
-
         const src_int_info = src_ty.intInfo(zcu);
         const dst_int_info = dst_ty.intInfo(zcu);
-        const extend = switch (src_int_info.signedness) {
-            .signed => dst_int_info,
-            .unsigned => src_int_info,
-        }.signedness;
-
-        _ = dst_abi_size;
-        _ = extend;
 
         const min_ty = if (dst_int_info.bits < src_int_info.bits) dst_ty else src_ty;
 
@@ -1727,13 +1718,11 @@ fn airIntCast(self: *Self, inst: Air.Inst.Index) !void {
             break :dst dst_mcv;
         };
 
-        if (dst_int_info.bits <= src_int_info.bits) {
+        if (dst_int_info.bits <= src_int_info.bits)
             break :result dst_mcv;
-        }
 
-        if (dst_int_info.bits > 64 or src_int_info.bits > 64) {
+        if (dst_int_info.bits > 64 or src_int_info.bits > 64)
             break :result null; // TODO
-        }
 
         break :result dst_mcv;
     } orelse return self.fail("TODO implement airIntCast from {} to {}", .{
@@ -3435,6 +3424,7 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
 }
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.bin_file.comp.module.?;
     var arg_index = self.arg_index;
 
     // we skip over args that have no bits
@@ -3445,10 +3435,18 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
         const src_mcv = self.args[arg_index];
 
         const dst_mcv = switch (src_mcv) {
-            .register, .register_pair, .load_frame => dst: {
-                for (src_mcv.getRegs()) |reg| self.register_manager.getRegAssumeFree(reg, inst);
-                break :dst src_mcv;
+            .register => dst: {
+                const frame = try self.allocFrameIndex(FrameAlloc.init(.{
+                    .size = Type.usize.abiSize(zcu),
+                    .alignment = Type.usize.abiAlignment(zcu),
+                }));
+                const dst_mcv: MCValue = .{ .load_frame = .{ .index = frame } };
+
+                try self.genCopy(Type.usize, dst_mcv, src_mcv);
+
+                break :dst dst_mcv;
             },
+            .load_frame => src_mcv,
             else => return self.fail("TODO: airArg {s}", .{@tagName(src_mcv)}),
         };
 
