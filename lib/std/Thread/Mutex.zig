@@ -50,6 +50,13 @@ pub fn unlock(self: *Mutex) void {
     self.impl.unlock();
 }
 
+/// Asserts that the mutex was previously acquired with `lock()` or `tryLock()`.
+pub fn assertLocked(self: *Mutex) void {
+    if (@hasDecl(Impl, "assertLocked")) {
+        self.impl.assertLocked();
+    }
+}
+
 const Impl = if (builtin.mode == .Debug and !builtin.single_threaded)
     DebugImpl
 else
@@ -86,9 +93,13 @@ const DebugImpl = struct {
     }
 
     inline fn unlock(self: *@This()) void {
-        assert(self.locking_thread.load(.unordered) == Thread.getCurrentId());
+        self.assertLocked();
         self.locking_thread.store(0, .unordered);
         self.impl.unlock();
+    }
+
+    fn assertLocked(self: *@This()) void {
+        assert(self.locking_thread.load(.unordered) == Thread.getCurrentId());
     }
 };
 
@@ -110,6 +121,10 @@ const SingleThreadedImpl = struct {
     fn unlock(self: *@This()) void {
         assert(self.is_locked);
         self.is_locked = false;
+    }
+
+    fn assertLocked(self: *@This()) void {
+        assert(self.is_locked);
     }
 };
 
