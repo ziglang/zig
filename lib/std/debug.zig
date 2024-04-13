@@ -1987,7 +1987,7 @@ pub const DebugInfo = struct {
                     @memcpy(name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
 
                     const process_handle = windows.kernel32.GetCurrentProcess();
-                    const len = windows.kernel32.K32GetModuleFileNameExW(
+                    const len = windows.kernel32.GetModuleFileNameExW(
                         process_handle,
                         module.handle,
                         @ptrCast(&name_buffer[4]),
