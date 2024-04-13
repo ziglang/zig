@@ -1190,7 +1190,14 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @as(u64, @bitCast(result));
 }
 
-pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) ![]u16 {
+pub const QueryObjectNameError = error{
+    AccessDenied,
+    InvalidHandle,
+    NameTooLong,
+    Unexpected,
+};
+
+pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) QueryObjectNameError![]u16 {
     const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
 
     const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
