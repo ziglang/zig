@@ -3731,24 +3731,24 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     };
     defer tar_file.close();
 
-    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
+    var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, []const u8) = .{};
     defer seen_table.deinit(comp.gpa);
 
-    try seen_table.put(comp.gpa, zcu.main_mod, {});
-    try seen_table.put(comp.gpa, zcu.std_mod, {});
+    try seen_table.put(comp.gpa, zcu.main_mod, comp.root_name);
+    try seen_table.put(comp.gpa, zcu.std_mod, zcu.std_mod.fully_qualified_name);
 
     var i: usize = 0;
     while (i < seen_table.count()) : (i += 1) {
         const mod = seen_table.keys()[i];
-        try comp.docsCopyModule(mod, tar_file);
+        try comp.docsCopyModule(mod, seen_table.values()[i], tar_file);
 
         const deps = mod.deps.values();
         try seen_table.ensureUnusedCapacity(comp.gpa, deps.len);
-        for (deps) |dep| seen_table.putAssumeCapacity(dep, {});
+        for (deps) |dep| seen_table.putAssumeCapacity(dep, dep.fully_qualified_name);
     }
 }
 
-fn docsCopyModule(comp: *Compilation, module: *Package.Module, tar_file: std.fs.File) !void {
+fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8, tar_file: std.fs.File) !void {
     const root = module.root;
     const sub_path = if (root.sub_path.len == 0) "." else root.sub_path;
     var mod_dir = root.root_dir.handle.openDir(sub_path, .{ .iterate = true }) catch |err| {
@@ -3788,7 +3788,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, tar_file: std.fs.
 
         var file_header = std.tar.output.Header.init();
         file_header.typeflag = .regular;
-        try file_header.setPath(module.fully_qualified_name, entry.path);
+        try file_header.setPath(name, entry.path);
         try file_header.setSize(stat.size);
         try file_header.updateChecksum();
 
