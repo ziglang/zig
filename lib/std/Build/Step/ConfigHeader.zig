@@ -193,7 +193,11 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes) catch |err| {
+                return step.fail("unable to read autoconf input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
             try render_autoconf(step, contents, &output, self.values, src_path);
         },
         .cmake => |file_source| {
