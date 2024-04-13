@@ -218,17 +218,7 @@ pub const Connection = struct {
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     const BufferSize = std.math.IntFittingRange(0, buffer_size);
 
-    pub const Protocol = enum {
-        plain,
-        tls,
-
-        pub fn port(p: Protocol) u16 {
-            return switch (p) {
-                .plain => 80,
-                .tls => 443,
-            };
-        }
-    };
+    pub const Protocol = enum { plain, tls };
 
     pub fn readvDirectTls(conn: *Connection, buffers: []std.posix.iovec) ReadError!usize {
         return conn.tls_client.readv(conn.stream, buffers) catch |err| {
@@ -815,7 +805,7 @@ pub const Request = struct {
         }
 
         req.uri = valid_uri;
-        req.connection = try req.client.connect(new_host, valid_uri.port.?, protocol);
+        req.connection = try req.client.connect(new_host, uriPort(valid_uri, protocol), protocol);
         req.redirect_behavior.subtractOne();
         req.response.parser.reset();
 
@@ -857,13 +847,8 @@ pub const Request = struct {
         try w.writeAll("\r\n");
 
         if (try emitOverridableHeader("host: ", req.headers.host, w)) {
-            // URI has already been validated so this cannot fail.
-            const default_port = (uriProtocol(req.uri) catch unreachable).port();
             try w.writeAll("host: ");
-            try req.uri.writeToStream(.{
-                .authority = true,
-                .port = req.uri.port.? != default_port,
-            }, w);
+            try req.uri.writeToStream(.{ .authority = true }, w);
             try w.writeAll("\r\n");
         }
 
@@ -1279,7 +1264,7 @@ fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?
         .protocol = protocol,
         .host = valid_uri.host.?.raw,
         .authorization = authorization,
-        .port = valid_uri.port.?,
+        .port = uriPort(valid_uri, protocol),
         .supports_connect = true,
     };
     return proxy;
@@ -1584,25 +1569,27 @@ pub const RequestOptions = struct {
     privileged_headers: []const http.Header = &.{},
 };
 
-fn uriProtocol(uri: Uri) !Connection.Protocol {
+fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
     const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
         .{ "http", .plain },
         .{ "ws", .plain },
         .{ "https", .tls },
         .{ "wss", .tls },
     });
-    return protocol_map.get(uri.scheme) orelse return error.UnsupportedUriScheme;
-}
-
-fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
-    const protocol = try uriProtocol(uri);
+    const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUriScheme;
     var valid_uri = uri;
     // The host is always going to be needed as a raw string for hostname resolution anyway.
     valid_uri.host = .{
         .raw = try (uri.host orelse return error.UriMissingHost).toRawMaybeAlloc(arena),
     };
-    valid_uri.port = uri.port orelse protocol.port();
     return .{ protocol, valid_uri };
+}
+
+fn uriPort(uri: Uri, protocol: Connection.Protocol) u16 {
+    return uri.port orelse switch (protocol) {
+        .plain => 80,
+        .tls => 443,
+    };
 }
 
 /// Open a connection to the host specified by `uri` and prepare to send a HTTP request.
@@ -1650,7 +1637,7 @@ pub fn open(
     }
 
     const conn = options.connection orelse
-        try client.connect(valid_uri.host.?.raw, valid_uri.port.?, protocol);
+        try client.connect(valid_uri.host.?.raw, uriPort(valid_uri, protocol), protocol);
 
     var req: Request = .{
         .uri = valid_uri,
