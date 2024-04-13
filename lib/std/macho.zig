@@ -126,16 +126,20 @@ pub const build_tool_version = extern struct {
 };
 
 pub const PLATFORM = enum(u32) {
-    MACOS = 0x1,
-    IOS = 0x2,
-    TVOS = 0x3,
-    WATCHOS = 0x4,
-    BRIDGEOS = 0x5,
-    MACCATALYST = 0x6,
-    IOSSIMULATOR = 0x7,
-    TVOSSIMULATOR = 0x8,
-    WATCHOSSIMULATOR = 0x9,
-    DRIVERKIT = 0x10,
+    UNKNOWN = 0,
+    ANY = 0xffffffff,
+    MACOS = 1,
+    IOS = 2,
+    TVOS = 3,
+    WATCHOS = 4,
+    BRIDGEOS = 5,
+    MACCATALYST = 6,
+    IOSSIMULATOR = 7,
+    TVOSSIMULATOR = 8,
+    WATCHOSSIMULATOR = 9,
+    DRIVERKIT = 10,
+    VISIONOS = 11,
+    VISIONOSSIMULATOR = 12,
     _,
 };
 

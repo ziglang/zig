@@ -3323,6 +3323,16 @@ fn doTheTest() !void {
 }
       {#code_end#}
       <p>
+      The backing integer is inferred from the fields' total bit width.
+      Optionally, it can be explicitly provided and enforced at compile time:
+      </p>
+      {#code_begin|test_err|test_missized_packed_struct|backing integer type 'u32' has bit size 32 but the struct fields have a total bit size of 24#}
+test "missized packed struct" {
+    const S = packed struct(u32) { a: u16, b: u8 };
+    _ = S{ .a = 4, .b = 2 };
+}
+      {#code_end#}
+      <p>
       Zig allows the address to be taken of a non-byte-aligned field:
       </p>
       {#code_begin|test|test_pointer_to_non-byte_aligned_field#}
@@ -5577,7 +5587,7 @@ fn doAThing(str: []u8) void {
       errors in the {#syntax#}else{#endsyntax#} case, which now contains a narrower error set:
       </p>
       {#syntax_block|zig|handle_some_error_scenarios.zig#}
- fn doAnotherThing(str: []u8) error{InvaidChar}!void {
+ fn doAnotherThing(str: []u8) error{InvalidChar}!void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
     } else |err| switch (err) {
@@ -8014,10 +8024,16 @@ test "global assembly" {
       {#header_close#}
 
       {#header_open|Async Functions#}
-      <p>Async functions are being temporarily regressed and will be
-      <a href="https://github.com/ziglang/zig/issues/6025">restored before Zig
-        0.11.0 is tagged</a>. I apologize for the instability. Please use Zig 0.10.0 with
-      the <code>-fstage1</code> flag for now if you need this feature.</p>
+      <p>Async functions regressed with the release of 0.11.0. Their future in
+      the Zig language is unclear due to multiple unsolved problems:</p>
+      <ul>
+        <li>LLVM's lack of ability to optimize them.</li>
+        <li>Third-party debuggers' lack of ability to debug them.</li>
+        <li><a href="https://github.com/ziglang/zig/issues/5913">The cancellation problem</a>.</li>
+        <li>Async function pointers preventing the stack size from being known.</li>
+      </ul>
+      <p>These problems are surmountable, but it will take time. The Zig team
+      is currently focused on other priorities.</p>
       {#header_close#}
 
       {#header_open|Builtin Functions|2col#}
@@ -12746,7 +12762,7 @@ mb_utf8_literal <-
      / oxE0      oxA0_oxBF ox80_oxBF
      / oxC2_oxDF ox80_oxBF
 
-ascii_char_not_nl_slash_squote <- [\000-\011\013-\046-\050-\133\135-\177]
+ascii_char_not_nl_slash_squote <- [\000-\011\013-\046\050-\133\135-\177]
 
 char_escape
     <- "\\x" hex hex

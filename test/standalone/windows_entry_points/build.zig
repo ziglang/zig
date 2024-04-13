@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
             .optimize = .Debug,
             .link_libc = true,
         });
-        exe.addCSourceFile(.{ .file = .{ .path = "main.c" } });
+        exe.addCSourceFile(.{ .file = b.path("main.c") });
 
         _ = exe.getEmittedBin();
         test_step.dependOn(&exe.step);
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         });
         exe.mingw_unicode_entry_point = true;
-        exe.addCSourceFile(.{ .file = .{ .path = "wmain.c" } });
+        exe.addCSourceFile(.{ .file = b.path("wmain.c") });
 
         _ = exe.getEmittedBin();
         test_step.dependOn(&exe.step);
@@ -45,7 +45,7 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         });
         // Note: `exe.subsystem = .Windows;` is not necessary
-        exe.addCSourceFile(.{ .file = .{ .path = "winmain.c" } });
+        exe.addCSourceFile(.{ .file = b.path("winmain.c") });
 
         _ = exe.getEmittedBin();
         test_step.dependOn(&exe.step);
@@ -60,7 +60,7 @@ pub fn build(b: *std.Build) void {
         });
         exe.mingw_unicode_entry_point = true;
         // Note: `exe.subsystem = .Windows;` is not necessary
-        exe.addCSourceFile(.{ .file = .{ .path = "wwinmain.c" } });
+        exe.addCSourceFile(.{ .file = b.path("wwinmain.c") });
 
         _ = exe.getEmittedBin();
         test_step.dependOn(&exe.step);

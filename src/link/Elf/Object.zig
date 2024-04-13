@@ -568,7 +568,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
         }
 
         const is_import = blk: {
-            if (!elf_file.base.isDynLib()) break :blk false;
+            if (!elf_file.isEffectivelyDynLib()) break :blk false;
             const vis = @as(elf.STV, @enumFromInt(esym.st_other));
             if (vis == .HIDDEN) break :blk false;
             break :blk true;

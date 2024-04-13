@@ -57,7 +57,7 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
     {
         const exe = b.addExecutable(.{
             .name = "test1",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .optimize = optimize,
             .target = b.host,
         });
@@ -93,7 +93,7 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
 
         const exe = b.addExecutable(.{
             .name = "test2",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = b.host,
             .optimize = optimize,
         });
@@ -134,7 +134,7 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
 
         const exe = b.addExecutable(.{
             .name = "test3",
-            .root_source_file = .{ .path = "main.zig" },
+            .root_source_file = b.path("main.zig"),
             .target = b.host,
             .optimize = optimize,
         });

@@ -2847,8 +2847,8 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
         return renderQuotedIdentifier(r, token_index, space, false);
     }
 
-    // Special case for _ which would incorrectly be rejected by isValidId below.
-    if (contents.len == 1 and contents[0] == '_') switch (quote) {
+    // Special case for _.
+    if (std.zig.isUnderscore(contents)) switch (quote) {
         .eagerly_unquote => return renderQuotedIdentifier(r, token_index, space, true),
         .eagerly_unquote_except_underscore,
         .preserve_when_shadowing,

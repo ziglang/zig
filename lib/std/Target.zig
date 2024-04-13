@@ -2740,6 +2740,13 @@ pub fn is_libc_lib_name(target: std.Target, name: []const u8) bool {
             return true;
     }
 
+    if (target.os.tag == .haiku) {
+        if (eqlIgnoreCase(ignore_case, name, "root"))
+            return true;
+        if (eqlIgnoreCase(ignore_case, name, "network"))
+            return true;
+    }
+
     return false;
 }
 

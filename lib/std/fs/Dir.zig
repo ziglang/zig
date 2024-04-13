@@ -220,71 +220,83 @@ pub const Iterator = switch (native_os) {
     },
     .haiku => struct {
         dir: Dir,
-        buf: [1024]u8, // TODO align(@alignOf(posix.dirent64)),
+        buf: [@sizeOf(DirEnt) + posix.PATH_MAX]u8 align(@alignOf(DirEnt)),
+        offset: usize,
         index: usize,
         end_index: usize,
         first_iter: bool,
 
         const Self = @This();
+        const DirEnt = posix.system.DirEnt;
 
         pub const Error = IteratorError;
 
         /// Memory such as file names referenced in this returned entry becomes invalid
         /// with subsequent calls to `next`, as well as when this `Dir` is deinitialized.
         pub fn next(self: *Self) Error!?Entry {
-            start_over: while (true) {
-                // TODO: find a better max
-                const HAIKU_MAX_COUNT = 10000;
+            while (true) {
                 if (self.index >= self.end_index) {
                     if (self.first_iter) {
-                        posix.lseek_SET(self.dir.fd, 0) catch unreachable; // EBADF here likely means that the Dir was not opened with iteration permissions
+                        switch (@as(posix.E, @enumFromInt(posix.system._kern_rewind_dir(self.dir.fd)))) {
+                            .SUCCESS => {},
+                            .BADF => unreachable, // Dir is invalid
+                            .FAULT => unreachable,
+                            .NOTDIR => unreachable,
+                            .INVAL => unreachable,
+                            .ACCES => return error.AccessDenied,
+                            .PERM => return error.AccessDenied,
+                            else => |err| return posix.unexpectedErrno(err),
+                        }
                         self.first_iter = false;
                     }
                     const rc = posix.system._kern_read_dir(
                         self.dir.fd,
                         &self.buf,
                         self.buf.len,
-                        HAIKU_MAX_COUNT,
+                        self.buf.len / @sizeOf(DirEnt),
                     );
                     if (rc == 0) return null;
                     if (rc < 0) {
-                        switch (posix.errno(rc)) {
-                            .BADF => unreachable, // Dir is invalid or was opened without iteration ability
+                        switch (@as(posix.E, @enumFromInt(rc))) {
+                            .BADF => unreachable, // Dir is invalid
                             .FAULT => unreachable,
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
+                            .OVERFLOW => unreachable,
+                            .ACCES => return error.AccessDenied,
+                            .PERM => return error.AccessDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                     }
+                    self.offset = 0;
                     self.index = 0;
-                    self.end_index = @as(usize, @intCast(rc));
+                    self.end_index = @intCast(rc);
                 }
-                const haiku_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + haiku_entry.reclen;
-                self.index = next_index;
-                const name = mem.sliceTo(@as([*:0]u8, @ptrCast(&haiku_entry.name)), 0);
-
-                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or (haiku_entry.ino == 0)) {
-                    continue :start_over;
-                }
+                const dirent: *DirEnt = @ptrCast(@alignCast(&self.buf[self.offset]));
+                self.offset += dirent.reclen;
+                self.index += 1;
+                const name = mem.span(dirent.getName());
+                if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..") or dirent.ino == 0) continue;
 
                 var stat_info: posix.Stat = undefined;
-                const rc = posix.system._kern_read_stat(
+                switch (@as(posix.E, @enumFromInt(posix.system._kern_read_stat(
                     self.dir.fd,
-                    &haiku_entry.name,
+                    name,
                     false,
                     &stat_info,
                     0,
-                );
-                if (rc != 0) {
-                    switch (posix.errno(rc)) {
-                        .SUCCESS => {},
-                        .BADF => unreachable, // Dir is invalid or was opened without iteration ability
-                        .FAULT => unreachable,
-                        .NOTDIR => unreachable,
-                        .INVAL => unreachable,
-                        else => |err| return posix.unexpectedErrno(err),
-                    }
+                )))) {
+                    .SUCCESS => {},
+                    .INVAL => unreachable,
+                    .BADF => unreachable, // Dir is invalid
+                    .NOMEM => return error.SystemResources,
+                    .ACCES => return error.AccessDenied,
+                    .PERM => return error.AccessDenied,
+                    .FAULT => unreachable,
+                    .NAMETOOLONG => unreachable,
+                    .LOOP => unreachable,
+                    .NOENT => continue,
+                    else => |err| return posix.unexpectedErrno(err),
                 }
                 const statmode = stat_info.mode & posix.S.IFMT;
 
@@ -315,7 +327,7 @@ pub const Iterator = switch (native_os) {
         dir: Dir,
         // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
         // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
-        buf: [1024]u8 align(if (native_os != .linux) 1 else @alignOf(linux.dirent64)),
+        buf: [1024]u8 align(@alignOf(linux.dirent64)),
         index: usize,
         end_index: usize,
         first_iter: bool,
@@ -599,8 +611,16 @@ fn iterateImpl(self: Dir, first_iter_start_value: bool) Iterator {
             .buf = undefined,
             .first_iter = first_iter_start_value,
         },
-        .linux, .haiku => return Iterator{
+        .linux => return Iterator{
             .dir = self,
+            .index = 0,
+            .end_index = 0,
+            .buf = undefined,
+            .first_iter = first_iter_start_value,
+        },
+        .haiku => return Iterator{
+            .dir = self,
+            .offset = 0,
             .index = 0,
             .end_index = 0,
             .buf = undefined,
@@ -1428,6 +1448,27 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) Open
         },
         .wasi => {
             return openDir(self, mem.sliceTo(sub_path_c, 0), args);
+        },
+        .haiku => {
+            const rc = posix.system._kern_open_dir(self.fd, sub_path_c);
+            if (rc >= 0) return .{ .fd = rc };
+            switch (@as(posix.E, @enumFromInt(rc))) {
+                .FAULT => unreachable,
+                .INVAL => unreachable,
+                .BADF => unreachable,
+                .ACCES => return error.AccessDenied,
+                .LOOP => return error.SymLinkLoop,
+                .MFILE => return error.ProcessFdQuotaExceeded,
+                .NAMETOOLONG => return error.NameTooLong,
+                .NFILE => return error.SystemFdQuotaExceeded,
+                .NODEV => return error.NoDevice,
+                .NOENT => return error.FileNotFound,
+                .NOMEM => return error.SystemResources,
+                .NOTDIR => return error.NotDir,
+                .PERM => return error.AccessDenied,
+                .BUSY => return error.DeviceBusy,
+                else => |err| return posix.unexpectedErrno(err),
+            }
         },
         else => {
             var symlink_flags: posix.O = .{

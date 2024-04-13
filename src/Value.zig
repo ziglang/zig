@@ -52,30 +52,31 @@ pub fn toIpString(val: Value, ty: Type, mod: *Module) !InternPool.NullTerminated
     assert(ty.zigTypeTag(mod) == .Array);
     assert(ty.childType(mod).toIntern() == .u8_type);
     const ip = &mod.intern_pool;
-    return switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
-        .bytes => |bytes| try ip.getOrPutString(mod.gpa, bytes),
-        .elems => try arrayToIpString(val, ty.arrayLen(mod), mod),
+    switch (mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
+        .bytes => |bytes| return bytes.toNullTerminatedString(ty.arrayLen(mod), ip),
+        .elems => return arrayToIpString(val, ty.arrayLen(mod), mod),
         .repeated_elem => |elem| {
-            const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
-            const len = @as(usize, @intCast(ty.arrayLen(mod)));
+            const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(mod));
+            const len: usize = @intCast(ty.arrayLen(mod));
             try ip.string_bytes.appendNTimes(mod.gpa, byte, len);
-            return ip.getOrPutTrailingString(mod.gpa, len);
+            return ip.getOrPutTrailingString(mod.gpa, len, .no_embedded_nulls);
         },
-    };
+    }
 }
 
 /// Asserts that the value is representable as an array of bytes.
 /// Copies the value into a freshly allocated slice of memory, which is owned by the caller.
 pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module) ![]u8 {
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .enum_literal => |enum_literal| allocator.dupe(u8, mod.intern_pool.stringToSlice(enum_literal)),
+    const ip = &mod.intern_pool;
+    return switch (ip.indexToKey(val.toIntern())) {
+        .enum_literal => |enum_literal| allocator.dupe(u8, enum_literal.toSlice(ip)),
         .slice => |slice| try arrayToAllocatedBytes(val, Value.fromInterned(slice.len).toUnsignedInt(mod), allocator, mod),
         .aggregate => |aggregate| switch (aggregate.storage) {
-            .bytes => |bytes| try allocator.dupe(u8, bytes),
+            .bytes => |bytes| try allocator.dupe(u8, bytes.toSlice(ty.arrayLenIncludingSentinel(mod), ip)),
             .elems => try arrayToAllocatedBytes(val, ty.arrayLen(mod), allocator, mod),
             .repeated_elem => |elem| {
-                const byte = @as(u8, @intCast(Value.fromInterned(elem).toUnsignedInt(mod)));
-                const result = try allocator.alloc(u8, @as(usize, @intCast(ty.arrayLen(mod))));
+                const byte: u8 = @intCast(Value.fromInterned(elem).toUnsignedInt(mod));
+                const result = try allocator.alloc(u8, @intCast(ty.arrayLen(mod)));
                 @memset(result, byte);
                 return result;
             },
@@ -85,10 +86,10 @@ pub fn toAllocatedBytes(val: Value, ty: Type, allocator: Allocator, mod: *Module
 }
 
 fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, mod: *Module) ![]u8 {
-    const result = try allocator.alloc(u8, @as(usize, @intCast(len)));
+    const result = try allocator.alloc(u8, @intCast(len));
     for (result, 0..) |*elem, i| {
         const elem_val = try val.elemValue(mod, i);
-        elem.* = @as(u8, @intCast(elem_val.toUnsignedInt(mod)));
+        elem.* = @intCast(elem_val.toUnsignedInt(mod));
     }
     return result;
 }
@@ -96,7 +97,7 @@ fn arrayToAllocatedBytes(val: Value, len: u64, allocator: Allocator, mod: *Modul
 fn arrayToIpString(val: Value, len_u64: u64, mod: *Module) !InternPool.NullTerminatedString {
     const gpa = mod.gpa;
     const ip = &mod.intern_pool;
-    const len = @as(usize, @intCast(len_u64));
+    const len: usize = @intCast(len_u64);
     try ip.string_bytes.ensureUnusedCapacity(gpa, len);
     for (0..len) |i| {
         // I don't think elemValue has the possibility to affect ip.string_bytes. Let's
@@ -104,10 +105,10 @@ fn arrayToIpString(val: Value, len_u64: u64, mod: *Module) !InternPool.NullTermi
         const prev = ip.string_bytes.items.len;
         const elem_val = try val.elemValue(mod, i);
         assert(ip.string_bytes.items.len == prev);
-        const byte = @as(u8, @intCast(elem_val.toUnsignedInt(mod)));
+        const byte: u8 = @intCast(elem_val.toUnsignedInt(mod));
         ip.string_bytes.appendAssumeCapacity(byte);
     }
-    return ip.getOrPutTrailingString(gpa, len);
+    return ip.getOrPutTrailingString(gpa, len, .no_embedded_nulls);
 }
 
 pub fn fromInterned(i: InternPool.Index) Value {
@@ -256,7 +257,7 @@ pub fn getUnsignedIntAdvanced(val: Value, mod: *Module, opt_sema: ?*Sema) !?u64 
                     const base_addr = (try Value.fromInterned(field.base).getUnsignedIntAdvanced(mod, opt_sema)) orelse return null;
                     const struct_ty = Value.fromInterned(field.base).typeOf(mod).childType(mod);
                     if (opt_sema) |sema| try sema.resolveTypeLayout(struct_ty);
-                    return base_addr + struct_ty.structFieldOffset(@as(usize, @intCast(field.index)), mod);
+                    return base_addr + struct_ty.structFieldOffset(@intCast(field.index), mod);
                 },
                 else => null,
             },
@@ -351,17 +352,17 @@ pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
             bigint.writeTwosComplement(buffer[0..byte_count], endian);
         },
         .Float => switch (ty.floatBits(target)) {
-            16 => std.mem.writeInt(u16, buffer[0..2], @as(u16, @bitCast(val.toFloat(f16, mod))), endian),
-            32 => std.mem.writeInt(u32, buffer[0..4], @as(u32, @bitCast(val.toFloat(f32, mod))), endian),
-            64 => std.mem.writeInt(u64, buffer[0..8], @as(u64, @bitCast(val.toFloat(f64, mod))), endian),
-            80 => std.mem.writeInt(u80, buffer[0..10], @as(u80, @bitCast(val.toFloat(f80, mod))), endian),
-            128 => std.mem.writeInt(u128, buffer[0..16], @as(u128, @bitCast(val.toFloat(f128, mod))), endian),
+            16 => std.mem.writeInt(u16, buffer[0..2], @bitCast(val.toFloat(f16, mod)), endian),
+            32 => std.mem.writeInt(u32, buffer[0..4], @bitCast(val.toFloat(f32, mod)), endian),
+            64 => std.mem.writeInt(u64, buffer[0..8], @bitCast(val.toFloat(f64, mod)), endian),
+            80 => std.mem.writeInt(u80, buffer[0..10], @bitCast(val.toFloat(f80, mod)), endian),
+            128 => std.mem.writeInt(u128, buffer[0..16], @bitCast(val.toFloat(f128, mod)), endian),
             else => unreachable,
         },
         .Array => {
             const len = ty.arrayLen(mod);
             const elem_ty = ty.childType(mod);
-            const elem_size = @as(usize, @intCast(elem_ty.abiSize(mod)));
+            const elem_size: usize = @intCast(elem_ty.abiSize(mod));
             var elem_i: usize = 0;
             var buf_off: usize = 0;
             while (elem_i < len) : (elem_i += 1) {
@@ -380,17 +381,17 @@ pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
             const struct_type = mod.typeToStruct(ty) orelse return error.IllDefinedMemoryLayout;
             switch (struct_type.layout) {
                 .auto => return error.IllDefinedMemoryLayout,
-                .@"extern" => for (0..struct_type.field_types.len) |i| {
-                    const off: usize = @intCast(ty.structFieldOffset(i, mod));
+                .@"extern" => for (0..struct_type.field_types.len) |field_index| {
+                    const off: usize = @intCast(ty.structFieldOffset(field_index, mod));
                     const field_val = Value.fromInterned(switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
                         .bytes => |bytes| {
-                            buffer[off] = bytes[i];
+                            buffer[off] = bytes.at(field_index, ip);
                             continue;
                         },
-                        .elems => |elems| elems[i],
+                        .elems => |elems| elems[field_index],
                         .repeated_elem => |elem| elem,
                     });
-                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
+                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
                     try writeToMemory(field_val, field_ty, mod, buffer[off..]);
                 },
                 .@"packed" => {
@@ -423,7 +424,7 @@ pub fn writeToMemory(val: Value, ty: Type, mod: *Module, buffer: []u8) error{
                     const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
                     const field_type = Type.fromInterned(union_obj.field_types.get(&mod.intern_pool)[field_index]);
                     const field_val = try val.fieldValue(mod, field_index);
-                    const byte_count = @as(usize, @intCast(field_type.abiSize(mod)));
+                    const byte_count: usize = @intCast(field_type.abiSize(mod));
                     return writeToMemory(field_val, field_type, mod, buffer[0..byte_count]);
                 } else {
                     const backing_ty = try ty.unionBackingType(mod);
@@ -471,7 +472,7 @@ pub fn writeToPackedMemory(
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
     if (val.isUndef(mod)) {
-        const bit_size = @as(usize, @intCast(ty.bitSize(mod)));
+        const bit_size: usize = @intCast(ty.bitSize(mod));
         std.mem.writeVarPackedInt(buffer, bit_offset, bit_size, @as(u1, 0), endian);
         return;
     }
@@ -507,17 +508,17 @@ pub fn writeToPackedMemory(
             }
         },
         .Float => switch (ty.floatBits(target)) {
-            16 => std.mem.writePackedInt(u16, buffer, bit_offset, @as(u16, @bitCast(val.toFloat(f16, mod))), endian),
-            32 => std.mem.writePackedInt(u32, buffer, bit_offset, @as(u32, @bitCast(val.toFloat(f32, mod))), endian),
-            64 => std.mem.writePackedInt(u64, buffer, bit_offset, @as(u64, @bitCast(val.toFloat(f64, mod))), endian),
-            80 => std.mem.writePackedInt(u80, buffer, bit_offset, @as(u80, @bitCast(val.toFloat(f80, mod))), endian),
-            128 => std.mem.writePackedInt(u128, buffer, bit_offset, @as(u128, @bitCast(val.toFloat(f128, mod))), endian),
+            16 => std.mem.writePackedInt(u16, buffer, bit_offset, @bitCast(val.toFloat(f16, mod)), endian),
+            32 => std.mem.writePackedInt(u32, buffer, bit_offset, @bitCast(val.toFloat(f32, mod)), endian),
+            64 => std.mem.writePackedInt(u64, buffer, bit_offset, @bitCast(val.toFloat(f64, mod)), endian),
+            80 => std.mem.writePackedInt(u80, buffer, bit_offset, @bitCast(val.toFloat(f80, mod)), endian),
+            128 => std.mem.writePackedInt(u128, buffer, bit_offset, @bitCast(val.toFloat(f128, mod)), endian),
             else => unreachable,
         },
         .Vector => {
             const elem_ty = ty.childType(mod);
-            const elem_bit_size = @as(u16, @intCast(elem_ty.bitSize(mod)));
-            const len = @as(usize, @intCast(ty.arrayLen(mod)));
+            const elem_bit_size: u16 = @intCast(elem_ty.bitSize(mod));
+            const len: usize = @intCast(ty.arrayLen(mod));
 
             var bits: u16 = 0;
             var elem_i: usize = 0;
@@ -644,22 +645,22 @@ pub fn readFromMemory(
         .Float => return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = ty.toIntern(),
             .storage = switch (ty.floatBits(target)) {
-                16 => .{ .f16 = @as(f16, @bitCast(std.mem.readInt(u16, buffer[0..2], endian))) },
-                32 => .{ .f32 = @as(f32, @bitCast(std.mem.readInt(u32, buffer[0..4], endian))) },
-                64 => .{ .f64 = @as(f64, @bitCast(std.mem.readInt(u64, buffer[0..8], endian))) },
-                80 => .{ .f80 = @as(f80, @bitCast(std.mem.readInt(u80, buffer[0..10], endian))) },
-                128 => .{ .f128 = @as(f128, @bitCast(std.mem.readInt(u128, buffer[0..16], endian))) },
+                16 => .{ .f16 = @bitCast(std.mem.readInt(u16, buffer[0..2], endian)) },
+                32 => .{ .f32 = @bitCast(std.mem.readInt(u32, buffer[0..4], endian)) },
+                64 => .{ .f64 = @bitCast(std.mem.readInt(u64, buffer[0..8], endian)) },
+                80 => .{ .f80 = @bitCast(std.mem.readInt(u80, buffer[0..10], endian)) },
+                128 => .{ .f128 = @bitCast(std.mem.readInt(u128, buffer[0..16], endian)) },
                 else => unreachable,
             },
         } }))),
         .Array => {
             const elem_ty = ty.childType(mod);
             const elem_size = elem_ty.abiSize(mod);
-            const elems = try arena.alloc(InternPool.Index, @as(usize, @intCast(ty.arrayLen(mod))));
+            const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(mod)));
             var offset: usize = 0;
             for (elems) |*elem| {
                 elem.* = (try readFromMemory(elem_ty, mod, buffer[offset..], arena)).toIntern();
-                offset += @as(usize, @intCast(elem_size));
+                offset += @intCast(elem_size);
             }
             return Value.fromInterned((try mod.intern(.{ .aggregate = .{
                 .ty = ty.toIntern(),
@@ -795,7 +796,7 @@ pub fn readFromPackedMemory(
             };
 
             // Slow path, we have to construct a big-int
-            const abi_size = @as(usize, @intCast(ty.abiSize(mod)));
+            const abi_size: usize = @intCast(ty.abiSize(mod));
             const Limb = std.math.big.Limb;
             const limb_count = (abi_size + @sizeOf(Limb) - 1) / @sizeOf(Limb);
             const limbs_buffer = try arena.alloc(Limb, limb_count);
@@ -812,20 +813,20 @@ pub fn readFromPackedMemory(
         .Float => return Value.fromInterned((try mod.intern(.{ .float = .{
             .ty = ty.toIntern(),
             .storage = switch (ty.floatBits(target)) {
-                16 => .{ .f16 = @as(f16, @bitCast(std.mem.readPackedInt(u16, buffer, bit_offset, endian))) },
-                32 => .{ .f32 = @as(f32, @bitCast(std.mem.readPackedInt(u32, buffer, bit_offset, endian))) },
-                64 => .{ .f64 = @as(f64, @bitCast(std.mem.readPackedInt(u64, buffer, bit_offset, endian))) },
-                80 => .{ .f80 = @as(f80, @bitCast(std.mem.readPackedInt(u80, buffer, bit_offset, endian))) },
-                128 => .{ .f128 = @as(f128, @bitCast(std.mem.readPackedInt(u128, buffer, bit_offset, endian))) },
+                16 => .{ .f16 = @bitCast(std.mem.readPackedInt(u16, buffer, bit_offset, endian)) },
+                32 => .{ .f32 = @bitCast(std.mem.readPackedInt(u32, buffer, bit_offset, endian)) },
+                64 => .{ .f64 = @bitCast(std.mem.readPackedInt(u64, buffer, bit_offset, endian)) },
+                80 => .{ .f80 = @bitCast(std.mem.readPackedInt(u80, buffer, bit_offset, endian)) },
+                128 => .{ .f128 = @bitCast(std.mem.readPackedInt(u128, buffer, bit_offset, endian)) },
                 else => unreachable,
             },
         } }))),
         .Vector => {
             const elem_ty = ty.childType(mod);
-            const elems = try arena.alloc(InternPool.Index, @as(usize, @intCast(ty.arrayLen(mod))));
+            const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(mod)));
 
             var bits: u16 = 0;
-            const elem_bit_size = @as(u16, @intCast(elem_ty.bitSize(mod)));
+            const elem_bit_size: u16 = @intCast(elem_ty.bitSize(mod));
             for (elems, 0..) |_, i| {
                 // On big-endian systems, LLVM reverses the element order of vectors by default
                 const tgt_elem_i = if (endian == .big) elems.len - i - 1 else i;
@@ -909,7 +910,7 @@ fn bigIntToFloat(limbs: []const std.math.big.Limb, positive: bool) f128 {
     var i: usize = limbs.len;
     while (i != 0) {
         i -= 1;
-        const limb: f128 = @as(f128, @floatFromInt(limbs[i]));
+        const limb: f128 = @floatFromInt(limbs[i]);
         result = @mulAdd(f128, base, result, limb);
     }
     if (positive) {
@@ -934,7 +935,7 @@ pub fn ctz(val: Value, ty: Type, mod: *Module) u64 {
 pub fn popCount(val: Value, ty: Type, mod: *Module) u64 {
     var bigint_buf: BigIntSpace = undefined;
     const bigint = val.toBigInt(&bigint_buf, mod);
-    return @as(u64, @intCast(bigint.popCount(ty.intInfo(mod).bits)));
+    return @intCast(bigint.popCount(ty.intInfo(mod).bits));
 }
 
 pub fn bitReverse(val: Value, ty: Type, mod: *Module, arena: Allocator) !Value {
@@ -1191,7 +1192,7 @@ pub fn compareAllWithZeroAdvancedExtra(
             inline else => |x| if (std.math.isNan(x)) return op == .neq,
         },
         .aggregate => |aggregate| return switch (aggregate.storage) {
-            .bytes => |bytes| for (bytes) |byte| {
+            .bytes => |bytes| for (bytes.toSlice(lhs.typeOf(mod).arrayLenIncludingSentinel(mod), &mod.intern_pool)) |byte| {
                 if (!std.math.order(byte, 0).compare(op)) break false;
             } else true,
             .elems => |elems| for (elems) |elem| {
@@ -1279,7 +1280,7 @@ pub fn elemValue(val: Value, zcu: *Zcu, index: usize) Allocator.Error!Value {
             if (index < len) return Value.fromInterned(switch (aggregate.storage) {
                 .bytes => |bytes| try zcu.intern(.{ .int = .{
                     .ty = .u8_type,
-                    .storage = .{ .u64 = bytes[index] },
+                    .storage = .{ .u64 = bytes.at(index, ip) },
                 } }),
                 .elems => |elems| elems[index],
                 .repeated_elem => |elem| elem,
@@ -1318,28 +1319,37 @@ pub fn sliceArray(
     start: usize,
     end: usize,
 ) error{OutOfMemory}!Value {
-    // TODO: write something like getCoercedInts to avoid needing to dupe
     const mod = sema.mod;
-    const aggregate = mod.intern_pool.indexToKey(val.toIntern()).aggregate;
-    return Value.fromInterned(try mod.intern(.{ .aggregate = .{
-        .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
-            .array_type => |array_type| try mod.arrayType(.{
-                .len = @as(u32, @intCast(end - start)),
-                .child = array_type.child,
-                .sentinel = if (end == array_type.len) array_type.sentinel else .none,
-            }),
-            .vector_type => |vector_type| try mod.vectorType(.{
-                .len = @as(u32, @intCast(end - start)),
-                .child = vector_type.child,
-            }),
-            else => unreachable,
-        }.toIntern(),
-        .storage = switch (aggregate.storage) {
-            .bytes => .{ .bytes = try sema.arena.dupe(u8, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.bytes[start..end]) },
-            .elems => .{ .elems = try sema.arena.dupe(InternPool.Index, mod.intern_pool.indexToKey(val.toIntern()).aggregate.storage.elems[start..end]) },
-            .repeated_elem => |elem| .{ .repeated_elem = elem },
+    const ip = &mod.intern_pool;
+    return Value.fromInterned(try mod.intern(.{
+        .aggregate = .{
+            .ty = switch (mod.intern_pool.indexToKey(mod.intern_pool.typeOf(val.toIntern()))) {
+                .array_type => |array_type| try mod.arrayType(.{
+                    .len = @intCast(end - start),
+                    .child = array_type.child,
+                    .sentinel = if (end == array_type.len) array_type.sentinel else .none,
+                }),
+                .vector_type => |vector_type| try mod.vectorType(.{
+                    .len = @intCast(end - start),
+                    .child = vector_type.child,
+                }),
+                else => unreachable,
+            }.toIntern(),
+            .storage = switch (ip.indexToKey(val.toIntern()).aggregate.storage) {
+                .bytes => |bytes| storage: {
+                    try ip.string_bytes.ensureUnusedCapacity(sema.gpa, end - start + 1);
+                    break :storage .{ .bytes = try ip.getOrPutString(
+                        sema.gpa,
+                        bytes.toSlice(end, ip)[start..],
+                        .maybe_embedded_nulls,
+                    ) };
+                },
+                // TODO: write something like getCoercedInts to avoid needing to dupe
+                .elems => |elems| .{ .elems = try sema.arena.dupe(InternPool.Index, elems[start..end]) },
+                .repeated_elem => |elem| .{ .repeated_elem = elem },
+            },
         },
-    } }));
+    }));
 }
 
 pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
@@ -1350,7 +1360,7 @@ pub fn fieldValue(val: Value, mod: *Module, index: usize) !Value {
         .aggregate => |aggregate| Value.fromInterned(switch (aggregate.storage) {
             .bytes => |bytes| try mod.intern(.{ .int = .{
                 .ty = .u8_type,
-                .storage = .{ .u64 = bytes[index] },
+                .storage = .{ .u64 = bytes.at(index, &mod.intern_pool) },
             } }),
             .elems => |elems| elems[index],
             .repeated_elem => |elem| elem,
@@ -1461,7 +1471,7 @@ pub fn getErrorName(val: Value, mod: *const Module) InternPool.OptionalNullTermi
 
 pub fn getErrorInt(val: Value, mod: *const Module) Module.ErrorInt {
     return if (getErrorName(val, mod).unwrap()) |err_name|
-        @as(Module.ErrorInt, @intCast(mod.global_error_set.getIndex(err_name).?))
+        @intCast(mod.global_error_set.getIndex(err_name).?)
     else
         0;
 }
@@ -2413,14 +2423,14 @@ pub fn intTruncBitsAsValue(
         for (result_data, 0..) |*scalar, i| {
             const elem_val = try val.elemValue(mod, i);
             const bits_elem = try bits.elemValue(mod, i);
-            scalar.* = (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @as(u16, @intCast(bits_elem.toUnsignedInt(mod))), mod)).toIntern();
+            scalar.* = (try intTruncScalar(elem_val, scalar_ty, allocator, signedness, @intCast(bits_elem.toUnsignedInt(mod)), mod)).toIntern();
         }
         return Value.fromInterned((try mod.intern(.{ .aggregate = .{
             .ty = ty.toIntern(),
             .storage = .{ .elems = result_data },
         } })));
     }
-    return intTruncScalar(val, ty, allocator, signedness, @as(u16, @intCast(bits.toUnsignedInt(mod))), mod);
+    return intTruncScalar(val, ty, allocator, signedness, @intCast(bits.toUnsignedInt(mod)), mod);
 }
 
 pub fn intTruncScalar(
@@ -2468,7 +2478,7 @@ pub fn shlScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *M
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
     const limbs = try allocator.alloc(
         std.math.big.Limb,
         lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
@@ -2530,7 +2540,7 @@ pub fn shlWithOverflowScalar(
     const info = ty.intInfo(mod);
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
     const limbs = try allocator.alloc(
         std.math.big.Limb,
         lhs_bigint.limbs.len + (shift / (@sizeOf(std.math.big.Limb) * 8)) + 1,
@@ -2587,7 +2597,7 @@ pub fn shlSatScalar(
 
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
     const limbs = try arena.alloc(
         std.math.big.Limb,
         std.math.big.int.calcTwosCompLimbCount(info.bits) + 1,
@@ -2659,7 +2669,7 @@ pub fn shrScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, mod: *M
     // resorting to BigInt first.
     var lhs_space: Value.BigIntSpace = undefined;
     const lhs_bigint = lhs.toBigInt(&lhs_space, mod);
-    const shift = @as(usize, @intCast(rhs.toUnsignedInt(mod)));
+    const shift: usize = @intCast(rhs.toUnsignedInt(mod));
 
     const result_limbs = lhs_bigint.limbs.len -| (shift / (@sizeOf(std.math.big.Limb) * 8));
     if (result_limbs == 0) {

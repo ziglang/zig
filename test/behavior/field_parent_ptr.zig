@@ -268,6 +268,8 @@ test "@fieldParentPtr extern struct" {
 }
 
 test "@fieldParentPtr extern struct first zero-bit field" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const C = extern struct {
         a: u0 = 0,
         b: f32 = 3.14,
@@ -369,6 +371,8 @@ test "@fieldParentPtr extern struct first zero-bit field" {
 }
 
 test "@fieldParentPtr extern struct middle zero-bit field" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const C = extern struct {
         a: f32 = 3.14,
         b: u0 = 0,
@@ -470,6 +474,8 @@ test "@fieldParentPtr extern struct middle zero-bit field" {
 }
 
 test "@fieldParentPtr extern struct last zero-bit field" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const C = extern struct {
         a: f32 = 3.14,
         b: i32 = 12345,
@@ -574,6 +580,7 @@ test "@fieldParentPtr unaligned packed struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = packed struct {
         a: bool = true,
@@ -711,6 +718,7 @@ test "@fieldParentPtr aligned packed struct" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = packed struct {
         a: f32 = 3.14,
@@ -847,6 +855,7 @@ test "@fieldParentPtr aligned packed struct" {
 test "@fieldParentPtr nested packed struct" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     {
         const C = packed struct {
@@ -1008,6 +1017,7 @@ test "@fieldParentPtr nested packed struct" {
 test "@fieldParentPtr packed struct first zero-bit field" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = packed struct {
         a: u0 = 0,
@@ -1112,6 +1122,7 @@ test "@fieldParentPtr packed struct first zero-bit field" {
 test "@fieldParentPtr packed struct middle zero-bit field" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = packed struct {
         a: f32 = 3.14,
@@ -1216,6 +1227,7 @@ test "@fieldParentPtr packed struct middle zero-bit field" {
 test "@fieldParentPtr packed struct last zero-bit field" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = packed struct {
         a: f32 = 3.14,
@@ -1718,6 +1730,7 @@ test "@fieldParentPtr extern union" {
 
 test "@fieldParentPtr packed union" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = packed union {
         a: bool,

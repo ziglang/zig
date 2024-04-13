@@ -763,11 +763,11 @@ pub const Namespace = struct {
     ) !InternPool.NullTerminatedString {
         const ip = &zcu.intern_pool;
         const count = count: {
-            var count: usize = ip.stringToSlice(name).len + 1;
+            var count: usize = name.length(ip) + 1;
             var cur_ns = &ns;
             while (true) {
                 const decl = zcu.declPtr(cur_ns.decl_index);
-                count += ip.stringToSlice(decl.name).len + 1;
+                count += decl.name.length(ip) + 1;
                 cur_ns = zcu.namespacePtr(cur_ns.parent.unwrap() orelse {
                     count += ns.file_scope.sub_file_path.len;
                     break :count count;
@@ -793,7 +793,7 @@ pub const Namespace = struct {
             };
         }
 
-        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start);
+        return ip.getOrPutTrailingString(gpa, ip.string_bytes.items.len - start, .no_embedded_nulls);
     }
 
     pub fn getType(ns: Namespace, zcu: *Zcu) Type {
@@ -980,15 +980,11 @@ pub const File = struct {
         const ip = &mod.intern_pool;
         const start = ip.string_bytes.items.len;
         try file.renderFullyQualifiedName(ip.string_bytes.writer(mod.gpa));
-        return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start);
+        return ip.getOrPutTrailingString(mod.gpa, ip.string_bytes.items.len - start, .no_embedded_nulls);
     }
 
     pub fn fullPath(file: File, ally: Allocator) ![]u8 {
         return file.mod.root.joinString(ally, file.sub_file_path);
-    }
-
-    pub fn fullPathZ(file: File, ally: Allocator) ![:0]u8 {
-        return file.mod.root.joinStringZ(ally, file.sub_file_path);
     }
 
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
@@ -2534,6 +2530,7 @@ fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
                 const name_ip = try zcu.intern_pool.getOrPutString(
                     zcu.gpa,
                     old_zir.nullTerminatedString(name_zir),
+                    .no_embedded_nulls,
                 );
                 try old_names.put(zcu.gpa, name_ip, {});
             }
@@ -2551,6 +2548,7 @@ fn updateZirRefs(zcu: *Module, file: *File, old_zir: Zir) !void {
                 const name_ip = try zcu.intern_pool.getOrPutString(
                     zcu.gpa,
                     old_zir.nullTerminatedString(name_zir),
+                    .no_embedded_nulls,
                 );
                 if (!old_names.swapRemove(name_ip)) continue;
                 // Name added
@@ -3555,37 +3553,46 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
     const gpa = mod.gpa;
     const zir = decl.getFileScope(mod).zir;
 
-    const builtin_type_target_index: InternPool.Index = blk: {
+    const builtin_type_target_index: InternPool.Index = ip_index: {
         const std_mod = mod.std_mod;
-        if (decl.getFileScope(mod).mod != std_mod) break :blk .none;
+        if (decl.getFileScope(mod).mod != std_mod) break :ip_index .none;
         // We're in the std module.
         const std_file = (try mod.importPkg(std_mod)).file;
         const std_decl = mod.declPtr(std_file.root_decl.unwrap().?);
         const std_namespace = std_decl.getInnerNamespace(mod).?;
-        const builtin_str = try ip.getOrPutString(gpa, "builtin");
-        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .zcu = mod }) orelse break :blk .none);
-        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :blk .none;
-        if (decl.src_namespace != builtin_namespace) break :blk .none;
+        const builtin_str = try ip.getOrPutString(gpa, "builtin", .no_embedded_nulls);
+        const builtin_decl = mod.declPtr(std_namespace.decls.getKeyAdapted(builtin_str, DeclAdapter{ .zcu = mod }) orelse break :ip_index .none);
+        const builtin_namespace = builtin_decl.getInnerNamespaceIndex(mod).unwrap() orelse break :ip_index .none;
+        if (decl.src_namespace != builtin_namespace) break :ip_index .none;
         // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
-        for ([_]struct { []const u8, InternPool.Index }{
-            .{ "AtomicOrder", .atomic_order_type },
-            .{ "AtomicRmwOp", .atomic_rmw_op_type },
-            .{ "CallingConvention", .calling_convention_type },
-            .{ "AddressSpace", .address_space_type },
-            .{ "FloatMode", .float_mode_type },
-            .{ "ReduceOp", .reduce_op_type },
-            .{ "CallModifier", .call_modifier_type },
-            .{ "PrefetchOptions", .prefetch_options_type },
-            .{ "ExportOptions", .export_options_type },
-            .{ "ExternOptions", .extern_options_type },
-            .{ "Type", .type_info_type },
-        }) |pair| {
-            const decl_name = ip.stringToSlice(decl.name);
-            if (std.mem.eql(u8, decl_name, pair[0])) {
-                break :blk pair[1];
-            }
+        for ([_][]const u8{
+            "AtomicOrder",
+            "AtomicRmwOp",
+            "CallingConvention",
+            "AddressSpace",
+            "FloatMode",
+            "ReduceOp",
+            "CallModifier",
+            "PrefetchOptions",
+            "ExportOptions",
+            "ExternOptions",
+            "Type",
+        }, [_]InternPool.Index{
+            .atomic_order_type,
+            .atomic_rmw_op_type,
+            .calling_convention_type,
+            .address_space_type,
+            .float_mode_type,
+            .reduce_op_type,
+            .call_modifier_type,
+            .prefetch_options_type,
+            .export_options_type,
+            .extern_options_type,
+            .type_info_type,
+        }) |type_name, type_ip| {
+            if (decl.name.eqlSlice(type_name, ip)) break :ip_index type_ip;
         }
-        break :blk .none;
+        break :ip_index .none;
     };
 
     mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.Depender.wrap(.{ .decl = decl_index }));
@@ -3725,8 +3732,7 @@ fn semaDecl(mod: *Module, decl_index: Decl.Index) !SemaDeclResult {
             } else if (bytes.len == 0) {
                 return sema.fail(&block_scope, section_src, "linksection cannot be empty", .{});
             }
-            const section = try ip.getOrPutString(gpa, bytes);
-            break :blk section.toOptional();
+            break :blk try ip.getOrPutStringOpt(gpa, bytes, .no_embedded_nulls);
         };
         decl.@"addrspace" = blk: {
             const addrspace_ctx: Sema.AddressSpaceContext = switch (ip.indexToKey(decl_val.toIntern())) {
@@ -4101,7 +4107,10 @@ fn newEmbedFile(
         .sentinel = .zero_u8,
         .child = .u8_type,
     } });
-    const array_val = try ip.getTrailingAggregate(gpa, array_ty, bytes.len);
+    const array_val = try ip.get(gpa, .{ .aggregate = .{
+        .ty = array_ty,
+        .storage = .{ .bytes = try ip.getOrPutTrailingString(gpa, bytes.len, .maybe_embedded_nulls) },
+    } });
 
     const ptr_ty = (try mod.ptrType(.{
         .child = array_ty,
@@ -4111,7 +4120,6 @@ fn newEmbedFile(
             .address_space = .generic,
         },
     })).toIntern();
-
     const ptr_val = try ip.get(gpa, .{ .ptr = .{
         .ty = ptr_ty,
         .addr = .{ .anon_decl = .{
@@ -4122,7 +4130,7 @@ fn newEmbedFile(
 
     result.* = new_file;
     new_file.* = .{
-        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path),
+        .sub_file_path = try ip.getOrPutString(gpa, sub_file_path, .no_embedded_nulls),
         .owner = pkg,
         .stat = stat,
         .val = ptr_val,
@@ -4214,11 +4222,11 @@ const ScanDeclIter = struct {
         const zcu = iter.zcu;
         const gpa = zcu.gpa;
         const ip = &zcu.intern_pool;
-        var name = try ip.getOrPutStringFmt(gpa, fmt, args);
+        var name = try ip.getOrPutStringFmt(gpa, fmt, args, .no_embedded_nulls);
         var gop = try iter.seen_decls.getOrPut(gpa, name);
         var next_suffix: u32 = 0;
         while (gop.found_existing) {
-            name = try ip.getOrPutStringFmt(gpa, fmt ++ "_{d}", args ++ .{next_suffix});
+            name = try ip.getOrPutStringFmt(gpa, "{}_{d}", .{ name.fmt(ip), next_suffix }, .no_embedded_nulls);
             gop = try iter.seen_decls.getOrPut(gpa, name);
             next_suffix += 1;
         }
@@ -4300,7 +4308,11 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
             };
         } else info: {
             if (iter.pass != .named) return;
-            const name = try ip.getOrPutString(gpa, zir.nullTerminatedString(declaration.name.toString(zir).?));
+            const name = try ip.getOrPutString(
+                gpa,
+                zir.nullTerminatedString(declaration.name.toString(zir).?),
+                .no_embedded_nulls,
+            );
             try iter.seen_decls.putNoClobber(gpa, name, {});
             break :info .{
                 name,
@@ -4362,9 +4374,10 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
             if (!comp.config.is_test) break :a false;
             if (decl_mod != zcu.main_mod) break :a false;
             if (is_named_test and comp.test_filters.len > 0) {
-                const decl_fqn = ip.stringToSlice(try namespace.fullyQualifiedName(zcu, decl_name));
+                const decl_fqn = try namespace.fullyQualifiedName(zcu, decl_name);
+                const decl_fqn_slice = decl_fqn.toSlice(ip);
                 for (comp.test_filters) |test_filter| {
-                    if (mem.indexOf(u8, decl_fqn, test_filter)) |_| break;
+                    if (mem.indexOf(u8, decl_fqn_slice, test_filter)) |_| break;
                 } else break :a false;
             }
             zcu.test_functions.putAssumeCapacity(decl_index, {}); // may clobber on incremental update
@@ -4377,8 +4390,8 @@ fn scanDecl(iter: *ScanDeclIter, decl_inst: Zir.Inst.Index) Allocator.Error!void
         // `is_export` is unchanged. In this case, the incremental update mechanism will handle
         // re-analysis for us if necessary.
         if (prev_exported != declaration.flags.is_export or decl.analysis == .unreferenced) {
-            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{s}' decl_index={d}", .{
-                namespace.file_scope.sub_file_path, ip.stringToSlice(decl_name), decl_index,
+            log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{}' decl_index={d}", .{
+                namespace.file_scope.sub_file_path, decl_name.fmt(ip), decl_index,
             });
             comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = decl_index });
         }
@@ -5300,7 +5313,7 @@ pub fn populateTestFunctions(
     const builtin_file = (mod.importPkg(builtin_mod) catch unreachable).file;
     const root_decl = mod.declPtr(builtin_file.root_decl.unwrap().?);
     const builtin_namespace = mod.namespacePtr(root_decl.src_namespace);
-    const test_functions_str = try ip.getOrPutString(gpa, "test_functions");
+    const test_functions_str = try ip.getOrPutString(gpa, "test_functions", .no_embedded_nulls);
     const decl_index = builtin_namespace.decls.getKeyAdapted(
         test_functions_str,
         DeclAdapter{ .zcu = mod },
@@ -5327,16 +5340,16 @@ pub fn populateTestFunctions(
 
         for (test_fn_vals, mod.test_functions.keys()) |*test_fn_val, test_decl_index| {
             const test_decl = mod.declPtr(test_decl_index);
-            const test_decl_name = try gpa.dupe(u8, ip.stringToSlice(try test_decl.fullyQualifiedName(mod)));
-            defer gpa.free(test_decl_name);
+            const test_decl_name = try test_decl.fullyQualifiedName(mod);
+            const test_decl_name_len = test_decl_name.length(ip);
             const test_name_anon_decl: InternPool.Key.Ptr.Addr.AnonDecl = n: {
                 const test_name_ty = try mod.arrayType(.{
-                    .len = test_decl_name.len,
+                    .len = test_decl_name_len,
                     .child = .u8_type,
                 });
                 const test_name_val = try mod.intern(.{ .aggregate = .{
                     .ty = test_name_ty.toIntern(),
-                    .storage = .{ .bytes = test_decl_name },
+                    .storage = .{ .bytes = test_decl_name.toString() },
                 } });
                 break :n .{
                     .orig_ty = (try mod.singleConstPtrType(test_name_ty)).toIntern(),
@@ -5354,7 +5367,7 @@ pub fn populateTestFunctions(
                     } }),
                     .len = try mod.intern(.{ .int = .{
                         .ty = .usize_type,
-                        .storage = .{ .u64 = test_decl_name.len },
+                        .storage = .{ .u64 = test_decl_name_len },
                     } }),
                 } }),
                 // func

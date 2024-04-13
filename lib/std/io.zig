@@ -413,7 +413,7 @@ pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 pub const tty = @import("io/tty.zig");
 
 /// A Writer that doesn't write to anything.
-pub const null_writer = @as(NullWriter, .{ .context = {} });
+pub const null_writer: NullWriter = .{ .context = {} };
 
 const NullWriter = Writer(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {

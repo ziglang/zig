@@ -406,7 +406,7 @@ pub fn assert(ok: bool) void {
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @setCold(true);
 
-    panicExtra(null, null, format, args);
+    panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
 
 /// `panicExtra` is useful when you want to print out an `@errorReturnTrace`
@@ -661,7 +661,7 @@ pub const StackIterator = struct {
 
     fn isValidMemory(address: usize) bool {
         // We are unable to determine validity of memory for freestanding targets
-        if (native_os == .freestanding) return true;
+        if (native_os == .freestanding or native_os == .uefi) return true;
 
         const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
         if (aligned_address == 0) return false;

@@ -1005,7 +1005,7 @@ const Writer = struct {
         const decl_name = self.code.nullTerminatedString(extra.decl_name);
 
         try self.writeInstRef(stream, extra.namespace);
-        try stream.print(", {}, ", .{std.zig.fmtId(decl_name)});
+        try stream.print(", {p}, ", .{std.zig.fmtId(decl_name)});
         try self.writeInstRef(stream, extra.options);
         try stream.writeAll(") ");
         try self.writeSrc(stream, inst_data.src());
@@ -1243,7 +1243,7 @@ const Writer = struct {
 
                 const name = self.code.nullTerminatedString(output.data.name);
                 const constraint = self.code.nullTerminatedString(output.data.constraint);
-                try stream.print("output({}, \"{}\", ", .{
+                try stream.print("output({p}, \"{}\", ", .{
                     std.zig.fmtId(name), std.zig.fmtEscapes(constraint),
                 });
                 try self.writeFlag(stream, "->", is_type);
@@ -1262,7 +1262,7 @@ const Writer = struct {
 
                 const name = self.code.nullTerminatedString(input.data.name);
                 const constraint = self.code.nullTerminatedString(input.data.constraint);
-                try stream.print("input({}, \"{}\", ", .{
+                try stream.print("input({p}, \"{}\", ", .{
                     std.zig.fmtId(name), std.zig.fmtEscapes(constraint),
                 });
                 try self.writeInstRef(stream, input.data.operand);
@@ -1278,7 +1278,7 @@ const Writer = struct {
                 const str_index = self.code.extra[extra_i];
                 extra_i += 1;
                 const clobber = self.code.nullTerminatedString(@enumFromInt(str_index));
-                try stream.print("{}", .{std.zig.fmtId(clobber)});
+                try stream.print("{p}", .{std.zig.fmtId(clobber)});
                 if (i + 1 < clobbers_len) {
                     try stream.writeAll(", ");
                 }
@@ -1559,7 +1559,7 @@ const Writer = struct {
                 try self.writeFlag(stream, "comptime ", field.is_comptime);
                 if (field.name != .empty) {
                     const field_name = self.code.nullTerminatedString(field.name);
-                    try stream.print("{}: ", .{std.zig.fmtId(field_name)});
+                    try stream.print("{p}: ", .{std.zig.fmtId(field_name)});
                 } else {
                     try stream.print("@\"{d}\": ", .{i});
                 }
@@ -1738,7 +1738,7 @@ const Writer = struct {
 
             try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{}", .{std.zig.fmtId(field_name)});
+            try stream.print("{p}", .{std.zig.fmtId(field_name)});
 
             if (has_type) {
                 const field_type = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -1891,7 +1891,7 @@ const Writer = struct {
                 try self.writeDocComment(stream, doc_comment_index);
 
                 try stream.writeByteNTimes(' ', self.indent);
-                try stream.print("{}", .{std.zig.fmtId(field_name)});
+                try stream.print("{p}", .{std.zig.fmtId(field_name)});
 
                 if (has_tag_value) {
                     const tag_value_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
@@ -1986,7 +1986,7 @@ const Writer = struct {
             const doc_comment_index: Zir.NullTerminatedString = @enumFromInt(self.code.extra[extra_index + 1]);
             try self.writeDocComment(stream, doc_comment_index);
             try stream.writeByteNTimes(' ', self.indent);
-            try stream.print("{},\n", .{std.zig.fmtId(name)});
+            try stream.print("{p},\n", .{std.zig.fmtId(name)});
         }
 
         self.indent -= 2;

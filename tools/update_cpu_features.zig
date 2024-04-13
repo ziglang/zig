@@ -1314,7 +1314,7 @@ fn processOneTarget(job: Job) anyerror!void {
     );
 
     for (all_features.items) |feature| {
-        try w.print("    {},\n", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("    {p},\n", .{std.zig.fmtId(feature.zig_name)});
     }
 
     try w.writeAll(
@@ -1341,7 +1341,7 @@ fn processOneTarget(job: Job) anyerror!void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@intFromEnum(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{p_})] = .{{
                 \\        .llvm_name = "{}",
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -1354,7 +1354,7 @@ fn processOneTarget(job: Job) anyerror!void {
             );
         } else {
             try w.print(
-                \\    result[@intFromEnum(Feature.{})] = .{{
+                \\    result[@intFromEnum(Feature.{p_})] = .{{
                 \\        .llvm_name = null,
                 \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
@@ -1388,7 +1388,7 @@ fn processOneTarget(job: Job) anyerror!void {
         } else {
             try w.writeAll("\n");
             for (dependencies.items) |dep| {
-                try w.print("            .{},\n", .{std.zig.fmtId(dep)});
+                try w.print("            .{p_},\n", .{std.zig.fmtId(dep)});
             }
             try w.writeAll(
                 \\        }),
@@ -1454,7 +1454,7 @@ fn processOneTarget(job: Job) anyerror!void {
         } else {
             try w.writeAll("\n");
             for (cpu_features.items) |feature_zig_name| {
-                try w.print("            .{},\n", .{std.zig.fmtId(feature_zig_name)});
+                try w.print("            .{p_},\n", .{std.zig.fmtId(feature_zig_name)});
             }
             try w.writeAll(
                 \\        }),

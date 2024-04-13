@@ -181,7 +181,6 @@ test "function with complex callconv and return type expressions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(fComplexCallconvRet(3).x == 9);
 }
@@ -583,7 +582,6 @@ test "pass and return comptime-only types" {
 test "pointer to alias behaves same as pointer to function" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
@@ -604,4 +602,18 @@ test "comptime parameters don't have to be marked comptime if only called at com
         }
     };
     comptime std.debug.assert(S.foo(5, 6) == 11);
+}
+
+test "inline function with comptime-known comptime-only return type called at runtime" {
+    const S = struct {
+        inline fn foo(x: *i32, y: *const i32) type {
+            x.* = y.*;
+            return f32;
+        }
+    };
+    var a: i32 = 0;
+    const b: i32 = 111;
+    const T = S.foo(&a, &b);
+    try expectEqual(111, a);
+    try expectEqual(f32, T);
 }

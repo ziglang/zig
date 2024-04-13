@@ -804,6 +804,52 @@ test "slice initialized through reference to anonymous array init provides resul
     try std.testing.expectEqualSlices(u16, &.{ 123, 456, 123, 456 }, foo);
 }
 
+test "sentinel-terminated slice initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: [:999]const u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try std.testing.expectEqualSentinel(u16, 999, &.{ 123, 456, 123, 456 }, foo);
+}
+
+test "many-item pointer initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: [*]const u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try expectEqual(123, foo[0]);
+    try expectEqual(456, foo[1]);
+    try expectEqual(123, foo[2]);
+    try expectEqual(456, foo[3]);
+}
+
+test "many-item sentinel-terminated pointer initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: [*:999]const u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try expectEqual(123, foo[0]);
+    try expectEqual(456, foo[1]);
+    try expectEqual(123, foo[2]);
+    try expectEqual(456, foo[3]);
+    try expectEqual(999, foo[4]);
+}
+
 test "pointer to array initialized through reference to anonymous array init provides result types" {
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
@@ -815,6 +861,19 @@ test "pointer to array initialized through reference to anonymous array init pro
         @truncate(my_u64),
     };
     try std.testing.expectEqualSlices(u16, &.{ 123, 456, 123, 456 }, foo);
+}
+
+test "pointer to sentinel-terminated array initialized through reference to anonymous array init provides result types" {
+    var my_u32: u32 = 123;
+    var my_u64: u64 = 456;
+    _ = .{ &my_u32, &my_u64 };
+    const foo: *const [4:999]u16 = &.{
+        @intCast(my_u32),
+        @intCast(my_u64),
+        @truncate(my_u32),
+        @truncate(my_u64),
+    };
+    try std.testing.expectEqualSentinel(u16, 999, &.{ 123, 456, 123, 456 }, foo);
 }
 
 test "tuple initialized through reference to anonymous array init provides result types" {
@@ -943,4 +1002,17 @@ test "union that needs padding bytes inside an array" {
 
     const a = as[0].B;
     try std.testing.expect(a.D == 1);
+}
+
+test "runtime index of array of zero-bit values" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    var runtime: struct { array: [1]void, index: usize } = undefined;
+    runtime = .{ .array = .{{}}, .index = 0 };
+    const result = struct { index: usize, value: void }{
+        .index = runtime.index,
+        .value = runtime.array[runtime.index],
+    };
+    try std.testing.expect(result.index == 0);
+    try std.testing.expect(result.value == {});
 }

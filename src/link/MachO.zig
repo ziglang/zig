@@ -4376,9 +4376,11 @@ pub const Platform = struct {
                         .IOS, .IOSSIMULATOR => .ios,
                         .TVOS, .TVOSSIMULATOR => .tvos,
                         .WATCHOS, .WATCHOSSIMULATOR => .watchos,
+                        .MACCATALYST => .ios,
                         else => @panic("TODO"),
                     },
                     .abi = switch (cmd.platform) {
+                        .MACCATALYST => .macabi,
                         .IOSSIMULATOR,
                         .TVOSSIMULATOR,
                         .WATCHOSSIMULATOR,
@@ -4425,7 +4427,11 @@ pub const Platform = struct {
     pub fn toApplePlatform(plat: Platform) macho.PLATFORM {
         return switch (plat.os_tag) {
             .macos => .MACOS,
-            .ios => if (plat.abi == .simulator) .IOSSIMULATOR else .IOS,
+            .ios => switch (plat.abi) {
+                .simulator => .IOSSIMULATOR,
+                .macabi => .MACCATALYST,
+                else => .IOS,
+            },
             .tvos => if (plat.abi == .simulator) .TVOSSIMULATOR else .TVOS,
             .watchos => if (plat.abi == .simulator) .WATCHOSSIMULATOR else .WATCHOS,
             else => unreachable,

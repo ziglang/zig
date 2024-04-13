@@ -1,0 +1,69 @@
+.{
+    .name = "link_test_cases",
+    .version = "0.0.0",
+    .dependencies = .{
+        .bss = .{
+            .path = "bss",
+        },
+        .common_symbols_alignment = .{
+            .path = "common_symbols_alignment",
+        },
+        .interdependent_static_c_libs = .{
+            .path = "interdependent_static_c_libs",
+        },
+        .static_libs_from_object_files = .{
+            .path = "static_libs_from_object_files",
+        },
+        .glibc_compat = .{
+            .path = "glibc_compat",
+        },
+        // WASM Cases
+        .wasm_archive = .{
+            .path = "wasm/archive",
+        },
+        .wasm_basic_features = .{
+            .path = "wasm/basic-features",
+        },
+        .wasm_bss = .{
+            .path = "wasm/bss",
+        },
+        .wasm_export = .{
+            .path = "wasm/export",
+        },
+        .wasm_export_data = .{
+            .path = "wasm/export-data",
+        },
+        .wasm_extern = .{
+            .path = "wasm/extern",
+        },
+        .wasm_extern_mangle = .{
+            .path = "wasm/extern-mangle",
+        },
+        .wasm_function_table = .{
+            .path = "wasm/function-table",
+        },
+        .wasm_infer_features = .{
+            .path = "wasm/infer-features",
+        },
+        .wasm_producers = .{
+            .path = "wasm/producers",
+        },
+        .wasm_segments = .{
+            .path = "wasm/segments",
+        },
+        .wasm_shared_memory = .{
+            .path = "wasm/shared-memory",
+        },
+        .wasm_stack_pointer = .{
+            .path = "wasm/stack_pointer",
+        },
+        .wasm_type = .{
+            .path = "wasm/type",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "link.zig",
+    },
+}
