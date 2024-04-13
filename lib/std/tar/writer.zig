@@ -6,8 +6,7 @@ const testing = std.testing;
 /// Use setRoot to nest all following entries under single root. If file don't
 /// fit into posix header (name+prefix: 100+155 bytes) gnu extented header will
 /// be used for long names. Options enables setting file premission mode and
-/// mtime. Default is to use current time for mtime and
-/// `default_mode`.file/dir/sym_link for mode.
+/// mtime. Default is to use current time for mtime and 0o664 for file mode.
 pub fn writer(underlying_writer: anytype) Writer(@TypeOf(underlying_writer)) {
     return .{ .underlying_writer = underlying_writer };
 }
@@ -15,10 +14,10 @@ pub fn writer(underlying_writer: anytype) Writer(@TypeOf(underlying_writer)) {
 pub fn Writer(comptime WriterType: type) type {
     return struct {
         const block_size = @sizeOf(Header);
+        const empty_block: [block_size]u8 = [_]u8{0} ** block_size;
 
-        /// Options for writing file/dir/link. If left empty
-        /// `default_mode.file`/`default_mode.dir`/`default_mode.sym_link` is
-        /// used for mode and current time for mtime.
+        /// Options for writing file/dir/link. If left empty 0o664 is used for
+        /// file mode and current time for mtime.
         pub const Options = struct {
             /// File system permission mode.
             mode: u32 = 0,
@@ -31,7 +30,7 @@ pub fn Writer(comptime WriterType: type) type {
         prefix: []const u8 = "",
         mtime_now: u64 = 0,
 
-        /// Sets prefix for all other add* method paths.
+        /// Sets prefix for all other write* method paths.
         pub fn setRoot(self: *Self, root: []const u8) !void {
             if (root.len > 0)
                 try self.writeDir(root, .{});
@@ -39,8 +38,7 @@ pub fn Writer(comptime WriterType: type) type {
             self.prefix = root;
         }
 
-        /// Writes directory.  If options are omitted `default_mode.dir` is
-        /// used for mode and current time for `mtime`.
+        /// Writes directory.
         pub fn writeDir(self: *Self, sub_path: []const u8, opt: Options) !void {
             try self.writeHeader(.directory, sub_path, "", 0, opt);
         }
@@ -49,14 +47,19 @@ pub fn Writer(comptime WriterType: type) type {
         pub fn writeFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
             const stat = try file.stat();
             const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
-            try self.writeHeader(.regular, sub_path, "", stat.size, .{ .mtime = mtime });
+
+            var header = Header{};
+            try self.setPath(&header, sub_path);
+            try header.setSize(stat.size);
+            try header.setMtime(mtime);
+            try header.write(self.underlying_writer);
+
             try self.underlying_writer.writeFile(file);
-            try self.writePadding(@intCast(stat.size));
+            try self.writePadding(stat.size);
         }
 
         /// Writes file reading file content from `reader`. Number of bytes in
-        /// reader must be equal to `size`.  If options are omitted `default_mode.file` is
-        /// used for mode and current time for `mtime`.
+        /// reader must be equal to `size`.
         pub fn writeFileStream(self: *Self, sub_path: []const u8, size: usize, reader: anytype, opt: Options) !void {
             try self.writeHeader(.regular, sub_path, "", @intCast(size), opt);
 
@@ -68,22 +71,19 @@ pub fn Writer(comptime WriterType: type) type {
         }
 
         /// Writes file using bytes buffer `content` for size and file content.
-        /// If options are omitted `default_mode.file` is used for mode and
-        /// current time for `mtime`.
         pub fn writeFileBytes(self: *Self, sub_path: []const u8, content: []const u8, opt: Options) !void {
             try self.writeHeader(.regular, sub_path, "", @intCast(content.len), opt);
             try self.underlying_writer.writeAll(content);
             try self.writePadding(content.len);
         }
 
-        /// Writes symlink. If options are omitted `default_mode.sym_link` is
-        /// used for mode and current time for `mtime`.
+        /// Writes symlink.
         pub fn writeLink(self: *Self, sub_path: []const u8, link_name: []const u8, opt: Options) !void {
             try self.writeHeader(.symbolic_link, sub_path, link_name, 0, opt);
         }
 
         /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
-        /// default from `default_mode` for entry mode .
+        /// default for entry mode .
         pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.WalkerEntry) !void {
             switch (entry.kind) {
                 .directory => {
@@ -115,9 +115,10 @@ pub fn Writer(comptime WriterType: type) type {
         ) !void {
             var header = Header.init(typeflag);
             try self.setPath(&header, sub_path);
-            try self.setMtime(&header, opt.mtime);
             try header.setSize(size);
-            try header.setMode(opt.mode);
+            try header.setMtime(if (opt.mtime != 0) opt.mtime else self.mtimeNow());
+            if (opt.mode != 0)
+                try header.setMode(opt.mode);
             if (typeflag == .symbolic_link)
                 header.setLinkname(link_name) catch |err| switch (err) {
                     error.NameTooLong => try self.writeExtendedHeader(.gnu_long_link, &.{link_name}),
@@ -126,17 +127,10 @@ pub fn Writer(comptime WriterType: type) type {
             try header.write(self.underlying_writer);
         }
 
-        fn setMtime(self: *Self, header: *Header, mtime: u64) !void {
-            const mt = blk: {
-                if (mtime == 0) {
-                    // use time now
-                    if (self.mtime_now == 0)
-                        self.mtime_now = @intCast(std.time.timestamp());
-                    break :blk self.mtime_now;
-                }
-                break :blk mtime;
-            };
-            try header.setMtime(mt);
+        fn mtimeNow(self: *Self) u64 {
+            if (self.mtime_now == 0)
+                self.mtime_now = @intCast(std.time.timestamp());
+            return self.mtime_now;
         }
 
         fn entryMtime(entry: std.fs.Dir.Walker.WalkerEntry) !u64 {
@@ -174,27 +168,21 @@ pub fn Writer(comptime WriterType: type) type {
             try self.writePadding(len);
         }
 
-        fn writePadding(self: *Self, bytes: usize) !void {
-            const remainder = bytes % block_size;
-            if (remainder == 0) return;
-            const padding = block_size - remainder;
-            try self.underlying_writer.writeByteNTimes(0, padding);
+        fn writePadding(self: *Self, bytes: u64) !void {
+            const pos: usize = @intCast(bytes % block_size);
+            if (pos == 0) return;
+            try self.underlying_writer.writeAll(empty_block[pos..]);
         }
 
         /// Tar should finish with two zero blocks, but 'reasonable system must
         /// not assume that such a block exists when reading an archive' (from
         /// reference). In practice it is safe to skip this finish.
         pub fn finish(self: *Self) !void {
-            try self.underlying_writer.writeByteNTimes(0, block_size * 2);
+            try self.underlying_writer.writeAll(&empty_block);
+            try self.underlying_writer.writeAll(&empty_block);
         }
     };
 }
-
-const default_mode = struct {
-    const file = 0o664;
-    const dir = 0o775;
-    const sym_link = 0o777;
-};
 
 /// A struct that is exactly 512 bytes and matches tar file format. This is
 /// intended to be used for outputting tar files; for parsing there is
@@ -208,24 +196,24 @@ const Header = extern struct {
     // strings. All other fields are zero-filled octal numbers in ASCII. Each
     // numeric field of width w contains w minus 1 digits, and a null.
     // Reference: https://www.gnu.org/software/tar/manual/html_node/Standard.html
-    // POSIX header:                  byte offset
-    name: [100]u8, //                   0
-    mode: [7:0]u8, //                 100
-    uid: [7:0]u8, //                  108
-    gid: [7:0]u8, //                  116
-    size: [11:0]u8, //                124
-    mtime: [11:0]u8, //               136
-    checksum: [7:0]u8, //             148
-    typeflag: FileType, //            156
-    linkname: [100]u8, //             157
-    magic: [6]u8, //                  257
-    version: [2]u8, //                263
-    uname: [32]u8, //                 265
-    gname: [32]u8, //                 297
-    devmajor: [7:0]u8, //             329
-    devminor: [7:0]u8, //             337
-    prefix: [155]u8, //               345
-    pad: [12]u8, //                   500
+    // POSIX header:                                  byte offset
+    name: [100]u8 = [_]u8{0} ** 100, //                         0
+    mode: [7:0]u8 = default_mode.file, //                     100
+    uid: [7:0]u8 = [_:0]u8{0} ** 7, // unused                 108
+    gid: [7:0]u8 = [_:0]u8{0} ** 7, // unused                 116
+    size: [11:0]u8 = [_:0]u8{'0'} ** 11, //                   124
+    mtime: [11:0]u8 = [_:0]u8{'0'} ** 11, //                  136
+    checksum: [7:0]u8 = [_:0]u8{' '} ** 7, //                 148
+    typeflag: FileType = .regular, //                         156
+    linkname: [100]u8 = [_]u8{0} ** 100, //                   157
+    magic: [6]u8 = [_]u8{ 'u', 's', 't', 'a', 'r', 0 }, //    257
+    version: [2]u8 = [_]u8{ '0', '0' }, //                    263
+    uname: [32]u8 = [_]u8{0} ** 32, // unused                 265
+    gname: [32]u8 = [_]u8{0} ** 32, // unused                 297
+    devmajor: [7:0]u8 = [_:0]u8{0} ** 7, // unused            329
+    devminor: [7:0]u8 = [_:0]u8{0} ** 7, // unused            337
+    prefix: [155]u8 = [_]u8{0} ** 155, //                     345
+    pad: [12]u8 = [_]u8{0} ** 12, // unused                   500
 
     pub const FileType = enum(u8) {
         regular = '0',
@@ -235,47 +223,56 @@ const Header = extern struct {
         gnu_long_link = 'K',
     };
 
+    const default_mode = struct {
+        const file = [_:0]u8{ '0', '0', '0', '0', '6', '6', '4' }; // 0o664
+        const dir = [_:0]u8{ '0', '0', '0', '0', '7', '7', '5' }; // 0o775
+        const sym_link = [_:0]u8{ '0', '0', '0', '0', '7', '7', '7' }; // 0o777
+        const other = [_:0]u8{ '0', '0', '0', '0', '0', '0', '0' }; // 0o000
+    };
+
     pub fn init(typeflag: FileType) Header {
-        var header = std.mem.zeroes(Header);
-        header.magic = [_]u8{ 'u', 's', 't', 'a', 'r', 0 };
-        header.version = [_]u8{ '0', '0' };
-        header.typeflag = typeflag;
-        return header;
+        return .{
+            .typeflag = typeflag,
+            .mode = switch (typeflag) {
+                .directory => default_mode.dir,
+                .symbolic_link => default_mode.sym_link,
+                .regular => default_mode.file,
+                else => default_mode.other,
+            },
+        };
     }
 
     pub fn setSize(self: *Header, size: u64) !void {
-        _ = try std.fmt.bufPrint(&self.size, "{o:0>11}", .{size});
+        try octal(&self.size, size);
+    }
+
+    fn octal(buf: []u8, value: u64) !void {
+        var remainder: u64 = value;
+        var pos: usize = buf.len;
+        while (remainder > 0 and pos > 0) {
+            pos -= 1;
+            const c: u8 = @as(u8, @intCast(remainder % 8)) + '0';
+            buf[pos] = c;
+            remainder /= 8;
+            if (pos == 0 and remainder > 0) return error.OctalOverflow;
+        }
     }
 
     pub fn setMode(self: *Header, mode: u32) !void {
-        const m: u32 = if (mode == 0)
-            switch (self.typeflag) {
-                .directory => default_mode.dir,
-                .symbolic_link => default_mode.sym_link,
-                else => default_mode.file,
-            }
-        else
-            mode;
-        _ = try std.fmt.bufPrint(&self.mode, "{o:0>7}", .{m});
+        try octal(&self.mode, mode);
     }
 
     // Integer number of seconds since January 1, 1970, 00:00 Coordinated Universal Time.
     // mtime == 0 will use current time
     pub fn setMtime(self: *Header, mtime: u64) !void {
-        _ = try std.fmt.bufPrint(&self.mtime, "{o:0>11}", .{mtime});
+        try octal(&self.mtime, mtime);
     }
 
     pub fn updateChecksum(self: *Header) !void {
-        const offset = @offsetOf(Header, "checksum");
-        var checksum: usize = 0;
-        for (std.mem.asBytes(self), 0..) |val, i| {
-            checksum += if (i >= offset and i < offset + @sizeOf(@TypeOf(self.checksum)))
-                ' '
-            else
-                val;
-        }
-
-        _ = try std.fmt.bufPrint(&self.checksum, "{o:0>7}", .{checksum});
+        var checksum: usize = ' '; // other 7 self.checksum bytes are initialized to ' '
+        for (std.mem.asBytes(self)) |val|
+            checksum += val;
+        try octal(&self.checksum, checksum);
     }
 
     pub fn write(self: *Header, output_writer: anytype) !void {
@@ -495,5 +492,6 @@ test "write files" {
             try actual.writeAll(content.writer());
             try testing.expectEqualSlices(u8, expected.content, content.items);
         }
+        try wrt.finish();
     }
 }
