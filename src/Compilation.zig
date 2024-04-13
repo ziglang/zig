@@ -4072,7 +4072,7 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
     defer walker.deinit();
 
     var archiver = std.tar.writer(tar_file.writer().any());
-    archiver.prefix = module.fully_qualified_name;
+    archiver.prefix = name;
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -4083,7 +4083,11 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             },
             else => continue,
         }
-        var file = try entry.dir.openFile(entry.basename, .{});
+        var file = mod_dir.openFile(entry.path, .{}) catch |err| {
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{}{s}': {s}", .{
+                root, entry.path, @errorName(err),
+            });
+        };
         defer file.close();
         archiver.writeFile(entry.path, file) catch |err| {
             return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{}{s}': {s}", .{
