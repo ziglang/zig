@@ -31,7 +31,9 @@ pub const Reloc = struct {
 
     const Target = union(enum) {
         inst: Mir.Inst.Index,
-        linker_reloc: bits.Symbol,
+
+        /// Relocs the lowered_inst_index and the next one.
+        load_symbol_reloc: bits.Symbol,
     };
 };
 
@@ -59,6 +61,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_prologue_end,
             .pseudo_dead,
             => {},
+
             .pseudo_load_rm, .pseudo_store_rm => {
                 const rm = inst.data.rm;
 
@@ -106,6 +109,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .imm = Immediate.s(0) },
                 });
             },
+
             .pseudo_ret => {
                 try lower.emit(.jalr, &.{
                     .{ .reg = .zero },
@@ -113,6 +117,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .imm = Immediate.s(0) },
                 });
             },
+
             .pseudo_j => {
                 try lower.emit(.jal, &.{
                     .{ .reg = .zero },
@@ -123,7 +128,38 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_spill_regs => try lower.pushPopRegList(true, inst.data.reg_list),
             .pseudo_restore_regs => try lower.pushPopRegList(false, inst.data.reg_list),
 
-            else => return lower.fail("TODO: psuedo {s}", .{@tagName(inst.ops)}),
+            .pseudo_load_symbol => {
+                const payload = inst.data.payload;
+                const data = lower.mir.extraData(Mir.LoadSymbolPayload, payload).data;
+
+                try lower.emit(.lui, &.{
+                    .{ .reg = @enumFromInt(data.register) },
+                    .{ .imm = lower.reloc(.{ .load_symbol_reloc = .{
+                        .atom_index = data.atom_index,
+                        .sym_index = data.sym_index,
+                    } }) },
+                });
+
+                // the above reloc implies this one
+                try lower.emit(.addi, &.{
+                    .{ .reg = @enumFromInt(data.register) },
+                    .{ .reg = @enumFromInt(data.register) },
+                    .{ .imm = Immediate.s(0) },
+                });
+            },
+
+            .pseudo_lea_rm => {
+                const rm = inst.data.rm;
+                const frame = rm.m.toFrameLoc(lower.mir);
+
+                try lower.emit(.addi, &.{
+                    .{ .reg = rm.r },
+                    .{ .reg = frame.base },
+                    .{ .imm = Immediate.s(frame.disp) },
+                });
+            },
+
+            else => return lower.fail("TODO Lower: psuedo {s}", .{@tagName(inst.ops)}),
         },
     }
 
@@ -135,7 +171,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 
 fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
     const mnemonic = std.meta.stringToEnum(Encoding.Mnemonic, @tagName(inst.tag)) orelse {
-        return lower.fail("generic inst name {s}-{s} doesn't match with a mnemonic", .{
+        return lower.fail("generic inst name '{s}' with op {s} doesn't match with a mnemonic", .{
             @tagName(inst.tag),
             @tagName(inst.ops),
         });
@@ -150,6 +186,11 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.i_type.rd },
             .{ .reg = inst.data.i_type.rs1 },
             .{ .imm = inst.data.i_type.imm12 },
+        },
+        .rr_inst => &.{
+            .{ .reg = inst.data.b_type.rs1 },
+            .{ .reg = inst.data.b_type.rs2 },
+            .{ .imm = lower.reloc(.{ .inst = inst.data.b_type.inst }) },
         },
         else => return lower.fail("TODO: generic lower ops {s}", .{@tagName(inst.ops)}),
     });

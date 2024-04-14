@@ -29,6 +29,9 @@ pub const Mnemonic = enum {
     // J Type
     jal,
 
+    // B Type
+    beq,
+
     // System
     ecall,
     ebreak,
@@ -58,7 +61,9 @@ pub const Mnemonic = enum {
             .sh     => .{ .opcode = 0b0100011, .funct3 = 0b001, .funct7 = null      },
             .sb     => .{ .opcode = 0b0100011, .funct3 = 0b000, .funct7 = null      },
 
-            .jal    => .{ .opcode = 0b1101111, .funct3 = null,  .funct7 = null     },
+            .jal    => .{ .opcode = 0b1101111, .funct3 = null,  .funct7 = null      },
+
+            .beq    => .{ .opcode = 0b1100011, .funct3 = 0b000, .funct7 = null      },
 
             .ecall  => .{ .opcode = 0b1110011, .funct3 = 0b000, .funct7 = null      },
             .ebreak => .{ .opcode = 0b1110011, .funct3 = 0b000, .funct7 = null      },
@@ -107,6 +112,9 @@ pub const InstEnc = enum {
             .jal,
             => .J,
 
+            .beq,
+            => .B,
+
             .ecall,
             .ebreak,
             .unimp,
@@ -114,15 +122,17 @@ pub const InstEnc = enum {
         };
     }
 
-    pub fn opsList(enc: InstEnc) [4]std.meta.FieldEnum(Operand) {
+    pub fn opsList(enc: InstEnc) [3]std.meta.FieldEnum(Operand) {
         return switch (enc) {
-            .R => .{ .reg, .reg, .reg, .none },
-            .I => .{ .reg, .reg, .imm, .none },
-            .S => .{ .reg, .reg, .imm, .none },
-            .B => .{ .imm, .reg, .reg, .imm },
-            .U => .{ .reg, .imm, .none, .none },
-            .J => .{ .reg, .imm, .none, .none },
-            .system => .{ .none, .none, .none, .none },
+            // zig fmt: off
+            .R =>      .{ .reg,  .reg,  .reg,  },
+            .I =>      .{ .reg,  .reg,  .imm,  },
+            .S =>      .{ .reg,  .reg,  .imm,  },
+            .B =>      .{ .reg,  .reg,  .imm,  },
+            .U =>      .{ .reg,  .imm,  .none, },
+            .J =>      .{ .reg,  .imm,  .none, },
+            .system => .{ .none, .none, .none, },
+            // zig fmt: on
         };
     }
 };
@@ -289,6 +299,26 @@ pub const Data = union(InstEnc) {
                         .imm20 = @truncate(umm >> 20),
 
                         .opcode = enc.opcode,
+                    },
+                };
+            },
+            .B => {
+                assert(ops.len == 3);
+
+                const umm = ops[2].imm.asBits(u13);
+                assert(umm % 4 == 0); // misaligned branch target
+
+                return .{
+                    .B = .{
+                        .rs1 = ops[0].reg.id(),
+                        .rs2 = ops[1].reg.id(),
+                        .imm1_4 = @truncate(umm >> 1),
+                        .imm5_10 = @truncate(umm >> 5),
+                        .imm11 = @truncate(umm >> 11),
+                        .imm12 = @truncate(umm >> 12),
+
+                        .opcode = enc.opcode,
+                        .funct3 = enc.funct3.?,
                     },
                 };
             },

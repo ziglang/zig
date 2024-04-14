@@ -65,17 +65,25 @@ pub const Memory = struct {
 
     /// Asserts `mem` can be represented as a `FrameLoc`.
     pub fn toFrameLoc(mem: Memory, mir: Mir) Mir.FrameLoc {
+        const offset: i32 = switch (mem.mod) {
+            .off => |off| @intCast(off),
+            .rm => |rm| rm.disp,
+        };
+
         switch (mem.base) {
             .reg => |reg| {
                 return .{
                     .base = reg,
-                    .disp = switch (mem.mod) {
-                        .off => unreachable, // TODO: toFrameLoc disp.off
-                        .rm => |rm| rm.disp,
-                    },
+                    .disp = offset,
                 };
             },
-            .frame => |index| return mir.frame_locs.get(@intFromEnum(index)),
+            .frame => |index| {
+                const base_loc = mir.frame_locs.get(@intFromEnum(index));
+                return .{
+                    .base = base_loc.base,
+                    .disp = base_loc.disp + offset,
+                };
+            },
             .reloc => unreachable,
         }
     }

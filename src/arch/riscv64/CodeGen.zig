@@ -1513,7 +1513,7 @@ fn splitType(self: *Self, ty: Type) ![2]Type {
                 },
                 else => unreachable,
             },
-            else => break,
+            else => return self.fail("TODO: splitType class {}", .{class}),
         };
     } else if (parts[0].abiSize(zcu) + parts[1].abiSize(zcu) == ty.abiSize(zcu)) return parts;
     return self.fail("TODO implement splitType for {}", .{ty.fmt(zcu)});
@@ -3434,6 +3434,8 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
         const src_mcv = self.args[arg_index];
 
+        const arg_ty = self.typeOfIndex(inst);
+
         const dst_mcv = switch (src_mcv) {
             .register => dst: {
                 const frame = try self.allocFrameIndex(FrameAlloc.init(.{
@@ -3441,9 +3443,16 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                     .alignment = Type.usize.abiAlignment(zcu),
                 }));
                 const dst_mcv: MCValue = .{ .load_frame = .{ .index = frame } };
-
                 try self.genCopy(Type.usize, dst_mcv, src_mcv);
-
+                break :dst dst_mcv;
+            },
+            .register_pair => dst: {
+                const frame = try self.allocFrameIndex(FrameAlloc.init(.{
+                    .size = Type.usize.abiSize(zcu) * 2,
+                    .alignment = Type.usize.abiAlignment(zcu),
+                }));
+                const dst_mcv: MCValue = .{ .load_frame = .{ .index = frame } };
+                try self.genCopy(arg_ty, dst_mcv, src_mcv);
                 break :dst dst_mcv;
             },
             .load_frame => src_mcv,
@@ -4506,6 +4515,17 @@ fn genSetStack(
                 else => unreachable, // register can hold a max of 8 bytes
             }
         },
+        .register_pair => |pair| {
+            var part_disp: i32 = frame.off;
+            for (try self.splitType(ty), pair) |src_ty, src_reg| {
+                try self.genSetStack(
+                    src_ty,
+                    .{ .index = frame.index, .off = part_disp },
+                    .{ .register = src_reg },
+                );
+                part_disp += @intCast(src_ty.abiSize(zcu));
+            }
+        },
         .load_frame,
         .indirect,
         .load_symbol,
@@ -4564,8 +4584,8 @@ fn genInlineMemcpy(
         .ops = .rri,
         .data = .{
             .i_type = .{
-                .rd = tmp,
-                .rs1 = dst,
+                .rd = dst,
+                .rs1 = tmp,
                 .imm12 = Immediate.s(0),
             },
         },

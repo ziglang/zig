@@ -775,7 +775,15 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
     }
 
     if (builtin.zig_backend == .stage2_riscv64) {
-        unreachable;
+        asm volatile ("ecall"
+            :
+            : [number] "{a7}" (64),
+              [arg1] "{a0}" (1),
+              [arg2] "{a1}" (@intFromPtr(msg.ptr)),
+              [arg3] "{a2}" (msg.len),
+            : "memory"
+        );
+        std.posix.exit(127);
     }
 
     switch (builtin.os.tag) {

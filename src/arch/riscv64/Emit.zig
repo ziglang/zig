@@ -41,7 +41,35 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .offset = 0,
                     .enc = std.meta.activeTag(lowered_inst.encoding.data),
                 }),
-                else => |x| return emit.fail("TODO: emitMir {s}", .{@tagName(x)}),
+                .load_symbol_reloc => |symbol| {
+                    if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                        const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+                        const sym_index = elf_file.zigObjectPtr().?.symbol(symbol.sym_index);
+                        const sym = elf_file.symbol(sym_index);
+
+                        var hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
+                        var lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
+
+                        if (sym.flags.needs_zig_got) {
+                            _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+
+                            hi_r_type = Elf.R_ZIG_GOT_HI20;
+                            lo_r_type = Elf.R_ZIG_GOT_LO12;
+                        }
+
+                        try atom_ptr.addReloc(elf_file, .{
+                            .r_offset = start_offset,
+                            .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | hi_r_type,
+                            .r_addend = 0,
+                        });
+
+                        try atom_ptr.addReloc(elf_file, .{
+                            .r_offset = start_offset + 4,
+                            .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
+                            .r_addend = 0,
+                        });
+                    } else return emit.fail("TODO: load_symbol_reloc non-ELF", .{});
+                },
             };
         }
         std.debug.assert(lowered_relocs.len == 0);
@@ -120,6 +148,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
 
         switch (reloc.enc) {
             .J => riscv_util.writeInstJ(code, @bitCast(disp)),
+            .B => riscv_util.writeInstB(code, @bitCast(disp)),
             else => return emit.fail("tried to reloc encoding type {s}", .{@tagName(reloc.enc)}),
         }
     }
@@ -161,3 +190,4 @@ const Lower = @import("Lower.zig");
 const Mir = @import("Mir.zig");
 const riscv_util = @import("../../link/riscv.zig");
 const Encoding = @import("Encoding.zig");
+const Elf = @import("../../link/Elf.zig");

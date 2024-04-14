@@ -73,6 +73,20 @@ pub fn writeInstJ(code: *[4]u8, value: u32) void {
     mem.writeInt(u32, code, data.toU32(), .little);
 }
 
+pub fn writeInstB(code: *[4]u8, value: u32) void {
+    var data = Encoding.Data{
+        .B = mem.bytesToValue(std.meta.TagPayload(
+            Encoding.Data,
+            Encoding.Data.B,
+        ), code),
+    };
+    data.B.imm1_4 = bitSlice(value, 4, 1);
+    data.B.imm5_10 = bitSlice(value, 10, 5);
+    data.B.imm11 = bitSlice(value, 11, 11);
+    data.B.imm12 = bitSlice(value, 12, 12);
+    mem.writeInt(u32, code, data.toU32(), .little);
+}
+
 fn bitSlice(
     value: anytype,
     comptime high: comptime_int,
