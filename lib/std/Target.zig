@@ -157,7 +157,6 @@ pub const Os = struct {
                 .amdpal,
                 .hermit,
                 .hurd,
-                .wasi,
                 .emscripten,
                 .driverkit,
                 .shadermodel,
@@ -180,6 +179,7 @@ pub const Os = struct {
                 .openbsd,
                 .dragonfly,
                 .solaris,
+                .wasi,
                 => .semver,
 
                 .linux => .linux,
@@ -377,7 +377,6 @@ pub const Os = struct {
                 .amdpal,
                 .hermit,
                 .hurd,
-                .wasi,
                 .emscripten,
                 .driverkit,
                 .shadermodel,
@@ -452,6 +451,12 @@ pub const Os = struct {
                     .semver = .{
                         .min = .{ .major = 5, .minor = 11, .patch = 0 },
                         .max = .{ .major = 5, .minor = 11, .patch = 0 },
+                    },
+                },
+                .wasi => .{
+                    .semver = .{
+                        .min = .{ .major = 0, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 0, .minor = 1, .patch = 0 },
                     },
                 },
 
