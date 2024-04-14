@@ -297,6 +297,8 @@ pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
             return;
         }
 
+        if (std.options.debug_stacktrace_kind == .none) return;
+
         var it = StackIterator.initWithContext(null, debug_info, context) catch return;
         defer it.deinit();
         printSourceAtAddress(debug_info, stderr, it.unwind_state.?.dwarf_context.pc, tty_config) catch return;
@@ -781,6 +783,8 @@ pub fn writeCurrentStackTrace(
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
+    if (std.options.debug_stacktrace_kind == .none) return;
+
     var context: ThreadContext = undefined;
     const has_context = getContext(&context);
     if (native_os == .windows) {
@@ -991,6 +995,8 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
+        if (std.options.debug_stacktrace_kind == .none) return;
+
         try tty_config.setColor(out_stream, .bold);
 
         if (line_info) |*li| {
@@ -1005,6 +1011,8 @@ fn printLineInfo(
         try out_stream.print("0x{x} in {s} ({s})", .{ address, symbol_name, compile_unit_name });
         try tty_config.setColor(out_stream, .reset);
         try out_stream.writeAll("\n");
+
+        if (std.options.debug_stacktrace_kind != .full) return;
 
         // Show the matching source code line if possible
         if (line_info) |li| {
